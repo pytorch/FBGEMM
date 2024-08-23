@@ -1,0 +1,52 @@
+load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
+load("@fbcode_macros//build_defs:python_library.bzl", "python_library")
+load("//caffe2/caffe2/fb:defs_gpu.bzl", "is_nvidia_build")
+load("//tools/build/buck:nvcc_flags.bzl", "get_nvcc_arch_args")
+
+oncall("fbgemm_dev")
+
+python_library(
+    # @autodeps-skip
+    name = "fused_moe",
+    srcs = ["fused_moe.py"],
+    base_module = "fbgemm_gpu.experimental.gen_ai.fb.src.moe",
+    typing = True,
+    deps = [
+        ":fused_moe_ops",
+        "//caffe2:torch",
+        "//triton:triton",  # @manual
+    ],
+)
+
+cpp_library(
+    # @autodeps-skip
+    name = "fused_moe_ops",
+    srcs = [
+        "fused_moe.cpp",
+        "fused_moe.cu",
+    ] if is_nvidia_build() else [],
+    compiler_flags = ["-Wno-strict-aliasing"],
+    link_whole = True,
+    nvcc_flags = (
+        get_nvcc_arch_args() + [
+            "--expt-relaxed-constexpr",
+            "--expt-extended-lambda",  # allow host and device lambdas
+            "-D__CUDA_NO_HALF_OPERATORS__",
+            "-lineinfo",
+        ]
+    ),
+    supports_python_dlopen = True,
+    deps = [
+        "//caffe2:ATen",
+        "//caffe2:torch-cpp",
+        "//folly/experimental/symbolizer:signal_handler",
+        "//folly/synchronization:call_once",
+        "//folly/synchronization:latch",
+    ],
+    exported_external_deps = [
+        ("cuda", None, "cuda-lazy"),
+        ("cuda", None, "cublas-lazy"),
+        ("cuda", None, "cublasLt-lazy"),
+        ("cub", None, "cub"),
+    ],
+)
