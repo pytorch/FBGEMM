@@ -87,16 +87,37 @@ def _compute_exp(
         return tl.ceil(tl.log2(group_max))
 
 
+def get_autotune_config():
+    # Enumerate possible kernel configurations for triton autotuning.
+    # These values represent the number of rows each thread processes.
+    # Typically, inputs will either have a single row or many.
+    BLOCK_SIZE_M_VALS = [1, 8]
+
+    # BLOCK_GROUPS_K represents how many groups each thread is responsible for computing,
+    # where one group contains GROUP_SIZE elements.
+    # GROUP_LOAD indicates how many groups should be loaded from memory, processed, and
+    # written to the output at once.
+    # In general BLOCK_GROUPS_K and GROUP_LOAD should be similar in magnitude since
+    # if rows are large, we want to distribute them over more threads and vectorize
+    # heavily. If rows are small, we dont distribute as much and dont have as much
+    # to load.
+    BLOCK_GROUPS_AND_LOAD_VALS = [[4, 4], [8, 8], [32, 32], [128, 64], [512, 64]]
+    # Get all combinations of these two configurations.
+    configs = []
+    for m in BLOCK_SIZE_M_VALS:
+        for k, g in BLOCK_GROUPS_AND_LOAD_VALS:
+            configs.append(
+                Config({"BLOCK_SIZE_M": m, "BLOCK_GROUPS_K": k, "GROUP_LOAD": g})
+            )
+    return configs
+
+
 @triton.autotune(
-    configs=[
-        Config({"GROUP_LOAD": 1}),
-        Config({"GROUP_LOAD": 4}),
-        Config({"GROUP_LOAD": 8}),
-        Config({"GROUP_LOAD": 16}),
-        Config({"GROUP_LOAD": 32}),
-        Config({"GROUP_LOAD": 64}),
+    configs=get_autotune_config(),
+    key=[
+        "M",
+        "K",
     ],
-    key=["K"],
 )
 @triton.jit
 def _kernel_quantize_mx4(
@@ -104,6 +125,7 @@ def _kernel_quantize_mx4(
     out,
     M,
     K,
+    K_OUT,
     rand_bits,
     GROUP_SIZE: tl.constexpr,
     EBITS: tl.constexpr,
@@ -111,6 +133,8 @@ def _kernel_quantize_mx4(
     ROUNDING_MODE: tl.constexpr,
     STOCHASTIC_CASTING: tl.constexpr,
     FP4_EXP_BIAS: tl.constexpr,
+    BLOCK_SIZE_M: tl.constexpr,
+    BLOCK_GROUPS_K: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
@@ -119,15 +143,19 @@ def _kernel_quantize_mx4(
         A (Tensor): [M] float tensor to be quantized.
         shared_exp (Tensor): [M / group_size] output containing shared exponent.
         out (Tensor): [M / 2 + M / GROUP_SIZE] output containing packed mx4 values.
-        M (int): Total number of elements.
-        K (int): Number of elements to process in each thread.
-        rand_bits (Optional Tensor): [M, K / 2] random integers used for stochastic rounding.
-        ROUNDING_MODE (int): Which rounding method to use when calculating shared exponent.
+        M (int): Number of rows in input and output.
+        K (int): Number of elements in each row of the input.
+        K_OUT (int): Number of elements in each row after padding.
+        rand_bits (Optional Tensor): [M, K_out / 2] random integers used for stochastic rounding.
         GROUP_SIZE (int): Size of chunks that use the same shared exponent.
         EBITS (int): Number of exponent bits in target mx4 format.
         MBITS (int): Number of mantissa bits in target mx4 format.
-        GROUP_LOAD (int): Number of groups to process simultaneously.
+        ROUNDING_MODE (int): Which rounding method to use when calculating shared exponent.
         STOCHASTIC_CASTING (bool): Whether to use stochastic rounding when downcasting.
+        FP4_EXP_BIAS (int): Exponent bias for target datatype.
+        BLOCK_SIZE_M (int): Number of rows one thread is responsible for processing.
+        BLOCK_GROUPS_K (int): Number of groups one thread is responsible for processing.
+        GROUP_LOAD (int): Number of groups that should be read and processed at once.
     """
     # Define Constant Expressions.
     FP32_EXP_MASK: tl.constexpr = 0x7F800000  # type: ignore[Incompatible variable type]
@@ -146,37 +174,54 @@ def _kernel_quantize_mx4(
     IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
     RAND_MASK: tl.constexpr = (1 << (FP32_EXP_OFFSET - MBITS)) - 1  # type: ignore[Incompatible variable type]
     # Boundaries for writing to output tensor.
-    OUTPUT_LIMIT: tl.constexpr = K // 2 + K // GROUP_SIZE  # type: ignore[Incompatible variable type]
-    OUTPUT_SIZE: tl.constexpr = M // 2 + M // GROUP_SIZE  # type: ignore[Incompatible variable type]
+    OUTPUT_ROW_SIZE: tl.constexpr = K_OUT // 2 + K_OUT // GROUP_SIZE  # type: ignore[Incompatible variable type]
     PACKED_GROUP_SIZE: tl.constexpr = GROUP_SIZE // 2 + 1  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
     pid = tl.program_id(0)
-    # Find starting offsets for this thread.
-    input_start = pid * K
-    output_start = pid * (K // 2 + K // GROUP_SIZE)
-    exp_start = output_start + GROUP_SIZE // 2
-    # Initiate offset ranges used in kernel.
-    input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + input_start
-    output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 2))
-    # Stochastic rounding loads chunks of random values.
+    # Calcluate which position in the grid we're in.
+    num_pid_k = tl.cdiv(K_OUT, BLOCK_GROUPS_K * GROUP_SIZE)
+    pid_m = pid // num_pid_k
+    pid_k = pid % num_pid_k
+    # Compute starting offsets for this block of the problem.
+    m_start = pid_m * BLOCK_SIZE_M
+    k_start = pid_k * BLOCK_GROUPS_K * GROUP_SIZE
+    out_k_start = pid_k * ((BLOCK_GROUPS_K * GROUP_SIZE) // 2 + BLOCK_GROUPS_K)
+    # Create offsets for a set of rows.
+    # Prevent out of bounds by modulo with M.
+    m_offsets = (tl.arange(0, BLOCK_SIZE_M) + m_start) % M
+    # Create offsets for groups of values in the row.
+    k_offsets = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + k_start
+    # Create equivalent output offsets for this set of groups.
+    out_k_offsets = tl.arange(0, GROUP_LOAD * GROUP_SIZE // 2)
+    # Stochastic rounding loads chunks of random values for each group.
     if ROUNDING_MODE == 3:
-        rand_bits_offset = tl.arange(0, GROUP_LOAD) + pid * K // GROUP_SIZE
+        rand_bits_k_offsets = tl.arange(0, GROUP_LOAD) + (pid_k * K_OUT // GROUP_SIZE)
     # Ceil rounding uses single values as a seed.
     else:
-        rand_bits_offset = pid * K // GROUP_SIZE
-    # We need to shift output offsets to make space for shared exponent storage.
-    output_offset += output_offset // (GROUP_SIZE // 2) + output_start
-    # Now create offsets for writing the shared exponent.
-    exp_offset = tl.arange(0, GROUP_LOAD) * PACKED_GROUP_SIZE + exp_start
+        rand_bits_k_offsets = tl.arange(0, 1) + (pid_k * K_OUT // GROUP_SIZE)
+    # We also need to write out group exponents. Calculate their positions.
+    # Find first position of shared exponent.
+    exp_k_start = out_k_start + GROUP_SIZE // 2
+    exp_k_offsets = (tl.arange(0, GROUP_LOAD) * PACKED_GROUP_SIZE) + exp_k_start
+    # Finally, we need to make space in the output offsets for these exponents.
+    out_k_offsets += out_k_offsets // (GROUP_SIZE // 2) + out_k_start
+
+    # Now that we have all our offsets set up, we're ready to compute full offsets.
+    input_offsets = m_offsets[:, None] * K + k_offsets[None, :]
+    output_offsets = m_offsets[:, None] * OUTPUT_ROW_SIZE + out_k_offsets[None, :]
+    exp_offsets = m_offsets[:, None] * OUTPUT_ROW_SIZE + exp_k_offsets[None, :]
+    rand_bits_offsets = (
+        m_offsets[:, None] * (K_OUT // GROUP_SIZE) + rand_bits_k_offsets[None, :]
+    )
 
     # Load and process blocks of values for this chunk.
-    for _k in range(0, tl.cdiv(K, GROUP_LOAD * GROUP_SIZE)):
+    for _k in range(0, tl.cdiv(BLOCK_GROUPS_K, GROUP_LOAD)):
         # Load a block of values.
         a = tl.load(
-            A + input_offset,
-            # Mask values out of range for both the main array and this chunk.
-            mask=(input_offset < M) & (input_offset < (K * (pid + 1))),
+            A + input_offsets,
+            # Mask values that extend out of this row.
+            mask=(k_offsets[None, :] < K - _k * GROUP_LOAD * GROUP_SIZE),
             other=0,
         )
 
@@ -184,9 +229,9 @@ def _kernel_quantize_mx4(
         ##############
 
         # View the block in terms of groups.
-        a_groups = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE])
+        a_groups = tl.reshape(a, [BLOCK_SIZE_M, GROUP_LOAD, GROUP_SIZE])
         # Compute the shared exponent of each group.
-        group_max = tl.max(tl.abs(a_groups), axis=1)
+        group_max = tl.max(tl.abs(a_groups), axis=2)
         # Prevent infinite values in log.
         group_max = tl.where(group_max == 0, FP32_MIN_NORMAL, group_max)
         # Load relevant random values if doing stochastic rounding
@@ -194,11 +239,12 @@ def _kernel_quantize_mx4(
         group_rand_bits = None
         if (ROUNDING_MODE) == 3 or STOCHASTIC_CASTING:
             group_rand_bits = tl.load(
-                rand_bits + rand_bits_offset,
-                mask=rand_bits_offset < K // GROUP_SIZE,
+                rand_bits + rand_bits_offsets,
+                mask=rand_bits_k_offsets[None, :]
+                < ((K // GROUP_SIZE) - _k * GROUP_LOAD),
                 other=0,
             )
-            rand_bits_offset += GROUP_LOAD
+            rand_bits_offsets += GROUP_LOAD
         # Compute shared exponent using specified rounding mode.
         group_exp = _compute_exp(group_max, ROUNDING_MODE, group_rand_bits, MBITS)
         # Subtract largest exponent in target datatype and remove bias.
@@ -209,19 +255,25 @@ def _kernel_quantize_mx4(
         # Next we scale A in preparation for quantization.
         scale = tl.exp2(group_exp.to(tl.float64)).to(tl.float32)
         # Apply scale to input. We do this by broadcasting scale.
-        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) / tl.reshape(
-            scale, [GROUP_LOAD, 1]
+        scaled_a = tl.reshape(a, [BLOCK_SIZE_M, GROUP_LOAD, GROUP_SIZE]) / tl.reshape(
+            scale, [BLOCK_SIZE_M, GROUP_LOAD, 1]
         )
         # Reshape back to a flat array.
-        scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
+        scaled_a = tl.reshape(scaled_a, [BLOCK_SIZE_M, GROUP_LOAD * GROUP_SIZE])
 
         # We're done with group_exp now so we can write it out.
         # We readd fp32_exp_bias for compatibility with cuda dequant.
         tl.store(
-            out + exp_offset,
+            out + exp_offsets,
             (group_exp + FP32_EXP_BIAS).to(tl.int8),
             # Prevent writing outside this chunk or the main array.
-            mask=(exp_offset < OUTPUT_SIZE) & (exp_offset < (OUTPUT_LIMIT * (pid + 1))),
+            mask=(
+                (m_offsets[:, None] < M)
+                & (
+                    exp_k_offsets[None, :]
+                    < (OUTPUT_ROW_SIZE - _k * GROUP_LOAD * PACKED_GROUP_SIZE)
+                )
+            ),
         )
 
         # Quantization step
@@ -239,8 +291,8 @@ def _kernel_quantize_mx4(
             # Start by splitting down to half of offsets.
             philox_4x_offset = tl.split(
                 tl.reshape(
-                    input_offset,
-                    [GROUP_LOAD * GROUP_SIZE // 2, 2],
+                    input_offsets,
+                    [BLOCK_SIZE_M, GROUP_LOAD * GROUP_SIZE // 2, 2],
                     can_reorder=True,
                 )
             )
@@ -248,7 +300,7 @@ def _kernel_quantize_mx4(
             philox_4x_offset = tl.split(
                 tl.reshape(
                     philox_4x_offset,
-                    [GROUP_LOAD * GROUP_SIZE // 4, 2],
+                    [BLOCK_SIZE_M, GROUP_LOAD * GROUP_SIZE // 4, 2],
                     can_reorder=True,
                 )
             )
@@ -261,7 +313,7 @@ def _kernel_quantize_mx4(
             stochastic_round_bits = tl.join(tl.join(a_4x, b_4x), tl.join(c_4x, d_4x))
             # Flatten back to simple array.
             stochastic_round_bits = tl.reshape(
-                stochastic_round_bits, [GROUP_LOAD * GROUP_SIZE]
+                stochastic_round_bits, [BLOCK_SIZE_M, GROUP_LOAD * GROUP_SIZE]
             ).to(tl.int32, bitcast=True)
 
             # Mask off mantissa bits of random value and add to mantissa.
@@ -323,24 +375,29 @@ def _kernel_quantize_mx4(
 
         # Extract low and high bits from values.
         low_mx4, high_mx4 = tl.split(
-            tl.reshape(mx4_value, [(GROUP_LOAD * GROUP_SIZE) // 2, 2])
+            tl.reshape(mx4_value, [BLOCK_SIZE_M, (GROUP_LOAD * GROUP_SIZE) // 2, 2])
         )
         # Shift mx4 values together so they are packed into int8.
         packed_mx4 = ((high_mx4 << 4) | (low_mx4)).to(tl.int8)
 
         # Write out packed values to output tensor.
         tl.store(
-            out + output_offset,
+            out + output_offsets,
             packed_mx4,
             # Prevent writing outside this chunk or the main array.
-            mask=(output_offset < OUTPUT_SIZE)
-            & (output_offset < (OUTPUT_LIMIT * (pid + 1))),
+            mask=(
+                (m_offsets[:, None] < M)
+                & (
+                    out_k_offsets[None, :]
+                    < (OUTPUT_ROW_SIZE - _k * GROUP_LOAD * PACKED_GROUP_SIZE)
+                )
+            ),
         )
 
         # Update offsets so we work on the next block.
-        input_offset += GROUP_LOAD * GROUP_SIZE
-        exp_offset += GROUP_LOAD * PACKED_GROUP_SIZE
-        output_offset += GROUP_LOAD * PACKED_GROUP_SIZE
+        input_offsets += GROUP_LOAD * GROUP_SIZE
+        exp_offsets += GROUP_LOAD * PACKED_GROUP_SIZE
+        output_offsets += GROUP_LOAD * PACKED_GROUP_SIZE
 
 
 def triton_quantize_mx4(
@@ -375,32 +432,25 @@ def triton_quantize_mx4(
     # If given an empty shape, return an empty tensor.
     if a.numel() == 0:
         return torch.empty(a.shape, device=a.device, dtype=torch.uint8)
-    # For now, only tensors with total elements that are a multiple of 32
-    # are supported. This can be improved in the future.
-    if a.numel() % group_size != 0:
-        raise RuntimeError(
-            f"Input must have total elements that are a multiple of group_size={group_size}, but got {a.numel()} elements."
-        )
-    orig_shape = a.shape
-    # Find a shape that distributes work evenly over threads.
-    # We do this by finding the power of two that is closest to
-    # the sqrt of the number of elements.
-    num_threads = int(2 ** round(math.log2(math.sqrt(a.numel()))))
-    # Make sure that the number of elements per row is a multiple of group_size.
-    K = a.numel() // num_threads
-    K = (K // group_size) * group_size
-    # If K is less than group_size, we compute a single group per row.
-    if K == 0:
-        K = group_size
-    # We want to divide the input into chunks of size K. If that cant be done
-    # evenly, its ok for one chunk to be smaller.
-    M = int(math.ceil(a.numel() / K))
-    # Flatten input.
-    a = a.flatten()
+    # Make sure input is continuous in memory.
+    assert a.is_contiguous(), "Inputs to mx4 quantize must be contiguous in memory."
 
-    # Create output tensor.
+    orig_shape = a.shape
+
+    # For simplicity, view input as a 2D tensor.
+    a = a.view(-1, a.shape[-1])
+    # Get rows and columns of now 2D input.
+    M, K = a.shape
+
+    # If K isnt divisible by group size, we'll pad it with zeros,
+    # this makes the output a bit bigger.
+    if K % group_size != 0:
+        K_out = K + (group_size - (K % group_size))
+    else:
+        K_out = K
+    # Outputs have two values packed into a single int element, and shared exponents.
     out = torch.empty(
-        [a.numel() // 2 + a.numel() // group_size], device=a.device, dtype=torch.uint8
+        [M, K_out // 2 + K_out // group_size], device=a.device, dtype=torch.uint8
     )
 
     # If using stochastic rounding, create random noise for each group.
@@ -410,20 +460,28 @@ def triton_quantize_mx4(
         rand_bits = torch.randint(
             low=0,
             high=2**31 - 1,
-            size=(a.numel() // group_size,),
+            size=(M, K_out // group_size),
             dtype=torch.int32,
             device=a.device,
         )
     else:
         rand_bits = None
 
-    # Invoke triton quantization kernel over rows.
-    grid = (M,)
+    # Compute grid of PIDs to distribute work across threads.
+    def grid(META):
+        return (
+            (
+                triton.cdiv(M, META["BLOCK_SIZE_M"])
+                * triton.cdiv(K_out, META["BLOCK_GROUPS_K"] * group_size)
+            ),
+        )
+
     _kernel_quantize_mx4[grid](
         a,
         out,
-        a.numel(),
+        M,
         K,
+        K_out,
         rand_bits=rand_bits,
         GROUP_SIZE=group_size,
         EBITS=ebits,
@@ -434,11 +492,11 @@ def triton_quantize_mx4(
     )
     # Inputs are now fully quantized and ready to return.
     # Try to return in the original shape if possible.
-    if orig_shape[-1] % group_size == 0:
+    try:
         output_shape = list(orig_shape[:-1]) + [-1]
         return out.view(output_shape)
     # If we cant, return as a flat array.
-    else:
+    except RuntimeError:
         return out.view(-1)
 
 

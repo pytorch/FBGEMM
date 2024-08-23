@@ -54,9 +54,9 @@ class QuantizedCommCodecTest(unittest.TestCase):
                 assume((col_size * row_size) % row_dim == 0)
             assume(col_size % 4 == 0)
 
-        # MX4 requires tensors with a multiple of 32 elements.
+        # For these tests assume that rows dont need padding.
         if comm_precision == SparseType.MX4:
-            assume((row_size * col_size) % 32 == 0)
+            assume((col_size) % 32 == 0)
 
         torch.manual_seed(rand_seed)
         shape = (row_size, col_size)
