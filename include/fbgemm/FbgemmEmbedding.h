@@ -159,7 +159,7 @@ FBGEMM_API typename EmbeddingSpMDMKernelSignature<
     OffsetType,
     OutType>::Type
 GenerateEmbeddingSpMDMNBitWithStrides(
-    int bit_rate,
+    const int input_bit_rate,
     const std::int64_t block_size,
     bool has_weight,
     bool normalize_by_lengths,
@@ -169,7 +169,9 @@ GenerateEmbeddingSpMDMNBitWithStrides(
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
     bool scale_bias_last = true,
-    bool is_bf16_out = false);
+    const bool is_bf16_out = false,
+    const bool no_bag = false,
+    int output_bit_rate = -1);
 
 /**
  * @param output_stride If -1, output_stride is same as block_size
