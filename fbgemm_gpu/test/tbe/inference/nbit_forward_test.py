@@ -558,8 +558,14 @@ class NBitFowardTest(unittest.TestCase):
             f = torch.cat([f.view(B, -1) for f in fs], dim=1)
         else:
             f = torch.cat(fs, dim=0).view(-1, D)
+        if fc2.dtype == torch.quint4x2:
+            fc2_float = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfFrontToFloat(
+                fc2.cpu(), bit_rate=4
+            )
+        else:
+            fc2_float = fc2.float()
         torch.testing.assert_close(
-            fc2.float().cpu(),
+            fc2_float.cpu(),
             f.float().cpu(),
             atol=1.0e-2,
             rtol=1.0e-2,
@@ -939,6 +945,49 @@ class NBitFowardTest(unittest.TestCase):
             quant_cc_output.cpu(),
             ref_output.cpu(),
             equal_nan=False,
+        )
+
+    @given(
+        D=st.sampled_from([32, 256, 384, 512, 1024]),
+        B=st.integers(min_value=8, max_value=32),
+        T=st.integers(min_value=10, max_value=20),
+        L=st.integers(min_value=10, max_value=100),
+        MAXH=st.integers(min_value=50, max_value=100),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_nbit_forward_cpu_seq_int4(
+        self,
+        D: int,
+        B: int,
+        T: int,
+        L: int,
+        MAXH: int,
+    ) -> None:
+        """
+        we init a quant table split embedding bag with int4 weights and scale of 1 and 0 bias
+        and compare brute force table lookup vs tbe based int4 output lookup.
+        """
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E=4,
+            L=L,
+            weighted=False,
+            mixed=False,
+            pooling_mode=PoolingMode.NONE,
+            weights_ty=SparseType.INT4,
+            use_cache=False,
+            cache_algorithm=CacheAlgorithm.LRU,  # doesn't matter since we don't use cache
+            use_cpu=True,
+            use_array_for_index_remapping=True,
+            do_pruning=False,
+            mixed_weights_ty=False,
+            output_dtype=SparseType.INT4,
         )
 
     @unittest.skipIf(*gpu_unavailable)
