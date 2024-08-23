@@ -108,11 +108,11 @@ def py_quantize_mx4(
     # If given an empty shape, return an empty tensor.
     if a.numel() == 0:
         return torch.empty(a.shape, device=a.device, dtype=torch.uint8)
-    # Make sure input has a supported shape.
-    if a.numel() % 32 != 0:
-        raise RuntimeError(
-            f"Input must have total elements that are a multiple of 32, but got {a.numel()} elements."
-        )
+    # Make sure input has a supported shape, if not pad each row.
+    if a.shape[-1] % group_size != 0:
+        pad = group_size - (a.shape[-1] % group_size)
+        a = torch.nn.functional.pad(a, (0, pad))
+
     # Keep track of original shape.
     orig_shape = a.shape
     # Prepare for grouping by subdiving the last axis.

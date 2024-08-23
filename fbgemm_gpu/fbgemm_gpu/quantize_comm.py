@@ -222,8 +222,12 @@ class QuantizedCommCodec:
             ncols = (ctx.row_dim + 3) // 4 * 4 + 2 * 4
             return nrows * ncols
         elif self._comm_precision == SparseType.MX4:
+            if ctx:
+                group_size = ctx.mx_group_size
+            else:
+                group_size = MX_GROUP_SIZE_DEFAULT
             assert (
-                input_len % 32 == 0
+                input_len % group_size == 0
             ), f"input_len {input_len} needs to be multiple of group_size 32"
             # quantized output size = half input size + number of groups (shared exp)
             ctx = none_throws(ctx)

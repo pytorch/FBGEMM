@@ -11,6 +11,7 @@ from typing import List, Tuple
 
 import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 import hypothesis.strategies as st
+import numpy as np
 
 import torch
 
@@ -101,6 +102,7 @@ def fake_quantize_mx(
         method=shared_exp_method,
         axes=shared_exp_axes,
         ebits=0,
+        rounding_mode="floor",
     )
 
     # Flush subnormal FP32 inputs to zero
@@ -220,12 +222,16 @@ class TestMXQuantizationConversion(unittest.TestCase):
             mx_group_size=group_size,
         )
 
-        check_diff_quantize(input, output_ref, output_cuda)
-        check_diff_quantize(input, output_cuda, output_triton)
-        check_diff_quantize(input, output_cuda, output_cuda_from_quantized_triton)
-        check_diff_quantize(input, output_cuda_from_quantized_triton, output_triton)
-        check_diff_quantize(input, output_triton, output_cpu)
-        check_diff_quantize(input, output_cuda, output_from_ops)
+        assert check_diff_quantize(input, output_ref, output_cuda)
+        assert check_diff_quantize(input, output_cuda, output_triton)
+        assert check_diff_quantize(
+            input, output_cuda, output_cuda_from_quantized_triton
+        )
+        assert check_diff_quantize(
+            input, output_cuda_from_quantized_triton, output_triton
+        )
+        assert check_diff_quantize(input, output_triton, output_cpu)
+        assert check_diff_quantize(input, output_cuda, output_from_ops)
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
@@ -233,8 +239,8 @@ class TestMXQuantizationConversion(unittest.TestCase):
         shape=st.sampled_from(
             [
                 [32],  # Small shape with group_size = num_elements.
-                [2, 16],  # Multi dimensional shape.
-                [2, 2, 4, 4],  # Even more multi dimensional shape.
+                [2, 16],  # Multi dimensional shape that is padded.
+                [2, 2, 4, 32],  # Even more multi dimensional shape without padding.
                 [96],  # Shape that cannot be made into even rows.
                 [16, 1028],  # Large shape with multiple rows.
             ]
@@ -256,9 +262,9 @@ class TestMXQuantizationConversion(unittest.TestCase):
         device: str,
     ) -> None:
         """Test correctness of mx4 routines with random inputs and unusual shapes."""
+        # Safe to assume there is at least one group.
+        assume(np.prod(shape) >= group_size)
         # We only want to consider total sizes that are divisible by group_size.
-        assume(sum(shape) % group_size == 0)
-
         ebits, mbits = mx4_format
 
         # Generate a random input with the specified magnitude.
@@ -271,14 +277,18 @@ class TestMXQuantizationConversion(unittest.TestCase):
         )
         mx_dequantized = mx4_to_fp32(mx_quantized, group_size, ebits=ebits, mbits=mbits)
 
+        # If the rows of input are not divisible by group_size, we expect the output
+        # to be padded.
+        if input.shape[-1] % group_size != 0:
+            pad = group_size - (input.shape[-1] % group_size)
+            input = torch.nn.functional.pad(input, (0, pad))
+
         # Check that output shape matches input shape.
         assert mx_dequantized.shape == input.shape
 
         # Check that values are reasonably close, based on expected variance.
         # I give quite a bit of wiggle room to make sure this isnt flaky.
-        torch.testing.assert_allclose(
-            input, mx_dequantized, rtol=1.0, atol=magnitude / 2
-        )
+        torch.testing.assert_close(input, mx_dequantized, rtol=1.0, atol=magnitude / 2)
 
 
 if __name__ == "__main__":
