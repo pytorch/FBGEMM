@@ -887,6 +887,8 @@ def matmul_fp8_row(
         TMA_SIZE = 128
         import numpy as np
 
+        # comment for testing CI
+
         # autotune doesn't work with TMA
         # https://github.com/triton-lang/triton/blob/main/python/tutorials/09-persistent-matmul.py#L312
 
