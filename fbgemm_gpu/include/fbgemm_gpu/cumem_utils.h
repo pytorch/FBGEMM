@@ -139,6 +139,7 @@ Tensor uvm_to_cpu(const Tensor& self);
 /// @return A new tensor that shares the same device and UVM storage with
 /// `prototype`.
 Tensor uvm_to_device(const Tensor& self, const Tensor& prototype);
+Tensor uvm_to_device_d(const Tensor& self, const at::Device& device);
 
 /// @ingroup cumem-utils
 ///

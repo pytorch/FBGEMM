@@ -278,7 +278,12 @@ Tensor uvm_to_cpu(const Tensor& t) {
       .set_(std::move(storage), t.storage_offset(), t.sizes(), t.strides());
 }
 
-Tensor uvm_to_device(const Tensor& t, const Tensor& prototype) {
+Tensor uvm_to_device(const Tensor& self, const Tensor& prototype) {
+  auto device = prototype.device();
+  return uvm_to_device_d(self, device);
+}
+
+Tensor uvm_to_device_d(const Tensor& t, const at::Device& device) {
   TORCH_CHECK(is_uvm_tensor(t));
   // Don't copy the storage - just keep a reference to the original storage
   auto* tcontext =
@@ -286,7 +291,6 @@ Tensor uvm_to_device(const Tensor& t, const Tensor& prototype) {
           &CUDAManagedIndirectContext::release);
   TORCH_CHECK(tcontext != nullptr)
 
-  auto device = prototype.device();
   auto* ocontext =
       tcontext->storage_.data_ptr().cast_context<CUDAManagedContext>(
           &CUDAManagedContext::release);
