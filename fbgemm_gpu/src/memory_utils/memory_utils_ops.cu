@@ -18,6 +18,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "uvm_to_device(Tensor self, Tensor prototype) -> Tensor",
       TORCH_FN(uvm_to_device));
+  m.def(
+      "uvm_to_device_d(Tensor self, Device device) -> Tensor",
+      TORCH_FN(uvm_to_device_d));
 
   m.def(
       "cuda_mem_advise(Tensor t, int advice) -> ()",
