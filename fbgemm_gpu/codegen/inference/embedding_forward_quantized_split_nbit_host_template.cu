@@ -47,8 +47,8 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
   pta::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> indice_weights,
   {% endif %}
   {% if type_map[emb_weight_type].enum_name == "FP8" %}
-  const int exponent_bits,
-  const int exponent_bias,
+  const int fp8_exponent_bits,
+  const int fp8_exponent_bias,
   {% endif %}
   pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
   const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
@@ -57,6 +57,56 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
 {% endfor %} // for emb_weight_type in ["FP32", "FP16", "FP8", "INT8", "INT4", "INT2"]
 
 }
+
+{%- macro define_kernel_invocation(emb_weight_type) %}
+    {%- set func_name = "nbit::" + emb_weight_type + "_split_embedding" + ("_nobag" if nobag else "") + "_codegen_forward_" + wdesc + "_kernel_small_L" %}
+
+    #ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name_{{ emb_weight_type }} = func_name_{{ emb_weight_type }};
+    #endif
+
+    #ifdef X
+    #undef X
+    #endif
+
+    // Define {{ emb_weight_type }} kernel invocation macro
+    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
+    {{ func_name }}<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
+        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
+        dim3(kWarpSize, kWarpsPerBlock), \
+        0, \
+        at::cuda::getCurrentCUDAStream()>>>( \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, dev_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, uvm_weights, uint8_t, 1, 64), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, weights_placements, int32_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, weights_offsets, int64_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, weights_tys, uint8_t, 1, 32), \
+        {%- if not nobag %}
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, D_offsets, int32_t, 1, 32), \
+        {%- else %}
+        D, \
+        {%- endif %}
+        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, indices, index_t, 1, 32), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, offsets, index_t, 1, 32), \
+        {%- if not nobag %}
+        pooling_mode, \
+        {%- endif %}
+        row_alignment, \
+        {%- if weighted %}
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, indice_weights, float, 1, 32), \
+        {%- endif %}
+        {%- if emb_weight_type == "FP8" %}
+        fp8_exponent_bits, \
+        fp8_exponent_bias, \
+        {%- endif %}
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, output, output_t, 2, 32), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, lxu_cache_weights, uint8_t, 2, 64), \
+        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, lxu_cache_locations, int32_t, 1, 32) \
+    ); \
+    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+{%- endmacro %}
+
 
 Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_cuda(
     Tensor dev_weights,
@@ -112,51 +162,56 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     // kernels assume indices are contiguous.
     indices = indices.contiguous();
 
-    {% if not nobag %}
+    {%- if not nobag %}
     const int32_t T = D_offsets.numel() - 1;
-    {% else %}
+    {%- else %}
     const int32_t total_L = indices.numel();
     const int32_t T = weights_offsets.numel();
-    {% endif %}
+    {%- endif %}
+
     TORCH_CHECK(T > 0);
     // offsets = [B x T  + 1]
     const int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B >= 0);
 
-    {% if not nobag %}
+    {%- if not nobag %}
     TORCH_CHECK(total_D > 0);
-    {% else %}
+    {%- else %}
     TORCH_CHECK(D > 0);
-    {% endif %}
+    {%- endif %}
 
     Tensor output;
     const int kINT8QparamsBytes = 8;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
-    {% if not nobag %}
+
+    {%- if not nobag %}
+
     int64_t total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
         total_adjusted_D += T * kINT8QparamsBytes;
     }
+
     if (indices.numel() == 0) {
       output = at::zeros({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
-    }
-    else {
+    } else {
       output = at::empty({B, total_adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
     }
-    {% else %}
+
+    {%- else %}
+
     int64_t adjusted_D = D;
     if (o_dtype == SparseType::INT8) {
         adjusted_D += T * kINT8QparamsBytes;
     }
+
     if (total_L == 0) {
       output = at::zeros({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
-    }
-    else {
+    } else {
       output = at::empty({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
     }
 
-    {% endif %}
+    {%- endif %}
 
     if (B == 0 || indices.numel() == 0) {
       return output;
@@ -176,42 +231,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // Launch 2-bit int kernel
+    // Launch INT2 kernel
     ////////////////////////////////////////////////////////////////////////////
 
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name1 = "nbit::INT2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
-#endif
-
-    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::INT2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
-        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(kWarpSize, kWarpsPerBlock), \
-        0, \
-        at::cuda::getCurrentCUDAStream()>>>( \
-        MAKE_PTA_WITH_NAME(func_name1, dev_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name1, uvm_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name1, weights_placements, int32_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name1, weights_offsets, int64_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name1, weights_tys, uint8_t, 1, 32), \
-        {% if not nobag %} \
-        MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32), \
-        {% else %} \
-        D, \
-        {% endif %} \
-        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        MAKE_PTA_WITH_NAME(func_name1, indices, index_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32), \
-        {% if not nobag %} \
-        pooling_mode, \
-        {% endif %} \
-        row_alignment, \
-        {% if weighted %} MAKE_PTA_WITH_NAME(func_name1, indice_weights, float, 1, 32), {% endif %} \
-        MAKE_PTA_WITH_NAME(func_name1, output, output_t, 2, 32), \
-        MAKE_PTA_WITH_NAME(func_name1, lxu_cache_weights, uint8_t, 2, 64), \
-        MAKE_PTA_WITH_NAME(func_name1, lxu_cache_locations, int32_t, 1, 32) \
-    ); \
-    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+    {{- define_kernel_invocation("INT2") }}
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "int2_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int2_D > 0) {
@@ -232,42 +255,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // Launch 4-bit int kernel
+    // Launch INT4 kernel
     ////////////////////////////////////////////////////////////////////////////
 
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name2 = "nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
-#endif
-
-    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::INT4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
-        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(kWarpSize, kWarpsPerBlock), \
-        0, \
-        at::cuda::getCurrentCUDAStream()>>>( \
-        MAKE_PTA_WITH_NAME(func_name2, dev_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name2, uvm_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name2, weights_placements, int32_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name2, weights_offsets, int64_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name2, weights_tys, uint8_t, 1, 32), \
-        {% if not nobag %} \
-        MAKE_PTA_WITH_NAME(func_name2, D_offsets, int32_t, 1, 32), \
-        {% else %} \
-        D, \
-        {% endif %} \
-        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        MAKE_PTA_WITH_NAME(func_name2, indices, index_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name2, offsets, index_t, 1, 32), \
-        {% if not nobag %} \
-        pooling_mode, \
-        {% endif %} \
-        row_alignment, \
-        {% if weighted %} MAKE_PTA_WITH_NAME(func_name2, indice_weights, float, 1, 32), {% endif %} \
-        MAKE_PTA_WITH_NAME(func_name2, output, output_t, 2, 32), \
-        MAKE_PTA_WITH_NAME(func_name2, lxu_cache_weights, uint8_t, 2, 64), \
-        MAKE_PTA_WITH_NAME(func_name2, lxu_cache_locations, int32_t, 1, 32) \
-    ); \
-    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+    {{- define_kernel_invocation("INT4") }}
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "int4_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int4_D > 0) {
@@ -291,42 +282,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // Launch 8-bit int kernel
+    // Launch INT8 kernel
     ////////////////////////////////////////////////////////////////////////////
 
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name3 = "nbit::INT8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
-#endif
-
-    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::INT8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
-        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(kWarpSize, kWarpsPerBlock), \
-        0, \
-        at::cuda::getCurrentCUDAStream()>>>( \
-        MAKE_PTA_WITH_NAME(func_name3, dev_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name3, uvm_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name3, weights_placements, int32_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name3, weights_offsets, int64_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name3, weights_tys, uint8_t, 1, 32), \
-        {% if not nobag %} \
-        MAKE_PTA_WITH_NAME(func_name3, D_offsets, int32_t, 1, 32), \
-        {% else %} \
-        D, \
-        {% endif %} \
-        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        MAKE_PTA_WITH_NAME(func_name3, indices, index_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name3, offsets, index_t, 1, 32), \
-        {% if not nobag %} \
-        pooling_mode, \
-        {% endif %} \
-        row_alignment, \
-        {% if weighted %} MAKE_PTA_WITH_NAME(func_name3, indice_weights, float, 1, 32), {% endif %} \
-        MAKE_PTA_WITH_NAME(func_name3, output, output_t, 2, 32), \
-        MAKE_PTA_WITH_NAME(func_name3, lxu_cache_weights, uint8_t, 2, 64), \
-        MAKE_PTA_WITH_NAME(func_name3, lxu_cache_locations, int32_t, 1, 32) \
-    ); \
-    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+    {{- define_kernel_invocation("INT8") }}
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "int8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_int8_D > 0) {
@@ -353,44 +312,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // Launch 8-bit float kernel
+    // Launch FP8 kernel
     ////////////////////////////////////////////////////////////////////////////
 
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name4 = "nbit::FP8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
-#endif
-
-    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::FP8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
-        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(kWarpSize, kWarpsPerBlock), \
-        0, \
-        at::cuda::getCurrentCUDAStream()>>>( \
-        MAKE_PTA_WITH_NAME(func_name4, dev_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name4, uvm_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name4, weights_placements, int32_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name4, weights_offsets, int64_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name4, weights_tys, uint8_t, 1, 32), \
-        {% if not nobag %} \
-        MAKE_PTA_WITH_NAME(func_name4, D_offsets, int32_t, 1, 32), \
-        {% else %} \
-        D, \
-        {% endif %} \
-        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        MAKE_PTA_WITH_NAME(func_name4, indices, index_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name4, offsets, index_t, 1, 32), \
-        {% if not nobag %} \
-        pooling_mode, \
-        {% endif %} \
-        row_alignment, \
-        {% if weighted %} MAKE_PTA_WITH_NAME(func_name4, indice_weights, float, 1, 32), {% endif %} \
-        fp8_exponent_bits, \
-        fp8_exponent_bias, \
-        MAKE_PTA_WITH_NAME(func_name4, output, output_t, 2, 32), \
-        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_weights, uint8_t, 2, 64), \
-        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_locations, int32_t, 1, 32) \
-    ); \
-    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+    {{- define_kernel_invocation("FP8") }}
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp8_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float8_D > 0) {
@@ -417,42 +342,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // Launch 16-bit float kernel
+    // Launch FP16 kernel
     ////////////////////////////////////////////////////////////////////////////
 
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name5 = "nbit::FP16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
-#endif
-
-    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::FP16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
-        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(kWarpSize, kWarpsPerBlock), \
-        0, \
-        at::cuda::getCurrentCUDAStream()>>>( \
-        MAKE_PTA_WITH_NAME(func_name5, dev_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name5, uvm_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name5, weights_placements, int32_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name5, weights_offsets, int64_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name5, weights_tys, uint8_t, 1, 32), \
-        {% if not nobag %} \
-        MAKE_PTA_WITH_NAME(func_name5, D_offsets, int32_t, 1, 32), \
-        {% else %} \
-        D, \
-        {% endif %} \
-        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        MAKE_PTA_WITH_NAME(func_name5, indices, index_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name5, offsets, index_t, 1, 32), \
-        {% if not nobag %} \
-        pooling_mode, \
-        {% endif %} \
-        row_alignment, \
-        {% if weighted %} MAKE_PTA_WITH_NAME(func_name5, indice_weights, float, 1, 32), {% endif %} \
-        MAKE_PTA_WITH_NAME(func_name5, output, output_t, 2, 32), \
-        MAKE_PTA_WITH_NAME(func_name5, lxu_cache_weights, uint8_t, 2, 64), \
-        MAKE_PTA_WITH_NAME(func_name5, lxu_cache_locations, int32_t, 1, 32) \
-    ); \
-    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+    {{- define_kernel_invocation("FP16") }}
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp16_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float16_D > 0) {
@@ -479,42 +372,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
 
     ////////////////////////////////////////////////////////////////////////////
-    // Launch 32-bit float kernel
+    // Launch FP32 kernel
     ////////////////////////////////////////////////////////////////////////////
 
-#ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name6 = "nbit::FP32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L";
-#endif
-
-    #define X(DeviceOnly, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    nbit::FP32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly><<< \
-        nbit::div_round_up(T * nbit::div_round_up(B, OutputRowsPerThread), kWarpsPerBlock), \
-        dim3(kWarpSize, kWarpsPerBlock), \
-        0, \
-        at::cuda::getCurrentCUDAStream()>>>( \
-        MAKE_PTA_WITH_NAME(func_name6, dev_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name6, uvm_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name6, weights_placements, int32_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name6, weights_offsets, int64_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name6, weights_tys, uint8_t, 1, 32), \
-        {% if not nobag %} \
-        MAKE_PTA_WITH_NAME(func_name6, D_offsets, int32_t, 1, 32), \
-        {% else %} \
-        D, \
-        {% endif %} \
-        FixedDivisor(div_round_up(B, OutputRowsPerThread)), \
-        MAKE_PTA_WITH_NAME(func_name6, indices, index_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name6, offsets, index_t, 1, 32), \
-        {% if not nobag %} \
-        pooling_mode, \
-        {% endif %} \
-        row_alignment, \
-        {% if weighted %} MAKE_PTA_WITH_NAME(func_name6, indice_weights, float, 1, 32), {% endif %} \
-        MAKE_PTA_WITH_NAME(func_name6, output, output_t, 2, 32), \
-        MAKE_PTA_WITH_NAME(func_name6, lxu_cache_weights, uint8_t, 2, 64), \
-        MAKE_PTA_WITH_NAME(func_name6, lxu_cache_locations, int32_t, 1, 32) \
-    ); \
-    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+    {{- define_kernel_invocation("FP32") }}
 
     DISPATCH_OUTPUT_TYPES(output.scalar_type(), "fp32_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_kernel", ([&] {
       if (max_float32_D > 0) {
@@ -539,4 +400,4 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     return output;
 }
 
-// clang-format on
+        // clang-format on
