@@ -15,6 +15,7 @@
 #include <iostream>
 #ifdef FBGEMM_FBCODE
 #include "common/strings/UUID.h"
+#include "common/time/Time.h"
 #include "fb_rocksdb/DBMonitor/DBMonitor.h"
 #include "fb_rocksdb/FbRocksDb.h"
 #include "rocks/utils/FB303Stats.h"
@@ -43,6 +44,19 @@ constexpr size_t num_ssd_drives = 8;
 const std::string ssd_mount_point = "/data00_nvidia";
 const size_t base_port = 136000;
 #endif
+
+// mem usage propertiese
+// -- block cache usage
+// -- Indexes and filter blocks usage
+// -- Memtable usage
+// -- Blocks pinned by iterators usage
+// for details, checkout https://fburl.com/by9kyk12
+const std::vector<std::string> rocks_db_mem_properties = {
+    "rocksdb.block-cache-usage",
+    "rocksdb.estimate-table-readers-mem",
+    "rocksdb.cur-size-all-mem-tables",
+    "rocksdb.block-cache-pinned-usage",
+};
 
 class Initializer {
  public:
@@ -329,8 +343,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   folly::coro::Task<void> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) override {
+      const at::Tensor& count,
+      const bool is_bwd = false) override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::set");
+#ifdef FBGEMM_FBCODE
+    auto start_ts = facebook::WallClockUtil::NowInUsecFast();
+#endif
     std::vector<folly::coro::TaskWithExecutor<void>> tasks;
     auto count_ = count.item().toLong();
 
@@ -377,6 +395,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
               .scheduleOn(executor_.get()));
     }
     co_await folly::coro::collectAllRange(std::move(tasks));
+#ifdef FBGEMM_FBCODE
+    auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+    if (is_bwd) {
+      bwd_write_total_duration_ += duration;
+    } else {
+      fwd_write_total_duration_ += duration;
+    }
+#endif
   }
 
   folly::coro::Task<void> get_kv_db_async(
@@ -384,6 +410,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const at::Tensor& count) override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::get");
+#ifdef FBGEMM_FBCODE
+    auto start_ts = facebook::WallClockUtil::NowInUsecFast();
+#endif
     std::vector<folly::coro::TaskWithExecutor<void>> tasks;
     auto count_ = count.item().toLong();
 
@@ -499,6 +528,50 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
               .scheduleOn(executor_.get()));
     }
     co_await folly::coro::collectAllRange(std::move(tasks));
+#ifdef FBGEMM_FBCODE
+    auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+    read_total_duration_ += duration;
+#endif
+  }
+
+  // collect mem usage on all db shards, checkout rocks_db_mem_properties
+  std::vector<int64_t> get_mem_usage() {
+    int num_mem_component = rocks_db_mem_properties.size();
+    std::vector<int64_t> mem_usages(num_mem_component);
+    for (auto& db : dbs_) {
+      for (int i = 0; i < num_mem_component; i++) {
+        std::string property = rocks_db_mem_properties[i];
+        std::string val;
+        db->GetProperty(property, &val);
+        if (val != "") {
+          if (i != 0) {
+            mem_usages[i] += folly::to<int64_t>(val);
+          } else {
+            mem_usages[i] = folly::to<int64_t>(val);
+          }
+        }
+      }
+    }
+    return mem_usages;
+  }
+
+  std::vector<double> get_io_duration(
+      const int64_t step,
+      const int64_t interval) {
+    std::vector<double> ret;
+    ret.reserve(3);
+    if (step > 0 && step % interval == 0) {
+      auto read_dur = read_total_duration_.load();
+      auto fwd_write_dur = fwd_write_total_duration_.load();
+      auto bwd_write_dur = bwd_write_total_duration_.load();
+      ret.push_back(double(read_dur / interval));
+      ret.push_back(double(fwd_write_dur / interval));
+      ret.push_back(double(bwd_write_dur / interval));
+      read_total_duration_ = 0;
+      fwd_write_total_duration_ = 0;
+      bwd_write_total_duration_ = 0;
+    }
+    return ret;
   }
 
   void compact() override {
@@ -575,6 +648,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t memtable_flush_period_;
   int64_t compaction_period_;
   int64_t l0_files_per_compact_;
+  std::atomic<int64_t> read_total_duration_{0};
+  std::atomic<int64_t> fwd_write_total_duration_{0};
+  std::atomic<int64_t> bwd_write_total_duration_{0};
 }; // class EmbeddingKVDB
 
 } // namespace ssd

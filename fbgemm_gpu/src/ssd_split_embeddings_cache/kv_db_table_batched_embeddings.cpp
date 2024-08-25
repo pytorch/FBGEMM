@@ -36,13 +36,14 @@ void EmbeddingKVDB::set_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count,
-    const int64_t timestep) {
+    const int64_t timestep,
+    const bool is_bwd) {
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::set_cuda ##");
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
   std::function<void()>* functor = new std::function<void()>([=]() {
-    self->set(indices, weights, count);
+    self->set(indices, weights, count, is_bwd);
     self->flush_or_compact(timestep);
   });
   AT_CUDA_CHECK(cudaStreamAddCallback(
@@ -56,7 +57,8 @@ void EmbeddingKVDB::set_cuda(
 void EmbeddingKVDB::set(
     const at::Tensor& indices,
     const at::Tensor& weights,
-    const at::Tensor& count) {
+    const at::Tensor& count,
+    const bool is_bwd) {
   folly::stop_watch<std::chrono::microseconds> timer;
   auto cacheContext = set_cache(indices, weights, count);
 
@@ -73,11 +75,11 @@ void EmbeddingKVDB::set(
           missed_weights,
           missed_count,
           cacheContext);
-      folly::coro::blockingWait(
-          set_kv_db_async(missed_indices, missed_weights, missed_count));
+      folly::coro::blockingWait(set_kv_db_async(
+          missed_indices, missed_weights, missed_count, is_bwd));
     }
   } else { // no l2 cache
-    folly::coro::blockingWait(set_kv_db_async(indices, weights, count));
+    folly::coro::blockingWait(set_kv_db_async(indices, weights, count, is_bwd));
   }
   XLOG_EVERY_N(INFO, 1000) << "set_cuda: finished set embeddings in "
                            << timer.elapsed().count() << " us.";

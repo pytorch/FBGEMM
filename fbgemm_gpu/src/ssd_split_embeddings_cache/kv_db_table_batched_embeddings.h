@@ -61,7 +61,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   void set(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count);
+      const at::Tensor& count,
+      const bool is_bwd = false);
 
   void get(
       const at::Tensor& indices,
@@ -76,7 +77,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   virtual folly::coro::Task<void> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) = 0;
+      const at::Tensor& count,
+      const bool is_bwd = false) = 0;
 
   virtual void compact() = 0;
 
@@ -94,7 +96,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
-      const int64_t timestep);
+      const int64_t timestep,
+      const bool is_bwd = false);
 
  private:
   std::shared_ptr<CacheContext> get_cache(

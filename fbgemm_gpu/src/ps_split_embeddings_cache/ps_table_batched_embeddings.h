@@ -37,7 +37,8 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
   folly::coro::Task<void> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) override {
+      const at::Tensor& count,
+      const bool is_bwd = false) override {
     RECORD_USER_SCOPE("EmbeddingParameterServer::set");
     co_await tps_client_->set(indices, weights, count.item().toLong());
   }
