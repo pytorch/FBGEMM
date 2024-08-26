@@ -885,7 +885,6 @@ def matmul_fp8_row(
 
         # used by TMA persistent kernel
         TMA_SIZE = 128
-        import numpy as np
 
         # autotune doesn't work with TMA
         # https://github.com/triton-lang/triton/blob/main/python/tutorials/09-persistent-matmul.py#L312
@@ -897,11 +896,11 @@ def matmul_fp8_row(
         num_stages = 3
         num_warps = 8
 
-        desc_a = np.empty(TMA_SIZE, dtype=np.int8)
-        desc_b = np.empty(TMA_SIZE, dtype=np.int8)
-        desc_c = np.empty(TMA_SIZE, dtype=np.int8)
-        desc_a_scale = np.empty(TMA_SIZE, dtype=np.int8)
-        desc_b_scale = np.empty(TMA_SIZE, dtype=np.int8)
+        desc_a = torch.empty(TMA_SIZE, dtype=torch.int8)
+        desc_b = torch.empty(TMA_SIZE, dtype=torch.int8)
+        desc_c = torch.empty(TMA_SIZE, dtype=torch.int8)
+        desc_a_scale = torch.empty(TMA_SIZE, dtype=torch.int8)
+        desc_b_scale = torch.empty(TMA_SIZE, dtype=torch.int8)
 
         triton.runtime.driver.active.utils.fill_2d_tma_descriptor(
             a_tl.data_ptr(),
@@ -910,7 +909,7 @@ def matmul_fp8_row(
             BLOCK_M,
             BLOCK_K,
             a_tl.element_size(),
-            desc_a,
+            desc_a.data_ptr(),
         )
         triton.runtime.driver.active.utils.fill_2d_tma_descriptor(
             b_tl.data_ptr(),
@@ -919,7 +918,7 @@ def matmul_fp8_row(
             BLOCK_N,
             BLOCK_K,
             b_tl.element_size(),
-            desc_b,
+            desc_b.data_ptr(),
         )
         triton.runtime.driver.active.utils.fill_2d_tma_descriptor(
             c.data_ptr(),
@@ -928,21 +927,21 @@ def matmul_fp8_row(
             BLOCK_M,
             BLOCK_N,
             c.element_size(),
-            desc_c,
+            desc_c.data_ptr(),
         )
         triton.runtime.driver.active.utils.fill_1d_tma_descriptor(
             a_scale.data_ptr(),
             M,
             BLOCK_M,
             a_scale.element_size(),
-            desc_a_scale,
+            desc_a_scale.data_ptr(),
         )
         triton.runtime.driver.active.utils.fill_1d_tma_descriptor(
             b_scale.data_ptr(),
             N,
             BLOCK_N,
             b_scale.element_size(),
-            desc_b_scale,
+            desc_b_scale.data_ptr(),
         )
         desc_a = torch.tensor(desc_a, device="cuda")
         desc_b = torch.tensor(desc_b, device="cuda")
