@@ -3052,6 +3052,13 @@
             <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
         <span class="p">)</span>
 
+        <span class="c1"># TODO: remove this and add an assert after updating</span>
+        <span class="c1"># bounds_check_indices to support different indices type and offset</span>
+        <span class="c1"># type</span>
+        <span class="n">force_cast_input_types</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">indices</span><span class="o">.</span><span class="n">dtype</span> <span class="o">!=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">or</span> <span class="n">force_cast_input_types</span>
+        <span class="p">)</span>
+
         <span class="k">if</span> <span class="n">force_cast_input_types</span><span class="p">:</span>
             <span class="c1"># Force casting indices and offsets to long</span>
             <span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">offsets</span><span class="o">.</span><span class="n">long</span><span class="p">()</span>
@@ -3059,10 +3066,6 @@
             <span class="c1"># Force casting per_sample_weights to float</span>
             <span class="k">if</span> <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">per_sample_weights</span> <span class="o">=</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
-
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">indices</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">offsets</span><span class="o">.</span><span class="n">dtype</span>
-        <span class="p">),</span> <span class="s2">&quot;Indices and offsets must have the same type&quot;</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span> <span class="o">!=</span> <span class="n">BoundsCheckMode</span><span class="o">.</span><span class="n">NONE</span><span class="o">.</span><span class="n">value</span><span class="p">:</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">bounds_check_indices</span><span class="p">(</span>
