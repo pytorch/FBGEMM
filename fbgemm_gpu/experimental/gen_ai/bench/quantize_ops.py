@@ -514,7 +514,7 @@ class CutlassFP8TensorwiseGemm_v2(QuantizeOpBase):
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
-        return torch.ops.fbgemm.f8f8bf16_v2(xq, wq, x_scale * w_scale)
+        return torch.ops.cutlass_extensions.f8f8bf16(xq, wq, x_scale * w_scale)
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale = self.quantize(x, w)
