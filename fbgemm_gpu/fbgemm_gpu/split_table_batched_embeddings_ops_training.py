@@ -2638,6 +2638,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets, batch_size_per_feature_per_rank
         )
 
+        # TODO: remove this and add an assert after updating
+        # bounds_check_indices to support different indices type and offset
+        # type
+        force_cast_input_types = (
+            indices.dtype != offsets.dtype or force_cast_input_types
+        )
+
         if force_cast_input_types:
             # Force casting indices and offsets to long
             (indices, offsets) = indices.long(), offsets.long()
@@ -2645,10 +2652,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # Force casting per_sample_weights to float
             if per_sample_weights is not None:
                 per_sample_weights = per_sample_weights.float()
-
-        assert (
-            indices.dtype == offsets.dtype
-        ), "Indices and offsets must have the same type"
 
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
             torch.ops.fbgemm.bounds_check_indices(
