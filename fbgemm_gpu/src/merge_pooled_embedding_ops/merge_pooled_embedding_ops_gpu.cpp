@@ -369,7 +369,12 @@ Tensor sum_reduce_to_one(
   });
 
   auto target_device_index = target_device.index();
-  TORCH_CHECK(target_device_index < num_gpus && target_device_index >= 0);
+  TORCH_CHECK(
+      target_device_index < num_gpus && target_device_index >= 0,
+      "target_device_index=",
+      target_device_index,
+      ", num_gpus=",
+      num_gpus);
 
   // Local reduction for tensors residing the same GPU.
   // And if there's a tensor already in target device, use it for output tensor.
