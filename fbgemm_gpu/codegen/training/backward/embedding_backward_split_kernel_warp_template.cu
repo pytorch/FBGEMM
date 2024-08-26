@@ -776,7 +776,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
-    {%- for kEmbeddingDim in [64, 128, 192, 256] %}
+    {%- for kEmbeddingDim in [64, 128, 160, 192, 256] %}
     {%- for kWeighDecayMode in [0, 1, 2] %}
         {{ hip_template_instantiation(
             emb_type,

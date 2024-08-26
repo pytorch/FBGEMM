@@ -1033,7 +1033,7 @@ class BackwardOptimizersTest(unittest.TestCase):
 # Should be removed
     @given(
         T=st.integers(min_value=1, max_value=5),
-        D=st.sampled_from([16, 32, 48, 64]),
+        D=st.sampled_from([16, 32, 40, 48, 64]),
         B=st.integers(min_value=1, max_value=128),
         log_E=st.integers(min_value=3, max_value=5),
         L=st.integers(min_value=2, max_value=20),

@@ -1210,7 +1210,7 @@ Tensor {{ embedding_cuda_op }}(
                 {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and not dense%}
                 bool hip_opt_kernel_supported = false;      // TODO: figure out support range
                 if (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) {
-                    const static std::set<int> D_emb_s {64, 128, 192, 256};
+                    const static std::set<int> D_emb_s {64, 128, 160, 192, 256};
                     hip_opt_kernel_supported = (D_emb_s.find(max_D) != D_emb_s.end());
                 }
                 if(hip_opt_kernel_supported)
@@ -1226,6 +1226,8 @@ Tensor {{ embedding_cuda_op }}(
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
                         } else if (max_D == 128) {
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
+                        } else if (max_D == 160) {
+                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(160, WDM);
                         } else if (max_D == 192) {
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
                         } else if (max_D == 256) {
@@ -1237,6 +1239,8 @@ Tensor {{ embedding_cuda_op }}(
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
                         } else if (max_D == 128) {
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
+                        } else if (max_D == 160) {
+                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(160, WDM);
                         } else if (max_D == 192) {
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
                         } else if (max_D == 256) {
@@ -1248,6 +1252,8 @@ Tensor {{ embedding_cuda_op }}(
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
                         } else if (max_D == 128) {
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
+                        } else if (max_D == 160) {
+                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(160, WDM);
                         } else if (max_D == 192) {
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
                         } else if (max_D == 256) {
