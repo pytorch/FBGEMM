@@ -149,7 +149,6 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_split_unweighted_codegen_cuda.cu"
     "gen_embedding_backward_dense_indice_weights_codegen_cuda.cu"
     "gen_embedding_backward_split_indice_weights_codegen_cuda.cu"
-    "gen_embedding_backward_ssd_indice_weights_codegen_cuda.cu"
     "gen_embedding_forward_dense_weighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_dense_unweighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_weighted_vbe_codegen_cuda.cu"
@@ -168,9 +167,6 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_backward_split_batch_index_select_device_kernel.cuh"
     "gen_embedding_forward_split_weighted_gwd_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_gwd_codegen_cuda.cu"
-    "gen_embedding_forward_ssd_weighted_codegen_cuda.cu"
-    "gen_embedding_forward_ssd_unweighted_codegen_cuda.cu"
-    "gen_embedding_forward_ssd_unweighted_nobag_kernel_small.cu"
 )
 
 list(APPEND gen_gpu_host_source_files
@@ -198,7 +194,6 @@ foreach(wdesc ${WEIGHT_OPTIONS})
       "gen_embedding_backward_dense_split_${wdesc}_kernel_cta.cu"
       "gen_embedding_backward_dense_split_${wdesc}_kernel_warp.cu"
       "gen_embedding_forward_split_${wdesc}_kernel.cu"
-      "gen_embedding_forward_ssd_${wdesc}_kernel.cu"
       "gen_embedding_backward_split_${wdesc}_device_kernel.cuh")
 
   foreach(etype fp32 fp16 fp8 int8 int4 int2)
@@ -231,7 +226,6 @@ set(gen_cpu_source_files
 set(gen_python_source_files
   ${CMAKE_BINARY_DIR}/__init__.py
   ${CMAKE_BINARY_DIR}/lookup_args.py
-  ${CMAKE_BINARY_DIR}/lookup_args_ssd.py
 )
 
 # For each of the optimizers, generate the backward split variant by adding
@@ -250,10 +244,6 @@ endforeach()
 
 # Generate the Python functions only if there is the backend support (for SSD
 # optimizers)
-foreach(optimizer ${SSD_OPTIMIZERS})
-  list(APPEND gen_python_source_files
-    "${CMAKE_BINARY_DIR}/lookup_${optimizer}_ssd.py")
-endforeach()
 
 # Generate the backend API for all optimizers to preserve the backward
 # compatibility
@@ -326,23 +316,6 @@ foreach(optimizer ${DEFUSED_OPTIMIZERS})
     "${CMAKE_BINARY_DIR}/split_embedding_optimizer_${optimizer}.py")
 endforeach()
 
-foreach(optimizer ${SSD_OPTIMIZERS})
-  list(APPEND gen_gpu_kernel_source_files
-    "gen_embedding_optimizer_${optimizer}_ssd_device_kernel.cuh"
-  )
-
-  list(APPEND gen_gpu_host_source_files
-    "gen_embedding_backward_ssd_${optimizer}.cpp"
-  )
-
-  foreach(wdesc weighted unweighted unweighted_nobag)
-    list(APPEND gen_gpu_kernel_source_files
-      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_cuda.cu"
-      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_kernel_cta.cu"
-      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_kernel_warp.cu")
-  endforeach()
-
-endforeach()
 
 list(APPEND gen_defused_optim_py_files
     ${CMAKE_BINARY_DIR}/optimizer_args.py)
