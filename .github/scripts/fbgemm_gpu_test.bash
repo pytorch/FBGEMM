@@ -30,10 +30,14 @@ run_python_test () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
+  start_time=$(date +%s)
 
   # shellcheck disable=SC2086
   if print_exec conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --cache-clear  "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
+    end_time=$(date +%s)
+    runtime=$((end_time-start_time))
+    echo "[TEST] Python test time for ${python_test_file}: ${runtime} seconds"
     echo ""
     echo ""
     echo ""
@@ -52,6 +56,9 @@ run_python_test () {
   # shellcheck disable=SC2086
   if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures none "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED with retries: ${python_test_file}"
+    end_time=$(date +%s)
+    runtime=$((end_time-start_time))
+    echo "[TEST] Python test time with retries for ${python_test_file}: ${runtime} seconds"
     echo ""
     echo ""
     echo ""
