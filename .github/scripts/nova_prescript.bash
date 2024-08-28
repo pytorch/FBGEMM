@@ -18,28 +18,59 @@ BUILD_ENV_NAME=${CONDA_ENV}
 # shellcheck source=.github/scripts/setup_env.bash
 . "${PRELUDE}";
 
+# Record time for each step
+start_time=$(date +%s)
+
 # Display System Info
 print_system_info
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to display System Info: ${runtime} seconds"
 
 # Display Conda information
 print_conda_info
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to display Conda information: ${runtime} seconds"
 
 # Display GPU Info
 print_gpu_info
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to display GPU Info: ${runtime} seconds"
 
 # Install C/C++ Compilers
 install_cxx_compiler "${BUILD_ENV_NAME}"
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to install C/C++ Compilers: ${runtime} seconds"
 
 # Install Build Tools
 install_build_tools "${BUILD_ENV_NAME}"
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to install Build Tools: ${runtime} seconds"
 
 # Collect PyTorch environment information
 collect_pytorch_env_info "${BUILD_ENV_NAME}"
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to collect PyTorch environment information: ${runtime} seconds"
 
 if [[ $CU_VERSION = cu* ]]; then
   # Extract the CUDA version number from CU_VERSION
   cuda_version=$(echo "[NOVA] ${CU_VERSION}" | cut -c 3-)
   install_cudnn "${BUILD_ENV_NAME}" "$(pwd)/build_only/cudnn" "${cuda_version}"
+  end_time=$(date +%s)
+  runtime=$((end_time-start_time))
+  start_time=${end_time}
+  echo "[NOVA] Time taken to install cudnn: ${runtime} seconds"
 
   echo "[NOVA] -------- Finding NVML_LIB_PATH -----------"
   if [[ ${NVML_LIB_PATH} == "" ]]; then
@@ -58,6 +89,10 @@ if [[ $CU_VERSION = cu* ]]; then
 
   echo "[NOVA] NVML_LIB_PATH = ${NVML_LIB_PATH}"
   echo "[NOVA] ------------------------------------------"
+  end_time=$(date +%s)
+  runtime=$((end_time-start_time))
+  start_time=${end_time}
+  echo "[NOVA] Time taken to find NVML_LIB_PATH: ${runtime} seconds"
 
   echo "[NOVA] Building the CUDA variant of FBGEMM_GPU ..."
   export fbgemm_variant="cuda"
@@ -74,6 +109,10 @@ fi
 # Install the necessary Python eggs for building
 cd "${FBGEMM_REPO}/fbgemm_gpu" || exit 1
 prepare_fbgemm_gpu_build "${BUILD_ENV_NAME}"
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to prepare the build : ${runtime} seconds / $(display_time ${runtime})"
 
 # Reset the BUILD_FROM_NOVA flag to run setup.py for the actual build
 BUILD_FROM_NOVA=0
@@ -86,6 +125,10 @@ fi
 
 # Build the wheel
 build_fbgemm_gpu_package "${BUILD_ENV_NAME}" "${CHANNEL}" "${fbgemm_variant}"
+end_time=$(date +%s)
+runtime=$((end_time-start_time))
+start_time=${end_time}
+echo "[NOVA] Time taken to build the package: ${runtime} seconds / $(display_time ${runtime})"
 
 # Temporary workaround - copy dist/ to root repo for smoke test
 echo "[NOVA] Copying dist folder to root repo ..."
