@@ -30,10 +30,14 @@ run_python_test () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
+  # shellcheck disable=SC2155
+  local start=$(date +%s)
 
   # shellcheck disable=SC2086
   if print_exec conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --cache-clear  "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
+    local runtime=$(($(date +%s)-start))
+    echo "[TEST] Python test time for ${python_test_file}: ${runtime} seconds"
     echo ""
     echo ""
     echo ""
@@ -52,6 +56,9 @@ run_python_test () {
   # shellcheck disable=SC2086
   if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures none "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED with retries: ${python_test_file}"
+    end_time=$(date +%s)
+    runtime=$((end_time-start_time))
+    echo "[TEST] Python test time with retries for ${python_test_file}: ${runtime} seconds"
     echo ""
     echo ""
     echo ""
@@ -77,6 +84,9 @@ __configure_fbgemm_gpu_test_cpu () {
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
+    ./ssd/ssd_split_tbe_inference_test.py
+    ./ssd/ssd_split_tbe_training_test.py
+    ./ssd/ssd_utils_test.py
   )
 }
 
@@ -94,6 +104,9 @@ __configure_fbgemm_gpu_test_cuda () {
   print_exec conda env config vars unset ${env_prefix} CUDA_VISIBLE_DEVICES
 
   ignored_tests=(
+    ./ssd/ssd_split_tbe_inference_test.py
+    ./ssd/ssd_split_tbe_training_test.py
+    ./ssd/ssd_utils_test.py
   )
 }
 
