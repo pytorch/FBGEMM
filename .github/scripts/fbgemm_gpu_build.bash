@@ -400,8 +400,15 @@ __print_library_infos () {
     echo "[CHECK] Listing out the GLIBCXX versions referenced:"
     print_glibc_info "${library}"
 
+    echo "[CHECK] Checking symbols: "
+    print_exec "nm -gDC ${library} > symbols"
+    echo "[CHECK] Number of symbols in ${library}: $(wc -l < symbols)"
+    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm symbols)"
+
+    print_exec "nm -gDCu ${library} > usymbols"
+    echo "[CHECK] Number of undefined symbols: $(wc -l < usymbols)"
     echo "[CHECK] Listing out undefined symbols:"
-    print_exec "nm -gDCu ${library} | sort"
+    print_exec "sort usymbols"
 
     echo "[CHECK] Listing out external shared libraries linked:"
     print_exec ldd "${library}"
