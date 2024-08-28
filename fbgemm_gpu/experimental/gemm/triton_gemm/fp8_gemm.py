@@ -1467,6 +1467,7 @@ def _kernel_matmul_fp8_block_slowacc(
         tl.atomic_add(c, acc, mask=mask)
 
 
+@torch.library.custom_op("triton::matmul_fp8_block", mutates_args=())
 def matmul_fp8_block(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -1585,6 +1586,25 @@ def matmul_fp8_block(
             AB_DTYPE=False,
         )
     return c.view(output_shape)
+
+
+@matmul_fp8_block.register_fake
+def matmul_fp8_block_meta(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_scale: torch.Tensor,
+    scale_block_m: int = 256,
+    scale_block_n: int = 256,
+    scale_block_k: int = 256,
+    dot_out_dtype: Optional[torch.dtype] = None,
+    allow_tf32: bool = True,
+    fp8_fast_accum: bool = True,
+) -> torch.Tensor:
+    """Shape function for torch compile."""
+    M, K = a.shape
+    N, K = b.shape
+    return torch.empty((M, N), device=a.device, dtype=torch.bfloat16)
 
 
 def get_matmul_tune(M: int, N: int, K: int) -> Tuple[int, int, int]:
