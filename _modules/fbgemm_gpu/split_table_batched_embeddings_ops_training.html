@@ -521,6 +521,12 @@
     <span class="n">DECOUPLE</span> <span class="o">=</span> <span class="mi">2</span>
 
 
+<span class="k">class</span> <span class="nc">StepMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+    <span class="n">NONE</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">USE_COUNTER</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">USE_ITER</span> <span class="o">=</span> <span class="mi">2</span>
+
+
 <span class="k">class</span> <span class="nc">LearningRateMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">EQUAL</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
     <span class="n">TAIL_ID_LR_INCREASE</span> <span class="o">=</span> <span class="mi">0</span>
@@ -763,11 +769,12 @@
 <span class="sd">        6) output_size - The output size (number of elements)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">batch_size_per_feature_per_rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
-            <span class="ow">or</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span>
-            <span class="ow">or</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span>
-        <span class="p">),</span> <span class="s2">&quot;Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD only&quot;</span>
+        <span class="k">assert</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
+            <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
+            <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,</span>
+            <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+            <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
+        <span class="p">),</span> <span class="s2">&quot;Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD and ENSEMBLE_ROWWISE_ADAGRAD only&quot;</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="n">pooling_mode</span> <span class="o">!=</span> <span class="n">PoolingMode</span><span class="o">.</span><span class="n">NONE</span>
         <span class="p">),</span> <span class="s2">&quot;Variable batch size TBE support is not enabled for PoolingMode.NONE&quot;</span>
@@ -912,7 +919,7 @@
         <span class="c1"># used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, LAMB, and ADAM only</span>
         <span class="c1"># NOTE that default is different from nn.optim.Adagrad default of 1e-10</span>
         <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0e-8</span><span class="p">,</span>
-        <span class="n">momentum</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>  <span class="c1"># used by LARS-SGD</span>
+        <span class="n">momentum</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>  <span class="c1"># used by LARS-SGD and ENSEMBLE_ROWWISE_ADAGRAD</span>
         <span class="c1"># EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay</span>
         <span class="c1"># LAMB, ADAM, PARTIAL_ROWWISE_ADAM, PARTIAL_ROWWISE_LAMB, LARS_SGD support decoupled weight decay</span>
         <span class="c1"># EXACT_ROWWISE_ADAGRAD support both L2 and decoupled weight decay (via weight_decay_mode)</span>
@@ -921,6 +928,10 @@
         <span class="n">eta</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.001</span><span class="p">,</span>  <span class="c1"># used by LARS-SGD,</span>
         <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>  <span class="c1"># used by LAMB and ADAM</span>
         <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>  <span class="c1"># used by LAMB and ADAM</span>
+        <span class="n">step_ema</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
+        <span class="n">step_swap</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
+        <span class="n">step_start</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
+        <span class="n">step_mode</span><span class="p">:</span> <span class="n">StepMode</span> <span class="o">=</span> <span class="n">StepMode</span><span class="o">.</span><span class="n">USE_COUNTER</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
         <span class="n">counter_based_regularization</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
             <span class="n">CounterBasedRegularizationDefinition</span>
         <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># used by Rowwise Adagrad</span>
@@ -1190,6 +1201,7 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">LARS_SGD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
             <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Optimizer </span><span class="si">{</span><span class="n">optimizer</span><span class="si">}</span><span class="s2"> is not supported.&quot;</span>
 
@@ -1278,6 +1290,10 @@
             <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span>
             <span class="n">beta1</span><span class="o">=</span><span class="n">beta1</span><span class="p">,</span>
             <span class="n">beta2</span><span class="o">=</span><span class="n">beta2</span><span class="p">,</span>
+            <span class="n">step_ema</span><span class="o">=</span><span class="n">step_ema</span><span class="p">,</span>
+            <span class="n">step_swap</span><span class="o">=</span><span class="n">step_swap</span><span class="p">,</span>
+            <span class="n">step_start</span><span class="o">=</span><span class="n">step_start</span><span class="p">,</span>
+            <span class="n">step_mode</span><span class="o">=</span><span class="n">step_mode</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
             <span class="n">weight_decay</span><span class="o">=</span><span class="n">weight_decay</span><span class="p">,</span>
             <span class="n">weight_decay_mode</span><span class="o">=</span><span class="n">opt_arg_weight_decay_mode</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
             <span class="n">eta</span><span class="o">=</span><span class="n">eta</span><span class="p">,</span>
@@ -1299,9 +1315,10 @@
 
         <span class="k">if</span> <span class="n">optimizer</span> <span class="o">!=</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
             <span class="k">assert</span> <span class="p">(</span>
-                <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span>
+                <span class="n">optimizer</span>
+                <span class="ow">in</span> <span class="p">(</span><span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">)</span>
                 <span class="ow">or</span> <span class="n">optimizer_state_dtypes</span> <span class="ow">is</span> <span class="kc">None</span>
-            <span class="p">),</span> <span class="s2">&quot;optimizer_state_dtypes option is only supported for OptimType.PARTIAL_ROWWISE_ADAM&quot;</span>
+            <span class="p">),</span> <span class="s2">&quot;optimizer_state_dtypes option is only supported for OptimType.PARTIAL_ROWWISE_ADAM and OptimType.ENSEMBLE_ROWWISE_ADAGRAD&quot;</span>
             <span class="k">if</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,):</span>
                 <span class="c1"># NOTE: make TorchScript work!</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;momentum1&quot;</span><span class="p">)</span>
@@ -1339,10 +1356,12 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">LAMB</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
             <span class="p">):</span>
                 <span class="n">rowwise</span> <span class="o">=</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
+                    <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="n">momentum2_dtype</span> <span class="o">=</span> <span class="p">(</span>
                     <span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
@@ -1421,6 +1440,24 @@
                     <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                     <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                 <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;prev_iter&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
+                    <span class="n">construct_split_state</span><span class="p">(</span>
+                        <span class="n">embedding_specs</span><span class="p">,</span>
+                        <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                        <span class="n">cacheable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;row_counter&quot;</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
+                    <span class="c1">#  but got `Type[torch.float32]`.</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
+                    <span class="s2">&quot;max_counter&quot;</span><span class="p">,</span>
+                    <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
+                    <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;prev_iter&quot;</span><span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;row_counter&quot;</span><span class="p">)</span>
@@ -1436,6 +1473,7 @@
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">LAMB</span><span class="p">,</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
+                    <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span>
             <span class="p">):</span>
@@ -1970,14 +2008,23 @@
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">:</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span><span class="n">FeatureGateName</span><span class="o">.</span><span class="n">TBE_ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">):</span>
-                <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
-                    <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD feature has not landed yet (see D60189486 stack)&quot;</span>
-                <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
-                    <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD is an inactive or deprecated feature!&quot;</span>
-                <span class="p">)</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span>
+                <span class="n">FeatureGateName</span><span class="o">.</span><span class="n">TBE_ENSEMBLE_ROWWISE_ADAGRAD</span>
+            <span class="p">),</span> <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD is an inactive or deprecated feature!&quot;</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_ensemble_rowwise_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                    <span class="n">momentum1</span><span class="p">,</span>
+                    <span class="n">momentum2</span><span class="p">,</span>
+                    <span class="n">row_counter</span><span class="p">,</span>
+                    <span class="nb">iter</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">()),</span>
+                    <span class="n">apply_global_weight_decay</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="n">prev_iter_dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_dev</span><span class="p">,</span>
+                    <span class="n">gwd_lower_bound</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span><span class="p">:</span>
             <span class="k">if</span> <span class="p">(</span>
@@ -2435,6 +2482,15 @@
                 <span class="p">{</span><span class="s2">&quot;exp_avg&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s2">&quot;exp_avg_sq&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">1</span><span class="p">]}</span>
                 <span class="k">for</span> <span class="n">states</span> <span class="ow">in</span> <span class="n">split_optimizer_states</span>
             <span class="p">]</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">:</span>
+            <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;sum&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                    <span class="s2">&quot;exp_avg&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                    <span class="s2">&quot;row_counter&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+                <span class="p">}</span>
+                <span class="k">for</span> <span class="n">states</span> <span class="ow">in</span> <span class="n">split_optimizer_states</span>
+            <span class="p">]</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Getting optimizer state </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2"> is not implmeneted&quot;</span>
@@ -2481,6 +2537,19 @@
             <span class="k">return</span> <span class="n">splits</span>
 
         <span class="n">states</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c1"># For ensemble_rowwise_adagrad, momentum2 (&quot;sum&quot;) should go first,</span>
+        <span class="c1"># as it is the default optimizer state for embedding pruning later.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">:</span>
+            <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">get_optimizer_states</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_dev</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_host</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_uvm</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_physical_offsets</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_physical_placements</span><span class="p">,</span>
+                    <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
@@ -2512,7 +2581,10 @@
                     <span class="ow">in</span> <span class="p">(</span><span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">),</span>
                 <span class="p">)</span>
             <span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span><span class="p">:</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span>
+        <span class="p">):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_dev</span><span class="p">,</span>
@@ -2523,17 +2595,10 @@
                     <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span><span class="p">:</span>
-            <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                <span class="n">get_optimizer_states</span><span class="p">(</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_dev</span><span class="p">,</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_host</span><span class="p">,</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_uvm</span><span class="p">,</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_physical_offsets</span><span class="p">,</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_physical_placements</span><span class="p">,</span>
-                    <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-                <span class="p">)</span>
-            <span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span>
+        <span class="p">):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">row_counter_dev</span><span class="p">,</span>
