@@ -8,6 +8,7 @@
 
 /// @defgroup embedding-ssd Embedding SSD Operators
 
+#pragma once
 #include <cuda_runtime.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 
