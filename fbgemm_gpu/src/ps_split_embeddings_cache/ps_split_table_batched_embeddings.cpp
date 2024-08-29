@@ -23,7 +23,8 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
       int64_t maxLocalIndexLength = 54,
       int64_t num_threads = 32,
       int64_t maxKeysPerRequest = 500,
-      int64_t l2_cache_size_gb = 0) {
+      int64_t l2_cache_size_gb = 0,
+      int64_t max_D = 0) {
     TORCH_CHECK(
         tps_ips.size() == tps_ports.size(),
         "tps_ips and tps_ports must have the same size");
@@ -38,7 +39,8 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
         maxLocalIndexLength,
         num_threads,
         maxKeysPerRequest,
-        l2_cache_size_gb);
+        l2_cache_size_gb,
+        max_D);
   }
 
   void
@@ -82,6 +84,7 @@ static auto embedding_parameter_server_wrapper =
         .def(torch::init<
              const std::vector<std::string>,
              const std::vector<int64_t>,
+             int64_t,
              int64_t,
              int64_t,
              int64_t,

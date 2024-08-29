@@ -20,21 +20,13 @@
 #include "fb_rocksdb/FbRocksDb.h"
 #include "rocks/utils/FB303Stats.h"
 #endif
+#include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "kv_db_table_batched_embeddings.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 
 namespace ssd {
 
 using namespace at;
-
-// TODO: does this need to be different from the cache slot hashing function?
-// Probably not right?
-inline size_t db_shard(int64_t id, size_t num_shards) {
-  auto hash = folly::hash::fnv64_buf(
-      reinterpret_cast<const char*>(&id), sizeof(int64_t));
-  __uint128_t wide = __uint128_t{num_shards} * hash;
-  return static_cast<size_t>(wide >> 64);
-}
 
 // We can be a bit sloppy with host memory here.
 constexpr size_t kRowInitBufferSize = 32 * 1024;
@@ -150,8 +142,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t cache_size = 0,
       bool use_passed_in_path = false,
       int64_t tbe_unqiue_id = 0,
-      int64_t l2_cache_size_gb = 0)
-      : kv_db::EmbeddingKVDB(l2_cache_size_gb) {
+      int64_t l2_cache_size_gb = 1)
+      : kv_db::EmbeddingKVDB(
+            num_shards,
+            max_D,
+            l2_cache_size_gb,
+            tbe_unqiue_id) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
     options.create_if_missing = true;
@@ -373,7 +369,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                           if (indices_acc[i] == -1) {
                             continue;
                           }
-                          if (db_shard(indices_acc[i], dbs_.size()) != shard) {
+                          if (kv_db_utils::hash_shard(
+                                  indices_acc[i], dbs_.size()) != shard) {
                             continue;
                           }
                           batch.Put(
@@ -443,8 +440,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                         if (indices_data_ptr[i] == -1) {
                           continue;
                         }
-                        if (db_shard(indices_data_ptr[i], dbs_.size()) !=
-                            shard) {
+                        if (kv_db_utils::hash_shard(
+                                indices_data_ptr[i], dbs_.size()) != shard) {
                           continue;
                         }
                         shard_ids.push_back(i);

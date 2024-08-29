@@ -137,7 +137,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         use_passed_in_path: int = True,
         gather_ssd_cache_stats: Optional[bool] = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
-        l2_cache_size: int = 0,
+        l2_cache_size: int = 1,
         # Set to True to enable pipeline prefetching
         prefetch_pipeline: bool = False,
         # Set to True to alloc a UVM tensor using malloc+cudaHostRegister.
@@ -358,7 +358,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         logging.info(f"tbe_unique_id: {tbe_unique_id}")
         if not ps_hosts:
             logging.info(
-                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id},"
+                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, "
                 f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
                 f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
                 f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},rate_limit_mbps={ssd_rate_limit_mbps},"
@@ -406,6 +406,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ps_client_thread_num if ps_client_thread_num is not None else 32,
                 ps_max_key_per_request if ps_max_key_per_request is not None else 500,
                 l2_cache_size,
+                self.max_D,
             )
         # pyre-fixme[20]: Argument `self` expected.
         (low_priority, high_priority) = torch.cuda.Stream.priority_range()
