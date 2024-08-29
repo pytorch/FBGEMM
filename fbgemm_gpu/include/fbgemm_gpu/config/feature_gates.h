@@ -57,7 +57,8 @@ namespace fbgemm_gpu::config {
 /// For OSS: The environment variable will be evaluated as f"FBGEMM_{ENUM}"
 #define ENUMERATE_ALL_FEATURE_FLAGS \
   X(TBE_V2)                         \
-  X(TBE_ENSEMBLE_ROWWISE_ADAGRAD)
+  X(TBE_ENSEMBLE_ROWWISE_ADAGRAD)   \
+  X(TBE_ANNOTATE_KINETO_TRACE)
 // X(EXAMPLE_FEATURE_FLAG)
 
 /// @ingroup fbgemm-gpu-config
