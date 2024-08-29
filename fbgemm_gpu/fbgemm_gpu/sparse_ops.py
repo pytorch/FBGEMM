@@ -26,9 +26,7 @@ except Exception:
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip"
         )
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops_hip"
-        )
+
     else:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
         torch.ops.load_library(

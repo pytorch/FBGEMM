@@ -34,7 +34,6 @@
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
