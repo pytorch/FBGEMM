@@ -21,6 +21,7 @@ TEST(RocksDbEmbeddingCacheTest, TestPutAndGet) {
   std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
   std::filesystem::path rocksdb_dir = temp_dir / "rocksdb";
   std::filesystem::create_directories(rocksdb_dir);
+  auto EMBEDDING_DIMENSION = 8;
   auto rocks_db_cache = std::make_unique<ssd::EmbeddingRocksDB>(
       rocksdb_dir,
       8, // num_shards,
@@ -28,7 +29,7 @@ TEST(RocksDbEmbeddingCacheTest, TestPutAndGet) {
       0, // memtable_flush_period,
       0, // memtable_flush_offset,
       4, // l0_files_per_compact,
-      128, // max embedding dimension,
+      EMBEDDING_DIMENSION, // max embedding dimension,
       0, // rate_limit_mbps,
       1, // size_ratio,
       8, // compaction_trigger,
@@ -43,7 +44,6 @@ TEST(RocksDbEmbeddingCacheTest, TestPutAndGet) {
   auto write_indices =
       at::tensor({10, 2, 1}, at::TensorOptions().dtype(at::kLong));
 
-  auto EMBEDDING_DIMENSION = 8;
   auto write_buffer = at::randn(
       {write_indices.size(0), EMBEDDING_DIMENSION},
       at::TensorOptions().dtype(at::kFloat));

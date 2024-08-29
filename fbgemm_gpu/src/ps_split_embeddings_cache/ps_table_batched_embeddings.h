@@ -23,8 +23,13 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
       int64_t maxLocalIndexLength = 54,
       int64_t num_threads = 32,
       int64_t maxKeysPerRequest = 500,
-      int64_t l2_cache_size_gb = 0)
-      : kv_db::EmbeddingKVDB(l2_cache_size_gb),
+      int64_t l2_cache_size_gb = 0,
+      int64_t max_D = 0)
+      : kv_db::EmbeddingKVDB(
+            num_threads,
+            max_D,
+            l2_cache_size_gb,
+            tbe_id), // update this interface
         tps_client_(
             std::make_shared<mvai_infra::experimental::ps_training::tps_client::
                                  TrainingParameterServiceClient>(

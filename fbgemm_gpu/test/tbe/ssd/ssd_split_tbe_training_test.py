@@ -116,6 +116,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_lower=-0.1,
             ssd_uniform_init_upper=0.1,
             weights_precision=weights_precision,
+            l2_cache_size=8,
         )
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
@@ -272,6 +273,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             stochastic_rounding=stochastic_rounding,
             prefetch_pipeline=prefetch_pipeline,
             bounds_check_mode=BoundsCheckMode.WARNING,
+            l2_cache_size=8,
         ).cuda()
 
         # A list to keep the CPU tensor alive until `set` (called inside

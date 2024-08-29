@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "kv_db_utils.h"
+#include "kv_db_cuda_utils.h"
 #include <ATen/cuda/CUDAContext.h>
 
 namespace kv_db_utils {

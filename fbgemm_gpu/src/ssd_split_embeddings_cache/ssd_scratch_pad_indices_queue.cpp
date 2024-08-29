@@ -14,7 +14,7 @@
 #include <memory>
 #include <queue>
 #include <unordered_map>
-#include "kv_db_utils.h"
+#include "kv_db_cuda_utils.h"
 
 using namespace at;
 

@@ -301,6 +301,8 @@ class SSDIntNBitTableBatchedEmbeddingBags(nn.Module):
                 ),
                 ps_client_thread_num if ps_client_thread_num is not None else 32,
                 ps_max_key_per_request if ps_max_key_per_request is not None else 500,
+                0,  # ssd_block_cache_size
+                self.max_D_cache,
             )
 
         # pyre-fixme[20]: Argument `self` expected.
