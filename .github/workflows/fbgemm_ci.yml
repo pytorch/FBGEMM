@@ -202,3 +202,53 @@ jobs:
         echo %PATH%
         ctest --rerun-failed --output-on-failure
         if errorlevel 1 exit /b 1
+
+  build-windows-arm64:
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: cmd
+    env:
+      BUILD_DIR: build_${{ matrix.library-type }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-2022 ]
+        library-type: [ static, shared ]
+
+    steps:
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Get CPU info on Windows
+      shell: cmd
+      run: |
+        wmic cpu list full
+
+    - name: Build FBGEMM Library (${{ matrix.library-type }})
+      shell: cmd
+      run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64_arm64
+        echo "INSTALL NINJA:"
+        pip install ninja
+        which ninja
+        mkdir %BUILD_DIR%
+        cd %BUILD_DIR%
+        echo "STARTING CMAKE"
+        cmake --version
+        cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
+        ninja -v all
+        echo "Build Success"
+
+    - name: Test FBGEMM Library (${{ matrix.library-type }})
+      shell: cmd
+      run: |
+        echo %cd%
+        cd %BUILD_DIR%
+        set PATH=%PATH%;%cd%;%cd%\asmjit
+        echo %PATH%
+        ctest --rerun-failed --output-on-failure
+        if errorlevel 1 exit /b 1
+
