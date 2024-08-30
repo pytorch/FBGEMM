@@ -14,6 +14,7 @@ import math
 import os
 import random
 import statistics
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -43,6 +44,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 )
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch import Tensor
+from torch.profiler import profile
 
 haveAIBench = False
 try:
@@ -110,6 +112,12 @@ def cli() -> None:
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -134,6 +142,8 @@ def device(  # noqa C901
     output_dtype: SparseType,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -187,6 +197,7 @@ def device(  # noqa C901
         do_pooling = False
 
     if dense:
+        tbe_type: str = "dense"
         emb = DenseTableBatchedEmbeddingBagsCodegen(
             [
                 (
@@ -199,6 +210,7 @@ def device(  # noqa C901
             use_cpu=not torch.cuda.is_available(),
         )
     else:
+        tbe_type: str = "split"
         emb = SplitTableBatchedEmbeddingBagsCodegen(
             [
                 (
@@ -263,18 +275,29 @@ def device(  # noqa C901
         use_cpu=not torch.cuda.is_available(),
     )
 
-    # forward
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb.forward(
-            indices.long(),
-            offsets.long(),
-            per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
-        ),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        num_warmups=warmup_runs,
-    )
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
+        )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        # forward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.long(),
+                offsets.long(),
+                per_sample_weights,
+                feature_requires_grad=feature_requires_grad,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            num_warmups=warmup_runs,
+        )
+
     logging.info(
         f"Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
@@ -290,20 +313,23 @@ def device(  # noqa C901
         grad_output = torch.randn(B, sum(Ds)).to(get_device())
     else:
         grad_output = torch.randn(B * T * L, D).to(get_device())
-    # backward
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb(
-            indices.long(),
-            offsets.long(),
-            per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
-        ),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        bwd_only=True,
-        grad=grad_output,
-        num_warmups=warmup_runs,
-    )
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
+        # backward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb(
+                indices.long(),
+                offsets.long(),
+                per_sample_weights,
+                feature_requires_grad=feature_requires_grad,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            bwd_only=True,
+            grad=grad_output,
+            num_warmups=warmup_runs,
+        )
+
     logging.info(
         f"Backward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
