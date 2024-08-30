@@ -271,11 +271,7 @@ def py_dequantize_mx4(
     a = torch.stack([low_mx4, high_mx4], dim=0).view(2, -1).t().contiguous()
 
     # Use a lookup table to convert
-    mx4_to_fp_values = torch.tensor(
-        get_mx4_lookup_table(ebits, mbits),
-        device=device,
-        dtype=torch.float,
-    )
+    mx4_to_fp_values = get_mx4_lookup_table(ebits, mbits, device)
     # Convert values into float32 equivalent via lookup.
     out = torch.index_select(mx4_to_fp_values, 0, a.to(torch.int32).view(-1))
 

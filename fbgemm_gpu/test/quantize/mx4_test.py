@@ -11,14 +11,13 @@ from typing import List, Tuple
 
 import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 import hypothesis.strategies as st
-import numpy as np
 
 import torch
 
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32, RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
-from hypothesis import assume, given, settings, Verbosity
+from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402
 
@@ -242,7 +241,8 @@ class TestMXQuantizationConversion(unittest.TestCase):
                 [2, 16],  # Multi dimensional shape that is padded.
                 [2, 2, 4, 32],  # Even more multi dimensional shape without padding.
                 [96],  # Shape that cannot be made into even rows.
-                [16, 1028],  # Large shape with multiple rows.
+                [16, 1028],  # Large shape with multiple padded rows.
+                [4, 30],  # Multiple small rows with padding.
             ]
         ),
         group_size=st.sampled_from([32, 64]),
@@ -262,8 +262,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
         device: str,
     ) -> None:
         """Test correctness of mx4 routines with random inputs and unusual shapes."""
-        # Safe to assume there is at least one group.
-        assume(np.prod(shape) >= group_size)
         # We only want to consider total sizes that are divisible by group_size.
         ebits, mbits = mx4_format
 
