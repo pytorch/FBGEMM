@@ -378,6 +378,7 @@ test_setup_conda_environment () {
 test_fbgemm_gpu_build_and_install () {
   local env_name="$1"
   local pytorch_variant_type="$2"
+  local repo="$3"
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VARIANT_TYPE"
     echo "Example(s):"
@@ -392,29 +393,39 @@ test_fbgemm_gpu_build_and_install () {
     echo ""
   fi
 
+  if [ "$repo" == "" ]; then
+    repo=~/FBGEMM
+  fi
+
   # Assume we are starting from the repository root directory
-  cd ~/FBGEMM/fbgemm_gpu                                                      || return 1
+  cd "${repo}/fbgemm_gpu"                                                     || return 1
   prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
   build_fbgemm_gpu_package    "${env_name}" release "${pytorch_variant_type}" || return 1
 
-  cd ~/FBGEMM/                                                                || return 1
+  cd "${repo}"                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
 }
 
 test_fbgemm_gpu_build_and_install_and_run () {
   local env_name="$1"
   local pytorch_variant_type="$2"
+  local repo="$3"
 
-  test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}"   || return 1
+  if [ "$repo" == "" ]; then
+    repo=~/FBGEMM
+  fi
 
-  cd ~/FBGEMM/                                                                || return 1
-  test_all_fbgemm_gpu_modules "${env_name}"                                   || return 1
+  test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}" "${repo}"  || return 1
+
+  cd "${repo}"                                                                         || return 1
+  test_all_fbgemm_gpu_modules "${env_name}"                                            || return 1
 }
 
 test_fbgemm_gpu_setup_and_pip_install () {
   local variant_type="$1"
   local pytorch_channel_version="$2"
   local fbgemm_gpu_channel_version="$3"
+  local repo="$4"
   if [ "$fbgemm_gpu_channel_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_CHANNEL[/VERSION] FBGEMM_GPU_CHANNEL[/VERSION]"
     echo "Example(s):"
@@ -431,15 +442,20 @@ test_fbgemm_gpu_setup_and_pip_install () {
     echo ""
   fi
 
+  if [ "$repo" == "" ]; then
+    repo=~/FBGEMM
+  fi
+
   __single_run () {
     local py_version="$1"
     local variant_version="$2"
+    local repo="$3"
 
     local env_name="test_py${py_version}_pytorch_${pytorch_channel_version}_fbgemm_${fbgemm_gpu_channel_version}_${variant_type}/${variant_version}"
     local env_name="${env_name//\//_}"
     test_setup_conda_environment  "${env_name}" 'no-compiler' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"   || return 1
     install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                                    || return 1
-    cd ~/FBGEMM                                                                                                                                         || return 1
+    cd "${repo}"                                                                                                                                        || return 1
 
     test_all_fbgemm_gpu_modules "${env_name}"
     local retcode=$?
@@ -493,7 +509,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
 
   for py_ver in "${python_versions[@]}"; do
     for var_ver in "${variant_versions[@]}"; do
-      __single_run "${py_ver}" "${var_ver}" || return 1
+      __single_run "${py_ver}" "${var_ver}" "${repo}" || return 1
     done
   done
 }
