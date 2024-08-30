@@ -6,8 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-/// @defgroup embedding-ssd Embedding SSD Operators
-
 #pragma once
 #include <cuda_runtime.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>

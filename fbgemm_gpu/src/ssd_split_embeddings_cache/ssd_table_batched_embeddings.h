@@ -121,6 +121,10 @@ class Initializer {
   std::unique_ptr<std::thread> producer_;
 };
 
+/// @ingroup embedding-ssd
+///
+/// @brief An implementation of EmbeddingKVDB for RocksDB
+///
 class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
  public:
   explicit EmbeddingRocksDB(
