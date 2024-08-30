@@ -27,6 +27,7 @@ const std::string to_string(const FeatureGateName& value) {
     ENUMERATE_ALL_FEATURE_FLAGS
 #undef X
   }
+  return "UNKNOWN";
 }
 
 bool ev_check_key(const std::string& key) {
