@@ -54,10 +54,6 @@ class QuantizedCommCodecTest(unittest.TestCase):
                 assume((col_size * row_size) % row_dim == 0)
             assume(col_size % 4 == 0)
 
-        # For these tests assume that rows dont need padding.
-        if comm_precision == SparseType.MX4:
-            assume((col_size) % 32 == 0)
-
         torch.manual_seed(rand_seed)
         shape = (row_size, col_size)
         input_tensor = torch.rand(shape, requires_grad=True)
@@ -82,18 +78,33 @@ class QuantizedCommCodecTest(unittest.TestCase):
             assume(row_size * col_size % ctx.row_dim == 0)
             input_tensor = input_tensor.view(-1)
 
+        dim_sum_per_rank, rank = [col_size], 0
+        if ctx is not None:
+            padded_dim_sum, padding_size = quant_codec.padded_size(
+                input_tensor, dim_sum_per_rank, rank, ctx
+            )
+        else:
+            padded_dim_sum, padding_size = shape[1], 0
         quant_tensor = quant_codec.encode(input_tensor, ctx)
 
+        padded_numel = (
+            padded_dim_sum
+            if input_tensor.ndim == 1
+            else padded_dim_sum * input_tensor.shape[0]
+        )
         self.assertEqual(
             quant_tensor.numel(),
-            quant_codec.calc_quantized_size(input_tensor.numel(), ctx),
+            quant_codec.calc_quantized_size(padded_numel, ctx),
         )
 
         output_tensor = quant_codec.decode(quant_tensor, ctx)
 
         # MX4 may flatten tensors if they are too small. Thats ok.
         if comm_precision == SparseType.MX4:
-            output_tensor = output_tensor.view(input_tensor.shape)
+            output_tensor = output_tensor.view(input_tensor.shape[0], -1)
+        # padding is done on dimension 1
+        if padding_size != 0:
+            output_tensor = output_tensor[:, :-padding_size]
         self.assertEqual(output_tensor.shape, input_tensor.shape)
 
         rtol = 0.005

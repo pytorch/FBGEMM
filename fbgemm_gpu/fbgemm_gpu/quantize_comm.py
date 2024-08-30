@@ -13,7 +13,7 @@
 
 
 import logging
-from typing import Optional, TypeVar
+from typing import List, Optional, Tuple, TypeVar
 
 import torch
 
@@ -63,6 +63,7 @@ class QuantizationContext:
     row_dim_quant: int = -1
     mx_group_size: int = MX_GROUP_SIZE_DEFAULT
     rounding_mode: RoundingMode = RoundingMode.ceil
+    padded_dim_sum_per_rank: Optional[List[int]] = None
 
 
 def _quantize_tensor(
@@ -106,7 +107,9 @@ def _quantize_tensor(
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
         rounding_mode = ctx.rounding_mode if ctx is not None else RoundingMode.ceil
-        return fp32_to_mx4(input_tensor, mx_group_size, rounding_mode=rounding_mode)
+        return fp32_to_mx4(
+            input_tensor, mx_group_size, rounding_mode=rounding_mode
+        ).view(-1)
     else:
         raise ValueError(f"comm_precision={comm_precision} is not supported")
 
@@ -248,3 +251,34 @@ class QuantizedCommCodec:
             return QuantizationContext(self._row_dim)
         # int8 rowwise is default
         return QuantizationContext()
+
+    def padded_size(
+        self,
+        input_tensor: torch.Tensor,
+        dim_per_rank: List[int],
+        my_rank: int,
+        qcomm_ctx: QuantizationContext,
+    ) -> Tuple[int, int]:
+        if input_tensor.ndim == 1:
+            return input_tensor.shape[0], 0
+        # return padded size for the feature dimension (dim 1), 0 if no padding needed.
+        padded_dim_sum, padding_size = input_tensor.shape[1], 0
+        if self._comm_precision == SparseType.MX4:
+            group_size = qcomm_ctx.mx_group_size
+            padding_size_per_rank = [
+                group_size - (t if (t := dim_sum % group_size) > 0 else group_size)
+                for dim_sum in dim_per_rank
+            ]
+            padded_dim_sum_per_rank = [
+                a + b for a, b in zip(dim_per_rank, padding_size_per_rank)
+            ]
+            dim_sum, padding_size = (
+                dim_per_rank[my_rank],
+                padding_size_per_rank[my_rank],
+            )
+            assert input_tensor.ndim == 2 and input_tensor.shape[1] == dim_sum
+            qcomm_ctx.padded_dim_sum_per_rank = padded_dim_sum_per_rank
+            padded_dim_sum = padding_size + dim_sum
+            return padded_dim_sum, padding_size
+
+        return padded_dim_sum, padding_size
