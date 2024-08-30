@@ -279,12 +279,13 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   std::atomic<int64_t> get_cache_lookup_total_duration_{0};
   std::atomic<int64_t> get_cache_lookup_wait_filling_thread_duration_{0};
   std::atomic<int64_t> get_weights_fillup_total_duration_{0};
-  std::atomic<int64_t> get_cache_update_total_duration_{0};
   std::atomic<int64_t> get_tensor_copy_for_cache_update_{0};
 
   // -- perf of set() function
   std::atomic<int64_t> set_tensor_copy_for_cache_update_{0};
 
+  // -- commone path
+  std::atomic<int64_t> total_cache_update_duration_{0};
 }; // class EmbeddingKVDB
 
 } // namespace kv_db
