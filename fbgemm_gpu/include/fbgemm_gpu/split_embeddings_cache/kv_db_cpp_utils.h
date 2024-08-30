@@ -12,6 +12,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/// @defgroup embedding-ssd Embedding SSD Operators
+///
+
 namespace kv_db_utils {
 
 /// @ingroup embedding-ssd

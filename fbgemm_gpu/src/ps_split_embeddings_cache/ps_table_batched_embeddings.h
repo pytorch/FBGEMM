@@ -15,6 +15,11 @@
 
 namespace ps {
 
+/// @ingroup embedding-ssd
+///
+/// @brief An implementation of EmbeddingKVDB for Training Parameter Service
+/// (TPS) client
+///
 class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
  public:
   explicit EmbeddingParameterServer(

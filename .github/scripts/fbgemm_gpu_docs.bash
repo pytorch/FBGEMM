@@ -82,11 +82,19 @@ build_fbgemm_gpu_docs () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} SPHINX_LINT=1
 
+  # shellcheck disable=SC2086
+  if print_exec conda run ${env_prefix} make clean doxygen; then
+    echo "[DOCS] Doxygen build passed"
+  else
+    echo "[DOCS] Doxygen build failed!"
+    return 1
+  fi
+
   # Run the first build pass with linting enabled.  The purpose of this pass
   # is only to perform the lint checks, as the generated output will be broken
   # when linting is enabled.
-  # shellcheck disable=SC2086
-  if print_exec conda run ${env_prefix} make clean doxygen html; then
+    # shellcheck disable=SC2086
+  if print_exec conda run ${env_prefix} make html; then
     echo "[DOCS] Docs linting passed"
   else
     echo "[DOCS] Docs linting failed; showing build output ..."
@@ -102,7 +110,7 @@ build_fbgemm_gpu_docs () {
   # Run the second build pass with linting disabled.  The generated output will
   # then be used for publication.
   # shellcheck disable=SC2086
-  (print_exec conda run ${env_prefix} make clean doxygen html) || return 1
+  (print_exec conda run ${env_prefix} make html) || return 1
 
   echo "[DOCS] FBGEMM-GPU documentation build completed"
 }

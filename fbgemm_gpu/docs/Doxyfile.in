@@ -2340,8 +2340,9 @@ SEARCH_INCLUDES        = YES
 # RECURSIVE has no effect here.
 # This tag requires that the tag SEARCH_INCLUDES is set to YES.
 
-INCLUDE_PATH           = "../codegen/" \
-                         "../include/fbgemm_gpu/" \
+INCLUDE_PATH           = "../codegen" \
+                         "../include" \
+                         "../src" \
                          "../../include/fbgemm"
 
 # You can use the INCLUDE_FILE_PATTERNS tag to specify one or more wildcard
