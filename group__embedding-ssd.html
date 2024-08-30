@@ -72,13 +72,29 @@ $(function() {
 
 <div class="header">
   <div class="summary">
+<a href="#nested-classes">Classes</a> &#124;
 <a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">Embedding SSD Operators</div></div>
 </div><!--header-->
 <div class="contents">
 <table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
+Classes</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classl2__cache_1_1_cache_lib_cache.html">CacheLibCache</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classps_1_1_embedding_parameter_server.html">EmbeddingParameterServer</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_cache_context.html">CacheContext</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classssd_1_1_embedding_rocks_d_b.html">EmbeddingRocksDB</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:ga62f470c1f80d566177fd011b4f7181ac" id="r_ga62f470c1f80d566177fd011b4f7181ac"><td class="memItemLeft" align="right" valign="top">size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga62f470c1f80d566177fd011b4f7181ac">hash_shard</a> (int64_t id, size_t num_shards)</td></tr>
+<tr class="separator:ga62f470c1f80d566177fd011b4f7181ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga14b70f98db5378da5071b9049b7356db" id="r_ga14b70f98db5378da5071b9049b7356db"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga14b70f98db5378da5071b9049b7356db">cuda_callback_func</a> (cudaStream_t stream, cudaError_t status, void *functor)</td></tr>
 <tr class="separator:ga14b70f98db5378da5071b9049b7356db"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaf16c3a72b210803c8ed97db57215ea49" id="r_gaf16c3a72b210803c8ed97db57215ea49"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gaf16c3a72b210803c8ed97db57215ea49">masked_index_put_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count, const bool use_pipeline, const int64_t preferred_sms)</td></tr>
@@ -127,6 +143,45 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
+
+</div>
+</div>
+<a id="ga62f470c1f80d566177fd011b4f7181ac" name="ga62f470c1f80d566177fd011b4f7181ac"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga62f470c1f80d566177fd011b4f7181ac">&#9670;&#160;</a></span>hash_shard()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">size_t hash_shard </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>id</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>num_shards</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>hash function used for SSD L2 cache and rocksdb sharding algorithm </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">id</td><td>sharding key </td></tr>
+    <tr><td class="paramname">num_shards</td><td>sharding range</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>shard id ranges from [0, num_shards) </dd></dl>
 
 </div>
 </div>

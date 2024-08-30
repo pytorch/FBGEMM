@@ -421,6 +421,23 @@
 <section id="cuda-operators">
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
 <dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv410hash_shard7int64_t6size_t">
+<span id="_CPPv310hash_shard7int64_t6size_t"></span><span id="_CPPv210hash_shard7int64_t6size_t"></span><span id="hash_shard__int64_t.s"></span><span class="target" id="group__embedding-ssd_1ga62f470c1f80d566177fd011b4f7181ac"></span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">hash_shard</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">id</span></span>, <span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">num_shards</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv410hash_shard7int64_t6size_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>hash function used for SSD L2 cache and rocksdb sharding algorithm </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>id</strong> – sharding key </p></li>
+<li><p><strong>num_shards</strong> – sharding range</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>shard id ranges from [0, num_shards) </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv">
 <span id="_CPPv318cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="_CPPv218cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="cuda_callback_func__cudaStream_t.cudaError_t.voidP"></span><span class="target" id="group__embedding-ssd_1ga14b70f98db5378da5071b9049b7356db"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">cuda_callback_func</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">cudaStream_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">stream</span></span>, <span class="n"><span class="pre">cudaError_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">status</span></span>, <span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">functor</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>A callback function for <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code></p>
@@ -546,6 +563,54 @@
 <dd class="field-even"><p>None </p>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N8l2_cache13CacheLibCacheE">
+<span id="_CPPv3N8l2_cache13CacheLibCacheE"></span><span id="_CPPv2N8l2_cache13CacheLibCacheE"></span><span id="l2_cache::CacheLibCache"></span><span class="target" id="classl2__cache_1_1_cache_lib_cache"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">CacheLibCache</span></span></span><a class="headerlink" href="#_CPPv4N8l2_cache13CacheLibCacheE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;cachelib_cache.h&gt;</em></div>
+<p>A Cachelib wrapper class for Cachlib interaction. </p>
+<p>It is for maintaining all the cache related operations, including initialization, insertion, lookup and eviction. It is stateful for eviction logic that caller has to specifically fetch and reset eviction related states. Cachelib related optimization will be captured inside this class e.g. fetch and delayed markUseful to boost up get performance</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>that this class only handles single Cachelib read/update. parallelism is done on the caller side </p>
+</div>
+</dd></dl>
+
+<dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N2ps24EmbeddingParameterServerE">
+<span id="_CPPv3N2ps24EmbeddingParameterServerE"></span><span id="_CPPv2N2ps24EmbeddingParameterServerE"></span><span id="ps::EmbeddingParameterServer"></span><span class="target" id="classps_1_1_embedding_parameter_server"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">EmbeddingParameterServer</span></span></span><span class="w"> </span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="k"><span class="pre">public</span></span><span class="w"> </span><span class="n"><span class="pre">EmbeddingKVDB</span></span><a class="headerlink" href="#_CPPv4N2ps24EmbeddingParameterServerE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;ps_table_batched_embeddings.h&gt;</em></div>
+<p>An implementation of EmbeddingKVDB for Training Parameter Service (TPS) client. </p>
+</dd></dl>
+
+<dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N5kv_db12CacheContextE">
+<span id="_CPPv3N5kv_db12CacheContextE"></span><span id="_CPPv2N5kv_db12CacheContextE"></span><span id="kv_db::CacheContext"></span><span class="target" id="classkv__db_1_1_cache_context"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">CacheContext</span></span></span><a class="headerlink" href="#_CPPv4N5kv_db12CacheContextE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;kv_db_table_batched_embeddings.h&gt;</em></div>
+<p>It holds l2cache lookup results. </p>
+<p>num_misses is the number of misses in the l2 cache lookup cached_addr_list is preallocated with number of lookups for better parallelism and invalid spot(cache misses) will stay as sentinel value </p>
+</dd></dl>
+
+<dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N5kv_db13EmbeddingKVDBE">
+<span id="_CPPv3N5kv_db13EmbeddingKVDBE"></span><span id="_CPPv2N5kv_db13EmbeddingKVDBE"></span><span id="kv_db::EmbeddingKVDB"></span><span class="target" id="classkv__db_1_1_embedding_k_v_d_b"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">EmbeddingKVDB</span></span></span><span class="w"> </span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="k"><span class="pre">public</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">enable_shared_from_this</span></span><span class="p"><span class="pre">&lt;</span></span><a class="reference internal" href="#_CPPv4N5kv_db13EmbeddingKVDBE" title="kv_db::EmbeddingKVDB"><span class="n"><span class="pre">EmbeddingKVDB</span></span></a><span class="p"><span class="pre">&gt;</span></span><a class="headerlink" href="#_CPPv4N5kv_db13EmbeddingKVDBE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;kv_db_table_batched_embeddings.h&gt;</em></div>
+<p>A class for interacting with different cache layers and storage layers, public calls are executed on cuda stream. </p>
+<p>Currently it is used by TBE to offload Key(Embedding Index) Value(Embeddings) to DRAM, SSD or remote storage, to provide better scalability without blowing up HBM resources </p>
+<p>Subclassed by <a class="reference internal" href="#classps_1_1_embedding_parameter_server"><span class="std std-ref">EmbeddingParameterServer</span></a>, <a class="reference internal" href="#classssd_1_1_embedding_rocks_d_b"><span class="std std-ref">EmbeddingRocksDB</span></a></p>
+</dd></dl>
+
+<dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N3ssd16EmbeddingRocksDBE">
+<span id="_CPPv3N3ssd16EmbeddingRocksDBE"></span><span id="_CPPv2N3ssd16EmbeddingRocksDBE"></span><span id="ssd::EmbeddingRocksDB"></span><span class="target" id="classssd_1_1_embedding_rocks_d_b"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">EmbeddingRocksDB</span></span></span><span class="w"> </span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="k"><span class="pre">public</span></span><span class="w"> </span><span class="n"><span class="pre">EmbeddingKVDB</span></span><a class="headerlink" href="#_CPPv4N3ssd16EmbeddingRocksDBE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;ssd_table_batched_embeddings.h&gt;</em></div>
+<p>An implementation of EmbeddingKVDB for RocksDB. </p>
 </dd></dl>
 
 </section>
