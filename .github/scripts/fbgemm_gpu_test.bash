@@ -252,7 +252,7 @@ __determine_test_directories () {
     )
   fi
 
-  if [ "$fbgemm_gpu_variant" == "cuda" ] || [ "$fbgemm_gpu_variant" == "genai" ]; then
+  if [ "$fbgemm_gpu_variant" == "genai" ]; then
     target_directories+=(
       fbgemm_gpu/experimental/example/test
       fbgemm_gpu/experimental/gemm/test
