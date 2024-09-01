@@ -40,7 +40,6 @@
 #include <folly/experimental/coro/Task.h>
 #include "fbgemm_gpu/split_embeddings_cache/cachelib_cache.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
-#include "kv_db_cuda_utils.h"
 
 namespace kv_db {
 
@@ -88,8 +87,32 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
         ? std::make_unique<l2_cache::CacheLibCache>(
               cache_size_gb * 1024 * 1024 * 1024, num_shards_)
         : nullptr;
+    cache_filling_thread_ = std::make_unique<std::thread>([=] {
+      while (!stop_) {
+        auto filling_item_ptr = weights_to_fill_queue_.try_peek();
+        if (!filling_item_ptr) {
+          // TODO: make it tunable interval for background thread
+          // only sleep on empty queue
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          continue;
+        }
+        if (stop_) {
+          return;
+        }
+        auto& indices = std::get<0>(*filling_item_ptr);
+        auto& weights = std::get<1>(*filling_item_ptr);
+        auto& count = std::get<2>(*filling_item_ptr);
+        set_cache(indices, weights, count);
+        // TODO: add logic to kick off spilled item back to rocksdb
+
+        weights_to_fill_queue_.dequeue();
+      }
+    });
   }
-  virtual ~EmbeddingKVDB() = default;
+  virtual ~EmbeddingKVDB() {
+    stop_ = true;
+    cache_filling_thread_->join();
+  }
 
   /// Insert non-negative elements in <indices> and its paired embeddings
   /// from <weights> for the first <count> elements in the tensor.
@@ -230,23 +253,38 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   virtual void flush_or_compact(const int64_t timestep) = 0;
 
+  // waiting for working item queue to be empty, this is called by get_cache()
+  // as embedding read should wait until previous write to be finished
+  void wait_util_filling_work_done();
+
   std::unique_ptr<l2_cache::CacheLibCache> l2_cache_;
   const int64_t unique_id_;
   const int64_t num_shards_;
   const int64_t max_D_;
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_tp_;
+  std::unique_ptr<std::thread> cache_filling_thread_;
+  std::atomic<bool> stop_{false};
+  // buffer queue that stores all the needed indices/weights/action_count to
+  // fill up cache
+  folly::USPSCQueue<std::tuple<at::Tensor, at::Tensor, at::Tensor>, true>
+      weights_to_fill_queue_;
+
   // perf stats
-  //   get perf
+  // --  perf of get() function
   // cache miss rate(cmr) is avged on cmr per iteration
   // instead of SUM(cache miss per interval) / SUM(lookups per interval)
   std::atomic<int64_t> num_cache_misses_{0};
   std::atomic<int64_t> num_lookups_{0};
   std::atomic<int64_t> get_total_duration_{0};
   std::atomic<int64_t> get_cache_lookup_total_duration_{0};
+  std::atomic<int64_t> get_cache_lookup_wait_filling_thread_duration_{0};
   std::atomic<int64_t> get_weights_fillup_total_duration_{0};
   std::atomic<int64_t> get_cache_update_total_duration_{0};
+  std::atomic<int64_t> get_tensor_copy_for_cache_update_{0};
 
-  //    set perf
+  // -- perf of set() function
+  std::atomic<int64_t> set_tensor_copy_for_cache_update_{0};
+
 }; // class EmbeddingKVDB
 
 } // namespace kv_db
