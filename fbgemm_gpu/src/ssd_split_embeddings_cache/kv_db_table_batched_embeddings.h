@@ -76,43 +76,9 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t num_shards,
       int64_t max_D,
       int64_t cache_size_gb = 0,
-      int64_t unique_id = 0)
-      : unique_id_(unique_id),
-        num_shards_(num_shards),
-        max_D_(max_D),
-        executor_tp_(
-            std::make_unique<folly::CPUThreadPoolExecutor>(num_shards)) {
-    assert(num_shards > 0);
-    l2_cache_ = cache_size_gb > 0
-        ? std::make_unique<l2_cache::CacheLibCache>(
-              cache_size_gb * 1024 * 1024 * 1024, num_shards_)
-        : nullptr;
-    cache_filling_thread_ = std::make_unique<std::thread>([=] {
-      while (!stop_) {
-        auto filling_item_ptr = weights_to_fill_queue_.try_peek();
-        if (!filling_item_ptr) {
-          // TODO: make it tunable interval for background thread
-          // only sleep on empty queue
-          std::this_thread::sleep_for(std::chrono::milliseconds(10));
-          continue;
-        }
-        if (stop_) {
-          return;
-        }
-        auto& indices = std::get<0>(*filling_item_ptr);
-        auto& weights = std::get<1>(*filling_item_ptr);
-        auto& count = std::get<2>(*filling_item_ptr);
-        set_cache(indices, weights, count);
-        // TODO: add logic to kick off spilled item back to rocksdb
+      int64_t unique_id = 0);
 
-        weights_to_fill_queue_.dequeue();
-      }
-    });
-  }
-  virtual ~EmbeddingKVDB() {
-    stop_ = true;
-    cache_filling_thread_->join();
-  }
+  virtual ~EmbeddingKVDB();
 
   /// Insert non-negative elements in <indices> and its paired embeddings
   /// from <weights> for the first <count> elements in the tensor.

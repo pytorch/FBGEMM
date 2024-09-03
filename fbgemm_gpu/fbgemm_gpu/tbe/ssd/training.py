@@ -137,7 +137,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         use_passed_in_path: int = True,
         gather_ssd_cache_stats: Optional[bool] = False,
         stats_reporter_config: Optional[TBEStatsReporterConfig] = None,
-        l2_cache_size: int = 1,
+        l2_cache_size: int = 0,
         # Set to True to enable pipeline prefetching
         prefetch_pipeline: bool = False,
         # Set to True to alloc a UVM tensor using malloc+cudaHostRegister.
