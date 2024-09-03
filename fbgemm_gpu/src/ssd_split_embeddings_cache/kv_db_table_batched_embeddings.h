@@ -228,10 +228,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// @param count A single element tensor that contains the number of indices
   /// to be processed
   ///
-  /// @return pair of tensors with length of <count> containing L2 evicted
-  /// embedding indices and embeddings, invalid pairs will have
-  /// sentinel value(-1) on <indices>
-  void set_cache(
+  /// @return None if L2 is missing, other wise return pair of tensors with
+  /// length of <count> containing L2 evicted embedding indices and embeddings,
+  /// invalid pairs will have sentinel value(-1) on <indices>
+  folly::Optional<std::pair<at::Tensor, at::Tensor>> set_cache(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count);
