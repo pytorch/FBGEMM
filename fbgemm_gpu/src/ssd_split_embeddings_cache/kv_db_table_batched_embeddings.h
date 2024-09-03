@@ -168,6 +168,16 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const int64_t timestep,
       const bool is_bwd = false);
 
+  /// export internally collected L2 performance metrics out
+  ///
+  /// @param step the training step that caller side wants to report the stats
+  /// @param interval report interval in terms of training step
+  ///
+  /// @return a list of doubles with predefined order for each metrics
+  std::vector<double> get_l2cache_perf(
+      const int64_t step,
+      const int64_t interval);
+
  private:
   /// Find non-negative embedding indices in <indices> and shard them into
   /// #cachelib_pools pieces to be lookedup in parallel
@@ -225,6 +235,18 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   const int64_t num_shards_;
   const int64_t max_D_;
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_tp_;
+  // perf stats
+  //   get perf
+  // cache miss rate(cmr) is avged on cmr per iteration
+  // instead of SUM(cache miss per interval) / SUM(lookups per interval)
+  std::atomic<int64_t> num_cache_misses_{0};
+  std::atomic<int64_t> num_lookups_{0};
+  std::atomic<int64_t> get_total_duration_{0};
+  std::atomic<int64_t> get_cache_lookup_total_duration_{0};
+  std::atomic<int64_t> get_weights_fillup_total_duration_{0};
+  std::atomic<int64_t> get_cache_update_total_duration_{0};
+
+  //    set perf
 }; // class EmbeddingKVDB
 
 } // namespace kv_db

@@ -56,47 +56,87 @@ void EmbeddingKVDB::set_cuda(
   rec->record.end();
 }
 
+std::vector<double> EmbeddingKVDB::get_l2cache_perf(
+    const int64_t step,
+    const int64_t interval) {
+  std::vector<double> ret;
+  ret.reserve(6); // num metrics
+  if (step > 0 && step % interval == 0) {
+    int reset_val = 0;
+    auto num_cache_misses = num_cache_misses_.exchange(reset_val);
+    auto num_lookups = num_lookups_.exchange(reset_val);
+    auto get_total_duration = get_total_duration_.exchange(reset_val);
+    auto get_cache_lookup_total_duration =
+        get_cache_lookup_total_duration_.exchange(reset_val);
+    auto get_weights_fillup_total_duration =
+        get_weights_fillup_total_duration_.exchange(reset_val);
+    auto get_cache_update_total_duration =
+        get_cache_update_total_duration_.exchange(reset_val);
+    ret.push_back(double(num_cache_misses) / interval);
+    ret.push_back(double(num_lookups) / interval);
+    ret.push_back(double(get_total_duration) / interval);
+    ret.push_back(double(get_cache_lookup_total_duration) / interval);
+    ret.push_back(double(get_weights_fillup_total_duration) / interval);
+    ret.push_back(double(get_cache_update_total_duration) / interval);
+  }
+  return ret;
+}
+
 void EmbeddingKVDB::set(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count,
     const bool is_bwd) {
-  folly::stop_watch<std::chrono::microseconds> timer;
+  if (auto num_evictions = count.item<long>(); num_evictions <= 0) {
+    XLOG_EVERY_MS(INFO, 60000)
+        << "[" << unique_id_ << "]skip set_cuda since number evictions is "
+        << num_evictions;
+    return;
+  }
+  auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   set_cache(indices, weights, count);
-  XLOG_EVERY_N(INFO, 1000) << "set_cuda: finished set embeddings in "
-                           << timer.elapsed().count() << " us.";
 }
 
 void EmbeddingKVDB::get(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
+  if (auto num_lookups = count.item<long>(); num_lookups <= 0) {
+    XLOG_EVERY_MS(INFO, 60000)
+        << "[" << unique_id_ << "]skip get_cuda since number lookups is "
+        << num_lookups;
+    return;
+  }
   ASSERT_EQ(max_D_, weights.size(1));
-  folly::stop_watch<std::chrono::microseconds> timer;
+  auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   auto cache_context = get_cache(indices, count);
   if (cache_context != nullptr) {
     if (cache_context->num_misses > 0) {
-      XLOG(INFO) << "[" << unique_id_
-                 << "]cache miss: " << cache_context->num_misses << " out of "
-                 << count.item().toLong() << " lookups";
       std::vector<folly::coro::Task<void>> tasks;
 
+      auto weight_fillup_start_ts = facebook::WallClockUtil::NowInUsecFast();
       tasks.emplace_back(get_kv_db_async(indices, weights, count));
       tasks.emplace_back(
           cache_memcpy(weights, cache_context->cached_addr_list));
       folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
+      get_weights_fillup_total_duration_ +=
+          facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
+
+      auto cache_update_start_ts = facebook::WallClockUtil::NowInUsecFast();
       set_cache(indices, weights, count);
+      get_cache_update_total_duration_ +=
+          facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
     } else {
-      XLOG_EVERY_N(INFO, 1000) << "[" << unique_id_ << "]cache hit 100%";
+      auto weight_fillup_start_ts = facebook::WallClockUtil::NowInUsecFast();
       folly::coro::blockingWait(
           cache_memcpy(weights, cache_context->cached_addr_list));
+      get_weights_fillup_total_duration_ +=
+          facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
     }
   } else { // no l2 cache
     folly::coro::blockingWait(get_kv_db_async(indices, weights, count));
   }
-  XLOG_EVERY_N(INFO, 1000) << "[" << unique_id_
-                           << "]get_cuda: finished get embeddings in "
-                           << timer.elapsed().count() << " us.";
+  get_total_duration_ += facebook::WallClockUtil::NowInUsecFast() - start_ts;
 }
 
 std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
@@ -105,7 +145,7 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
   if (l2_cache_ == nullptr) {
     return nullptr;
   }
-  folly::stop_watch<std::chrono::microseconds> timer;
+  auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   auto indices_addr = indices.data_ptr<int64_t>();
   auto num_lookups = count.item<long>();
   auto cache_context = std::make_shared<CacheContext>(num_lookups);
@@ -148,9 +188,21 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
             .scheduleOn(executor_tp_.get()));
   }
   folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
-  XLOG(INFO) << "[" << unique_id_ << "]finished get cache in "
-             << timer.elapsed().count() << " us. " << cache_context->num_misses
-             << " cache misses out of " << num_lookups << " lookups";
+
+  // the following metrics added here as the current assumption is
+  // get_cache will only be called in get_cuda path, if assumption no longer
+  // true, we should wrap this up on the caller side
+  auto dur = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+  get_cache_lookup_total_duration_ += dur;
+  auto cache_misses = cache_context->num_misses.load();
+  if (num_lookups > 0) {
+    num_cache_misses_ += cache_misses;
+    num_lookups_ += num_lookups;
+  } else {
+    XLOG_EVERY_MS(INFO, 60000)
+        << "[" << unique_id_
+        << "]num_lookups is 0, skip collecting the L2 cache miss stats";
+  }
   return cache_context;
 }
 
@@ -168,7 +220,8 @@ void EmbeddingKVDB::set_cache(
       continue;
     }
     if (!l2_cache_->put(indices_addr[i], weights[i])) {
-      XLOG(ERR) << "Failed to insert into cache, this shouldn't happen";
+      XLOG(ERR) << "[" << unique_id_
+                << "]Failed to insert into cache, this shouldn't happen";
     }
   }
 }

@@ -54,6 +54,9 @@ class TestingStatsReporter(TBEStatsReporter):
     def should_report(self, iteration_step: int) -> bool:
         return (iteration_step - 1) % self.reporting_interval == 0
 
+    def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
+        return
+
     def report_duration(
         self,
         iteration_step: int,
