@@ -51,13 +51,12 @@ vec4_copy(uint8_t* dst, const uint8_t* src, const int32_t D) {
   }
 }
 
-template <typename scalar_t, bool is_index_put>
+template <typename value_t, typename index_t, bool is_index_put>
 __global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
-    pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits> self,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits> self,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor64<scalar_t, 2, at::RestrictPtrTraits>
-        values,
+    const pta::PackedTensorAccessor64<value_t, 2, at::RestrictPtrTraits> values,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         count) {
   const int32_t N = indices.size(0);
@@ -136,24 +135,32 @@ Tensor masked_index_impl(
       self.scalar_type(),
       is_index_put ? "masked_index_put" : "masked_index_select",
       [&] {
+        using value_t = scalar_t;
 #ifdef FBGEMM_GPU_MEMCHECK
         const auto func_name = is_index_put ? "masked_index_put_kernel"
                                             : "masked_index_select_kernel";
 #endif
-        if (std::is_same_v<scalar_t, uint8_t>) {
-          TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16")
+        if (std::is_same_v<value_t, uint8_t>) {
+          TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16");
         }
-        masked_index_kernel<scalar_t, is_index_put>
-            <<<grid_size,
-               dim3(tx, kMaxThreads / tx),
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, self, scalar_t, 2, 64),
-                MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 64),
-                MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      } // lambda
+        FBGEMM_DISPATCH_INTEGRAL_TYPES(
+            indices.scalar_type(),
+            is_index_put ? "masked_index_put" : "masked_index_select",
+            [&] {
+              using index_t = scalar_t;
+              masked_index_kernel<value_t, index_t, is_index_put>
+                  <<<grid_size,
+                     dim3(tx, kMaxThreads / tx),
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      MAKE_PTA_WITH_NAME(func_name, self, value_t, 2, 64),
+                      MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                      MAKE_PTA_WITH_NAME(func_name, values, value_t, 2, 64),
+                      MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            } // lambda for FBGEMM_DISPATCH_INTEGRAL_TYPES
+        );
+      } // lambda for FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE
   );
 
   return self;
@@ -453,13 +460,14 @@ ssd_cache_populate_actions_cuda(
       unique_indices_length);
 }
 
+template <typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void ssd_generate_row_addrs_kernel(
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> ssd_row_addrs,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         post_bwd_evicted_indices,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         lxu_cache_locations,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         assigned_cache_slots,
     const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         linear_index_inverse_indices,
@@ -547,31 +555,39 @@ std::tuple<Tensor, Tensor> ssd_generate_row_addrs_cuda(
     return {ssd_row_addrs, post_bwd_evicted_indices};
   }
 
-  ssd_generate_row_addrs_kernel<<<
-      div_round_up(lxu_cache_locations.numel(), kNumWarps),
-      dim3(kWarpSize, kNumWarps),
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      ssd_row_addrs.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      post_bwd_evicted_indices
-          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      lxu_cache_locations
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      assigned_cache_slots
-          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      linear_index_inverse_indices
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      unique_indices_count_cumsum
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      cache_set_inverse_indices
-          .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      cache_set_sorted_unique_indices
-          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      lxu_cache_weights_addr,
-      reinterpret_cast<uint64_t>(inserted_ssd_weights.data_ptr()),
-      unique_indices_length.data_ptr<int32_t>(),
-      cache_row_bytes);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  FBGEMM_DISPATCH_INTEGRAL_TYPES(
+      assigned_cache_slots.scalar_type(),
+      "ssd_generate_row_addrs",
+      [&] {
+        using index_t = scalar_t;
+        ssd_generate_row_addrs_kernel<<<
+            div_round_up(lxu_cache_locations.numel(), kNumWarps),
+            dim3(kWarpSize, kNumWarps),
+            0,
+            at::cuda::getCurrentCUDAStream()>>>(
+            ssd_row_addrs
+                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            post_bwd_evicted_indices
+                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            lxu_cache_locations
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            assigned_cache_slots
+                .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            linear_index_inverse_indices
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            unique_indices_count_cumsum
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            cache_set_inverse_indices
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            cache_set_sorted_unique_indices
+                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            lxu_cache_weights_addr,
+            reinterpret_cast<uint64_t>(inserted_ssd_weights.data_ptr()),
+            unique_indices_length.data_ptr<int32_t>(),
+            cache_row_bytes);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      } // lambda
+  );
 
   return {ssd_row_addrs, post_bwd_evicted_indices};
 }
