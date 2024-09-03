@@ -88,8 +88,7 @@ void EmbeddingKVDB::set_cuda(
 std::vector<double> EmbeddingKVDB::get_l2cache_perf(
     const int64_t step,
     const int64_t interval) {
-  std::vector<double> ret;
-  ret.reserve(9); // num metrics
+  std::vector<double> ret(11, 0); // num metrics
   if (step > 0 && step % interval == 0) {
     int reset_val = 0;
     auto num_cache_misses = num_cache_misses_.exchange(reset_val);
@@ -107,16 +106,20 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
         get_tensor_copy_for_cache_update_.exchange(reset_val);
     auto set_tensor_copy_for_cache_update_dur =
         set_tensor_copy_for_cache_update_.exchange(reset_val);
-    ret.push_back(double(num_cache_misses) / interval);
-    ret.push_back(double(num_lookups) / interval);
-    ret.push_back(double(get_total_duration) / interval);
-    ret.push_back(double(get_cache_lookup_total_duration) / interval);
-    ret.push_back(
-        double(get_cache_lookup_wait_filling_thread_duration) / interval);
-    ret.push_back(double(get_weights_fillup_total_duration) / interval);
-    ret.push_back(double(total_cache_update_duration) / interval);
-    ret.push_back(double(get_tensor_copy_for_cache_update_dur) / interval);
-    ret.push_back(double(set_tensor_copy_for_cache_update_dur) / interval);
+    ret[0] = (double(num_cache_misses) / interval);
+    ret[1] = (double(num_lookups) / interval);
+    ret[2] = (double(get_total_duration) / interval);
+    ret[3] = (double(get_cache_lookup_total_duration) / interval);
+    ret[4] = (double(get_cache_lookup_wait_filling_thread_duration) / interval);
+    ret[5] = (double(get_weights_fillup_total_duration) / interval);
+    ret[6] = (double(total_cache_update_duration) / interval);
+    ret[7] = (double(get_tensor_copy_for_cache_update_dur) / interval);
+    ret[8] = (double(set_tensor_copy_for_cache_update_dur) / interval);
+    if (l2_cache_) {
+      auto cache_mem_stats = l2_cache_->get_cache_usage();
+      ret[9] = (cache_mem_stats[0]); // free cache in bytes
+      ret[10] = (cache_mem_stats[1]); // total cache capacity in bytes
+    }
   }
   return ret;
 }

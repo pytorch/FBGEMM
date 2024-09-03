@@ -596,6 +596,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.l2_num_cache_lookups_stats_name: str = (
             f"l2_cache.perf.get.tbe_id{tbe_unique_id}.num_lookups"
         )
+        self.l2_cache_free_mem_stats_name: str = (
+            f"l2_cache.mem.tbe_id{tbe_unique_id}.free_mem_bytes"
+        )
+        self.l2_cache_capacity_stats_name: str = (
+            f"l2_cache.mem.tbe_id{tbe_unique_id}.capacity_bytes"
+        )
         if self.stats_reporter:
             self.ssd_prefetch_read_timer = AsyncSeriesTimer(
                 functools.partial(
@@ -617,6 +623,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.l2_num_cache_misses_stats_name)
             # pyre-ignore
             self.stats_reporter.register_stats(self.l2_num_cache_lookups_stats_name)
+            self.stats_reporter.register_stats(self.l2_cache_free_mem_stats_name)
+            self.stats_reporter.register_stats(self.l2_cache_capacity_stats_name)
 
     @torch.jit.ignore
     def _report_duration(
@@ -1748,8 +1756,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.step, stats_reporter.report_interval  # pyre-ignore
         )
 
-        if len(l2_cache_perf_stats) != 9:
-            logging.error("l2 perf stats should have 9 elements")
+        if len(l2_cache_perf_stats) != 11:
+            logging.error("l2 perf stats should have 11 elements")
             return
 
         num_cache_misses = l2_cache_perf_stats[0]
@@ -1762,15 +1770,28 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         get_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[7]
         set_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[8]
 
+        l2_cache_free_bytes = l2_cache_perf_stats[9]
+        l2_cache_capacity = l2_cache_perf_stats[10]
+
         stats_reporter.report_data_amount(
             iteration_step=self.step,
-            event_name=self.l2_num_cache_misses_stats_name,  # ods only show integer
+            event_name=self.l2_num_cache_misses_stats_name,
             data_bytes=num_cache_misses,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
-            event_name=self.l2_num_cache_lookups_stats_name,  # ods only show integer
+            event_name=self.l2_num_cache_lookups_stats_name,
             data_bytes=num_lookups,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name=self.l2_cache_capacity_stats_name,
+            data_bytes=l2_cache_capacity,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name=self.l2_cache_free_mem_stats_name,
+            data_bytes=l2_cache_free_bytes,
         )
 
         stats_reporter.report_duration(

@@ -39,8 +39,8 @@ class CacheLibCache {
   };
 
   explicit CacheLibCache(size_t cacheSizeBytes, int64_t num_shards)
-      : cacheConfig_(CacheConfig{.cacheSizeBytes = cacheSizeBytes}),
-        cache_(initializeCacheLib(cacheConfig_)),
+      : cache_config_(CacheConfig{.cacheSizeBytes = cacheSizeBytes}),
+        cache_(initializeCacheLib(cache_config_)),
         admin_(createCacheAdmin(*cache_)) {
     for (int i = 0; i < num_shards; i++) {
       pool_ids_.push_back(cache_->addPool(
@@ -205,8 +205,19 @@ class CacheLibCache {
     }
   }
 
+  /// get L2 cache utilization stats
+  std::vector<int64_t> get_cache_usage() {
+    std::vector<int64_t> cache_mem_stats(2, 0); // freeBytes, capacity
+    cache_mem_stats[1] = cache_config_.cacheSizeBytes;
+    for (auto& pool_id : pool_ids_) {
+      auto pool_stats = cache_->getPoolStats(pool_id);
+      cache_mem_stats[0] += pool_stats.freeMemoryBytes();
+    }
+    return cache_mem_stats;
+  }
+
  private:
-  const CacheConfig cacheConfig_;
+  const CacheConfig cache_config_;
   std::unique_ptr<Cache> cache_;
   std::vector<facebook::cachelib::PoolId> pool_ids_;
   std::unique_ptr<facebook::cachelib::CacheAdmin> admin_;
