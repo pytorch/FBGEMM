@@ -279,16 +279,16 @@ void EmbeddingKVDB::wait_util_filling_work_done() {
       facebook::WallClockUtil::NowInUsecFast() - start_ts;
 }
 
-void EmbeddingKVDB::set_cache(
+folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
+  // caller's responsibility to make sure l2_cache_ exists
+
   // TODO: consider whether need to reconstruct indices/weights/count and free
   //       the original tensor since most of the tensor elem will be invalid,
   //       this will trade some perf for peak DRAM util saving
-  if (l2_cache_ == nullptr) {
-    return;
-  }
+  l2_cache_->init_tensor_for_l2_eviction(indices, weights, count);
   auto indices_addr = indices.data_ptr<int64_t>();
   auto num_lookups = count.item<long>();
   for (auto i = 0; i < num_lookups; i++) {
@@ -300,6 +300,8 @@ void EmbeddingKVDB::set_cache(
                 << "]Failed to insert into cache, this shouldn't happen";
     }
   }
+  l2_cache_->reset_eviction_states();
+  return l2_cache_->get_evicted_indices_and_weights();
 }
 
 folly::coro::Task<void> EmbeddingKVDB::cache_memcpy(
