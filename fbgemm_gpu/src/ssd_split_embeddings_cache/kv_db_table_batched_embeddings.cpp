@@ -101,8 +101,8 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
         get_cache_lookup_wait_filling_thread_duration_.exchange(reset_val);
     auto get_weights_fillup_total_duration =
         get_weights_fillup_total_duration_.exchange(reset_val);
-    auto get_cache_update_total_duration =
-        get_cache_update_total_duration_.exchange(reset_val);
+    auto total_cache_update_duration =
+        total_cache_update_duration_.exchange(reset_val);
     auto get_tensor_copy_for_cache_update_dur =
         get_tensor_copy_for_cache_update_.exchange(reset_val);
     auto set_tensor_copy_for_cache_update_dur =
@@ -114,7 +114,7 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
     ret.push_back(
         double(get_cache_lookup_wait_filling_thread_duration) / interval);
     ret.push_back(double(get_weights_fillup_total_duration) / interval);
-    ret.push_back(double(get_cache_update_total_duration) / interval);
+    ret.push_back(double(total_cache_update_duration) / interval);
     ret.push_back(double(get_tensor_copy_for_cache_update_dur) / interval);
     ret.push_back(double(set_tensor_copy_for_cache_update_dur) / interval);
   }
@@ -170,7 +170,6 @@ void EmbeddingKVDB::get(
       get_weights_fillup_total_duration_ +=
           facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
 
-      auto cache_update_start_ts = facebook::WallClockUtil::NowInUsecFast();
       // defer the L2 cache/rocksdb update to the background thread as it could
       // be parallelized with other cuda kernels, as long as all updates are
       // finished before the next L2 cache lookup
@@ -179,8 +178,6 @@ void EmbeddingKVDB::get(
       weights_to_fill_queue_.enqueue(new_tuple);
       get_tensor_copy_for_cache_update_ +=
           facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
-      get_cache_update_total_duration_ +=
-          facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
     } else {
       auto weight_fillup_start_ts = facebook::WallClockUtil::NowInUsecFast();
       folly::coro::blockingWait(
@@ -288,19 +285,52 @@ folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
   // TODO: consider whether need to reconstruct indices/weights/count and free
   //       the original tensor since most of the tensor elem will be invalid,
   //       this will trade some perf for peak DRAM util saving
+
+  auto cache_update_start_ts = facebook::WallClockUtil::NowInUsecFast();
+
   l2_cache_->init_tensor_for_l2_eviction(indices, weights, count);
   auto indices_addr = indices.data_ptr<int64_t>();
   auto num_lookups = count.item<long>();
-  for (auto i = 0; i < num_lookups; i++) {
-    if (indices_addr[i] < 0) {
-      continue;
-    }
-    if (!l2_cache_->put(indices_addr[i], weights[i])) {
-      XLOG(ERR) << "[" << unique_id_
-                << "]Failed to insert into cache, this shouldn't happen";
-    }
+  auto num_shards = executor_tp_->numThreads();
+
+  std::vector<folly::coro::TaskWithExecutor<void>> tasks;
+  std::vector<std::vector<int>> row_ids_per_shard(num_shards);
+
+  for (int i = 0; i < num_shards; i++) {
+    row_ids_per_shard[i].reserve(num_lookups / num_shards * 2);
   }
+  for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
+    row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
+        .emplace_back(row_id);
+  }
+
+  for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
+    tasks.emplace_back(
+        folly::coro::co_invoke(
+            [this,
+             &indices_addr,
+             &weights,
+             shard_id,
+             &row_ids_per_shard]() mutable -> folly::coro::Task<void> {
+              for (const auto& row_id : row_ids_per_shard[shard_id]) {
+                auto emb_idx = indices_addr[row_id];
+                if (emb_idx < 0) {
+                  continue;
+                }
+                if (!l2_cache_->put(emb_idx, weights[row_id])) {
+                  XLOG_EVERY_MS(ERR, 1000)
+                      << "[" << unique_id_
+                      << "]Failed to insert into cache, this shouldn't happen";
+                }
+              }
+              co_return;
+            })
+            .scheduleOn(executor_tp_.get()));
+  }
+  folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
   l2_cache_->reset_eviction_states();
+  total_cache_update_duration_ +=
+      facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
   return l2_cache_->get_evicted_indices_and_weights();
 }
 

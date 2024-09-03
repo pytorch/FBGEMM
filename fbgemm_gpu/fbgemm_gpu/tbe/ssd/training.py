@@ -1758,7 +1758,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         get_cache_lookup_total_duration = l2_cache_perf_stats[3]
         get_cache_lookup_wait_filling_thread_duration = l2_cache_perf_stats[4]
         get_weights_fillup_total_duration = l2_cache_perf_stats[5]
-        get_cache_update_total_duration = l2_cache_perf_stats[6]
+        total_cache_update_duration = l2_cache_perf_stats[6]
         get_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[7]
         set_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[8]
 
@@ -1799,8 +1799,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         stats_reporter.report_duration(
             iteration_step=self.step,
-            event_name="l2_cache.perf.get.cache_update_duration_us",
-            duration_ms=get_cache_update_total_duration,
+            event_name="l2_cache.perf.total.cache_update_duration_us",
+            duration_ms=total_cache_update_duration,
             time_unit="us",
         )
         stats_reporter.report_duration(
