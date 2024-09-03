@@ -410,7 +410,14 @@ class TritonFP8RowwiseGemm(QuantizeOpBase):
         return xq, wq, x_scale, w_scale, bias
 
     def compute(self, xq, wq, x_scale, w_scale, bias):
-        return matmul_fp8_row(xq, wq, x_scale, w_scale, bias=bias)
+        return matmul_fp8_row(
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            bias=bias,
+            tma_persistent=True,
+        )
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale = self.quantize(x, w)
