@@ -34,6 +34,13 @@ class TBEStatsReporter(abc.ABC):
         ...
 
     @abc.abstractmethod
+    def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
+        """
+        Register stats_name in the whitelist of the reporter
+        """
+        ...
+
+    @abc.abstractmethod
     def report_duration(
         self,
         iteration_step: int,
@@ -68,6 +75,9 @@ class StdLogStatsReporter(TBEStatsReporter):
         assert report_interval > 0, "Report interval must be positive"
         self.report_interval = report_interval
 
+    def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
+        return
+
     def should_report(self, iteration_step: int) -> bool:
         return iteration_step % self.report_interval == 0
 
@@ -95,6 +105,9 @@ class StdLogStatsReporter(TBEStatsReporter):
         logging.info(
             f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} used {data_bytes} bytes"
         )
+
+    def __repr__(self) -> str:
+        return "StdLogStatsReporter{ " f"report_interval={self.report_interval} " "}"
 
 
 @dataclass(frozen=True)

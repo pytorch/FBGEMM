@@ -556,7 +556,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return mem_usages;
   }
 
-  std::vector<double> get_io_duration(
+  std::vector<double> get_rocksdb_io_duration(
       const int64_t step,
       const int64_t interval) {
     std::vector<double> ret;
@@ -565,9 +565,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       auto read_dur = read_total_duration_.load();
       auto fwd_write_dur = fwd_write_total_duration_.load();
       auto bwd_write_dur = bwd_write_total_duration_.load();
-      ret.push_back(double(read_dur / interval));
-      ret.push_back(double(fwd_write_dur / interval));
-      ret.push_back(double(bwd_write_dur / interval));
+      ret.push_back(double(read_dur) / interval);
+      ret.push_back(double(fwd_write_dur) / interval);
+      ret.push_back(double(bwd_write_dur) / interval);
       read_total_duration_ = 0;
       fwd_write_total_duration_ = 0;
       bwd_write_total_duration_ = 0;
