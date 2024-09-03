@@ -100,6 +100,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aaabed7d99a9750e8b8a2e45a582fa014" id="r_aaabed7d99a9750e8b8a2e45a582fa014"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaabed7d99a9750e8b8a2e45a582fa014">get</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
 <tr class="separator:aaabed7d99a9750e8b8a2e45a582fa014"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft" align="right" valign="top">std::vector&lt; double &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
+<tr class="separator:a52afc11e0dda55903f95469edb66ab6c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Currently it is used by TBE to offload Key(Embedding Index) Value(Embeddings) to DRAM, SSD or remote storage, to provide better scalability without blowing up HBM resources </p>
@@ -142,6 +144,36 @@ Public Member Functions</h2></td></tr>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
 <dl class="section note"><dt>Note</dt><dd>weights will be updated from either L2 cache or storage tier </dd></dl>
+
+</div>
+</div>
+<a id="a52afc11e0dda55903f95469edb66ab6c" name="a52afc11e0dda55903f95469edb66ab6c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a52afc11e0dda55903f95469edb66ab6c">&#9670;&#160;</a></span>get_l2cache_perf()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::vector&lt; double &gt; get_l2cache_perf </td>
+          <td>(</td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>step</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>interval</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>export internally collected L2 performance metrics out</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">step</td><td>the training step that caller side wants to report the stats </td></tr>
+    <tr><td class="paramname">interval</td><td>report interval in terms of training step</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>a list of doubles with predefined order for each metrics </dd></dl>
 
 </div>
 </div>
