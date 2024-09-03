@@ -1748,16 +1748,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.step, stats_reporter.report_interval  # pyre-ignore
         )
 
-        if len(l2_cache_perf_stats) != 6:
-            logging.error("l2 perf stats should have 6 elements")
+        if len(l2_cache_perf_stats) != 9:
+            logging.error("l2 perf stats should have 9 elements")
             return
 
         num_cache_misses = l2_cache_perf_stats[0]
         num_lookups = l2_cache_perf_stats[1]
         get_total_duration = l2_cache_perf_stats[2]
         get_cache_lookup_total_duration = l2_cache_perf_stats[3]
-        get_weights_fillup_total_duration = l2_cache_perf_stats[4]
-        get_cache_update_total_duration = l2_cache_perf_stats[5]
+        get_cache_lookup_wait_filling_thread_duration = l2_cache_perf_stats[4]
+        get_weights_fillup_total_duration = l2_cache_perf_stats[5]
+        get_cache_update_total_duration = l2_cache_perf_stats[6]
+        get_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[7]
+        set_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[8]
 
         stats_reporter.report_data_amount(
             iteration_step=self.step,
@@ -1784,6 +1787,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         stats_reporter.report_duration(
             iteration_step=self.step,
+            event_name="l2_cache.perf.get.cache_lookup_wait_filling_thread_duration_us",
+            duration_ms=get_cache_lookup_wait_filling_thread_duration,
+            time_unit="us",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
             event_name="l2_cache.perf.get.weights_fillup_duration_us",
             duration_ms=get_weights_fillup_total_duration,
             time_unit="us",
@@ -1792,6 +1801,18 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name="l2_cache.perf.get.cache_update_duration_us",
             duration_ms=get_cache_update_total_duration,
+            time_unit="us",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="l2_cache.perf.get.tensor_copy_for_cache_update_duration_us",
+            duration_ms=get_tensor_copy_for_cache_update_duration,
+            time_unit="us",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="l2_cache.perf.set.tensor_copy_for_cache_update_duration_us",
+            duration_ms=set_tensor_copy_for_cache_update_duration,
             time_unit="us",
         )
 

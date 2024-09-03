@@ -16,6 +16,35 @@
 
 namespace kv_db {
 
+std::tuple<at::Tensor, at::Tensor, at::Tensor> tensor_copy(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count) {
+  auto num_sets = count.item<long>();
+  auto new_indices = at::empty(
+      num_sets, at::TensorOptions().device(at::kCPU).dtype(indices.dtype()));
+  auto new_weights = at::empty(
+      {num_sets, weights.size(1)},
+      at::TensorOptions().device(at::kCPU).dtype(weights.dtype()));
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
+      weights.scalar_type(), "cache_memcpy", [&] {
+        auto indices_addr = indices.data_ptr<int64_t>();
+        auto new_indices_addr = new_indices.data_ptr<int64_t>();
+        std::copy(
+            indices_addr,
+            indices_addr + num_sets,
+            new_indices_addr); // dst_start
+
+        auto weights_addr = weights.data_ptr<scalar_t>();
+        auto new_weightss_addr = new_weights.data_ptr<scalar_t>();
+        std::copy(
+            weights_addr,
+            weights_addr + num_sets * weights.size(1),
+            new_weightss_addr); // dst_start
+      });
+  return std::make_tuple(new_indices, new_weights, count.clone());
+}
+
 void EmbeddingKVDB::get_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
@@ -60,7 +89,7 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
     const int64_t step,
     const int64_t interval) {
   std::vector<double> ret;
-  ret.reserve(6); // num metrics
+  ret.reserve(9); // num metrics
   if (step > 0 && step % interval == 0) {
     int reset_val = 0;
     auto num_cache_misses = num_cache_misses_.exchange(reset_val);
@@ -68,16 +97,26 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
     auto get_total_duration = get_total_duration_.exchange(reset_val);
     auto get_cache_lookup_total_duration =
         get_cache_lookup_total_duration_.exchange(reset_val);
+    auto get_cache_lookup_wait_filling_thread_duration =
+        get_cache_lookup_wait_filling_thread_duration_.exchange(reset_val);
     auto get_weights_fillup_total_duration =
         get_weights_fillup_total_duration_.exchange(reset_val);
     auto get_cache_update_total_duration =
         get_cache_update_total_duration_.exchange(reset_val);
+    auto get_tensor_copy_for_cache_update_dur =
+        get_tensor_copy_for_cache_update_.exchange(reset_val);
+    auto set_tensor_copy_for_cache_update_dur =
+        set_tensor_copy_for_cache_update_.exchange(reset_val);
     ret.push_back(double(num_cache_misses) / interval);
     ret.push_back(double(num_lookups) / interval);
     ret.push_back(double(get_total_duration) / interval);
     ret.push_back(double(get_cache_lookup_total_duration) / interval);
+    ret.push_back(
+        double(get_cache_lookup_wait_filling_thread_duration) / interval);
     ret.push_back(double(get_weights_fillup_total_duration) / interval);
     ret.push_back(double(get_cache_update_total_duration) / interval);
+    ret.push_back(double(get_tensor_copy_for_cache_update_dur) / interval);
+    ret.push_back(double(set_tensor_copy_for_cache_update_dur) / interval);
   }
   return ret;
 }
@@ -94,7 +133,15 @@ void EmbeddingKVDB::set(
     return;
   }
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
-  set_cache(indices, weights, count);
+
+  // defer the L2 cache/rocksdb update to the background thread as it could be
+  // parallelized with other cuda kernels, as long as all updates are finished
+  // before the next L2 cache lookup
+  auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
+  auto new_tuple = tensor_copy(indices, weights, count);
+  weights_to_fill_queue_.enqueue(new_tuple);
+  set_tensor_copy_for_cache_update_ +=
+      facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
 }
 
 void EmbeddingKVDB::get(
@@ -109,6 +156,7 @@ void EmbeddingKVDB::get(
   }
   ASSERT_EQ(max_D_, weights.size(1));
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
+  wait_util_filling_work_done();
   auto cache_context = get_cache(indices, count);
   if (cache_context != nullptr) {
     if (cache_context->num_misses > 0) {
@@ -123,7 +171,14 @@ void EmbeddingKVDB::get(
           facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
 
       auto cache_update_start_ts = facebook::WallClockUtil::NowInUsecFast();
-      set_cache(indices, weights, count);
+      // defer the L2 cache/rocksdb update to the background thread as it could
+      // be parallelized with other cuda kernels, as long as all updates are
+      // finished before the next L2 cache lookup
+      auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
+      auto new_tuple = tensor_copy(indices, weights, count);
+      weights_to_fill_queue_.enqueue(new_tuple);
+      get_tensor_copy_for_cache_update_ +=
+          facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
       get_cache_update_total_duration_ +=
           facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
     } else {
@@ -206,10 +261,31 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
   return cache_context;
 }
 
+void EmbeddingKVDB::wait_util_filling_work_done() {
+  auto start_ts = facebook::WallClockUtil::NowInUsecFast();
+  int total_wait_time_ms = 0;
+  while (!weights_to_fill_queue_.empty()) {
+    // need to wait until all the pending weight-filling actions to finish
+    // otherwise might get incorrect embeddings
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    total_wait_time_ms += 1;
+    if (total_wait_time_ms > 100) {
+      XLOG_EVERY_MS(ERR, 1000)
+          << "get_cache: waiting for L2 caching filling embeddings for "
+          << total_wait_time_ms << " ms, somethings is likely wrong";
+    }
+  }
+  get_cache_lookup_wait_filling_thread_duration_ +=
+      facebook::WallClockUtil::NowInUsecFast() - start_ts;
+}
+
 void EmbeddingKVDB::set_cache(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
+  // TODO: consider whether need to reconstruct indices/weights/count and free
+  //       the original tensor since most of the tensor elem will be invalid,
+  //       this will trade some perf for peak DRAM util saving
   if (l2_cache_ == nullptr) {
     return;
   }
