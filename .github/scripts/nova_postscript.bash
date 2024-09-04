@@ -11,6 +11,8 @@ PRELUDE="${FBGEMM_REPO}/.github/scripts/setup_env.bash"
 BUILD_ENV_NAME=${CONDA_ENV}
 GITHUB_ENV=TRUE
 export GITHUB_ENV
+BUILD_FROM_NOVA=1
+export BUILD_FROM_NOVA
 
 # Install FBGEMM_GPU Nightly
 echo "[NOVA] Current working directory: $(pwd)"
