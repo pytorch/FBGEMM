@@ -1,5 +1,8 @@
 var searchData=
 [
-  ['data_20cpu_20operators_0',['Data CPU Operators',['../group__quantize-data-cpu.html',1,'Quantize Data CPU Operators'],['../group__sparse-data-cpu.html',1,'Sparse Data CPU Operators']]],
-  ['data_20cuda_20operators_1',['Sparse Data CUDA Operators',['../group__sparse-data-cuda.html',1,'']]]
+  ['ai_20attention_0',['Experimental-gen-ai-attention',['../group__experimental-gen-ai-attention.html',1,'']]],
+  ['attention_1',['Experimental-gen-ai-attention',['../group__experimental-gen-ai-attention.html',1,'']]],
+  ['autovectorization_20fp8_2016_2032_2',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
+  ['avx2_3',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
+  ['avx512_4',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]]
 ];

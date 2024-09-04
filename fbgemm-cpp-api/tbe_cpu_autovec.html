@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Test Instructions &mdash; FBGEMM 0.8.0 documentation</title>
+  <title>TBE CPU Autovectorization &mdash; FBGEMM 0.8.0 documentation</title>
   
 
   
@@ -33,8 +33,8 @@
   <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Jagged Tensor Operators" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html" />
-    <link rel="prev" title="Installation Instructions" href="InstallationInstructions.html" />
+    <link rel="next" title="Sparse Data Operators" href="../fbgemm_gpu-cpp-api/sparse_ops.html" />
+    <link rel="prev" title="Quantization Utilities" href="QuantUtils.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -309,19 +309,19 @@
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="BuildInstructions.html">Build Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="InstallationInstructions.html">Installation Instructions</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Test Instructions</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/tbe_cpu_autovec.html">TBE CPU Autovectorization</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="QuantUtils.html">Quantization Utilities</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">TBE CPU Autovectorization</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
@@ -381,13 +381,13 @@
       </li>
 
         
-      <li>Test Instructions</li>
+      <li>TBE CPU Autovectorization</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/fbgemm_gpu-development/TestInstructions.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/fbgemm-cpp-api/tbe_cpu_autovec.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -417,86 +417,84 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="test-instructions">
-<h1>Test Instructions<a class="headerlink" href="#test-instructions" title="Permalink to this heading">¶</a></h1>
-<p>The tests (in the <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/test/</span></code> directory) and benchmarks (in the
-<code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/bench/</span></code> directory) provide good examples on how to use FBGEMM_GPU.</p>
-<section id="setup-the-fbgemm-gpu-test-environment">
-<h2>Setup the FBGEMM_GPU Test Environment<a class="headerlink" href="#setup-the-fbgemm-gpu-test-environment" title="Permalink to this heading">¶</a></h2>
-<p>After an environment is available from building / installing the FBGEMM_GPU
-package, additional packages need to be installed for tests to run correctly:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+  <section id="tbe-cpu-autovectorization">
+<h1>TBE CPU Autovectorization<a class="headerlink" href="#tbe-cpu-autovectorization" title="Permalink to this heading">¶</a></h1>
+<section id="fp8-16-32-autovec-implementation-methods">
+<h2>FP8/16/32 Autovec Implementation Methods<a class="headerlink" href="#fp8-16-32-autovec-implementation-methods" title="Permalink to this heading">¶</a></h2>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv4I0000E22EmbeddingSpMDM_autovecbKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb">
+<span id="_CPPv3I0000E22EmbeddingSpMDM_autovecKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb"></span><span id="_CPPv2I0000E22EmbeddingSpMDM_autovecKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">InType</span></span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">uint8_t</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">IndexType</span></span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">OffsetType</span></span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int32_t</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">OutType</span></span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="kt"><span class="pre">float</span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__tbe-cpu-autovec_1ga25906504931b7f9cdfd9dc2a696afd1c"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">EmbeddingSpMDM_autovec</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">block_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">index_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">data_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><a class="reference internal" href="#_CPPv4I0000E22EmbeddingSpMDM_autovecbKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb" title="EmbeddingSpMDM_autovec::InType"><span class="n"><span class="pre">InType</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><a class="reference internal" href="#_CPPv4I0000E22EmbeddingSpMDM_autovecbKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb" title="EmbeddingSpMDM_autovec::IndexType"><span class="n"><span class="pre">IndexType</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">indices</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><a class="reference internal" href="#_CPPv4I0000E22EmbeddingSpMDM_autovecbKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb" title="EmbeddingSpMDM_autovec::OffsetType"><span class="n"><span class="pre">OffsetType</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">offsets_or_lengths</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">float</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">weights</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">normalize_by_lengths</span></span>, <a class="reference internal" href="#_CPPv4I0000E22EmbeddingSpMDM_autovecbKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb" title="EmbeddingSpMDM_autovec::OutType"><span class="n"><span class="pre">OutType</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">out</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">is_weight_positional</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="k"><span class="pre">false</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">use_offsets</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="k"><span class="pre">true</span></span>, <span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_stride</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="o"><span class="pre">-</span></span><span class="m"><span class="pre">1</span></span>, <span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">input_stride</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="o"><span class="pre">-</span></span><span class="m"><span class="pre">1</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">scale_bias_last</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="k"><span class="pre">true</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">no_bag</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="k"><span class="pre">false</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">is_bf16_out</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="k"><span class="pre">false</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">is_bf16_in</span></span><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="k"><span class="pre">false</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0000E22EmbeddingSpMDM_autovecbKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEKNSt7int64_tEPK6InTypePK9IndexTypePK10OffsetTypePKfbP7OutTypebbNSt7int64_tENSt7int64_tEbbbb" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Autovectorized version of method <code class="docutils literal notranslate"><span class="pre">EmbeddingSpMDM_ref</span></code> for FP32 weight type.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Template Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>InType</strong> – input data type (<code class="docutils literal notranslate"><span class="pre">uint8_t</span></code> is used)</p></li>
+<li><p><strong>IndexType</strong> – index data type (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code> is used)</p></li>
+<li><p><strong>OffsetType</strong> – offset data type (<code class="docutils literal notranslate"><span class="pre">int32_t</span></code> is used)</p></li>
+<li><p><strong>OutType</strong> – output data type (<code class="docutils literal notranslate"><span class="pre">float</span></code> is used)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Parameters<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>block_size</strong> – Number of elements in a block (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>output_size</strong> – Number of elements in output (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>index_size</strong> – Number of elements in index (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>data_size</strong> – Number of elements in data (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>input</strong> – Address of input (<code class="docutils literal notranslate"><span class="pre">InType*</span></code>) </p></li>
+<li><p><strong>indices</strong> – Address of index (<code class="docutils literal notranslate"><span class="pre">IndexType*</span></code>) </p></li>
+<li><p><strong>offsets_or_lengths</strong> – Address of offset (<code class="docutils literal notranslate"><span class="pre">OffsetType*</span></code>) </p></li>
+<li><p><strong>weights</strong> – Weights of sum; optional, can be null for non-weighted sum (<code class="docutils literal notranslate"><span class="pre">float*</span></code>) </p></li>
+<li><p><strong>normalize_by_lengths</strong> – Whether or not to normalize by lengths (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>out</strong> – Address of output (<code class="docutils literal notranslate"><span class="pre">OutType*</span></code>) </p></li>
+<li><p><strong>is_weight_positional</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, weight is positional; set to <code class="docutils literal notranslate"><span class="pre">false</span></code> for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>use_offsets</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, will use offsets instead of lengths; set to <code class="docutils literal notranslate"><span class="pre">true</span></code> for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>output_stride</strong> – If -1, output_stride is same as block_size; set to -1 for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>input_stride</strong> – If -1, input_stride is same as block_size; set to -1 for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>scale_bias_last</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, scale and bias appear at end of each row; set to <code class="docutils literal notranslate"><span class="pre">true</span></code> for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>no_bag</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, no embedding bag; set to <code class="docutils literal notranslate"><span class="pre">false</span></code> for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>is_bf16_out</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, output is <code class="docutils literal notranslate"><span class="pre">BFLOAT16</span></code> type; set to <code class="docutils literal notranslate"><span class="pre">false</span></code> for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>is_bf16_in</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, input is <code class="docutils literal notranslate"><span class="pre">BFLOAT16</span></code> type; set to <code class="docutils literal notranslate"><span class="pre">false</span></code> for FP32 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
 
-<span class="c1"># From the /fbgemm_gpu/ directory</span>
-python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
-</pre></div>
-</div>
-</section>
-<section id="running-fbgemm-gpu-tests">
-<h2>Running FBGEMM_GPU Tests<a class="headerlink" href="#running-fbgemm-gpu-tests" title="Permalink to this heading">¶</a></h2>
-<p>To run the tests after building / installing the FBGEMM_GPU package:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv4I000E25EmbeddingSpMDMFP8_autovecbK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib">
+<span id="_CPPv3I000E25EmbeddingSpMDMFP8_autovecK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib"></span><span id="_CPPv2I000E25EmbeddingSpMDMFP8_autovecK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">IndexType</span></span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">OffsetType</span></span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">OutType</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__tbe-cpu-autovec_1gac8da724711ff9553d4b08cea87191ae8"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">EmbeddingSpMDMFP8_autovec</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">block_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">index_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">data_size</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">uint8_t</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><a class="reference internal" href="#_CPPv4I000E25EmbeddingSpMDMFP8_autovecbK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib" title="EmbeddingSpMDMFP8_autovec::IndexType"><span class="n"><span class="pre">IndexType</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">indices</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><a class="reference internal" href="#_CPPv4I000E25EmbeddingSpMDMFP8_autovecbK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib" title="EmbeddingSpMDMFP8_autovec::OffsetType"><span class="n"><span class="pre">OffsetType</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">offsets_or_lengths</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">float</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">weights</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">normalize_by_lengths</span></span>, <a class="reference internal" href="#_CPPv4I000E25EmbeddingSpMDMFP8_autovecbK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib" title="EmbeddingSpMDMFP8_autovec::OutType"><span class="n"><span class="pre">OutType</span></span></a><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">out</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">is_weight_positional</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">use_offsets</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_stride</span></span>, <span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">input_stride</span></span>, <span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">exponent_bits</span></span>, <span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">exponent_bias</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">is_bf16_out</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I000E25EmbeddingSpMDMFP8_autovecbK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Autovectorized version of method <code class="docutils literal notranslate"><span class="pre">EmbeddingSpMDM_ref</span></code> for FP8 weight type.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Template Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>InType</strong> – input data type (<code class="docutils literal notranslate"><span class="pre">uint8_t</span></code> is used)</p></li>
+<li><p><strong>IndexType</strong> – index data type (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code> is used)</p></li>
+<li><p><strong>OffsetType</strong> – offset data type (<code class="docutils literal notranslate"><span class="pre">int32_t</span></code> is used)</p></li>
+<li><p><strong>OutType</strong> – output data type (<code class="docutils literal notranslate"><span class="pre">float</span></code> is used)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Parameters<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>block_size</strong> – Number of elements in a block (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>output_size</strong> – Number of elements in output (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>index_size</strong> – Number of elements in index (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>data_size</strong> – Number of elements in data (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>input</strong> – Address of input (<code class="docutils literal notranslate"><span class="pre">InType*</span></code>) </p></li>
+<li><p><strong>indices</strong> – Address of index (<code class="docutils literal notranslate"><span class="pre">IndexType*</span></code>) </p></li>
+<li><p><strong>offsets_or_lengths</strong> – Address of offset (<code class="docutils literal notranslate"><span class="pre">OffsetType*</span></code>) </p></li>
+<li><p><strong>weights</strong> – Weights of sum; optional, can be null for non-weighted sum (<code class="docutils literal notranslate"><span class="pre">float*</span></code>) </p></li>
+<li><p><strong>normalize_by_lengths</strong> – Whether or not to normalize by lengths (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>out</strong> – Address of output (<code class="docutils literal notranslate"><span class="pre">OutType*</span></code>) </p></li>
+<li><p><strong>is_weight_positional</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, weight is positional; set to <code class="docutils literal notranslate"><span class="pre">false</span></code> for FP8 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>use_offsets</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, will use offsets instead of lengths; set to <code class="docutils literal notranslate"><span class="pre">true</span></code> for FP8 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+<li><p><strong>output_stride</strong> – If -1, output_stride is same as block_size; set to -1 for FP8 autovec implementation (<code class="docutils literal notranslate"><span class="pre">int64_t</span></code>) </p></li>
+<li><p><strong>exponent_bits</strong> – Bits to use in exponent </p></li>
+<li><p><strong>exponent_bias</strong> – Bias to use in exponent </p></li>
+<li><p><strong>is_bf16_out</strong> – If <code class="docutils literal notranslate"><span class="pre">true</span></code>, output is <code class="docutils literal notranslate"><span class="pre">BFLOAT16</span></code> type; set to <code class="docutils literal notranslate"><span class="pre">false</span></code> for FP8 autovec implementation (<code class="docutils literal notranslate"><span class="pre">bool</span></code>) </p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
 
-<span class="c1"># From the /fbgemm_gpu/ directory</span>
-<span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
-
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>quantize_ops_test.py
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>sparse_ops_test.py
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_embedding_inference_converter_test.py
-</pre></div>
-</div>
-<section id="testing-with-the-cuda-variant">
-<h3>Testing with the CUDA Variant<a class="headerlink" href="#testing-with-the-cuda-variant" title="Permalink to this heading">¶</a></h3>
-<p>For the FBGEMM_GPU CUDA package, GPUs will be automatically detected and
-used for testing. To run the tests and benchmarks on a GPU-capable
-machine in CPU-only mode, <code class="docutils literal notranslate"><span class="pre">CUDA_VISIBLE_DEVICES=-1</span></code> must be set in the
-environment:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
-
-<span class="c1"># Enable for running in CPU-only mode (when on a GPU-capable machine)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span>-1
-
-<span class="c1"># Enable for debugging failed kernel executions</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_LAUNCH_BLOCKING</span><span class="o">=</span><span class="m">1</span>
-
-<span class="c1"># For operators involving NCCL, if the rpath is not set up correctly for</span>
-<span class="c1"># libnccl.so.2, LD_LIBRARY_PATH will need to be updated.</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">LD_LIBRARY_PATH</span><span class="o">=</span><span class="s2">&quot;/path/to/nccl/lib:</span><span class="si">${</span><span class="nv">LD_LIBRARY_PATH</span><span class="si">}</span><span class="s2">&quot;</span>
-
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
-</pre></div>
-</div>
-</section>
-<section id="testing-with-the-rocm-variant">
-<h3>Testing with the ROCm Variant<a class="headerlink" href="#testing-with-the-rocm-variant" title="Permalink to this heading">¶</a></h3>
-<p>For ROCm machines, testing against a ROCm GPU needs to be enabled with
-<code class="docutils literal notranslate"><span class="pre">FBGEMM_TEST_WITH_ROCM=1</span></code> set in the environment:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
-
-<span class="c1"># From the /fbgemm_gpu/ directory</span>
-<span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
-
-<span class="nb">export</span><span class="w"> </span><span class="nv">FBGEMM_TEST_WITH_ROCM</span><span class="o">=</span><span class="m">1</span>
-<span class="c1"># Enable for debugging failed kernel executions</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">HIP_LAUNCH_BLOCKING</span><span class="o">=</span><span class="m">1</span>
-
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
-</pre></div>
-</div>
-</section>
-</section>
-<section id="running-fbgemm-gpu-benchmarks">
-<h2>Running FBGEMM_GPU Benchmarks<a class="headerlink" href="#running-fbgemm-gpu-benchmarks" title="Permalink to this heading">¶</a></h2>
-<p>To run the benchmarks:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
-
-<span class="c1"># From the /fbgemm_gpu/ directory</span>
-<span class="nb">cd</span><span class="w"> </span>bench
-
-python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span class="w"> </span>uvm
-</pre></div>
-</div>
 </section>
 </section>
 
@@ -508,10 +506,10 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html" class="btn btn-neutral float-right" title="Jagged Tensor Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="../fbgemm_gpu-cpp-api/sparse_ops.html" class="btn btn-neutral float-right" title="Sparse Data Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="InstallationInstructions.html" class="btn btn-neutral" title="Installation Instructions" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="QuantUtils.html" class="btn btn-neutral" title="Quantization Utilities" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -543,14 +541,8 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Test Instructions</a><ul>
-<li><a class="reference internal" href="#setup-the-fbgemm-gpu-test-environment">Setup the FBGEMM_GPU Test Environment</a></li>
-<li><a class="reference internal" href="#running-fbgemm-gpu-tests">Running FBGEMM_GPU Tests</a><ul>
-<li><a class="reference internal" href="#testing-with-the-cuda-variant">Testing with the CUDA Variant</a></li>
-<li><a class="reference internal" href="#testing-with-the-rocm-variant">Testing with the ROCm Variant</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#running-fbgemm-gpu-benchmarks">Running FBGEMM_GPU Benchmarks</a></li>
+<li><a class="reference internal" href="#">TBE CPU Autovectorization</a><ul>
+<li><a class="reference internal" href="#fp8-16-32-autovec-implementation-methods">FP8/16/32 Autovec Implementation Methods</a></li>
 </ul>
 </li>
 </ul>

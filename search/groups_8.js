@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['layout_20transformation_20cpu_20operators_0',['Layout Transformation CPU Operators',['../group__layout-transform-cpu.html',1,'']]],
-  ['layout_20transformation_20cuda_20operators_1',['Layout Transformation CUDA Operators',['../group__layout-transform-cuda.html',1,'']]]
+  ['input_20operators_0',['Combine Input Operators',['../group__input-combine.html',1,'']]],
+  ['int8_20quantized_20fc_20operators_1',['/INT8 quantized FC Operators',['../group___f_p8.html',1,'']]]
 ];

@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['utilities_20avx2_0',['Quantization Utilities (AVX2)',['../group__fbgemm-quant-utils-avx2.html',1,'']]],
-  ['utilities_20avx512_1',['Quantization Utilities (AVX512)',['../group__fbgemm-quant-utils-avx512.html',1,'']]],
-  ['utilities_20generic_2',['Quantization Utilities (Generic)',['../group__fbgemm-quant-utils-generic.html',1,'']]]
+  ['sparse_20data_20cpu_20operators_0',['Sparse Data CPU Operators',['../group__sparse-data-cpu.html',1,'']]],
+  ['sparse_20data_20cuda_20operators_1',['Sparse Data CUDA Operators',['../group__sparse-data-cuda.html',1,'']]],
+  ['ssd_20operators_2',['Embedding SSD Operators',['../group__embedding-ssd.html',1,'']]]
 ];
