@@ -2624,6 +2624,33 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_set_learning_rate</span><span class="p">(</span><span class="n">lr</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="k">def</span> <span class="nf">update_hyper_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets hyper-parameters from external control flow.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Setting learning rate is not supported for </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="k">for</span> <span class="n">parameter_name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">params_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">parameter_name</span> <span class="o">==</span> <span class="s2">&quot;lr&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_set_learning_rate</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">parameter_name</span> <span class="o">==</span> <span class="s2">&quot;eps&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span><span class="n">eps</span><span class="o">=</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">parameter_name</span> <span class="o">==</span> <span class="s2">&quot;beta1&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span><span class="n">beta1</span><span class="o">=</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">parameter_name</span> <span class="o">==</span> <span class="s2">&quot;beta2&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span><span class="n">beta2</span><span class="o">=</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">parameter_name</span> <span class="o">==</span> <span class="s2">&quot;weight_decay&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span><span class="n">weight_decay</span><span class="o">=</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">parameter_name</span> <span class="o">==</span> <span class="s2">&quot;lower_bound&quot;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">gwd_lower_bound</span> <span class="o">=</span> <span class="n">value</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Setting hyper-parameter </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> is not supported&quot;</span>
+                <span class="p">)</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">_set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Helper function to script `set_learning_rate`.</span>
