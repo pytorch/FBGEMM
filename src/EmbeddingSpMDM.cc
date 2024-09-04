@@ -11,8 +11,6 @@
 #include <type_traits>
 #define FBGEMM_EXPORTS
 
-#include "fbgemm/FbgemmEmbedding.h"
-
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
 #include <cassert>
@@ -26,8 +24,9 @@
 #include "./EmbeddingSpMDMAutovec.h"
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
-#include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/SimdUtils.h"
+#include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
@@ -1058,65 +1057,90 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   const inst_set_t isa = fbgemmInstructionSet();
 #endif
-  if (no_bag == true) {
-    if (std::is_same<inType, uint8_t>::value && !is_autovec_disabled()) {
-      return [=](int64_t output_size,
-                 int64_t index_size,
-                 int64_t data_size,
-                 const inType* input,
-                 const indxType* indices,
-                 const offsetType* offsets_or_lengths,
-                 const float* weights,
-                 outType* out) {
-        const uint8_t* input_u8 = reinterpret_cast<const uint8_t*>(input);
-        return EmbeddingSpMDM8Bit_autovec(
-            block_size,
-            output_size,
-            index_size,
-            data_size,
-            input_u8,
-            indices,
-            offsets_or_lengths,
-            weights,
-            normalize_by_lengths,
-            out,
-            is_weight_positional,
-            use_offsets,
-            output_stride,
-            input_stride,
-            scale_bias_last,
-            no_bag,
-            is_bf16_out);
-      };
+  auto tbe_autovec_kernel = [=](int64_t output_size,
+                                int64_t index_size,
+                                int64_t data_size,
+                                const inType* input,
+                                const indxType* indices,
+                                const offsetType* offsets_or_lengths,
+                                const float* weights,
+                                outType* out) {
+    if (std::is_same<inType, uint8_t>::value) {
+      const uint8_t* input_u8 = reinterpret_cast<const uint8_t*>(input);
+      return EmbeddingSpMDM8Bit_autovec(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input_u8,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          is_bf16_out);
     } else {
-      return [=](int64_t output_size,
-                 int64_t index_size,
-                 int64_t data_size,
-                 const inType* input,
-                 const indxType* indices,
-                 const offsetType* offsets_or_lengths,
-                 const float* weights,
-                 outType* out) {
-        return EmbeddingSpMDM_ref(
-            block_size,
-            output_size,
-            index_size,
-            data_size,
-            input,
-            indices,
-            offsets_or_lengths,
-            weights,
-            normalize_by_lengths,
-            out,
-            is_weight_positional,
-            use_offsets,
-            output_stride,
-            input_stride,
-            scale_bias_last,
-            no_bag,
-            is_bf16_out,
-            is_bf16_in);
-      };
+      return EmbeddingSpMDM_autovec(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          is_bf16_out,
+          is_bf16_in);
+    }
+  };
+  auto tbe_ref_kernel = [=](int64_t output_size,
+                            int64_t index_size,
+                            int64_t data_size,
+                            const inType* input,
+                            const indxType* indices,
+                            const offsetType* offsets_or_lengths,
+                            const float* weights,
+                            outType* out) {
+    return EmbeddingSpMDM_ref(
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        no_bag,
+        is_bf16_out,
+        is_bf16_in);
+  };
+
+  if (no_bag) {
+    if (is_autovec_disabled()) {
+      return tbe_ref_kernel;
+    } else {
+      return tbe_autovec_kernel;
     }
   }
 
@@ -1235,69 +1259,14 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
 #else
   if (
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-      std::is_same<inType, uint8_t>::value &&
       (is_autovec_forced() || fbgemmHasArmSve2Support()) &&
       !is_autovec_disabled()) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const inType* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      const uint8_t* input_u8 = reinterpret_cast<const uint8_t*>(input);
-      return EmbeddingSpMDM8Bit_autovec(
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input_u8,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          no_bag,
-          is_bf16_out);
-    };
+    return tbe_autovec_kernel;
   } else {
 #ifdef VLOG
     VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
 #endif
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const inType* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDM_ref(
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          no_bag,
-          is_bf16_out,
-          is_bf16_in);
-    };
+    return tbe_ref_kernel;
   }
 }
 
@@ -1506,21 +1475,39 @@ GenerateEmbeddingSpMDMRowWiseSparse(
             const float* weights, // optional, can be null for non-weighted sum
             float* out,
             const int32_t* compressed_indices_table) {
-          return EmbeddingSpMDMRowWiseSparse_ref(
-              block_size,
-              output_size,
-              index_size,
-              uncompressed_data_size,
-              // compressed_data_size,
-              input,
-              indices,
-              compressed_indices_table,
-              offsets_or_lengths,
-              weights,
-              normalize_by_lengths,
-              out,
-              is_weight_positional,
-              use_offsets);
+          if (is_autovec_forced()) {
+            return EmbeddingSpMDMRowWiseSparse_autovec(
+                block_size,
+                output_size,
+                index_size,
+                uncompressed_data_size,
+                // compressed_data_size,
+                input,
+                indices,
+                compressed_indices_table,
+                offsets_or_lengths,
+                weights,
+                normalize_by_lengths,
+                out,
+                is_weight_positional,
+                use_offsets);
+          } else {
+            return EmbeddingSpMDMRowWiseSparse_ref(
+                block_size,
+                output_size,
+                index_size,
+                uncompressed_data_size,
+                // compressed_data_size,
+                input,
+                indices,
+                compressed_indices_table,
+                offsets_or_lengths,
+                weights,
+                normalize_by_lengths,
+                out,
+                is_weight_positional,
+                use_offsets);
+          }
         };
   }
 }
