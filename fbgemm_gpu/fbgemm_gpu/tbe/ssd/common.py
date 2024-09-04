@@ -8,30 +8,13 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
-from typing import Optional
+from fbgemm_gpu.utils.loader import load_torch_module
 
-import torch
-
-
-def _load_torch_module(
-    unified_path: str, cuda_path: Optional[str] = None, hip_path: Optional[str] = None
-) -> None:
-    try:
-        torch.ops.load_library(unified_path)
-    except Exception:
-        if torch.version.hip:
-            if not hip_path:
-                hip_path = f"{unified_path}_hip"
-            torch.ops.load_library(hip_path)
-        else:
-            if not cuda_path:
-                cuda_path = f"{unified_path}_cuda"
-            torch.ops.load_library(cuda_path)
-
-
-_load_torch_module(
-    "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-)
-
+try:
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
+    )
+except Exception:
+    pass
 
 ASSOC = 32
