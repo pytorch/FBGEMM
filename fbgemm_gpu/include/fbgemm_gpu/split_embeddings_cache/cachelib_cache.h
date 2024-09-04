@@ -10,11 +10,9 @@
 #include <ATen/ATen.h>
 #include <cachelib/allocator/CacheAllocator.h>
 #include <cachelib/facebook/admin/CacheAdmin.h>
-#include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/utils/dispatch_macros.h"
 
 #include <cstdint>
 #include <iostream>
-#include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 
 namespace l2_cache {
 
@@ -38,59 +36,12 @@ class CacheLibCache {
     size_t cacheSizeBytes;
   };
 
-  explicit CacheLibCache(size_t cacheSizeBytes, int64_t num_shards)
-      : cache_config_(CacheConfig{.cacheSizeBytes = cacheSizeBytes}),
-        cache_(initializeCacheLib(cache_config_)),
-        admin_(createCacheAdmin(*cache_)) {
-    for (int i = 0; i < num_shards; i++) {
-      pool_ids_.push_back(cache_->addPool(
-          fmt::format("shard_{}", i),
-          cache_->getCacheMemoryStats().ramCacheSize / num_shards));
-    }
-  }
+  explicit CacheLibCache(size_t cacheSizeBytes, int64_t num_shards);
 
-  std::unique_ptr<Cache> initializeCacheLib(const CacheConfig& config) {
-    auto eviction_cb =
-        [this](const facebook::cachelib::LruAllocator::RemoveCbData& data) {
-          FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
-              evicted_weights_ptr_->scalar_type(), "l2_eviction_handling", [&] {
-                if (data.context ==
-                    facebook::cachelib::RemoveContext::kEviction) {
-                  auto indices_data_ptr =
-                      evicted_indices_ptr_->data_ptr<int64_t>();
-                  auto weights_data_ptr =
-                      evicted_weights_ptr_->data_ptr<scalar_t>();
-                  auto row_id = eviction_row_id++;
-                  auto weight_dim = evicted_weights_ptr_->size(1);
-                  const auto key_ptr = reinterpret_cast<const int64_t*>(
-                      data.item.getKey().data());
-                  indices_data_ptr[row_id] = *key_ptr;
-
-                  std::copy(
-                      reinterpret_cast<const scalar_t*>(data.item.getMemory()),
-                      reinterpret_cast<const scalar_t*>(data.item.getMemory()) +
-                          weight_dim,
-                      &weights_data_ptr[row_id * weight_dim]); // dst_start
-                }
-              });
-        };
-    Cache::Config cacheLibConfig;
-    cacheLibConfig.setCacheSize(static_cast<uint64_t>(config.cacheSizeBytes))
-        .setRemoveCallback(eviction_cb)
-        .setCacheName("TBEL2Cache")
-        .setAccessConfig({25 /* bucket power */, 10 /* lock power */})
-        .setFullCoredump(false)
-        .validate();
-    return std::make_unique<Cache>(cacheLibConfig);
-  }
+  std::unique_ptr<Cache> initializeCacheLib(const CacheConfig& config);
 
   std::unique_ptr<facebook::cachelib::CacheAdmin> createCacheAdmin(
-      Cache& cache) {
-    facebook::cachelib::CacheAdmin::Config adminConfig;
-    adminConfig.oncall = "mvai";
-    return std::make_unique<facebook::cachelib::CacheAdmin>(
-        cache, std::move(adminConfig));
-  }
+      Cache& cache);
 
   /// Find the stored embeddings from a given embedding indices, aka key
   ///
@@ -103,24 +54,14 @@ class CacheLibCache {
   /// @note that this is not thread safe, caller needs to make sure the data is
   /// fully processed before doing cache insertion, otherwise the returned space
   /// might be overwritten if cache is full
-  std::optional<void*> get(int64_t key) {
-    auto key_str = folly::StringPiece(
-        reinterpret_cast<const char*>(&key), sizeof(int64_t));
-    auto item = cache_->find(key_str);
-    if (!item) {
-      return std::nullopt;
-    }
-    return const_cast<void*>(item->getMemory());
-  }
+  std::optional<void*> get(int64_t key);
 
   /// Cachelib wrapper specific hash function
   ///
   /// @param key embedding index to get hashed
   ///
   /// @return an hashed value ranges from [0, num_pools)
-  size_t get_shard_id(int64_t key) {
-    return kv_db_utils::hash_shard(key, pool_ids_.size());
-  }
+  size_t get_shard_id(int64_t key);
 
   /// get pool id given an embedding index
   ///
@@ -128,9 +69,7 @@ class CacheLibCache {
   ///
   /// @return a pool id associated with the given key, this is to build a
   /// deterministic mapping from a embedding index to a specific pool id
-  facebook::cachelib::PoolId get_pool_id(int64_t key) {
-    return pool_ids_[get_shard_id(key)];
-  }
+  facebook::cachelib::PoolId get_pool_id(int64_t key);
 
   /// Add an embedding index and embeddings into cachelib
   ///
@@ -144,19 +83,7 @@ class CacheLibCache {
   /// bulk read and bluk write sequentially
   ///
   /// @note cache_->allocation will trigger eviction callback func
-  bool put(int64_t key, const at::Tensor& data) {
-    auto key_str = folly::StringPiece(
-        reinterpret_cast<const char*>(&key), sizeof(int64_t));
-    auto item = cache_->allocate(get_pool_id(key), key_str, data.nbytes());
-    if (!item) {
-      XLOG(ERR) << fmt::format(
-          "Failed to allocate item {} in cache, skip", key);
-      return false;
-    }
-    std::memcpy(item->getMemory(), data.data_ptr(), data.nbytes());
-    cache_->insertOrReplace(std::move(item));
-    return true;
-  }
+  bool put(int64_t key, const at::Tensor& data);
 
   /// instantiate eviction related indices and weights tensors(size of <count>)
   /// for L2 eviction using the same dtype and device from <indices> and
@@ -173,48 +100,19 @@ class CacheLibCache {
   void init_tensor_for_l2_eviction(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count) {
-    auto num_lookups = count.item<long>();
-    evicted_indices_ptr_ = std::make_shared<at::Tensor>(
-        at::ones(
-            num_lookups,
-            at::TensorOptions()
-                .device(indices.device())
-                .dtype(indices.dtype())) *
-        -1);
-    evicted_weights_ptr_ = std::make_shared<at::Tensor>(at::empty(
-        {num_lookups, weights.size(1)},
-        at::TensorOptions().device(weights.device()).dtype(weights.dtype())));
-  }
+      const at::Tensor& count);
 
   /// reset slot pointer that points to the next available slot in the eviction
   /// tensors
-  void reset_eviction_states() {
-    eviction_row_id = 0;
-  }
+  void reset_eviction_states();
 
   /// get the filled indices and weights tensors from L2 eviction, could be all
   /// invalid if no eviction happened
   folly::Optional<std::pair<at::Tensor, at::Tensor>>
-  get_evicted_indices_and_weights() {
-    if (evicted_indices_ptr_) {
-      assert(evicted_weights_ptr_ != nullptr);
-      return std::make_pair(*evicted_indices_ptr_, *evicted_weights_ptr_);
-    } else {
-      return folly::none;
-    }
-  }
+  get_evicted_indices_and_weights();
 
   /// get L2 cache utilization stats
-  std::vector<int64_t> get_cache_usage() {
-    std::vector<int64_t> cache_mem_stats(2, 0); // freeBytes, capacity
-    cache_mem_stats[1] = cache_config_.cacheSizeBytes;
-    for (auto& pool_id : pool_ids_) {
-      auto pool_stats = cache_->getPoolStats(pool_id);
-      cache_mem_stats[0] += pool_stats.freeMemoryBytes();
-    }
-    return cache_mem_stats;
-  }
+  std::vector<int64_t> get_cache_usage();
 
  private:
   const CacheConfig cache_config_;
