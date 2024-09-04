@@ -1335,24 +1335,45 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
              const offsetType* offsets_or_lengths,
              const float* weights,
              outType* out) {
-    return EmbeddingSpMDMFP8_ref(
-        block_size,
-        output_size,
-        index_size,
-        data_size,
-        input,
-        indices,
-        offsets_or_lengths,
-        weights,
-        normalize_by_lengths,
-        out,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        exponent_bits,
-        exponent_bias,
-        is_bf16_out);
+    if (is_autovec_disabled()) {
+      return EmbeddingSpMDMFP8_ref( // changed this from ref -> autovec.
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          exponent_bits,
+          exponent_bias,
+          is_bf16_out);
+    } else {
+      return EmbeddingSpMDMFP8_autovec( // changed this from ref -> autovec.
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          exponent_bits,
+          exponent_bias,
+          is_bf16_out);
+    }
   };
 }
 

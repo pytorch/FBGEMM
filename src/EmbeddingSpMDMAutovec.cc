@@ -452,6 +452,7 @@ bool EmbeddingSpMDMNBit_autovec(
   }
   return current == index_size;
 }
+
 template <
     typename InType,
     typename IndexType,
@@ -812,6 +813,177 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 #undef INSTANTIATE_SPMDM_OUT_T
 #undef INSTANTIATE_SPMDM_BASE
 
+namespace {
+void Float8ToFloat_ref_batch(
+    const uint8_t* input,
+    float* output,
+    int count,
+    int exponent_bits,
+    int exponent_bias) {
+  for (int i = 0; i < count; ++i) {
+    uint32_t val_out, sign, multiplier;
+    uint8_t inp = input[i];
+
+    sign = (inp & 0x80) << 24;
+    val_out = (inp & 0x7F) << (24 - (8 - exponent_bits));
+
+    multiplier = (127 + (127 - exponent_bias)) << 23; // 2^(127-bias)
+    float val_out_f = *reinterpret_cast<float*>(&val_out) *
+        *reinterpret_cast<float*>(&multiplier); // val_out * multiplier
+    val_out = *reinterpret_cast<uint32_t*>(&val_out_f) | sign;
+    output[i] = *reinterpret_cast<float*>(&val_out);
+  }
+}
+} // namespace
+
+template <typename IndexType, typename OffsetType, typename OutType>
+bool EmbeddingSpMDMFP8_autovec(
+    const int64_t block_size,
+    const int64_t output_size,
+    const int64_t index_size,
+    const int64_t data_size,
+    const uint8_t* input,
+    const IndexType* indices,
+    const OffsetType* offsets_or_lengths,
+    const float* weights,
+    bool normalize_by_lengths,
+    OutType* out,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    int exponent_bits,
+    int exponent_bias,
+    bool is_bf16_out /*=false*/) {
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+
+  vector<float> buf(block_size);
+
+  if (input_stride == -1) {
+    input_stride = block_size;
+  }
+  // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
+  // prefetching helps reduce backend stall and therefore enable vectorization
+  // reach better of its potential. 16 is tuned for Neoverse-V2.
+
+  // more prefetch
+  // TODO: in the future we should adjust max_prefetch_bytes based on CPU cache
+  // size
+  constexpr int64_t max_prefetch_bytes = 4096;
+  // 16 is manually tuned for Neoverse-V2 for best performance
+  constexpr int64_t max_initial_prefetch_rows = 16;
+  constexpr int64_t CACHE_LINE_SIZE = 64;
+  const int64_t rows_to_prefetch =
+      std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
+  const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
+  // The following prefetch loop is written in this way for better performance.
+  // My understanding is that manually separating the case of input_stride being
+  // greater or not greater than cache line size will make the branch predictor
+  // work better. Same for line 113-126.
+  for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    do_prefetch(
+        reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
+        0,
+        0);
+    if (input_stride > CACHE_LINE_SIZE) {
+      for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
+           offset += CACHE_LINE_SIZE) {
+        do_prefetch(
+            reinterpret_cast<const char*>(
+                input + input_stride * indices[pf_idx] + offset),
+            0,
+            0);
+      }
+    }
+  }
+
+  // Reference implementation of FP8 SLS. The algorithm is similar to FP32 SLS
+  // except for the FP8->FP32 conversion after reading the embedding weight.
+  int64_t current = 0;
+
+  for (int m = 0; m < output_size; ++m) {
+    memset(buf.data(), 0, sizeof(float) * block_size);
+    int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
+                          : offsets_or_lengths[m];
+    if (current + len > index_size) {
+      return false;
+    }
+
+    constexpr int tile_size = 4;
+#if _OPENMP >= 202011
+#pragma omp tile sizes(tile_size)
+#endif
+    for (int i = 0; i < len; ++i) {
+      int64_t idx = indices[current];
+      if (idx < 0 || idx >= data_size) {
+        return false;
+      }
+
+      int64_t prefetch_idx =
+          indices[std::min(current + prefetch_stride, index_size - 1)];
+
+      do_prefetch(
+          reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
+          0,
+          0);
+      if (input_stride > CACHE_LINE_SIZE) {
+        for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
+             offset += CACHE_LINE_SIZE) {
+          do_prefetch(
+              reinterpret_cast<const char*>(
+                  input + input_stride * prefetch_idx + offset),
+              0,
+              0);
+        }
+      }
+
+      float w = 1.f;
+      if (weights) {
+        w = weights[is_weight_positional ? i : current];
+      }
+      // check if each loop interation depends on one another
+      //  if not, approach it with parellel,
+      //  the code is iterating thru a dimisonals of a embedding vectory
+
+      // Adjust these as necessary to reflect actual batch size
+      const int batch_size = block_size; // Assuming the entire block is
+                                         // processed at once; adjust if needed
+
+      // Temporary buffer to hold the converted floats
+      std::vector<float> converted_inputs(batch_size);
+
+      // Perform the batch conversion
+      Float8ToFloat_ref_batch(
+          input + input_stride * idx,
+          converted_inputs.data(),
+          batch_size,
+          exponent_bits,
+          exponent_bias);
+
+      // Now accumulate the results using vectorized operations if possible
+#pragma omp simd
+      for (int j = 0; j < block_size; ++j) {
+        buf[j] = std::fma(w, converted_inputs[j], buf[j]);
+      }
+
+      ++current;
+    }
+    if (normalize_by_lengths && len) {
+      float scale = 1.f / len;
+#pragma omp simd
+      for (int j = 0; j < block_size; ++j) {
+        buf[j] *= scale;
+      }
+    }
+
+    fill_output(out, buf.data(), block_size, is_bf16_out);
+    out += output_stride;
+  }
+  return current == index_size;
+}
+
 #define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   template FBGEMM_API bool EmbeddingSpMDMNBit_autovec(            \
       const int input_bit_rate,                                   \
@@ -832,7 +1004,25 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       const bool scale_bias_last,                                 \
       const bool is_bf16_out,                                     \
       const bool no_bag,                                          \
-      int output_bit_rate);
+      int output_bit_rate);                                       \
+  template FBGEMM_API bool EmbeddingSpMDMFP8_autovec(             \
+      const int64_t block_size,                                   \
+      const int64_t output_size,                                  \
+      const int64_t index_size,                                   \
+      const int64_t data_size,                                    \
+      const uint8_t* input,                                       \
+      const INDEX_TYPE* indices,                                  \
+      const OFFSET_TYPE* offsets_or_lengths,                      \
+      const float* weights,                                       \
+      bool normalize_by_lengths,                                  \
+      OUT_TYPE* out,                                              \
+      bool is_weight_positional,                                  \
+      bool use_offsets,                                           \
+      int64_t output_stride,                                      \
+      int64_t input_stride,                                       \
+      int exponent_bits,                                          \
+      int exponent_bias,                                          \
+      bool is_bf16_out);
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \

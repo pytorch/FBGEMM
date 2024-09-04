@@ -23,7 +23,6 @@
 using namespace std;
 
 namespace fbgemm {
-
 typedef union {
   uint32_t I;
   float F;
