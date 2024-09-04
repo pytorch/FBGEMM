@@ -2210,6 +2210,33 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._set_learning_rate(lr)
 
     @torch.jit.ignore
+    def update_hyper_parameters(self, params_dict: Dict[str, float]) -> None:
+        """
+        Sets hyper-parameters from external control flow.
+        """
+        if self.optimizer == OptimType.NONE:
+            raise NotImplementedError(
+                f"Setting learning rate is not supported for {self.optimizer}"
+            )
+        for parameter_name, value in params_dict.items():
+            if parameter_name == "lr":
+                self._set_learning_rate(value)
+            elif parameter_name == "eps":
+                self.optimizer_args = self.optimizer_args._replace(eps=value)
+            elif parameter_name == "beta1":
+                self.optimizer_args = self.optimizer_args._replace(beta1=value)
+            elif parameter_name == "beta2":
+                self.optimizer_args = self.optimizer_args._replace(beta2=value)
+            elif parameter_name == "weight_decay":
+                self.optimizer_args = self.optimizer_args._replace(weight_decay=value)
+            elif parameter_name == "lower_bound":
+                self.gwd_lower_bound = value
+            else:
+                raise NotImplementedError(
+                    f"Setting hyper-parameter {parameter_name} is not supported"
+                )
+
+    @torch.jit.ignore
     def _set_learning_rate(self, lr: float) -> float:
         """
         Helper function to script `set_learning_rate`.
