@@ -45,6 +45,59 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tensor_copy(
   return std::make_tuple(new_indices, new_weights, count.clone());
 }
 
+EmbeddingKVDB::EmbeddingKVDB(
+    int64_t num_shards,
+    int64_t max_D,
+    int64_t cache_size_gb,
+    int64_t unique_id)
+    : unique_id_(unique_id),
+      num_shards_(num_shards),
+      max_D_(max_D),
+      executor_tp_(std::make_unique<folly::CPUThreadPoolExecutor>(num_shards)) {
+  assert(num_shards > 0);
+  l2_cache_ = cache_size_gb > 0
+      ? std::make_unique<l2_cache::CacheLibCache>(
+            cache_size_gb * 1024 * 1024 * 1024, num_shards_)
+      : nullptr;
+  cache_filling_thread_ = std::make_unique<std::thread>([=] {
+    while (!stop_) {
+      auto filling_item_ptr = weights_to_fill_queue_.try_peek();
+      if (!filling_item_ptr) {
+        // TODO: make it tunable interval for background thread
+        // only sleep on empty queue
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        continue;
+      }
+      if (stop_) {
+        return;
+      }
+      auto& indices = std::get<0>(*filling_item_ptr);
+      auto& weights = std::get<1>(*filling_item_ptr);
+      auto& count = std::get<2>(*filling_item_ptr);
+
+      if (l2_cache_) {
+        auto evicted_pairs_opt = set_cache(indices, weights, count);
+        if (evicted_pairs_opt.has_value()) {
+          auto& evicted_indices = evicted_pairs_opt->first;
+          auto& evicted_weights = evicted_pairs_opt->second;
+
+          folly::coro::blockingWait(
+              set_kv_db_async(evicted_indices, evicted_weights, count));
+        }
+      } else {
+        folly::coro::blockingWait(set_kv_db_async(indices, weights, count));
+      }
+
+      weights_to_fill_queue_.dequeue();
+    }
+  });
+}
+
+EmbeddingKVDB::~EmbeddingKVDB() {
+  stop_ = true;
+  cache_filling_thread_->join();
+}
+
 void EmbeddingKVDB::get_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
@@ -283,7 +336,9 @@ folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
-  // caller's responsibility to make sure l2_cache_ exists
+  if (l2_cache_ == nullptr) {
+    return folly::none;
+  }
 
   // TODO: consider whether need to reconstruct indices/weights/count and free
   //       the original tensor since most of the tensor elem will be invalid,

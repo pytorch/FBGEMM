@@ -146,7 +146,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t cache_size = 0,
       bool use_passed_in_path = false,
       int64_t tbe_unqiue_id = 0,
-      int64_t l2_cache_size_gb = 1)
+      int64_t l2_cache_size_gb = 0)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -369,8 +369,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             (2 * (count_ + dbs_.size() - 1) / dbs_.size()) *
                             (sizeof(int64_t) + sizeof(scalar_t) * D));
                         for (auto i = 0; i < count_; ++i) {
-                          // TODO: Check whether this is OK
-                          if (indices_acc[i] == -1) {
+                          if (indices_acc[i] < 0) {
                             continue;
                           }
                           if (kv_db_utils::hash_shard(

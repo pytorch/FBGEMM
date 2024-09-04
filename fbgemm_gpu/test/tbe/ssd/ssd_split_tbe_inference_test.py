@@ -8,6 +8,7 @@
 # pyre-ignore-all-errors[3,6,56]
 
 import random
+import time
 import unittest
 
 import hypothesis.strategies as st
@@ -246,6 +247,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-2,
             equal_nan=True,
         )
+        time.sleep(0.1)
 
     @given(
         T=st.integers(min_value=1, max_value=10),
@@ -454,3 +456,4 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=1.0e-2,
                 rtol=1.0e-2,
             )
+        time.sleep(0.1)
