@@ -110,9 +110,6 @@ Public Member Functions</h2></td></tr>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
           <td class="memname">std::optional&lt; void * &gt; get </td>
@@ -121,11 +118,6 @@ Public Member Functions</h2></td></tr>
           <td></td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 <p>Find the stored embeddings from a given embedding indices, aka key</p>
 <dl class="params"><dt>Parameters</dt><dd>
@@ -144,9 +136,6 @@ Public Member Functions</h2></td></tr>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
           <td class="memname">folly::Optional&lt; std::pair&lt; at::Tensor, at::Tensor &gt; &gt; get_evicted_indices_and_weights </td>
@@ -155,11 +144,6 @@ Public Member Functions</h2></td></tr>
           <td></td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 <p>get the filled indices and weights tensors from L2 eviction, could be all invalid if no eviction happened </p>
 
@@ -170,9 +154,6 @@ Public Member Functions</h2></td></tr>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
           <td class="memname">facebook::cachelib::PoolId get_pool_id </td>
@@ -181,11 +162,6 @@ Public Member Functions</h2></td></tr>
           <td></td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 <p>get pool id given an embedding index</p>
 <dl class="params"><dt>Parameters</dt><dd>
@@ -203,9 +179,6 @@ Public Member Functions</h2></td></tr>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
           <td class="memname">size_t get_shard_id </td>
@@ -214,11 +187,6 @@ Public Member Functions</h2></td></tr>
           <td></td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 <p>Cachelib wrapper specific hash function</p>
 <dl class="params"><dt>Parameters</dt><dd>
@@ -236,9 +204,6 @@ Public Member Functions</h2></td></tr>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
           <td class="memname">void init_tensor_for_l2_eviction </td>
@@ -256,11 +221,6 @@ Public Member Functions</h2></td></tr>
           <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 <p>instantiate eviction related indices and weights tensors(size of &lt;count&gt;) for L2 eviction using the same dtype and device from &lt;indices&gt; and &lt;weights&gt; , managed on the caller side</p>
 <dl class="params"><dt>Parameters</dt><dd>
@@ -280,9 +240,6 @@ Public Member Functions</h2></td></tr>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
           <td class="memname">bool put </td>
@@ -295,11 +252,6 @@ Public Member Functions</h2></td></tr>
           <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>data</em></span>&#160;)</td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 <p>Add an embedding index and embeddings into cachelib</p>
 <dl class="params"><dt>Parameters</dt><dd>
@@ -320,9 +272,6 @@ cache_-&gt;allocation will trigger eviction callback func </dd></dl>
 
 <div class="memitem">
 <div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
       <table class="memname">
         <tr>
           <td class="memname">void reset_eviction_states </td>
@@ -331,18 +280,14 @@ cache_-&gt;allocation will trigger eviction callback func </dd></dl>
           <td></td>
         </tr>
       </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
-  </tr>
-</table>
 </div><div class="memdoc">
 <p>reset slot pointer that points to the next available slot in the eviction tensors </p>
 
 </div>
 </div>
-<hr/>The documentation for this class was generated from the following file:<ul>
+<hr/>The documentation for this class was generated from the following files:<ul>
 <li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache/<b>cachelib_cache.h</b></li>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/src/split_embeddings_cache/<b>cachelib_cache.cpp</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->
