@@ -331,3 +331,81 @@ class SSDUtilsTest(unittest.TestCase):
                     f"iters {iters}, "
                     f"total_to_uniq_ratio {total_to_uniq_ratio}"
                 )
+
+    @given(
+        num_indices=st.integers(min_value=1, max_value=128),
+        num_tensors=st.integers(min_value=1, max_value=2),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_compact_indices(self, num_indices: int, num_tensors: int) -> None:
+        """
+        Test correctness of `torch.ops.fbgemm.compact_indices`
+        """
+        device = "cuda"
+        index_types = [
+            random.choice([torch.int, torch.long]) for _ in range(num_tensors)
+        ]
+
+        num_sentinels = random.randint(0, num_indices)
+        count_val = random.randint(num_sentinels, num_indices)
+        max_int32 = (2**31) - 1
+        max_int64 = (2**63) - 1
+
+        # Generate input indices
+        indices = [
+            torch.randint(
+                low=0,
+                high=max_int32 if dtype == torch.int else max_int64,
+                size=(num_indices,),
+                dtype=dtype,
+                device=device,
+            )
+            for dtype in index_types
+        ]
+        # Generate count
+        count = torch.as_tensor([count_val], dtype=torch.int, device=device)
+
+        # Randomize the positions to be set to -1
+        rand_pos = torch.randperm(count_val)[:num_sentinels]
+        for idx in indices:
+            idx[rand_pos] = -1
+
+        # Allocate output indices
+        compact_indices = [
+            torch.empty(count_val - num_sentinels, dtype=dtype, device=device)
+            for dtype in index_types
+        ]
+
+        # Generate masks
+        masks = torch.where(indices[0] != -1, 1, 0)
+
+        # Allocate compact count
+        compact_count = torch.empty(1, dtype=torch.int, device=device)
+
+        # Run test
+        torch.ops.fbgemm.compact_indices(
+            compact_indices,
+            compact_count,
+            indices,
+            masks,
+            count,
+        )
+
+        # Compute the reference compact count
+        actual_masks = masks[:count_val]
+        masked_pos = actual_masks == 1
+        compact_masks = actual_masks[masked_pos]
+        ref_compact_count = compact_masks.numel()
+
+        # Compare compact counts
+        assert (
+            compact_count == ref_compact_count
+        ), f"Mismatch compact counts ({compact_count} vs {ref_compact_count})"
+
+        # Compare compact indices
+        for t, (idx, comp_idx) in enumerate(zip(indices, compact_indices)):  # noqa B007
+            comp_idx = comp_idx[:ref_compact_count]
+            idx = idx[:count_val][masked_pos]
+            assert torch.equal(
+                idx, comp_idx
+            ), "Mismatch compact indices for index tensor # {t}"
