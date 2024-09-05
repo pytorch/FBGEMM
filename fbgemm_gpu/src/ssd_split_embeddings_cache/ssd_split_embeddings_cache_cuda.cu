@@ -700,3 +700,98 @@ void ssd_update_row_addrs_cuda(
       cache_row_bytes);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
+
+template <typename index_t, typename offset_t>
+__global__ __launch_bounds__(kMaxThreads) void compact_indices_kernel(
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        compact_indices,
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        compact_count,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+        offsets,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> masks,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        count) {
+  const auto n = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto N = masks.size(0);
+  const auto count_ = count[0];
+  CUDA_KERNEL_ASSERT(count_ <= N);
+  if (n == count_) {
+    compact_count[0] = offsets[count_];
+  }
+  if (n >= N || n >= count[0]) {
+    return;
+  }
+  if (masks[n] == 1) {
+    compact_indices[offsets[n]] = indices[n];
+  }
+}
+
+void compact_indices_cuda(
+    std::vector<Tensor> compact_indices,
+    Tensor compact_count,
+    std::vector<Tensor> indices,
+    Tensor masks,
+    Tensor count) {
+  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(compact_count, masks, count);
+  CUDA_DEVICE_GUARD(masks);
+
+  const auto num_tensors = indices.size();
+  TORCH_CHECK(
+      num_tensors > 0, "compact_indices expects at least 1 indices tensor");
+  TORCH_CHECK(
+      compact_indices.size() == num_tensors,
+      "compact_indices and indices must have the same shape");
+
+  for (auto i = 0; i < num_tensors; ++i) {
+    const auto& indices_ = indices[i];
+    const auto& compact_indices_ = compact_indices[i];
+    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(masks, indices_, compact_indices_);
+    TENSORS_HAVE_SAME_NUMEL(masks, indices_);
+  }
+
+  const auto N = masks.numel();
+  if (N == 0) {
+    compact_count.fill_(0);
+    return;
+  }
+
+  const auto offsets = asynchronous_complete_cumsum_gpu(masks);
+#ifdef FBGEMM_GPU_MEMCHECK
+  const auto func_name = "compact_indices_kernel";
+#endif
+
+  for (auto i = 0; i < num_tensors; ++i) {
+    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+        indices[i].scalar_type(),
+        "compact_indices",
+        [&] {
+          using index_t = scalar_t;
+          FBGEMM_DISPATCH_INTEGRAL_TYPES(
+              offsets.scalar_type(), "compact_indices", [&] {
+                using offset_t = scalar_t;
+                compact_indices_kernel<<<
+                    // Launch N + 1 threads because we need at least one thread
+                    // to set compact_count
+                    div_round_up(N + 1, kMaxThreads),
+                    kMaxThreads,
+                    0,
+                    at::cuda::getCurrentCUDAStream()>>>(
+                    MAKE_PTA_WITH_NAME(
+                        func_name, compact_indices[i], index_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, compact_count, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, indices[i], index_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, offsets, offset_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, masks, offset_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, count, int32_t, 1, 32));
+                C10_CUDA_KERNEL_LAUNCH_CHECK();
+              });
+        } // lambda
+    );
+  }
+
+  return;
+}
