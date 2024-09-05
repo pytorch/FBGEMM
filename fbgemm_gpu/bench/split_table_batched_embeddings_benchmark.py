@@ -118,6 +118,12 @@ def cli() -> None:
     type=str,
     default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
 )
+@click.option(
+    "--uvm-host-mapped",
+    is_flag=True,
+    default=False,
+    help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
+)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -144,6 +150,7 @@ def device(  # noqa C901
     tables: Optional[str],
     export_trace: bool,
     trace_url: str,
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -233,6 +240,7 @@ def device(  # noqa C901
             output_dtype=output_dtype,
             pooling_mode=pooling_mode,
             bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+            uvm_host_mapped=uvm_host_mapped,
         )
     emb = emb.to(get_device())
 
