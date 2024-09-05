@@ -371,7 +371,7 @@ bool EmbeddingSpMDMNBit_autovec(
       return false;
     }
 #if _OPENMP >= 202011
-    constexpr int tile_size = 4;
+    [[maybe_unused]] constexpr int tile_size = 4;
 #pragma omp tile sizes(tile_size)
 #endif
     for (int i = 0; i < len; ++i) {
@@ -571,7 +571,7 @@ bool EmbeddingSpMDM_autovec(
       return false;
     }
 
-    constexpr int tile_size = 4;
+    [[maybe_unused]] constexpr int tile_size = 4;
 #if _OPENMP >= 202011
 #pragma omp tile sizes(tile_size)
 #endif
@@ -711,7 +711,7 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
         return false;
       }
 
-      constexpr int tile_size = 4;
+      [[maybe_unused]] constexpr int tile_size = 4;
 #if _OPENMP >= 202011
 #pragma omp tile sizes(tile_size)
 #endif
@@ -828,10 +828,15 @@ void Float8ToFloat_ref_batch(
     val_out = (inp & 0x7F) << (24 - (8 - exponent_bits));
 
     multiplier = (127 + (127 - exponent_bias)) << 23; // 2^(127-bias)
-    float val_out_f = *reinterpret_cast<float*>(&val_out) *
-        *reinterpret_cast<float*>(&multiplier); // val_out * multiplier
-    val_out = *reinterpret_cast<uint32_t*>(&val_out_f) | sign;
-    output[i] = *reinterpret_cast<float*>(&val_out);
+
+    float* multiplier_f_ = reinterpret_cast<float*>(&multiplier);
+    float* val_out_f_ = reinterpret_cast<float*>(&val_out);
+
+    float val_out_f = *val_out_f_ * *multiplier_f_; // val_out * multiplier
+    uint32_t* val_out_ = reinterpret_cast<uint32_t*>(&val_out_f);
+    val_out = *val_out_ | sign;
+    val_out_f_ = reinterpret_cast<float*>(&val_out);
+    output[i] = *val_out_f_;
   }
 }
 } // namespace
@@ -911,7 +916,7 @@ bool EmbeddingSpMDMFP8_autovec(
       return false;
     }
 
-    constexpr int tile_size = 4;
+    [[maybe_unused]] constexpr int tile_size = 4;
 #if _OPENMP >= 202011
 #pragma omp tile sizes(tile_size)
 #endif
