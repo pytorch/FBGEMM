@@ -217,6 +217,43 @@ void ssd_update_row_addrs_cuda(
     const Tensor& inserted_ssd_weights_next,
     const Tensor& unique_indices_length_curr);
 
+/// @ingroup embedding-ssd
+///
+/// @brief Compact the given list of indices
+///
+/// This operator compact the given list of indices based on the given
+/// masks (a tensor that contains either 0 or 1). The operater removes
+/// the indices that their corresponding mask is 0.  It only operates
+/// on `count` number of elements (not the full tensor).
+///
+/// Example:
+///
+/// ```
+/// indices = [[0, 3, -1, 3, -1, -1, 7], [0, 2, 2, 3, -1, 9, 7]]
+/// masks = [1, 1, 0, 1, 0, 0, 1]
+/// count = 5
+///
+/// # x represents an arbitrary value
+/// compact_indices = [[0, 3, 3, x, x, x, x], [0, 2, 3, x, x, x, x]]
+/// compact_count = 3
+/// ```
+///
+/// @param compact_indices A list of compact indices (output indices).
+/// @param compact_count A tensor that contains the number of elements
+///            after being compacted
+/// @param indices An input list of indices to be compacted
+/// @param masks A tensor that contains 0 or 1 to indicate whether to
+///            remove/keep the element. 0 = remove the corresponding
+///            index. 1 = keep the corresponding index.
+/// @count count A tensor that contains the number of elements to be
+///            compacted
+void compact_indices_cuda(
+    std::vector<Tensor> compact_indices,
+    Tensor compact_count,
+    std::vector<Tensor> indices,
+    Tensor masks,
+    Tensor count);
+
 namespace {
 class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
  public:
@@ -440,5 +477,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor unique_indices_length_curr"
       ") -> ()");
   DISPATCH_TO_CUDA("ssd_update_row_addrs", ssd_update_row_addrs_cuda);
+  m.def(
+      "compact_indices("
+      "    Tensor[] compact_indices, "
+      "    Tensor compact_count, "
+      "    Tensor[] indices, "
+      "    Tensor masks, "
+      "    Tensor count) -> ()");
+  DISPATCH_TO_CUDA("compact_indices", compact_indices_cuda);
 }
 } // namespace
