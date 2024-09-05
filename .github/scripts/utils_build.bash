@@ -65,6 +65,17 @@ __conda_install_glibc () {
   echo "[INSTALL] Installing GLIBC (architecture = ${archname}) ..."
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y "sysroot_linux-${archname}"=2.17) || return 1
+
+  echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
+  # Ensure libstdc++.so.6 is found
+  # shellcheck disable=SC2153
+  if [ "${CONDA_PREFIX}" == '' ]; then
+    echo "[CHECK] CONDA_PREFIX is not set."
+    (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
+  else
+    (test_filepath "${CONDA_PREFIX}" 'libstdc++.so.6') || return 1
+  fi
+
 }
 
 __set_glibcxx_preload () {
@@ -285,7 +296,6 @@ install_build_tools () {
     make \
     ncurses \
     ninja \
-    numpy \
     openblas \
     scikit-build \
     wheel) || return 1
@@ -305,7 +315,7 @@ install_build_tools () {
   (test_binpath "${env_name}" ninja) || return 1
 
   # Check Python packages are importable
-  local import_tests=( click hypothesis jinja2 numpy skbuild wheel )
+  local import_tests=( click hypothesis jinja2 skbuild wheel )
   for p in "${import_tests[@]}"; do
     (test_python_import_package "${env_name}" "${p}") || return 1
   done

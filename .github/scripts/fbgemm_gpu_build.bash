@@ -375,8 +375,12 @@ __build_fbgemm_gpu_common_pre_steps () {
   # permit for this
   __build_fbgemm_gpu_set_run_multicore
 
+  # Check LD_LIBRARY_PATH for numpy
+  echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
+
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
+
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} python setup.py clean
 
