@@ -560,7 +560,6 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         check_weight_momentum(0)
 
     @unittest.skipIf(*gpu_unavailable)
-    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_update_hyper_parameters(self) -> None:
         # Create an abstract split table
         D = 8
