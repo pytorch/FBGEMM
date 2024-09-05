@@ -645,6 +645,7 @@
     <span class="n">make_dev_param</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">dev_reshape</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">uvm_tensors_log</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="n">set_attr_fn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_physical_placements&quot;</span><span class="p">,</span> <span class="n">split</span><span class="o">.</span><span class="n">placements</span><span class="p">)</span>
     <span class="n">set_attr_fn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_physical_offsets&quot;</span><span class="p">,</span> <span class="n">split</span><span class="o">.</span><span class="n">offsets</span><span class="p">)</span>
@@ -728,11 +729,12 @@
                 <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_uvm&quot;</span><span class="p">,</span>
                 <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
                     <span class="n">split</span><span class="o">.</span><span class="n">uvm_size</span><span class="p">,</span>
-                    <span class="n">out</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">new_managed_tensor</span><span class="p">(</span>
+                    <span class="n">out</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">new_unified_tensor</span><span class="p">(</span>
                         <span class="c1"># pyre-fixme[6]: Expected `Optional[Type[torch._dtype]]`</span>
                         <span class="c1">#  for 3rd param but got `Type[Type[torch._dtype]]`.</span>
                         <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">),</span>
                         <span class="p">[</span><span class="n">split</span><span class="o">.</span><span class="n">uvm_size</span><span class="p">],</span>
+                        <span class="n">is_host_mapped</span><span class="o">=</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
                     <span class="p">),</span>
                 <span class="p">),</span>
             <span class="p">)</span>
@@ -955,6 +957,9 @@
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="c1"># Global weight decay params</span>
         <span class="n">global_weight_decay</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">GlobalWeightDecayDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="c1"># Set to True to alloc a UVM tensor using malloc+cudaHostRegister.</span>
+        <span class="c1"># Set to False to use cudaMallocManaged</span>
+        <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
@@ -1161,6 +1166,8 @@
             <span class="n">loc</span> <span class="o">==</span> <span class="n">locations</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">loc</span> <span class="ow">in</span> <span class="n">locations</span>
         <span class="p">)</span>
 
+        <span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span> <span class="o">=</span> <span class="n">uvm_host_mapped</span>
+
         <span class="n">weight_split</span> <span class="o">=</span> <span class="n">construct_split_state</span><span class="p">(</span>
             <span class="n">embedding_specs</span><span class="p">,</span>
             <span class="n">rowwise</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
@@ -1178,6 +1185,7 @@
             <span class="n">enforce_hbm</span><span class="o">=</span><span class="n">enforce_hbm</span><span class="p">,</span>
             <span class="n">make_dev_param</span><span class="o">=</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
             <span class="n">dev_reshape</span><span class="o">=</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_D</span><span class="p">)</span> <span class="k">if</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">assert</span> <span class="n">optimizer</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span>
@@ -1351,6 +1359,7 @@
                     <span class="c1">#  but got `Type[torch.float32]`.</span>
                     <span class="n">dtype</span><span class="o">=</span><span class="n">momentum1_dtype</span><span class="p">,</span>
                     <span class="n">enforce_hbm</span><span class="o">=</span><span class="n">enforce_hbm</span><span class="p">,</span>
+                    <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="k">if</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">,</span>
@@ -1387,6 +1396,7 @@
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
                     <span class="c1">#  but got `Type[torch.float32]`.</span>
                     <span class="n">dtype</span><span class="o">=</span><span class="n">momentum2_dtype</span><span class="p">,</span>
+                    <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="c1"># NOTE: make TorchScript work!</span>
@@ -1405,6 +1415,7 @@
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
                     <span class="c1">#  but got `Type[torch.float32]`.</span>
                     <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                    <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
                     <span class="n">construct_split_state</span><span class="p">(</span>
@@ -1416,6 +1427,7 @@
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
                     <span class="c1">#  but got `Type[torch.float32]`.</span>
                     <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                    <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
                     <span class="s2">&quot;max_counter&quot;</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
@@ -1434,6 +1446,7 @@
                     <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
                     <span class="c1">#  but got `Type[torch.float32]`.</span>
                     <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                    <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;row_counter&quot;</span><span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
@@ -2696,6 +2709,7 @@
         <span class="n">enforce_hbm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">make_dev_param</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">dev_reshape</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">apply_split_helper</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">,</span>
@@ -2710,6 +2724,7 @@
             <span class="n">make_dev_param</span><span class="p">,</span>
             <span class="n">dev_reshape</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_uvm_tensors_log</span><span class="p">,</span>
+            <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_apply_cache_state</span><span class="p">(</span>
