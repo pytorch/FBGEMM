@@ -203,6 +203,10 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
   string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-error=strict-aliasing")
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-error=unused-variable")
+
+
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
