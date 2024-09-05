@@ -16,16 +16,31 @@
 
 namespace kv_db {
 
+namespace {
+
+/// Read a scalar value from a tensor that is maybe a UVM tensor
+/// Note that `tensor.item<type>()` is not allowed on a UVM tensor in
+/// PyTorch
+inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
+  return tensor.scalar_type() == at::ScalarType::Long
+      ? *(tensor.data_ptr<int64_t>())
+      : *(tensor.data_ptr<int32_t>());
+}
+
+}; // namespace
+
 std::tuple<at::Tensor, at::Tensor, at::Tensor> tensor_copy(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
-  auto num_sets = count.item<long>();
+  auto num_sets = get_maybe_uvm_scalar(count);
   auto new_indices = at::empty(
       num_sets, at::TensorOptions().device(at::kCPU).dtype(indices.dtype()));
   auto new_weights = at::empty(
       {num_sets, weights.size(1)},
       at::TensorOptions().device(at::kCPU).dtype(weights.dtype()));
+  auto new_count =
+      at::empty({1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       weights.scalar_type(), "cache_memcpy", [&] {
         auto indices_addr = indices.data_ptr<int64_t>();
@@ -42,7 +57,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tensor_copy(
             weights_addr + num_sets * weights.size(1),
             new_weightss_addr); // dst_start
       });
-  return std::make_tuple(new_indices, new_weights, count.clone());
+  *new_count.data_ptr<int64_t>() = num_sets;
+  return std::make_tuple(new_indices, new_weights, new_count);
 }
 
 EmbeddingKVDB::EmbeddingKVDB(
@@ -182,7 +198,7 @@ void EmbeddingKVDB::set(
     const at::Tensor& weights,
     const at::Tensor& count,
     const bool is_bwd) {
-  if (auto num_evictions = count.item<long>(); num_evictions <= 0) {
+  if (auto num_evictions = get_maybe_uvm_scalar(count); num_evictions <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
         << "[" << unique_id_ << "]skip set_cuda since number evictions is "
         << num_evictions;
@@ -204,7 +220,7 @@ void EmbeddingKVDB::get(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
-  if (auto num_lookups = count.item<long>(); num_lookups <= 0) {
+  if (auto num_lookups = get_maybe_uvm_scalar(count); num_lookups <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
         << "[" << unique_id_ << "]skip get_cuda since number lookups is "
         << num_lookups;
@@ -255,7 +271,7 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
   }
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   auto indices_addr = indices.data_ptr<int64_t>();
-  auto num_lookups = count.item<long>();
+  auto num_lookups = get_maybe_uvm_scalar(count);
   auto cache_context = std::make_shared<CacheContext>(num_lookups);
 
   auto num_shards = executor_tp_->numThreads();
@@ -348,7 +364,7 @@ folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
 
   l2_cache_->init_tensor_for_l2_eviction(indices, weights, count);
   auto indices_addr = indices.data_ptr<int64_t>();
-  auto num_lookups = count.item<long>();
+  const int64_t num_lookups = get_maybe_uvm_scalar(count);
   auto num_shards = executor_tp_->numThreads();
 
   std::vector<folly::coro::TaskWithExecutor<void>> tasks;

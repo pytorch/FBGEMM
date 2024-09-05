@@ -310,6 +310,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 * self.lxu_cache_weights.element_size()
             ), "The precomputed cache_size does not match the actual cache size"
 
+        # Buffers for cache eviction
         # For storing weights to evict
         # The max number of rows to be evicted is limited by the number of
         # slots in the cache. Thus, we allocate `lxu_cache_evicted_weights` to
@@ -326,6 +327,49 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 is_host_mapped=self.uvm_host_mapped,
             ),
         )
+
+        # For storing embedding indices to evict to
+        self.register_buffer(
+            "lxu_cache_evicted_indices",
+            torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(
+                    1,
+                    device=self.current_device,
+                    dtype=torch.long,
+                ),
+                (self.lxu_cache_weights.shape[0],),
+                is_host_mapped=self.uvm_host_mapped,
+            ),
+        )
+
+        # For storing cache slots to evict
+        self.register_buffer(
+            "lxu_cache_evicted_slots",
+            torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(
+                    1,
+                    device=self.current_device,
+                    dtype=torch.int,
+                ),
+                (self.lxu_cache_weights.shape[0],),
+                is_host_mapped=self.uvm_host_mapped,
+            ),
+        )
+
+        # For storing the number of evicted rows
+        self.register_buffer(
+            "lxu_cache_evicted_count",
+            torch.ops.fbgemm.new_unified_tensor(
+                torch.zeros(
+                    1,
+                    device=self.current_device,
+                    dtype=torch.int,
+                ),
+                (1,),
+                is_host_mapped=self.uvm_host_mapped,
+            ),
+        )
+
         self.timestep = 0
 
         # Dummy profile configuration for measuring the SSD get/set time
@@ -1084,11 +1128,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     self.local_ssd_cache_stats,
                 )
 
-            # Allocate output tensors for compact_indices
-            compact_evicted_indices = torch.empty_like(evicted_indices)
-            compact_assigned_cache_slots = torch.empty_like(assigned_cache_slots)
-            compact_actions_count_gpu = torch.empty_like(actions_count_gpu)
-
             # Defrag indices based on evicted_indices (removing -1 and making
             # the non -1 elements contiguous). We need to do this because the
             # number of rows in `lxu_cache_evicted_weights` might be smaller
@@ -1096,23 +1135,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # step, we can run into the index out of bound issue
             current_stream.wait_event(self.ssd_event_cache_evict)
             torch.ops.fbgemm.compact_indices(
-                compact_indices=[compact_evicted_indices, compact_assigned_cache_slots],
-                compact_count=compact_actions_count_gpu,
+                compact_indices=[
+                    self.lxu_cache_evicted_indices,
+                    self.lxu_cache_evicted_slots,
+                ],
+                compact_count=self.lxu_cache_evicted_count,
                 indices=[evicted_indices, assigned_cache_slots],
                 masks=torch.where(evicted_indices != -1, 1, 0),
                 count=actions_count_gpu,
             )
 
-            evicted_indices = compact_evicted_indices
-
             with record_function("## ssd_d2h_inserted_indices ##"):
                 # Transfer actions_count and insert_indices right away to
                 # incrase an overlap opportunity
-                actions_count_cpu, compact_actions_count_cpu, inserted_indices_cpu = (
+                actions_count_cpu, inserted_indices_cpu = (
                     self.to_pinned_cpu_on_stream_wait_on_another_stream(
                         tensors=[
                             actions_count_gpu,
-                            compact_actions_count_gpu,
                             inserted_indices,
                         ],
                         stream=self.ssd_memcpy_stream,
@@ -1121,26 +1160,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     )
                 )
 
-            with record_function("## ssd_d2h_evicted_indices ##"):
-                # Transfer evicted indices from GPU to CPU right away to increase a
-                # chance of overlapping with compute on the default stream
-                (evicted_indices_cpu,) = (
-                    self.to_pinned_cpu_on_stream_wait_on_another_stream(
-                        tensors=[evicted_indices],
-                        stream=self.ssd_eviction_stream,
-                        stream_to_wait_on=current_stream,
-                        post_event=None,
-                    )
-                )
-
             # Copy rows to be evicted into a separate buffer (will be evicted
             # later in the prefetch step)
             with record_function("## ssd_compute_evicted_rows ##"):
                 torch.ops.fbgemm.masked_index_select(
                     self.lxu_cache_evicted_weights,
-                    compact_assigned_cache_slots,
+                    self.lxu_cache_evicted_slots,
                     self.lxu_cache_weights,
-                    compact_actions_count_gpu,
+                    self.lxu_cache_evicted_count,
                 )
 
             # Allocation a scratch pad for the current iteration. The scratch
@@ -1294,8 +1321,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 # Evict rows from cache to SSD
                 self.evict(
                     rows=self.lxu_cache_evicted_weights,
-                    indices_cpu=evicted_indices_cpu,
-                    actions_count_cpu=compact_actions_count_cpu,
+                    indices_cpu=self.lxu_cache_evicted_indices,
+                    actions_count_cpu=self.lxu_cache_evicted_count,
                     stream=self.ssd_eviction_stream,
                     pre_event=self.ssd_event_get,
                     # Record completion event after scratch pad eviction
