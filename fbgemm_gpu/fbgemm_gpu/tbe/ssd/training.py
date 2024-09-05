@@ -18,6 +18,7 @@ from math import log2
 from typing import Any, Callable, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 
+# @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 from fbgemm_gpu.runtime_monitor import (
     AsyncSeriesTimer,
