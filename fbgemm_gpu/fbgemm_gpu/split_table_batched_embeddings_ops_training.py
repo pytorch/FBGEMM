@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
+# @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
 
 from fbgemm_gpu.config import FeatureGate, FeatureGateName
