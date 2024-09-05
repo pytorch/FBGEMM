@@ -105,9 +105,67 @@ Functions</h2></td></tr>
 <tr class="separator:ga6c17fd18abf27a7776661565e7f1e011"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gabac3e6cc0bdc3bd2306604a7eeabc88c" id="r_gabac3e6cc0bdc3bd2306604a7eeabc88c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gabac3e6cc0bdc3bd2306604a7eeabc88c">ssd_update_row_addrs_cuda</a> (const Tensor &amp;ssd_row_addrs_curr, const Tensor &amp;inserted_ssd_weights_curr_next_map, const Tensor &amp;lxu_cache_locations_curr, const Tensor &amp;linear_index_inverse_indices_curr, const Tensor &amp;unique_indices_count_cumsum_curr, const Tensor &amp;cache_set_inverse_indices_curr, const Tensor &amp;lxu_cache_weights, const Tensor &amp;inserted_ssd_weights_next, const Tensor &amp;unique_indices_length_curr)</td></tr>
 <tr class="separator:gabac3e6cc0bdc3bd2306604a7eeabc88c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga3c1be516461fee114c157402e33cb0d9" id="r_ga3c1be516461fee114c157402e33cb0d9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga3c1be516461fee114c157402e33cb0d9">compact_indices_cuda</a> (std::vector&lt; Tensor &gt; compact_indices, Tensor compact_count, std::vector&lt; Tensor &gt; indices, Tensor masks, Tensor count)</td></tr>
+<tr class="separator:ga3c1be516461fee114c157402e33cb0d9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
+<a id="ga3c1be516461fee114c157402e33cb0d9" name="ga3c1be516461fee114c157402e33cb0d9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga3c1be516461fee114c157402e33cb0d9">&#9670;&#160;</a></span>compact_indices_cuda()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void compact_indices_cuda </td>
+          <td>(</td>
+          <td class="paramtype">std::vector&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>compact_indices</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>compact_count</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::vector&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>indices</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>masks</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">Tensor</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Compact the given list of indices. </p>
+<p>This operator compact the given list of indices based on the given masks (a tensor that contains either 0 or 1). The operater removes the indices that their corresponding mask is 0. It only operates on <code>count</code> number of elements (not the full tensor).</p>
+<p>Example:</p>
+<div class="fragment"><div class="line">indices = [[0, 3, -1, 3, -1, -1, 7], [0, 2, 2, 3, -1, 9, 7]]</div>
+<div class="line">masks = [1, 1, 0, 1, 0, 0, 1]</div>
+<div class="line">count = 5</div>
+<div class="line"> </div>
+<div class="line"><span class="preprocessor"># x represents an arbitrary value</span></div>
+<div class="line">compact_indices = [[0, 3, 3, x, x, x, x], [0, 2, 3, x, x, x, x]]</div>
+<div class="line">compact_count = 3</div>
+</div><!-- fragment --><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">compact_indices</td><td>A list of compact indices (output indices). </td></tr>
+    <tr><td class="paramname">compact_count</td><td>A tensor that contains the number of elements after being compacted </td></tr>
+    <tr><td class="paramname">indices</td><td>An input list of indices to be compacted </td></tr>
+    <tr><td class="paramname">masks</td><td>A tensor that contains 0 or 1 to indicate whether to remove/keep the element. 0 = remove the corresponding index. 1 = keep the corresponding index. @count count A tensor that contains the number of elements to be compacted </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
 <a id="ga14b70f98db5378da5071b9049b7356db" name="ga14b70f98db5378da5071b9049b7356db"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ga14b70f98db5378da5071b9049b7356db">&#9670;&#160;</a></span>cuda_callback_func()</h2>
 
