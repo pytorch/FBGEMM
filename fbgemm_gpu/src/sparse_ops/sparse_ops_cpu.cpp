@@ -1332,11 +1332,15 @@ U exclusive_scan_ptrs_cpu(
   return cumsum;
 }
 
-Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
+void asynchronous_exclusive_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const Tensor& t_in) {
   TENSOR_ON_CPU(t_in);
+  TENSOR_ON_CPU(t_out);
 
   const auto t_in_contig = t_in.expect_contiguous();
-  auto output = native_empty_like(*t_in_contig);
+  at::native::resize_(t_out, t_in_contig->sizes(), c10::nullopt);
+
   FBGEMM_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
       "asynchronous_exclusive_cumsum_cpu_kernel",
@@ -1344,8 +1348,16 @@ Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
         exclusive_scan_ptrs_cpu(
             t_in_contig->numel(),
             t_in_contig->data_ptr<scalar_t>(),
-            output.data_ptr<scalar_t>());
+            t_out.data_ptr<scalar_t>());
       });
+}
+
+Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
+  TENSOR_ON_CPU(t_in);
+
+  const auto t_in_contig = t_in.expect_contiguous();
+  auto output = native_empty_like(*t_in_contig);
+  asynchronous_exclusive_cumsum_cpu_out(output, *t_in_contig);
   return output;
 }
 
