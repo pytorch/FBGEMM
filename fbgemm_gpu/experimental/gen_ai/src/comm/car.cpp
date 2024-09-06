@@ -35,7 +35,7 @@ namespace {
 
 static_assert(sizeof(cudaIpcMemHandle_t) == 64, "");
 
-constexpr size_t kMaxNumNcclComms = 3;
+constexpr size_t kMaxNumNcclComms = 4;
 
 static ncclComm_t* get_nccl_comm(int64_t comm_idx) {
   static ncclComm_t comms[kMaxNumNcclComms];
