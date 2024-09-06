@@ -1045,22 +1045,22 @@ def ensemble_rowwise_adagrad() -> Dict[str, Any]:
         at::acc_type<cache_t, true> new_sum_square_grads = momentum2[idx] + g_avg_square;
         momentum2[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
-        
+
         if (step_mode == 1) {
             // row_counter[idx] records the number of appearances of this row
             row_counter[idx] += 1.0;
-            should_ema = (row_counter[idx] > step_start && (int64_t)round(fmod(row_counter[idx], step_ema)) == 0);   
-            should_swap = (row_counter[idx] > step_start && (int64_t)round(fmod(row_counter[idx], step_swap)) == 0);   
+            should_ema = (row_counter[idx] > step_start && (int64_t)round(fmod(row_counter[idx], step_ema)) == 0);
+            should_swap = (row_counter[idx] > step_start && (int64_t)round(fmod(row_counter[idx], step_swap)) == 0);
         } else if (step_mode == 2)  {
             // row_counter[idx] records the iter when this row appeard last time
-            should_ema = (iter * 1.0 > step_start && floorf(iter*1.0 / step_ema) - floorf(row_counter[idx] / step_ema) > 0.5);   
-            should_swap = (iter * 1.0 > step_start && floorf(iter*1.0 / step_swap) - floorf(row_counter[idx] / step_swap) > 0.5);   
+            should_ema = (iter * 1.0 > step_start && floorf(iter*1.0 / step_ema) - floorf(row_counter[idx] / step_ema) > 0.5);
+            should_swap = (iter * 1.0 > step_start && floorf(iter*1.0 / step_swap) - floorf(row_counter[idx] / step_swap) > 0.5);
             row_counter[idx] = iter * 1.0;
         } else {
             should_ema = false;
             should_swap = false;
         }
-    }    
+    }
     multiplier = SHFL_SYNC(multiplier, 0);
     should_ema = SHFL_SYNC(should_ema, 0);
     should_swap = SHFL_SYNC(should_swap, 0);
@@ -1072,11 +1072,11 @@ def ensemble_rowwise_adagrad() -> Dict[str, Any]:
         weight_new.acc.z = weight_new.acc.z - multiplier * grad.acc.z;
         weight_new.acc.w = weight_new.acc.w - multiplier * grad.acc.w;
 
-        if (should_ema) { // slow table ema 
+        if (should_ema) { // slow table ema
             Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
             m_t.acc.x = (1.0 - momentum) * weight_new.acc.x + momentum * m_t.acc.x;
             m_t.acc.y = (1.0 - momentum) * weight_new.acc.y + momentum * m_t.acc.y;
-            m_t.acc.z = (1.0 - momentum) * weight_new.acc.z + momentum * m_t.acc.z;   
+            m_t.acc.z = (1.0 - momentum) * weight_new.acc.z + momentum * m_t.acc.z;
             m_t.acc.w = (1.0 - momentum) * weight_new.acc.w + momentum * m_t.acc.w;
             m_t.store(&momentum1[idx * D + d]);
         }
