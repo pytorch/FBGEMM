@@ -43,17 +43,21 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
         max_D);
   }
 
-  void
-  set_cuda(Tensor indices, Tensor weights, Tensor count, int64_t timestep) {
-    return impl_->set_cuda(indices, weights, count, timestep);
+  void set_cuda(
+      Tensor indices,
+      Tensor weights,
+      Tensor count,
+      int64_t timestep,
+      bool is_bwd = false) {
+    return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
   }
 
   void get_cuda(Tensor indices, Tensor weights, Tensor count) {
     return impl_->get_cuda(indices, weights, count);
   }
 
-  void set(Tensor indices, Tensor weights, Tensor count) {
-    return impl_->set(indices, weights, count);
+  void set(Tensor indices, Tensor weights, Tensor count, bool is_bwd = false) {
+    return impl_->set(indices, weights, count, is_bwd);
   }
 
   void get(Tensor indices, Tensor weights, Tensor count) {
