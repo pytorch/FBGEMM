@@ -36,20 +36,15 @@ from fbgemm_gpu.tbe.ssd import (
     SSDTableBatchedEmbeddingBags,
 )
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
+from fbgemm_gpu.utils.loader import load_torch_module
 from torch.autograd.profiler import record_function
 from torch.profiler import profile
 
 logging.basicConfig(level=logging.DEBUG)
 
-if torch.version.hip:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
-    )
-else:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-    )
-
+load_torch_module(
+    "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings",
+)
 
 logging.basicConfig(level=logging.DEBUG)
 
