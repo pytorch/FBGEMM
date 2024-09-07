@@ -7,6 +7,7 @@
     "fbgemm::FloatToHFP8Quantized": {},
     "fbgemm::Fused8BitRowwiseQuantizedToFloat": {},
     "fbgemm::Fused8BitRowwiseQuantizedToFloatOrHalf": {},
+    "fbgemm::FusedNBitRowwiseQuantizedSBHalfFrontToFloat": {},
     "fbgemm::HFP8QuantizedToFloat": {},
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::bounds_check_indices": {},
@@ -42,6 +43,10 @@
       "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
         "comment": "",
         "status": "xsuccess"
+      },
+      "NBitFowardTest.test_faketensor__test_nbit_forward_cpu_seq_int4": {
+        "comment": "this operator outputs torch.quint4x2 tensors which is not compatible with generate_opcheck_tests",
+        "status": "xfail"
       }
     },
     "fbgemm::int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
