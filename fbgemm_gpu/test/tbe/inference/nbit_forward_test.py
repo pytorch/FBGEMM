@@ -97,6 +97,31 @@ additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_nbit_forward_cpu_gpu_dequantize_parity": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
+    "test_faketensor__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+    "test_schema__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+    "test_autograd_registration__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+    "test_aot_dispatch_static__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+    "test_aot_dispatch_dynamic__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
 }
 
 
