@@ -1113,3 +1113,18 @@ def _setup() -> None:
 
 
 _setup()
+
+
+@torch.library.register_fake("fbgemm::lengths_range")
+def lengths_range_abstract(
+    lengths: Tensor,
+    output_shape: Optional[Sequence[int]] = None,
+) -> Tensor:
+    torch._check(lengths.dim() == 1, lambda: "lengths must be a 1D tensor")
+    output_size = 0
+    if output_shape is not None:
+        output_size = math.prod(output_shape)
+    else:
+        ctx = torch.library.get_ctx()
+        output_size = ctx.new_dynamic_size()
+    return lengths.new_empty([output_size], dtype=lengths.dtype)
