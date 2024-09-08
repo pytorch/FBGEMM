@@ -7,7 +7,7 @@
 # pyre-strict
 
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import torch
 
