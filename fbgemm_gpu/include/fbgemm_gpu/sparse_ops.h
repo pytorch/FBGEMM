@@ -39,6 +39,11 @@ at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in);
 at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
+void asynchronous_exclusive_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const at::Tensor& t_in);
+
+///@ingroup sparse-data-cpu
 at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
