@@ -178,7 +178,7 @@ class AsyncSeriesTimer:
     """
     A wrapper class on top of torch.cuda.Event to measure the time between a
     series of CUDA events. Once initiated, every start() and stop() call pair
-    will measure the timing between them on GPU. Caller cannot inititate another
+    will measure the timing between them on GPU. Caller cannot initiate another
     recording if there's already one ongoing.
 
     Reporting is asynchronous as the timing result is not ready immediately at
@@ -215,7 +215,7 @@ class AsyncSeriesTimer:
         return AsyncSeriesTimerRecordedContext(self, context, stream)
 
     def _lazy_report(self) -> None:
-        # Since this is a series of timing event, the earlies recorded event
+        # Since this is a series of timing events, the earliest recorded event
         # finishes earliest. So we only need to check the leftmost stop event
         # to decide if we need to report now.
 
