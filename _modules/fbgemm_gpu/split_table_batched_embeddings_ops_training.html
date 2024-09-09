@@ -3337,17 +3337,6 @@
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">VBEMetadata</span><span class="p">:</span>
         <span class="c1"># Blocking D2H copy, but only runs at first call</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">batch_size_per_feature_per_rank</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
-                <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
-                <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,</span>
-                <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
-                <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-            <span class="p">),</span> <span class="p">(</span>
-                <span class="s2">&quot;Variable batch size TBE support is enabled for &quot;</span>
-                <span class="s2">&quot;OptimType.EXACT_ROWWISE_ADAGRAD and &quot;</span>
-                <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD only&quot;</span>
-            <span class="p">)</span>
         <span class="k">return</span> <span class="n">generate_vbe_metadata</span><span class="p">(</span>
             <span class="n">offsets</span><span class="p">,</span>
             <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
