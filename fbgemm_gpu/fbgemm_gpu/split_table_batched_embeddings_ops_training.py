@@ -2922,17 +2922,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
-        if batch_size_per_feature_per_rank is not None:
-            assert self.optimizer in (
-                OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.EXACT_SGD,
-                OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
-                OptimType.NONE,
-            ), (
-                "Variable batch size TBE support is enabled for "
-                "OptimType.EXACT_ROWWISE_ADAGRAD and "
-                "ENSEMBLE_ROWWISE_ADAGRAD only"
-            )
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
