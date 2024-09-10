@@ -13,14 +13,32 @@
 namespace l2_cache {
 
 using Cache = facebook::cachelib::LruAllocator;
-CacheLibCache::CacheLibCache(size_t cacheSizeBytes, int64_t num_shards)
-    : cache_config_(CacheConfig{.cacheSizeBytes = cacheSizeBytes}),
+
+// this is a general predictor for weights data type, might not be general
+// enough for all the cases
+at::ScalarType bytes_to_dtype(int num_bytes) {
+  switch (num_bytes) {
+    case 1:
+      return at::kByte;
+    case 2:
+      return at::kHalf;
+    case 4:
+      return at::kFloat;
+    case 8:
+      return at::kDouble;
+    default:
+      throw std::runtime_error("Unsupported dtype");
+  }
+}
+
+CacheLibCache::CacheLibCache(const CacheConfig& cache_config)
+    : cache_config_(cache_config),
       cache_(initializeCacheLib(cache_config_)),
       admin_(createCacheAdmin(*cache_)) {
-  for (int i = 0; i < num_shards; i++) {
+  for (size_t i = 0; i < cache_config_.num_shards; i++) {
     pool_ids_.push_back(cache_->addPool(
         fmt::format("shard_{}", i),
-        cache_->getCacheMemoryStats().ramCacheSize / num_shards));
+        cache_->getCacheMemoryStats().ramCacheSize / cache_config_.num_shards));
   }
 }
 
@@ -51,7 +69,7 @@ std::unique_ptr<Cache> CacheLibCache::initializeCacheLib(
             });
       };
   Cache::Config cacheLibConfig;
-  cacheLibConfig.setCacheSize(static_cast<uint64_t>(config.cacheSizeBytes))
+  cacheLibConfig.setCacheSize(static_cast<uint64_t>(config.cache_size_bytes))
       .setRemoveCallback(eviction_cb)
       .setCacheName("TBEL2Cache")
       .setAccessConfig({25 /* bucket power */, 10 /* lock power */})
@@ -99,6 +117,44 @@ bool CacheLibCache::put(int64_t key, const at::Tensor& data) {
   return true;
 }
 
+std::tuple<at::Tensor, at::Tensor, at::Tensor> CacheLibCache::get_all_items() {
+  int total_num_items = 0;
+  for (auto& pool_id : pool_ids_) {
+    total_num_items += cache_->getPoolStats(pool_id).numItems();
+  }
+  auto weight_dim = cache_config_.max_D_;
+  auto weights_dtype =
+      bytes_to_dtype(cache_config_.item_size_bytes / weight_dim);
+  auto indices = at::empty(
+      total_num_items, at::TensorOptions().dtype(at::kLong).device(at::kCPU));
+  auto weights = at::empty(
+      {total_num_items, weight_dim},
+      at::TensorOptions().dtype(weights_dtype).device(at::kCPU));
+  FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
+      weights.scalar_type(), "get_all_items", [&] {
+        auto indices_data_ptr = indices.data_ptr<int64_t>();
+        auto weights_data_ptr = weights.data_ptr<scalar_t>();
+        int64_t item_idx = 0;
+        for (auto itr = cache_->begin(); itr != cache_->end(); ++itr) {
+          const auto key_ptr =
+              reinterpret_cast<const int64_t*>(itr->getKey().data());
+          indices_data_ptr[item_idx] = *key_ptr;
+          std::copy(
+              reinterpret_cast<const scalar_t*>(itr->getMemory()),
+              reinterpret_cast<const scalar_t*>(itr->getMemory()) + weight_dim,
+              &weights_data_ptr[item_idx * weight_dim]); // dst_start
+          item_idx++;
+        }
+        CHECK_EQ(total_num_items, item_idx);
+      });
+  return std::make_tuple(
+      indices,
+      weights,
+      at::tensor(
+          {total_num_items},
+          at::TensorOptions().dtype(at::kLong).device(at::kCPU)));
+}
+
 void CacheLibCache::init_tensor_for_l2_eviction(
     const at::Tensor& indices,
     const at::Tensor& weights,
@@ -130,7 +186,7 @@ CacheLibCache::get_evicted_indices_and_weights() {
 
 std::vector<int64_t> CacheLibCache::get_cache_usage() {
   std::vector<int64_t> cache_mem_stats(2, 0); // freeBytes, capacity
-  cache_mem_stats[1] = cache_config_.cacheSizeBytes;
+  cache_mem_stats[1] = cache_config_.cache_size_bytes;
   for (auto& pool_id : pool_ids_) {
     auto pool_stats = cache_->getPoolStats(pool_id);
     cache_mem_stats[0] += pool_stats.freeMemoryBytes();
