@@ -54,7 +54,7 @@ namespace {
 // number of SMs gives good performance across the board
 constexpr int MAX_THREAD_BLOCKS_FACTOR = 64;
 
-int get_max_thread_blocks_() {
+inline int get_max_thread_blocks_() {
   return MAX_THREAD_BLOCKS_FACTOR *
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 }
