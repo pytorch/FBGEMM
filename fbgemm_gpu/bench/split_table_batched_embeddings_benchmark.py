@@ -643,6 +643,9 @@ def uvm(
 
     time_per_iter = benchmark_requests(
         requests_uvm,
+        # pyre-fixme[6]: For 2nd argument expected `(Tensor, Tensor,
+        #  Optional[Tensor]) -> Tensor` but got `(indices: Tensor, offsets: Tensor,
+        #  per_sample_weights: Tensor) -> None`.
         run_bench,
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         num_warmups=warmup_runs,
@@ -1922,6 +1925,9 @@ def nbit_uvm(
                 indices,
                 offsets,
             ),
+            # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
+            #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+            #  indices_weights: Any) -> Tensor`.
             lambda indices, offsets, indices_weights: emb_mixed.forward(
                 indices,
                 offsets,
@@ -2409,6 +2415,9 @@ def nbit_cache(  # noqa C901
             indices,
             offsets,
         ),
+        # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
+        #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+        #  indices_weights: Any) -> Tensor`.
         lambda indices, offsets, indices_weights: emb.forward(
             indices,
             offsets,
@@ -3049,6 +3058,7 @@ def device_with_spec(  # noqa C901
             reuse=reuse,
             alpha=alpha,
             weighted=weighted,
+            # pyre-fixme[61]: `sigma_Ls` is undefined, or not always defined.
             sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
             zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
         )

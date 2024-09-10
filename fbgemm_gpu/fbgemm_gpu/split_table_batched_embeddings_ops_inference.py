@@ -159,10 +159,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
+    # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
     cache_miss_counter: torch.Tensor
+    # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
     local_uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_offsets` is never initialized.
     weights_offsets: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_placements` is never initialized.
     weights_placements: torch.Tensor
 
     def __init__(  # noqa C901
