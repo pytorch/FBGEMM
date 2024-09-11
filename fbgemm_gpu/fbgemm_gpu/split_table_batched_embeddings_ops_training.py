@@ -50,15 +50,15 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     is_torchdynamo_compiling,
 )
 
+from fbgemm_gpu.utils.loader import load_torch_module
+
 try:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training"
-        )
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training",
+    )
+
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training"
     )
