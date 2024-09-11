@@ -151,7 +151,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             num_shards,
             max_D,
             l2_cache_size_gb,
-            tbe_unqiue_id) {
+            tbe_unqiue_id,
+            row_storage_bitwidth / 8) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
     options.create_if_missing = true;
@@ -580,7 +581,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
-  void flush() override {
+  void flush() {
+    kv_db::EmbeddingKVDB::flush();
     for (auto& db : dbs_) {
       db->Flush(rocksdb::FlushOptions());
     }

@@ -76,7 +76,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t num_shards,
       int64_t max_D,
       int64_t cache_size_gb = 0,
-      int64_t unique_id = 0);
+      int64_t unique_id = 0,
+      int64_t ele_size_bytes = 2 /*assume by default fp16*/);
 
   virtual ~EmbeddingKVDB();
 
@@ -140,7 +141,13 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   virtual void compact() = 0;
 
-  virtual void flush() = 0;
+  /// Flush L2 cache into backend storage
+  /// @return None
+  /// @note caller side should mananger the timing to make sure flush doens't
+  /// happen at the same time as get/set
+  /// @note flush only flushes L2 cache, if there is cache on the backend
+  /// storage, that flush should be called as well
+  void flush();
 
   // The function attaches the CUDA callback logic to the compute
   // stream to ensure that the data retrieval is carried out properly.
