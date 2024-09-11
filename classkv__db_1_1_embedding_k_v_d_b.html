@@ -100,12 +100,35 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aaabed7d99a9750e8b8a2e45a582fa014" id="r_aaabed7d99a9750e8b8a2e45a582fa014"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaabed7d99a9750e8b8a2e45a582fa014">get</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
 <tr class="separator:aaabed7d99a9750e8b8a2e45a582fa014"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
+<tr class="separator:adac116554b543b7c4228c018a85882f5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft" align="right" valign="top">std::vector&lt; double &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
 <tr class="separator:a52afc11e0dda55903f95469edb66ab6c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Currently it is used by TBE to offload Key(Embedding Index) Value(Embeddings) to DRAM, SSD or remote storage, to provide better scalability without blowing up HBM resources </p>
 </div><h2 class="groupheader">Member Function Documentation</h2>
+<a id="adac116554b543b7c4228c018a85882f5" name="adac116554b543b7c4228c018a85882f5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adac116554b543b7c4228c018a85882f5">&#9670;&#160;</a></span>flush()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void flush </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Flush L2 cache into backend storage </p><dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
+<dl class="section note"><dt>Note</dt><dd>caller side should mananger the timing to make sure flush doens't happen at the same time as get/set </dd>
+<dd>
+flush only flushes L2 cache, if there is cache on the backend storage, that flush should be called as well </dd></dl>
+
+</div>
+</div>
 <a id="aaabed7d99a9750e8b8a2e45a582fa014" name="aaabed7d99a9750e8b8a2e45a582fa014"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aaabed7d99a9750e8b8a2e45a582fa014">&#9670;&#160;</a></span>get()</h2>
 

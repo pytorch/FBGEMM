@@ -94,6 +94,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a35f4ec049ea4846946a6f6f2205b4280"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a9ee8139247e86b5cf6a52582c1ff5686" id="r_a9ee8139247e86b5cf6a52582c1ff5686"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ee8139247e86b5cf6a52582c1ff5686">put</a> (int64_t key, const at::Tensor &amp;data)</td></tr>
 <tr class="separator:a9ee8139247e86b5cf6a52582c1ff5686"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af34eef9d403b258ec310509fa65268a5" id="r_af34eef9d403b258ec310509fa65268a5"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af34eef9d403b258ec310509fa65268a5">get_all_items</a> ()</td></tr>
+<tr class="separator:af34eef9d403b258ec310509fa65268a5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a7c647623fef9959bd482911050ba9711" id="r_a7c647623fef9959bd482911050ba9711"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7c647623fef9959bd482911050ba9711">init_tensor_for_l2_eviction</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
 <tr class="separator:a7c647623fef9959bd482911050ba9711"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a59d4800235bf477ae8b2da78001519dd" id="r_a59d4800235bf477ae8b2da78001519dd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a59d4800235bf477ae8b2da78001519dd">reset_eviction_states</a> ()</td></tr>
@@ -128,6 +130,30 @@ Public Member Functions</h2></td></tr>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>an optional value, return none on cache misses, if cache hit return a pointer to the cachelib underlying storage of associated embeddings</dd></dl>
 <dl class="section note"><dt>Note</dt><dd>that this is not thread safe, caller needs to make sure the data is fully processed before doing cache insertion, otherwise the returned space might be overwritten if cache is full </dd></dl>
+
+</div>
+</div>
+<a id="af34eef9d403b258ec310509fa65268a5" name="af34eef9d403b258ec310509fa65268a5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af34eef9d403b258ec310509fa65268a5">&#9670;&#160;</a></span>get_all_items()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; get_all_items </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>iterate through all items in L2 cache, fill them in indices and weights respectively and return indices, weights and count</p>
+<dl class="section return"><dt>Returns</dt><dd>indices The 1D embedding index tensor, should skip on negative value </dd>
+<dd>
+weights The 2D tensor that each row(embeddings) is paired up with relative element in &lt;indices&gt; </dd>
+<dd>
+count A single element tensor that contains the number of indices to be processed</dd></dl>
+<dl class="section note"><dt>Note</dt><dd>this isn't thread safe, caller needs to make sure put isn't called while this is executed. </dd></dl>
 
 </div>
 </div>
