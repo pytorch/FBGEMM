@@ -465,7 +465,7 @@
     <span class="n">is_torchdynamo_compiling</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.utils.loader</span> <span class="kn">import</span> <span class="n">load_torch_module</span>
+<span class="kn">from</span> <span class="nn">fbgemm_gpu.utils.loader</span> <span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="n">load_torch_module</span><span class="p">(</span>
@@ -473,9 +473,9 @@
         <span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training&quot;</span><span class="p">,</span>
         <span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training&quot;</span><span class="p">,</span>
     <span class="p">)</span>
-
-    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">load_library</span><span class="p">(</span>
-        <span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training&quot;</span>
+    <span class="n">load_torch_module_bc</span><span class="p">(</span>
+        <span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_cpu&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training&quot;</span><span class="p">,</span>
     <span class="p">)</span>
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
     <span class="k">pass</span>
