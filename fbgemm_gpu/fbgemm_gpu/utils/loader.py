@@ -27,3 +27,10 @@ def load_torch_module(
             if not cuda_path:
                 cuda_path = f"{unified_path}_cuda"
             torch.ops.load_library(cuda_path)
+
+
+def load_torch_module_bc(new_path: str, old_path: str) -> None:
+    try:
+        torch.ops.load_library(new_path)
+    except Exception:
+        torch.ops.load_library(old_path)
