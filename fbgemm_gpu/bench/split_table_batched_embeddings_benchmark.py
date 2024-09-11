@@ -48,6 +48,9 @@ from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBEReq
 from torch import Tensor
 from torch.profiler import profile
 
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
 haveAIBench = False
 try:
     from aibench_observer.utils.observer import emitMetric

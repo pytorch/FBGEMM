@@ -13,7 +13,8 @@ import click
 import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 try:
     # pyre-ignore[21]

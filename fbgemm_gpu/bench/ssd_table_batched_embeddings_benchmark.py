@@ -40,14 +40,12 @@ from fbgemm_gpu.utils.loader import load_torch_module
 from torch.autograd.profiler import record_function
 from torch.profiler import profile
 
-logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 load_torch_module(
     "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings",
 )
-
-logging.basicConfig(level=logging.DEBUG)
-
 
 @click.group()
 def cli() -> None:
