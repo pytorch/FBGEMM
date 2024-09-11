@@ -59,7 +59,7 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
     RECORD_USER_SCOPE("EmbeddingParameterServer::get");
     co_await tps_client_->get(indices, weights, count.item().toLong());
   }
-  void flush() override {}
+  void flush() {}
   void compact() override {}
   // cleanup cached results in server side
   // This is a test helper, please do not use it in production

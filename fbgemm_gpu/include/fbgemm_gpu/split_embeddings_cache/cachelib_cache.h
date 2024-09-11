@@ -33,10 +33,13 @@ class CacheLibCache {
  public:
   using Cache = facebook::cachelib::LruAllocator;
   struct CacheConfig {
-    size_t cacheSizeBytes;
+    size_t cache_size_bytes;
+    size_t item_size_bytes;
+    size_t num_shards;
+    int64_t max_D_;
   };
 
-  explicit CacheLibCache(size_t cacheSizeBytes, int64_t num_shards);
+  explicit CacheLibCache(const CacheConfig& cache_config);
 
   std::unique_ptr<Cache> initializeCacheLib(const CacheConfig& config);
 
@@ -84,6 +87,20 @@ class CacheLibCache {
   ///
   /// @note cache_->allocation will trigger eviction callback func
   bool put(int64_t key, const at::Tensor& data);
+
+  /// iterate through all items in L2 cache, fill them in indices and weights
+  /// respectively and return indices, weights and count
+  ///
+  /// @return indices The 1D embedding index tensor, should skip on negative
+  /// value
+  /// @return weights The 2D tensor that each row(embeddings) is paired up with
+  /// relative element in <indices>
+  /// @return count A single element tensor that contains the number of indices
+  /// to be processed
+  ///
+  /// @note this isn't thread safe, caller needs to make sure put isn't called
+  /// while this is executed.
+  std::tuple<at::Tensor, at::Tensor, at::Tensor> get_all_items();
 
   /// instantiate eviction related indices and weights tensors(size of <count>)
   /// for L2 eviction using the same dtype and device from <indices> and
