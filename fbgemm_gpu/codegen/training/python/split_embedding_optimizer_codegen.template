@@ -22,6 +22,8 @@ import logging
 
 {%- if is_fbcode %}
 
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
+
 def _load_library(unified_path: str, cuda_path: str, hip_path: str) -> None:
     try:
         torch.ops.load_library(unified_path)
@@ -32,17 +34,18 @@ def _load_library(unified_path: str, cuda_path: str, hip_path: str) -> None:
         else:
             torch.ops.load_library(cuda_path)
 
-torch.ops.load_library(
-    "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training"
+load_torch_module_bc(
+    "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_cpu",
+    "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training",
 )
 
-_load_library(
+load_torch_module(
     "//deeplearning/fbgemm/fbgemm_gpu/codegen:optimizer_ops",
     "//deeplearning/fbgemm/fbgemm_gpu/codegen:optimizer_ops_cuda",
     "//deeplearning/fbgemm/fbgemm_gpu/codegen:optimizer_ops_hip",
 )
 
-_load_library(
+load_torch_module(
     "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings",
     "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings",
     "//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_embeddings_hip",
