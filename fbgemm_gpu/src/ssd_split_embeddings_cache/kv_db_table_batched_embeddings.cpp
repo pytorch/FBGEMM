@@ -65,16 +65,23 @@ EmbeddingKVDB::EmbeddingKVDB(
     int64_t num_shards,
     int64_t max_D,
     int64_t cache_size_gb,
-    int64_t unique_id)
+    int64_t unique_id,
+    int64_t ele_size_bytes)
     : unique_id_(unique_id),
       num_shards_(num_shards),
       max_D_(max_D),
       executor_tp_(std::make_unique<folly::CPUThreadPoolExecutor>(num_shards)) {
   assert(num_shards > 0);
-  l2_cache_ = cache_size_gb > 0
-      ? std::make_unique<l2_cache::CacheLibCache>(
-            cache_size_gb * 1024 * 1024 * 1024, num_shards_)
-      : nullptr;
+  if (cache_size_gb > 0) {
+    l2_cache::CacheLibCache::CacheConfig cache_config;
+    cache_config.cache_size_bytes = cache_size_gb * 1024 * 1024 * 1024;
+    cache_config.num_shards = num_shards_;
+    cache_config.item_size_bytes = max_D_ * ele_size_bytes;
+    cache_config.max_D_ = max_D_;
+    l2_cache_ = std::make_unique<l2_cache::CacheLibCache>(cache_config);
+  } else {
+    l2_cache_ = nullptr;
+  }
   cache_filling_thread_ = std::make_unique<std::thread>([=] {
     while (!stop_) {
       auto filling_item_ptr = weights_to_fill_queue_.try_peek();
@@ -112,6 +119,17 @@ EmbeddingKVDB::EmbeddingKVDB(
 EmbeddingKVDB::~EmbeddingKVDB() {
   stop_ = true;
   cache_filling_thread_->join();
+}
+
+void EmbeddingKVDB::flush() {
+  wait_util_filling_work_done();
+  if (l2_cache_) {
+    auto tensor_tuple = l2_cache_->get_all_items();
+    auto& indices = std::get<0>(tensor_tuple);
+    auto& weights = std::get<1>(tensor_tuple);
+    auto& count = std::get<2>(tensor_tuple);
+    folly::coro::blockingWait(set_kv_db_async(indices, weights, count));
+  }
 }
 
 void EmbeddingKVDB::get_cuda(

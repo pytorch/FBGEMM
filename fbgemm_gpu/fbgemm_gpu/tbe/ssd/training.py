@@ -1643,6 +1643,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             False,
         )
 
+        self.ssd_db.flush()
+
     def prepare_inputs(
         self,
         indices: Tensor,
