@@ -31,7 +31,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     round_up,
     SplitState,
 )
-from fbgemm_gpu.utils.loader import load_torch_module
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
 try:
     load_torch_module(
@@ -39,8 +39,13 @@ try:
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference",
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference",
     )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
+except Exception:
+    pass
+
+try:
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference",
     )
 except Exception:
     pass

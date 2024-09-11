@@ -50,7 +50,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     is_torchdynamo_compiling,
 )
 
-from fbgemm_gpu.utils.loader import load_torch_module
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
 try:
     load_torch_module(
@@ -58,9 +58,9 @@ try:
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training",
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training",
     )
-
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training"
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training",
     )
 except Exception:
     pass
