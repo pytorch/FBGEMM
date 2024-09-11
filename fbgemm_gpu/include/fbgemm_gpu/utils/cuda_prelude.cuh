@@ -15,7 +15,7 @@
 
 namespace {
 
-int get_device_sm_cnt_() {
+inline int get_device_sm_cnt_() {
   cudaDeviceProp* deviceProp =
       at::cuda::getDeviceProperties(c10::cuda::current_device());
   return deviceProp->multiProcessorCount;

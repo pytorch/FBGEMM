@@ -31,16 +31,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     round_up,
     SplitState,
 )
+from fbgemm_gpu.utils.loader import load_torch_module
 
 try:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
-        )
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference",
+    )
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
     )
