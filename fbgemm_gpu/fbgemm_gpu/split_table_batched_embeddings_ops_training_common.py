@@ -9,12 +9,7 @@
 
 from typing import List, Optional
 
-# @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
-import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-
 import torch
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 from torch import Tensor
 
 try:
@@ -32,6 +27,12 @@ except Exception:
 
     def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
         return False
+
+
+# @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
+import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
+from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 
 
 def generate_vbe_metadata(
