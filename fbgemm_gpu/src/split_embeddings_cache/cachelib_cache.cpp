@@ -209,8 +209,10 @@ void CacheLibCache::init_tensor_for_l2_eviction(
       at::TensorOptions().device(weights.device()).dtype(weights.dtype())));
 }
 
-void CacheLibCache::reset_eviction_states() {
-  eviction_row_id = 0;
+int64_t CacheLibCache::reset_eviction_states() {
+  int64_t reset_val = 0;
+  auto num_eviction = eviction_row_id.exchange(reset_val);
+  return num_eviction;
 }
 
 folly::Optional<std::pair<at::Tensor, at::Tensor>>
