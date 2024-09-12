@@ -118,7 +118,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         step_ema: float = 10000,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         step_swap: float = 10000,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         step_start: float = 0,  # used by ENSEMBLE_ROWWISE_ADAGRAD
-        step_mode: StepMode = StepMode.USE_COUNTER,  # used by ENSEMBLE_ROWWISE_ADAGRAD
+        step_mode: StepMode = StepMode.USE_ITER,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
         ] = None,  # used by Rowwise Adagrad
