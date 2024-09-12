@@ -36,7 +36,7 @@ class PermuteMultiEmbeddingOp
       const Tensor& permutes,
       const Tensor& in_shapes,
       const Tensor& out_shapes,
-      const std::vector<int64_t>& out_lengths);
+      const c10::SymIntArrayRef out_lengths);
 
   static variable_list backward(
       AutogradContext* ctx,
@@ -48,7 +48,7 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths,
+    const c10::SymIntArrayRef out_lengths,
     const bool& reverse_permute);
 
 std::vector<Tensor> permute_multi_embedding_function_meta(
@@ -56,7 +56,7 @@ std::vector<Tensor> permute_multi_embedding_function_meta(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths,
+    const c10::SymIntArrayRef out_lengths,
     const bool& reverse_permute);
 
 std::vector<Tensor> permute_multi_embedding_function_gpu(
@@ -64,7 +64,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths,
+    const c10::SymIntArrayRef out_lengths,
     const bool& reverse_permute);
 
 std::tuple<std::vector<int32_t>, std::vector<int32_t>, std::vector<int32_t>>
