@@ -22,15 +22,15 @@ variable_list PermuteMultiEmbeddingOp::forward(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths) {
+    const c10::SymIntArrayRef out_lengths) {
   ctx->saved_data["permutes"] = permutes;
   ctx->saved_data["in_shapes"] = in_shapes;
   ctx->saved_data["out_shapes"] = out_shapes;
 
-  std::vector<int64_t> in_lengths;
+  std::vector<at::SymInt> in_lengths;
   in_lengths.reserve(pooled_embs.size());
   for (auto i : c10::irange(pooled_embs.size())) {
-    in_lengths.push_back(pooled_embs[i].size(1));
+    in_lengths.push_back(pooled_embs[i].sym_size(1));
   }
   ctx->saved_data["in_lengths"] = in_lengths;
 
@@ -54,7 +54,7 @@ variable_list PermuteMultiEmbeddingOp::backward(
   const auto permutes = ctx->saved_data["permutes"].toTensor();
   const auto in_shapes = ctx->saved_data["in_shapes"].toTensor();
   const auto out_shapes = ctx->saved_data["out_shapes"].toTensor();
-  const auto in_lengths = ctx->saved_data["in_lengths"].toIntVector();
+  const auto in_lengths = ctx->saved_data["in_lengths"].toSymIntVector();
 
   /*
     select the correct dispatched (cpu/gpu) backward function
