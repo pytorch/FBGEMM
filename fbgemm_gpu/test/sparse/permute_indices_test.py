@@ -87,7 +87,10 @@ class PermuteIndicesTest(unittest.TestCase):
             )
             for t in range(T):
                 for w in range(W):
+                    # pyre-fixme[61]: `batch_sizes` is undefined, or not always defined.
                     for b in range(batch_sizes[w]):
+                        # pyre-fixme[61]: `batch_sizes` is undefined, or not always
+                        #  defined.
                         permute_list.append(offset_w[w] + t * batch_sizes[w] + b)
         else:
             permute_list = list(range(T))
