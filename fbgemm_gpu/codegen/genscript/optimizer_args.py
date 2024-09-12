@@ -166,7 +166,11 @@ def schema_sym_int_arg_no_default(name: str) -> str:
 
 
 def make_kernel_arg(
-    ty: ArgType, name: str, default: Union[int, float, None], pass_by_ref: bool = False
+    # pyre-fixme[11]: Annotation `ArgType` is not defined as a type.
+    ty: ArgType,
+    name: str,
+    default: Union[int, float, None],
+    pass_by_ref: bool = False,
 ) -> str:
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg(x, pass_by_ref=pass_by_ref),
@@ -318,6 +322,7 @@ class OptimizerArgs:
     split_variables: List[str]
     split_ref_kernel_args: List[str]
     placeholder_tensor_names: List[str]
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
     placeholder_type_combos: Union[List[Dict[str, TensorType]], List[None]]
 
     @staticmethod
@@ -345,6 +350,7 @@ class OptimizerArgs:
         else:
             ph_combos = [None]
 
+        # pyre-fixme[28]: Unexpected keyword argument `placeholder_type_combos`.
         return OptimizerArgs(
             # GPU kernel args
             split_kernel_args=[
@@ -434,6 +440,7 @@ class OptimizerArgsSet:
         split_arg_spec = []
         for s in arg_spec:
             if s.ty in (ArgType.FLOAT, ArgType.INT, ArgType.SYM_INT):
+                # pyre-fixme[19]: Expected 1 positional argument.
                 split_arg_spec.append(OptimItem(s.ty, s.name, s.default))
             else:
                 assert s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)
@@ -446,8 +453,11 @@ class OptimizerArgsSet:
         name = spec.name
         default = spec.default
         return [
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.TENSOR, f"{name}_host", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.INT_TENSOR, f"{name}_placements", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.LONG_TENSOR, f"{name}_offsets", default),
         ]
 
@@ -458,9 +468,13 @@ class OptimizerArgsSet:
         ty = spec.ty
         ph_tys = spec.ph_tys
         return [
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_dev", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_uvm", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.INT_TENSOR, f"{name}_placements", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.LONG_TENSOR, f"{name}_offsets", default),
         ]
 
@@ -471,10 +485,15 @@ class OptimizerArgsSet:
         ty = spec.ty
         ph_tys = spec.ph_tys
         return [
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.TENSOR, f"{name}_host", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_dev", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_uvm", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.INT_TENSOR, f"{name}_placements", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.LONG_TENSOR, f"{name}_offsets", default),
         ]
 
