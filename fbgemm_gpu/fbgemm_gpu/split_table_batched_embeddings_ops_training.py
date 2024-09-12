@@ -2286,6 +2286,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.total_cache_hash_size = cache_state.total_cache_hash_size
+        # 8x of # tables, trivial size
         self.register_buffer(
             "cache_hash_size_cumsum",
             torch.tensor(
@@ -2294,6 +2295,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=torch.int64,
             ),
         )
+        # 4x total embedding hash size with uvm cache
         self.register_buffer(
             "cache_index_table_map",
             torch.tensor(
@@ -2302,12 +2304,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=torch.int32,
             ),
         )
+        # 8x of total cache slots (embedding hash size * clf)
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
                 cache_sets, DEFAULT_ASSOC, device=self.current_device, dtype=torch.int64
             ).fill_(-1),
         )
+        # Cache itself, not auxiliary size
         self.register_buffer(
             "lxu_cache_weights",
             torch.zeros(
@@ -2317,6 +2321,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=dtype,
             ),
         )
+        # LRU: 8x of total cache slots (embedding hash size * clf)
+        # LFU: 8x of total embedding hash size with uvm cache
         self.register_buffer(
             "lxu_state",
             torch.zeros(
