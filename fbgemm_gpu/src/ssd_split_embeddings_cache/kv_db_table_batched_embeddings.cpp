@@ -43,7 +43,7 @@ QueueItem tensor_copy(
   auto new_count =
       at::empty({1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
-      weights.scalar_type(), "cache_memcpy", [&] {
+      weights.scalar_type(), "tensor_copy", [&] {
         auto indices_addr = indices.data_ptr<int64_t>();
         auto new_indices_addr = new_indices.data_ptr<int64_t>();
         std::copy(
@@ -447,16 +447,36 @@ folly::coro::Task<void> EmbeddingKVDB::cache_memcpy(
   auto cache_memcpy_start_ts = facebook::WallClockUtil::NowInUsecFast();
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       weights.scalar_type(), "cache_memcpy", [&] {
+        std::vector<folly::coro::TaskWithExecutor<void>> tasks;
         auto weights_data_ptr = weights.data_ptr<scalar_t>();
-        for (int row_id = 0; row_id < cached_addr_list.size(); row_id++) {
-          if (cached_addr_list[row_id] == nullptr) {
-            continue;
-          }
-          std::copy(
-              reinterpret_cast<const scalar_t*>(cached_addr_list[row_id]),
-              reinterpret_cast<const scalar_t*>(cached_addr_list[row_id]) +
-                  max_D_,
-              &weights_data_ptr[row_id * max_D_]); // dst_start
+        auto num_shards = executor_tp_->numThreads();
+        for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
+          tasks.emplace_back(
+              folly::coro::co_invoke(
+                  [this,
+                   &cached_addr_list,
+                   &weights_data_ptr,
+                   num_shards,
+                   shard_id]() mutable -> folly::coro::Task<void> {
+                    for (int row_id = 0; row_id < cached_addr_list.size();
+                         row_id++) {
+                      if (row_id % num_shards != shard_id) {
+                        continue;
+                      }
+                      if (cached_addr_list[row_id] == nullptr) {
+                        continue;
+                      }
+                      std::copy(
+                          reinterpret_cast<const scalar_t*>(
+                              cached_addr_list[row_id]),
+                          reinterpret_cast<const scalar_t*>(
+                              cached_addr_list[row_id]) +
+                              max_D_,
+                          &weights_data_ptr[row_id * max_D_]); // dst_start
+                    }
+                    co_return;
+                  })
+                  .scheduleOn(executor_tp_.get()));
         }
       });
   get_cache_memcpy_duration_ +=
