@@ -100,7 +100,7 @@ class SplitEmbedding{{ optimizer_class_name }}(Optimizer):
         step_start: float = 0,
         {%- endif %}
         {%- if "step_mode" in args.split_function_arg_names %}
-        step_mode: int = 1,
+        step_mode: int = 2,
         {%- endif %}
         {%- if "weight_decay" in args.split_function_arg_names %}
         weight_decay: float = 0.0,
