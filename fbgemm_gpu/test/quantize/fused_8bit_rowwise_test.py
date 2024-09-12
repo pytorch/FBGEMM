@@ -257,6 +257,8 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                         )
                     )
 
+            # pyre-fixme[61]: `dequantized_data_gpu` is undefined, or not always
+            #  defined.
             dequantized_data_trimmed = dequantized_data_gpu[:, :ncols].cpu()
             quantize_data_numpy = quantized_data_gpu.cpu().numpy()
             if quant_padding_float_type:
