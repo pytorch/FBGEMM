@@ -1431,6 +1431,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
+        # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
     ) -> Tensor:
         indices, offsets, per_sample_weights = self.prepare_inputs(
             indices, offsets, per_sample_weights
