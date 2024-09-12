@@ -50,7 +50,11 @@ MX_GROUP_SIZE_DEFAULT = 32
 
 
 def none_throws(
-    optional: Optional[TypeVar("_T")], message: str = "Unexpected `None`"
+    # pyre-fixme[31]: Expression `typing.Optional[typing.TypeVar("_T")]` is not a
+    #  valid type.
+    optional: Optional[TypeVar("_T")],
+    message: str = "Unexpected `None`",
+    # pyre-fixme[31]: Expression `typing.TypeVar("_T")` is not a valid type.
 ) -> TypeVar("_T"):
     if optional is None:
         raise AssertionError(message)

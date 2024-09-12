@@ -404,7 +404,10 @@ def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
 
 
 def replace_placeholder_types(
-    arg_str_list: List[str], type_combo: Optional[Dict[str, TensorType]]
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
+    arg_str_list: List[str],
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
+    type_combo: Optional[Dict[str, TensorType]],
 ) -> List[str]:
     """
     Replace the placeholder types with the primitive types

@@ -343,9 +343,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     lxu_cache_locations_empty: Tensor
     timesteps_prefetched: List[int]
     record_cache_metrics: RecordCacheMetrics
+    # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
     local_uvm_cache_stats: torch.Tensor
     uuid: str
+    # pyre-fixme[13]: Attribute `last_uvm_cache_print_state` is never initialized.
     last_uvm_cache_print_state: torch.Tensor
     _vbe_B_offsets: Optional[torch.Tensor]
     _vbe_max_B: int
