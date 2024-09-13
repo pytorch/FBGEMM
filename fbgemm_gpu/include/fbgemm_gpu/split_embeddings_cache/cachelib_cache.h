@@ -128,8 +128,9 @@ class CacheLibCache {
       const at::Tensor& count);
 
   /// reset slot pointer that points to the next available slot in the eviction
-  /// tensors
-  void reset_eviction_states();
+  /// tensors and returns number of slots filled
+  /// @return number evictions
+  int64_t reset_eviction_states();
 
   /// get the filled indices and weights tensors from L2 eviction, could be all
   /// invalid if no eviction happened
