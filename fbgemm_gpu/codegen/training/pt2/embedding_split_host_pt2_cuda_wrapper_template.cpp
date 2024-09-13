@@ -30,6 +30,18 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
+{#/* Module description */#}
+{%- set fwd_mdesc = "ssd" if ssd else ("dense" if dense else "split") %}
+{%- set bwd_mdesc = "ssd" if ssd else "split" %}
+
+{%- if ssd %}
+enum SSDTensor {
+  {%- for tensor in ssd_tensors %}
+  {{ tensor | upper }} = {{ loop.index - 1 }},
+  {%- endfor %}
+};
+{%- endif %}
+
 {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
@@ -37,10 +49,22 @@ using namespace fbgemm_gpu;
 {%- for nobag in ([False] if (weighted or vbe) else [True, False]) %}
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
 {%- set ndesc = "_nobag" if nobag else "" %}
+{%- for is_gwd in ([True, False]
+    if is_valid_gwd_config(
+      dense,
+      nobag,
+      vbe,
+      is_index_select,
+      True,
+      ssd)
+      else [False]) %}
+{%- set gwddesc = "_gwd" if is_gwd else "" %}
+{%- set desc_suffix = wdesc + vdesc + gwddesc %}
 
 {%- if is_forward %}
 {#-/* PT2 wrapper function for forward CUDA */#}
-Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cuda_wrapper(
+{%- for dispatch_type in ["cuda", "meta"] %}
+Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt2_{{ dispatch_type }}_wrapper(
     const Tensor& /*host_weights*/,
     const Tensor& dev_weights,
     const Tensor& uvm_weights,
@@ -54,14 +78,14 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cud
     const c10::SymInt total_D,
     const c10::SymInt max_D,
     {%- endif %}
-    const Tensor& /*hash_size_cumsum*/,
+    const Tensor& hash_size_cumsum,
     const Tensor& indices,
     const Tensor& offsets,
     {%- if not nobag %}
     const int64_t pooling_mode,
     const Tensor& indice_weights, // CPU always takes indice_weights
     {%- endif %}
-    const Tensor& lxu_cache_locations,
+    const Tensor& {{ "ssd_row_addrs" if ssd else "lxu_cache_locations" }},
     const Tensor& uvm_cache_stats,
     {%- if vbe %}
     const Tensor& vbe_row_output_offsets,
@@ -70,48 +94,61 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cud
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
     {%- endif %}
+    {%- if is_gwd %}
+    const Tensor& prev_iter_dev,
+    const double learning_rate,
+    const double weight_decay,
+    const int64_t iter,
+    const double gwd_lower_bound,
+    {%- endif %}
     const bool is_experimental,
     const int64_t output_dtype
     ){
-    {%- set op = "split_embedding{}_codegen_forward_{}{}_cuda".format(
-        ndesc, wdesc, vdesc
+    {%- set op = "{}_embedding{}_codegen_forward_{}_cuda".format(
+        fwd_mdesc, ndesc, desc_suffix
     )
     %}
     static auto op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::{{ op }}", "")
             .typed<Tensor(
-                const Tensor&,
-                const Tensor&,
-                const Tensor&,
-                const Tensor&,
-                const Tensor&,
+                const Tensor& /*host_weights*/,
+                const Tensor& /*dev_weights*/,
+                const Tensor& /*uvm_weights*/,
+                const Tensor& /*lxu_cache_weights*/,
+                const Tensor& /*weights_placements*/,
                 {%- if not nobag %}
-                const Tensor&,
+                const Tensor& /*D_offsets*/,
+                const c10::SymInt /*total_D*/,
+                const c10::SymInt /*max_D*/,
                 {%- else %}
-                const c10::SymInt,
+                const c10::SymInt /*D*/,
                 {%- endif %}
+                const Tensor& /*indices*/,
+                const Tensor& /*offsets*/,
                 {%- if not nobag %}
-                const c10::SymInt,
-                const c10::SymInt,
-                {%- endif %}
-                const Tensor&,
-                const Tensor&,
-                {%- if not nobag %}
-                const int64_t,
+                const int64_t /*pooling_mode*/,
                 {%- endif %}
                 {%- if weighted %}
-                const Tensor&,
+                const Tensor& /*indice_weights*/,
                 {%- endif %}
-                const Tensor&,
-                const Tensor&,
-                const int64_t,
+                const Tensor& /*row_addrs or lxu_cache_locations*/,
+                const Tensor& /*uvm_cache_stats_*/,
+                const int64_t /*output_dtype*/,
                 {%- if vbe %}
-                const Tensor&,
-                const Tensor&,
-                c10::SymInt,
-                const int64_t, // int32_t
-                const int64_t, // uint32_t
+                const Tensor& /*vbe_row_output_offsets*/,
+                const Tensor& /*vbe_b_t_map*/,
+                c10::SymInt /*vbe_output_size*/,
+                const int64_t /*info_B_num_bits*/, // int32_t
+                const int64_t /*info_B_num_bits*/, // uint32_t
+                {%- endif %}
+                {%- if is_gwd %}
+                const Tensor& /*hash_size_cumsum*/,
+                const Tensor& /*prev_iter_dev*/,
+                const double /*learning_rate*/,
+                const double /*weight_decay*/,
+                const int64_t /*iter*/,
+                const double /*gwd_lower_bound*/,
                 {%- endif %}
                 const bool
             )>();
@@ -137,7 +174,11 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cud
             {%- if weighted %}
             indice_weights,
             {%- endif %}
+            {%- if ssd %}
+            ssd_row_addrs,
+            {%- else %}
             lxu_cache_locations,
+            {%- endif %}
             uvm_cache_stats,
             output_dtype,
             {%- if vbe %}
@@ -147,131 +188,22 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cud
             info_B_num_bits,
             info_B_mask_int64,
             {%- endif %}
+            {%- if is_gwd %}
+            hash_size_cumsum,
+            prev_iter_dev,
+            learning_rate,
+            weight_decay,
+            iter,
+            gwd_lower_bound,
+            {%- endif %} {# /* if is_gwd */ #}
             is_experimental
         );
     };
-
-{#-/* PT2 wrapper function for forward META */#}
-Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_meta_wrapper(
-    const Tensor& /*host_weights*/,
-    const Tensor& dev_weights,
-    const Tensor& uvm_weights,
-    const Tensor& lxu_cache_weights,
-    const Tensor& weights_placements,
-    const Tensor& weights_offsets,
-    {%- if nobag %}
-    const c10::SymInt D,
-    {%- else %}
-    const Tensor& D_offsets,
-    const c10::SymInt total_D,
-    const c10::SymInt max_D,
-    {%- endif %}
-    const Tensor& /*hash_size_cumsum*/,
-    const Tensor& indices,
-    const Tensor& offsets,
-    {%- if not nobag %}
-    const int64_t pooling_mode,
-    const Tensor& indice_weights, // CPU always takes indice_weights
-    {%- endif %}
-    const Tensor& lxu_cache_locations,
-    const Tensor& uvm_cache_stats,
-    {%- if vbe %}
-    const Tensor& vbe_row_output_offsets,
-    const Tensor& vbe_b_t_map,
-    const c10::SymInt vbe_output_size,
-    const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64,
-    {%- endif %}
-    const bool is_experimental,
-    const int64_t output_dtype
-    ){
-    {%- set op = "split_embedding{}_codegen_forward_{}{}_cuda".format(
-            ndesc, wdesc, vdesc
-        )
-    %}
-    static auto op =
-        torch::Dispatcher::singleton()
-            .findSchemaOrThrow("fbgemm::{{ op }}", "")
-            .typed<Tensor(
-                const Tensor&,
-                const Tensor&,
-                const Tensor&,
-                const Tensor&,
-                const Tensor&,
-                {%- if not nobag %}
-                const Tensor&,
-                {%- else %}
-                const c10::SymInt,
-                {%- endif %}
-                {%- if not nobag %}
-                const c10::SymInt,
-                {%- endif %}
-                {%- if not nobag %}
-                const c10::SymInt,
-                {%- endif %}
-                const Tensor&,
-                const Tensor&,
-                {%- if not nobag %}
-                const int64_t,
-                {%- endif %}
-                {%- if weighted %}
-                const Tensor&,
-                {%- endif %}
-                const Tensor&,
-                const Tensor&,
-                const int64_t,
-                {%- if vbe %}
-                const Tensor&,
-                const Tensor&,
-                c10::SymInt,
-                const int64_t,
-                const int64_t,
-                {%- endif %}
-                const bool
-            )>();
-
-    return op.call(
-            dev_weights,
-            uvm_weights,
-            lxu_cache_weights,
-            weights_placements,
-            weights_offsets,
-            {%- if not nobag %}
-            D_offsets,
-            {%- else %}
-            D,
-            {%- endif %}
-            {%- if not nobag %}
-            total_D,
-            {%- endif %}
-            {%- if not nobag %}
-            max_D,
-            {%- endif %}
-            indices,
-            offsets,
-            {%- if not nobag %}
-            pooling_mode,
-            {%- endif %}
-            {%- if weighted %}
-            indice_weights,
-            {%- endif %}
-            lxu_cache_locations,
-            uvm_cache_stats,
-            output_dtype,
-            {%- if vbe %}
-            vbe_row_output_offsets,
-            vbe_b_t_map,
-            vbe_output_size,
-            info_B_num_bits, // int32_t
-            info_B_mask_int64, // uint32_t
-            {%- endif %}
-            is_experimental
-        );
-    }
+{%- endfor %} {#-/*for dispatch_type in ["cuda", "meta"]*/#}
 {%- else %}
 
 {#-/* PT2 wrapper function for backward CUDA */#}
-Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact{{ vdesc }}_pt2_cuda_wrapper(
+Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_pt2_cuda_wrapper(
     const Tensor& grad_output,
     const Tensor& /*host_weights*/,
     const Tensor& dev_weights,
@@ -293,7 +225,11 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     const int64_t pooling_mode,
     const Tensor& indice_weights, // currently supports no bag with unweighted
     {%- endif %}
+    {%- if ssd %}
+    const Tensor& ssd_row_addrs,
+    {%- elif not dense %}
     const Tensor& lxu_cache_locations,
+    {%- endif %}
     const int64_t BT_block_size,
     const int64_t max_segment_length_per_warp,
     {%- if optimizer != "none" %}
@@ -308,55 +244,73 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
     {%- endif %}
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
+    {%- if is_gwd %}
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    const Tensor& prev_iter_dev,
+    {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    const int64_t iter,
+    {%- endif %}
+    const double gwd_lower_bound,
+    {%- endif %}
     {{ args_pt2.split_function_args | join(", ") }}
     {%- if not nobag %}
     , const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {%- endif %}){
-        {%- set backward_op = "split_embedding{}_backward_codegen_{}_{}_exact{}_cuda".format(
-                ndesc, optimizer, wdesc, vdesc
+        {%- set backward_op = "{}_embedding{}_backward_codegen_{}_{}_exact_cuda".format(
+                bwd_mdesc, ndesc, optimizer, desc_suffix
             )
         %}
         static auto op =
             torch::Dispatcher::singleton()
                 .findSchemaOrThrow("fbgemm::{{ backward_op }}", "")
                 .typed<Tensor(
-                        const Tensor&,
-                        const Tensor&,
-                        const Tensor&,
-                        const Tensor&,
-                        const Tensor&,
-                        const Tensor&,
+                        const Tensor& /*grad_output*/,
+                        const Tensor& /*dev_weights*/,
+                        const Tensor& /*uvm_weights*/,
+                        const Tensor& /*lxu_cache_weights*/,
+                        const Tensor& /*weights_placements*/,
+                        const Tensor& /*weights_offsets*/,
                         {%- if nobag %}
-                        const c10::SymInt,
+                        const c10::SymInt /*D*/,
                         {%- else %}
-                        const Tensor&,
-                        const c10::SymInt,
+                        const Tensor& /*D_offsets*/,
+                        const c10::SymInt /*max_D*/,
                         {%- endif %}
-                        const Tensor&,
-                        const int64_t,
-                        const Tensor&,
-                        const Tensor&,
+                        const Tensor& /*hash_size_cumsum*/,
+                        const int64_t /*total_hash_size_bits*/,
+                        const Tensor& /*indices*/,
+                        const Tensor& /*offsets*/,
                         {%- if not nobag %}
-                        const int64_t,
+                        const int64_t /*pooling_mode*/,
                         {%- endif %}
                         {%- if weighted %}
-                        const Tensor&,
+                        const Tensor& /*indice_weights*/,
                         {%- endif %}
-                        const Tensor&,
-                        const int64_t,
-                        const int64_t,
+                        const Tensor& /*ssd_row_addrs or lxu_cache_locations*/,
+                        const int64_t /*BT_block_size*/,
+                        const int64_t /*max_segment_length_per_warp*/,
                         {%- if optimizer != "none" %}
-                        const bool,
+                        const bool /*stochastic_rounding*/,
                         {%- endif %}
-                        const int64_t,
-                        const int64_t,
+                        const int64_t /*info_B_num_bits*/,
+                        const int64_t /*info_B_mask_int64*/,
                         {%- if vbe %}
-                        const Tensor&,
-                        const Tensor&,
-                        const Tensor&,
+                        const Tensor& /*B_offsets*/,
+                        const Tensor& /*vbe_row_output_offsets*/,
+                        const Tensor& /*vbe_b_t_map*/,
                         {%- endif %}
-                        const bool,
-                        const bool,
+                        const bool /*use_uniq_cache_locations*/,
+                        const bool /*use_homogeneous_placements*/,
+                        {%- if is_gwd %}
+                        {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+                        const Tensor& /*prev_iter_dev*/,
+                        {%- endif %}
+                        {%- if "iter" not in args.split_function_arg_names %}
+                        const int64_t /*iter*/,
+                        {%- endif %}
+                        const double /*gwd_lower_bound*/,
+                        {%- endif %}
                         {%- for arg_type in args.split_function_args %}
                         {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
                         {%- endfor %}
@@ -385,7 +339,11 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             {%- if weighted %}
             indice_weights,
             {%- endif %}
+            {%- if ssd %}
+            ssd_row_addrs,
+            {%- else %}
             lxu_cache_locations,
+            {%- endif %}
             BT_block_size,
             max_segment_length_per_warp,
             {%- if optimizer != "none" %}
@@ -400,16 +358,28 @@ Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}_e
             {%- endif %}
             use_uniq_cache_locations,
             use_homogeneous_placements,
+            {%- if is_gwd %}
+            {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+            prev_iter_dev,
+            {%- endif %}
+            {%- if "iter" not in args.split_function_arg_names %}
+            iter,
+            {%- endif %}
+            gwd_lower_bound,
+            {%- endif %}
             {{ args.split_function_arg_names | join(", ") }}
         );
     }
+
 {%- endif %}
-{%- endfor %} {#-/*for nobag*/#}
 {%- endfor %} {#-/*for weighted*/#}
+{%- endfor %} {#-/*for is_gwd*/#}
+{%- endfor %} {#-/*for nobag*/#}
+
 
 {%- if is_forward %}
 {#-/* PT2 wrapper function for backward grad_indice_weights CUDA */#}
-Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
+Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
     const Tensor& grad_output,
     const Tensor& /*host_weights*/,
     const Tensor& dev_weights,
@@ -421,7 +391,11 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
     const c10::SymInt max_D,
     const Tensor& indices,
     const Tensor& offsets,
+    {%- if ssd %}
+    const Tensor& ssd_row_addrs,
+    {%- else %}
     const Tensor& lxu_cache_locations,
+    {%- endif %}
     {%- if vbe %}
     const Tensor& feature_requires_grad,
     const Tensor& vbe_row_output_offsets,
@@ -432,8 +406,8 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
     const Tensor& feature_requires_grad
     {%- endif %}
 ){
-    {%- set op = "split_embedding_codegen_grad_indice_weights{}_cuda".format(
-            vdesc
+    {%- set op = "{}_embedding_codegen_grad_indice_weights{}_cuda".format(
+            fwd_mdesc, vdesc
         )
     %}
     static auto op =
@@ -473,7 +447,11 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
         max_D,
         indices,
         offsets,
+        {%- if ssd %}
+        ssd_row_addrs,
+        {%- else %}
         lxu_cache_locations,
+        {%- endif %}
         {%- if vbe %}
         feature_requires_grad,
         vbe_row_output_offsets,
@@ -496,9 +474,20 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     {%- for nobag in ([False] if (weighted or vbe) else [True, False]) %}
     {%- set wdesc = "weighted" if weighted else "unweighted" %}
     {%- set ndesc = "_nobag" if nobag else "" %}
+    {%- for is_gwd in ([True, False]
+    if is_valid_gwd_config(
+      dense,
+      nobag,
+      vbe,
+      is_index_select,
+      True,
+      ssd)
+      else [False]) %}
+    {%- set gwddesc = "_gwd" if is_gwd else "" %}
+    {%- set desc_suffix = wdesc + vdesc + gwddesc %}
     {%- if is_forward %}
-    {%- set embedding_codegen_forward_op = "split_embedding{}_codegen_forward_{}{}_pt2".format(
-      ndesc, wdesc, vdesc
+    {%- set embedding_codegen_forward_op = "{}_embedding{}_codegen_forward_{}_pt2".format(
+      fwd_mdesc, ndesc, desc_suffix
       )
     %}
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
@@ -522,7 +511,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int pooling_mode, "
         "    Tensor indice_weights, "
         {%- endif %}
+        {%- if ssd %}
+        "    Tensor ssd_row_addrs, "
+        {%- else %}
         "    Tensor lxu_cache_locations, "
+        {%- endif %}
         "    Tensor uvm_cache_stats, "
         {%- if vbe %}
         "    Tensor vbe_row_output_offsets, "
@@ -530,6 +523,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    SymInt vbe_output_size, "
         "    int info_B_num_bits, "
         "    int info_B_mask_int64, "
+        {%- endif %}
+        {%- if is_gwd %}
+        "    Tensor prev_iter_dev, "
+        "    float learning_rate, "
+        "    float weight_decay, "
+        "    int iter, "
+        "    float gwd_lower_bound, "
         {%- endif %}
         "    bool is_experimental, "
         "    int output_dtype "
@@ -547,8 +547,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     );
     m.impl("{{ embedding_codegen_forward_op }}_wrapper", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ embedding_codegen_forward_op }}_meta_wrapper)));
     {%- else %}
-    {%- set embedding_codegen_backward_op = "split_embedding{}_backward_codegen_{}_{}_exact{}_pt2".format(
-        ndesc, optimizer, wdesc, vdesc
+    {%- set embedding_codegen_backward_op = "{}_embedding{}_backward_codegen_{}_{}_pt2".format(
+        bwd_mdesc, ndesc, optimizer, desc_suffix
         )
     %}
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
@@ -573,7 +573,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int pooling_mode, "
         "    Tensor indice_weights, "
         {%- endif %}
+        {%- if ssd %}
+        "    Tensor ssd_row_addrs, "
+        {%- else %}
         "    Tensor lxu_cache_locations, "
+        {%- endif %}
         "    int BT_block_size, "
         "    int max_segment_length_per_warp, "
         {%- if optimizer != "none" %}
@@ -588,6 +592,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- endif %}
         "    bool use_uniq_cache_locations, "
         "    bool use_homogeneous_placements,"
+        {%- if is_gwd %}
+        {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+        "    Tensor prev_iter_dev, "
+        {%- endif %}
+        {%- if "iter" not in args.split_function_arg_names %}
+        "    int iter, "
+        {%- endif %}
+        "    float gwd_lower_bound, "
+        {%- endif %}
         "    {{ args_pt2.split_function_schemas | join(", ") }} "
         {%- if not nobag %}
         "    , int output_dtype=0 "
@@ -598,12 +611,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {{ embedding_codegen_backward_op }}_cuda_wrapper
     );
     {%- endif %}
+    {%- endfor %} {#-/*for is_gwd*/#}
     {%- endfor %} {#-/*for nobag*/#}
     {%- endfor %} {#-/*for weighted*/#}
     {%- if is_forward %}
     {%- set embedding_codegen_grad_indice_weights_op =
-        "split_embedding_codegen_grad_indice_weights{}_pt2".format(
-            vdesc
+        "{}_embedding_codegen_grad_indice_weights{}_pt2".format(
+            fwd_mdesc, vdesc
         )
     %}
     m.def("{{ embedding_codegen_grad_indice_weights_op }}_wrapper("
@@ -618,7 +632,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    SymInt max_D, "
         "    Tensor indices, "
         "    Tensor offsets, "
+        {%- if ssd %}
+        "    Tensor ssd_row_addrs, "
+        {%- else %}
         "    Tensor lxu_cache_locations, "
+        {%- endif %}
         {%- if vbe %}
         "    Tensor feature_requires_grad, "
         "    Tensor vbe_row_output_offsets, "
