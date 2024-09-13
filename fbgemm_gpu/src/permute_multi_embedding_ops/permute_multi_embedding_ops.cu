@@ -222,7 +222,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const c10::SymIntArrayRef out_lengths,
+    const c10::IntArrayRef out_lengths,
     const bool& reverse_permute) {
   // we assume that there's at least one input tensor in the list
   // it should be enforced from the caller side who has the knowledge.
@@ -302,7 +302,7 @@ std::vector<Tensor> permute_multi_embedding_gpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const c10::SymIntArrayRef out_lengths) {
+    const c10::IntArrayRef out_lengths) {
   return permute_multi_embedding_function_gpu(
       pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
 }
@@ -314,14 +314,8 @@ std::vector<Tensor> regroup_keyed_tensor_gpu(
     const std::vector<std::vector<std::string>>& groups) {
   auto [permutes, in_shapes, out_shapes, out_lengths] =
       kt_regroup_arguments_gpu(pooled_embs[0], keys, lengths, groups);
-  std::vector<at::SymInt> out;
-  std::transform(
-      out_lengths.begin(),
-      out_lengths.end(),
-      std::back_inserter(out),
-      [](const int32_t v) { return c10::SymInt(v); });
   return permute_multi_embedding_function_gpu(
-      pooled_embs, permutes, in_shapes, out_shapes, out, false);
+      pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
 }
 
 } // namespace fbgemm_gpu

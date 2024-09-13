@@ -42,7 +42,7 @@ variable_list PermuteMultiEmbeddingOp::forward(
   const auto permute_op =
       torch::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::permute_multi_embedding_function", "")
-          .typed<decltype(permute_multi_embedding_function_cpu)>();
+          .typed<decltype(permute_multi_embedding_function_meta)>();
 
   return permute_op.call(
       pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
@@ -64,7 +64,7 @@ variable_list PermuteMultiEmbeddingOp::backward(
   const auto permute_op =
       torch::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::permute_multi_embedding_function", "")
-          .typed<decltype(permute_multi_embedding_function_cpu)>();
+          .typed<decltype(permute_multi_embedding_function_meta)>();
   auto grad_input = permute_op.call(
       grad_output, permutes, out_shapes, in_shapes, in_lengths, true);
   grad_input.push_back(torch::autograd::Variable()); // permutes
