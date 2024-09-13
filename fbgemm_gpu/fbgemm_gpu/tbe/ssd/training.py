@@ -659,6 +659,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.l2_num_cache_lookups_stats_name: str = (
             f"l2_cache.perf.get.tbe_id{tbe_unique_id}.num_lookups"
         )
+        self.l2_num_cache_evictions_stats_name: str = (
+            f"l2_cache.perf.tbe_id{tbe_unique_id}.num_l2_cache_evictions"
+        )
         self.l2_cache_free_mem_stats_name: str = (
             f"l2_cache.mem.tbe_id{tbe_unique_id}.free_mem_bytes"
         )
@@ -686,6 +689,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.l2_num_cache_misses_stats_name)
             # pyre-ignore
             self.stats_reporter.register_stats(self.l2_num_cache_lookups_stats_name)
+            self.stats_reporter.register_stats(self.l2_num_cache_evictions_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_free_mem_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_capacity_stats_name)
 
@@ -1744,13 +1748,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.step, self.stats_reporter.report_interval  # pyre-ignore
         )
 
-        if len(ssd_io_duration) != 3:
-            logging.error("ssd io duration should have 3 elements")
+        if len(ssd_io_duration) != 5:
+            logging.error("ssd io duration should have 5 elements")
             return
 
         ssd_read_dur_us = ssd_io_duration[0]
-        fwd_ssd_write_dur_us = ssd_io_duration[1]
-        bwd_ssd_write_dur_us = ssd_io_duration[2]
+        fwd_rocksdb_read_dur = ssd_io_duration[1]
+        fwd_l1_eviction_dur = ssd_io_duration[2]
+        bwd_l1_cnflct_miss_write_back_dur = ssd_io_duration[3]
+        flush_write_dur = ssd_io_duration[4]
 
         # pyre-ignore
         self.stats_reporter.report_duration(
@@ -1762,15 +1768,29 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # pyre-ignore
         self.stats_reporter.report_duration(
             iteration_step=self.step,
-            event_name="ssd.io_duration.fwd_write_us",
-            duration_ms=fwd_ssd_write_dur_us,
+            event_name="ssd.io_duration.write.fwd_rocksdb_read_us",
+            duration_ms=fwd_rocksdb_read_dur,
             time_unit="us",
         )
         # pyre-ignore
         self.stats_reporter.report_duration(
             iteration_step=self.step,
-            event_name="ssd.io_duration.bwd_write_us",
-            duration_ms=bwd_ssd_write_dur_us,
+            event_name="ssd.io_duration.write.fwd_l1_eviction_us",
+            duration_ms=fwd_l1_eviction_dur,
+            time_unit="us",
+        )
+        # pyre-ignore
+        self.stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="ssd.io_duration.write.bwd_l1_cnflct_miss_write_back_us",
+            duration_ms=bwd_l1_cnflct_miss_write_back_dur,
+            time_unit="us",
+        )
+        # pyre-ignore
+        self.stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="ssd.io_duration.write.flush_write_us",
+            duration_ms=flush_write_dur,
             time_unit="us",
         )
 
@@ -1830,8 +1850,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.step, stats_reporter.report_interval  # pyre-ignore
         )
 
-        if len(l2_cache_perf_stats) != 11:
-            logging.error("l2 perf stats should have 11 elements")
+        if len(l2_cache_perf_stats) != 13:
+            logging.error("l2 perf stats should have 13 elements")
             return
 
         num_cache_misses = l2_cache_perf_stats[0]
@@ -1840,12 +1860,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         get_cache_lookup_total_duration = l2_cache_perf_stats[3]
         get_cache_lookup_wait_filling_thread_duration = l2_cache_perf_stats[4]
         get_weights_fillup_total_duration = l2_cache_perf_stats[5]
-        total_cache_update_duration = l2_cache_perf_stats[6]
-        get_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[7]
-        set_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[8]
+        get_cache_memcpy_duration = l2_cache_perf_stats[6]
+        total_cache_update_duration = l2_cache_perf_stats[7]
+        get_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[8]
+        set_tensor_copy_for_cache_update_duration = l2_cache_perf_stats[9]
+        num_l2_evictions = l2_cache_perf_stats[10]
 
-        l2_cache_free_bytes = l2_cache_perf_stats[9]
-        l2_cache_capacity = l2_cache_perf_stats[10]
+        l2_cache_free_bytes = l2_cache_perf_stats[11]
+        l2_cache_capacity = l2_cache_perf_stats[12]
 
         stats_reporter.report_data_amount(
             iteration_step=self.step,
@@ -1856,6 +1878,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name=self.l2_num_cache_lookups_stats_name,
             data_bytes=num_lookups,
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name=self.l2_num_cache_evictions_stats_name,
+            data_bytes=num_l2_evictions,
         )
         stats_reporter.report_data_amount(
             iteration_step=self.step,
@@ -1890,6 +1917,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name="l2_cache.perf.get.weights_fillup_duration_us",
             duration_ms=get_weights_fillup_total_duration,
+            time_unit="us",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="l2_cache.perf.get.cache_memcpy_duration_us",
+            duration_ms=get_cache_memcpy_duration,
             time_unit="us",
         )
         stats_reporter.report_duration(

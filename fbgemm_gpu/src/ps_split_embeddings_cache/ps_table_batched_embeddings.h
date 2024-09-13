@@ -48,7 +48,8 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
-      const bool is_bwd = false) override {
+      const kv_db::RocksdbWriteMode w_mode =
+          kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override {
     RECORD_USER_SCOPE("EmbeddingParameterServer::set");
     co_await tps_client_->set(indices, weights, count.item().toLong());
   }

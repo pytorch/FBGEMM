@@ -32,7 +32,8 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
 QueueItem tensor_copy(
     const at::Tensor& indices,
     const at::Tensor& weights,
-    const at::Tensor& count) {
+    const at::Tensor& count,
+    kv_db::RocksdbWriteMode mode) {
   auto num_sets = get_maybe_uvm_scalar(count);
   auto new_indices = at::empty(
       num_sets, at::TensorOptions().device(at::kCPU).dtype(indices.dtype()));
@@ -58,7 +59,7 @@ QueueItem tensor_copy(
             new_weightss_addr); // dst_start
       });
   *new_count.data_ptr<int64_t>() = num_sets;
-  return QueueItem{new_indices, new_weights, new_count};
+  return QueueItem{new_indices, new_weights, new_count, mode};
 }
 
 EmbeddingKVDB::EmbeddingKVDB(
@@ -97,6 +98,7 @@ EmbeddingKVDB::EmbeddingKVDB(
       auto& indices = filling_item_ptr->indices;
       auto& weights = filling_item_ptr->weights;
       auto& count = filling_item_ptr->count;
+      auto& rocksdb_wmode = filling_item_ptr->mode;
 
       if (l2_cache_) {
         auto evicted_pairs_opt = set_cache(indices, weights, count);
@@ -104,11 +106,12 @@ EmbeddingKVDB::EmbeddingKVDB(
           auto& evicted_indices = evicted_pairs_opt->first;
           auto& evicted_weights = evicted_pairs_opt->second;
 
-          folly::coro::blockingWait(
-              set_kv_db_async(evicted_indices, evicted_weights, count));
+          folly::coro::blockingWait(set_kv_db_async(
+              evicted_indices, evicted_weights, count, rocksdb_wmode));
         }
       } else {
-        folly::coro::blockingWait(set_kv_db_async(indices, weights, count));
+        folly::coro::blockingWait(
+            set_kv_db_async(indices, weights, count, rocksdb_wmode));
       }
 
       weights_to_fill_queue_.dequeue();
@@ -128,7 +131,8 @@ void EmbeddingKVDB::flush() {
     auto& indices = std::get<0>(tensor_tuple);
     auto& weights = std::get<1>(tensor_tuple);
     auto& count = std::get<2>(tensor_tuple);
-    folly::coro::blockingWait(set_kv_db_async(indices, weights, count));
+    folly::coro::blockingWait(set_kv_db_async(
+        indices, weights, count, kv_db::RocksdbWriteMode::FLUSH));
   }
 }
 
@@ -175,11 +179,12 @@ void EmbeddingKVDB::set_cuda(
 std::vector<double> EmbeddingKVDB::get_l2cache_perf(
     const int64_t step,
     const int64_t interval) {
-  std::vector<double> ret(11, 0); // num metrics
+  std::vector<double> ret(13, 0); // num metrics
   if (step > 0 && step % interval == 0) {
     int reset_val = 0;
     auto num_cache_misses = num_cache_misses_.exchange(reset_val);
     auto num_lookups = num_lookups_.exchange(reset_val);
+    auto num_evictions = num_evictions_.exchange(reset_val);
     auto get_total_duration = get_total_duration_.exchange(reset_val);
     auto get_cache_lookup_total_duration =
         get_cache_lookup_total_duration_.exchange(reset_val);
@@ -187,6 +192,9 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
         get_cache_lookup_wait_filling_thread_duration_.exchange(reset_val);
     auto get_weights_fillup_total_duration =
         get_weights_fillup_total_duration_.exchange(reset_val);
+    auto get_cache_memcpy_duration =
+        get_cache_memcpy_duration_.exchange(reset_val);
+
     auto total_cache_update_duration =
         total_cache_update_duration_.exchange(reset_val);
     auto get_tensor_copy_for_cache_update_dur =
@@ -199,13 +207,15 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
     ret[3] = (double(get_cache_lookup_total_duration) / interval);
     ret[4] = (double(get_cache_lookup_wait_filling_thread_duration) / interval);
     ret[5] = (double(get_weights_fillup_total_duration) / interval);
-    ret[6] = (double(total_cache_update_duration) / interval);
-    ret[7] = (double(get_tensor_copy_for_cache_update_dur) / interval);
-    ret[8] = (double(set_tensor_copy_for_cache_update_dur) / interval);
+    ret[6] = (double(get_cache_memcpy_duration) / interval);
+    ret[7] = (double(total_cache_update_duration) / interval);
+    ret[8] = (double(get_tensor_copy_for_cache_update_dur) / interval);
+    ret[9] = (double(set_tensor_copy_for_cache_update_dur) / interval);
+    ret[10] = (double(num_evictions) / interval);
     if (l2_cache_) {
       auto cache_mem_stats = l2_cache_->get_cache_usage();
-      ret[9] = (cache_mem_stats[0]); // free cache in bytes
-      ret[10] = (cache_mem_stats[1]); // total cache capacity in bytes
+      ret[11] = (cache_mem_stats[0]); // free cache in bytes
+      ret[12] = (cache_mem_stats[1]); // total cache capacity in bytes
     }
   }
   return ret;
@@ -228,7 +238,10 @@ void EmbeddingKVDB::set(
   // parallelized with other cuda kernels, as long as all updates are finished
   // before the next L2 cache lookup
   auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
-  auto new_item = tensor_copy(indices, weights, count);
+  kv_db::RocksdbWriteMode write_mode = is_bwd
+      ? kv_db::RocksdbWriteMode::BWD_L1_CNFLCT_MISS_WRITE_BACK
+      : kv_db::RocksdbWriteMode::FWD_L1_EVICTION;
+  auto new_item = tensor_copy(indices, weights, count, write_mode);
   weights_to_fill_queue_.enqueue(new_item);
   set_tensor_copy_for_cache_update_ +=
       facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
@@ -264,7 +277,8 @@ void EmbeddingKVDB::get(
       // be parallelized with other cuda kernels, as long as all updates are
       // finished before the next L2 cache lookup
       auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
-      auto new_item = tensor_copy(indices, weights, count);
+      auto new_item = tensor_copy(
+          indices, weights, count, kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ);
       weights_to_fill_queue_.enqueue(new_item);
       get_tensor_copy_for_cache_update_ +=
           facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
@@ -420,7 +434,8 @@ folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
             .scheduleOn(executor_tp_.get()));
   }
   folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
-  l2_cache_->reset_eviction_states();
+  auto num_evictions = l2_cache_->reset_eviction_states();
+  num_evictions_ += num_evictions;
   total_cache_update_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
   return l2_cache_->get_evicted_indices_and_weights();
@@ -429,6 +444,7 @@ folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
 folly::coro::Task<void> EmbeddingKVDB::cache_memcpy(
     const at::Tensor& weights,
     const std::vector<void*>& cached_addr_list) {
+  auto cache_memcpy_start_ts = facebook::WallClockUtil::NowInUsecFast();
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       weights.scalar_type(), "cache_memcpy", [&] {
         auto weights_data_ptr = weights.data_ptr<scalar_t>();
@@ -443,6 +459,8 @@ folly::coro::Task<void> EmbeddingKVDB::cache_memcpy(
               &weights_data_ptr[row_id * max_D_]); // dst_start
         }
       });
+  get_cache_memcpy_duration_ +=
+      facebook::WallClockUtil::NowInUsecFast() - cache_memcpy_start_ts;
   co_return;
 }
 
