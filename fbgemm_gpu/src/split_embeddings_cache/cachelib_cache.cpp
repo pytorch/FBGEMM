@@ -53,15 +53,15 @@ std::unique_ptr<Cache> CacheLibCache::initializeCacheLib(
   auto eviction_cb =
       [this](const facebook::cachelib::LruAllocator::RemoveCbData& data) {
         FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
-            evicted_weights_ptr_->scalar_type(), "l2_eviction_handling", [&] {
+            evicted_weights_opt_->scalar_type(), "l2_eviction_handling", [&] {
               if (data.context ==
                   facebook::cachelib::RemoveContext::kEviction) {
                 auto indices_data_ptr =
-                    evicted_indices_ptr_->data_ptr<int64_t>();
+                    evicted_indices_opt_->data_ptr<int64_t>();
                 auto weights_data_ptr =
-                    evicted_weights_ptr_->data_ptr<scalar_t>();
+                    evicted_weights_opt_->data_ptr<scalar_t>();
                 auto row_id = eviction_row_id++;
-                auto weight_dim = evicted_weights_ptr_->size(1);
+                auto weight_dim = evicted_weights_opt_->size(1);
                 const auto key_ptr =
                     reinterpret_cast<const int64_t*>(data.item.getKey().data());
                 indices_data_ptr[row_id] = *key_ptr;
@@ -199,30 +199,38 @@ void CacheLibCache::init_tensor_for_l2_eviction(
     const at::Tensor& weights,
     const at::Tensor& count) {
   auto num_lookups = count.item<long>();
-  evicted_indices_ptr_ = std::make_shared<at::Tensor>(
+  evicted_indices_opt_ =
       at::ones(
           num_lookups,
           at::TensorOptions().device(indices.device()).dtype(indices.dtype())) *
-      -1);
-  evicted_weights_ptr_ = std::make_shared<at::Tensor>(at::empty(
+      -1;
+  evicted_weights_opt_ = at::empty(
       {num_lookups, weights.size(1)},
-      at::TensorOptions().device(weights.device()).dtype(weights.dtype())));
+      at::TensorOptions().device(weights.device()).dtype(weights.dtype()));
 }
 
-int64_t CacheLibCache::reset_eviction_states() {
-  int64_t reset_val = 0;
-  auto num_eviction = eviction_row_id.exchange(reset_val);
-  return num_eviction;
+void CacheLibCache::reset_eviction_states() {
+  evicted_indices_opt_.reset();
+  evicted_weights_opt_.reset();
+  eviction_row_id = 0;
+  return;
 }
 
-folly::Optional<std::pair<at::Tensor, at::Tensor>>
-CacheLibCache::get_evicted_indices_and_weights() {
-  if (evicted_indices_ptr_) {
-    assert(evicted_weights_ptr_ != nullptr);
-    return std::make_pair(*evicted_indices_ptr_, *evicted_weights_ptr_);
-  } else {
-    return folly::none;
+folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>>
+CacheLibCache::get_tensors_and_reset() {
+  folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>> ret =
+      folly::none;
+  if (evicted_indices_opt_.has_value()) {
+    assert(evicted_weights_opt_.has_value());
+    if (eviction_row_id > 0) {
+      ret = std::make_tuple(
+          evicted_indices_opt_.value(),
+          evicted_weights_opt_.value(),
+          at::tensor(eviction_row_id, evicted_indices_opt_->options()));
+    }
   }
+  reset_eviction_states();
+  return ret;
 }
 
 std::vector<int64_t> CacheLibCache::get_cache_usage() {

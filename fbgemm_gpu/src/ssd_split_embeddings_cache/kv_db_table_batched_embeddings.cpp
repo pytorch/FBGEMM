@@ -101,13 +101,14 @@ EmbeddingKVDB::EmbeddingKVDB(
       auto& rocksdb_wmode = filling_item_ptr->mode;
 
       if (l2_cache_) {
-        auto evicted_pairs_opt = set_cache(indices, weights, count);
-        if (evicted_pairs_opt.has_value()) {
-          auto& evicted_indices = evicted_pairs_opt->first;
-          auto& evicted_weights = evicted_pairs_opt->second;
+        auto evicted_tuples_opt = set_cache(indices, weights, count);
+        if (evicted_tuples_opt.has_value()) {
+          auto& evicted_indices = std::get<0>(evicted_tuples_opt.value());
+          auto& evicted_weights = std::get<1>(evicted_tuples_opt.value());
+          auto& evicted_count = std::get<2>(evicted_tuples_opt.value());
 
           folly::coro::blockingWait(set_kv_db_async(
-              evicted_indices, evicted_weights, count, rocksdb_wmode));
+              evicted_indices, evicted_weights, evicted_count, rocksdb_wmode));
         }
       } else {
         folly::coro::blockingWait(
@@ -380,7 +381,8 @@ void EmbeddingKVDB::wait_util_filling_work_done() {
       facebook::WallClockUtil::NowInUsecFast() - start_ts;
 }
 
-folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
+folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>>
+EmbeddingKVDB::set_cache(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
@@ -434,11 +436,15 @@ folly::Optional<std::pair<at::Tensor, at::Tensor>> EmbeddingKVDB::set_cache(
             .scheduleOn(executor_tp_.get()));
   }
   folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
-  auto num_evictions = l2_cache_->reset_eviction_states();
-  num_evictions_ += num_evictions;
   total_cache_update_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
-  return l2_cache_->get_evicted_indices_and_weights();
+  auto tensor_tuple_opt = l2_cache_->get_tensors_and_reset();
+  if (tensor_tuple_opt.has_value()) {
+    auto& num_evictions_tensor = std::get<2>(tensor_tuple_opt.value());
+    auto num_evictions = get_maybe_uvm_scalar(num_evictions_tensor);
+    num_evictions_ += num_evictions;
+  }
+  return tensor_tuple_opt;
 }
 
 folly::coro::Task<void> EmbeddingKVDB::cache_memcpy(
