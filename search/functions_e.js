@@ -1,18 +1,13 @@
 var searchData=
 [
-  ['pack_0',['pack',['../classfbgemm_1_1_pack_matrix.html#a0c1765c6a94482209b1fc0cd334ad44e',1,'fbgemm::PackMatrix::pack()'],['../classfbgemm_1_1_pack_a_matrix.html#a58a5c6b7f15d3c2a796942e383a97f36',1,'fbgemm::PackAMatrix::pack()'],['../classfbgemm_1_1_pack_b_matrix.html#ae2d8887226e140ed6ddc140cd338910d',1,'fbgemm::PackBMatrix::pack()'],['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html#a915ffc82b17862ab1d2a466a79d23a3f',1,'fbgemm::PackWeightMatrixForGConv::pack()'],['../classfbgemm_1_1_pack_a_with_im2_col.html#a58a5c6b7f15d3c2a796942e383a97f36',1,'fbgemm::PackAWithIm2Col::pack()'],['../classfbgemm_1_1_pack_a_with_row_offset.html#a58a5c6b7f15d3c2a796942e383a97f36',1,'fbgemm::PackAWithRowOffset::pack()'],['../classfbgemm_1_1_pack_a_with_quant_row_offset.html#a58a5c6b7f15d3c2a796942e383a97f36',1,'fbgemm::PackAWithQuantRowOffset::pack()'],['../structfbgemm_1_1_b_c_s_r_matrix.html#ae1871cae73e37637f6a2d65a14f0512f',1,'fbgemm::BCSRMatrix::pack(const DTYPE *src, size_t ld)'],['../structfbgemm_1_1_b_c_s_r_matrix.html#ac86c58878f6bcd10610f66eefbe53a90',1,'fbgemm::BCSRMatrix::pack(const DTYPE *src)']]],
-  ['packa_1',['PackA',['../namespacefbgemm.html#a28c69d65ed666a9f46dc4763be70cdf6',1,'fbgemm']]],
-  ['packawithim2col_2',['PackAWithIm2Col',['../classfbgemm_1_1_pack_a_with_im2_col.html#a37d96dcba66f792135549702d2f25e4a',1,'fbgemm::PackAWithIm2Col']]],
-  ['packawithquantrowoffset_3',['PackAWithQuantRowOffset',['../classfbgemm_1_1_pack_a_with_quant_row_offset.html#a44ca398424d2d534802de6b892bf3a6a',1,'fbgemm::PackAWithQuantRowOffset']]],
-  ['packawithrowoffset_4',['PackAWithRowOffset',['../classfbgemm_1_1_pack_a_with_row_offset.html#a8dceb15ed761dfbf804244ffd2fc7f66',1,'fbgemm::PackAWithRowOffset']]],
-  ['packbmatrix_5',['PackBMatrix',['../classfbgemm_1_1_pack_b_matrix.html#a1afee702206695dfcd20de0474408b07',1,'fbgemm::PackBMatrix']]],
-  ['packedblock_6',['packedBlock',['../classfbgemm_1_1_pack_matrix.html#a9c6a626fc1b0a20479c167862d7a91be',1,'fbgemm::PackMatrix']]],
-  ['packedbuffersize_7',['packedBufferSize',['../classfbgemm_1_1_pack_matrix.html#ab11bd74e390ac73323a514cf2d6e6b98',1,'fbgemm::PackMatrix']]],
-  ['packedcolstart_8',['packedColStart',['../classfbgemm_1_1_pack_matrix.html#aa981736a44501513eb4c0f8cb72a11c8',1,'fbgemm::PackMatrix']]],
-  ['packedrowstart_9',['packedRowStart',['../classfbgemm_1_1_pack_matrix.html#ae9e47d9b93f5049504203ff55472e075',1,'fbgemm::PackMatrix']]],
-  ['packmatrix_10',['PackMatrix',['../classfbgemm_1_1_pack_matrix.html#ac15276b97315df2567c4ab36d48b8da0',1,'fbgemm::PackMatrix']]],
-  ['packweightmatrixforgconv_11',['PackWeightMatrixForGConv',['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html#ac4aac545b455c64f161fc78ac724d3e3',1,'fbgemm::PackWeightMatrixForGConv']]],
-  ['printmatrix_12',['printMatrix',['../namespacefbgemm.html#adfee356e154f8b2f88c725885b1dbc11',1,'fbgemm']]],
-  ['printpackedmatrix_13',['printPackedMatrix',['../classfbgemm_1_1_pack_matrix.html#a6efc512f013eacc053ed29b2dee722d5',1,'fbgemm::PackMatrix::printPackedMatrix()'],['../classfbgemm_1_1_pack_a_matrix.html#a6efc512f013eacc053ed29b2dee722d5',1,'fbgemm::PackAMatrix::printPackedMatrix()'],['../classfbgemm_1_1_pack_b_matrix.html#ab19db6d7505e9ed131b2a101f90d5093',1,'fbgemm::PackBMatrix::printPackedMatrix()'],['../classfbgemm_1_1_pack_a_with_im2_col.html#a6efc512f013eacc053ed29b2dee722d5',1,'fbgemm::PackAWithIm2Col::printPackedMatrix()'],['../classfbgemm_1_1_pack_a_with_row_offset.html#a6efc512f013eacc053ed29b2dee722d5',1,'fbgemm::PackAWithRowOffset::printPackedMatrix()'],['../classfbgemm_1_1_pack_a_with_quant_row_offset.html#a6efc512f013eacc053ed29b2dee722d5',1,'fbgemm::PackAWithQuantRowOffset::printPackedMatrix()']]],
-  ['put_14',['put',['../classl2__cache_1_1_cache_lib_cache.html#a9ee8139247e86b5cf6a52582c1ff5686',1,'l2_cache::CacheLibCache']]]
+  ['nbit_5fembedding_5fsanity_5fcheck_0',['nbit_embedding_sanity_check',['../namespacefbgemm.html#a54047d826033de85a011717177a4471d',1,'fbgemm']]],
+  ['new_5fhost_5fmapped_5ftensor_1',['new_host_mapped_tensor',['../group__cumem-utils.html#ga5663643a8ac5de83063d0ff51bb9af17',1,'fbgemm_gpu']]],
+  ['new_5fmanaged_5ftensor_2',['new_managed_tensor',['../group__cumem-utils.html#gab708b23762a11187eb6a32a36f0e34a3',1,'fbgemm_gpu']]],
+  ['new_5fmanaged_5ftensor_5fmeta_3',['new_managed_tensor_meta',['../group__cumem-utils.html#ga5351c6ec3de203476cf09df330455d91',1,'fbgemm_gpu']]],
+  ['new_5funified_5ftensor_4',['new_unified_tensor',['../group__cumem-utils.html#ga6f8847537ea9ed13fc7e2e378bc79b1f',1,'fbgemm_gpu']]],
+  ['new_5funified_5ftensor_5fmeta_5',['new_unified_tensor_meta',['../group__cumem-utils.html#ga8cd15c298228b5cd628ee588761dc67d',1,'fbgemm_gpu']]],
+  ['new_5fvanilla_5fmanaged_5ftensor_6',['new_vanilla_managed_tensor',['../group__cumem-utils.html#gad5e0d2307667c3db5e73f0c0eec15df5',1,'fbgemm_gpu']]],
+  ['numofgroupstogether_7',['numOfGroupsTogether',['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html#a5053decc0892989069965158f0029bf4',1,'fbgemm::PackWeightMatrixForGConv']]],
+  ['numpackedcols_8',['numPackedCols',['../classfbgemm_1_1_pack_matrix.html#a5b8db3ee22d3ffc8734b08d8667e54b2',1,'fbgemm::PackMatrix']]],
+  ['numpackedrows_9',['numPackedRows',['../classfbgemm_1_1_pack_matrix.html#a3fe14beceb22a785b4d814d9a0098f31',1,'fbgemm::PackMatrix']]]
 ];
