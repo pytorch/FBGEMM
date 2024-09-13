@@ -1,9 +1,9 @@
 var searchData=
 [
-  ['scaleop_0',['ScaleOP',['../classfbgemm_1_1_scale_o_p.html',1,'fbgemm']]],
-  ['simd_5finfo_1',['simd_info',['../structfbgemm_1_1simd__info.html',1,'fbgemm']]],
-  ['simd_5finfo_3c_20inst_5fset_20_3e_2',['simd_info&lt; INST_SET &gt;',['../structfbgemm_1_1simd__info.html',1,'fbgemm']]],
-  ['simd_5finfo_3c_20inst_5fset_5ft_3a_3aavx512_20_3e_3',['simd_info&lt; inst_set_t::avx512 &gt;',['../structfbgemm_1_1simd__info.html',1,'fbgemm']]],
-  ['simd_5finfo_3c_20inst_5fset_5ft_3a_3aavx512_5fymm_20_3e_4',['simd_info&lt; inst_set_t::avx512_ymm &gt;',['../structfbgemm_1_1simd__info.html',1,'fbgemm']]],
-  ['sparseadagradsignature_5',['SparseAdaGradSignature',['../classfbgemm_1_1_sparse_ada_grad_signature.html',1,'fbgemm']]]
+  ['reluoutput_0',['ReluOutput',['../classfbgemm_1_1_relu_output.html',1,'fbgemm']]],
+  ['requantizationforfloatparams_5ft_1',['requantizationForFloatParams_t',['../structfbgemm_1_1requantization_for_float_params__t.html',1,'fbgemm']]],
+  ['requantizationparams_2',['RequantizationParams',['../structfbgemm_1_1_requantization_params.html',1,'fbgemm']]],
+  ['requantizationparams_5ft_3',['requantizationParams_t',['../structfbgemm_1_1requantization_params__t.html',1,'fbgemm']]],
+  ['requantizeforfloat_4',['ReQuantizeForFloat',['../classfbgemm_1_1_re_quantize_for_float.html',1,'fbgemm']]],
+  ['requantizeoutput_5',['ReQuantizeOutput',['../classfbgemm_1_1_re_quantize_output.html',1,'fbgemm']]]
 ];

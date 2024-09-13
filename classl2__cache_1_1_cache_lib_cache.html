@@ -92,6 +92,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:acdafef20baf1a45ec1295ba332a065d1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a35f4ec049ea4846946a6f6f2205b4280" id="r_a35f4ec049ea4846946a6f6f2205b4280"><td class="memItemLeft" align="right" valign="top">facebook::cachelib::PoolId&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a35f4ec049ea4846946a6f6f2205b4280">get_pool_id</a> (int64_t key)</td></tr>
 <tr class="separator:a35f4ec049ea4846946a6f6f2205b4280"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a28487224efe43ac3f96d4f03981a2f24" id="r_a28487224efe43ac3f96d4f03981a2f24"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a28487224efe43ac3f96d4f03981a2f24">batchMarkUseful</a> (const std::vector&lt; Cache::ReadHandle &gt; &amp;read_handles)</td></tr>
+<tr class="separator:a28487224efe43ac3f96d4f03981a2f24"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a9ee8139247e86b5cf6a52582c1ff5686" id="r_a9ee8139247e86b5cf6a52582c1ff5686"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ee8139247e86b5cf6a52582c1ff5686">put</a> (int64_t key, const at::Tensor &amp;data)</td></tr>
 <tr class="separator:a9ee8139247e86b5cf6a52582c1ff5686"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af34eef9d403b258ec310509fa65268a5" id="r_af34eef9d403b258ec310509fa65268a5"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af34eef9d403b258ec310509fa65268a5">get_all_items</a> ()</td></tr>
@@ -100,13 +102,37 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a7c647623fef9959bd482911050ba9711"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a59d4800235bf477ae8b2da78001519dd" id="r_a59d4800235bf477ae8b2da78001519dd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a59d4800235bf477ae8b2da78001519dd">reset_eviction_states</a> ()</td></tr>
 <tr class="separator:a59d4800235bf477ae8b2da78001519dd"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a69db6caddcb2ef8b86b7d474d1792aee" id="r_a69db6caddcb2ef8b86b7d474d1792aee"><td class="memItemLeft" align="right" valign="top">folly::Optional&lt; std::pair&lt; at::Tensor, at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a69db6caddcb2ef8b86b7d474d1792aee">get_evicted_indices_and_weights</a> ()</td></tr>
-<tr class="separator:a69db6caddcb2ef8b86b7d474d1792aee"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a734581f1e255fb1521a8241c27a230c2" id="r_a734581f1e255fb1521a8241c27a230c2"><td class="memItemLeft" align="right" valign="top">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a734581f1e255fb1521a8241c27a230c2">get_tensors_and_reset</a> ()</td></tr>
+<tr class="separator:a734581f1e255fb1521a8241c27a230c2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>It is for maintaining all the cache related operations, including initialization, insertion, lookup and eviction. It is stateful for eviction logic that caller has to specifically fetch and reset eviction related states. Cachelib related optimization will be captured inside this class e.g. fetch and delayed markUseful to boost up get performance</p>
 <dl class="section note"><dt>Note</dt><dd>that this class only handles single Cachelib read/update. parallelism is done on the caller side </dd></dl>
 </div><h2 class="groupheader">Member Function Documentation</h2>
+<a id="a28487224efe43ac3f96d4f03981a2f24" name="a28487224efe43ac3f96d4f03981a2f24"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a28487224efe43ac3f96d4f03981a2f24">&#9670;&#160;</a></span>batchMarkUseful()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void batchMarkUseful </td>
+          <td>(</td>
+          <td class="paramtype">const std::vector&lt; Cache::ReadHandle &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>read_handles</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>update the LRU queue in cachelib, this is detached from cache-&gt;find() so that we could boost up the lookup perf without worrying about LRU queue contention</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">read_handles</td><td>the read handles that record what cache item has been accessed </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
 <a id="a282a9c139e4285f4d676e104846d6708" name="a282a9c139e4285f4d676e104846d6708"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a282a9c139e4285f4d676e104846d6708">&#9670;&#160;</a></span>get()</h2>
 
@@ -157,24 +183,6 @@ count A single element tensor that contains the number of indices to be processe
 
 </div>
 </div>
-<a id="a69db6caddcb2ef8b86b7d474d1792aee" name="a69db6caddcb2ef8b86b7d474d1792aee"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a69db6caddcb2ef8b86b7d474d1792aee">&#9670;&#160;</a></span>get_evicted_indices_and_weights()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">folly::Optional&lt; std::pair&lt; at::Tensor, at::Tensor &gt; &gt; get_evicted_indices_and_weights </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"></span></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-<p>get the filled indices and weights tensors from L2 eviction, could be all invalid if no eviction happened </p>
-
-</div>
-</div>
 <a id="a35f4ec049ea4846946a6f6f2205b4280" name="a35f4ec049ea4846946a6f6f2205b4280"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a35f4ec049ea4846946a6f6f2205b4280">&#9670;&#160;</a></span>get_pool_id()</h2>
 
@@ -222,6 +230,24 @@ count A single element tensor that contains the number of indices to be processe
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>an hashed value ranges from [0, num_pools) </dd></dl>
+
+</div>
+</div>
+<a id="a734581f1e255fb1521a8241c27a230c2" name="a734581f1e255fb1521a8241c27a230c2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a734581f1e255fb1521a8241c27a230c2">&#9670;&#160;</a></span>get_tensors_and_reset()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt; get_tensors_and_reset </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>get the filled indices and weights tensors from L2 eviction, could be all invalid if no eviction happened </p>
 
 </div>
 </div>
@@ -307,7 +333,7 @@ cache_-&gt;allocation will trigger eviction callback func </dd></dl>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>reset slot pointer that points to the next available slot in the eviction tensors </p>
+<p>reset slot pointer that points to the next available slot in the eviction tensors and returns number of slots filled </p>
 
 </div>
 </div>

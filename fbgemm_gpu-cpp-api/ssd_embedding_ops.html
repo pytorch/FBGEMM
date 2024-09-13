@@ -421,6 +421,38 @@
 <h1>SSD Embedding Operators<a class="headerlink" href="#ssd-embedding-operators" title="Permalink to this heading">¶</a></h1>
 <section id="cuda-operators">
 <h2>CUDA Operators<a class="headerlink" href="#cuda-operators" title="Permalink to this heading">¶</a></h2>
+<dl class="cpp enum">
+<dt class="sig sig-object cpp" id="_CPPv416RocksdbWriteMode">
+<span id="_CPPv316RocksdbWriteMode"></span><span id="_CPPv216RocksdbWriteMode"></span><span class="target" id="group__embedding-ssd_1gaf1ce371b1e598c817791f840612cc1a3"></span><span class="k"><span class="pre">enum</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">RocksdbWriteMode</span></span></span><a class="headerlink" href="#_CPPv416RocksdbWriteMode" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>rocksdb write mode </p>
+<p>In SSD offloading there are 3 writes in each train iteration FWD_ROCKSDB_READ: cache lookup will move uncached data from rocksdb into L2 cache on fwd path</p>
+<p>FWD_L1_EVICTION: L1 cache eviciton will evict data into L2 cache on fwd path</p>
+<p>BWD_L1_CNFLCT_MISS_WRITE_BACK: L1 conflict miss will insert into L2 for embedding update on bwd path</p>
+<p>All the L2 cache filling above will potentially trigger rocksdb write once L2 cache is full</p>
+<p>Additionally we will do ssd io on L2 flush </p>
+<p><em>Values:</em></p>
+<dl class="cpp enumerator">
+<dt class="sig sig-object cpp" id="_CPPv4N16RocksdbWriteMode16FWD_ROCKSDB_READE">
+<span id="_CPPv3N16RocksdbWriteMode16FWD_ROCKSDB_READE"></span><span id="_CPPv2N16RocksdbWriteMode16FWD_ROCKSDB_READE"></span><span class="target" id="group__embedding-ssd_1ggaf1ce371b1e598c817791f840612cc1a3a04322b721f1ffbe27b34d44f308932c1"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FWD_ROCKSDB_READ</span></span></span><a class="headerlink" href="#_CPPv4N16RocksdbWriteMode16FWD_ROCKSDB_READE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp enumerator">
+<dt class="sig sig-object cpp" id="_CPPv4N16RocksdbWriteMode15FWD_L1_EVICTIONE">
+<span id="_CPPv3N16RocksdbWriteMode15FWD_L1_EVICTIONE"></span><span id="_CPPv2N16RocksdbWriteMode15FWD_L1_EVICTIONE"></span><span class="target" id="group__embedding-ssd_1ggaf1ce371b1e598c817791f840612cc1a3a950e8a7e9d8ae146da22a7994bb372d3"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FWD_L1_EVICTION</span></span></span><a class="headerlink" href="#_CPPv4N16RocksdbWriteMode15FWD_L1_EVICTIONE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp enumerator">
+<dt class="sig sig-object cpp" id="_CPPv4N16RocksdbWriteMode29BWD_L1_CNFLCT_MISS_WRITE_BACKE">
+<span id="_CPPv3N16RocksdbWriteMode29BWD_L1_CNFLCT_MISS_WRITE_BACKE"></span><span id="_CPPv2N16RocksdbWriteMode29BWD_L1_CNFLCT_MISS_WRITE_BACKE"></span><span class="target" id="group__embedding-ssd_1ggaf1ce371b1e598c817791f840612cc1a3ae633497be94c1abdf63881284c23c13a"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">BWD_L1_CNFLCT_MISS_WRITE_BACK</span></span></span><a class="headerlink" href="#_CPPv4N16RocksdbWriteMode29BWD_L1_CNFLCT_MISS_WRITE_BACKE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp enumerator">
+<dt class="sig sig-object cpp" id="_CPPv4N16RocksdbWriteMode5FLUSHE">
+<span id="_CPPv3N16RocksdbWriteMode5FLUSHE"></span><span id="_CPPv2N16RocksdbWriteMode5FLUSHE"></span><span class="target" id="group__embedding-ssd_1ggaf1ce371b1e598c817791f840612cc1a3a365b228f1c799ff897f963650ec33dd9"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FLUSH</span></span></span><a class="headerlink" href="#_CPPv4N16RocksdbWriteMode5FLUSHE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
 <dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv410hash_shard7int64_t6size_t">
 <span id="_CPPv310hash_shard7int64_t6size_t"></span><span id="_CPPv210hash_shard7int64_t6size_t"></span><span id="hash_shard__int64_t.s"></span><span class="target" id="group__embedding-ssd_1ga62f470c1f80d566177fd011b4f7181ac"></span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">hash_shard</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">id</span></span>, <span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">num_shards</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv410hash_shard7int64_t6size_t" title="Permalink to this definition">¶</a><br /></dt>
@@ -621,6 +653,17 @@
 <em>#include &lt;kv_db_table_batched_embeddings.h&gt;</em></div>
 <p>It holds l2cache lookup results. </p>
 <p>num_misses is the number of misses in the l2 cache lookup cached_addr_list is preallocated with number of lookups for better parallelism and invalid spot(cache misses) will stay as sentinel value </p>
+</dd></dl>
+
+<dl class="cpp struct">
+<dt class="sig sig-object cpp" id="_CPPv4N5kv_db9QueueItemE">
+<span id="_CPPv3N5kv_db9QueueItemE"></span><span id="_CPPv2N5kv_db9QueueItemE"></span><span id="kv_db::QueueItem"></span><span class="target" id="structkv__db_1_1_queue_item"></span><span class="k"><span class="pre">struct</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">QueueItem</span></span></span><a class="headerlink" href="#_CPPv4N5kv_db9QueueItemE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;kv_db_table_batched_embeddings.h&gt;</em></div>
+<p>queue item for background L2/rocksdb update </p>
+<p>indices/weights/count are the corresponding set() params</p>
+<p>read_handles is cachelib abstracted indices/embedding pair metadata, will be later used on updating cachelib LRU queue as we separate it from EmbeddingKVDB::get_cache()</p>
+<p>mode is used for monitoring rocksdb write, checkout RocksdbWriteMode for detailed explanation </p>
 </dd></dl>
 
 <dl class="cpp class">

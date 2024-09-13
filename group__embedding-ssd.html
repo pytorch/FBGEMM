@@ -73,6 +73,7 @@ $(function() {
 <div class="header">
   <div class="summary">
 <a href="#nested-classes">Classes</a> &#124;
+<a href="#enum-members">Enumerations</a> &#124;
 <a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">Embedding SSD Operators</div></div>
 </div><!--header-->
@@ -86,10 +87,17 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_cache_context.html">CacheContext</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structkv__db_1_1_queue_item.html">QueueItem</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classssd_1_1_embedding_rocks_d_b.html">EmbeddingRocksDB</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="enum-members" name="enum-members"></a>
+Enumerations</h2></td></tr>
+<tr class="memitem:gaf1ce371b1e598c817791f840612cc1a3" id="r_gaf1ce371b1e598c817791f840612cc1a3"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gaf1ce371b1e598c817791f840612cc1a3">RocksdbWriteMode</a> </td></tr>
+<tr class="separator:gaf1ce371b1e598c817791f840612cc1a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
@@ -109,6 +117,28 @@ Functions</h2></td></tr>
 <tr class="separator:ga3c1be516461fee114c157402e33cb0d9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
+<h2 class="groupheader">Enumeration Type Documentation</h2>
+<a id="gaf1ce371b1e598c817791f840612cc1a3" name="gaf1ce371b1e598c817791f840612cc1a3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gaf1ce371b1e598c817791f840612cc1a3">&#9670;&#160;</a></span>RocksdbWriteMode</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="#gaf1ce371b1e598c817791f840612cc1a3">RocksdbWriteMode</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>rocksdb write mode </p>
+<p>In SSD offloading there are 3 writes in each train iteration FWD_ROCKSDB_READ: cache lookup will move uncached data from rocksdb into L2 cache on fwd path</p>
+<p>FWD_L1_EVICTION: L1 cache eviciton will evict data into L2 cache on fwd path</p>
+<p>BWD_L1_CNFLCT_MISS_WRITE_BACK: L1 conflict miss will insert into L2 for embedding update on bwd path</p>
+<p>All the L2 cache filling above will potentially trigger rocksdb write once L2 cache is full</p>
+<p>Additionally we will do ssd io on L2 flush </p>
+
+</div>
+</div>
 <h2 class="groupheader">Function Documentation</h2>
 <a id="ga3c1be516461fee114c157402e33cb0d9" name="ga3c1be516461fee114c157402e33cb0d9"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ga3c1be516461fee114c157402e33cb0d9">&#9670;&#160;</a></span>compact_indices_cuda()</h2>
