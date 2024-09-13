@@ -153,6 +153,26 @@ def random_quant_scaled_tensor(
         )
 
 
+@torch.fx.wrap
+def inputs_to_device(
+    indices: torch.Tensor,
+    offsets: torch.Tensor,
+    per_sample_weights: Optional[torch.Tensor],
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    if device.type == "meta":
+        return indices, offsets, per_sample_weights
+
+    non_blocking = device.type != "cpu"
+    if indices.device != device:
+        indices = indices.to(device, non_blocking=non_blocking)
+    if offsets.device != device:
+        offsets = offsets.to(device, non_blocking=non_blocking)
+    if per_sample_weights is not None and per_sample_weights.device != device:
+        per_sample_weights = per_sample_weights.to(device, non_blocking=non_blocking)
+    return indices, offsets, per_sample_weights
+
+
 # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
@@ -755,6 +775,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.weight_initialized
         ), "weight needs to be initialized before forward function"
+
+        indices, offsets, per_sample_weights = inputs_to_device(
+            indices, offsets, per_sample_weights, self.bounds_check_warning.device
+        )
 
         # First bound check: check if the indices/offsets are within the boundary
         # of the original embedding rows before pruning.
