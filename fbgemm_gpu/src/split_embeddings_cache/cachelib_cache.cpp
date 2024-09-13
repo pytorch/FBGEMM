@@ -7,6 +7,7 @@
  */
 
 #include "fbgemm_gpu/split_embeddings_cache/cachelib_cache.h"
+#include <cmath>
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
@@ -38,7 +39,12 @@ CacheLibCache::CacheLibCache(const CacheConfig& cache_config)
   for (size_t i = 0; i < cache_config_.num_shards; i++) {
     pool_ids_.push_back(cache_->addPool(
         fmt::format("shard_{}", i),
-        cache_->getCacheMemoryStats().ramCacheSize / cache_config_.num_shards));
+        cache_->getCacheMemoryStats().ramCacheSize / cache_config_.num_shards,
+        std::set<uint32_t>{},
+        Cache::MMConfig{
+            0, /* promote on every access*/
+            true, /*enable promotion on write*/
+            true /*enable promotion on read*/}));
   }
 }
 
@@ -69,10 +75,24 @@ std::unique_ptr<Cache> CacheLibCache::initializeCacheLib(
             });
       };
   Cache::Config cacheLibConfig;
+  int64_t rough_num_items =
+      cache_config_.cache_size_bytes / cache_config_.item_size_bytes;
+  unsigned int bucket_power = std::log(rough_num_items) / std::log(2) + 1;
+  // 15 here is a magic number between 10 and 20
+  unsigned int lock_power =
+      std::log(cache_config_.num_shards * 15) / std::log(2) + 1;
+  XLOG(INFO) << fmt::format(
+      "Setting up Cachelib for L2 cache, capacity: {}GB, "
+      "item_size: {}B, max_num_items: {}, bucket_power: {}, lock_power: {}",
+      config.cache_size_bytes / 1024 / 1024 / 1024,
+      cache_config_.item_size_bytes,
+      rough_num_items,
+      bucket_power,
+      lock_power);
   cacheLibConfig.setCacheSize(static_cast<uint64_t>(config.cache_size_bytes))
       .setRemoveCallback(eviction_cb)
       .setCacheName("TBEL2Cache")
-      .setAccessConfig({25 /* bucket power */, 10 /* lock power */})
+      .setAccessConfig({bucket_power, lock_power})
       .setFullCoredump(false)
       .validate();
   return std::make_unique<Cache>(cacheLibConfig);
@@ -104,16 +124,35 @@ facebook::cachelib::PoolId CacheLibCache::get_pool_id(int64_t key) {
   return pool_ids_[get_shard_id(key)];
 }
 
+void CacheLibCache::batchMarkUseful(
+    const std::vector<Cache::ReadHandle>& read_handles) {
+  if (read_handles.empty()) {
+    return;
+  }
+  for (auto& handle : read_handles) {
+    if (handle) {
+      cache_->markUseful(handle, facebook::cachelib::AccessMode::kRead);
+    }
+  }
+}
+
 bool CacheLibCache::put(int64_t key, const at::Tensor& data) {
   auto key_str =
       folly::StringPiece(reinterpret_cast<const char*>(&key), sizeof(int64_t));
-  auto item = cache_->allocate(get_pool_id(key), key_str, data.nbytes());
+  auto item = cache_->findToWrite(key_str);
   if (!item) {
-    XLOG(ERR) << fmt::format("Failed to allocate item {} in cache, skip", key);
-    return false;
+    auto alloc_item =
+        cache_->allocate(get_pool_id(key), key_str, data.nbytes());
+    if (!alloc_item) {
+      XLOG(ERR) << fmt::format(
+          "Failed to allocate item {} in cache, skip", key);
+      return false;
+    }
+    std::memcpy(alloc_item->getMemory(), data.data_ptr(), data.nbytes());
+    cache_->insertOrReplace(std::move(alloc_item));
+  } else {
+    std::memcpy(item->getMemory(), data.data_ptr(), data.nbytes());
   }
-  std::memcpy(item->getMemory(), data.data_ptr(), data.nbytes());
-  cache_->insertOrReplace(std::move(item));
   return true;
 }
 

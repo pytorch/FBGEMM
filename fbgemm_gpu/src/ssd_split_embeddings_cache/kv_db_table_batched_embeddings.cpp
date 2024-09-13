@@ -29,7 +29,7 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
 
 }; // namespace
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> tensor_copy(
+QueueItem tensor_copy(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
@@ -58,7 +58,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> tensor_copy(
             new_weightss_addr); // dst_start
       });
   *new_count.data_ptr<int64_t>() = num_sets;
-  return std::make_tuple(new_indices, new_weights, new_count);
+  return QueueItem{new_indices, new_weights, new_count};
 }
 
 EmbeddingKVDB::EmbeddingKVDB(
@@ -94,9 +94,9 @@ EmbeddingKVDB::EmbeddingKVDB(
       if (stop_) {
         return;
       }
-      auto& indices = std::get<0>(*filling_item_ptr);
-      auto& weights = std::get<1>(*filling_item_ptr);
-      auto& count = std::get<2>(*filling_item_ptr);
+      auto& indices = filling_item_ptr->indices;
+      auto& weights = filling_item_ptr->weights;
+      auto& count = filling_item_ptr->count;
 
       if (l2_cache_) {
         auto evicted_pairs_opt = set_cache(indices, weights, count);
@@ -228,8 +228,8 @@ void EmbeddingKVDB::set(
   // parallelized with other cuda kernels, as long as all updates are finished
   // before the next L2 cache lookup
   auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
-  auto new_tuple = tensor_copy(indices, weights, count);
-  weights_to_fill_queue_.enqueue(new_tuple);
+  auto new_item = tensor_copy(indices, weights, count);
+  weights_to_fill_queue_.enqueue(new_item);
   set_tensor_copy_for_cache_update_ +=
       facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
 }
@@ -264,8 +264,8 @@ void EmbeddingKVDB::get(
       // be parallelized with other cuda kernels, as long as all updates are
       // finished before the next L2 cache lookup
       auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
-      auto new_tuple = tensor_copy(indices, weights, count);
-      weights_to_fill_queue_.enqueue(new_tuple);
+      auto new_item = tensor_copy(indices, weights, count);
+      weights_to_fill_queue_.enqueue(new_item);
       get_tensor_copy_for_cache_update_ +=
           facebook::WallClockUtil::NowInUsecFast() - tensor_copy_start_ts;
     } else {
