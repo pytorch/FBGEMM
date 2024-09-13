@@ -74,6 +74,14 @@ class CacheLibCache {
   /// deterministic mapping from a embedding index to a specific pool id
   facebook::cachelib::PoolId get_pool_id(int64_t key);
 
+  /// update the LRU queue in cachelib, this is detached from cache->find()
+  /// so that we could boost up the lookup perf without worrying about LRU queue
+  /// contention
+  ///
+  /// @param read_handles the read handles that record what cache item has been
+  /// accessed
+  void batchMarkUseful(const std::vector<Cache::ReadHandle>& read_handles);
+
   /// Add an embedding index and embeddings into cachelib
   ///
   /// @param key embedding index to insert

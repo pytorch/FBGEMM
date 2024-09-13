@@ -64,6 +64,38 @@ class CacheContext {
 
 /// @ingroup embedding-ssd
 ///
+/// @brief queue item for background L2/rocksdb update
+///
+/// indices/weights/count are the corresponding set() params
+///
+/// read_handles is cachelib abstracted indices/embedding pair metadata, will be
+/// later used on updating cachelib LRU queue as we separate it from
+/// EmbeddingKVDB::get_cache()
+///
+/// mode is used for monitoring rocksdb write as there are 3 writes in each
+/// train iteration,
+/// - cache lookup will move uncached data from rocksdb into L2 cache on fwd
+/// path
+/// - L1 cache eviciton will evict data into L2 cache on fwd path
+/// - L1 conflict miss will insert into L2 on bwd path
+/// those L2 cache filling will potentially trigger rocksdb write once L2 cache
+/// is full
+struct QueueItem {
+  at::Tensor indices;
+  at::Tensor weights;
+  at::Tensor count;
+  QueueItem(
+      at::Tensor src_indices,
+      at::Tensor src_weights,
+      at::Tensor src_count) {
+    indices = src_indices;
+    weights = src_weights;
+    count = src_count;
+  }
+};
+
+/// @ingroup embedding-ssd
+///
 /// @brief A class for interacting with different cache layers and storage
 /// layers, public calls are executed on cuda stream
 ///
@@ -239,8 +271,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   std::atomic<bool> stop_{false};
   // buffer queue that stores all the needed indices/weights/action_count to
   // fill up cache
-  folly::USPSCQueue<std::tuple<at::Tensor, at::Tensor, at::Tensor>, true>
-      weights_to_fill_queue_;
+  folly::USPSCQueue<QueueItem, true> weights_to_fill_queue_;
 
   // perf stats
   // --  perf of get() function
