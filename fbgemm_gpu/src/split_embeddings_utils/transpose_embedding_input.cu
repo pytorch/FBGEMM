@@ -274,10 +274,10 @@ transpose_embedding_input(
   }
 
   AT_DISPATCH_INDEX_TYPES(
-      infos.scalar_type(), "transpose_embedding_input1", [&] {
+      infos.scalar_type(), "transpose_embedding_input_1", [&] {
         using info_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            indices.scalar_type(), "transpose_embedding_input2", [&] {
+            indices.scalar_type(), "transpose_embedding_input_2", [&] {
               if (!is_index_select) {
                 if (!nobag) {
                   INVOKE_LINEARIZE_INDEX_KERNEL(int32_t, false);
