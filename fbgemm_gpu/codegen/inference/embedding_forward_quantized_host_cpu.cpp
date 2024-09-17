@@ -103,6 +103,9 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     std::optional<int64_t> max_float8_D,
     std::optional<int64_t> fp8_exponent_bits,
     std::optional<int64_t> fp8_exponent_bias) {
+  if (offsets.scalar_type() != indices.scalar_type()) {
+    offsets = offsets.toType(indices.scalar_type());
+  }
   if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
     std::vector<int64_t> max_D_list{
         max_int2_D,
