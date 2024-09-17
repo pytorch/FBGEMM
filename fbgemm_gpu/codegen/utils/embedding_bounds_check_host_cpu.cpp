@@ -49,6 +49,9 @@ void bounds_check_indices_cpu(
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
     const int64_t max_B) {
+  if (offsets.scalar_type() != indices.scalar_type()) {
+    offsets = offsets.toType(indices.scalar_type());
+  }
   const auto vbe = B_offsets.has_value();
   if (vbe) {
     TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
