@@ -62,7 +62,7 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     {%- set func_name = "nbit::" + emb_weight_type + "_split_embedding" + ("_nobag" if nobag else "") + "_codegen_forward_" + wdesc + "_kernel_small_L" %}
 
     #ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name_{{ emb_weight_type }} = func_name_{{ emb_weight_type }};
+    const auto func_name_{{ emb_weight_type }} = "{{ func_name }}_{{ emb_weight_type }}";
     #endif
 
     #ifdef X
