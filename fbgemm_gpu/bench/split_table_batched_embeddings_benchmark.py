@@ -134,6 +134,7 @@ def cli() -> None:
 @click.option(
     "--ssd-prefix", type=str, default="/tmp/ssd_benchmark", help="SSD directory prefix"
 )
+@click.option("--cache-load-factor", default=0.2)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -163,6 +164,7 @@ def device(  # noqa C901
     uvm_host_mapped: bool,
     ssd: bool,
     ssd_prefix: str,
+    cache_load_factor: float,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
     np.random.seed(42)
@@ -278,6 +280,7 @@ def device(  # noqa C901
             ],
             cache_precision=weights_precision,
             cache_algorithm=CacheAlgorithm.LRU,
+            cache_load_factor=cache_load_factor,
             **common_split_args,
         )
     emb = emb.to(get_device())
@@ -643,6 +646,9 @@ def uvm(
 
     time_per_iter = benchmark_requests(
         requests_uvm,
+        # pyre-fixme[6]: For 2nd argument expected `(Tensor, Tensor,
+        #  Optional[Tensor]) -> Tensor` but got `(indices: Tensor, offsets: Tensor,
+        #  per_sample_weights: Tensor) -> None`.
         run_bench,
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         num_warmups=warmup_runs,
@@ -736,6 +742,12 @@ def uvm(
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option(
+    "--uvm-host-mapped",
+    is_flag=True,
+    default=False,
+    help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
+)
 def cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -756,6 +768,7 @@ def cache(  # noqa C901
     flush_gpu_cache_size_mb: int,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -788,6 +801,7 @@ def cache(  # noqa C901
         optimizer=optimizer,
         weights_precision=weights_precision,
         stochastic_rounding=stoc,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
 
     if weights_precision == SparseType.INT8:
@@ -808,6 +822,7 @@ def cache(  # noqa C901
         stochastic_rounding=stoc,
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
 
     if weights_precision == SparseType.INT8:
@@ -1922,6 +1937,9 @@ def nbit_uvm(
                 indices,
                 offsets,
             ),
+            # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
+            #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+            #  indices_weights: Any) -> Tensor`.
             lambda indices, offsets, indices_weights: emb_mixed.forward(
                 indices,
                 offsets,
@@ -2409,6 +2427,9 @@ def nbit_cache(  # noqa C901
             indices,
             offsets,
         ),
+        # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
+        #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+        #  indices_weights: Any) -> Tensor`.
         lambda indices, offsets, indices_weights: emb.forward(
             indices,
             offsets,
@@ -3049,6 +3070,7 @@ def device_with_spec(  # noqa C901
             reuse=reuse,
             alpha=alpha,
             weighted=weighted,
+            # pyre-fixme[61]: `sigma_Ls` is undefined, or not always defined.
             sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
             zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
         )

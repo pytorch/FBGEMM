@@ -217,11 +217,19 @@ lru_cache_find_uncached_cuda(
 #ifdef FBGEMM_GPU_MEMCHECK
         const char* func_name = "lru_cache_find_uncached_kernel";
 #endif
+        // During concurrent prefetch, cache lines are locked and we use less
+        // SMs for some of the prefetch kernels to leave SMs for main stream to
+        // overlap
+        constexpr int PREFETCH_KERNEL_MAX_BLOCKS = 8;
+
+        auto grid_size = std::min(
+            div_round_up(N, kMaxThreads / kWarpSize),
+            lock_cache_line ? PREFETCH_KERNEL_MAX_BLOCKS
+                            : get_max_thread_blocks_for_cache_kernels_());
+
         // Find uncached indices
         lru_cache_find_uncached_kernel<<<
-            std::min(
-                div_round_up(N, kMaxThreads / kWarpSize),
-                get_max_thread_blocks_for_cache_kernels_()),
+            grid_size,
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(

@@ -33,10 +33,13 @@ class CacheLibCache {
  public:
   using Cache = facebook::cachelib::LruAllocator;
   struct CacheConfig {
-    size_t cacheSizeBytes;
+    size_t cache_size_bytes;
+    size_t item_size_bytes;
+    size_t num_shards;
+    int64_t max_D_;
   };
 
-  explicit CacheLibCache(size_t cacheSizeBytes, int64_t num_shards);
+  explicit CacheLibCache(const CacheConfig& cache_config);
 
   std::unique_ptr<Cache> initializeCacheLib(const CacheConfig& config);
 
@@ -71,6 +74,14 @@ class CacheLibCache {
   /// deterministic mapping from a embedding index to a specific pool id
   facebook::cachelib::PoolId get_pool_id(int64_t key);
 
+  /// update the LRU queue in cachelib, this is detached from cache->find()
+  /// so that we could boost up the lookup perf without worrying about LRU queue
+  /// contention
+  ///
+  /// @param read_handles the read handles that record what cache item has been
+  /// accessed
+  void batchMarkUseful(const std::vector<Cache::ReadHandle>& read_handles);
+
   /// Add an embedding index and embeddings into cachelib
   ///
   /// @param key embedding index to insert
@@ -84,6 +95,20 @@ class CacheLibCache {
   ///
   /// @note cache_->allocation will trigger eviction callback func
   bool put(int64_t key, const at::Tensor& data);
+
+  /// iterate through all items in L2 cache, fill them in indices and weights
+  /// respectively and return indices, weights and count
+  ///
+  /// @return indices The 1D embedding index tensor, should skip on negative
+  /// value
+  /// @return weights The 2D tensor that each row(embeddings) is paired up with
+  /// relative element in <indices>
+  /// @return count A single element tensor that contains the number of indices
+  /// to be processed
+  ///
+  /// @note this isn't thread safe, caller needs to make sure put isn't called
+  /// while this is executed.
+  std::tuple<at::Tensor, at::Tensor, at::Tensor> get_all_items();
 
   /// instantiate eviction related indices and weights tensors(size of <count>)
   /// for L2 eviction using the same dtype and device from <indices> and
@@ -103,13 +128,13 @@ class CacheLibCache {
       const at::Tensor& count);
 
   /// reset slot pointer that points to the next available slot in the eviction
-  /// tensors
+  /// tensors and returns number of slots filled
   void reset_eviction_states();
 
   /// get the filled indices and weights tensors from L2 eviction, could be all
   /// invalid if no eviction happened
-  folly::Optional<std::pair<at::Tensor, at::Tensor>>
-  get_evicted_indices_and_weights();
+  folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>>
+  get_tensors_and_reset();
 
   /// get L2 cache utilization stats
   std::vector<int64_t> get_cache_usage();
@@ -120,8 +145,8 @@ class CacheLibCache {
   std::vector<facebook::cachelib::PoolId> pool_ids_;
   std::unique_ptr<facebook::cachelib::CacheAdmin> admin_;
 
-  std::shared_ptr<at::Tensor> evicted_indices_ptr_{nullptr};
-  std::shared_ptr<at::Tensor> evicted_weights_ptr_{nullptr};
+  folly::Optional<at::Tensor> evicted_indices_opt_{folly::none};
+  folly::Optional<at::Tensor> evicted_weights_opt_{folly::none};
   std::atomic<int64_t> eviction_row_id{0};
 };
 

@@ -45,38 +45,25 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     RecordCacheMetrics,
     SplitState,
 )
+from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
+    generate_vbe_metadata,
+    is_torchdynamo_compiling,
+)
+
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
 try:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training"
-        )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training"
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training",
+    )
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training",
     )
 except Exception:
     pass
-
-
-try:
-    try:
-        from torch.compiler import is_compiling
-
-        def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
-            # at least one test fails if we import is_compiling as a different name
-            return is_compiling()
-
-    except Exception:
-        # torch.compiler.is_compiling is not available in torch 1.10
-        from torch._dynamo import is_compiling as is_torchdynamo_compiling
-except Exception:
-
-    def is_torchdynamo_compiling() -> bool:  # type: ignore[misc]
-        return False
 
 
 DEFAULT_ASSOC = 32 if torch.version.hip is None else 64
@@ -334,125 +321,6 @@ def apply_split_helper(
         )
 
 
-def generate_vbe_metadata(
-    offsets: Tensor,
-    batch_size_per_feature_per_rank: Optional[List[List[int]]],
-    optimizer: OptimType,
-    pooling_mode: PoolingMode,
-    feature_dims_cpu: Tensor,
-    device: torch.device,
-) -> invokers.lookup_args.VBEMetadata:
-    """
-    Generate VBE metadata based on batch_size_per_feature_per_rank.
-    Metadata includes:
-        1) B_offsets - A tensor that contains batch size offsets for each
-                        feature
-        2) output_offsets_feature_rank - A tensor that contains output
-                                            offsets for each feature
-        3) B_offsets_per_rank_per_feature - A tensor that contains batch
-                                            size offsets for each feature
-                                            and rank
-        4) max_B - The maximum batch size for all features
-        5) max_B_feature_rank - The maximum batch size for all ranks and
-                                features
-        6) output_size - The output size (number of elements)
-    """
-    if batch_size_per_feature_per_rank is not None:
-        assert optimizer in (
-            OptimType.EXACT_ROWWISE_ADAGRAD,
-            OptimType.EXACT_SGD,
-            OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
-            OptimType.NONE,
-        ), "Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD and ENSEMBLE_ROWWISE_ADAGRAD only"
-        assert (
-            pooling_mode != PoolingMode.NONE
-        ), "Variable batch size TBE support is not enabled for PoolingMode.NONE"
-        # TODO: Add input check
-        zero_tensor = torch.zeros(1, device="cpu", dtype=torch.int32)
-
-        # Create B offsets
-        total_batch_size_per_feature = torch.tensor(
-            batch_size_per_feature_per_rank, dtype=torch.int32, device="cpu"
-        ).sum(dim=1)
-
-        max_B = total_batch_size_per_feature.max().item()
-        if not torch.jit.is_scripting() and is_torchdynamo_compiling():
-            torch._check_is_size(max_B)
-            torch._check(max_B < offsets.numel())
-
-        Bs = torch.concat([zero_tensor, total_batch_size_per_feature])
-        B_offsets = Bs.cumsum(dim=0).to(torch.int)
-
-        # Create output offsets
-        B_feature_rank = torch.tensor(
-            batch_size_per_feature_per_rank,
-            device="cpu",
-            dtype=torch.int64,
-        )
-        max_B_feature_rank = B_feature_rank.max().item()
-        if not torch.jit.is_scripting() and is_torchdynamo_compiling():
-            torch._check_is_size(max_B_feature_rank)
-            torch._check(max_B_feature_rank <= offsets.size(0))
-        output_sizes_feature_rank = B_feature_rank.transpose(
-            0, 1
-        ) * feature_dims_cpu.view(1, -1)
-        output_offsets_feature_rank = torch.concat(
-            [
-                zero_tensor.to(torch.int64),
-                output_sizes_feature_rank.flatten().cumsum(dim=0),
-            ]
-        )
-        output_size = output_offsets_feature_rank[-1].item()
-        if not torch.jit.is_scripting() and is_torchdynamo_compiling():
-            torch._check_is_size(output_size)
-
-        # TODO: Support INT8 output
-        # B_offsets_rank_per_feature is for rank and (b, t) mapping
-        B_offsets_rank_per_feature = (
-            torch.tensor(
-                [
-                    [0] + batch_size_per_feature
-                    for batch_size_per_feature in batch_size_per_feature_per_rank
-                ],
-                device="cpu",
-                dtype=torch.int32,
-            )
-            .cumsum(dim=1)
-            .to(torch.int)
-        )
-
-        B_offsets = B_offsets.to(device, non_blocking=True)
-        output_offsets_feature_rank = output_offsets_feature_rank.to(
-            device, non_blocking=True
-        )
-        B_offsets_rank_per_feature = B_offsets_rank_per_feature.to(
-            device, non_blocking=True
-        )
-
-        # TODO: Use int32 for B_offsets and int64 for output_offsets_feature_rank
-        vbe_metadata = invokers.lookup_args.VBEMetadata(
-            B_offsets=B_offsets,
-            output_offsets_feature_rank=output_offsets_feature_rank,
-            B_offsets_rank_per_feature=B_offsets_rank_per_feature,
-            # pyre-ignore
-            max_B=max_B,
-            # pyre-ignore
-            max_B_feature_rank=max_B_feature_rank,
-            # pyre-ignore
-            output_size=output_size,
-        )
-    else:
-        vbe_metadata = invokers.lookup_args.VBEMetadata(
-            B_offsets=None,
-            output_offsets_feature_rank=None,
-            B_offsets_rank_per_feature=None,
-            max_B=-1,
-            max_B_feature_rank=-1,
-            output_size=-1,
-        )
-    return vbe_metadata
-
-
 # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
 # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
 class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
@@ -475,9 +343,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     lxu_cache_locations_empty: Tensor
     timesteps_prefetched: List[int]
     record_cache_metrics: RecordCacheMetrics
+    # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
     local_uvm_cache_stats: torch.Tensor
     uuid: str
+    # pyre-fixme[13]: Attribute `last_uvm_cache_print_state` is never initialized.
     last_uvm_cache_print_state: torch.Tensor
     _vbe_B_offsets: Optional[torch.Tensor]
     _vbe_max_B: int
@@ -520,7 +391,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         step_ema: float = 10000,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         step_swap: float = 10000,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         step_start: float = 0,  # used by ENSEMBLE_ROWWISE_ADAGRAD
-        step_mode: StepMode = StepMode.USE_COUNTER,  # used by ENSEMBLE_ROWWISE_ADAGRAD
+        step_mode: StepMode = StepMode.USE_ITER,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
         ] = None,  # used by Rowwise Adagrad
@@ -987,7 +858,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 # NOTE: make TorchScript work!
                 self._register_nonpersistent_buffers("momentum2")
-            if self._used_rowwise_adagrad_with_counter:
+            if self._used_rowwise_adagrad_with_counter or (
+                optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD
+            ):
                 self._apply_split(
                     construct_split_state(
                         embedding_specs,
@@ -1035,24 +908,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     uvm_host_mapped=self.uvm_host_mapped,
                 )
                 self._register_nonpersistent_buffers("row_counter")
-                self.register_buffer(
-                    "max_counter",
-                    torch.ones(1, dtype=torch.float32, device=self.current_device),
-                    persistent=False,
-                )
-            elif optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
-                self._register_nonpersistent_buffers("prev_iter")
-                self._apply_split(
-                    construct_split_state(
-                        embedding_specs,
-                        rowwise=True,
-                        cacheable=False,
-                    ),
-                    prefix="row_counter",
-                    # pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param
-                    #  but got `Type[torch.float32]`.
-                    dtype=torch.float32,
-                )
                 self.register_buffer(
                     "max_counter",
                     torch.ones(1, dtype=torch.float32, device=self.current_device),
@@ -1379,6 +1234,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     ) -> invokers.lookup_args.VBEMetadata:
         # Blocking D2H copy, but only runs at first call
         self.feature_dims = self.feature_dims.cpu()
+        if batch_size_per_feature_per_rank is not None:
+            assert self.optimizer in (
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_SGD,
+                OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                OptimType.NONE,
+            ), (
+                "Variable batch size TBE support is enabled for "
+                "OptimType.EXACT_ROWWISE_ADAGRAD and "
+                "ENSEMBLE_ROWWISE_ADAGRAD only"
+            )
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
@@ -1618,10 +1484,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
+                    prev_iter,
                     row_counter,
                     iter=int(self.iter.item()),
                     apply_global_weight_decay=False,
-                    prev_iter_dev=self.prev_iter_dev,
                     gwd_lower_bound=0.0,
                 ),
             )
@@ -2087,7 +1953,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 {
                     "sum": states[0],
                     "exp_avg": states[1],
-                    "row_counter": states[2],
+                    "prev_iter": states[2],
+                    "row_counter": states[3],
                 }
                 for states in split_optimizer_states
             ]
@@ -2184,6 +2051,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if (
             self._used_rowwise_adagrad_with_counter
             or self._used_rowwise_adagrad_with_global_weight_decay
+            or self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD
         ):
             states.append(
                 get_optimizer_states(
@@ -2421,6 +2289,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         self.total_cache_hash_size = cache_state.total_cache_hash_size
+        # 8x of # tables, trivial size
         self.register_buffer(
             "cache_hash_size_cumsum",
             torch.tensor(
@@ -2429,6 +2298,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=torch.int64,
             ),
         )
+        # 4x total embedding hash size with uvm cache
         self.register_buffer(
             "cache_index_table_map",
             torch.tensor(
@@ -2437,12 +2307,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=torch.int32,
             ),
         )
+        # 8x of total cache slots (embedding hash size * clf)
         self.register_buffer(
             "lxu_cache_state",
             torch.zeros(
                 cache_sets, DEFAULT_ASSOC, device=self.current_device, dtype=torch.int64
             ).fill_(-1),
         )
+        # Cache itself, not auxiliary size
         self.register_buffer(
             "lxu_cache_weights",
             torch.zeros(
@@ -2452,6 +2324,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 dtype=dtype,
             ),
         )
+        # LRU: 8x of total cache slots (embedding hash size * clf)
+        # LFU: 8x of total embedding hash size with uvm cache
         self.register_buffer(
             "lxu_state",
             torch.zeros(

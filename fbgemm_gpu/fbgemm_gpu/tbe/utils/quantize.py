@@ -79,6 +79,7 @@ def dequantize_embs(
     weight_ty: SparseType,
     use_cpu: bool,
     fp8_config: Optional[FP8QuantizationConfig] = None,
+    # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
 ) -> torch.Tensor:
     print(f"weight_ty: {weight_ty}")
     assert (

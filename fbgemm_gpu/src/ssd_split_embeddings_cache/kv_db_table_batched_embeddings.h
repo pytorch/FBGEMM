@@ -64,6 +64,59 @@ class CacheContext {
 
 /// @ingroup embedding-ssd
 ///
+/// @brief rocksdb write mode
+///
+/// In SSD offloading there are 3 writes in each train iteration
+/// FWD_ROCKSDB_READ: cache lookup will move uncached data from rocksdb into L2
+/// cache on fwd path
+///
+/// FWD_L1_EVICTION: L1 cache eviciton will evict data into L2 cache on fwd path
+///
+/// BWD_L1_CNFLCT_MISS_WRITE_BACK: L1 conflict miss will insert into L2 for
+/// embedding update on bwd path
+///
+/// All the L2 cache filling above will potentially trigger rocksdb write once
+/// L2 cache is full
+///
+/// Additionally we will do ssd io on L2 flush
+enum RocksdbWriteMode {
+  FWD_ROCKSDB_READ = 0,
+  FWD_L1_EVICTION = 1,
+  BWD_L1_CNFLCT_MISS_WRITE_BACK = 2,
+  FLUSH = 3,
+};
+
+/// @ingroup embedding-ssd
+///
+/// @brief queue item for background L2/rocksdb update
+///
+/// indices/weights/count are the corresponding set() params
+///
+/// read_handles is cachelib abstracted indices/embedding pair metadata, will be
+/// later used on updating cachelib LRU queue as we separate it from
+/// EmbeddingKVDB::get_cache()
+///
+/// mode is used for monitoring rocksdb write, checkout RocksdbWriteMode for
+/// detailed explanation
+struct QueueItem {
+  at::Tensor indices;
+  at::Tensor weights;
+  at::Tensor count;
+  RocksdbWriteMode mode;
+  QueueItem(
+      at::Tensor src_indices,
+      at::Tensor src_weights,
+      at::Tensor src_count,
+      RocksdbWriteMode src_mode) {
+    indices = src_indices;
+    weights = src_weights;
+    count = src_count;
+    mode = src_mode;
+  }
+};
+
+/// @ingroup embedding-ssd
+///
 /// @brief A class for interacting with different cache layers and storage
 /// layers, public calls are executed on cuda stream
 ///
@@ -76,7 +129,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t num_shards,
       int64_t max_D,
       int64_t cache_size_gb = 0,
-      int64_t unique_id = 0);
+      int64_t unique_id = 0,
+      int64_t ele_size_bytes = 2 /*assume by default fp16*/);
 
   virtual ~EmbeddingKVDB();
 
@@ -136,11 +190,17 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
-      const bool is_bwd = false) = 0;
+      const RocksdbWriteMode w_mode = RocksdbWriteMode::FWD_ROCKSDB_READ) = 0;
 
   virtual void compact() = 0;
 
-  virtual void flush() = 0;
+  /// Flush L2 cache into backend storage
+  /// @return None
+  /// @note caller side should mananger the timing to make sure flush doens't
+  /// happen at the same time as get/set
+  /// @note flush only flushes L2 cache, if there is cache on the backend
+  /// storage, that flush should be called as well
+  void flush();
 
   // The function attaches the CUDA callback logic to the compute
   // stream to ensure that the data retrieval is carried out properly.
@@ -194,10 +254,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// @param count A single element tensor that contains the number of indices
   /// to be processed
   ///
-  /// @return None if L2 is missing, other wise return pair of tensors with
-  /// length of <count> containing L2 evicted embedding indices and embeddings,
-  /// invalid pairs will have sentinel value(-1) on <indices>
-  folly::Optional<std::pair<at::Tensor, at::Tensor>> set_cache(
+  /// @return None if L2 is missing or no eviction, other wise return tuple of
+  /// tensors with length of <count> containing L2 evicted embedding indices and
+  /// embeddings, invalid pairs will have sentinel value(-1) on <indices>
+  folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>> set_cache(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count);
@@ -232,8 +292,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   std::atomic<bool> stop_{false};
   // buffer queue that stores all the needed indices/weights/action_count to
   // fill up cache
-  folly::USPSCQueue<std::tuple<at::Tensor, at::Tensor, at::Tensor>, true>
-      weights_to_fill_queue_;
+  folly::USPSCQueue<QueueItem, true> weights_to_fill_queue_;
 
   // perf stats
   // --  perf of get() function
@@ -241,10 +300,12 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // instead of SUM(cache miss per interval) / SUM(lookups per interval)
   std::atomic<int64_t> num_cache_misses_{0};
   std::atomic<int64_t> num_lookups_{0};
+  std::atomic<int64_t> num_evictions_{0};
   std::atomic<int64_t> get_total_duration_{0};
   std::atomic<int64_t> get_cache_lookup_total_duration_{0};
   std::atomic<int64_t> get_cache_lookup_wait_filling_thread_duration_{0};
   std::atomic<int64_t> get_weights_fillup_total_duration_{0};
+  std::atomic<int64_t> get_cache_memcpy_duration_{0};
   std::atomic<int64_t> get_tensor_copy_for_cache_update_{0};
 
   // -- perf of set() function

@@ -151,7 +151,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             num_shards,
             max_D,
             l2_cache_size_gb,
-            tbe_unqiue_id) {
+            tbe_unqiue_id,
+            row_storage_bitwidth / 8) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
     options.create_if_missing = true;
@@ -344,7 +345,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
-      const bool is_bwd = false) override {
+      const kv_db::RocksdbWriteMode w_mode =
+          kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override {
     RECORD_USER_SCOPE("EmbeddingRocksDB::set");
 #ifdef FBGEMM_FBCODE
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
@@ -397,10 +399,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     co_await folly::coro::collectAllRange(std::move(tasks));
 #ifdef FBGEMM_FBCODE
     auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
-    if (is_bwd) {
-      bwd_write_total_duration_ += duration;
-    } else {
-      fwd_write_total_duration_ += duration;
+    switch (w_mode) {
+      case kv_db::RocksdbWriteMode::BWD_L1_CNFLCT_MISS_WRITE_BACK:
+        bwd_l1_cnflct_miss_write_back_dur_ += duration;
+        break;
+      case kv_db::RocksdbWriteMode::FWD_L1_EVICTION:
+        fwd_l1_eviction_dur_ += duration;
+        break;
+      case kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ:
+        fwd_rocksdb_read_dur_ += duration;
+        break;
+      case kv_db::RocksdbWriteMode::FLUSH:
+        flush_write_dur_ += duration;
+        break;
     }
 #endif
   }
@@ -559,17 +570,22 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const int64_t step,
       const int64_t interval) {
     std::vector<double> ret;
-    ret.reserve(3);
+    ret.reserve(5);
     if (step > 0 && step % interval == 0) {
-      auto read_dur = read_total_duration_.load();
-      auto fwd_write_dur = fwd_write_total_duration_.load();
-      auto bwd_write_dur = bwd_write_total_duration_.load();
+      int64_t reset_val = 0;
+      auto read_dur = read_total_duration_.exchange(reset_val);
+
+      auto fwd_rocksdb_read_dur = fwd_rocksdb_read_dur_.exchange(reset_val);
+      auto fwd_l1_eviction_dur = fwd_l1_eviction_dur_.exchange(reset_val);
+      auto bwd_l1_cnflct_miss_write_back_dur =
+          bwd_l1_cnflct_miss_write_back_dur_.exchange(reset_val);
+      auto flush_write_dur = flush_write_dur_.exchange(reset_val);
+
       ret.push_back(double(read_dur) / interval);
-      ret.push_back(double(fwd_write_dur) / interval);
-      ret.push_back(double(bwd_write_dur) / interval);
-      read_total_duration_ = 0;
-      fwd_write_total_duration_ = 0;
-      bwd_write_total_duration_ = 0;
+      ret.push_back(double(fwd_rocksdb_read_dur) / interval);
+      ret.push_back(double(fwd_l1_eviction_dur) / interval);
+      ret.push_back(double(bwd_l1_cnflct_miss_write_back_dur) / interval);
+      ret.push_back(double(flush_write_dur) / interval);
     }
     return ret;
   }
@@ -580,7 +596,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
-  void flush() override {
+  void flush() {
+    kv_db::EmbeddingKVDB::flush();
     for (auto& db : dbs_) {
       db->Flush(rocksdb::FlushOptions());
     }
@@ -648,9 +665,13 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t memtable_flush_period_;
   int64_t compaction_period_;
   int64_t l0_files_per_compact_;
+
+  // break down on rocksdb write duration for details checkout RocksdbWriteMode
   std::atomic<int64_t> read_total_duration_{0};
-  std::atomic<int64_t> fwd_write_total_duration_{0};
-  std::atomic<int64_t> bwd_write_total_duration_{0};
+  std::atomic<int64_t> fwd_rocksdb_read_dur_{0};
+  std::atomic<int64_t> fwd_l1_eviction_dur_{0};
+  std::atomic<int64_t> bwd_l1_cnflct_miss_write_back_dur_{0};
+  std::atomic<int64_t> flush_write_dur_{0};
 }; // class EmbeddingKVDB
 
 } // namespace ssd

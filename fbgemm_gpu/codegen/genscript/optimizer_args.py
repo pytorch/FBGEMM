@@ -28,6 +28,23 @@ except ImportError:
 
 
 ######################################################################
+# Optimizer Args Set Item
+######################################################################
+
+
+@dataclass
+class OptimizerArgsSetItem:
+    ty: ArgType  # type
+    name: str
+    default: Union[float, ArgType] = 0  # DEFAULT_ARG_VAL
+    ph_tys: Optional[List[ArgType]] = None  # placeholder types
+
+
+# Alias b/c the name is too long
+OptimItem = OptimizerArgsSetItem
+
+
+######################################################################
 ## Helper functions for the code generator script                   ##
 ######################################################################
 
@@ -117,6 +134,11 @@ def int_tensor_arg(name: str, gpu: bool = True, pass_by_ref: bool = False) -> st
     return _arg("int32_t", name, gpu=gpu, pass_by_ref=pass_by_ref)
 
 
+def tensor_list_arg_no_default(name: str, pass_by_ref: bool) -> str:
+    ref = "&" if pass_by_ref else ""
+    return f"at::TensorList{ref} {name}"
+
+
 def tensor_arg(name: str) -> str:
     return f"Tensor {name}"
 
@@ -165,8 +187,16 @@ def schema_sym_int_arg_no_default(name: str) -> str:
     return f"SymInt {name}"
 
 
+def schema_tensor_list_arg_no_default(name: str) -> str:
+    return f"Tensor[] {name}"
+
+
 def make_kernel_arg(
-    ty: ArgType, name: str, default: Union[int, float, None], pass_by_ref: bool = False
+    # pyre-fixme[11]: Annotation `ArgType` is not defined as a type.
+    ty: ArgType,
+    name: str,
+    default: Union[int, float, None],
+    pass_by_ref: bool = False,
 ) -> str:
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg(x, pass_by_ref=pass_by_ref),
@@ -278,21 +308,69 @@ def make_ivalue_cast(ty: ArgType) -> str:
     }[ty]
 
 
-######################################################################
-# Optimizer Args Set Item
-######################################################################
-
-
 @dataclass
-class OptimizerArgsSetItem:
-    ty: ArgType  # type
-    name: str
-    default: Union[float, ArgType] = 0  # DEFAULT_ARG_VAL
-    ph_tys: Optional[List[ArgType]] = None  # placeholder types
+class PT2ArgsSet:
+    split_function_args: List[str]
+    split_function_arg_names: List[str]
+    split_function_schemas: List[str]
+    split_saved_tensor_list: List[str]
 
+    @staticmethod
+    # pyre-ignore[3]
+    def create(
+        split_arg_spec: List[OptimItem],
+    ):
+        """
+        PT2ArgsSet.create() is a method that creates different formats given the optimization arguments
+        to be used in TBE codegen PT2 templates.
 
-# Alias b/c the name is too long
-OptimItem = OptimizerArgsSetItem
+        Parameters:
+        split_arg_spec: List[OptimItem] - list of argument specs
+
+        Returns:
+            PT2ArgsSet object with the following attributes:
+            split_function_args: List[str] - List of function arguments
+                                            e.g., ['at::TensorList momentum1', 'double eps', 'double weight_decay'].
+            split_function_arg_names: List[str] - List of argument names
+                                            e.g., ['momentum1', 'eps', 'weight_decay'].
+            split_function_schemas: List[str] - List of arguments in the schema format
+                                            e.g., ['Tensor[] momentum1', 'float eps', 'float weight_decay'].
+            split_saved_tensor_list: List[str] - List of saved tensors for the split function
+                                            e.g., ['momentum1'].
+        """
+        split_function_arg_names = []
+        split_function_args = []
+        split_function_schemas = []
+        split_saved_tensor_list = []
+        for s in split_arg_spec:
+            if s.ty in (
+                ArgType.TENSOR,
+                ArgType.INT_TENSOR,
+                ArgType.LONG_TENSOR,
+                ArgType.PLACEHOLDER_TENSOR,
+            ):
+                name = s.name.rsplit("_", 1)[0]
+                if name not in split_function_arg_names:
+                    split_function_arg_names.append(name)
+                    split_saved_tensor_list.append(name)
+                    split_function_args.append(
+                        tensor_list_arg_no_default(name, pass_by_ref=False)
+                    )
+                    split_function_schemas.append(
+                        schema_tensor_list_arg_no_default(name)
+                    )
+            else:
+                split_function_arg_names.append(s.name)
+                split_function_args.append(make_function_arg(s.ty, s.name, s.default))
+                split_function_schemas.append(
+                    make_function_schema_arg(s.ty, s.name, s.default)
+                )
+        return PT2ArgsSet(
+            split_function_args=split_function_args,
+            split_function_arg_names=split_function_arg_names,
+            split_function_schemas=split_function_schemas,
+            split_saved_tensor_list=split_saved_tensor_list,
+        )
 
 
 ######################################################################
@@ -318,7 +396,9 @@ class OptimizerArgs:
     split_variables: List[str]
     split_ref_kernel_args: List[str]
     placeholder_tensor_names: List[str]
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
     placeholder_type_combos: Union[List[Dict[str, TensorType]], List[None]]
+    unified_pt2: PT2ArgsSet
 
     @staticmethod
     # pyre-ignore[3]
@@ -345,6 +425,7 @@ class OptimizerArgs:
         else:
             ph_combos = [None]
 
+        # pyre-fixme[28]: Unexpected keyword argument `placeholder_type_combos`.
         return OptimizerArgs(
             # GPU kernel args
             split_kernel_args=[
@@ -413,6 +494,7 @@ class OptimizerArgs:
             ],
             placeholder_tensor_names=ph_tensor_names,
             placeholder_type_combos=ph_combos,
+            unified_pt2=PT2ArgsSet.create(split_arg_spec),
         )
 
 
@@ -434,6 +516,7 @@ class OptimizerArgsSet:
         split_arg_spec = []
         for s in arg_spec:
             if s.ty in (ArgType.FLOAT, ArgType.INT, ArgType.SYM_INT):
+                # pyre-fixme[19]: Expected 1 positional argument.
                 split_arg_spec.append(OptimItem(s.ty, s.name, s.default))
             else:
                 assert s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)
@@ -446,8 +529,11 @@ class OptimizerArgsSet:
         name = spec.name
         default = spec.default
         return [
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.TENSOR, f"{name}_host", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.INT_TENSOR, f"{name}_placements", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.LONG_TENSOR, f"{name}_offsets", default),
         ]
 
@@ -458,9 +544,13 @@ class OptimizerArgsSet:
         ty = spec.ty
         ph_tys = spec.ph_tys
         return [
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_dev", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_uvm", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.INT_TENSOR, f"{name}_placements", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.LONG_TENSOR, f"{name}_offsets", default),
         ]
 
@@ -471,10 +561,15 @@ class OptimizerArgsSet:
         ty = spec.ty
         ph_tys = spec.ph_tys
         return [
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.TENSOR, f"{name}_host", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_dev", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ty, f"{name}_uvm", default, ph_tys),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.INT_TENSOR, f"{name}_placements", default),
+            # pyre-fixme[19]: Expected 1 positional argument.
             OptimItem(ArgType.LONG_TENSOR, f"{name}_offsets", default),
         ]
 

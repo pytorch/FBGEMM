@@ -9,30 +9,30 @@
 #include "fp8_rowwise_common.h"
 
 at::Tensor
-fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1(
+fp8_rowwise_64x16x16x512_16x16_1x1_32x2x1_32x2x1_1x16x1x4_4x4x1_1x1_interwave_v2(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
-  // Secret kernel that seems good with small M but large N and K.
+  // The smallest kernel we have available. Works well for memory bound shapes.
   using DeviceGemmInstance = DeviceGemmHelper<
       64,
       16,
       16,
-      256,
+      512,
       16,
       16,
       1,
       1,
-      S<16, 4, 1>,
-      S<16, 4, 1>,
+      S<32, 2, 1>,
+      S<32, 2, 1>,
       S<1, 16, 1, 4>,
       S<4, 4, 1>,
       1,
       1,
-      ck::BlockGemmPipelineScheduler::Intrawave,
-      ck::BlockGemmPipelineVersion::v1,
+      ck::BlockGemmPipelineScheduler::Interwave,
+      ck::BlockGemmPipelineVersion::v2,
       ck::tensor_operation::device::GemmSpecialization::Default>;
   // Run kernel instance.
   return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);

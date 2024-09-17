@@ -31,18 +31,21 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     round_up,
     SplitState,
 )
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
 try:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
-        )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference",
+    )
+except Exception:
+    pass
+
+try:
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference",
     )
 except Exception:
     pass
@@ -150,6 +153,26 @@ def random_quant_scaled_tensor(
         )
 
 
+@torch.fx.wrap
+def inputs_to_device(
+    indices: torch.Tensor,
+    offsets: torch.Tensor,
+    per_sample_weights: Optional[torch.Tensor],
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    if device.type == "meta":
+        return indices, offsets, per_sample_weights
+
+    non_blocking = device.type != "cpu"
+    if indices.device != device:
+        indices = indices.to(device, non_blocking=non_blocking)
+    if offsets.device != device:
+        offsets = offsets.to(device, non_blocking=non_blocking)
+    if per_sample_weights is not None and per_sample_weights.device != device:
+        per_sample_weights = per_sample_weights.to(device, non_blocking=non_blocking)
+    return indices, offsets, per_sample_weights
+
+
 # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
@@ -159,10 +182,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
+    # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
     cache_miss_counter: torch.Tensor
+    # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
     local_uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_offsets` is never initialized.
     weights_offsets: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_placements` is never initialized.
     weights_placements: torch.Tensor
 
     def __init__(  # noqa C901
@@ -747,6 +775,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.weight_initialized
         ), "weight needs to be initialized before forward function"
+
+        indices, offsets, per_sample_weights = inputs_to_device(
+            indices, offsets, per_sample_weights, self.bounds_check_warning.device
+        )
 
         # First bound check: check if the indices/offsets are within the boundary
         # of the original embedding rows before pruning.

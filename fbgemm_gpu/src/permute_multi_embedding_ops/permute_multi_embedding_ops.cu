@@ -222,7 +222,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths,
+    const c10::IntArrayRef out_lengths,
     const bool& reverse_permute) {
   // we assume that there's at least one input tensor in the list
   // it should be enforced from the caller side who has the knowledge.
@@ -251,9 +251,10 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
   // initiate output tensors
   std::vector<Tensor> outputs;
   outputs.reserve(num_of_output_tensors);
+  const auto lengths = reinterpret_cast<const int64_t*>(out_lengths.data());
   for (int32_t i = 0; i < num_of_output_tensors; i++) {
     Tensor output =
-        at::empty({batch_size, out_lengths[i]}, pooled_embs[0].options());
+        at::empty({batch_size, lengths[i]}, pooled_embs[0].options());
     outputs.push_back(output);
   }
   auto device = pooled_embs[0].device();
@@ -301,7 +302,7 @@ std::vector<Tensor> permute_multi_embedding_gpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths) {
+    const c10::IntArrayRef out_lengths) {
   return permute_multi_embedding_function_gpu(
       pooled_embs, permutes, in_shapes, out_shapes, out_lengths, false);
 }

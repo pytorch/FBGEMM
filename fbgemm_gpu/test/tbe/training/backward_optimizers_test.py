@@ -312,7 +312,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 1.0,
                 1.0,
                 0.0,
-                StepMode.USE_COUNTER,
+                StepMode.USE_ITER,
                 0.8,
             )
             optimizer_kwargs["eps"] = eps
@@ -555,7 +555,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         if optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
             for t in range(T):
                 iter_ = cc.iter.item()
-                (m2, m1, row_counter) = split_optimizer_states[t]
+                (m2, m1, prev_iter, row_counter) = split_optimizer_states[t]
                 if (m1.dtype == torch.float) and (m2.dtype == torch.float):
                     tol = 1.0e-4
                 else:
@@ -600,6 +600,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     assert set(optimizer_states_dict.keys()) == {
                         "sum",
                         "exp_avg",
+                        "prev_iter",
                         "row_counter",
                     }
 
