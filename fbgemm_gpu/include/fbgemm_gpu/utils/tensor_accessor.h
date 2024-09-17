@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <c10/core/ScalarType.h>
 #include <c10/macros/Macros.h>
 #include <c10/util/ArrayRef.h>
 #include <c10/util/Deprecated.h>
@@ -472,6 +473,53 @@ template <
 using PackedTensorAccessor64 =
     GenericPackedTensorAccessor<T, N, PtrTraits, int64_t>;
 
+template <typename T>
+inline at::ScalarType scalar_type_for() {
+#define TYPE_CASE(U, name)              \
+  if constexpr (std::is_same_v<T, U>) { \
+    return at::ScalarType::name;        \
+  }
+
+  AT_FORALL_SCALAR_TYPES_WITH_COMPLEX(TYPE_CASE)
+
+#undef TYPE_CASE
+
+  return at::ScalarType::Undefined;
+}
+
+template <typename T>
+inline void check_scalar_type(
+    const at::TensorBase& tensor
+#ifdef FBGEMM_GPU_MEMCHECK
+    ,
+    const char* const func_name,
+    const char* const tensor_name
+#endif
+) {
+  const auto expected_type = scalar_type_for<T>();
+
+  TORCH_CHECK(
+      tensor.scalar_type() == expected_type ||
+          (isQIntType(tensor.scalar_type()) &&
+           toUnderlying(tensor.scalar_type()) == expected_type),
+#ifdef FBGEMM_GPU_MEMCHECK
+      "[ ",
+      func_name,
+      " ]: ",
+#endif
+      "Expected tensor ",
+#ifdef FBGEMM_GPU_MEMCHECK
+      "'",
+      tensor_name,
+      "' ",
+#endif
+      "to have scalar type ",
+      expected_type,
+      ", but found ",
+      tensor.scalar_type(),
+      " instead!");
+}
+
 } // namespace fbgemm_gpu
 
 #ifdef FBGEMM_GPU_MEMCHECK
@@ -521,10 +569,21 @@ pta::PackedTensorAccessor32<T, N, PtrTraits> make_packed_tensor_accessor32(
 #else
     const at::Tensor& tensor) {
 #endif
+
   TORCH_CHECK(
       tensor.numel() <=
           static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
       "numel needs to be smaller than int32_t max; otherwise, please use packed_accessor64");
+
+  fbgemm_gpu::check_scalar_type<T>(
+      tensor
+#ifdef FBGEMM_GPU_MEMCHECK
+      ,
+      func_name,
+      ptr_name
+#endif
+  );
+
 #ifdef FBGEMM_GPU_MEMCHECK
   return make_generic_packed_tensor_accessor<T, N, PtrTraits, int32_t>(
       tensor, ptr_name, func_name);
@@ -542,10 +601,23 @@ pta::PackedTensorAccessor64<T, N, PtrTraits> make_packed_tensor_accessor64(
     const at::Tensor& tensor,
     const char* const ptr_name,
     const char* const func_name) {
+#else
+    const at::Tensor& tensor) {
+#endif
+
+  fbgemm_gpu::check_scalar_type<T>(
+      tensor
+#ifdef FBGEMM_GPU_MEMCHECK
+      ,
+      func_name,
+      ptr_name
+#endif
+  );
+
+#ifdef FBGEMM_GPU_MEMCHECK
   return make_generic_packed_tensor_accessor<T, N, PtrTraits, int64_t>(
       tensor, ptr_name, func_name);
 #else
-    const at::Tensor& tensor) {
   return tensor.packed_accessor64<T, N, PtrTraits>();
 #endif
 }
