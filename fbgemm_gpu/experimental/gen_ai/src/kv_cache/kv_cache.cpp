@@ -133,7 +133,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     at::Tensor cache_V,
     at::Tensor kv_seqlen,
     std::optional<at::Tensor> qparam_k,
-    std::optional<at::Tensor> qparam_v);
+    std::optional<at::Tensor> qparam_v,
+    std::optional<at::Tensor> block_tables,
+    int64_t page_size);
 
 at::Tensor mqa_attn(
     at::Tensor XQ,
@@ -162,7 +164,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "dequantize_int4_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, int? num_groups=1) -> (Tensor, Tensor)");
   m.impl("dequantize_int4_cache", dequantize_int4_cache);
   m.def(
-      "dequantize_fp8_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, Tensor? qparam_k=None, Tensor? qparam_v=None) -> (Tensor, Tensor)");
+      "dequantize_fp8_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, Tensor? qparam_k=None, Tensor? qparam_v=None, Tensor? block_tables=None, int page_size=" STRING(
+          DEFAULT_PAGE_SIZE) ") -> (Tensor, Tensor)");
   m.impl("dequantize_fp8_cache", dequantize_fp8_cache);
 }
 
