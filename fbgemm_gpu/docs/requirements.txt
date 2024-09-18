@@ -14,7 +14,7 @@ sphinx<7
 
 breathe
 bs4
-docutils
+docutils<0.20,>=0.18.1
 lxml
 myst-parser
 sphinx-lint
