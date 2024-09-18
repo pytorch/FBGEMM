@@ -1493,16 +1493,113 @@ __global__ void dequantize_fp8_cache_kernel(
         *reinterpret_cast<uint2*>(&kv_dq.vals[2]);
   }
 }
+
+// Cloned from dequantize_fp8_cache_kernel because
+// branching inside the original kernel runs into
+// "too many resources requested for launch" which
+// necessitates decreasing the number of warps per block,
+// which might have performance implications. Also we
+// might have more diverging behaviors for paged kernel
+// as noted in the comment below so we will keep a separate
+// kernel for now.
+__global__ void dequantize_fp8_cache_kernel_paged(
+    // This code currently represents FP8 version not int4
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_K, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H]
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_V, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H // G]
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+        cache_K_dq, // [1][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+        cache_V_dq, // [1][MAX_T][N_KVH][D_H]
+    int32_t* qparam_k_ptr,
+    int32_t* qparam_v_ptr,
+    int32_t* block_tables,
+    int32_t block_tables_b_stride,
+    int32_t page_size) {
+  auto N_KVH = cache_K.size(2);
+  auto MAX_T = cache_K.size(1);
+  auto D_H = cache_K_dq.size(3);
+  auto D_H_q = cache_K.size(3);
+  CUDA_KERNEL_ASSERT(D_H == 128);
+
+  auto b = blockIdx.x;
+  // only need to dequantize this far.
+  auto max_t = kv_seqlen[b];
+
+  // one warp per T/H
+  for (auto t_h = threadIdx.y + blockIdx.y * blockDim.y; t_h < max_t * N_KVH;
+       t_h += blockDim.y * gridDim.y) {
+    auto h = t_h % N_KVH;
+    auto t = t_h / N_KVH;
+
+    int page_logical_idx = t / page_size;
+    int page_offset = t % page_size;
+    int page_physical_idx =
+        block_tables[b * block_tables_b_stride + page_logical_idx];
+    int physical_t = page_physical_idx * page_size + page_offset;
+
+    uint8_t* row_k = &cache_K[0][physical_t][h][0];
+    uint8_t* row_v = &cache_V[0][physical_t][h][0];
+
+    bfx8 kv_dq;
+    uint8_t qparam_offset_bytes;
+    __half2* qparam_k_src;
+    __half2* qparam_v_src;
+    if (qparam_k_ptr) {
+      // read from standalone qparam tensor
+      qparam_offset_bytes = 0;
+      auto idx = physical_t * N_KVH + h;
+      qparam_k_src = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
+      qparam_v_src = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
+    } else {
+      // read from first row
+      qparam_offset_bytes = 4;
+      qparam_k_src = reinterpret_cast<__half2*>(&row_k[0]);
+      qparam_v_src = reinterpret_cast<__half2*>(&row_v[0]);
+    }
+    // Assert the quantized row dim is as expected
+    CUDA_KERNEL_ASSERT(D_H_q - D_H == qparam_offset_bytes);
+    if (4 * threadIdx.x >= D_H) {
+      continue;
+    }
+    // each thread reads 4 x 8 bits
+
+    uint64_t kq = *reinterpret_cast<uint32_t*>(
+        &row_k[threadIdx.x * 4 + qparam_offset_bytes]);
+    uint64_t vq = *reinterpret_cast<uint32_t*>(
+        &row_v[threadIdx.x * 4 + qparam_offset_bytes]);
+
+    uint64_t packed = kq | (vq << 32);
+
+    kv_dq = dequantize_packed_fp8(packed, *qparam_k_src, *qparam_v_src);
+
+    // now, write our outputs
+    auto* row_k_dq = &cache_K_dq[0][physical_t][h][0];
+    auto* row_v_dq = &cache_V_dq[0][physical_t][h][0];
+    // each thread writes 4 elements of type bf16
+    *reinterpret_cast<uint2*>(&row_k_dq[4 * threadIdx.x]) =
+        *reinterpret_cast<uint2*>(&kv_dq.vals[0]);
+    *reinterpret_cast<uint2*>(&row_v_dq[4 * threadIdx.x]) =
+        *reinterpret_cast<uint2*>(&kv_dq.vals[2]);
+  }
+}
 std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     at::Tensor cache_K,
     at::Tensor cache_V,
     at::Tensor kv_seqlen,
     std::optional<at::Tensor> qparam_k,
-    std::optional<at::Tensor> qparam_v) {
+    std::optional<at::Tensor> qparam_v,
+    std::optional<at::Tensor> block_tables,
+    int64_t page_size) {
   TORCH_CHECK(cache_K.is_cuda());
   TORCH_CHECK(cache_V.is_cuda());
   TORCH_CHECK(kv_seqlen.is_cuda());
-  auto B = cache_K.size(0);
+  auto B = kv_seqlen.size(0);
+  // vanilla: B_KV = B, paged: B_KV = 1
+  auto B_KV = cache_K.size(0);
+  // vanilla: MAX_T = MAX_T, paged: MAX_T = MAX_PAGE * PAGE_SIZE
   auto MAX_T = cache_K.size(1);
   auto N_KVH = cache_K.size(2);
   auto D_HQ = cache_K.size(3);
@@ -1516,31 +1613,72 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   }
   auto D_H = (D_HQ - fp8_qparam_offset);
 
-  auto cache_K_dq =
-      at::empty({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
-  auto cache_V_dq =
-      at::empty({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
+  // TODO:
+  // The below allocates Tensors that have the same shape as cache_K and cache_V
+  // to store their dequantize results. For paged KV cache, this can be a bit
+  // inefficient because it has the shape of [1 x (MAX_PAGES * PAGE_SIZE) x
+  // N_KVH x D_H] to accommodate pages globally across batch instances, and
+  // if we have very large MAX_PAGES then we are essentially allocating a very
+  // huge Tensor here. The benefit is that the following users of this
+  // dequantized results can reuse the existing block_tables to access their
+  // elements. If we want to be more efficient, there are two possible
+  // approaches: (1) Allocate a shorter Tensor here and store the dequantize
+  // results in a more compact manner, but that requires creating a new
+  // block_tables here and making sure the following users all use the
+  // correct block_tables. (2) From outside, keep a persistent buffer that has a
+  // matching shape with the original paged KV and feed the same buffer
+  // into this function at every layer to reuse it and prevent allocation.
+  auto cache_K_dq = at::empty(
+      {B_KV, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
+  auto cache_V_dq = at::empty(
+      {B_KV, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
 
   if (B == 0) {
     return {cache_K_dq, cache_V_dq};
   }
 
+  int32_t* block_tables_ptr = nullptr;
+  int32_t block_tables_b_stride = 0;
+  if (block_tables.has_value()) {
+    block_tables_ptr = static_cast<int32_t*>(block_tables.value().data_ptr());
+    block_tables_b_stride = block_tables.value().stride(0);
+  }
+
   constexpr int32_t kMaxBlocks = 256;
   dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
-  dequantize_fp8_cache_kernel<<<
-      blocks,
-      threads,
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
-      cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
-      kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      cache_K_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-      cache_V_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
-      qparam_k_ptr,
-      qparam_v_ptr);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  if (block_tables_ptr == nullptr) {
+    dequantize_fp8_cache_kernel<<<
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream()>>>(
+        cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+        cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+        kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        cache_K_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_V_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        qparam_k_ptr,
+        qparam_v_ptr);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  } else {
+    dequantize_fp8_cache_kernel_paged<<<
+        blocks,
+        threads,
+        0,
+        at::cuda::getCurrentCUDAStream()>>>(
+        cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+        cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+        kv_seqlen.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        cache_K_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_V_dq.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        qparam_k_ptr,
+        qparam_v_ptr,
+        block_tables_ptr,
+        block_tables_b_stride,
+        page_size);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  }
 
   return {cache_K_dq, cache_V_dq};
 }
@@ -1622,7 +1760,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     at::Tensor cache_V,
     at::Tensor kv_seqlen,
     std::optional<at::Tensor> qparam_k,
-    std::optional<at::Tensor> qparam_v) {
+    std::optional<at::Tensor> qparam_v,
+    std::optional<at::Tensor> block_tables,
+    int64_t page_size) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
