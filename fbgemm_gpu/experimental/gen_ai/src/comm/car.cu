@@ -67,17 +67,26 @@ DEVICE_INLINE bf16x8 add_bf16x8(bf16x8 a, bf16x8 b) {
   return c;
 }
 
-template <int32_t kWorldSize>
-__global__ void one_shot_all_reduce(
-    int32_t rank,
-    int32_t world_size,
-    int32_t flag,
-    std::array<int32_t*, 8> barriers,
-    std::array<at::BFloat16*, 8> inputs,
+template <int32_t kWorldSize, bool has_acc>
+#if defined(USE_ROCM)
+__launch_bounds__(512)
+#endif
+    __global__ void one_shot_all_reduce(
+        int32_t rank,
+        int32_t world_size,
+        int32_t flag,
+        std::array<int32_t*, 8> barriers,
+        std::array<at::BFloat16*, 8> inputs,
+#if defined(USE_ROCM)
+        at::BFloat16* __restrict__ ar_input,
+        at::BFloat16* __restrict__ acc,
+        at::BFloat16* __restrict__ output,
+#else
     at::BFloat16* ar_input,
     at::BFloat16* acc,
     at::BFloat16* output,
-    int32_t N) {
+#endif
+        int32_t N) {
   // It is expensive to launch hipMemcpyAsync on ROCm
   // Move data copy here. Each block copies part of input data
   at::BFloat16* input = inputs[rank];
@@ -143,11 +152,11 @@ __global__ void one_shot_all_reduce(
 
     // Sum the values from the different ranks.
     bf16x8 sums;
-    if (acc) {
+    if constexpr (has_acc) {
       *reinterpret_cast<uint4*>(&sums) =
           *reinterpret_cast<const uint4*>(&acc[i]);
     } else {
-      memset(reinterpret_cast<void*>(&sums), 0, sizeof(sums));
+      *reinterpret_cast<uint4*>(&sums) = uint4{0};
     }
 
 #pragma unroll kWorldSize
@@ -336,15 +345,24 @@ static DEVICE_INLINE void ld_flag_acquire(int32_t& flag, int32_t* flag_addr) {
 #endif
 }
 
-template <int32_t kWorldSize>
+template <int32_t kWorldSize, bool has_acc>
+#if defined(USE_ROCM)
+__launch_bounds__(512) __global__ void two_shot_all_reduce(
+#else
 __launch_bounds__(1024) __global__ void two_shot_all_reduce(
+#endif
     int32_t rank,
     int32_t world_size,
     int32_t flag,
     std::array<int32_t*, 8> barriers,
     std::array<at::BFloat16*, 8> inputs,
+#if defined(USE_ROCM)
+    at::BFloat16* __restrict__ acc,
+    at::BFloat16* __restrict__ output,
+#else
     at::BFloat16* acc,
     at::BFloat16* output,
+#endif
     int32_t N) {
   int32_t N_per_rank = N / kWorldSize;
   int32_t N_start = N_per_rank * rank;
@@ -374,13 +392,11 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   __syncthreads();
 
   at::BFloat16* src_d[kWorldSize];
-  int dst_rank[kWorldSize];
 
 #pragma unroll kWorldSize
   for (int ii = 0; ii < kWorldSize; ++ii) {
     int d_rank = (rank + ii) % kWorldSize;
     src_d[ii] = inputs[d_rank];
-    dst_rank[ii] = d_rank;
   }
 
   // Each block accumulates the values from the different GPUs on the same
@@ -395,11 +411,12 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
     }
 
     bf16x8 sums;
-    if (acc) {
+
+    if constexpr (has_acc) {
       *reinterpret_cast<uint4*>(&sums) =
           *reinterpret_cast<const uint4*>(&acc[i + N_start]);
     } else {
-      memset(reinterpret_cast<void*>(&sums), 0, sizeof(sums));
+      *reinterpret_cast<uint4*>(&sums) = uint4{0};
     }
 
 #pragma unroll kWorldSize
@@ -433,11 +450,19 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   // Gather all needed elts from other intra-node ranks
   for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
        i += gridDim.x * blockDim.x * 8) {
+    uint4 temp[kWorldSize];
 #pragma unroll kWorldSize
     for (int ii = 0; ii < kWorldSize; ++ii) {
-      int i_r = N_start + i + (dst_rank[ii] - rank) * N_per_rank;
-      *reinterpret_cast<uint4*>(&output[i_r]) =
-          reinterpret_cast<const uint4*>(&src_d[ii][i_r])[0];
+      int d_rank = (rank + ii) % kWorldSize;
+      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      temp[ii] = reinterpret_cast<const uint4*>(&src_d[ii][i_r])[0];
+    }
+
+#pragma unroll kWorldSize
+    for (int ii = 0; ii < kWorldSize; ++ii) {
+      int d_rank = (rank + ii) % kWorldSize;
+      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      *reinterpret_cast<uint4*>(&output[i_r]) = temp[ii];
     }
   }
 }
@@ -474,7 +499,11 @@ void one_shot_car_allreduce(
   constexpr int32_t N_per_thread = 8;
   constexpr int32_t N_per_warp = N_per_thread * kThreadsPerWarp;
   TORCH_CHECK(N % N_per_warp == 0);
+#if defined(USE_ROCM)
+  constexpr int32_t kThreadsPerBlock = 512;
+#else
   constexpr int32_t kThreadsPerBlock = 1024;
+#endif
   constexpr int32_t kMaxBlocks = 24;
 
   dim3 threads(0, 1, 1);
@@ -494,21 +523,37 @@ void one_shot_car_allreduce(
     threads.x = threads_per_block;
   }
 
-#define X(kWorldSize)                                               \
-  if (state->world_size_ == kWorldSize) {                           \
-    one_shot_all_reduce<kWorldSize>                                 \
-        <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>( \
-            state->rank_,                                           \
-            state->world_size_,                                     \
-            state->flag_ * state->world_size_,                      \
-            barriers,                                               \
-            inputs,                                                 \
-            y.data_ptr<at::BFloat16>(),                             \
-            z ? z->data_ptr<at::BFloat16>() : nullptr,              \
-            y_allreduce.data_ptr<at::BFloat16>(),                   \
-            N);                                                     \
-    C10_CUDA_KERNEL_LAUNCH_CHECK();                                 \
-    return;                                                         \
+#define X(kWorldSize)                                                 \
+  if (state->world_size_ == kWorldSize) {                             \
+    if (z) {                                                          \
+      one_shot_all_reduce<kWorldSize, true>                           \
+          <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>( \
+              state->rank_,                                           \
+              state->world_size_,                                     \
+              state->flag_ * state->world_size_,                      \
+              barriers,                                               \
+              inputs,                                                 \
+              y.data_ptr<at::BFloat16>(),                             \
+              z->data_ptr<at::BFloat16>(),                            \
+              y_allreduce.data_ptr<at::BFloat16>(),                   \
+              N);                                                     \
+      C10_CUDA_KERNEL_LAUNCH_CHECK();                                 \
+      return;                                                         \
+    } else {                                                          \
+      one_shot_all_reduce<kWorldSize, false>                          \
+          <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>( \
+              state->rank_,                                           \
+              state->world_size_,                                     \
+              state->flag_ * state->world_size_,                      \
+              barriers,                                               \
+              inputs,                                                 \
+              y.data_ptr<at::BFloat16>(),                             \
+              nullptr,                                                \
+              y_allreduce.data_ptr<at::BFloat16>(),                   \
+              N);                                                     \
+      C10_CUDA_KERNEL_LAUNCH_CHECK();                                 \
+      return;                                                         \
+    }                                                                 \
   }
 
   TORCH_CHECK(
@@ -520,7 +565,7 @@ void one_shot_car_allreduce(
 
 #undef X
   return;
-}
+} // namespace fbgemm_gpu
 
 void two_shot_car_allreduce(
     at::Tensor y_allreduce,
@@ -565,26 +610,46 @@ void two_shot_car_allreduce(
   TORCH_CHECK(N_per_rank % N_per_thread == 0);
   auto threads_per_rank = N_per_rank / N_per_thread;
 
+#if defined(USE_ROCM)
+  constexpr int32_t kThreadsPerBlock = 512;
+#else
   constexpr int32_t kThreadsPerBlock = 1024;
+#endif
+
   constexpr int32_t kMaxBlocks = 24;
 
   auto blocks = std::min<int32_t>(
       cuda_calc_block_count(threads_per_rank, kThreadsPerBlock), kMaxBlocks);
 
-#define X(kWorldSize)                                                        \
-  if (state->world_size_ == kWorldSize) {                                    \
-    two_shot_all_reduce<kWorldSize>                                          \
-        <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
-            state->rank_,                                                    \
-            state->world_size_,                                              \
-            state->flag_ * state->world_size_,                               \
-            barriers,                                                        \
-            inputs,                                                          \
-            z ? z->data_ptr<at::BFloat16>() : nullptr,                       \
-            y_allreduce.data_ptr<at::BFloat16>(),                            \
-            N);                                                              \
-    C10_CUDA_KERNEL_LAUNCH_CHECK();                                          \
-    return;                                                                  \
+#define X(kWorldSize)                                                          \
+  if (state->world_size_ == kWorldSize) {                                      \
+    if (z) {                                                                   \
+      two_shot_all_reduce<kWorldSize, true>                                    \
+          <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
+              state->rank_,                                                    \
+              state->world_size_,                                              \
+              state->flag_ * state->world_size_,                               \
+              barriers,                                                        \
+              inputs,                                                          \
+              z->data_ptr<at::BFloat16>(),                                     \
+              y_allreduce.data_ptr<at::BFloat16>(),                            \
+              N);                                                              \
+      C10_CUDA_KERNEL_LAUNCH_CHECK();                                          \
+      return;                                                                  \
+    } else {                                                                   \
+      two_shot_all_reduce<kWorldSize, false>                                   \
+          <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
+              state->rank_,                                                    \
+              state->world_size_,                                              \
+              state->flag_ * state->world_size_,                               \
+              barriers,                                                        \
+              inputs,                                                          \
+              nullptr,                                                         \
+              y_allreduce.data_ptr<at::BFloat16>(),                            \
+              N);                                                              \
+      C10_CUDA_KERNEL_LAUNCH_CHECK();                                          \
+      return;                                                                  \
+    }                                                                          \
   }
 
   TORCH_CHECK(
