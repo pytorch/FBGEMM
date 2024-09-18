@@ -14,7 +14,8 @@ import click
 import torch
 from torch import Tensor
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 try:
     # pyre-ignore[21]
