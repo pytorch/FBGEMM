@@ -795,11 +795,27 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_(
       } else {
         __half2* qparam_row = nullptr;
         auto T = cache_K.size(1);
-        auto idx = b * (T * N_KVH) + (size_t)cache_loc_t * N_KVH + h;
-        if (qkv == QKV::K) {
-          qparam_row = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
+        if (block_tables == nullptr) {
+          auto idx = b * (T * N_KVH) + (size_t)cache_loc_t * N_KVH + h;
+          if (qkv == QKV::K) {
+            qparam_row = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
+          } else {
+            qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
+          }
         } else {
-          qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
+          // This is duplicate computation with get_dst_row above.
+          // TODO: Maybe clean up and merge later.
+          int page_logical_idx = cache_loc_t / page_size;
+          int page_offset = cache_loc_t % page_size;
+          int page_physical_idx =
+              block_tables[b * block_tables_b_stride + page_logical_idx];
+          int physical_t = page_physical_idx * page_size + page_offset;
+          auto idx = physical_t * N_KVH + h;
+          if (qkv == QKV::K) {
+            qparam_row = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
+          } else {
+            qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
+          }
         }
         quantize_fp8_kv(dst, dst_row_q, qparam_row);
       }
