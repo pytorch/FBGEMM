@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
+import numpy.typing as npt
 import torch
 
 # pyre-fixme[21]: Could not find name `default_rng` in `numpy.random` (stubbed).
@@ -135,7 +136,7 @@ def generate_int_data_from_stats(
     sigma: int,
     size: int,
     distribution: str,
-) -> np.ndarray:
+) -> npt.NDArray:
     """
     Generate integer data based on stats
     """
