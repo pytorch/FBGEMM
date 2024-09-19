@@ -1,0 +1,12 @@
+{
+  "_description": "This is a dict containing example schemas. The schema of future releases need to be backward and forward compatible. For more details, please see https://docs.google.com/document/d/18I0lSkyHHqJ5BY30bx8YhpQHAMOg25nAFV2zeO8PIGk/edit#heading=h.y00l3f1ht5u1",
+  "_version": 1,
+  "data": {
+    "mx4_to_fp32":
+      "mx4_to_fp32(Tensor tensor, int group_size=32, bool use_triton=True, int ebits=2, int mbits=1) -> Tensor",
+    "merge_pooled_embeddings":
+      "merge_pooled_embeddings(Tensor[] pooled_embeddings, int uncat_dim_size, Device target_device, int cat_dim=1) -> Tensor",
+    "dummy_func":
+      "dummy_func(str var1, int var2) -> ()"
+  }
+}
