@@ -44,19 +44,24 @@ QueueItem tensor_copy(
       at::empty({1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
       weights.scalar_type(), "tensor_copy", [&] {
-        auto indices_addr = indices.data_ptr<int64_t>();
-        auto new_indices_addr = new_indices.data_ptr<int64_t>();
-        std::copy(
-            indices_addr,
-            indices_addr + num_sets,
-            new_indices_addr); // dst_start
+        using value_t = scalar_t;
+        FBGEMM_DISPATCH_INTEGRAL_TYPES(
+            indices.scalar_type(), "tensor_copy", [&] {
+              using index_t = scalar_t;
+              auto indices_addr = indices.data_ptr<index_t>();
+              auto new_indices_addr = new_indices.data_ptr<index_t>();
+              std::copy(
+                  indices_addr,
+                  indices_addr + num_sets,
+                  new_indices_addr); // dst_start
 
-        auto weights_addr = weights.data_ptr<scalar_t>();
-        auto new_weightss_addr = new_weights.data_ptr<scalar_t>();
-        std::copy(
-            weights_addr,
-            weights_addr + num_sets * weights.size(1),
-            new_weightss_addr); // dst_start
+              auto weights_addr = weights.data_ptr<value_t>();
+              auto new_weightss_addr = new_weights.data_ptr<value_t>();
+              std::copy(
+                  weights_addr,
+                  weights_addr + num_sets * weights.size(1),
+                  new_weightss_addr); // dst_start
+            });
       });
   *new_count.data_ptr<int64_t>() = num_sets;
   return QueueItem{new_indices, new_weights, new_count, mode};
@@ -79,7 +84,8 @@ EmbeddingKVDB::EmbeddingKVDB(
     cache_config.num_shards = num_shards_;
     cache_config.item_size_bytes = max_D_ * ele_size_bytes;
     cache_config.max_D_ = max_D_;
-    l2_cache_ = std::make_unique<l2_cache::CacheLibCache>(cache_config);
+    l2_cache_ =
+        std::make_unique<l2_cache::CacheLibCache>(cache_config, unique_id);
   } else {
     l2_cache_ = nullptr;
   }
@@ -128,10 +134,15 @@ EmbeddingKVDB::~EmbeddingKVDB() {
 void EmbeddingKVDB::flush() {
   wait_util_filling_work_done();
   if (l2_cache_) {
-    auto tensor_tuple = l2_cache_->get_all_items();
-    auto& indices = std::get<0>(tensor_tuple);
-    auto& weights = std::get<1>(tensor_tuple);
-    auto& count = std::get<2>(tensor_tuple);
+    auto tensor_tuple_opt = l2_cache_->get_all_items();
+    if (!tensor_tuple_opt.has_value()) {
+      XLOG(INFO) << "[TBE_ID" << unique_id_
+                 << "]no items exist in L2 cache, flush nothing";
+      return;
+    }
+    auto& indices = std::get<0>(tensor_tuple_opt.value());
+    auto& weights = std::get<1>(tensor_tuple_opt.value());
+    auto& count = std::get<2>(tensor_tuple_opt.value());
     folly::coro::blockingWait(set_kv_db_async(
         indices, weights, count, kv_db::RocksdbWriteMode::FLUSH));
   }
@@ -143,6 +154,7 @@ void EmbeddingKVDB::get_cuda(
     const at::Tensor& count) {
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::get_cuda ##");
+  check_tensor_type_consistency(indices, weights);
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
   std::function<void()>* functor =
@@ -163,6 +175,7 @@ void EmbeddingKVDB::set_cuda(
     const bool is_bwd) {
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::set_cuda ##");
+  check_tensor_type_consistency(indices, weights);
   // take reference to self to avoid lifetime issues.
   auto self = shared_from_this();
   std::function<void()>* functor = new std::function<void()>([=]() {
@@ -229,8 +242,8 @@ void EmbeddingKVDB::set(
     const bool is_bwd) {
   if (auto num_evictions = get_maybe_uvm_scalar(count); num_evictions <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
-        << "[" << unique_id_ << "]skip set_cuda since number evictions is "
-        << num_evictions;
+        << "[TBE_ID" << unique_id_
+        << "]skip set_cuda since number evictions is " << num_evictions;
     return;
   }
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
@@ -254,7 +267,7 @@ void EmbeddingKVDB::get(
     const at::Tensor& count) {
   if (auto num_lookups = get_maybe_uvm_scalar(count); num_lookups <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
-        << "[" << unique_id_ << "]skip get_cuda since number lookups is "
+        << "[TBE_ID" << unique_id_ << "]skip get_cuda since number lookups is "
         << num_lookups;
     return;
   }
@@ -303,63 +316,67 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
     return nullptr;
   }
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
-  auto indices_addr = indices.data_ptr<int64_t>();
+
   auto num_lookups = get_maybe_uvm_scalar(count);
   auto cache_context = std::make_shared<CacheContext>(num_lookups);
+  FBGEMM_DISPATCH_INTEGRAL_TYPES(indices.scalar_type(), "get_cache", [&] {
+    using index_t = scalar_t;
+    auto indices_addr = indices.data_ptr<index_t>();
+    auto num_shards = executor_tp_->numThreads();
 
-  auto num_shards = executor_tp_->numThreads();
-
-  std::vector<folly::coro::TaskWithExecutor<void>> tasks;
-  std::vector<std::vector<int>> row_ids_per_shard(num_shards);
-  for (int i = 0; i < num_shards; i++) {
-    row_ids_per_shard[i].reserve(num_lookups / num_shards * 2);
-  }
-  for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
-    row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
-        .emplace_back(row_id);
-  }
-  for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
-    tasks.emplace_back(
-        folly::coro::co_invoke(
-            [this,
-             &indices_addr,
-             cache_context,
-             shard_id,
-             &row_ids_per_shard]() mutable -> folly::coro::Task<void> {
-              for (const auto& row_id : row_ids_per_shard[shard_id]) {
-                auto emb_idx = indices_addr[row_id];
-                if (emb_idx < 0) {
-                  continue;
+    std::vector<folly::coro::TaskWithExecutor<void>> tasks;
+    std::vector<std::vector<int>> row_ids_per_shard(num_shards);
+    for (int i = 0; i < num_shards; i++) {
+      row_ids_per_shard[i].reserve(num_lookups / num_shards * 2);
+    }
+    for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
+      row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
+          .emplace_back(row_id);
+    }
+    for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
+      tasks.emplace_back(
+          folly::coro::co_invoke(
+              [this,
+               &indices_addr,
+               &indices,
+               cache_context,
+               shard_id,
+               &row_ids_per_shard]() mutable -> folly::coro::Task<void> {
+                for (const auto& row_id : row_ids_per_shard[shard_id]) {
+                  auto emb_idx = indices_addr[row_id];
+                  if (emb_idx < 0) {
+                    continue;
+                  }
+                  auto cached_addr_opt = l2_cache_->get(indices[row_id]);
+                  if (cached_addr_opt.has_value()) { // cache hit
+                    cache_context->cached_addr_list[row_id] =
+                        cached_addr_opt.value();
+                    indices_addr[row_id] = -1; // mark to sentinel value
+                  } else { // cache miss
+                    cache_context->num_misses += 1;
+                  }
                 }
-                auto cached_addr_opt = l2_cache_->get(emb_idx);
-                if (cached_addr_opt.has_value()) { // cache hit
-                  cache_context->cached_addr_list[row_id] =
-                      cached_addr_opt.value();
-                  indices_addr[row_id] = -1; // mark to sentinel value
-                } else { // cache miss
-                  cache_context->num_misses += 1;
-                }
-              }
-              co_return;
-            })
-            .scheduleOn(executor_tp_.get()));
-  }
-  folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
+                co_return;
+              })
+              .scheduleOn(executor_tp_.get()));
+    }
+    folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
 
-  // the following metrics added here as the current assumption is
-  // get_cache will only be called in get_cuda path, if assumption no longer
-  // true, we should wrap this up on the caller side
-  auto dur = facebook::WallClockUtil::NowInUsecFast() - start_ts;
-  get_cache_lookup_total_duration_ += dur;
-  auto cache_misses = cache_context->num_misses.load();
-  if (num_lookups > 0) {
-    num_cache_misses_ += cache_misses;
-    num_lookups_ += num_lookups;
-  } else {
-    XLOG_EVERY_MS(INFO, 60000)
-        << "[" << unique_id_
-        << "]num_lookups is 0, skip collecting the L2 cache miss stats";
-  }
+    // the following metrics added here as the current assumption is
+    // get_cache will only be called in get_cuda path, if assumption no longer
+    // true, we should wrap this up on the caller side
+    auto dur = facebook::WallClockUtil::NowInUsecFast() - start_ts;
+    get_cache_lookup_total_duration_ += dur;
+    auto cache_misses = cache_context->num_misses.load();
+    if (num_lookups > 0) {
+      num_cache_misses_ += cache_misses;
+      num_lookups_ += num_lookups;
+    } else {
+      XLOG_EVERY_MS(INFO, 60000)
+          << "[TBE_ID" << unique_id_
+          << "]num_lookups is 0, skip collecting the L2 cache miss stats";
+    }
+  });
   return cache_context;
 }
 
@@ -373,7 +390,8 @@ void EmbeddingKVDB::wait_util_filling_work_done() {
     total_wait_time_ms += 1;
     if (total_wait_time_ms > 100) {
       XLOG_EVERY_MS(ERR, 1000)
-          << "get_cache: waiting for L2 caching filling embeddings for "
+          << "[TBE_ID" << unique_id_
+          << "]get_cache: waiting for L2 caching filling embeddings for "
           << total_wait_time_ms << " ms, somethings is likely wrong";
     }
   }
@@ -397,45 +415,50 @@ EmbeddingKVDB::set_cache(
   auto cache_update_start_ts = facebook::WallClockUtil::NowInUsecFast();
 
   l2_cache_->init_tensor_for_l2_eviction(indices, weights, count);
-  auto indices_addr = indices.data_ptr<int64_t>();
-  const int64_t num_lookups = get_maybe_uvm_scalar(count);
-  auto num_shards = executor_tp_->numThreads();
 
-  std::vector<folly::coro::TaskWithExecutor<void>> tasks;
-  std::vector<std::vector<int>> row_ids_per_shard(num_shards);
+  FBGEMM_DISPATCH_INTEGRAL_TYPES(indices.scalar_type(), "set_cache", [&] {
+    using index_t = scalar_t;
+    auto indices_addr = indices.data_ptr<index_t>();
+    const int64_t num_lookups = get_maybe_uvm_scalar(count);
+    auto num_shards = executor_tp_->numThreads();
 
-  for (int i = 0; i < num_shards; i++) {
-    row_ids_per_shard[i].reserve(num_lookups / num_shards * 2);
-  }
-  for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
-    row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
-        .emplace_back(row_id);
-  }
+    std::vector<folly::coro::TaskWithExecutor<void>> tasks;
+    std::vector<std::vector<int>> row_ids_per_shard(num_shards);
 
-  for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
-    tasks.emplace_back(
-        folly::coro::co_invoke(
-            [this,
-             &indices_addr,
-             &weights,
-             shard_id,
-             &row_ids_per_shard]() mutable -> folly::coro::Task<void> {
-              for (const auto& row_id : row_ids_per_shard[shard_id]) {
-                auto emb_idx = indices_addr[row_id];
-                if (emb_idx < 0) {
-                  continue;
+    for (int i = 0; i < num_shards; i++) {
+      row_ids_per_shard[i].reserve(num_lookups / num_shards * 2);
+    }
+    for (uint32_t row_id = 0; row_id < num_lookups; ++row_id) {
+      row_ids_per_shard[l2_cache_->get_shard_id(indices_addr[row_id])]
+          .emplace_back(row_id);
+    }
+
+    for (uint32_t shard_id = 0; shard_id < num_shards; ++shard_id) {
+      tasks.emplace_back(
+          folly::coro::co_invoke(
+              [this,
+               &indices_addr,
+               &indices,
+               &weights,
+               shard_id,
+               &row_ids_per_shard]() mutable -> folly::coro::Task<void> {
+                for (const auto& row_id : row_ids_per_shard[shard_id]) {
+                  auto emb_idx = indices_addr[row_id];
+                  if (emb_idx < 0) {
+                    continue;
+                  }
+                  if (!l2_cache_->put(indices[row_id], weights[row_id])) {
+                    XLOG_EVERY_MS(ERR, 1000)
+                        << "[TBE_ID" << unique_id_
+                        << "]Failed to insert into cache, this shouldn't happen";
+                  }
                 }
-                if (!l2_cache_->put(emb_idx, weights[row_id])) {
-                  XLOG_EVERY_MS(ERR, 1000)
-                      << "[" << unique_id_
-                      << "]Failed to insert into cache, this shouldn't happen";
-                }
-              }
-              co_return;
-            })
-            .scheduleOn(executor_tp_.get()));
-  }
-  folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
+                co_return;
+              })
+              .scheduleOn(executor_tp_.get()));
+    }
+    folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
+  });
   total_cache_update_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
   auto tensor_tuple_opt = l2_cache_->get_tensors_and_reset();
@@ -490,6 +513,26 @@ folly::coro::Task<void> EmbeddingKVDB::cache_memcpy(
   get_cache_memcpy_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - cache_memcpy_start_ts;
   co_return;
+}
+
+void EmbeddingKVDB::check_tensor_type_consistency(
+    const at::Tensor& indices,
+    const at::Tensor& weights) {
+  if (index_dtype_.has_value()) {
+    assert(index_dtype_.value() == indices.scalar_type());
+  } else {
+    index_dtype_ = indices.scalar_type();
+    XLOG(INFO) << "[TBE_ID" << unique_id_ << "]L2 cache index dtype is "
+               << index_dtype_.value();
+  }
+
+  if (weights_dtype_.has_value()) {
+    assert(weights_dtype_.value() == weights.scalar_type());
+  } else {
+    weights_dtype_ = weights.scalar_type();
+    XLOG(INFO) << "[TBE_ID" << unique_id_ << "]L2 cache weights dtype is "
+               << weights_dtype_.value();
+  }
 }
 
 } // namespace kv_db
