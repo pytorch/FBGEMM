@@ -315,8 +315,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->set(indices, weights, count);
   }
 
-  void get(Tensor indices, Tensor weights, Tensor count) {
-    return impl_->get(indices, weights, count);
+  void get(Tensor indices, Tensor weights, Tensor count, int64_t sleep_ms) {
+    return impl_->get(indices, weights, count, sleep_ms);
   }
 
   std::vector<int64_t> get_mem_usage() {
@@ -341,6 +341,14 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
   void flush() {
     return impl_->flush();
+  }
+
+  void reset_l2_cache() {
+    return impl_->reset_l2_cache();
+  }
+
+  void wait_util_filling_work_done() {
+    return impl_->wait_util_filling_work_done();
   }
 
  private:
@@ -413,7 +421,20 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::get_rocksdb_io_duration)
         .def("get_l2cache_perf", &EmbeddingRocksDBWrapper::get_l2cache_perf)
         .def("set", &EmbeddingRocksDBWrapper::set)
-        .def("get", &EmbeddingRocksDBWrapper::get);
+        .def(
+            "get",
+            &EmbeddingRocksDBWrapper::get,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("sleep_ms") = 0,
+            })
+        .def("reset_l2_cache", &EmbeddingRocksDBWrapper::reset_l2_cache)
+        .def(
+            "wait_util_filling_work_done",
+            &EmbeddingRocksDBWrapper::wait_util_filling_work_done);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(

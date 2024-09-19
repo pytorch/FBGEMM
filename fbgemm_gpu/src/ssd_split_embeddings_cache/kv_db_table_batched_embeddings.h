@@ -171,13 +171,17 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// relative element in <indices>
   /// @param count A single element tensor that contains the number of indices
   /// to be processed
+  /// @param sleep_ms this is used to specifically sleep in get function, this
+  /// is needed to reproduce synchronization situation deterministicly, in prod
+  /// case this will be 0 for sure
   ///
   /// @return None
   /// @note weights will be updated from either L2 cache or storage tier
   void get(
       const at::Tensor& indices,
       const at::Tensor& weights,
-      const at::Tensor& count);
+      const at::Tensor& count,
+      int64_t sleep_ms = 0);
 
   /// storage tier counterpart of function get()
   virtual folly::coro::Task<void> get_kv_db_async(
@@ -226,6 +230,14 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   std::vector<double> get_l2cache_perf(
       const int64_t step,
       const int64_t interval);
+
+  // reset L2 cache, this is used for unittesting to bypass l2 cache
+  void reset_l2_cache();
+
+  // block waiting for working items in queue to be finished, this is called by
+  // get_cache() as embedding read should wait until previous write to be
+  // finished, it could also be called in unitest to sync
+  void wait_util_filling_work_done();
 
  private:
   /// Find non-negative embedding indices in <indices> and shard them into
@@ -283,10 +295,6 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& indices,
       const at::Tensor& weights);
 
-  // waiting for working item queue to be empty, this is called by get_cache()
-  // as embedding read should wait until previous write to be finished
-  void wait_util_filling_work_done();
-
   std::unique_ptr<l2_cache::CacheLibCache> l2_cache_;
   const int64_t unique_id_;
   const int64_t num_shards_;
@@ -299,6 +307,17 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // buffer queue that stores all the needed indices/weights/action_count to
   // fill up cache
   folly::USPSCQueue<QueueItem, true> weights_to_fill_queue_;
+  // In non pipelining mode, the sequence is
+  //   - get_cuda(): L2 read and insert L2 cache misses into queue for
+  //                 bg L2 write
+  //   - L1 cache eviction: insert into bg queue for L2 write
+  //   - ScratchPad update: insert into bg queue for L2 write
+  // in non-prefetch pipeline, cuda synchronization guarantee get_cuda() happen
+  // after SP update
+  // in prefetch pipeline, cuda sync only guarantee get_cuda() happen after L1
+  // cache eviction pipeline case, SP bwd update could happen in parallel with
+  // L2 read mutex is used for l2 cache to do read / write exclusively
+  std::mutex l2_cache_mtx_;
 
   // perf stats
   // --  perf of get() function
@@ -313,9 +332,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   std::atomic<int64_t> get_weights_fillup_total_duration_{0};
   std::atomic<int64_t> get_cache_memcpy_duration_{0};
   std::atomic<int64_t> get_tensor_copy_for_cache_update_{0};
+  std::atomic<int64_t> get_cache_lock_wait_duration_{0};
 
   // -- perf of set() function
   std::atomic<int64_t> set_tensor_copy_for_cache_update_{0};
+  std::atomic<int64_t> set_cache_lock_wait_duration_{0};
 
   // -- commone path
   std::atomic<int64_t> total_cache_update_duration_{0};

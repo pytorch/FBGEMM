@@ -193,7 +193,7 @@ void EmbeddingKVDB::set_cuda(
 std::vector<double> EmbeddingKVDB::get_l2cache_perf(
     const int64_t step,
     const int64_t interval) {
-  std::vector<double> ret(13, 0); // num metrics
+  std::vector<double> ret(15, 0); // num metrics
   if (step > 0 && step % interval == 0) {
     int reset_val = 0;
     auto num_cache_misses = num_cache_misses_.exchange(reset_val);
@@ -215,6 +215,12 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
         get_tensor_copy_for_cache_update_.exchange(reset_val);
     auto set_tensor_copy_for_cache_update_dur =
         set_tensor_copy_for_cache_update_.exchange(reset_val);
+
+    auto set_cache_lock_wait_duration =
+        set_cache_lock_wait_duration_.exchange(reset_val);
+    auto get_cache_lock_wait_duration =
+        get_cache_lock_wait_duration_.exchange(reset_val);
+
     ret[0] = (double(num_cache_misses) / interval);
     ret[1] = (double(num_lookups) / interval);
     ret[2] = (double(get_total_duration) / interval);
@@ -231,8 +237,14 @@ std::vector<double> EmbeddingKVDB::get_l2cache_perf(
       ret[11] = (cache_mem_stats[0]); // free cache in bytes
       ret[12] = (cache_mem_stats[1]); // total cache capacity in bytes
     }
+    ret[13] = (double(set_cache_lock_wait_duration) / interval);
+    ret[14] = (double(get_cache_lock_wait_duration) / interval);
   }
   return ret;
+}
+
+void EmbeddingKVDB::reset_l2_cache() {
+  l2_cache_ = nullptr;
 }
 
 void EmbeddingKVDB::set(
@@ -264,7 +276,8 @@ void EmbeddingKVDB::set(
 void EmbeddingKVDB::get(
     const at::Tensor& indices,
     const at::Tensor& weights,
-    const at::Tensor& count) {
+    const at::Tensor& count,
+    int64_t sleep_ms) {
   if (auto num_lookups = get_maybe_uvm_scalar(count); num_lookups <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
         << "[TBE_ID" << unique_id_ << "]skip get_cuda since number lookups is "
@@ -274,6 +287,17 @@ void EmbeddingKVDB::get(
   ASSERT_EQ(max_D_, weights.size(1));
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   wait_util_filling_work_done();
+
+  std::unique_lock<std::mutex> lock(l2_cache_mtx_);
+  get_cache_lock_wait_duration_ +=
+      facebook::WallClockUtil::NowInUsecFast() - start_ts;
+
+  // this is for unittest to repro synchronization situation deterministically
+  if (sleep_ms > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    XLOG(INFO) << "get sleep end";
+  }
+
   auto cache_context = get_cache(indices, count);
   if (cache_context != nullptr) {
     if (cache_context->num_misses > 0) {
@@ -407,12 +431,14 @@ EmbeddingKVDB::set_cache(
   if (l2_cache_ == nullptr) {
     return folly::none;
   }
-
   // TODO: consider whether need to reconstruct indices/weights/count and free
   //       the original tensor since most of the tensor elem will be invalid,
   //       this will trade some perf for peak DRAM util saving
 
   auto cache_update_start_ts = facebook::WallClockUtil::NowInUsecFast();
+  std::unique_lock<std::mutex> lock(l2_cache_mtx_);
+  set_cache_lock_wait_duration_ +=
+      facebook::WallClockUtil::NowInUsecFast() - cache_update_start_ts;
 
   l2_cache_->init_tensor_for_l2_eviction(indices, weights, count);
 
