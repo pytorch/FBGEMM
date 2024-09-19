@@ -17,7 +17,7 @@ import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import sparse_type_to_int, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -943,6 +943,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for spec in self.embedding_specs
         ]
 
+    @torch.jit.export
     def recompute_module_buffers(self) -> None:
         """
         Compute module buffers that're on meta device and are not materialized in reset_weights_placements_and_offsets().
@@ -955,7 +956,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             return
 
-        weights_tys_int = [e[3].as_int() for e in self.embedding_specs]
+        weights_tys_int = [sparse_type_to_int(e[3]) for e in self.embedding_specs]
         self.weights_tys = torch.tensor(
             [weights_tys_int[t] for t in self.feature_table_map],
             device=self.current_device,
@@ -968,8 +969,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=torch.int64,
         )
         dims = [e[2] for e in self.embedding_specs]
-        D_offsets_list = [dims[t] for t in self.feature_table_map]
-        D_offsets_list = [0] + list(accumulate(D_offsets_list))
+        D_offsets_list = [0]
+        for t in self.feature_table_map:
+            D_offsets_list.append(dims[t] + D_offsets_list[-1])
         self.D_offsets = torch.tensor(
             D_offsets_list, device=self.current_device, dtype=torch.int32
         )
@@ -998,6 +1000,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.table_wise_cache_miss = torch.empty_like(
             self.table_wise_cache_miss, device=self.current_device
+        )
+        self.weights_uvm = torch.empty_like(
+            self.weights_uvm, device=self.current_device
         )
 
     def _apply_split(
