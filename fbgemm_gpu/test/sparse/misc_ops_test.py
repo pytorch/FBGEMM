@@ -18,6 +18,7 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from hypothesis import given, settings, Verbosity
+from torch.fx.experimental.symbolic_shapes import ShapeEnv
 
 from .common import extend_test_class, open_source
 
@@ -260,6 +261,31 @@ class MiscOpsTest(unittest.TestCase):
             all_indices[index_tuple][:L] = sorted(r)
         all_indices_deduped_ref = torch.as_tensor(all_indices[:, :, :L])
         torch.testing.assert_close(all_indices_deduped, all_indices_deduped_ref)
+
+    def test_lengths_range(self) -> None:
+        # When 'output_shape' is None, the function will return a tensor with dynamic shape.
+        with self.assertRaisesRegex(
+            torch._subclasses.fake_tensor.DynamicOutputShapeException,
+            "fbgemm.lengths_range.default",
+        ):
+            with torch._subclasses.fake_tensor.FakeTensorMode(
+                shape_env=ShapeEnv(
+                    allow_dynamic_output_shape_ops=False,
+                ),
+            ):
+                lengths = torch.tensor([3, 2, 4, 10], dtype=torch.int32)
+                _ = torch.ops.fbgemm.lengths_range(lengths, None)
+
+        with torch._subclasses.fake_tensor.FakeTensorMode(
+            shape_env=ShapeEnv(
+                allow_dynamic_output_shape_ops=False,
+            ),
+        ):
+            lengths = torch.tensor([3, 2, 4, 10], dtype=torch.int32)
+            output_shape = [1, 2, 4, 4]
+            actual_result = torch.ops.fbgemm.lengths_range(lengths, output_shape)
+
+        self.assertEqual(actual_result.shape, (1 * 2 * 4 * 4,))
 
 
 extend_test_class(MiscOpsTest)
