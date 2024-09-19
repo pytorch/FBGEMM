@@ -432,36 +432,43 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
               -> folly::coro::Task<void> {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_set", [&] {
-                      CHECK(indices.is_contiguous());
-                      CHECK(weights.is_contiguous());
-                      auto indices_acc = indices.accessor<int64_t, 1>();
-                      auto D = weights.size(1);
-                      CHECK_EQ(indices.size(0), weights.size(0));
-                      {
-                        rocksdb::WriteBatch batch(
-                            (2 * (count_ + dbs_.size() - 1) / dbs_.size()) *
-                            (sizeof(int64_t) + sizeof(scalar_t) * D));
-                        for (auto i = 0; i < count_; ++i) {
-                          if (indices_acc[i] < 0) {
-                            continue;
-                          }
-                          if (kv_db_utils::hash_shard(
-                                  indices_acc[i], dbs_.size()) != shard) {
-                            continue;
-                          }
-                          batch.Put(
-                              rocksdb::Slice(
-                                  reinterpret_cast<const char*>(
-                                      &(indices.data_ptr<int64_t>()[i])),
-                                  sizeof(int64_t)),
-                              rocksdb::Slice(
-                                  reinterpret_cast<const char*>(
-                                      &(weights.data_ptr<scalar_t>()[i * D])),
-                                  D * sizeof(scalar_t)));
-                        }
-                        auto s = dbs_[shard]->Write(wo_, &batch);
-                        CHECK(s.ok());
-                      }
+                      using value_t = scalar_t;
+                      FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                          indices.scalar_type(), "ssd_set", [&] {
+                            using index_t = scalar_t;
+                            CHECK(indices.is_contiguous());
+                            CHECK(weights.is_contiguous());
+                            auto indices_acc = indices.accessor<index_t, 1>();
+                            auto D = weights.size(1);
+                            CHECK_EQ(indices.size(0), weights.size(0));
+                            {
+                              rocksdb::WriteBatch batch(
+                                  (2 * (count_ + dbs_.size() - 1) /
+                                   dbs_.size()) *
+                                  (sizeof(index_t) + sizeof(value_t) * D));
+                              for (auto i = 0; i < count_; ++i) {
+                                if (indices_acc[i] < 0) {
+                                  continue;
+                                }
+                                if (kv_db_utils::hash_shard(
+                                        indices_acc[i], dbs_.size()) != shard) {
+                                  continue;
+                                }
+                                batch.Put(
+                                    rocksdb::Slice(
+                                        reinterpret_cast<const char*>(
+                                            &(indices.data_ptr<index_t>()[i])),
+                                        sizeof(index_t)),
+                                    rocksdb::Slice(
+                                        reinterpret_cast<const char*>(
+                                            &(weights
+                                                  .data_ptr<value_t>()[i * D])),
+                                        D * sizeof(value_t)));
+                              }
+                              auto s = dbs_[shard]->Write(wo_, &batch);
+                              CHECK(s.ok());
+                            }
+                          });
                     });
                 co_return;
               })
@@ -661,107 +668,117 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
               -> folly::coro::Task<void> {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_get", [&] {
-                      CHECK(indices.is_contiguous());
-                      CHECK(weights.is_contiguous());
-                      auto indices_data_ptr = indices.data_ptr<int64_t>();
-                      auto D = weights.size(1);
-                      CHECK_EQ(indices.size(0), weights.size(0));
-                      auto weights_data_ptr = weights.data_ptr<scalar_t>();
-                      FOLLY_DECLARE_REUSED(keys, std::vector<rocksdb::Slice>);
-                      FOLLY_DECLARE_REUSED(shard_ids, std::vector<int32_t>);
-                      FOLLY_DECLARE_REUSED(
-                          cfs, std::vector<rocksdb::ColumnFamilyHandle*>);
-                      FOLLY_DECLARE_REUSED(
-                          values, std::vector<rocksdb::PinnableSlice>);
-                      FOLLY_DECLARE_REUSED(
-                          statuses, std::vector<rocksdb::Status>);
-                      auto* dcf = dbs_[shard]->DefaultColumnFamily();
-                      for (auto i = 0; i < count_; ++i) {
-                        // "no-op"/empty evicted tensor
-                        if (indices_data_ptr[i] == -1) {
-                          continue;
-                        }
-                        if (kv_db_utils::hash_shard(
-                                indices_data_ptr[i], dbs_.size()) != shard) {
-                          continue;
-                        }
-                        shard_ids.push_back(i);
-                      }
-                      std::sort(
-                          shard_ids.begin(),
-                          shard_ids.end(),
-                          [&](int32_t lhs, int32_t rhs) {
-                            const auto lhs_key = rocksdb::Slice(
-                                reinterpret_cast<const char*>(
-                                    &(indices_data_ptr[lhs])),
-                                sizeof(int64_t));
-                            const auto rhs_key = rocksdb::Slice(
-                                reinterpret_cast<const char*>(
-                                    &(indices_data_ptr[rhs])),
-                                sizeof(int64_t));
-                            return lhs_key.compare(rhs_key) < 0;
-                          });
-                      for (const auto& i : shard_ids) {
-                        const auto key = rocksdb::Slice(
-                            reinterpret_cast<const char*>(
-                                &(indices_data_ptr[i])),
-                            sizeof(int64_t));
-                        keys.push_back(key);
-                        cfs.push_back(dcf);
-                      }
-                      CHECK_EQ(shard_ids.size(), keys.size());
-                      CHECK_EQ(shard_ids.size(), cfs.size());
+                      using value_t = scalar_t;
+                      FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                          indices.scalar_type(), "ssd_get", [&] {
+                            using index_t = scalar_t;
+                            CHECK(indices.is_contiguous());
+                            CHECK(weights.is_contiguous());
+                            auto indices_data_ptr = indices.data_ptr<index_t>();
+                            auto D = weights.size(1);
+                            CHECK_EQ(indices.size(0), weights.size(0));
+                            auto weights_data_ptr = weights.data_ptr<value_t>();
+                            FOLLY_DECLARE_REUSED(
+                                keys, std::vector<rocksdb::Slice>);
+                            FOLLY_DECLARE_REUSED(
+                                shard_ids, std::vector<int32_t>);
+                            FOLLY_DECLARE_REUSED(
+                                cfs, std::vector<rocksdb::ColumnFamilyHandle*>);
+                            FOLLY_DECLARE_REUSED(
+                                values, std::vector<rocksdb::PinnableSlice>);
+                            FOLLY_DECLARE_REUSED(
+                                statuses, std::vector<rocksdb::Status>);
+                            auto* dcf = dbs_[shard]->DefaultColumnFamily();
+                            for (auto i = 0; i < count_; ++i) {
+                              // "no-op"/empty evicted tensor
+                              if (indices_data_ptr[i] == -1) {
+                                continue;
+                              }
+                              if (kv_db_utils::hash_shard(
+                                      indices_data_ptr[i], dbs_.size()) !=
+                                  shard) {
+                                continue;
+                              }
+                              shard_ids.push_back(i);
+                            }
+                            std::sort(
+                                shard_ids.begin(),
+                                shard_ids.end(),
+                                [&](int32_t lhs, int32_t rhs) {
+                                  const auto lhs_key = rocksdb::Slice(
+                                      reinterpret_cast<const char*>(
+                                          &(indices_data_ptr[lhs])),
+                                      sizeof(index_t));
+                                  const auto rhs_key = rocksdb::Slice(
+                                      reinterpret_cast<const char*>(
+                                          &(indices_data_ptr[rhs])),
+                                      sizeof(index_t));
+                                  return lhs_key.compare(rhs_key) < 0;
+                                });
+                            for (const auto& i : shard_ids) {
+                              const auto key = rocksdb::Slice(
+                                  reinterpret_cast<const char*>(
+                                      &(indices_data_ptr[i])),
+                                  sizeof(index_t));
+                              keys.push_back(key);
+                              cfs.push_back(dcf);
+                            }
+                            CHECK_EQ(shard_ids.size(), keys.size());
+                            CHECK_EQ(shard_ids.size(), cfs.size());
 
-                      values.resize(keys.size());
-                      statuses.resize(keys.size());
-                      // Set a snapshot if it is available
-                      ro_.snapshot = snapshot;
-                      dbs_[shard]->MultiGet(
-                          ro_,
-                          keys.size(),
-                          cfs.data(),
-                          keys.data(),
-                          values.data(),
-                          statuses.data(),
-                          /*sorted_input=*/true);
-                      const auto& init_storage =
-                          initializers_[shard]->row_storage_;
-                      // Sanity check
-                      TORCH_CHECK(
-                          init_storage.scalar_type() == weights.scalar_type(),
-                          "init_storage (",
-                          toString(init_storage.scalar_type()),
-                          ") and weights scalar (",
-                          toString(weights.scalar_type()),
-                          ") types mismatch");
-                      auto row_storage_data_ptr =
-                          init_storage.data_ptr<scalar_t>();
-                      for (auto j = 0; j < keys.size(); ++j) {
-                        const auto& s = statuses[j];
-                        int64_t i = shard_ids[j];
-                        const auto& value = values[j];
-                        if (s.ok()) {
-                          if (!std::is_same<scalar_t, uint8_t>::value) {
-                            CHECK_EQ(value.size(), D * sizeof(scalar_t));
-                          }
-                          std::copy(
-                              reinterpret_cast<const scalar_t*>(value.data()),
-                              reinterpret_cast<const scalar_t*>(
-                                  value.data() + value.size()),
-                              &(weights_data_ptr[i * D]));
-                        } else {
-                          CHECK(s.IsNotFound());
-                          int64_t row_index;
-                          initializers_[shard]->producer_queue_.dequeue(
-                              row_index);
-                          std::copy(
-                              &(row_storage_data_ptr[row_index * D]),
-                              &(row_storage_data_ptr[row_index * D + D]),
-                              &(weights_data_ptr[i * D]));
-                          initializers_[shard]->consumer_queue_.enqueue(
-                              row_index);
-                        }
-                      }
+                            values.resize(keys.size());
+                            statuses.resize(keys.size());
+                            // Set a snapshot if it is available
+                            ro_.snapshot = snapshot;
+                            dbs_[shard]->MultiGet(
+                                ro_,
+                                keys.size(),
+                                cfs.data(),
+                                keys.data(),
+                                values.data(),
+                                statuses.data(),
+                                /*sorted_input=*/true);
+                            const auto& init_storage =
+                                initializers_[shard]->row_storage_;
+                            // Sanity check
+                            TORCH_CHECK(
+                                init_storage.scalar_type() ==
+                                    weights.scalar_type(),
+                                "init_storage (",
+                                toString(init_storage.scalar_type()),
+                                ") and weights scalar (",
+                                toString(weights.scalar_type()),
+                                ") types mismatch");
+                            auto row_storage_data_ptr =
+                                init_storage.data_ptr<value_t>();
+                            for (auto j = 0; j < keys.size(); ++j) {
+                              const auto& s = statuses[j];
+                              int64_t i = shard_ids[j];
+                              const auto& value = values[j];
+                              if (s.ok()) {
+                                if (!std::is_same<value_t, uint8_t>::value) {
+                                  CHECK_EQ(value.size(), D * sizeof(value_t));
+                                }
+                                std::copy(
+                                    reinterpret_cast<const value_t*>(
+                                        value.data()),
+                                    reinterpret_cast<const value_t*>(
+                                        value.data() + value.size()),
+                                    &(weights_data_ptr[i * D]));
+                              } else {
+                                CHECK(s.IsNotFound());
+                                int64_t row_index;
+                                initializers_[shard]->producer_queue_.dequeue(
+                                    row_index);
+                                std::copy(
+                                    &(row_storage_data_ptr[row_index * D]),
+                                    &(row_storage_data_ptr[row_index * D + D]),
+                                    &(weights_data_ptr[i * D]));
+                                initializers_[shard]->consumer_queue_.enqueue(
+                                    row_index);
+                              }
+                            }
+                          });
                     });
                 co_return;
               })
