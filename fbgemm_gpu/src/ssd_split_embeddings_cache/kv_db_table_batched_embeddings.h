@@ -279,6 +279,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   virtual void flush_or_compact(const int64_t timestep) = 0;
 
+  void check_tensor_type_consistency(
+      const at::Tensor& indices,
+      const at::Tensor& weights);
+
   // waiting for working item queue to be empty, this is called by get_cache()
   // as embedding read should wait until previous write to be finished
   void wait_util_filling_work_done();
@@ -287,6 +291,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   const int64_t unique_id_;
   const int64_t num_shards_;
   const int64_t max_D_;
+  folly::Optional<at::ScalarType> index_dtype_{folly::none};
+  folly::Optional<at::ScalarType> weights_dtype_{folly::none};
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_tp_;
   std::unique_ptr<std::thread> cache_filling_thread_;
   std::atomic<bool> stop_{false};
