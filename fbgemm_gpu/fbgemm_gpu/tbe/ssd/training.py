@@ -1850,8 +1850,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.step, stats_reporter.report_interval  # pyre-ignore
         )
 
-        if len(l2_cache_perf_stats) != 13:
-            logging.error("l2 perf stats should have 13 elements")
+        if len(l2_cache_perf_stats) != 15:
+            logging.error("l2 perf stats should have 15 elements")
             return
 
         num_cache_misses = l2_cache_perf_stats[0]
@@ -1868,6 +1868,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         l2_cache_free_bytes = l2_cache_perf_stats[11]
         l2_cache_capacity = l2_cache_perf_stats[12]
+
+        set_cache_lock_wait_duration = l2_cache_perf_stats[13]
+        get_cache_lock_wait_duration = l2_cache_perf_stats[14]
 
         stats_reporter.report_data_amount(
             iteration_step=self.step,
@@ -1941,6 +1944,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             iteration_step=self.step,
             event_name="l2_cache.perf.set.tensor_copy_for_cache_update_duration_us",
             duration_ms=set_tensor_copy_for_cache_update_duration,
+            time_unit="us",
+        )
+
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="l2_cache.perf.get.cache_lock_wait_duration_us",
+            duration_ms=get_cache_lock_wait_duration,
+            time_unit="us",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name="l2_cache.perf.set.cache_lock_wait_duration_us",
+            duration_ms=set_cache_lock_wait_duration,
             time_unit="us",
         )
 
