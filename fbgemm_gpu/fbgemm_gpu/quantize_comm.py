@@ -66,7 +66,7 @@ class QuantizationContext:
     row_dim: int = ROW_DIM_DEFAULT
     row_dim_quant: int = -1
     mx_group_size: int = MX_GROUP_SIZE_DEFAULT
-    rounding_mode: RoundingMode = RoundingMode.ceil
+    rounding_mode: RoundingMode = RoundingMode.even
     padded_dim_sum_per_rank: Optional[List[int]] = None
 
 
@@ -110,7 +110,7 @@ def _quantize_tensor(
         return input_quant_all2all
     elif comm_precision == SparseType.MX4:
         mx_group_size = ctx.mx_group_size if ctx is not None else MX_GROUP_SIZE_DEFAULT
-        rounding_mode = ctx.rounding_mode if ctx is not None else RoundingMode.ceil
+        rounding_mode = ctx.rounding_mode if ctx is not None else RoundingMode.even
         return fp32_to_mx4(
             input_tensor, mx_group_size, rounding_mode=rounding_mode
         ).view(-1)

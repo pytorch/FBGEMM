@@ -36,7 +36,7 @@ def fp32_to_mx4(
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Optional[Union[RoundingMode, int]] = RoundingMode.ceil,
+    rounding_mode: Optional[Union[RoundingMode, int]] = RoundingMode.even,
     stochastic_casting: bool = False,
     use_triton: bool = True,
 ) -> torch.Tensor:
@@ -58,7 +58,7 @@ def fp32_to_mx4(
     # Accelerated MX4 is only available on cuda, if input is on cpu, use python.
     # Operate on flattened input.
     if rounding_mode is None:
-        rounding_mode = RoundingMode.ceil
+        rounding_mode = RoundingMode.even
 
     if not tensor.is_cuda:
         return py_quantize_mx4(
