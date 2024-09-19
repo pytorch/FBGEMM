@@ -15,6 +15,7 @@ from typing import Callable, Optional
 
 import hypothesis.strategies as st
 import numpy as np
+import numpy.typing as npt
 import torch
 from hypothesis import given, settings
 
@@ -27,7 +28,7 @@ else:
     from fbgemm_gpu.test.test_utils import gpu_available
 
 
-def get_n_rand_num_summing_to_k(n: int, k: int) -> np.ndarray:
+def get_n_rand_num_summing_to_k(n: int, k: int) -> npt.NDArray:
     """Get a list of `n` integers which collectively sum to `k`, drawn
     uniformly from the set of all such lists.
 
@@ -58,7 +59,7 @@ class PackedSegmentsTest(unittest.TestCase):
         lengths: torch.Tensor,
         tensor: torch.Tensor,
         max_length: Optional[int] = None,
-    ) -> np.ndarray:
+    ) -> npt.NDArray:
         lengths = lengths.numpy()
         sections = np.split(tensor, np.cumsum(lengths))
         max_length = np.max(lengths, initial=0) if max_length is None else max_length
