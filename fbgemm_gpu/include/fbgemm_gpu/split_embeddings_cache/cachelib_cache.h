@@ -39,7 +39,9 @@ class CacheLibCache {
     int64_t max_D_;
   };
 
-  explicit CacheLibCache(const CacheConfig& cache_config);
+  explicit CacheLibCache(
+      const CacheConfig& cache_config,
+      int64_t unique_tbe_id);
 
   std::unique_ptr<Cache> initializeCacheLib(const CacheConfig& config);
 
@@ -48,7 +50,7 @@ class CacheLibCache {
 
   /// Find the stored embeddings from a given embedding indices, aka key
   ///
-  /// @param key embedding index to look up
+  /// @param key_tensor embedding index(tensor with only one element) to look up
   ///
   /// @return an optional value, return none on cache misses, if cache hit
   /// return a pointer to the cachelib underlying storage of associated
@@ -57,7 +59,7 @@ class CacheLibCache {
   /// @note that this is not thread safe, caller needs to make sure the data is
   /// fully processed before doing cache insertion, otherwise the returned space
   /// might be overwritten if cache is full
-  std::optional<void*> get(int64_t key);
+  folly::Optional<void*> get(const at::Tensor& key_tensor);
 
   /// Cachelib wrapper specific hash function
   ///
@@ -84,7 +86,8 @@ class CacheLibCache {
 
   /// Add an embedding index and embeddings into cachelib
   ///
-  /// @param key embedding index to insert
+  /// @param key_tensor embedding index(tensor with only one element) to insert
+  /// @param data embedding weights to insert
   ///
   /// @return true on success insertion, false on failure insertion, a failure
   /// insertion could happen if the refcount of bottom K items in LRU queue
@@ -94,11 +97,12 @@ class CacheLibCache {
   /// bulk read and bluk write sequentially
   ///
   /// @note cache_->allocation will trigger eviction callback func
-  bool put(int64_t key, const at::Tensor& data);
+  bool put(const at::Tensor& key_tensor, const at::Tensor& data);
 
   /// iterate through all items in L2 cache, fill them in indices and weights
   /// respectively and return indices, weights and count
   ///
+  /// @return optional value, if cache is empty return none
   /// @return indices The 1D embedding index tensor, should skip on negative
   /// value
   /// @return weights The 2D tensor that each row(embeddings) is paired up with
@@ -108,7 +112,8 @@ class CacheLibCache {
   ///
   /// @note this isn't thread safe, caller needs to make sure put isn't called
   /// while this is executed.
-  std::tuple<at::Tensor, at::Tensor, at::Tensor> get_all_items();
+  folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>>
+  get_all_items();
 
   /// instantiate eviction related indices and weights tensors(size of <count>)
   /// for L2 eviction using the same dtype and device from <indices> and
@@ -141,12 +146,15 @@ class CacheLibCache {
 
  private:
   const CacheConfig cache_config_;
+  const int64_t unique_tbe_id_;
   std::unique_ptr<Cache> cache_;
   std::vector<facebook::cachelib::PoolId> pool_ids_;
   std::unique_ptr<facebook::cachelib::CacheAdmin> admin_;
 
   folly::Optional<at::Tensor> evicted_indices_opt_{folly::none};
   folly::Optional<at::Tensor> evicted_weights_opt_{folly::none};
+  folly::Optional<at::ScalarType> index_dtype_{folly::none};
+  folly::Optional<at::ScalarType> weights_dtype_{folly::none};
   std::atomic<int64_t> eviction_row_id{0};
 };
 

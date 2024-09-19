@@ -94,15 +94,23 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        indice_int64_t=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_ssd(self, weights_precision: SparseType) -> None:
+    def test_ssd(self, indice_int64_t: bool, weights_precision: SparseType) -> None:
         import tempfile
 
         E = int(1e4)
         D = 128
         N = 100
-        indices = torch.as_tensor(np.random.choice(E, replace=False, size=(N,)))
+        if indice_int64_t:
+            indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
+            )
+        else:
+            indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(N,)), dtype=torch.int32
+            )
         weights = torch.randn(N, D, dtype=weights_precision.as_dtype())
         output_weights = torch.empty_like(weights)
         count = torch.tensor([N])
