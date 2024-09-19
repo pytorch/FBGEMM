@@ -98,8 +98,8 @@ Inheritance diagram for EmbeddingKVDB:</div>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aaabed7d99a9750e8b8a2e45a582fa014" id="r_aaabed7d99a9750e8b8a2e45a582fa014"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aaabed7d99a9750e8b8a2e45a582fa014">get</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
-<tr class="separator:aaabed7d99a9750e8b8a2e45a582fa014"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abd9970c497076f72cba47c2ac6a2c712" id="r_abd9970c497076f72cba47c2ac6a2c712"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t sleep_ms=0)</td></tr>
+<tr class="separator:abd9970c497076f72cba47c2ac6a2c712"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
 <tr class="separator:adac116554b543b7c4228c018a85882f5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft" align="right" valign="top">std::vector&lt; double &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
@@ -129,8 +129,8 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
 
 </div>
 </div>
-<a id="aaabed7d99a9750e8b8a2e45a582fa014" name="aaabed7d99a9750e8b8a2e45a582fa014"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#aaabed7d99a9750e8b8a2e45a582fa014">&#9670;&#160;</a></span>get()</h2>
+<a id="abd9970c497076f72cba47c2ac6a2c712" name="abd9970c497076f72cba47c2ac6a2c712"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abd9970c497076f72cba47c2ac6a2c712">&#9670;&#160;</a></span>get()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -148,7 +148,12 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em>, </span></td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>sleep_ms</em><span class="paramdefsep"> = </span><span class="paramdefval">0</span></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -161,7 +166,8 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
   <table class="params">
     <tr><td class="paramname">indices</td><td>The 1D embedding index tensor, should skip on negative value </td></tr>
     <tr><td class="paramname">weights</td><td>The 2D tensor that each row(embeddings) is paired up with relative element in &lt;indices&gt; </td></tr>
-    <tr><td class="paramname">count</td><td>A single element tensor that contains the number of indices to be processed</td></tr>
+    <tr><td class="paramname">count</td><td>A single element tensor that contains the number of indices to be processed </td></tr>
+    <tr><td class="paramname">sleep_ms</td><td>this is used to specifically sleep in get function, this is needed to reproduce synchronization situation deterministicly, in prod case this will be 0 for sure</td></tr>
   </table>
   </dd>
 </dl>

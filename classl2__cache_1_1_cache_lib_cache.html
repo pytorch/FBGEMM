@@ -86,18 +86,18 @@ $(function() {
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:a282a9c139e4285f4d676e104846d6708" id="r_a282a9c139e4285f4d676e104846d6708"><td class="memItemLeft" align="right" valign="top">std::optional&lt; void * &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a282a9c139e4285f4d676e104846d6708">get</a> (int64_t key)</td></tr>
-<tr class="separator:a282a9c139e4285f4d676e104846d6708"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0367ff113cdb04618fd43f27ce53baa0" id="r_a0367ff113cdb04618fd43f27ce53baa0"><td class="memItemLeft" align="right" valign="top">folly::Optional&lt; void * &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0367ff113cdb04618fd43f27ce53baa0">get</a> (const at::Tensor &amp;key_tensor)</td></tr>
+<tr class="separator:a0367ff113cdb04618fd43f27ce53baa0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:acdafef20baf1a45ec1295ba332a065d1" id="r_acdafef20baf1a45ec1295ba332a065d1"><td class="memItemLeft" align="right" valign="top">size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#acdafef20baf1a45ec1295ba332a065d1">get_shard_id</a> (int64_t key)</td></tr>
 <tr class="separator:acdafef20baf1a45ec1295ba332a065d1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a35f4ec049ea4846946a6f6f2205b4280" id="r_a35f4ec049ea4846946a6f6f2205b4280"><td class="memItemLeft" align="right" valign="top">facebook::cachelib::PoolId&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a35f4ec049ea4846946a6f6f2205b4280">get_pool_id</a> (int64_t key)</td></tr>
 <tr class="separator:a35f4ec049ea4846946a6f6f2205b4280"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a28487224efe43ac3f96d4f03981a2f24" id="r_a28487224efe43ac3f96d4f03981a2f24"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a28487224efe43ac3f96d4f03981a2f24">batchMarkUseful</a> (const std::vector&lt; Cache::ReadHandle &gt; &amp;read_handles)</td></tr>
 <tr class="separator:a28487224efe43ac3f96d4f03981a2f24"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a9ee8139247e86b5cf6a52582c1ff5686" id="r_a9ee8139247e86b5cf6a52582c1ff5686"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a9ee8139247e86b5cf6a52582c1ff5686">put</a> (int64_t key, const at::Tensor &amp;data)</td></tr>
-<tr class="separator:a9ee8139247e86b5cf6a52582c1ff5686"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:af34eef9d403b258ec310509fa65268a5" id="r_af34eef9d403b258ec310509fa65268a5"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af34eef9d403b258ec310509fa65268a5">get_all_items</a> ()</td></tr>
-<tr class="separator:af34eef9d403b258ec310509fa65268a5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2ccaca2055ff3bd52a63d88b70bdf03b" id="r_a2ccaca2055ff3bd52a63d88b70bdf03b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ccaca2055ff3bd52a63d88b70bdf03b">put</a> (const at::Tensor &amp;key_tensor, const at::Tensor &amp;data)</td></tr>
+<tr class="separator:a2ccaca2055ff3bd52a63d88b70bdf03b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a01820cf34749e734c20854106aee52a1" id="r_a01820cf34749e734c20854106aee52a1"><td class="memItemLeft" align="right" valign="top">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a01820cf34749e734c20854106aee52a1">get_all_items</a> ()</td></tr>
+<tr class="separator:a01820cf34749e734c20854106aee52a1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a7c647623fef9959bd482911050ba9711" id="r_a7c647623fef9959bd482911050ba9711"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7c647623fef9959bd482911050ba9711">init_tensor_for_l2_eviction</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
 <tr class="separator:a7c647623fef9959bd482911050ba9711"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a59d4800235bf477ae8b2da78001519dd" id="r_a59d4800235bf477ae8b2da78001519dd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a59d4800235bf477ae8b2da78001519dd">reset_eviction_states</a> ()</td></tr>
@@ -133,16 +133,16 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a282a9c139e4285f4d676e104846d6708" name="a282a9c139e4285f4d676e104846d6708"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a282a9c139e4285f4d676e104846d6708">&#9670;&#160;</a></span>get()</h2>
+<a id="a0367ff113cdb04618fd43f27ce53baa0" name="a0367ff113cdb04618fd43f27ce53baa0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0367ff113cdb04618fd43f27ce53baa0">&#9670;&#160;</a></span>get()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">std::optional&lt; void * &gt; get </td>
+          <td class="memname">folly::Optional&lt; void * &gt; get </td>
           <td>(</td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>key</em></span></td><td>)</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>key_tensor</em></span></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -150,7 +150,7 @@ Public Member Functions</h2></td></tr>
 <p>Find the stored embeddings from a given embedding indices, aka key</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">key</td><td>embedding index to look up</td></tr>
+    <tr><td class="paramname">key_tensor</td><td>embedding index(tensor with only one element) to look up</td></tr>
   </table>
   </dd>
 </dl>
@@ -159,14 +159,14 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="af34eef9d403b258ec310509fa65268a5" name="af34eef9d403b258ec310509fa65268a5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af34eef9d403b258ec310509fa65268a5">&#9670;&#160;</a></span>get_all_items()</h2>
+<a id="a01820cf34749e734c20854106aee52a1" name="a01820cf34749e734c20854106aee52a1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a01820cf34749e734c20854106aee52a1">&#9670;&#160;</a></span>get_all_items()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; get_all_items </td>
+          <td class="memname">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt; get_all_items </td>
           <td>(</td>
           <td class="paramname"><span class="paramname"></span></td><td>)</td>
           <td></td>
@@ -174,7 +174,9 @@ Public Member Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <p>iterate through all items in L2 cache, fill them in indices and weights respectively and return indices, weights and count</p>
-<dl class="section return"><dt>Returns</dt><dd>indices The 1D embedding index tensor, should skip on negative value </dd>
+<dl class="section return"><dt>Returns</dt><dd>optional value, if cache is empty return none </dd>
+<dd>
+indices The 1D embedding index tensor, should skip on negative value </dd>
 <dd>
 weights The 2D tensor that each row(embeddings) is paired up with relative element in &lt;indices&gt; </dd>
 <dd>
@@ -287,8 +289,8 @@ count A single element tensor that contains the number of indices to be processe
 
 </div>
 </div>
-<a id="a9ee8139247e86b5cf6a52582c1ff5686" name="a9ee8139247e86b5cf6a52582c1ff5686"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a9ee8139247e86b5cf6a52582c1ff5686">&#9670;&#160;</a></span>put()</h2>
+<a id="a2ccaca2055ff3bd52a63d88b70bdf03b" name="a2ccaca2055ff3bd52a63d88b70bdf03b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2ccaca2055ff3bd52a63d88b70bdf03b">&#9670;&#160;</a></span>put()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -296,7 +298,7 @@ count A single element tensor that contains the number of indices to be processe
         <tr>
           <td class="memname">bool put </td>
           <td>(</td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>key</em>, </span></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>key_tensor</em>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -308,7 +310,8 @@ count A single element tensor that contains the number of indices to be processe
 <p>Add an embedding index and embeddings into cachelib</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">key</td><td>embedding index to insert</td></tr>
+    <tr><td class="paramname">key_tensor</td><td>embedding index(tensor with only one element) to insert </td></tr>
+    <tr><td class="paramname">data</td><td>embedding weights to insert</td></tr>
   </table>
   </dd>
 </dl>
