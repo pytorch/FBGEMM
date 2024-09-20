@@ -35,6 +35,8 @@ def benchmark_torch_function(  # noqa: C901
     f,
     # pyre-fixme[2]: Parameter must be annotated.
     args,
+    # pyre-fixme[2]: Parameter must be annotated.
+    kwargs={},
     flush_gpu_cache_size_mb: int = 40,
     iters: int = 10,
     num_warmups: int = 2,
@@ -43,11 +45,11 @@ def benchmark_torch_function(  # noqa: C901
     num_threads: int = 1,
     copy_f_for_multi_thread_test: bool = False,
 ) -> Tuple[float, torch.Tensor]:
-    logging.info(f"Start to benchmark {name}...")
+    logging.debug(f"Start to benchmark {name}...")
     if device != "cpu" and device != "" and device != "cuda":
         torch.cuda.set_device(device)
     for _ in range(num_warmups):
-        output = f(*args)
+        output = f(*args, **kwargs)
 
     assert num_threads > 0
     if device != "cpu" and torch.cuda.is_available() and (num_threads == 1):
