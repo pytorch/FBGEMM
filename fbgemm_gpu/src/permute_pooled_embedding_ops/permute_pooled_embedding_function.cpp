@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "include/fbgemm_gpu/permute_pooled_embedding_function.h"
+#include "fbgemm_gpu/permute_pooled_embedding_function.h"
 
 using Tensor = at::Tensor;
 
