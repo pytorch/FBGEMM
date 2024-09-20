@@ -11,34 +11,24 @@
 import unittest
 from typing import Tuple
 
+import fbgemm_gpu
+
 import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings, Verbosity
 
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
+if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
-except Exception:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
-        )
-
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
-    )
+else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
-    open_source = False
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
 typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
 
