@@ -498,6 +498,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return snapshots_.find(snapshot_handle) != snapshots_.end();
   }
 
+  int64_t get_snapshot_count() const {
+    return snapshots_.size();
+  }
+
   const SnapshotHandle* create_snapshot() {
     const auto num_snapshots = snapshots_.size();
     if (num_snapshots > 0) {
@@ -512,6 +516,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   void release_snapshot(const SnapshotHandle* snapshot_handle) {
+    CHECK(is_valid_snapshot(snapshot_handle));
+    LOG(INFO) << "Snapshot " << snapshot_handle << " released";
     snapshots_.erase(snapshot_handle);
   }
 

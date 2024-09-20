@@ -16,6 +16,7 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 
 using namespace at;
+using namespace ssd;
 
 std::tuple<Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor>
 ssd_cache_populate_actions_cuda(
@@ -255,6 +256,22 @@ void compact_indices_cuda(
     Tensor count);
 
 namespace {
+class KVTensorWrapper;
+
+struct EmbeddingSnapshotHandleWrapper : public torch::jit::CustomClassHolder {
+  explicit EmbeddingSnapshotHandleWrapper(
+      const EmbeddingRocksDB::SnapshotHandle* handle,
+      std::shared_ptr<EmbeddingRocksDB> db)
+      : handle(handle), db(std::move(db)) {}
+
+  ~EmbeddingSnapshotHandleWrapper() {
+    db->release_snapshot(handle);
+  }
+
+  const EmbeddingRocksDB::SnapshotHandle* handle;
+  std::shared_ptr<EmbeddingRocksDB> db;
+};
+
 class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
  public:
   EmbeddingRocksDBWrapper(
@@ -351,10 +368,82 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->wait_util_filling_work_done();
   }
 
+  c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> create_snapshot() {
+    auto handle = impl_->create_snapshot();
+    return c10::make_intrusive<EmbeddingSnapshotHandleWrapper>(handle, impl_);
+  }
+
+  void release_snapshot(
+      c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle) {
+    auto handle = snapshot_handle->handle;
+    CHECK_NE(handle, nullptr);
+    impl_->release_snapshot(handle);
+  }
+
+  int64_t get_snapshot_count() const {
+    return impl_->get_snapshot_count();
+  }
+
+  int64_t get_max_D() const {
+    return impl_->get_max_D();
+  }
+
  private:
+  friend class KVTensorWrapper;
+
   // shared pointer since we use shared_from_this() in callbacks.
   std::shared_ptr<ssd::EmbeddingRocksDB> impl_;
 };
+
+class KVTensorWrapper : public torch::jit::CustomClassHolder {
+ public:
+  explicit KVTensorWrapper(
+      c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
+      c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle,
+      std::vector<int64_t> shape,
+      int64_t dtype,
+      int64_t row_offset)
+      : db_(db->impl_),
+        snapshot_handle_(std::move(snapshot_handle)),
+        shape_(std::move(shape)),
+        row_offset_(row_offset) {
+    CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
+    options_ = at::TensorOptions()
+                   .dtype(static_cast<c10::ScalarType>(dtype))
+                   .device(at::kCPU)
+                   .layout(at::kStrided);
+  }
+
+  at::Tensor narrow(int64_t dim, int64_t start, int64_t length) {
+    CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
+    CHECK_EQ(db_->get_max_D(), shape_[1]);
+    auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
+    db_->get_range_from_snapshot(t, start, length, snapshot_handle_->handle);
+    // TBE may have multiple embeddings in one table padded to max D
+    // narrow to the actual shape here before returning
+    return t.narrow(1, 0, shape_[1]);
+  }
+
+  c10::IntArrayRef size() {
+    return shape_;
+  }
+
+  c10::ScalarType dtype() {
+    return options_.dtype().toScalarType();
+  }
+
+ private:
+  std::shared_ptr<EmbeddingRocksDB> db_;
+  c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
+  at::TensorOptions options_;
+  std::vector<int64_t> shape_;
+  int64_t row_offset_;
+};
+
+static auto embedding_snapshot_handle_wrapper =
+    torch::class_<EmbeddingSnapshotHandleWrapper>(
+        "fbgemm",
+        "EmbeddingSnapshotHandleWrapper");
 
 static auto embedding_rocks_db_wrapper =
     torch::class_<EmbeddingRocksDBWrapper>("fbgemm", "EmbeddingRocksDBWrapper")
@@ -434,7 +523,34 @@ static auto embedding_rocks_db_wrapper =
         .def("reset_l2_cache", &EmbeddingRocksDBWrapper::reset_l2_cache)
         .def(
             "wait_util_filling_work_done",
-            &EmbeddingRocksDBWrapper::wait_util_filling_work_done);
+            &EmbeddingRocksDBWrapper::wait_util_filling_work_done)
+        .def("create_snapshot", &EmbeddingRocksDBWrapper::create_snapshot)
+        .def("release_snapshot", &EmbeddingRocksDBWrapper::release_snapshot)
+        .def(
+            "get_snapshot_count",
+            &EmbeddingRocksDBWrapper::get_snapshot_count);
+
+static auto kv_tensor_wrapper =
+    torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
+        .def(
+            torch::init<
+                c10::intrusive_ptr<EmbeddingRocksDBWrapper>,
+                c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>,
+                std::vector<int64_t>,
+                int64_t,
+                int64_t>(),
+            "",
+            {torch::arg("db"),
+             torch::arg("snapshot_handle"),
+             torch::arg("shape"),
+             torch::arg("dtype"),
+             torch::arg("row_offset")})
+        .def("narrow", &KVTensorWrapper::narrow)
+        .def_property(
+            "shape",
+            &KVTensorWrapper::size,
+            std::string(
+                "Returns the shape of the original tensor. Only the narrowed part is materialized."));
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
