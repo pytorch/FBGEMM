@@ -11,6 +11,7 @@ from itertools import accumulate
 from typing import List, Optional
 
 import torch
+from fbgemm_gpu.utils.loader import load_torch_module
 
 try:
     # pyre-ignore[21]
@@ -19,16 +20,9 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
     )
-    try:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
-        )
-    except OSError:
-        # This is for forward compatibility (new torch.package + old backend)
-        # We should be able to remove it after this diff is picked up by all backend
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu_cuda"
-        )
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_gpu"
+    )
 
 
 class PermutePooledEmbeddings:
