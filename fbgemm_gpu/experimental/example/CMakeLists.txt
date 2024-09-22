@@ -24,6 +24,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 
 set(experimental_example_cpp_source_files
@@ -53,7 +54,8 @@ target_include_directories(fbgemm_gpu_experimental_example_py PRIVATE
 
 target_link_libraries(fbgemm_gpu_experimental_example_py
     ${TORCH_LIBRARIES}
-    ${NCCL_LIBRARIES})
+    ${NCCL_LIBRARIES}
+    ${CUDA_DRIVER_LIBRARIES})
 
 # Remove `lib` from the output artifact name
 set_target_properties(fbgemm_gpu_experimental_example_py PROPERTIES PREFIX "")

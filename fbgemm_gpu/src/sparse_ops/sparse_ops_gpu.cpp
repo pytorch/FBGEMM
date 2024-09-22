@@ -10,7 +10,8 @@
 #include "c10/core/SymInt.h"
 #include "c10/core/TensorOptions.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
@@ -493,9 +494,12 @@ class GroupIndexSelectDim0GPUOp
 
     // 1) Add group_size Variable()'s for indices
     // c10::irange cannot be used in here as it
-    // triggers a build error of i being an unused variable
+    // triggers a build error of i being an unused variable.
+    // Add empty tensor with zero size here to make __torch_dispatch__ work for
+    // the backward op. Those empty tensors will be replaced with
+    // torch::autograd::Variable() outside of the op call.
     for (auto i = 0; i < group_size; i++) {
-      outputs.push_back(torch::autograd::Variable());
+      outputs.push_back(at::empty({0}, at::TensorOptions().dtype(at::kLong)));
     }
 
     // Allocate Tensor for ptrs of grad output and input, and indices
@@ -615,6 +619,11 @@ class GroupIndexSelectDim0GPUOp
                 "fbgemm::group_index_select_dim0_gpu_backward", "")
             .typed<decltype(backward_impl)>();
     auto res = backward_op.call(grad_output_group, output_shape_group);
+    // 1) Add group_size Variable()'s for indices
+    // Replace all empty tensors with Variable(). This must be done after the
+    // op.call to make __torch_dispatch__ work for the backward op.
+    std::fill(
+        res.begin(), res.begin() + group_size, torch::autograd::Variable());
     // 3) Add 1 Variable() for group_size
     res.push_back({});
     return res;

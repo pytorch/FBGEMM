@@ -17,11 +17,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    get_table_batched_offsets_from_dense,
-    round_up,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import EmbeddingLocation
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
@@ -31,6 +26,11 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     INT8_EMB_ROW_DIM_OFFSET,
     SplitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.tbe.utils import (
+    get_table_batched_offsets_from_dense,
+    round_up,
+    to_device,
 )
 from hypothesis import given, settings, Verbosity
 from torch import Tensor
@@ -158,6 +158,38 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         _do_test(True)
         _do_test(False)
+
+    def test_get_table_name_for_logging(self) -> None:
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(None),
+            "<Unknown>",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(["t1"]),
+            "t1",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
+                ["t1", "t1"]
+            ),
+            "t1",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
+                ["t1", "t2"]
+            ),
+            "<2 tables>",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging(
+                ["t1", "t2", "t1"]
+            ),
+            "<2 tables>",
+        )
+        self.assertEqual(
+            SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging([]),
+            "<0 tables>",
+        )
 
     @unittest.skipIf(*gpu_unavailable)
     @given(N=st.integers(min_value=1, max_value=2))
@@ -526,6 +558,59 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         check_weight_momentum(0)
+
+    @unittest.skipIf(*gpu_unavailable)
+    def test_update_hyper_parameters(self) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**2
+        Ds = [D] * T
+        Es = [E] * T
+
+        hyperparameters = {
+            "eps": 0.1,
+            "beta1": 0.9,
+            "beta2": 0.999,
+            "weight_decay": 0.0,
+        }
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    EmbeddingLocation.DEVICE,
+                    ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            learning_rate=0.1,
+            **hyperparameters,  # pyre-ignore[6]
+        )
+
+        # Update hyperparameters
+        updated_parameters = {
+            key: value + 1.0 for key, value in hyperparameters.items()
+        } | {"lr": 1.0, "lower_bound": 2.0}
+        cc.update_hyper_parameters(updated_parameters)
+        self.assertAlmostEqual(
+            cc.optimizer_args.learning_rate, updated_parameters["lr"]
+        )
+        self.assertAlmostEqual(cc.optimizer_args.eps, updated_parameters["eps"])
+        self.assertAlmostEqual(cc.optimizer_args.beta1, updated_parameters["beta1"])
+        self.assertAlmostEqual(cc.optimizer_args.beta2, updated_parameters["beta2"])
+        self.assertAlmostEqual(
+            cc.optimizer_args.weight_decay, updated_parameters["weight_decay"]
+        )
+        self.assertAlmostEqual(cc.gwd_lower_bound, updated_parameters["lower_bound"])
+
+        # Update hyperparameters with invalid parameter name
+        invalid_parameter = "invalid_parameter"
+        with self.assertRaisesRegex(
+            NotImplementedError,
+            f"Setting hyper-parameter {invalid_parameter} is not supported",
+        ):
+            cc.update_hyper_parameters({"invalid_parameter": 1.0})
 
 
 if __name__ == "__main__":

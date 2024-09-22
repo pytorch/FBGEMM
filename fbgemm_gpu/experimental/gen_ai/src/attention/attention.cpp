@@ -22,6 +22,16 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
     const int64_t kv_cache_quant_num_groups,
     const bool use_tensor_cores,
     const int64_t cache_logical_dtype_int);
+
+at::Tensor mqa_attn(
+    at::Tensor XQ,
+    at::Tensor cache_K,
+    at::Tensor cache_V,
+    at::Tensor seq_positions,
+    double qk_scale,
+    std::optional<int64_t> num_groups,
+    int64_t cache_logical_dtype_int);
+
 } // namespace fbgemm_gpu::gen_ai::attention
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -37,6 +47,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    bool use_tensor_cores=True,"
       "    int cache_logical_dtype_int=0"
       ") -> (Tensor, Tensor, Tensor)");
+  m.def(
+      "mqa_attn(Tensor XQ, Tensor cache_K, Tensor cache_V, Tensor seq_positions, float qk_scale, int? num_groups=1, int cache_logical_dtype_int=0) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -45,4 +57,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       torch::dispatch(
           c10::DispatchKey::CUDA,
           TORCH_FN(fbgemm_gpu::gen_ai::attention::gqa_attn_splitk)));
+  m.impl(
+      "mqa_attn",
+      torch::dispatch(
+          c10::DispatchKey::CUDA,
+          TORCH_FN(fbgemm_gpu::gen_ai::attention::mqa_attn)));
 }

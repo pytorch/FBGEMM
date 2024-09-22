@@ -16,7 +16,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_embedding_utils import generate_requests, round_up
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -24,6 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.utils import generate_requests, round_up
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
@@ -346,6 +346,62 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 lxu_state=None,
             )
             torch.testing.assert_close(output_uvm, output_ref, equal_nan=True)
+
+    @given(
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_int_nbit_split_embedding_cpu_mixed_indices_offsets_dtypes(
+        self,
+        weights_ty: SparseType,
+    ) -> None:
+        T = random.randint(1, 5)
+        B = random.randint(1, 128)
+        L = random.randint(1, 20)
+        D = random.randint(2, 256)
+        log_E = random.randint(3, 5)
+
+        iters = 4
+        E = int(10**log_E)
+
+        D_alignment = (
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
+        )
+        D = round_up(D, D_alignment)
+
+        Ds = [D] * T
+        Es = [E] * T
+        cpu_locations = [EmbeddingLocation.HOST] * T
+
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, cpu_locations)],
+            device=torch.device("cpu"),
+        )
+        cc.fill_random_weights()
+
+        requests = generate_requests(
+            iters, B, T, L, min(Es), reuse=0.1, emulate_pruning=False, use_cpu=True
+        )
+        dtypes_combo = [
+            (torch.int64, torch.int64),
+            (torch.int32, torch.int32),
+            (torch.int32, torch.int64),
+            (torch.int64, torch.int32),
+        ]
+        for i, req in enumerate(requests):
+            indices, offsets = req.unpack_2()
+            indices_dtype, offsets_dtype = dtypes_combo[i]
+            indices = indices.to(indices_dtype)
+            offsets = offsets.to(offsets_dtype)
+            _ = cc(indices, offsets)
 
 
 if __name__ == "__main__":

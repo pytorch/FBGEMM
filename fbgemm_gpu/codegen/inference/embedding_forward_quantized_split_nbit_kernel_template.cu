@@ -9,7 +9,7 @@
 // clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
@@ -305,7 +305,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 
 {% for device_only in ['true', 'false'] %}
 {% for output_type in ['at::Half', 'at::BFloat16', 'float', 'uint8_t'] %}
-{% for index_type in ['int32_t'] %}
+{% for index_type in ['int32_t', 'int64_t'] %}
 {% for params in emb_weight_type.template_params %}
 
 {% if output_type == 'at::BFloat16' %}
@@ -358,7 +358,7 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
 {% endif %}
 
 {% endfor %} // for params in emb_weight_type.template_params
-{% endfor %} // for index_type in ['int32_t']
+{% endfor %} // for index_type in ['int32_t', 'int64_t']
 {% endfor %} // for output_type in [True, False]
 {% endfor %} // device_only in [True, False]
 

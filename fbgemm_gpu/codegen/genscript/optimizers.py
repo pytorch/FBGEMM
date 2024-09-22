@@ -186,8 +186,8 @@ def rowwise_adagrad() -> Dict[str, Any]:
     const at::acc_type<cache_t, true> g_avg_square =
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
-    at::acc_type<cache_t, true> multiplier;
-    at::acc_type<cache_t, true> correction;
+    at::acc_type<cache_t, true> multiplier = 0.0;
+    at::acc_type<cache_t, true> correction = 0.0;
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
@@ -506,6 +506,8 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
 
     at::acc_type<cache_t, true> adjusted_multiplier;
     at::acc_type<cache_t, true> exp_reg_correction;
+    adjusted_multiplier = 0.0;
+    exp_reg_correction = 0.0;
 
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
@@ -885,6 +887,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> m2;
+    m2  = 0.0;
     if (threadIdx.x == 0) {
         m2 = beta2 * momentum2[idx] + (1.0 - beta2) * g_avg_square;
         momentum2[idx] = m2;
@@ -1017,6 +1020,132 @@ def adam() -> Dict[str, Any]:
     }
 
 
+def ensemble_rowwise_adagrad() -> Dict[str, Any]:
+    split_precomputation = """
+    at::acc_type<cache_t, true> g_local_sum_square = 0.0;
+    """
+    split_precomputation += generate_optimized_grad_sum_loop_access(
+        """
+        const float4* grad = &{grad_vec}.acc;
+        auto gx = grad->x;
+        auto gy = grad->y;
+        auto gz = grad->z;
+        auto gw = grad->w;
+        g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
+    """
+    )
+    split_precomputation += """
+    const at::acc_type<cache_t, true> g_avg_square =
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
+
+    at::acc_type<cache_t, true> multiplier;
+    at::acc_type<cache_t, true> coef_ema;
+    at::acc_type<cache_t, true> should_ema;
+    at::acc_type<cache_t, true> should_swap;
+    if (threadIdx.x == 0) {
+        at::acc_type<cache_t, true> new_sum_square_grads = momentum2[idx] + g_avg_square;
+        momentum2[idx] = new_sum_square_grads;
+        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        
+        coef_ema = fabs(momentum);
+        if (step_mode == 1) {
+            // row_counter[idx] records the number of appearances of this row
+            row_counter[idx] += 1.0;
+            should_ema = floorf(row_counter[idx] / step_ema) - floorf((row_counter[idx]-1.0) / step_ema);
+            should_swap = floorf(row_counter[idx] / step_swap) - floorf((row_counter[idx]-1.0) / step_swap);
+        } else if (step_mode == 2)  {
+            // row_counter[idx] records the step of last ema; prev_iter[idx] records the step of last swap
+            if (momentum > 0) {
+                should_ema = floorf(iter*1.0 / step_ema) - floorf(row_counter[idx]  / step_ema);
+                should_swap = floorf(iter*1.0 / step_swap) - floorf(prev_iter[idx]  / step_swap);
+                coef_ema = (should_ema > 0.5) ? powf(coef_ema, should_ema) : coef_ema;
+            } else {
+                should_ema = floorf((iter*1.0 - row_counter[idx]) / step_ema);
+                should_swap = floorf((iter*1.0 - prev_iter[idx]) / step_swap);
+                coef_ema = (should_ema > 0.5) ? powf(coef_ema, (iter*1.0 - row_counter[idx]) / step_ema) : coef_ema;
+            }
+            if (should_ema > 0.5) {
+                row_counter[idx] = iter*1.0;
+            }
+            if (iter*1.0 > step_start && should_swap > 0.5) {
+                prev_iter[idx] = iter*1.0;
+            }
+        } else {
+            should_ema = 0.0;
+            should_swap = 0.0;
+        }
+    }    
+    multiplier = SHFL_SYNC(multiplier, 0);
+    coef_ema = SHFL_SYNC(coef_ema, 0);
+    should_ema = SHFL_SYNC(should_ema, 0);
+    should_swap = SHFL_SYNC(should_swap, 0);
+    """
+
+    split_weight_update = """
+        weight_new.acc.x = weight_new.acc.x - multiplier * grad.acc.x;
+        weight_new.acc.y = weight_new.acc.y - multiplier * grad.acc.y;
+        weight_new.acc.z = weight_new.acc.z - multiplier * grad.acc.z;
+        weight_new.acc.w = weight_new.acc.w - multiplier * grad.acc.w;
+
+        if (should_ema > 0.5) { // slow table ema
+            Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
+            m_t.acc.x = (1.0 - coef_ema) * weight_new.acc.x + coef_ema * m_t.acc.x + (fabs(momentum) - coef_ema) * multiplier * grad.acc.x;
+            m_t.acc.y = (1.0 - coef_ema) * weight_new.acc.y + coef_ema * m_t.acc.y + (fabs(momentum) - coef_ema) * multiplier * grad.acc.y;
+            m_t.acc.z = (1.0 - coef_ema) * weight_new.acc.z + coef_ema * m_t.acc.z + (fabs(momentum) - coef_ema) * multiplier * grad.acc.z;
+            m_t.acc.w = (1.0 - coef_ema) * weight_new.acc.w + coef_ema * m_t.acc.w + (fabs(momentum) - coef_ema) * multiplier * grad.acc.w;
+            m_t.store(&momentum1[idx * D + d]);
+        }
+
+        if (iter*1.0 > step_start && should_swap > 0.5) { // slow-to-fast swap
+            Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
+            weight_new.acc.x = m_t.acc.x * 1.0;
+            weight_new.acc.y = m_t.acc.y * 1.0;
+            weight_new.acc.z = m_t.acc.z * 1.0;
+            weight_new.acc.w = m_t.acc.w * 1.0;
+        }
+    """
+
+    split_weight_update_cpu = ""  # TODO
+
+    return {
+        "optimizer": "ensemble_rowwise_adagrad",
+        "is_prototype_optimizer": True,
+        "args": OptimizerArgsSet.create(
+            [
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum1",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum2",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(ArgType.TENSOR, "prev_iter"),
+                OptimItem(ArgType.TENSOR, "row_counter"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "step_ema"),
+                OptimItem(ArgType.FLOAT, "step_swap"),
+                OptimItem(ArgType.FLOAT, "step_start"),
+                OptimItem(ArgType.FLOAT, "momentum"),
+                OptimItem(ArgType.INT, "iter"),
+                OptimItem(ArgType.INT, "step_mode"),
+            ]
+        ),
+        "split_precomputation": split_precomputation,
+        "split_weight_update": split_weight_update,
+        "split_post_update": "",
+        "split_weight_update_cpu": split_weight_update_cpu,
+        "has_cpu_support": False,
+        "has_gpu_support": True,
+        "has_vbe_support": True,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
+    }
+
+
 def partial_rowwise_adam() -> Dict[str, Any]:
     split_precomputation = """
     at::acc_type<cache_t, true> g_local_sum_square = 0.0;
@@ -1035,6 +1164,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> v_hat_t;
+    v_hat_t = 0.0;
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> v_t = momentum2[idx] * beta2 + g_avg_square * (1.0 - beta2);
         momentum2[idx] = v_t;

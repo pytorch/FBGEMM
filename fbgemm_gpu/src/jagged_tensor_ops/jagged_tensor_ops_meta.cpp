@@ -12,7 +12,6 @@
 #include <torch/library.h>
 
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 
 namespace fbgemm_gpu {
 

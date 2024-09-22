@@ -20,9 +20,10 @@
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 
-#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 namespace {
 
@@ -289,7 +290,8 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const std::optional<Tensor>& unbucketize_permute,
     const std::optional<Tensor>& batch_size_per_feature,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const std::optional<Tensor>& bucket_mapping) {
+    const std::optional<Tensor>& bucket_mapping,
+    const bool keep_orig_idx) {
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
@@ -407,14 +409,24 @@ void _block_bucketize_sparse_features_cpu_kernel(
         if (variable_bucket_sizes) {
           int64_t lb = lower_bounds[i];
           p = lb < my_size ? lb : idx % my_size;
-          new_idx = lb < my_size ? idx - bucketize_offset[lb] : idx / my_size;
+          if (keep_orig_idx) {
+            new_idx = idx;
+          } else if (lb < my_size) {
+            new_idx = idx - bucketize_offset[lb];
+          } else {
+            new_idx = idx / my_size;
+          }
+        } else { // uniform bucket size
 
-        } else {
-          p = idx < static_cast<uindex_t>(blk_size * my_size) ? idx / blk_size
-                                                              : idx % my_size;
-          new_idx = idx < static_cast<uindex_t>(blk_size * my_size)
-              ? idx % blk_size
-              : idx / my_size;
+          const uindex_t ub = static_cast<uindex_t>(blk_size * my_size);
+          p = idx < ub ? idx / blk_size : idx % my_size;
+          if (keep_orig_idx) {
+            new_idx = idx;
+          } else if (idx < ub) {
+            new_idx = idx % blk_size;
+          } else {
+            new_idx = idx / my_size;
+          }
         }
         const uoffset_t pos = new_offsets_data[p * lengths_size + b_t];
         new_indices_data[pos] = new_idx;
@@ -579,6 +591,24 @@ void _bucketize_sparse_features_cpu(
       }
     }
   }
+}
+
+std::tuple<Tensor, Tensor, std::optional<Tensor>>
+permute_2D_sparse_data_input1D_cpu(
+    const Tensor& permute,
+    const Tensor& lengths,
+    const Tensor& indices,
+    const int64_t& stride,
+    const std::optional<Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum) {
+  auto [permuted_lengths, permuted_indices, permuted_weights] =
+      permute_2D_sparse_data_cpu(
+          permute,
+          lengths.view({-1, stride}),
+          indices,
+          weights,
+          permuted_lengths_sum);
+  return {permuted_lengths.view(-1), permuted_indices, permuted_weights};
 }
 
 std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
@@ -1005,7 +1035,8 @@ _block_bucketize_sparse_features_cpu(
     const std::optional<Tensor>& batch_size_per_feature,
     const int64_t /* max_batch_size */, // Only used in GPU variant
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool return_bucket_mapping) {
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx) {
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
@@ -1052,7 +1083,8 @@ _block_bucketize_sparse_features_cpu(
                         unbucketize_permute,                     \
                         batch_size_per_feature,                  \
                         block_bucketize_pos,                     \
-                        bucket_mapping);                         \
+                        bucket_mapping,                          \
+                        keep_orig_idx);                          \
                   });                                            \
             });                                                  \
       });
@@ -1086,7 +1118,8 @@ _block_bucketize_sparse_features_cpu(
                   unbucketize_permute,                                      \
                   batch_size_per_feature,                                   \
                   block_bucketize_pos,                                      \
-                  bucket_mapping);                                          \
+                  bucket_mapping,                                           \
+                  keep_orig_idx);                                           \
             });                                                             \
       });
   const auto lengths_sum = indices.numel();
@@ -1154,7 +1187,8 @@ block_bucketize_sparse_features_cpu(
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& batch_size_per_feature,
     const int64_t /* max_batch_size */, // Only used in GPU variant
-    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos) {
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx) {
   Tensor new_lengths;
   Tensor new_indices;
   std::optional<Tensor> new_weights;
@@ -1178,7 +1212,8 @@ block_bucketize_sparse_features_cpu(
           batch_size_per_feature,
           -1, /* placeholder for max_batch_size */
           block_bucketize_pos,
-          false);
+          false,
+          keep_orig_idx);
   return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
 }
 
@@ -1200,7 +1235,8 @@ block_bucketize_sparse_features_inference_cpu(
     const std::optional<Tensor>& batch_size_per_feature,
     const int64_t /* max_batch_size */, // Only used in GPU variant
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool return_bucket_mapping) {
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx) {
   return _block_bucketize_sparse_features_cpu(
       lengths,
       indices,
@@ -1212,7 +1248,8 @@ block_bucketize_sparse_features_inference_cpu(
       batch_size_per_feature,
       -1, /* placeholder for max_batch_size */
       block_bucketize_pos,
-      return_bucket_mapping);
+      return_bucket_mapping,
+      keep_orig_idx);
 }
 
 // This function partitions sparse features
@@ -1295,11 +1332,15 @@ U exclusive_scan_ptrs_cpu(
   return cumsum;
 }
 
-Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
+void asynchronous_exclusive_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const Tensor& t_in) {
   TENSOR_ON_CPU(t_in);
+  TENSOR_ON_CPU(t_out);
 
   const auto t_in_contig = t_in.expect_contiguous();
-  auto output = native_empty_like(*t_in_contig);
+  at::native::resize_(t_out, t_in_contig->sizes(), c10::nullopt);
+
   FBGEMM_DISPATCH_ALL_TYPES(
       t_in_contig->scalar_type(),
       "asynchronous_exclusive_cumsum_cpu_kernel",
@@ -1307,8 +1348,16 @@ Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
         exclusive_scan_ptrs_cpu(
             t_in_contig->numel(),
             t_in_contig->data_ptr<scalar_t>(),
-            output.data_ptr<scalar_t>());
+            t_out.data_ptr<scalar_t>());
       });
+}
+
+Tensor asynchronous_exclusive_cumsum_cpu(const Tensor& t_in) {
+  TENSOR_ON_CPU(t_in);
+
+  const auto t_in_contig = t_in.expect_contiguous();
+  auto output = native_empty_like(*t_in_contig);
+  asynchronous_exclusive_cumsum_cpu_out(output, *t_in_contig);
   return output;
 }
 
@@ -3033,6 +3082,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
       {PT2_COMPLIANT_TAG});
   m.def(
+      "permute_2D_sparse_data_input1D(Tensor permute, Tensor lengths, Tensor values, SymInt stride, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)");
+  m.def(
       "permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
       {PT2_COMPLIANT_TAG});
   m.def("invert_permute(Tensor permute) -> Tensor");
@@ -3042,9 +3093,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "populate_bucketized_permute(Tensor lengths, Tensor bucketized_lengths, Tensor bucket_mapping) -> Tensor");
   m.def(
-      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool keep_orig_idx=False) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
-      "block_bucketize_sparse_features_inference(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool return_bucket_mapping=False) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?)");
+      "block_bucketize_sparse_features_inference(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool return_bucket_mapping=False, bool keep_orig_idx=False) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?)");
   m.def(
       "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, SymInt my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
   m.def(
@@ -3142,6 +3193,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
       "permute_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
   DISPATCH_TO_CPU(
       "permute_2D_sparse_data", fbgemm_gpu::permute_2D_sparse_data_cpu);
+  DISPATCH_TO_CPU(
+      "permute_2D_sparse_data_input1D",
+      fbgemm_gpu::permute_2D_sparse_data_input1D_cpu);
   DISPATCH_TO_CPU(
       "permute_1D_sparse_data", fbgemm_gpu::permute_1D_sparse_data_cpu);
   DISPATCH_TO_CPU("invert_permute", fbgemm_gpu::invert_permute_cpu);

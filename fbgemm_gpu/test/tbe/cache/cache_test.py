@@ -17,13 +17,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-
-from fbgemm_gpu.split_embedding_utils import (
-    generate_requests,
-    get_table_batched_offsets_from_dense,
-    TBERequest,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -34,6 +27,13 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     MultiPassPrefetchConfig,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+
+from fbgemm_gpu.tbe.utils import (
+    generate_requests,
+    get_table_batched_offsets_from_dense,
+    TBERequest,
+    to_device,
+)
 from hypothesis import assume, given, settings
 
 from ..common import MAX_EXAMPLES  # noqa E402
@@ -43,7 +43,7 @@ from .cache_common import (
     generate_cache_tbes,
     gpu_unavailable,
     optests,
-    skipIfRocm,
+    running_on_rocm,
     TestingStatsReporter,
     TestingStatsReporterConfig,
     VERBOSITY,
@@ -77,7 +77,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm
+    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -177,6 +177,7 @@ class CacheTest(unittest.TestCase):
         mixed_B: bool = False,
         mpp_n_passes: Optional[int] = None,
         mpp_min_size: Optional[int] = None,
+        trigger_bounds_check: bool = False,
     ) -> None:
         """
         test cache prefetch pipeline with prefetch_pipeline=True.
@@ -187,8 +188,9 @@ class CacheTest(unittest.TestCase):
         In addition, we make the TBE weights initialized as integer values, learning_rate
         as integer value, and gradients as integer values so that the test is more stable.
         """
+        if mixed_B and T == 1:
+            return
         # Need more than one table for variable batch sizes
-        assume(not mixed_B or T > 1)
         assert prefetch_location in ["before_fwd", "between_fwd_bwd"]
         reporter = TestingStatsReporterConfig(interval=2)
 
@@ -199,6 +201,7 @@ class CacheTest(unittest.TestCase):
                 mpp_conf = mpp_conf._replace(num_passes=mpp_n_passes)
             if mpp_min_size:
                 mpp_conf = mpp_conf._replace(min_splitable_pass_size=mpp_min_size)
+        cc: SplitTableBatchedEmbeddingBagsCodegen
         cc, cc_ref, min_Es, sum_Ds = generate_cache_tbes(
             T,
             D,
@@ -225,6 +228,22 @@ class CacheTest(unittest.TestCase):
             sigma_B=1 if mixed_B else None,
             vbe_num_ranks=vbe_num_ranks if mixed_B else None,
         )
+
+        # Cast indices and offsets to long
+        for i, req in enumerate(requests):
+            indices, offsets, weights, Bs_feature_rank = req.unpack_4()
+            requests[i] = TBERequest(
+                indices.long(), offsets.long(), weights, Bs_feature_rank
+            )
+
+        if trigger_bounds_check:
+            # Randomly set some indices to be out of bound
+            for i, req in enumerate(requests):
+                indices, offsets, weights, Bs_feature_rank = req.unpack_4()
+                num_indices = indices.numel()
+                pos = random.sample(range(0, num_indices), (num_indices + 9) // 10)
+                indices[pos] = min_Es * 2
+                requests[i] = TBERequest(indices, offsets, weights, Bs_feature_rank)
 
         # Generat grad_output
         assert len(requests) > 0, "There must be at least one request"
@@ -356,8 +375,8 @@ class CacheTest(unittest.TestCase):
                         self.assertEqual(rep_val, expected_value[i])
                     else:
                         self.assertGreaterEqual(float(rep_val), 0)
-                    self.assertEqual(rep_emb_id, "")
-                    self.assertEqual(rep_tbe_id, "")
+                    self.assertEqual(rep_emb_id, cc.logging_table_name)
+                    self.assertEqual(rep_tbe_id, cc.uuid)
 
             def assert_event_not_exist(event_name: str) -> None:
                 self.assertFalse(event_name in stats_reporter.reported_data)
@@ -424,7 +443,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm
+    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -438,6 +457,7 @@ class CacheTest(unittest.TestCase):
         gather_uvm_cache_stats=st.booleans(),
         mpp_n_passes=st.sampled_from([None, 1, 6, 12]),
         mpp_min_size=st.sampled_from([None, 1, 5, 10, 1024]),
+        trigger_bounds_check=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline(
@@ -451,7 +471,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm
+    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -465,6 +485,7 @@ class CacheTest(unittest.TestCase):
         mixed_B=st.booleans(),
         mpp_n_passes=st.sampled_from([None, 1, 6, 12]),
         mpp_min_size=st.sampled_from([None, 1, 5, 10, 1024]),
+        trigger_bounds_check=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_1(
@@ -479,7 +500,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @skipIfRocm
+    @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -493,6 +514,7 @@ class CacheTest(unittest.TestCase):
         mixed_B=st.booleans(),
         mpp_n_passes=st.sampled_from([None, 1, 6, 12]),
         mpp_min_size=st.sampled_from([None, 1, 5, 10, 1024]),
+        trigger_bounds_check=st.booleans(),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_cache_prefetch_pipeline_stream_2(

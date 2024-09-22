@@ -18,13 +18,18 @@ from .lookup_args{{ sdesc }} import *
 
 {%- if is_fbcode %}
 
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 # Provide compatibility to downstream packages for eventual migration to the split training / inference packages
 try:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training")
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training",
+    )
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training",
+    )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
@@ -34,11 +39,15 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_emb
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_cpu")
 
 {%- endif %}
 
-
+{%- if is_prototype_optimizer %}
+# Decorate the prototype optimizers which may be deprecated in the future with jit.ignore to avoid
+# possible errors from torch.jit.script. 
+# Note that backends can be removed but the lookup invoker is still needed for backward compatibility
+@torch.jit.ignore
+{%- endif %}
 def invoke(
     common_args: CommonArgs,
     optimizer_args: OptimizerArgs,
@@ -63,6 +72,15 @@ def invoke(
     {%- if "total_unique_indices" in args.split_function_arg_names %}
     total_unique_indices: int,
     {%- endif %}
+    {%- if "iter" not in args.split_function_arg_names %}
+    iter: int = 0,
+    {%- endif %}
+    apply_global_weight_decay: bool = False,
+    {%- if "prev_iter_dev" not in args.split_function_arg_names %}
+    # only pass prev_iter_dev since prev_iter is never created on UVM
+    prev_iter_dev: Optional[torch.Tensor] = None,
+    {%- endif %}
+    gwd_lower_bound: float = 0.0,
 ) -> torch.Tensor:
     {%- if is_experimental_optimizer %}
     # By design, the warning only shows up once
@@ -75,9 +93,28 @@ def invoke(
     )
     {%- endif %}
 
+    vbe_metadata = common_args.vbe_metadata
+
     {%- if has_cpu_support and not ssd %}
     if (common_args.host_weights.numel() > 0):
-        return torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
+        T = common_args.D_offsets.numel() - 1
+        vbe: bool = vbe_metadata.B_offsets is not None
+        if vbe:
+            # create offsets with fixed batch size max_B
+            # not efficient but for now we just need a functional implementation for CPU
+            max_B = vbe_metadata.max_B
+            offsets = torch.empty([T * max_B + 1], dtype=common_args.offsets.dtype, device=common_args.offsets.device)
+            for t in range(T):
+                B_offsets = vbe_metadata.B_offsets
+                assert isinstance(B_offsets, torch.Tensor)
+                begin = B_offsets[t]
+                end = B_offsets[t + 1]
+                offsets[t * max_B : t * max_B + end - begin] = common_args.offsets[begin : end]
+                offsets[t * max_B + end - begin : (t + 1) * max_B] = common_args.offsets[end]
+            offsets[-1] = common_args.offsets[-1]
+        else:
+            offsets = common_args.offsets
+        output = torch.ops.fbgemm.split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
             # common_args
             host_weights=common_args.host_weights,
             weights_placements=common_args.weights_placements,
@@ -88,7 +125,7 @@ def invoke(
             hash_size_cumsum=common_args.hash_size_cumsum,
             total_hash_size_bits=common_args.total_hash_size_bits,
             indices=common_args.indices,
-            offsets=common_args.offsets,
+            offsets=offsets,
             pooling_mode=common_args.pooling_mode,
             indice_weights=common_args.indice_weights,
             feature_requires_grad=common_args.feature_requires_grad,
@@ -107,6 +144,18 @@ def invoke(
             {%- endif %}
             {%- if "beta2" in args.split_function_arg_names %}
             beta2=optimizer_args.beta2,
+            {%- endif %}
+            {%- if "step_ema" in args.split_function_arg_names %}
+            step_ema=optimizer_args.step_ema,
+            {%- endif %}
+            {%- if "step_swap" in args.split_function_arg_names %}
+            step_swap=optimizer_args.step_swap,
+            {%- endif %}
+            {%- if "step_start" in args.split_function_arg_names %}
+            step_start=optimizer_args.step_start,
+            {%- endif %}
+            {%- if "step_mode" in args.split_function_arg_names %}
+            step_mode=optimizer_args.step_mode,
             {%- endif %}
             {%- if "weight_decay" in args.split_function_arg_names %}
             weight_decay=optimizer_args.weight_decay,
@@ -186,6 +235,27 @@ def invoke(
             max_counter=max_counter,
             {%- endif %}
         )
+        if vbe:
+            output_new = torch.empty([vbe_metadata.output_size], dtype=output.dtype, device=output.device)
+            B_offsets_rank_per_feature = vbe_metadata.B_offsets_rank_per_feature
+            assert isinstance(B_offsets_rank_per_feature, torch.Tensor)
+            output_offsets_feature_rank = vbe_metadata.output_offsets_feature_rank
+            assert isinstance(output_offsets_feature_rank, torch.Tensor)
+            R = B_offsets_rank_per_feature.size(1) - 1
+            for r in range(R):
+                D_offset = 0
+                for t in range(T):
+                    o_begin = output_offsets_feature_rank[r * T + t].item()
+                    o_end = output_offsets_feature_rank[r * T + t + 1].item()
+                    D = common_args.D_offsets[t + 1].item() - common_args.D_offsets[t].item()
+                    b_begin = B_offsets_rank_per_feature[t][r].item()
+                    b_end = B_offsets_rank_per_feature[t][r + 1].item()
+                    assert o_end - o_begin == (b_end - b_begin) * D
+                    output_new[o_begin : o_end] = output[b_begin : b_end, D_offset : D_offset + D].flatten()
+                    D_offset += D
+            return output_new
+        else:
+            return output
     {%- if not has_gpu_support %}
     else:
         assert False, "{{ optimizer }} has only CPU support. host_weights.numel() must be greater than 0."
@@ -193,7 +263,6 @@ def invoke(
     {%- endif %}
 
     {%- if has_gpu_support %}
-    vbe_metadata = common_args.vbe_metadata
 
     {%- if ssd %}
     ssd_tensors = []
@@ -257,6 +326,18 @@ def invoke(
         {%- endif %}
         {%- if "beta2" in args.split_function_arg_names %}
         beta2=optimizer_args.beta2,
+        {%- endif %}
+        {%- if "step_ema" in args.split_function_arg_names %}
+        step_ema=optimizer_args.step_ema,
+        {%- endif %}
+        {%- if "step_swap" in args.split_function_arg_names %}
+        step_swap=optimizer_args.step_swap,
+        {%- endif %}
+        {%- if "step_start" in args.split_function_arg_names %}
+        step_start=optimizer_args.step_start,
+        {%- endif %}
+        {%- if "step_mode" in args.split_function_arg_names %}
+        step_mode=optimizer_args.step_mode,
         {%- endif %}
         {%- if "weight_decay" in args.split_function_arg_names %}
         weight_decay=optimizer_args.weight_decay,
@@ -323,6 +404,9 @@ def invoke(
         prev_iter_uvm=prev_iter.uvm,
         prev_iter_offsets=prev_iter.offsets,
         prev_iter_placements=prev_iter.placements,
+        {%- else %}
+        {# // explicitly pass only prev_iter_dev for global weight decay #}
+        prev_iter_dev=prev_iter_dev,
         {%- endif %}
         # row_counter
         {%- if "row_counter_dev" in args.split_function_arg_names %}
@@ -332,9 +416,7 @@ def invoke(
         row_counter_placements=row_counter.placements,
         {%- endif %}
         # iter
-        {%- if "iter" in args.split_function_arg_names %}
         iter=iter,
-        {%- endif %}
         # max counter
         {%- if "max_counter" in args.split_function_arg_names %}
         max_counter=max_counter,
@@ -347,5 +429,7 @@ def invoke(
         is_experimental=common_args.is_experimental,
         use_uniq_cache_locations_bwd=common_args.use_uniq_cache_locations_bwd,
         use_homogeneous_placements=common_args.use_homogeneous_placements,
+        apply_global_weight_decay=apply_global_weight_decay,
+        gwd_lower_bound=gwd_lower_bound,
     )
     {%- endif %}

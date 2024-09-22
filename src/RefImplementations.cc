@@ -23,7 +23,6 @@
 using namespace std;
 
 namespace fbgemm {
-
 typedef union {
   uint32_t I;
   float F;
@@ -1413,7 +1412,7 @@ bool EmbeddingSpMDM_ref(
 
 template <typename IndexType, typename OffsetType, typename OutType>
 bool EmbeddingSpMDMNBit_ref(
-    int bit_rate,
+    int input_bit_rate,
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -1428,10 +1427,15 @@ bool EmbeddingSpMDMNBit_ref(
     bool use_offsets /*=true*/,
     int64_t output_stride /*=-1*/,
     int64_t input_stride /*=-1*/,
-    bool scale_bias_last /*=true*/,
-    bool is_bf16_out /*=false*/) {
-  assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
-  int num_elem_per_byte = 8 / bit_rate;
+    const bool scale_bias_last /*=true*/,
+    const bool is_bf16_out /*=false*/,
+    const bool no_bag /*=false*/,
+    int output_bit_rate /*=-1*/) {
+  if (output_bit_rate == -1) {
+    output_bit_rate = 8 * sizeof(OutType);
+  }
+  nbit_embedding_sanity_check<OutType>(input_bit_rate, output_bit_rate, no_bag);
+  int num_elem_per_byte = 8 / input_bit_rate;
 
   if (output_stride == -1) {
     output_stride = block_size;
@@ -1444,6 +1448,27 @@ bool EmbeddingSpMDMNBit_ref(
     input_stride = (block_size + num_elem_per_byte - 1) / num_elem_per_byte +
         scale_bias_offset;
   }
+
+  if (no_bag) {
+    // We currently only support int4 to int4 for sequential TBE in this nbit
+    // kernel. Note that assert() will be ignored in release mode, so we check
+    // here to double check and also avoid "unused variable" warning
+    if (!(input_bit_rate == 4 && output_bit_rate == 4)) {
+      WARN_ONCE("no_bag is only supported for int4 to int4");
+      return false;
+    }
+    for (int64_t i = 0; i < output_size; ++i) {
+      const auto idx = indices[i];
+      if (idx < 0 || idx > data_size) {
+        return false;
+      }
+      const uint8_t* input_row = input + input_stride * idx;
+      memcpy(out, input_row, sizeof(uint8_t) * input_stride);
+      out += input_stride;
+    }
+    return true;
+  }
+
   int64_t current = 0;
   vector<float> buf(block_size);
   for (int m = 0; m < output_size; ++m) {
@@ -1481,8 +1506,8 @@ bool EmbeddingSpMDMNBit_ref(
         uint8_t quantized = input
             [input_stride * idx + j / num_elem_per_byte +
              (scale_bias_last ? 0 : scale_bias_offset)];
-        quantized >>= (j % num_elem_per_byte) * bit_rate;
-        quantized &= (1 << bit_rate) - 1;
+        quantized >>= (j % num_elem_per_byte) * input_bit_rate;
+        quantized &= (1 << input_bit_rate) - 1;
 
         buf[j] = std::fma(scale, quantized, buf[j] + bias);
       }
@@ -2105,47 +2130,53 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 #undef INSTANTIATE_SPMDM_OUT_T
 #undef INSTANTIATE_SPMDM_BASE
 
-#define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template FBGEMM_API bool EmbeddingSpMDMNBit_ref(                \
-      int bit_rate,                                               \
-      const int64_t block_size,                                   \
-      const int64_t output_size,                                  \
-      const int64_t index_size,                                   \
-      const int64_t data_size,                                    \
-      const uint8_t* input,                                       \
-      const INDEX_TYPE* indices,                                  \
-      const OFFSET_TYPE* offsets_or_lengths,                      \
-      const float* weights,                                       \
-      bool normalize_by_lengths,                                  \
-      OUT_TYPE* out,                                              \
-      bool is_weight_positional,                                  \
-      bool use_offsets,                                           \
-      int64_t output_stride,                                      \
-      int64_t input_stride,                                       \
-      bool scale_bias_last,                                       \
-      bool is_bf16_out);                                          \
-  template FBGEMM_API bool EmbeddingSpMDMFP8_ref(                 \
-      const int64_t block_size,                                   \
-      const int64_t output_size,                                  \
-      const int64_t index_size,                                   \
-      const int64_t data_size,                                    \
-      const uint8_t* input,                                       \
-      const INDEX_TYPE* indices,                                  \
-      const OFFSET_TYPE* offsets_or_lengths,                      \
-      const float* weights,                                       \
-      bool normalize_by_lengths,                                  \
-      OUT_TYPE* out,                                              \
-      bool is_weight_positional,                                  \
-      bool use_offsets,                                           \
-      int64_t output_stride,                                      \
-      int64_t input_stride,                                       \
-      int exponent_bits,                                          \
-      int exponent_bias,                                          \
+#define INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  template FBGEMM_API bool EmbeddingSpMDMNBit_ref(                     \
+      const int input_bit_rate,                                        \
+      const int64_t block_size,                                        \
+      const int64_t output_size,                                       \
+      const int64_t index_size,                                        \
+      const int64_t data_size,                                         \
+      const uint8_t* input,                                            \
+      const INDEX_TYPE* indices,                                       \
+      const OFFSET_TYPE* offsets_or_lengths,                           \
+      const float* weights,                                            \
+      bool normalize_by_lengths,                                       \
+      OUT_TYPE* out,                                                   \
+      bool is_weight_positional,                                       \
+      bool use_offsets,                                                \
+      int64_t output_stride,                                           \
+      int64_t input_stride,                                            \
+      const bool scale_bias_last,                                      \
+      const bool is_bf16_out,                                          \
+      const bool no_bag,                                               \
+      int output_bit_rate);
+#define INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  template FBGEMM_API bool EmbeddingSpMDMFP8_ref(                     \
+      const int64_t block_size,                                       \
+      const int64_t output_size,                                      \
+      const int64_t index_size,                                       \
+      const int64_t data_size,                                        \
+      const uint8_t* input,                                           \
+      const INDEX_TYPE* indices,                                      \
+      const OFFSET_TYPE* offsets_or_lengths,                          \
+      const float* weights,                                           \
+      bool normalize_by_lengths,                                      \
+      OUT_TYPE* out,                                                  \
+      bool is_weight_positional,                                      \
+      bool use_offsets,                                               \
+      int64_t output_stride,                                          \
+      int64_t input_stride,                                           \
+      int exponent_bits,                                              \
+      int exponent_bias,                                              \
       bool is_bf16_out);
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)        \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)        \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16)      \
+  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
+  INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, float)    \
+  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
+  INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, float16)  \
+  INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, uint8_t) \
   template FBGEMM_API bool EmbeddingSpMDMNBitRowWiseSparse_ref( \
       int bit_rate,                                             \
       const int64_t block_size,                                 \

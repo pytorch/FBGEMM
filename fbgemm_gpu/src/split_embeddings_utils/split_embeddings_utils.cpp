@@ -7,10 +7,9 @@
  */
 
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
-#include "fbgemm_gpu/sparse_ops_utils.h" // @manual
-
 #include <ATen/ATen.h>
 #include <torch/library.h>
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;

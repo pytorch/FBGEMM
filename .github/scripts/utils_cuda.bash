@@ -58,8 +58,17 @@ install_cuda () {
   (test_filepath "${env_name}" cuda_runtime.h) || return 1
 
   # Ensure that the libraries are properly installed
+  (test_filepath "${env_name}" libcuda.so) || return 1
   (test_filepath "${env_name}" libnvToolsExt.so) || return 1
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
+
+  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155
+  local libcuda_path=$(find "${conda_prefix}" -type f -name libcuda.so)
+  nm -gDC "${libcuda_path}"
+  append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
 
   echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
   # shellcheck disable=SC2155,SC2086
@@ -68,6 +77,10 @@ install_cuda () {
   local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
+
+  local nvcc_prepend_flags=(
+    -allow-unsupported-compiler
+  )
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
@@ -81,13 +94,20 @@ install_cuda () {
     # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
     #   https://github.com/ROCm/HIP/issues/931
     #
-    echo "[BUILD] Explicitly setting Clang as the host compiler for NVCC: ${cxx_path}"
+    echo "[BUILD] Setting Clang as the NVCC host compiler: ${cxx_path}"
 
     # shellcheck disable=SC2155,SC2086
     local cxx_path=$(conda run ${env_prefix} which c++)
-    # shellcheck disable=SC2086
-    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
+
+    nvcc_prepend_flags+=(
+      -Xcompiler -stdlib=libstdc++
+      -ccbin "${cxx_path}"
+    )
   fi
+
+  echo "[BUILD] Setting prepend flags for NVCC ..."
+  # shellcheck disable=SC2086,SC2145
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\""${nvcc_prepend_flags[@]}"\"
 
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."

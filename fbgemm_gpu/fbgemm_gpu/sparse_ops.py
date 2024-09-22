@@ -7,36 +7,31 @@
 # pyre-strict
 
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.utils.loader import load_torch_module
 
 try:
     # pyre-ignore
     from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
+    load_torch_module("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
+
     if torch.version.hip:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
         torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
-        )
-        torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip"
         )
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops_hip"
-        )
+
     else:
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
-        )
         torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
+
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
 
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     torch.ops.load_library(
@@ -69,6 +64,72 @@ else:
             return f
 
         return wrapper
+
+
+def permute_2D_sparse_data_input1D_meta(
+    permute: Tensor,
+    lengths: Tensor,
+    values: Tensor,
+    stride: int,
+    weights: Optional[Tensor] = None,
+    permuted_lengths_sum: Optional[int] = None,
+) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+    torch._check(
+        lengths.dim() == 1, lambda: f"expected lengths.dim() == 1, got {lengths.dim()}"
+    )
+    T = permute.numel()
+    B = stride
+    indices = values
+    permuted_lengths = lengths.new_empty([T * B])
+    permuted_indices_size = 0
+    if permuted_lengths_sum is not None:
+        permuted_indices_size = permuted_lengths_sum
+    else:
+        ctx = torch.library.get_ctx()
+        permuted_indices_size = ctx.new_dynamic_size()
+    # pyre-fixme
+    permuted_indices = indices.new_empty(permuted_indices_size)
+    permuted_weights = None
+    if weights is not None:
+        # pyre-fixme
+        permuted_weights = weights.new_empty(permuted_indices_size)
+    return permuted_lengths, permuted_indices, permuted_weights
+
+
+# pyre-ignore
+def permute_2D_sparse_data_input1D_setup_context(ctx, inputs, output):
+    permute, lengths, values, stride, weights, permuted_lengths_sum = inputs
+    permuted_lengths, permuted_values, permuted_weights = output
+    ctx.permute = permute
+    ctx.permuted_lengths = permuted_lengths
+    ctx.stride = stride
+
+
+def permute_2D_sparse_data_input1D_backward(
+    ctx,  # pyre-ignore
+    grad_lengths: torch.Tensor,
+    grad_values: torch.Tensor,
+    grad_weights: torch.Tensor,
+) -> Tuple[None, Tensor, Tensor, None, Tensor, None]:
+    inv_permute = torch.ops.fbgemm.invert_permute(ctx.permute)
+    permuted_grad_lengths, permuted_grad_values, permuted_grad_weights = (
+        torch.ops.fbgemm.permute_2D_sparse_data_input1D(
+            inv_permute,
+            ctx.permuted_lengths,
+            grad_values,
+            ctx.stride,
+            grad_weights,
+            None,
+        )
+    )
+    return (
+        None,
+        permuted_grad_lengths,
+        permuted_grad_values,
+        None,
+        permuted_grad_weights,
+        None,
+    )
 
 
 def permute_2D_sparse_data_meta(
@@ -188,7 +249,7 @@ def tbe_input_combine_abstract(
         torch._check(index.is_contiguous())
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -225,7 +286,7 @@ def tbe_input_combine_with_length_abstract(
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
         total_offsets = total_offsets + offset.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -398,6 +459,8 @@ def block_bucketize_sparse_features_meta(
     weights: Optional[torch.Tensor] = None,
     batch_size_per_feature: Optional[torch.Tensor] = None,
     max_B: int = -1,
+    block_bucketize_pos: Optional[torch.Tensor] = None,
+    keep_orig_idx: bool = False,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -885,14 +948,27 @@ def permute_pooled_embs_split_abstract(
     return torch.empty_like(pooled_embs)
 
 
-def permute_duplicate_pooled_embs_split_abstract(
-    pooled_embs: Tensor,
-    offset_dim_list: Tensor,
-    permute_list: Tensor,
-    inv_offset_dim_list: Tensor,
-    inv_permute_list: Tensor,
+def histogram_binning_calibration_abstract(
+    logit: Tensor,
+    bin_num_examples: Tensor,
+    bin_num_positives: Tensor,
+    positive_weight: float,
+    lower_bound: float,
+    upper_bound: float,
+    bin_ctr_in_use_after: int,
+    bin_ctr_weight_value: float,
+) -> Tuple[Tensor, Tensor]:
+    return torch.empty_like(logit), torch.empty([logit.numel()], dtype=torch.int64)
+
+
+def float_to_hfp8_quantized(
+    input: Tensor, ebits: int, exponent_bias: int, max_pos: float
 ) -> Tensor:
-    return torch.empty_like(pooled_embs)
+    return torch.empty_like(input, dtype=torch.uint8)
+
+
+def hfp8_quantized_to_float(input: Tensor, ebits: int, exponent_bias: int) -> Tensor:
+    return torch.empty_like(input, dtype=torch.float32)
 
 
 def _setup() -> None:
@@ -919,6 +995,10 @@ def _setup() -> None:
         )
 
         impl_abstract("fbgemm::permute_2D_sparse_data", permute_2D_sparse_data_meta)
+        impl_abstract(
+            "fbgemm::permute_2D_sparse_data_input1D",
+            permute_2D_sparse_data_input1D_meta,
+        )
         impl_abstract("fbgemm::invert_permute", invert_permute_abstract)
         impl_abstract("fbgemm::permute_1D_sparse_data", permute_1D_sparse_data_meta)
         impl_abstract("fbgemm::masked_select_jagged_1d", masked_select_jagged_1d)
@@ -1014,11 +1094,34 @@ def _setup() -> None:
             "fbgemm::permute_pooled_embs_split", permute_pooled_embs_split_abstract
         )
         impl_abstract(
-            "fbgemm::permute_duplicate_pooled_embs_split",
-            permute_duplicate_pooled_embs_split_abstract,
+            "fbgemm::histogram_binning_calibration",
+            histogram_binning_calibration_abstract,
+        )
+        impl_abstract(
+            "fbgemm::FloatToHFP8Quantized",
+            float_to_hfp8_quantized,
+        )
+        impl_abstract(
+            "fbgemm::HFP8QuantizedToFloat",
+            hfp8_quantized_to_float,
         )
 
         _setup.done = True
 
 
 _setup()
+
+
+@torch.library.register_fake("fbgemm::lengths_range")
+def lengths_range_abstract(
+    lengths: Tensor,
+    output_shape: Optional[Sequence[int]] = None,
+) -> Tensor:
+    torch._check(lengths.dim() == 1, lambda: "lengths must be a 1D tensor")
+    output_size = 0
+    if output_shape is not None:
+        output_size = math.prod(output_shape)
+    else:
+        ctx = torch.library.get_ctx()
+        output_size = ctx.new_dynamic_size()
+    return lengths.new_empty([output_size], dtype=lengths.dtype)

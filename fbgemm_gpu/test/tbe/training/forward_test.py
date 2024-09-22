@@ -17,13 +17,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    b_indices,
-    generate_requests,
-    get_table_batched_offsets_from_dense,
-    round_up,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -32,6 +25,13 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.tbe.utils import (
+    b_indices,
+    generate_requests,
+    get_table_batched_offsets_from_dense,
+    round_up,
+    to_device,
 )
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
@@ -107,7 +107,6 @@ class ForwardTest(unittest.TestCase):
             or (
                 weights_precision != SparseType.INT8
                 and output_dtype != SparseType.INT8
-                and not use_cpu
                 and pooling_mode != PoolingMode.NONE
             )
         )
@@ -377,7 +376,7 @@ class ForwardTest(unittest.TestCase):
             ]
         )
         mixed = False
-        mixed_B = False
+        mixed_B = random.choice([False, True])
         if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:

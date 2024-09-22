@@ -10,7 +10,8 @@
 
 #include <cuda.h>
 
-#include "./fbgemm_cuda_utils.cuh"
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/vec4.cuh"
 
 // Kernel for recat the embedding gradient output with the mixed dimension
 // support

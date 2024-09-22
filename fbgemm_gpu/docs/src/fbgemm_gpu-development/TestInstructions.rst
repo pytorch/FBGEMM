@@ -39,7 +39,7 @@ Testing with the CUDA Variant
 
 For the FBGEMM_GPU CUDA package, GPUs will be automatically detected and
 used for testing. To run the tests and benchmarks on a GPU-capable
-device in CPU-only mode, ``CUDA_VISIBLE_DEVICES=-1`` must be set in the
+machine in CPU-only mode, ``CUDA_VISIBLE_DEVICES=-1`` must be set in the
 environment:
 
 .. code:: sh
@@ -51,6 +51,10 @@ environment:
 
   # Enable for debugging failed kernel executions
   export CUDA_LAUNCH_BLOCKING=1
+
+  # For operators involving NCCL, if the rpath is not set up correctly for
+  # libnccl.so.2, LD_LIBRARY_PATH will need to be updated.
+  export LD_LIBRARY_PATH="/path/to/nccl/lib:${LD_LIBRARY_PATH}"
 
   python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning split_table_batched_embeddings_test.py
 

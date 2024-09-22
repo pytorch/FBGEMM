@@ -12,9 +12,10 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 
-#include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/config/feature_gates.h"
 
 using Tensor = at::Tensor;
 
@@ -104,6 +105,7 @@ enum SSDTensor {
         learning_rate,
         weight_decay,
         iter,
+        gwd_lower_bound,
         {%- endif %} {# /* if is_gwd */ #}
         {%- endif %} {# /* if not nobag */ #}
         {{ "is_experimental" if has_experimental else "false" }}
@@ -185,6 +187,7 @@ enum SSDTensor {
           {%- if "iter" not in args.split_function_arg_names %}
           iter,
           {%- endif %}
+          gwd_lower_bound,
           {%- endif %} {# /* if is_gwd */ #}
           {%- if not dense %}
           {{ args.split_function_arg_names | join(", ") }}
@@ -249,6 +252,7 @@ enum SSDTensor {
         {%- if "iter" not in args.split_function_arg_names %}
         Variable(), // iter
         {%- endif %}
+        Variable(), // gwd_lower_bound
         {%- endif %}
         {%- if ssd %}
         {%- for tensor in ssd_tensors %}
@@ -340,6 +344,7 @@ enum SSDTensor {
           {%- if "iter" not in args.split_function_arg_names %}
           iter,
           {%- endif %}
+          gwd_lower_bound,
           {%- endif %}
           {%- if ssd %}
           ssd_tensors.value(),
@@ -448,6 +453,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward{{ desc_suffix }}_cud
     const double learning_rate,
     const double weight_decay,
     const int64_t iter,
+    const double gwd_lower_bound,
     {%- endif %}
     const bool is_experimental
 );
@@ -508,6 +514,7 @@ Tensor
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const double gwd_lower_bound,
     {%- endif %}
     {{ args.split_function_args | join(", ") }});
 {%- endfor %} {#-/* for weighted*/#}
@@ -595,6 +602,7 @@ class {{ autograd_func }} :
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const double gwd_lower_bound,
     {%- endif %}
     {%- if ssd %}
     const at::TensorList& ssd_tensors,
@@ -674,9 +682,11 @@ class {{ autograd_func }} :
         /*total_B=*/offsets.sym_size(0) - 1
         );
     {%- endif %}
+
     {%- if is_gwd %}
     const auto prev_iter_dev_ = prev_iter_dev.value_or(Tensor());
     {%- endif %}
+
     ctx->save_for_backward({
         dev_weights,
         {%- if not dense %}
@@ -734,8 +744,11 @@ class {{ autograd_func }} :
     ctx->saved_data["use_uniq_cache_locations_bwd"] = use_uniq_cache_locations_bwd;
     ctx->saved_data["use_homogeneous_placements"] = use_homogeneous_placements;
     {%- endif %}
-    {%- if is_gwd and "iter" not in args.split_function_arg_names %}
+    {%- if is_gwd %}
+    {%- if "iter" not in args.split_function_arg_names %}
     ctx->saved_data["iter"] = iter;
+    {%- endif %}
+    ctx->saved_data["gwd_lower_bound"] = gwd_lower_bound;
     {%- endif %}
 
     {%- if not dense %}
@@ -786,9 +799,6 @@ class {{ autograd_func }} :
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
-    // backward impl does mutation of weights, which are allowed in aot autograd only in no_grad mode
-    at::AutoGradMode m(false);
-
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
     auto dev_weights = *savedItr++;
@@ -851,8 +861,11 @@ class {{ autograd_func }} :
       ctx->saved_data["use_homogeneous_placements"].toBool();
     {%- endif %}
 
-    {%- if is_gwd and "iter" not in args.split_function_arg_names %}
+    {%- if is_gwd %}
+    {%- if "iter" not in args.split_function_arg_names %}
     const auto iter = ctx->saved_data["iter"].toInt();
+    {%- endif %}
+    const auto gwd_lower_bound = ctx->saved_data["gwd_lower_bound"].toDouble();
     {%- endif %}
 
     {%- if not dense%}
@@ -1000,7 +1013,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const c10::SymInt max_B_feature_rank = -1,
     {%- if not dense %}
     const c10::SymInt vbe_output_size = -1,
-    const bool is_experimental = false,
+    const bool is_experimental_tbe = false, // formerly named is_experimental
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
     const std::optional<Tensor>& uvm_cache_stats = c10::nullopt,
@@ -1010,12 +1023,11 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter = 0,
     {%- endif %}
-    {%- if ssd %}
     const bool apply_global_weight_decay = false,
-    const c10::optional<at::TensorList>& ssd_tensors = c10::nullopt
-    {%- else %}
-    const bool apply_global_weight_decay = false
+    {%- if ssd %}
+    const c10::optional<at::TensorList>& ssd_tensors = c10::nullopt,
     {%- endif %}
+    const double gwd_lower_bound = 0
     {%- else %}
     const c10::SymInt vbe_output_size = -1
     {%- endif %}
@@ -1023,11 +1035,25 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
   // TODO: refactor into macro
   {%- if has_gpu_support %}
 
+    {%- if not dense %}
+    // Load the config value from JK once
+    static auto is_tbev2_enabled = config::is_feature_enabled(config::FeatureGateName::TBE_V2);
+
+    // Set to experimental if either the feature is enabled in JK, or the user specifies to use TBEv2
+    const auto is_experimental = is_tbev2_enabled || is_experimental_tbe;
+    {%- endif %}
+
     {%- if not ssd %}
     {%- if has_vbe_support %}
     // has vbe support
     if (B_offsets.has_value()) {
-      // vbe
+      {%- if has_global_weight_decay_support %}
+        // vbe and has gwd support
+        if (apply_global_weight_decay && weight_decay > 0) {
+          {{ call_autograd(nobag=False, vbe=True, is_gwd=True) }}
+        }
+      {%- endif %} {#-/* if has_global_weight_decay_support */ #}
+      // vbe and no gwd support
       {{ call_autograd(nobag=False, vbe=True, is_gwd=False) }}
     }
     {%- endif %} {#-/* if has_vbe_support */ #}
@@ -1109,12 +1135,11 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           {%- if "iter" not in args.split_function_arg_names %}
           "    int iter=0, "
           {%- endif %}
-          {%- if ssd %}
           "    bool apply_global_weight_decay=False, "
-          "    Tensor[]? ssd_tensors=None"
-          {%- else %}
-          "    bool apply_global_weight_decay=False"
+          {%- if ssd %}
+          "    Tensor[]? ssd_tensors=None,"
           {%- endif %}
+          "   float gwd_lower_bound=0 "
           ") -> Tensor",
           {PT2_COMPLIANT_TAG});
 

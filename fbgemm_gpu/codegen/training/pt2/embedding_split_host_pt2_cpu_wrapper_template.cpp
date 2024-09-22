@@ -21,12 +21,11 @@
 {%- if has_cpu_support %}
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations and dispatchers
-#include "fbgemm_gpu/embedding_op_registration.h"
-#include <torch/script.h>
-#include "fbgemm_gpu/dispatch_macros.h"
 ////////////////////////////////////////////////////////////////////////////////
+#include <torch/script.h>
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -108,7 +107,7 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}_pt2_cpu_wrapper(
 }
 {% else %}
 {#-/* PT2 wrapper function for backward CPU */#}
-Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_exact_pt2_cpu_wrapper(
+Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}_pt2_cpu_wrapper(
     const Tensor& grad_output,
     const Tensor& host_weights,
     const Tensor& /*dev_weights*/,
@@ -209,7 +208,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     DISPATCH_TO_CPU("{{ embedding_codegen_forward_op }}_wrapper", {{ embedding_codegen_forward_op }}_cpu_wrapper);
     {%- else %}
 
-    {%- set embedding_codegen_backward_op = "split_embedding_backward_codegen_{}_{}_exact_pt2".format(
+    {%- set embedding_codegen_backward_op = "split_embedding_backward_codegen_{}_{}_pt2".format(
         optimizer, wdesc
         )
     %}

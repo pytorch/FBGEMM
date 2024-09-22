@@ -246,7 +246,7 @@ template <
     typename OffsetType = std::int32_t,
     typename OutType = float>
 FBGEMM_API bool EmbeddingSpMDMNBit_ref(
-    int bit_rate,
+    const int input_bit_rate,
     const std::int64_t block_size,
     const std::int64_t output_size,
     const std::int64_t index_size,
@@ -261,8 +261,10 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     bool use_offsets = true,
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
-    bool scale_bias_last = true,
-    bool is_bf16_out = false);
+    const bool scale_bias_last = true,
+    const bool is_bf16_out = false,
+    const bool no_bag = false,
+    int output_bit_rate = -1);
 
 template <
     typename IndexType = std::int64_t,

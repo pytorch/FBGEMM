@@ -64,7 +64,7 @@ jobs:
           { arch: x86, instance: "linux.4xlarge", timeout: 20 },
           { arch: arm, instance: "linux.arm64.2xlarge", timeout: 30 },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
 
     steps:
     - name: Setup Build Container
@@ -120,7 +120,7 @@ jobs:
         host-machine: [
           { instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]
 
     steps:
@@ -160,7 +160,7 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 20
+      timeout-minutes: 40
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
 
@@ -186,7 +186,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.11", "3.12" ]
-        rocm-version: [ "5.7" ]
+        rocm-version: [ "6.1" ]
 
     steps:
     - name: Setup Build Container

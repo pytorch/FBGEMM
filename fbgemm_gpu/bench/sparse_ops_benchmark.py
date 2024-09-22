@@ -20,7 +20,8 @@ import torch
 
 from torch.profiler import profile
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -287,13 +288,21 @@ def group_index_select_2d_bench(
 
     # Benchmark forward
     time_ref, output_ref = benchmark_torch_function(
-        torch.index_select, (input, 0, offset_indices), **bench_kwargs
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
+        torch.index_select,
+        (input, 0, offset_indices),
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
+        **bench_kwargs,
     )
 
     input_group = input.split(batch_size, 0)
     time, output_group = benchmark_torch_function(
         torch.ops.fbgemm.group_index_select_dim0,
         (input_group, indices_group),
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
         **bench_kwargs,
     )
     logging.info(
@@ -306,13 +315,19 @@ def group_index_select_2d_bench(
     time_ref, _ = benchmark_torch_function(
         functools.partial(output_ref.backward, retain_graph=True),
         (grad,),
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
         **bench_kwargs,
     )
 
+    # pyre-fixme[6]: For 1st argument expected `Union[List[Tensor],
+    #  typing.Tuple[Tensor, ...]]` but got `Tensor`.
     cat_output = torch.cat(output_group)
     time, _ = benchmark_torch_function(
         functools.partial(cat_output.backward, retain_graph=True),
         (grad,),
+        # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+        # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
         **bench_kwargs,
     )
     logging.info(
@@ -714,6 +729,8 @@ def index_select_bench(
         time_pyt, out_pyt = benchmark_torch_function(
             index_select_fwd_ref,
             (inputs, indices),
+            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -726,12 +743,16 @@ def index_select_bench(
                 input_rows,
                 input_columns,
             ),
+            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
         time_gis, out_gis = benchmark_torch_function(
             group_index_select_fwd,
             (gis_inputs, indices),
+            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -746,6 +767,8 @@ def index_select_bench(
         time_bwd_pyt, _ = benchmark_torch_function(
             index_select_bwd_ref,
             (out_pyt, grads),
+            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -756,6 +779,8 @@ def index_select_bench(
                 concat_grads,
                 optim_batch,
             ),
+            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 
@@ -766,6 +791,8 @@ def index_select_bench(
                 concat_grads,
                 optim_group,
             ),
+            # pyre-fixme[6]: For 3rd argument expected `bool` but got `int`.
+            # pyre-fixme[6]: For 3rd argument expected `str` but got `int`.
             **bench_kwargs,
         )
 

@@ -204,11 +204,11 @@ install_from_pytorch_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Install the CPU variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0rc0 cuda/12.1.0   # Install the CUDA 12.1 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/5.3            # Install the ROCM 5.3 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.1.0      # Install the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Install the ROCM 6.1 variant, latest version from nightly channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton 1.11.0                  # Install specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton release                 # Install latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env pytorch_triton test/0.8.0rc0           # Install specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env pytorch_triton test/0.8.0              # Install specific version from test channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton_rocm nightly            # Install latest version from nightly channel"
     return 1
   else
@@ -249,8 +249,8 @@ download_from_pytorch_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Download the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Download the CPU variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0rc0 cuda/12.1.0   # Download the CUDA 12.1 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/5.3            # Download the ROCM 5.3 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.1.0      # Download the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Download the ROCM 6.1 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"
@@ -293,14 +293,14 @@ download_from_pytorch_pip () {
 
 publish_to_pypi () {
   local env_name="$1"
-  local package_name="$2"
-  local pypi_token="$3"
-  if [ "$pypi_token" == "" ]; then
+  local pypi_token="$2"
+  local package_filepath="$3"
+  if [ "$pypi_token" == "" ] || [ "$package_filepath" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PACKAGE_NAME PYPI_TOKEN"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu_nightly-*.whl MY_TOKEN"
+    echo "    ${FUNCNAME[0]} build_env MY_TOKEN fbgemm_gpu_nightly-*.whl"
     echo ""
-    echo "PYPI_TOKEN is missing!"
+    echo "Either PYPI_TOKEN and/or package filepath is missing!"
     return 1
   else
     echo "################################################################################"
@@ -322,7 +322,7 @@ publish_to_pypi () {
   (test_python_import_package "${env_name}" twine) || return 1
   (test_python_import_package "${env_name}" OpenSSL) || return 1
 
-  echo "[PUBLISH] Uploading package(s) to PyPI: ${package_name} ..."
+  echo "[PUBLISH] Uploading package(s) to PyPI: ${package_filepath} ..."
   # shellcheck disable=SC2086
   conda run ${env_prefix} \
     python -m twine upload \
@@ -330,8 +330,8 @@ publish_to_pypi () {
       --password "${pypi_token}" \
       --skip-existing \
       --verbose \
-      "${package_name}"
+      "${package_filepath}"
 
-  echo "[PUBLISH] Successfully published package(s) to PyPI: ${package_name}"
+  echo "[PUBLISH] Successfully published package(s) to PyPI: ${package_filepath}"
   echo "[PUBLISH] NOTE: The publish command is a successful no-op if the wheel version already existed in PyPI; please double check!"
 }

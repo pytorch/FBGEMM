@@ -323,7 +323,6 @@ def is_valid_gwd_config(
     return (
         not dense
         and not nobag
-        and not vbe
         and not is_index_select
         and has_global_weight_decay_support
         and not ssd
@@ -338,7 +337,9 @@ def compute_global_weight_decay(is_global_weight_decay_kernel: bool) -> str:
     """
     if is_global_weight_decay_kernel:
         return """
-        const auto global_weight_decay = std::pow(weight_decay_base, iter - prev_iter_dev[linear_index] - 1);
+        const auto prev_iter = prev_iter_dev[linear_index];
+        CUDA_KERNEL_ASSERT(prev_iter < iter);
+        const auto global_weight_decay = prev_iter == 0 ? 1 : max(gwd_lower_bound, powf(weight_decay_base, iter - prev_iter - 1));
         if (threadIdx.x == 0) {
             prev_iter_dev[linear_index] = iter;
         }
@@ -403,7 +404,10 @@ def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
 
 
 def replace_placeholder_types(
-    arg_str_list: List[str], type_combo: Optional[Dict[str, TensorType]]
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
+    arg_str_list: List[str],
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
+    type_combo: Optional[Dict[str, TensorType]],
 ) -> List[str]:
     """
     Replace the placeholder types with the primitive types

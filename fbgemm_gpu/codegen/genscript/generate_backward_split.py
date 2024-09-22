@@ -13,6 +13,14 @@ import sys
 from typing import List
 
 try:
+    # pyre-fixme[21]: Could not find name `ArgType` in
+    #  `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
+    # pyre-fixme[21]: Could not find name `OptimItem` in
+    #  `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
+    # pyre-fixme[21]: Could not find name `OptimizerArgsSet` in
+    #  `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
+    # pyre-fixme[21]: Could not find name `generate_optimized_grad_sum_loop_access`
+    #  in `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
     from .optimizers import *
     from .common import CodeTemplate
     from .optimizer_args import OptimizerArgsSet
@@ -44,9 +52,7 @@ class BackwardSplitGenerator:
 
         weighted_options = [True, False]
         nobag_options = [True, False] if (not is_gwd) else [False]
-        vbe_options = (
-            [True, False] if (kwargs.get("has_vbe_support") and not is_gwd) else [False]
-        )
+        vbe_options = [True, False] if (kwargs.get("has_vbe_support")) else [False]
         ssd_options = [True, False] if kwargs.get("has_ssd_support") else [False]
         template = CodeTemplate.load(template_filepath)
 
@@ -157,38 +163,38 @@ class BackwardSplitGenerator:
         # has_gpu_support=True
         if not kwargs.get("dense"):
             # Generate CUDA autograd
-            template_filepath = (
-                "training/backward/embedding_backward_split_host_template.cpp"
-            )
+
             for ssd in [True, False] if kwargs.get("has_ssd_support") else [False]:
+                template_filepath = (
+                    "training/backward/embedding_backward_split_host_template.cpp"
+                )
                 desc = "ssd" if ssd else "split"
+                sdesc = "_ssd" if ssd else ""
                 filename = f"gen_embedding_backward_{desc}_{optimizer}.cpp"
                 CodeTemplate.load(template_filepath).write(
                     filename, is_forward=False, ssd=ssd, **kwargs
                 )
 
-            # Generate PT2 unified autograd, and PT2 backward wrapper
-            for template_filepath, filename in [
-                (
-                    "training/pt2/embedding_split_host_pt2_autograd_template.cpp",
-                    f"gen_embedding_split_{optimizer}_pt2_autograd.cpp",
-                ),
-                (
-                    "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
-                    f"gen_embedding_backward_split_{optimizer}_pt2_cuda_wrapper.cpp",
-                ),
-            ]:
-                CodeTemplate.load(template_filepath).write(
-                    filename, is_forward=False, **kwargs
-                )
+                # Generate PT2 unified autograd, and PT2 backward wrapper for all optimizers
+                for template_filepath, filename in [
+                    (
+                        "training/pt2/embedding_split_host_pt2_autograd_template.cpp",
+                        f"gen_embedding_{desc}_{optimizer}_pt2_autograd.cpp",
+                    ),
+                    (
+                        "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
+                        f"gen_embedding_backward_{desc}_{optimizer}_pt2_cuda_wrapper.cpp",
+                    ),
+                ]:
+                    CodeTemplate.load(template_filepath).write(
+                        filename, is_forward=False, ssd=ssd, **kwargs
+                    )
 
-            if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
-                # Generates Python invoker for CUDA + CPU, and PT2
-                template = CodeTemplate.load(
-                    "training/python/split_embedding_codegen_lookup_invoker.template"
-                )
-                for ssd in [True, False] if kwargs.get("has_ssd_support") else [False]:
-                    sdesc = "_ssd" if ssd else ""
+                if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
+                    # Generates Python invoker for CUDA + CPU, and PT2
+                    template = CodeTemplate.load(
+                        "training/python/split_embedding_codegen_lookup_invoker.template"
+                    )
                     for filename in [
                         f"lookup_{optimizer}{sdesc}.py",
                         f"lookup_{optimizer}{sdesc}_pt2.py",
@@ -329,6 +335,7 @@ class BackwardSplitGenerator:
             lars_sgd(),
             partial_rowwise_adam(),
             partial_rowwise_lamb(),
+            ensemble_rowwise_adagrad(),
             rowwise_adagrad(),
             approx_rowwise_adagrad(),
             rowwise_adagrad_with_weight_decay(),

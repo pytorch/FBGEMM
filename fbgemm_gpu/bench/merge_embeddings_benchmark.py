@@ -32,6 +32,9 @@ from torch import Tensor
 # pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.
 from torch.profiler import profile, ProfilerActivity
 
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
@@ -41,17 +44,7 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
-        )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
-    )
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
 
 # pyre-fixme[2]: Parameter must be annotated.

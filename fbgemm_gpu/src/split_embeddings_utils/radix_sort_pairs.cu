@@ -11,14 +11,14 @@
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh" // @manual
-#include "fbgemm_gpu/ops_utils.h" // @manual
+#include "fbgemm_gpu/utils/ops_utils.h" // @manual
 
 // clang-format off
-#include "fbgemm_gpu/cub_namespace_prefix.cuh" // @manual
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh" // @manual
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_scan.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh" // @manual
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh" // @manual
 // clang-format on
 
 using Tensor = at::Tensor;

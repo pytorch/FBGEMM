@@ -13,7 +13,7 @@
 
 #include "fbgemm_gpu/embedding_forward_split_cpu.h"
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -105,9 +105,6 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
   static torch::autograd::variable_list backward(
       torch::autograd::AutogradContext* ctx,
       torch::autograd::variable_list grad_outputs) {
-    // backward does weights mutation, allowed in aot_autograd only with no_grad
-    at::AutoGradMode m(false);
-
     const auto saved = ctx->get_saved_variables();
     auto savedItr = std::begin(saved);
     auto host_weights = *savedItr++;

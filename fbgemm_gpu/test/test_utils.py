@@ -10,6 +10,7 @@ import inspect
 import os
 import subprocess
 import unittest
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -41,6 +42,11 @@ running_on_sm70: Tuple[bool, str] = (
 running_on_github: Tuple[bool, str] = (
     os.getenv("GITHUB_ENV") is not None,
     "Test is currently known to fail or hang when run in the GitHub runners",
+)
+
+running_on_rocm: Tuple[bool, str] = (
+    TEST_WITH_ROCM,
+    "Test currently doesn't work on the ROCm stack",
 )
 
 # Tests with this marker generally fails with `free(): corrupted unsorted chunks`
@@ -110,7 +116,9 @@ class optests:
             if not has_optests():
                 return test_class
             import torch.testing._internal.optests as optests
-            from torch._utils_internal import get_file_path_2
+            from torch._utils_internal import (  # @manual=//caffe2:utils_internal
+                get_file_path_2,
+            )
 
             filename = inspect.getfile(test_class)
             failures_dict_name = "failures_dict.json"
@@ -162,6 +170,17 @@ class optests:
         import torch.testing._internal.optests as optests
 
         return optests.dontGenerateOpCheckTests(reason)
+
+
+class TestSuite(unittest.TestCase):
+    @contextmanager
+    # pyre-ignore[2]
+    def assertNotRaised(self, exc_type) -> None:
+        try:
+            # pyre-ignore[7]
+            yield None
+        except exc_type as e:
+            raise self.failureException(e)
 
 
 # Version of torch.autograd.gradcheck that works with generate_opcheck_tests.

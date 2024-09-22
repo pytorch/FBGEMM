@@ -34,7 +34,6 @@
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -180,13 +179,16 @@ using namespace fbgemm_gpu;
         // Cooperatively load the cache's indices
         [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
         {%- endif %}
+
         {%- if lxu_miss_rate == "cache_conflict_miss_rate::zero" and is_gwd_kernel %}
         int64_t idx = l < L ? indices[indices_start + l] : 0; // only used for accessing prev_iter
         {%- endif %}
 
         {%- if is_gwd_kernel %}
-        // if l > L, prev_iter = prev_iter_dev[offset]
-        const auto global_weight_decay = std::pow(weight_decay_base, iter - prev_iter[idx] - 1);
+        // if l > L or prev_iter == 0, global_weight_decay = 1
+        const auto prev_it = prev_iter[idx];
+        CUDA_KERNEL_ASSERT(prev_it < iter);
+        const auto global_weight_decay = (l > L || prev_it == 0) ? 1 : max(gwd_lower_bound, powf(weight_decay_base, iter - prev_it - 1));
         {%- endif %}
 
         {%- if weighted %}
@@ -334,6 +336,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     const float learning_rate,
     const float weight_decay,
     const int64_t iter,
+    const float gwd_lower_bound,
     {%- endif %}
     {%- if is_index_select %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
@@ -515,8 +518,8 @@ batch_index_select_dim0_codegen_forward_kernel(
             ++i) {
             // Simultaneously multiply by 1/L to compute the mean
             accumulators[i].mul_(inv_L);
-            thread_local_max = max(thread_local_max, vec4_max(accumulators[i]));
-            thread_local_min = min(thread_local_max, vec4_min(accumulators[i]));
+            thread_local_max = max(thread_local_max, accumulators[i].vmax());
+            thread_local_min = min(thread_local_max, accumulators[i].vmin());
         }
 
         // Construct the quantization parameters from the min and max values
@@ -626,6 +629,7 @@ batch_index_select_dim0_codegen_forward_kernel
     const float learning_rate,
     const float weight_decay,
     const int64_t iter,
+    const float gwd_lower_bound,
     {%- endif %}
     pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
 {%- endmacro %}

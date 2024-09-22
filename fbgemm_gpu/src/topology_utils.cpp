@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/topology_utils.h"
+#include "fbgemm_gpu/utils/topology_utils.h"
 #include <ATen/cuda/CUDAContext.h> // IWYU pragma: keep
 #include <c10/core/Device.h> // IWYU pragma: keep
 #include <c10/cuda/CUDAException.h>

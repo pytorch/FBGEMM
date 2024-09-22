@@ -125,10 +125,6 @@
       }
     },
     "fbgemm::histogram_binning_calibration": {
-      "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_histogram_binning_calibration": {
-        "comment": "",
-        "status": "xfail"
-      },
       "HistogramBinningCalibrationTest.test_faketensor__test_histogram_binning_calibration": {
         "comment": "",
         "status": "xfail"

@@ -26,11 +26,11 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Required for op registrations
-#include "fbgemm_gpu/embedding_op_registration.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
-#include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/split_embeddings_utils.cuh"
 ////////////////////////////////////////////////////////////////////////////////
+#include <torch/library.h>
+#include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
+#include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
@@ -130,6 +130,7 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter,
     {%- endif %}
+    const double gwd_lower_bound,
     {%- endif -%}
     {{ args.split_function_args_no_defaults | join(", ") }}
     {%- else %}

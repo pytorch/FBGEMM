@@ -85,6 +85,17 @@ class ForwardSplitGenerator:
             is_forward=True,
         )
 
+        # Generate PT2 forward wrapper (CUDA)
+        CodeTemplate.load(
+            "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
+        ).write(
+            f"gen_embedding_forward_ssd_pt2_cuda_wrapper.cpp",
+            has_gpu_support=True,
+            is_forward=True,
+            has_vbe_support=True,
+            ssd=True,
+        )
+
     @staticmethod
     def generate_small_kernels() -> None:
         # Generate the small kernels (for nobag only) for the forward splits
@@ -118,7 +129,7 @@ class ForwardSplitGenerator:
             "gen_embedding_forward_{}_gwd_codegen_cuda.cu",
             dense_options=[False],
             nobag_options=[False],  # nobag is not used
-            vbe_options=[False],
+            vbe_options=[True, False],
             is_gwd=True,
             ssd_options=[False],
         )
@@ -148,7 +159,7 @@ class ForwardSplitGenerator:
             "gen_embedding_forward_{}_gwd_kernel.cu",
             dense_options=[False],
             nobag_options=[False],
-            vbe_options=[False],
+            vbe_options=[True, False],
             ssd_options=[False],
             is_gwd=True,
         )

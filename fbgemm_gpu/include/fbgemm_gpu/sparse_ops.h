@@ -39,6 +39,11 @@ at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in);
 at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
+void asynchronous_exclusive_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const at::Tensor& t_in);
+
+///@ingroup sparse-data-cpu
 at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
@@ -89,6 +94,24 @@ at::Tensor segment_sum_csr_cpu(
 ///@throw fbgemm_gpu::my_error if something something
 ///@see You can find more info <a
 /// href="https://www.doxygen.nl/manual/commands.html#cmdlink">here</a>
+
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_data_input1D_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const int64_t& stride,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_data_input1D_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const int64_t& stride,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
 
 std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_2D_sparse_data_cuda(
@@ -158,7 +181,8 @@ block_bucketize_sparse_features_cuda(
     const std::optional<at::Tensor>& weights,
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
-    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos);
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx);
 
 std::tuple<
     at::Tensor,
@@ -178,7 +202,8 @@ block_bucketize_sparse_features_cpu(
     const std::optional<at::Tensor>& weights,
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
-    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos);
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx);
 
 std::tuple<
     at::Tensor,
@@ -199,7 +224,8 @@ block_bucketize_sparse_features_inference_cuda(
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool return_bucket_mapping);
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx);
 
 ///@ingroup sparse-data-cuda
 at::Tensor populate_bucketized_permute_cuda(
@@ -227,7 +253,8 @@ block_bucketize_sparse_features_inference_cpu(
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool return_bucket_mapping);
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx);
 
 ///@ingroup sparse-data-cpu
 at::Tensor populate_bucketized_permute_cpu(

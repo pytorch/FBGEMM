@@ -31,6 +31,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 
 
@@ -39,12 +40,7 @@ set(fbgemm_sources_include_directories
 ################################################################################
 
 file(GLOB_RECURSE asmjit_sources
-  "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/asmjit/src/asmjit/*/*.cpp")
-
-set(third_party_include_directories
-  ${THIRDPARTY}/asmjit/src
-  ${THIRDPARTY}/cpuinfo/include
-  ${THIRDPARTY}/cutlass/include)
+  "${CMAKE_CURRENT_SOURCE_DIR}/../external/asmjit/src/asmjit/*/*.cpp")
 
 
 ################################################################################
@@ -64,6 +60,7 @@ set(GPU_ONLY_OPTIMIZERS
     lamb
     partial_rowwise_adam
     partial_rowwise_lamb
+    ensemble_rowwise_adagrad
     lars_sgd
     none
     rowwise_adagrad_with_counter)
@@ -90,6 +87,7 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 set(VBE_OPTIMIZERS
     rowwise_adagrad
     rowwise_adagrad_with_counter
+    ensemble_rowwise_adagrad
     sgd
     dense)
 
@@ -156,6 +154,8 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_dense_unweighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_weighted_vbe_codegen_cuda.cu"
     "gen_embedding_forward_split_unweighted_vbe_codegen_cuda.cu"
+    "gen_embedding_forward_split_weighted_vbe_gwd_codegen_cuda.cu"
+    "gen_embedding_forward_split_unweighted_vbe_gwd_codegen_cuda.cu"
     "gen_batch_index_select_dim0_forward_codegen_cuda.cu"
     "gen_batch_index_select_dim0_forward_kernel.cu"
     "gen_batch_index_select_dim0_forward_kernel_small.cu"
@@ -172,6 +172,11 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_ssd_unweighted_codegen_cuda.cu"
     "gen_embedding_forward_ssd_unweighted_nobag_kernel_small.cu"
 )
+
+list(APPEND gen_gpu_host_source_files
+    "gen_embedding_forward_split_unweighted_vbe_codegen_meta.cpp"
+    "gen_embedding_backward_sgd_split_unweighted_vbe_meta.cpp"
+  )
 
 if(NOT USE_ROCM)
   list(APPEND gen_gpu_kernel_source_files
@@ -214,6 +219,7 @@ endforeach()
 # Generate GWD files
 foreach(wdesc weighted unweighted)
   list(APPEND gen_gpu_kernel_source_files
+      "gen_embedding_forward_split_${wdesc}_vbe_gwd_kernel.cu"
       "gen_embedding_forward_split_${wdesc}_gwd_kernel.cu")
 endforeach()
 
@@ -302,6 +308,12 @@ foreach(optimizer ${GWD_OPTIMIZERS})
       "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_cuda.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_kernel_cta.cu"
       "gen_embedding_backward_${optimizer}_split_${wdesc}_gwd_kernel_warp.cu")
+    if(";${VBE_OPTIMIZERS};" MATCHES ";${optimizer};")
+      list(APPEND gen_gpu_kernel_source_files
+        "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_gwd_cuda.cu"
+        "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_gwd_kernel_cta.cu"
+        "gen_embedding_backward_${optimizer}_split_${wdesc}_vbe_gwd_kernel_warp.cu")
+    endif()
   endforeach()
 endforeach()
 
@@ -445,7 +457,12 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
     codegen/utils/embedding_bounds_check_host_cpu.cpp
+    src/config/feature_gates.cpp
+    src/memory_utils/memory_utils.cpp
+    src/memory_utils/memory_utils_ops.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
+    src/permute_multi_embedding_ops/permute_multi_embedding_function.cpp
+    src/permute_multi_embedding_ops/permute_multi_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_function.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_cpu.cpp
@@ -473,9 +490,6 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/utils/embedding_bounds_check_host.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
-    src/memory_utils/memory_utils.cpp
-    src/memory_utils/memory_utils_ops.cpp
-    src/memory_utils/memory_utils_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
     src/quantize_ops/quantize_ops_gpu.cpp
@@ -538,6 +552,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/metric_ops/metric_ops.cu
       src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split.cu
       src/permute_pooled_embedding_ops/permute_pooled_embedding_ops.cu
+      src/permute_multi_embedding_ops/permute_multi_embedding_ops.cu
       src/quantize_ops/quantize_bfloat16.cu
       src/quantize_ops/quantize_fp8_rowwise.cu
       src/quantize_ops/quantize_fused_8bit_rowwise.cu
@@ -683,7 +698,8 @@ set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
 # Link to PyTorch
 target_link_libraries(fbgemm_gpu_py
   ${TORCH_LIBRARIES}
-  ${NCCL_LIBRARIES})
+  ${NCCL_LIBRARIES}
+  ${CUDA_DRIVER_LIBRARIES})
 
 # Link to NVML
 if(NVML_LIB_PATH)

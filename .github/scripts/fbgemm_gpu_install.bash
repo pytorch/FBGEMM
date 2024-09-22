@@ -49,7 +49,7 @@ __install_fetch_version_and_variant_info () {
   echo ""
 }
 
-__install_list_subpackages_info () {
+__install_check_subpackages () {
   # shellcheck disable=SC2086,SC2155
   local fbgemm_gpu_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(dir(fbgemm_gpu))")
 
@@ -64,6 +64,27 @@ __install_list_subpackages_info () {
   echo "[CHECK] fbgemm_gpu.experimental: ${experimental_packages}"
   echo "################################################################################"
   echo ""
+
+
+  echo "[INSTALL] Check for installation of Python sources ..."
+  local subpackages=(
+    "fbgemm_gpu.config"
+    "fbgemm_gpu.docs"
+    "fbgemm_gpu.quantize"
+    "fbgemm_gpu.tbe.cache"
+  )
+
+  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
+    subpackages+=(
+      "fbgemm_gpu.split_embedding_codegen_lookup_invokers"
+      "fbgemm_gpu.tbe.ssd"
+      "fbgemm_gpu.tbe.utils"
+    )
+  fi
+
+  for package in "${subpackages[@]}"; do
+    (test_python_import_package "${env_name}" "${package}") || return 1
+  done
 }
 
 __install_check_operator_registrations () {
@@ -105,20 +126,16 @@ __fbgemm_gpu_post_install_checks () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # Print PyTorch and CUDA versions for sanity check
-  __install_print_dependencies_info
+  __install_print_dependencies_info         || return 1
 
   # Fetch the version and variant info from the package
-  __install_fetch_version_and_variant_info
+  __install_fetch_version_and_variant_info  || return 1
 
-  # List out FBGEMM_GPU subpackages
-  __install_list_subpackages_info
+  # Check FBGEMM_GPU subpackages are installed correctly
+  __install_check_subpackages               || return 1
 
-  echo "[INSTALL] Check for installation of Python sources ..."
-  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
-    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
-  fi
-
-  __install_check_operator_registrations
+  # Check operator registrations are working
+  __install_check_operator_registrations    || return 1
 }
 
 install_fbgemm_gpu_wheel () {
@@ -162,10 +179,10 @@ install_fbgemm_gpu_pip () {
   if [ "$fbgemm_gpu_variant_type_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME FBGEMM_GPU_CHANNEL[/VERSION] FBGEMM_GPU_VARIANT_TYPE[/VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env 0.5.0 cpu                  # Install the CPU variant, specific version from release channel"
-    echo "    ${FUNCNAME[0]} build_env release cuda 12.4.1        # Install the CUDA variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env test/0.8.0rc0 cuda 12.4.1  # Install the CUDA 12.4 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env nightly rocm 5.3           # Install the ROCM 5.3 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env 0.8.0 cpu                  # Install the CPU variant, specific version from release channel"
+    echo "    ${FUNCNAME[0]} build_env release cuda/12.4.1        # Install the CUDA variant, latest version from release channel"
+    echo "    ${FUNCNAME[0]} build_env test/0.8.0 cuda/12.4.1     # Install the CUDA 12.4 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env nightly rocm/6.1           # Install the ROCM 6.1 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"

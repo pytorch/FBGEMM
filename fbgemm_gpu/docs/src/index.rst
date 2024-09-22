@@ -63,6 +63,7 @@ Table of Contents
    :caption: FBGEMM C++ API
 
    fbgemm-cpp-api/QuantUtils.rst
+   fbgemm-cpp-api/tbe_cpu_autovec.rst
 
 .. _fbgemm-gpu.toc.api.cpp:
 
@@ -79,6 +80,7 @@ Table of Contents
    fbgemm_gpu-cpp-api/input_combine.rst
    fbgemm_gpu-cpp-api/layout_transform_ops.rst
    fbgemm_gpu-cpp-api/embedding_ops.rst
+   fbgemm_gpu-cpp-api/ssd_embedding_ops.rst
    fbgemm_gpu-cpp-api/experimental_ops.rst
 
 .. _fbgemm-gpu.toc.api.python:

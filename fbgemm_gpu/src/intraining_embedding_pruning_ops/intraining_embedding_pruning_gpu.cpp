@@ -11,6 +11,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/library.h>
 #include "fbgemm_gpu/intraining_embedding_pruning.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(

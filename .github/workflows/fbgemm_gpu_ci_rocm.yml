@@ -64,8 +64,8 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         container-image: [ "ubuntu:20.04" ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
-        rocm-version: [ "6.0.2" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        rocm-version: [ "6.1" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -119,7 +119,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu_nightly_rocm-*.whl
+        path: fbgemm_gpu/dist/*.whl
+        if-no-files-found: error
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
@@ -144,7 +145,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.12" ]
-        rocm-version: [ "6.0.2" ]
+        rocm-version: [ "6.1" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 

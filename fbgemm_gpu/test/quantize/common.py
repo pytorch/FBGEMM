@@ -12,6 +12,7 @@ from typing import Callable
 
 import fbgemm_gpu
 import numpy as np
+import numpy.typing as npt
 import torch
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
@@ -30,17 +31,17 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 # Eigen/Python round 0.5 away from 0, Numpy rounds to even
-round_to_nearest: Callable[[np.ndarray], np.ndarray] = np.vectorize(round)
+round_to_nearest: Callable[[npt.NDArray], npt.NDArray] = np.vectorize(round)
 
 
-def bytes_to_floats(byte_matrix: np.ndarray) -> np.ndarray:
+def bytes_to_floats(byte_matrix: npt.NDArray) -> npt.NDArray:
     floats = np.empty([np.shape(byte_matrix)[0], 1], dtype=np.float32)
     for i, byte_values in enumerate(byte_matrix):
         (floats[i],) = struct.unpack("f", bytearray(byte_values))
     return floats
 
 
-def floats_to_bytes(floats: np.ndarray) -> np.ndarray:
+def floats_to_bytes(floats: npt.NDArray) -> npt.NDArray:
     byte_matrix = np.empty([np.shape(floats)[0], 4], dtype=np.uint8)
     for i, value in enumerate(floats):
         assert isinstance(value, np.float32), (value, floats)
@@ -53,7 +54,7 @@ def floats_to_bytes(floats: np.ndarray) -> np.ndarray:
     return byte_matrix
 
 
-def bytes_to_half_floats(byte_matrix: np.ndarray) -> np.ndarray:
+def bytes_to_half_floats(byte_matrix: npt.NDArray) -> npt.NDArray:
     floats = np.empty([np.shape(byte_matrix)[0], 1], dtype=np.float16)
     for i, byte_values in enumerate(byte_matrix):
         (floats[i],) = np.frombuffer(
@@ -62,7 +63,7 @@ def bytes_to_half_floats(byte_matrix: np.ndarray) -> np.ndarray:
     return floats
 
 
-def half_floats_to_bytes(floats: np.ndarray) -> np.ndarray:
+def half_floats_to_bytes(floats: npt.NDArray) -> npt.NDArray:
     byte_matrix = np.empty([np.shape(floats)[0], 2], dtype=np.uint8)
     for i, value in enumerate(floats):
         assert isinstance(value, np.float16), (value, floats)
@@ -72,7 +73,7 @@ def half_floats_to_bytes(floats: np.ndarray) -> np.ndarray:
     return byte_matrix
 
 
-def fused_rowwise_8bit_quantize_reference(data: np.ndarray) -> np.ndarray:
+def fused_rowwise_8bit_quantize_reference(data: npt.NDArray) -> npt.NDArray:
     minimum = np.min(data, axis=-1, keepdims=True)
     maximum = np.max(data, axis=-1, keepdims=True)
     span = maximum - minimum
@@ -87,7 +88,9 @@ def fused_rowwise_8bit_quantize_reference(data: np.ndarray) -> np.ndarray:
     return np.concatenate([quantized_data, scale_bytes, bias_bytes], axis=-1)
 
 
-def fused_rowwise_8bit_dequantize_reference(fused_quantized: np.ndarray) -> np.ndarray:
+def fused_rowwise_8bit_dequantize_reference(
+    fused_quantized: npt.NDArray,
+) -> npt.NDArray:
     scale = bytes_to_floats(fused_quantized[..., -8:-4].astype(np.uint8).reshape(-1, 4))
     scale = scale.reshape(fused_quantized.shape[:-1] + (scale.shape[-1],))
     bias = bytes_to_floats(fused_quantized[..., -4:].astype(np.uint8).reshape(-1, 4))
@@ -97,8 +100,8 @@ def fused_rowwise_8bit_dequantize_reference(fused_quantized: np.ndarray) -> np.n
 
 
 def fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference(
-    fused_quantized: np.ndarray,
-) -> np.ndarray:
+    fused_quantized: npt.NDArray,
+) -> npt.NDArray:
     scale = bytes_to_half_floats(
         fused_quantized[..., 0:2].astype(np.uint8).reshape(-1, 2)
     )
@@ -112,8 +115,8 @@ def fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference(
 
 
 def fused_rowwise_8bit_dequantize_reference_half(
-    fused_quantized: np.ndarray,
-) -> np.ndarray:
+    fused_quantized: npt.NDArray,
+) -> npt.NDArray:
     scale = bytes_to_half_floats(
         fused_quantized[..., -8:-4].astype(np.uint8).reshape(-1, 4)
     )
@@ -126,7 +129,7 @@ def fused_rowwise_8bit_dequantize_reference_half(
     return quantized_data * scale + bias
 
 
-def fused_rowwise_nbit_quantize_reference(data: np.ndarray, bit: int) -> np.ndarray:
+def fused_rowwise_nbit_quantize_reference(data: npt.NDArray, bit: int) -> npt.NDArray:
     minimum = np.min(data, axis=1).astype(np.float16).astype(np.float32)
     maximum = np.max(data, axis=1)
     span = maximum - minimum
@@ -165,8 +168,8 @@ def fused_rowwise_nbit_quantize_reference(data: np.ndarray, bit: int) -> np.ndar
 
 
 def fused_rowwise_nbit_quantize_dequantize_reference(
-    data: np.ndarray, bit: int
-) -> np.ndarray:
+    data: npt.NDArray, bit: int
+) -> npt.NDArray:
     fused_quantized = fused_rowwise_nbit_quantize_reference(data, bit)
     scale = bytes_to_half_floats(fused_quantized[:, -4:-2].astype(np.uint8)).astype(
         np.float32

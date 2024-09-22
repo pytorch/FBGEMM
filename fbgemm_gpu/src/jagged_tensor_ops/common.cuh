@@ -19,42 +19,58 @@
 #include <cub/cub.cuh>
 
 // clang-format off
-#include "fbgemm_gpu/cub_namespace_prefix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
 #include <cub/device/device_scan.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh"
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh"
 // clang-format on
 
-#include "fbgemm_gpu/dispatch_macros.h"
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
-#include "fbgemm_gpu/ops_utils.h"
+#include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/binary_search_range.cuh"
+#include "fbgemm_gpu/utils/cuda_block_count.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/fixed_divisor.cuh"
+#include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/shared_memory.cuh"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
+#include "fbgemm_gpu/utils/vec4.cuh"
 
 namespace fbgemm_gpu {
 
 using Tensor = at::Tensor;
 
-namespace {
+// A wrapper class for passing dynamically sized dimension information (e.g.
+// tensor.dims()) from the host to device.
+constexpr size_t kStackArrayMaxDims = 5;
 
 template <typename T>
-struct SharedMemory;
-
-template <>
-struct SharedMemory<int64_t> {
-  __device__ int64_t* getPointer() {
-    extern __shared__ int64_t s_int64_t[];
-    return s_int64_t;
-  }
+struct StackArray {
+  T vals[kStackArrayMaxDims];
+  size_t ndim;
 };
 
-template <>
-struct SharedMemory<int32_t> {
-  __device__ int32_t* getPointer() {
-    extern __shared__ int32_t s_int32_t[];
-    return s_int32_t;
-  }
-};
+namespace {
+
+// template <typename T>
+// struct SharedMemory;
+
+// template <>
+// struct SharedMemory<int64_t> {
+//   __device__ int64_t* getPointer() {
+//     extern __shared__ int64_t s_int64_t[];
+//     return s_int64_t;
+//   }
+// };
+
+// template <>
+// struct SharedMemory<int32_t> {
+//   __device__ int32_t* getPointer() {
+//     extern __shared__ int32_t s_int32_t[];
+//     return s_int32_t;
+//   }
+// };
 
 /// @defgroup jagged-tensor-ops-cuda Jagged Tensor CUDA Operators
 /// The following are Jagged Tensor CUDA Operators

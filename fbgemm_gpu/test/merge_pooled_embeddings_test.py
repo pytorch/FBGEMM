@@ -11,34 +11,24 @@
 import unittest
 from typing import Tuple
 
+import fbgemm_gpu
+
 import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings, Verbosity
 
 
-try:
-    # pyre-ignore[21]
-    from fbgemm_gpu import open_source  # noqa: F401
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
+if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
-except Exception:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
-        )
-
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
-    )
+else:
     import fbgemm_gpu.sparse_ops  # noqa: F401, E402
     from fbgemm_gpu.test.test_utils import gpu_unavailable
 
-    open_source = False
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
 typed_gpu_unavailable: Tuple[bool, str] = gpu_unavailable
 
@@ -146,6 +136,19 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
             for i, o in zip(inputs, cuda_outputs):
                 self.assertEqual(o.device, dst_device)
                 torch.testing.assert_close(o.cpu(), i)
+
+    def test_merge_pooled_embeddings_gpu_to_cpu(self) -> None:
+        dst_device = torch.device("cpu")
+        inputs = [torch.randn(10, 20) for _ in range(4)]
+        cuda_inputs = [input.to("cuda:0") for i, input in enumerate(inputs)]
+        uncat_size = inputs[0].size(1)
+        output = torch.ops.fbgemm.merge_pooled_embeddings(
+            cuda_inputs, uncat_size, dst_device, 0
+        )
+        ref_output = torch.ops.fbgemm.merge_pooled_embeddings(
+            inputs, uncat_size, dst_device, 0
+        )
+        torch.testing.assert_close(output, ref_output)
 
     def test_merge_pooled_embeddings_cpu_with_different_target_device(self) -> None:
         uncat_size = 2

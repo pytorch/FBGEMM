@@ -19,11 +19,10 @@ import numpy as np
 import torch
 from fbgemm_gpu.bench.bench_utils import benchmark_requests
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    generate_requests,
-    get_device,
-    round_up,
-    TBERequest,
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    CacheAlgorithm,
+    EmbeddingLocation,
+    PoolingMode,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
@@ -32,30 +31,21 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-from fbgemm_gpu.ssd_split_table_batched_embeddings_ops import (
-    CacheAlgorithm,
-    EmbeddingLocation,
-    PoolingMode,
-    # Inference
+from fbgemm_gpu.tbe.ssd import (
     SSDIntNBitTableBatchedEmbeddingBags,
-    # Training
     SSDTableBatchedEmbeddingBags,
 )
+from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
+from fbgemm_gpu.utils.loader import load_torch_module
+from torch.autograd.profiler import record_function
 from torch.profiler import profile
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
-if torch.version.hip:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
-    )
-else:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-    )
-
-
-logging.basicConfig(level=logging.DEBUG)
+load_torch_module(
+    "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings",
+)
 
 
 @click.group()
@@ -277,14 +267,6 @@ def ssd_training(  # noqa C901
     E: int = num_embeddings
     T: int = num_tables
 
-    # SSD only supports FP32 for weights and output
-    assert weights_precision == SparseType.FP32, (
-        "SSD only supports weights_precision = SparseType.FP32",
-    )
-    assert output_dtype == SparseType.FP32, (
-        "SSD only supports output_dtype = SparseType.FP32",
-    )
-
     if weighted_num_requires_grad:
         assert weighted_num_requires_grad <= T
         weighted_requires_grad_tables = np.random.choice(
@@ -365,9 +347,9 @@ def ssd_training(  # noqa C901
             embedding_specs=[(E, d) for d in Ds],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            ssd_cache_location=EmbeddingLocation.MANAGED,
-            ssd_shards=8,
-            ssd_block_cache_size=block_cache_size_mb * (2**20),
+            ssd_cache_location=EmbeddingLocation.DEVICE,
+            ssd_rocksdb_shards=8,
+            ssd_block_cache_size_per_tbe=block_cache_size_mb * (2**20),
             **common_args,
         ),
     }
@@ -446,42 +428,43 @@ def ssd_training(  # noqa C901
             # Forward
             test_name = f"{prefix} Forward"
             logging.info(f"Running benchmark: {test_name}")
+            with record_function(f"## {test_name} ##"):
+                time_per_iter = benchmark_requests(
+                    requests,
+                    gen_forward_func(emb, feature_requires_grad),
+                    flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                    num_warmups=warmup_runs,
+                    periodic_logs=True,
+                )
 
-            time_per_iter = benchmark_requests(
-                requests,
-                gen_forward_func(emb, feature_requires_grad),
-                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-                num_warmups=warmup_runs,
-                periodic_logs=True,
-            )
-
-            bw = f"{read_write_bytes / time_per_iter / 1.0e9: .2f}"
-            report.append(
-                f"{test_name: <{name_width}} B: {B}, "
-                f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-                f"BW: {bw: <{bw_width}} GB/s, "  # noqa: B950
-                f"T: {time_per_iter * 1.0e6:.0f}us"
-            )
+                bw = f"{read_write_bytes / time_per_iter / 1.0e9: .2f}"
+                report.append(
+                    f"{test_name: <{name_width}} B: {B}, "
+                    f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                    f"BW: {bw: <{bw_width}} GB/s, "  # noqa: B950
+                    f"T: {time_per_iter * 1.0e6:.0f}us"
+                )
 
             # Backward
-            test_name = f"{prefix} Backward,"
+            test_name = f"{prefix} Backward"
             logging.info(f"Running benchmark: {test_name}")
-            time_per_iter = benchmark_requests(
-                requests,
-                gen_forward_func(emb, feature_requires_grad),
-                flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-                bwd_only=True,
-                grad=grad_output,
-                num_warmups=warmup_runs,
-                periodic_logs=True,
-            )
+            with record_function(f"## {test_name} ##"):
+                time_per_iter = benchmark_requests(
+                    requests,
+                    gen_forward_func(emb, feature_requires_grad),
+                    flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+                    bwd_only=True,
+                    grad=grad_output,
+                    num_warmups=warmup_runs,
+                    periodic_logs=True,
+                )
 
-            bw = f"{2 * read_write_bytes / time_per_iter / 1.0e9: .2f}"
-            report.append(
-                f"{test_name: <{name_width}} B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-                f"BW: {bw: <{bw_width}} GB/s, "
-                f"T: {time_per_iter * 1.0e6:.0f}us"
-            )
+                bw = f"{2 * read_write_bytes / time_per_iter / 1.0e9: .2f}"
+                report.append(
+                    f"{test_name: <{name_width}} B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                    f"BW: {bw: <{bw_width}} GB/s, "
+                    f"T: {time_per_iter * 1.0e6:.0f}us"
+                )
 
             # Compute nparams once
             if prefix == "HBM":
@@ -715,6 +698,109 @@ def nbit_ssd(
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
         f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"Time: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--iters", default=100, help="Number of iterations to benchmark")
+@click.option("--num-inserts", default=1024, help="Number of rows to insert")
+@click.option("--dim", default=128, help="Width of each row to insert")
+@click.option(
+    "--use-pipeline",
+    is_flag=True,
+    default=False,
+    help="Use a fraction of SMs (using a grid size < the number of SMs)",
+)
+@click.option(
+    "--use-malloc-managed",
+    is_flag=True,
+    default=False,
+    help="Use cudaMallocManaged for the host buffer instead of "
+    "malloc+cudaHostRegister",
+)
+@click.option(
+    "--preferred-sms",
+    default=-1,
+    help="The preferred number of SMs for the kernel to use when using "
+    "--use-pipeline. The value is ignored when not using "
+    "--use-pipeline.",
+)
+def masked_index_benchmark(
+    iters: int,
+    num_inserts: int,
+    dim: int,
+    use_pipeline: bool,
+    use_malloc_managed: bool,
+    preferred_sms: int,
+) -> None:
+    """
+    A benchmark for measuring host-to-device copy performance using
+    `torch.ops.fbgemm.masked_index_put`. The host buffer is a UVM
+    buffer (by default it is malloc+cudaHostRegister).
+
+    Args:
+
+        iters (int): Number of iterations to benchmark
+
+        num_inserts (int):  Number of rows to insert
+
+        dim (int): Width of each row to insert
+
+        use_pipeline (bool): Use a fraction of SMs (using a grid size
+        < the number of SMs)
+
+        use_malloc_managed (bool): Use cudaMallocManaged for the host
+        buffer instead of malloc+cudaHostRegister
+
+        preferred_sms (int): The preferred number of SMs for the
+        kernel to use when use_pipeline=True. The value is ignored
+        when use_pipeline=False
+
+    Returns:
+
+        None
+    """
+
+    # Common configs
+    dtype = torch.half
+    device = "cuda"
+
+    # Generate requests
+    values_all = torch.ops.fbgemm.new_unified_tensor(
+        torch.zeros(1, device=device, dtype=dtype),
+        [num_inserts * iters, dim],
+        is_host_mapped=not use_malloc_managed,
+    )
+    output = torch.empty(num_inserts, dim, dtype=dtype, device=device)
+    indices = torch.arange(num_inserts, dtype=torch.long, device=device)
+    count = torch.as_tensor([indices.numel()], dtype=torch.int, device=device)
+
+    requests = []
+    for it in range(iters):
+        values = values_all[it * num_inserts : (it + 1) * num_inserts]
+        requests.append(TBERequest(output, indices, values))
+
+    # Run benchmark
+    time_per_iter = benchmark_requests(
+        requests,
+        lambda output, indices, values: torch.ops.fbgemm.masked_index_put(
+            output,
+            indices,
+            values,
+            count=count,
+            use_pipeline=use_pipeline,
+            preferred_sms=preferred_sms,
+        ),
+        num_warmups=10,
+    )
+
+    # Report performance
+    buffer_bytes = num_inserts * dim * values_all.element_size()
+    logging.info(
+        f"masked_index_benchmark: use_pipeline {use_pipeline}, "
+        f"Read/write bytes {buffer_bytes} bytes, "
+        f"BW: {buffer_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"Time {time_per_iter * 1.0e6:.0f} us"
     )
 
 
