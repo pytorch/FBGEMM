@@ -91,6 +91,7 @@ class PackedSegmentsTest(unittest.TestCase):
             [
                 torch.float,
                 torch.half,
+                torch.bfloat16,
             ]
         ),
         torch_compile=st.booleans(),
@@ -192,6 +193,7 @@ class PackedSegmentsTest(unittest.TestCase):
             [
                 torch.float,
                 torch.half,
+                torch.bfloat16,
             ]
         ),
         torch_compile=st.booleans(),
@@ -207,7 +209,8 @@ class PackedSegmentsTest(unittest.TestCase):
         dtype: torch.dtype,
         torch_compile: bool,
     ) -> None:
-        input_data = torch.tensor(np.random.rand(batch_size, n, k), dtype=dtype)
+        input_raw = np.random.rand(batch_size, n, k)
+        input_data = torch.tensor(input_raw, dtype=dtype)
         lengths = torch.tensor(
             get_n_rand_num_summing_to_k(divisions, batch_size), dtype=torch.int
         )
@@ -221,10 +224,10 @@ class PackedSegmentsTest(unittest.TestCase):
 
         packed_ref = self._pack_segments_ref(
             lengths,
-            input_data,
+            input_raw,
             max_length=max_length,
         )
-        # pyre-fixme[6]: For 2nd param expected `Tensor` but got `ndarray`.
+        packed_ref = torch.Tensor(packed_ref).to(dtype)
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
 
         if gpu_available:
@@ -248,6 +251,7 @@ class PackedSegmentsTest(unittest.TestCase):
             [
                 torch.float,
                 torch.half,
+                torch.bfloat16,
             ]
         ),
     )
