@@ -2843,8 +2843,9 @@ Tensor pack_segments_forward_cpu(
   TORCH_CHECK(
       t_in.dtype() == at::ScalarType::Float ||
           t_in.dtype() == at::ScalarType::Double ||
-          t_in.dtype() == at::ScalarType::Half,
-      "t_in must be of type float or double or half");
+          t_in.dtype() == at::ScalarType::Half ||
+          t_in.dtype() == at::ScalarType::BFloat16,
+      "t_in must be of type float, double, half, or bfloat16");
   TORCH_CHECK_GT(max_length, 0);
 
   const auto t_in_cont = t_in.expect_contiguous();
@@ -2911,8 +2912,9 @@ Tensor pack_segments_backward_cpu(
   TORCH_CHECK(
       data.dtype() == at::ScalarType::Float ||
           data.dtype() == at::ScalarType::Double ||
-          data.dtype() == at::ScalarType::Half,
-      "data must be of type float or double or half");
+          data.dtype() == at::ScalarType::Half ||
+          data.dtype() == at::ScalarType::BFloat16,
+      "data must be of type float, double, half, or bfloat16");
   TORCH_CHECK(
       max_length == data.sizes()[1],
       "max_length should be equal to the second dimension of the packed segments");
