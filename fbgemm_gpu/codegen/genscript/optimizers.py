@@ -1047,27 +1047,22 @@ def ensemble_rowwise_adagrad() -> Dict[str, Any]:
         momentum2[idx] = new_sum_square_grads;
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         
-        coef_ema = fabs(momentum);
+        coef_ema = (row_counter[idx] > step_start) ? (momentum*1.0) : 0.0;
         if (step_mode == 1) {
-            // row_counter[idx] records the number of appearances of this row
+            // row_counter[idx] tracks the number of appearances of this ID
             row_counter[idx] += 1.0;
             should_ema = floorf(row_counter[idx] / step_ema) - floorf((row_counter[idx]-1.0) / step_ema);
             should_swap = floorf(row_counter[idx] / step_swap) - floorf((row_counter[idx]-1.0) / step_swap);
         } else if (step_mode == 2)  {
-            // row_counter[idx] records the step of last ema; prev_iter[idx] records the step of last swap
-            if (momentum > 0) {
-                should_ema = floorf(iter*1.0 / step_ema) - floorf(row_counter[idx]  / step_ema);
-                should_swap = floorf(iter*1.0 / step_swap) - floorf(prev_iter[idx]  / step_swap);
-                coef_ema = (should_ema > 0.5) ? powf(coef_ema, should_ema) : coef_ema;
-            } else {
-                should_ema = floorf((iter*1.0 - row_counter[idx]) / step_ema);
-                should_swap = floorf((iter*1.0 - prev_iter[idx]) / step_swap);
-                coef_ema = (should_ema > 0.5) ? powf(coef_ema, (iter*1.0 - row_counter[idx]) / step_ema) : coef_ema;
-            }
+            should_ema = floorf((iter*1.0 - row_counter[idx]) / step_ema);
+            should_swap = floorf((iter*1.0 - prev_iter[idx]) / step_swap);
+            // row_counter[idx] records the step of last ema
             if (should_ema > 0.5) {
+                coef_ema = powf(coef_ema, (iter*1.0 - row_counter[idx]) / step_ema);
                 row_counter[idx] = iter*1.0;
             }
-            if (iter*1.0 > step_start && should_swap > 0.5) {
+            // prev_iter[idx] records the step of last swap
+            if (should_swap > 0.5) {
                 prev_iter[idx] = iter*1.0;
             }
         } else {
@@ -1089,14 +1084,14 @@ def ensemble_rowwise_adagrad() -> Dict[str, Any]:
 
         if (should_ema > 0.5) { // slow table ema
             Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
-            m_t.acc.x = (1.0 - coef_ema) * weight_new.acc.x + coef_ema * m_t.acc.x + (fabs(momentum) - coef_ema) * multiplier * grad.acc.x;
-            m_t.acc.y = (1.0 - coef_ema) * weight_new.acc.y + coef_ema * m_t.acc.y + (fabs(momentum) - coef_ema) * multiplier * grad.acc.y;
-            m_t.acc.z = (1.0 - coef_ema) * weight_new.acc.z + coef_ema * m_t.acc.z + (fabs(momentum) - coef_ema) * multiplier * grad.acc.z;
-            m_t.acc.w = (1.0 - coef_ema) * weight_new.acc.w + coef_ema * m_t.acc.w + (fabs(momentum) - coef_ema) * multiplier * grad.acc.w;
+            m_t.acc.x = (1.0 - coef_ema) * weight_new.acc.x + coef_ema * m_t.acc.x + (momentum - coef_ema) * multiplier * grad.acc.x;
+            m_t.acc.y = (1.0 - coef_ema) * weight_new.acc.y + coef_ema * m_t.acc.y + (momentum - coef_ema) * multiplier * grad.acc.y;
+            m_t.acc.z = (1.0 - coef_ema) * weight_new.acc.z + coef_ema * m_t.acc.z + (momentum - coef_ema) * multiplier * grad.acc.z;
+            m_t.acc.w = (1.0 - coef_ema) * weight_new.acc.w + coef_ema * m_t.acc.w + (momentum - coef_ema) * multiplier * grad.acc.w;
             m_t.store(&momentum1[idx * D + d]);
         }
 
-        if (iter*1.0 > step_start && should_swap > 0.5) { // slow-to-fast swap
+        if (should_swap > 0.5) { // slow-to-fast swap
             Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
             weight_new.acc.x = m_t.acc.x * 1.0;
             weight_new.acc.y = m_t.acc.y * 1.0;
