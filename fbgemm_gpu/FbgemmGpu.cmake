@@ -725,3 +725,9 @@ install(FILES ${gen_python_source_files}
 
 install(FILES ${gen_defused_optim_py_files}
         DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
+
+add_custom_target(fbgemm_gpu_py_clean_rpath ALL
+  WORKING_DIRECTORY ${OUTPUT_DIR}
+  COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
+
+add_dependencies(fbgemm_gpu_py_clean_rpath fbgemm_gpu_py)
