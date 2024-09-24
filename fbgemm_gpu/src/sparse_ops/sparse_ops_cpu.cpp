@@ -66,6 +66,7 @@ namespace fbgemm_gpu {
 // Needed this to support backward pass.
 class PackSegments : public torch::autograd::Function<PackSegments> {
  public:
+  static constexpr bool is_traceable = true;
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
       const Tensor& t_in,

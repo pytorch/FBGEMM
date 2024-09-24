@@ -30,6 +30,7 @@ using torch::autograd::variable_list;
 class PermuteMultiEmbeddingOp
     : public torch::autograd::Function<PermuteMultiEmbeddingOp> {
  public:
+  static constexpr bool is_traceable = true;
   static variable_list forward(
       AutogradContext* ctx,
       const at::TensorList& pooled_embs,
