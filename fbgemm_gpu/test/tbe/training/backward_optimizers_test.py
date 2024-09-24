@@ -311,7 +311,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                 1e-4,
                 1.0,
                 1.0,
-                0.0,
+                -1.0,
                 StepMode.USE_ITER,
                 0.8,
             )
