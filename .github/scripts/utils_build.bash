@@ -297,6 +297,7 @@ install_build_tools () {
     ncurses \
     ninja \
     openblas \
+    patchelf \
     scikit-build \
     wheel) || return 1
 
