@@ -738,18 +738,310 @@
 
 <span class="c1"># pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.</span>
 <span class="c1"># pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.</span>
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span> <span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span> <span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Table Batched Embedding (TBE) operator.  Please see</span>
-<span class="sd">    docs/table_batched_embedding_ops.py for the extended documentation.</span>
+<span class="sd">    Table Batched Embedding (TBE) operator.  Looks up one or more embedding</span>
+<span class="sd">    tables. The module is application for training. The backward operator is</span>
+<span class="sd">    fused with optimizer. Thus, the embedding tables are updated during</span>
+<span class="sd">    backward.</span>
 
-<span class="sd">    Multiple sparse features can share one embedding table.</span>
-<span class="sd">    &#39;feature_table_map&#39; specifies the feature-table mapping.</span>
-<span class="sd">    T:  number of logical tables</span>
-<span class="sd">    T_: number of physical tables</span>
-<span class="sd">    T &gt;= T_</span>
+<span class="sd">    Args:</span>
+<span class="sd">        embedding_specs (List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]):</span>
+<span class="sd">            A list of embedding specifications. Each spec describes a</span>
+<span class="sd">            specification of a physical embedding table. Each one is a tuple of</span>
+<span class="sd">            number of embedding rows, embedding dimension (must be a multiple of</span>
+<span class="sd">            4), table placement (`EmbeddingLocation`), and compute device</span>
+<span class="sd">            (`ComputeDevice`).</span>
 
-<span class="sd">    For supported optimizer hyperparams, see inline comments below</span>
+<span class="sd">            Available `EmbeddingLocation` options are</span>
+
+<span class="sd">            (1) `DEVICE` = placing an embedding table in the GPU global memory</span>
+<span class="sd">                (HBM)</span>
+
+<span class="sd">            (2) `MANAGED` = placing an embedding in the unified virtual memory</span>
+<span class="sd">                (accessible from both GPU and CPU)</span>
+
+<span class="sd">            (3) `MANAGED_CACHING` = placing an embedding table in the unified</span>
+<span class="sd">                virtual memory and using the GPU global memory (HBM) as a cache</span>
+
+<span class="sd">            (4) `HOST` = placing an embedding table in the CPU memory (DRAM)</span>
+
+<span class="sd">            (5) `MTIA` = placing an embedding table in the MTIA memory</span>
+
+<span class="sd">            Available `ComputeDevice`options are</span>
+
+<span class="sd">            (1) `CPU` = performing table lookup on CPU</span>
+
+<span class="sd">            (2) `CUDA` = performing table lookup on GPU</span>
+
+<span class="sd">            (3) `MTIA` = performing table lookup on MTIA</span>
+
+<span class="sd">        feature_table_map (Optional[List[int]] = None): An optional list that</span>
+<span class="sd">            specifies feature-table mapping. feature_table_map[i] indicates the</span>
+<span class="sd">            physical embedding table that feature i maps to.</span>
+
+<span class="sd">        cache_algorithm (CacheAlgorithm = CacheAlgorithm.LRU): The cache</span>
+<span class="sd">            algorithm (used when `EmbeddingLocation` is set to</span>
+<span class="sd">            `MANAGED_CACHING`).  Options are</span>
+
+<span class="sd">            (1) `LRU` = least recently used</span>
+
+<span class="sd">            (2) `LFU` = least frequently used</span>
+
+<span class="sd">        cache_load_factor (float = 0.2): A factor used for determining the</span>
+<span class="sd">            cache capacity when `EmbeddingLocation.MANAGED_CACHING` is used.</span>
+<span class="sd">            The cache capacity is `cache_load_factor` * the total number of</span>
+<span class="sd">            rows in all embedding tables</span>
+
+<span class="sd">        cache_sets (int = 0): The number of cache sets (used when</span>
+<span class="sd">            `EmbeddingLocation` is set to `MANAGED_CACHING`)</span>
+
+<span class="sd">        cache_reserved_memory (float = 0.0): The amount of memory reserved in</span>
+<span class="sd">            HBM for non-cache purpose (used when `EmbeddingLocation` is set to</span>
+<span class="sd">            `MANAGED_CACHING`).</span>
+
+<span class="sd">        cache_precision (SparseType = SparseType.FP32): The data type of the</span>
+<span class="sd">            cache (used when `EmbeddingLocation` is set to `MANAGED_CACHING`).</span>
+<span class="sd">            Options are `SparseType.FP32` and `SparseType.FP16`</span>
+
+<span class="sd">        weights_precision (SparseType = SparseType.FP32): The data type of</span>
+<span class="sd">            embedding tables (also known as weights). Options are</span>
+<span class="sd">            `SparseType.FP32` and `SparseType.FP16`</span>
+
+<span class="sd">        output_dtype (SparseType = SparseType.FP32): The data type of an output</span>
+<span class="sd">            tensor. Options are `SparseType.FP32` and `SparseType.FP16`</span>
+
+<span class="sd">        enforce_hbm (bool = False): If True, place all weights/momentums in HBM</span>
+<span class="sd">            when using `EmbeddingLocation.MANAGED_CACHING`</span>
+
+<span class="sd">        optimizer (OptimType = OptimType.EXACT_SGD): An optimizer to use for</span>
+<span class="sd">            embedding table update in the backward pass.  Available `OptimType`</span>
+<span class="sd">            options are</span>
+
+<span class="sd">            (1) `ADAM` = Adam</span>
+
+<span class="sd">            (2) `EXACT_ADAGRAD` = Adagrad</span>
+
+<span class="sd">            (3) `EXACT_ROWWISE_ADAGRAD` = Rowwise-Aadagrad</span>
+
+<span class="sd">            (4) `EXACT_SGD` = SGD</span>
+
+<span class="sd">            (5) `LAMB` = Lamb</span>
+
+<span class="sd">            (6) `LARS_SGD` = LARS-SGD</span>
+
+<span class="sd">            (7) `PARTIAL_ROWWISE_ADAM` = Partial rowwise-Adam</span>
+
+<span class="sd">            (8) `PARTIAL_ROWWISE_LAMB` = Partial rowwise-Lamb</span>
+
+<span class="sd">            (9) `ENSEMBLE_ROWWISE_ADAGRAD` = Ensemble rowwise-Adagrad</span>
+
+<span class="sd">            (10) `NONE` = Not applying an optimizer update in the backward pass</span>
+<span class="sd">                and outputting a sparse weight gradient</span>
+
+<span class="sd">        record_cache_metrics (Optional[RecordCacheMetrics] = None): Record</span>
+<span class="sd">            a number of hits, a number of requests, etc if</span>
+<span class="sd">            `RecordCacheMetrics.record_cache_miss_counter` is True and record</span>
+<span class="sd">            the similar metrics table-wise if</span>
+<span class="sd">            `RecordCacheMetrics.record_tablewise_cache_miss is True`</span>
+
+<span class="sd">        gather_uvm_cache_stats (Optional[bool] = False): If True, collect the</span>
+<span class="sd">            cache statistics when `EmbeddingLocation` is set to</span>
+<span class="sd">            `MANAGED_CACHING`</span>
+
+<span class="sd">        stochastic_rounding (bool = True): If True, apply stochastic rounding</span>
+<span class="sd">            for weight type that is not `SparseType.FP32`</span>
+
+<span class="sd">        gradient_clipping (bool = False): If True, apply gradient clipping</span>
+
+<span class="sd">        max_gradient (float = 1.0): The value for gradient clipping</span>
+
+<span class="sd">        max_norm (float = 0.0): The max norm value</span>
+
+<span class="sd">        learning_rate (float = 0.01): The learning rate</span>
+
+<span class="sd">        eps (float = 1.0e-8): The epsilon value used by Adagrad, LAMB, and</span>
+<span class="sd">            Adam. Note that default is different from torch.nn.optim.Adagrad</span>
+<span class="sd">            default of 1e-10</span>
+
+<span class="sd">        momentum (float = 0.9): Momentum used by LARS-SGD and</span>
+<span class="sd">            ENSEMBLE_ROWWISE_ADAGRAD</span>
+
+<span class="sd">        weight_decay (float = 0.0): Weight decay used by LARS-SGD, LAMB, ADAM,</span>
+<span class="sd">            and rowwise-Adagrad.</span>
+
+<span class="sd">            (1) EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay</span>
+
+<span class="sd">            (2) LAMB, ADAM, PARTIAL_ROWWISE_ADAM, PARTIAL_ROWWISE_LAMB, LARS_SGD</span>
+<span class="sd">                support decoupled weight decay</span>
+
+<span class="sd">            (3) EXACT_ROWWISE_ADAGRAD support both L2 and decoupled weight decay</span>
+<span class="sd">                (via weight_decay_mode)</span>
+
+<span class="sd">        weight_decay_mode (WeightDecayMode = WeightDecayMode.NONE): Weight decay</span>
+<span class="sd">            mode. Options are `WeightDecayMode.NONE`, `WeightDecayMode.L2`,</span>
+<span class="sd">            and `WeightDecayMode.DECOUPLE`</span>
+
+<span class="sd">        eta (float = 0.001): The eta value used by LARS-SGD</span>
+
+<span class="sd">        beta1 (float = 0.9): The beta1 value used by LAMB and ADAM</span>
+
+<span class="sd">        beta2 (float = 0.999): The beta2 value used by LAMB and ADAM</span>
+
+<span class="sd">        step_ema (float = 10000): Used by ENSEMBLE_ROWWISE_ADAGRAD</span>
+
+<span class="sd">        step_swap (float = 10000): Used by ENSEMBLE_ROWWISE_ADAGRAD</span>
+
+<span class="sd">        step_start (float = 0.0): Used by ENSEMBLE_ROWWISE_ADAGRAD</span>
+
+<span class="sd">        step_mode: (StepMode = StepMode.USE_ITER): Used by</span>
+<span class="sd">            ENSEMBLE_ROWWISE_ADAGRAD</span>
+
+<span class="sd">        counter_based_regularization (Optional[CounterBasedRegularizationDefinition] = None):</span>
+<span class="sd">            Used by Rowwise Adagrad</span>
+
+<span class="sd">        cowclip_regularization (Optional[CowClipDefinition] = None): Used by</span>
+<span class="sd">            Rowwise Adagrad</span>
+
+<span class="sd">        pooling_mode (PoolingMode = PoolingMode.SUM): Pooling mode. Available</span>
+<span class="sd">            `PoolingMode` options are</span>
+
+<span class="sd">            (1) `SUM` = Sum pooling</span>
+
+<span class="sd">            (2) `MEAN` = Mean pooling</span>
+
+<span class="sd">            (3) `NONE` = No pooling (sequence embedding)</span>
+
+<span class="sd">        device (Optional[Union[str, int, torch.device]] = None): The current</span>
+<span class="sd">            device to place tensors on</span>
+
+<span class="sd">        bounds_check_mode (BoundsCheckMode = BoundsCheckMode.WARNING): Input</span>
+<span class="sd">            checking mode. Available `BoundsCheckMode` options are</span>
+
+<span class="sd">            (1) `NONE` = skip bounds check</span>
+
+<span class="sd">            (2) `FATAL` = throw an error when encountering an invalid</span>
+<span class="sd">                index/offset</span>
+
+<span class="sd">            (3) `WARNING` = print a warning message when encountering an</span>
+<span class="sd">                invalid index/offset and fix it (setting an invalid index to</span>
+<span class="sd">                zero and adjusting an invalid offset to be within the bound)</span>
+
+<span class="sd">            (4) `IGNORE` = silently fix an invalid index/offset (setting an</span>
+<span class="sd">                invalid index to zero and adjusting an invalid offset to be</span>
+<span class="sd">                within the bound)</span>
+
+<span class="sd">        uvm_non_rowwise_momentum (bool = False): If True, place non-rowwise</span>
+<span class="sd">            momentum on the unified virtual memory</span>
+
+<span class="sd">        use_experimental_tbe (bool = False): If True, use an optimized TBE</span>
+<span class="sd">            implementation (TBE v2). Note that this is supported only on NVIDIA</span>
+<span class="sd">            GPUs.</span>
+
+<span class="sd">        prefetch_pipeline (bool = False): If True, enable cache prefetch</span>
+<span class="sd">            pipeline when using `EmbeddingLocation.MANAGED_CACHING`. Currently</span>
+<span class="sd">            only supports the LRU cache policy. If a separate stream is used</span>
+<span class="sd">            for prefetch, the optional `forward_stream` arg of prefetch</span>
+<span class="sd">            function must be set.</span>
+
+<span class="sd">        stats_reporter_config (Optional[TBEStatsReporterConfig] = None):</span>
+<span class="sd">            A config for TBE stats reporter</span>
+
+<span class="sd">        table_names (Optional[List[str]] = None): A list of embedding table</span>
+<span class="sd">            names in this TBE</span>
+
+<span class="sd">        optimizer_state_dtypes (Optional[Dict[str, SparseType]] = None): A</span>
+<span class="sd">            optimizer state data types dict. Keys are the optimizer state names</span>
+<span class="sd">            and values are their corresponding types</span>
+
+<span class="sd">        multipass_prefetch_config (Optional[MultiPassPrefetchConfig] = None):</span>
+<span class="sd">            A config for multipass cache prefetching (when</span>
+<span class="sd">            `EmbeddingLocation.MANAGED_CACHING` is used)</span>
+
+<span class="sd">        global_weight_decay (Optional[GlobalWeightDecayDefinition] = None):</span>
+<span class="sd">            A config for global weight decay</span>
+
+<span class="sd">        uvm_host_mapped (bool = False): If True, allocate every UVM tensor</span>
+<span class="sd">            using `malloc`+`cudaHostRegister`. Otherwise use</span>
+<span class="sd">            `cudaMallocManaged`</span>
+
+
+<span class="sd">    Inputs:</span>
+<span class="sd">        indices (torch.Tensor): A 1D-tensor that contains indices to be accessed</span>
+<span class="sd">        in all embedding table</span>
+
+<span class="sd">        offsets (torch.Tensor): A 1D-tensor that conatins offsets of indices.</span>
+<span class="sd">        Shape `(B * T + 1)` where `B` = batch size and `T` = number of tables.</span>
+<span class="sd">        `offsets[t * B + b + 1] - offsets[t * B + b]` is the length of bag `b`</span>
+<span class="sd">        of table `t`</span>
+
+<span class="sd">        per_sample_weights (torch.Tensor): An optional 1D-tensor that contains</span>
+<span class="sd">        positional weights. Shape `(max(bag length))`.  Positional weight `i` is</span>
+<span class="sd">        multiplied to all columns of row `i` in each bag after its read from the</span>
+<span class="sd">        embedding table and before pooling (if pooling mode is not</span>
+<span class="sd">        PoolingMode.NONE).</span>
+
+<span class="sd">        feature_requires_grad (torch.Tensor): An optional tensor for checking if</span>
+<span class="sd">        `per_sample_weights` requires gradient</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        A 2D-tensor containing looked up data. Shape `(B, total_D)` where `B` =</span>
+<span class="sd">        batch size and `total_D` = the sum of all embedding dimensions in the</span>
+<span class="sd">        table</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">        &gt;&gt;&gt; import torch</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; from fbgemm_gpu.split_table_batched_embeddings_ops_common import (</span>
+<span class="sd">        &gt;&gt;&gt;    EmbeddingLocation,</span>
+<span class="sd">        &gt;&gt;&gt; )</span>
+<span class="sd">        &gt;&gt;&gt; from fbgemm_gpu.split_table_batched_embeddings_ops_training import (</span>
+<span class="sd">        &gt;&gt;&gt;    SplitTableBatchedEmbeddingBagsCodegen,</span>
+<span class="sd">        &gt;&gt;&gt;    ComputeDevice,</span>
+<span class="sd">        &gt;&gt;&gt; )</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; # Two tables</span>
+<span class="sd">        &gt;&gt;&gt; embedding_specs = [</span>
+<span class="sd">        &gt;&gt;&gt;     (3, 8, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),</span>
+<span class="sd">        &gt;&gt;&gt;     (5, 4, EmbeddingLocation.MANAGED, ComputeDevice.CUDA)</span>
+<span class="sd">        &gt;&gt;&gt; ]</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; tbe = SplitTableBatchedEmbeddingBagsCodegen(embedding_specs)</span>
+<span class="sd">        &gt;&gt;&gt; tbe.init_embedding_weights_uniform(-1, 1)</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; print(tbe.split_embedding_weights())</span>
+<span class="sd">        [tensor([[-0.9426,  0.7046,  0.4214, -0.0419,  0.1331, -0.7856, -0.8124, -0.2021],</span>
+<span class="sd">                [-0.5771,  0.5911, -0.7792, -0.1068, -0.6203,  0.4813, -0.1677,  0.4790],</span>
+<span class="sd">                [-0.5587, -0.0941,  0.5754,  0.3475, -0.8952, -0.1964,  0.0810, -0.4174]],</span>
+<span class="sd">               device=&#39;cuda:0&#39;), tensor([[-0.2513, -0.4039, -0.3775,  0.3273],</span>
+<span class="sd">                [-0.5399, -0.0229, -0.1455, -0.8770],</span>
+<span class="sd">                [-0.9520,  0.4593, -0.7169,  0.6307],</span>
+<span class="sd">                [-0.1765,  0.8757,  0.8614,  0.2051],</span>
+<span class="sd">                [-0.0603, -0.9980, -0.7958, -0.5826]], device=&#39;cuda:0&#39;)]</span>
+
+
+<span class="sd">        &gt;&gt;&gt; # Batch size = 3</span>
+<span class="sd">        &gt;&gt;&gt; indices = torch.tensor([0, 1, 2, 0, 1, 2, 0, 3, 1, 4, 2, 0, 0],</span>
+<span class="sd">        &gt;&gt;&gt;                        device=&quot;cuda&quot;,</span>
+<span class="sd">        &gt;&gt;&gt;                        dtype=torch.long)</span>
+<span class="sd">        &gt;&gt;&gt; offsets = torch.tensor([0, 2, 5, 7, 9, 12, 13],</span>
+<span class="sd">        &gt;&gt;&gt;                        device=&quot;cuda&quot;,</span>
+<span class="sd">        &gt;&gt;&gt;                        dtype=torch.long)</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; output = tbe(indices, offsets)</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &gt;&gt;&gt; # Batch size = 3, total embedding dimension = 12</span>
+<span class="sd">        &gt;&gt;&gt; print(output.shape)</span>
+<span class="sd">        torch.Size([3, 12])</span>
+
+<span class="sd">        &gt;&gt;&gt; print(output)</span>
+<span class="sd">        tensor([[-1.5197,  1.2957, -0.3578, -0.1487, -0.4873, -0.3044, -0.9801,  0.2769,</span>
+<span class="sd">                 -0.7164,  0.8528,  0.7159, -0.6719],</span>
+<span class="sd">                [-2.0784,  1.2016,  0.2176,  0.1988, -1.3825, -0.5008, -0.8991, -0.1405,</span>
+<span class="sd">                 -1.2637, -0.9427, -1.8902,  0.3754],</span>
+<span class="sd">                [-1.5013,  0.6105,  0.9968,  0.3057, -0.7621, -0.9821, -0.7314, -0.6195,</span>
+<span class="sd">                 -0.2513, -0.4039, -0.3775,  0.3273]], device=&#39;cuda:0&#39;,</span>
+<span class="sd">               grad_fn=&lt;CppNode&lt;SplitLookupFunction_sgd_Op&gt;&gt;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="p">]]</span>
@@ -781,7 +1073,7 @@
         <span class="n">cache_precision</span><span class="p">:</span> <span class="n">SparseType</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span><span class="p">,</span>
         <span class="n">weights_precision</span><span class="p">:</span> <span class="n">SparseType</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span><span class="p">,</span>
         <span class="n">output_dtype</span><span class="p">:</span> <span class="n">SparseType</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span><span class="p">,</span>
-        <span class="n">enforce_hbm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>  <span class="c1"># place all weights/momentums in HBM when using cache</span>
+        <span class="n">enforce_hbm</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">optimizer</span><span class="p">:</span> <span class="n">OptimType</span> <span class="o">=</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,</span>
         <span class="n">record_cache_metrics</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">RecordCacheMetrics</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">gather_uvm_cache_stats</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
@@ -791,46 +1083,32 @@
         <span class="n">max_gradient</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
         <span class="n">max_norm</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
         <span class="n">learning_rate</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
-        <span class="c1"># used by EXACT_ADAGRAD, EXACT_ROWWISE_ADAGRAD, LAMB, and ADAM only</span>
-        <span class="c1"># NOTE that default is different from nn.optim.Adagrad default of 1e-10</span>
         <span class="n">eps</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0e-8</span><span class="p">,</span>
-        <span class="n">momentum</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>  <span class="c1"># used by LARS-SGD and ENSEMBLE_ROWWISE_ADAGRAD</span>
-        <span class="c1"># EXACT_ADAGRAD, SGD, EXACT_SGD do not support weight decay</span>
-        <span class="c1"># LAMB, ADAM, PARTIAL_ROWWISE_ADAM, PARTIAL_ROWWISE_LAMB, LARS_SGD support decoupled weight decay</span>
-        <span class="c1"># EXACT_ROWWISE_ADAGRAD support both L2 and decoupled weight decay (via weight_decay_mode)</span>
+        <span class="n">momentum</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
         <span class="n">weight_decay</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
         <span class="n">weight_decay_mode</span><span class="p">:</span> <span class="n">WeightDecayMode</span> <span class="o">=</span> <span class="n">WeightDecayMode</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-        <span class="n">eta</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.001</span><span class="p">,</span>  <span class="c1"># used by LARS-SGD,</span>
-        <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>  <span class="c1"># used by LAMB and ADAM</span>
-        <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>  <span class="c1"># used by LAMB and ADAM</span>
-        <span class="n">step_ema</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
-        <span class="n">step_swap</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
-        <span class="n">step_start</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
-        <span class="n">step_mode</span><span class="p">:</span> <span class="n">StepMode</span> <span class="o">=</span> <span class="n">StepMode</span><span class="o">.</span><span class="n">USE_ITER</span><span class="p">,</span>  <span class="c1"># used by ENSEMBLE_ROWWISE_ADAGRAD</span>
+        <span class="n">eta</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.001</span><span class="p">,</span>
+        <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
+        <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>
+        <span class="n">step_ema</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span>
+        <span class="n">step_swap</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span><span class="p">,</span>
+        <span class="n">step_start</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+        <span class="n">step_mode</span><span class="p">:</span> <span class="n">StepMode</span> <span class="o">=</span> <span class="n">StepMode</span><span class="o">.</span><span class="n">USE_ITER</span><span class="p">,</span>
         <span class="n">counter_based_regularization</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
             <span class="n">CounterBasedRegularizationDefinition</span>
-        <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># used by Rowwise Adagrad</span>
-        <span class="n">cowclip_regularization</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
-            <span class="n">CowClipDefinition</span>
-        <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># used by Rowwise Adagrad</span>
+        <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">cowclip_regularization</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">CowClipDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">pooling_mode</span><span class="p">:</span> <span class="n">PoolingMode</span> <span class="o">=</span> <span class="n">PoolingMode</span><span class="o">.</span><span class="n">SUM</span><span class="p">,</span>
         <span class="n">device</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">bounds_check_mode</span><span class="p">:</span> <span class="n">BoundsCheckMode</span> <span class="o">=</span> <span class="n">BoundsCheckMode</span><span class="o">.</span><span class="n">WARNING</span><span class="p">,</span>
-        <span class="n">uvm_non_rowwise_momentum</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>  <span class="c1"># place non-rowwise momentum on UVM</span>
-        <span class="n">use_experimental_tbe</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>  <span class="c1"># set to True to use TBE v2 (only support NVIDIA GPUs)</span>
-        <span class="c1"># set to True to enable prefetch pipeline, currently only supports LRU cache policy.</span>
-        <span class="c1"># If a separate stream is used for prefetch, the optional forward_stream arg of prefetch function</span>
-        <span class="c1"># should be set.</span>
+        <span class="n">uvm_non_rowwise_momentum</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">use_experimental_tbe</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">prefetch_pipeline</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">stats_reporter_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEStatsReporterConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="c1"># Embedding table names that are contained in this TBE.</span>
         <span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">optimizer_state_dtypes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">SparseType</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="c1"># Global weight decay params</span>
         <span class="n">global_weight_decay</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">GlobalWeightDecayDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="c1"># Set to True to alloc a UVM tensor using malloc+cudaHostRegister.</span>
-        <span class="c1"># Set to False to use cudaMallocManaged</span>
         <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
@@ -1434,10 +1712,10 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats_factory</span><span class="p">()</span>
         <span class="p">)</span>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.log"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.log">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Log with TBE id prefix to distinguish between multiple TBE instances per process.&quot;&quot;&quot;</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[TBE=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[TBE=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
     <span class="k">def</span> <span class="nf">_register_nonpersistent_buffers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># NOTE: make TorchScript work!</span>
@@ -1467,7 +1745,7 @@
             <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging">[docs]</a>    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Given list of all table names in the TBE, generate a string to represent</span>
@@ -1481,9 +1759,9 @@
         <span class="n">table_name_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
             <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">))</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span><span class="si">}</span><span class="s2"> tables&gt;&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span><span class="si">}</span><span class="s2"> tables&gt;&quot;</span></div>
 
-    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.get_prefetch_passes"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_prefetch_passes">[docs]</a>    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">get_prefetch_passes</span><span class="p">(</span>
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">],</span>
         <span class="n">input_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1518,7 +1796,7 @@
                 <span class="n">torch</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">output_tensor</span><span class="p">,</span> <span class="n">pass_size</span><span class="p">),</span>
                 <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">pass_size</span><span class="p">),</span>
             <span class="p">)</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div>
 
     <span class="k">def</span> <span class="nf">get_states</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_physical_placements&quot;</span><span class="p">):</span>
@@ -1675,7 +1953,7 @@
         <span class="c1"># This allows models using this class to compile correctly</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1960,7 +2238,7 @@
                     <span class="p">),</span>
                 <span class="p">)</span>
 
-        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid OptimType: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid OptimType: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
     <span class="k">def</span> <span class="nf">reset_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
@@ -2209,13 +2487,13 @@
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">should_log</span><span class="p">():</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">print_uvm_cache_stats</span><span class="p">(</span><span class="n">use_local_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">should_log</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.should_log"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.should_log">[docs]</a>    <span class="k">def</span> <span class="nf">should_log</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Determines if we should log for this step, using exponentially decreasing frequency.</span>
 
 <span class="sd">        Logs for steps: 100 200 ... 1,000 2,000 ... 10,000 20,000 ... 100,000 200,000 ...</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># step starts at 0</span>
-        <span class="k">return</span> <span class="n">s</span> <span class="o">&gt;=</span> <span class="mi">100</span> <span class="ow">and</span> <span class="n">s</span> <span class="o">%</span> <span class="p">(</span><span class="mi">10</span> <span class="o">**</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="n">s</span><span class="p">)))</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="k">return</span> <span class="n">s</span> <span class="o">&gt;=</span> <span class="mi">100</span> <span class="ow">and</span> <span class="n">s</span> <span class="o">%</span> <span class="p">(</span><span class="mi">10</span> <span class="o">**</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="n">s</span><span class="p">)))</span> <span class="o">==</span> <span class="mi">0</span></div>
 
     <span class="k">def</span> <span class="nf">_prefetch_tensors_record_stream</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">forward_stream</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span>
@@ -2291,7 +2569,7 @@
             <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">splits</span><span class="p">:</span>
                 <span class="n">param</span><span class="o">.</span><span class="n">uniform_</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">split_embedding_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Returns a list of weights, split by table</span>
@@ -2313,7 +2591,7 @@
             <span class="n">splits</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">weights</span><span class="o">.</span><span class="n">detach</span><span class="p">()[</span><span class="n">offset</span> <span class="p">:</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">rows</span> <span class="o">*</span> <span class="n">dim</span><span class="p">]</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span>
             <span class="p">)</span>
-        <span class="k">return</span> <span class="n">splits</span>
+        <span class="k">return</span> <span class="n">splits</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">get_optimizer_buffer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
@@ -2326,7 +2604,7 @@
                 <span class="k">return</span> <span class="n">buffer</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.get_optimizer_state"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_optimizer_state">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">get_optimizer_state</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get the optimizer state dict that matches the OSS Pytorch optims</span>
@@ -2378,9 +2656,9 @@
                 <span class="sa">f</span><span class="s2">&quot;Getting optimizer state </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2"> is not implmeneted&quot;</span>
             <span class="p">)</span>
 
-        <span class="k">return</span> <span class="n">list_of_state_dict</span>
+        <span class="k">return</span> <span class="n">list_of_state_dict</span></div>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">split_optimizer_states</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
@@ -2493,9 +2771,9 @@
                 <span class="p">)</span>
             <span class="p">)</span>
         <span class="n">return_states</span> <span class="o">=</span> <span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">states</span><span class="p">)]</span>
-        <span class="k">return</span> <span class="n">return_states</span>
+        <span class="k">return</span> <span class="n">return_states</span></div>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the learning rate.</span>
@@ -2504,9 +2782,9 @@
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Setting learning rate is not supported for </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_set_learning_rate</span><span class="p">(</span><span class="n">lr</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_set_learning_rate</span><span class="p">(</span><span class="n">lr</span><span class="p">)</span></div>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">update_hyper_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets hyper-parameters from external control flow.</span>
@@ -2531,7 +2809,7 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
                     <span class="sa">f</span><span class="s2">&quot;Setting hyper-parameter </span><span class="si">{</span><span class="n">parameter_name</span><span class="si">}</span><span class="s2"> is not supported&quot;</span>
-                <span class="p">)</span>
+                <span class="p">)</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">_set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
@@ -2542,7 +2820,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span><span class="n">learning_rate</span><span class="o">=</span><span class="n">lr</span><span class="p">)</span>
         <span class="k">return</span> <span class="mf">0.0</span>
 
-    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">set_optimizer_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the optimizer step.</span>
@@ -2552,7 +2830,7 @@
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Setting optimizer step is not supported for </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">step</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">step</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">flush</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -2997,7 +3275,7 @@
                 <span class="n">total_cache_hash_size</span><span class="o">=</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
             <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">prepare_inputs</span><span class="p">(</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.prepare_inputs"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.prepare_inputs">[docs]</a>    <span class="k">def</span> <span class="nf">prepare_inputs</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -3062,7 +3340,7 @@
                 <span class="n">max_B</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
             <span class="p">)</span>
 
-        <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="n">vbe_metadata</span>
+        <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="n">vbe_metadata</span></div>
 
     <span class="k">def</span> <span class="nf">_debug_print_input_stats_factory</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
