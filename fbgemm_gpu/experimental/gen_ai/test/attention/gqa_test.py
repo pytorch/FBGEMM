@@ -137,7 +137,7 @@ def gqa_reference(
 
 class Int4GQATest(unittest.TestCase):
     @unittest.skipIf(
-        not torch.version.cuda or torch.cuda.get_device_capability()[0] < 8,
+        not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
         "Skip when CUDA is not available or CUDA compute capability is less than 8",
     )
     @settings(verbosity=VERBOSITY, max_examples=40, deadline=None)
@@ -243,7 +243,7 @@ class Int4GQATest(unittest.TestCase):
     )
     # pyre-fixme[56]
     @unittest.skipIf(
-        not torch.version.cuda or not HAS_XFORMERS,
+        not torch.cuda.is_available() or not HAS_XFORMERS,
         "Skip when CUDA is not available or xformers is not available",
     )
     def test_mqa_main(  # noqa C901
