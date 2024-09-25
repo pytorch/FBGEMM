@@ -127,7 +127,12 @@ install_pytorch_pip () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  # Install the package from PyTorch PIP (not PyPI)
+  # Install the main dependencies
+  # shellcheck disable=SC2086
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+    numpy) || return 1
+
+  # Install the torch package from PyTorch PIP (not PyPI)
   install_from_pytorch_pip "${env_name}" torch "${pytorch_channel_version}" "${pytorch_variant_type_version}" || return 1
 
   # Check that PyTorch is importable

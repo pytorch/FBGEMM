@@ -3,12 +3,12 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# This workflow is used for FBGEMM_GPU-GenAI CI as well as nightly builds of
-# FBGEMM_GPU-GenAI against PyTorch-CUDA Nightly.
-name: FBGEMM_GPU-GenAI CI
+# This workflow is used for FBGEMM_GPU-GenAI CI, and is meant to be used for
+# copies of the FBGEMM repos hosted outside of the pytorch org.
+name: FBGEMM_GPU-GenAI CI (Generic Runner)
 
 on:
-  # PR Trigger (enabled for regression checks and debugging)
+  # PR Trigger
   #
   pull_request:
     branches:
@@ -20,23 +20,9 @@ on:
     branches:
       - main
 
-  # Cron Trigger (UTC)
-  #
-  # Based on the Conda page for PyTorch-nightly, the GPU nightly releases appear
-  # around 02:30 PST every day (roughly 2 hours after the CPU releases)
-  #
-  schedule:
-    - cron:  '45 12 * * *'
-
   # Manual Trigger
   #
   workflow_dispatch:
-    inputs:
-      publish_to_pypi:
-        description: Publish Artifact to PyPI
-        type: boolean
-        required: false
-        default: false
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -49,7 +35,9 @@ jobs:
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
-      options: --user root
+      options: --user root --privileged --pid=host
+      volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
     defaults:
       run:
         shell: bash
@@ -59,11 +47,10 @@ jobs:
       BUILD_VARIANT: genai
     continue-on-error: true
     strategy:
-      # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.24xlarge" },
+          { arch: x86, instance: "ubuntu-latest" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]
@@ -77,6 +64,9 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: true
+
+    - name: Free Disk Space on Host
+      run: . $PRELUDE; free_disk_space_on_host
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info
@@ -124,11 +114,14 @@ jobs:
         path: fbgemm_gpu/dist/*.whl
         if-no-files-found: error
 
-
   # Download the built artifact from GHA, test on GPU, and push to PyPI
-  test_and_publish_artifact:
-    # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
+  test_artifact:
     runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: amazonlinux:2023
+      options: --user root --privileged --pid=host
+      volumes:
+          - /var/run/docker.sock:/var/run/docker.sock
     defaults:
       run:
         shell: bash
@@ -136,15 +129,14 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: genai
-      ENFORCE_CUDA_DEVICE: 1
+      ENFORCE_CUDA_DEVICE: 0
+      CUDA_VISIBLE_DEVICES: -1
+      ADD_LIBCUDA_SYMLINK: 1
     strategy:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
-          # TODO: Enable when A100 machine queues are reasonably small enough for doing per-PR CI
-          # https://hud.pytorch.org/metrics
-          # { arch: x86, instance: "linux.gcp.a100" },
+          { arch: x86, instance: "ubuntu-latest" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]
@@ -154,21 +146,22 @@ jobs:
     needs: build_artifact
 
     steps:
-    # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
+    - name: Setup Build Container
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo tar wget which
+
     - name: Checkout the Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: true
+
+    - name: Free Disk Space on Host
+      run: . $PRELUDE; free_disk_space_on_host
 
     - name: Download Wheel Artifact from GHA
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/download-artifact@v3
       with:
         name: fbgemm_gpu_nightly_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
-
-    # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
-    - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
-      uses: pytorch/test-infra/.github/actions/setup-nvidia@main
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -183,13 +176,11 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install C/C++ Compilers for Updated LIBGCC
-      # Install clang libraries to enable building and install triton
       run: . $PRELUDE; install_cxx_compiler $BUILD_ENV clang
 
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
-    # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
       run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
 
@@ -206,9 +197,3 @@ jobs:
     - name: Test with PyTest
       timeout-minutes: 30
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
-
-    - name: Push Wheel to PyPI
-      if: ${{ (github.event_name == 'schedule' && matrix.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == matrix.cuda-version-publish) }}
-      env:
-        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
