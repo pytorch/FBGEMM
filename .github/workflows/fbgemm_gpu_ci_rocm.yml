@@ -46,7 +46,6 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: ${{ matrix.container-image }}
@@ -126,7 +125,6 @@ jobs:
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"

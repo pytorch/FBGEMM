@@ -46,7 +46,6 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
@@ -128,7 +127,6 @@ jobs:
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
-    if: ${{ github.repository_owner == 'pytorch' }}
     # runs-on: linux.4xlarge.nvidia.gpu
     # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
     runs-on: ${{ matrix.host-machine.instance }}
