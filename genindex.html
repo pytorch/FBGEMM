@@ -336,8 +336,9 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
 </ul>
 
             
@@ -513,6 +514,8 @@
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.batched_dense_vec_jagged_2d_mul">batched_dense_vec_jagged_2d_mul() (in module torch.ops.fbgemm)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/embedding_ops.html#_CPPv425bounds_check_indices_cudaR6TensorR6TensorR6Tensor7int64_tR6TensorRKNSt8optionalI6TensorEERKNSt8optionalI6TensorEEK7int64_t">bounds_check_indices_cuda (C++ function)</a>
 </li>
   </ul></td>
@@ -534,6 +537,8 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv415dense_to_jaggedRK6TensorRKNSt6vectorI6TensorEENSt8optionalIN2at6SymIntEEE">dense_to_jagged (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.dense_to_jagged">dense_to_jagged() (in module torch.ops.fbgemm)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -565,6 +570,13 @@
 <h2 id="F">F</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li>
+    fbgemm_gpu
+
+      <ul>
+        <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#module-fbgemm_gpu">module</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#module-fbgemm_gpu">[1]</a>
+</li>
+      </ul></li>
       <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv410FindMinMaxPKfPfPf7int64_t">FindMinMax (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv437float_or_half_to_fused8bitrowwise_cpuRK6Tensor">float_or_half_to_fused8bitrowwise_cpu (C++ function)</a>
@@ -579,10 +591,10 @@
 </li>
       <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.forward">forward() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
 </li>
-      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">FP8QuantizedToFloat_ref (C++ function)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FP8QuantizedToFloat_refPCK7uint8_tK6size_tK6size_tPCfKiKi">FP8QuantizedToFloat_ref (C++ function)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FP8rowwise_to_float_cpuRK6TensorbK7int64_t">FP8rowwise_to_float_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429fused8bitrowwise_to_float_cpuRK6Tensor">fused8bitrowwise_to_float_cpu (C++ function)</a>
@@ -609,16 +621,10 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/sparse_ops.html#_CPPv452generic_histogram_binning_calibration_by_feature_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_tRKN2at6TensorERKN2at6TensorERKN2at6TensorEd7int64_td">generic_histogram_binning_calibration_by_feature_cpu (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_optimizer_state">get_optimizer_state() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
-</li>
-      <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_prefetch_passes">get_prefetch_passes() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen static method)</a>
+      <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv423get_unique_indices_cudaRKN2at6TensorEK7int64_tKb">get_unique_indices_cuda (C++ function)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging">get_table_name_for_logging() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen static method)</a>
-</li>
-      <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv423get_unique_indices_cudaRKN2at6TensorEK7int64_tKb">get_unique_indices_cuda (C++ function)</a>
-</li>
       <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv436get_unique_indices_with_inverse_cudaRKN2at6TensorEK7int64_tKbKb">get_unique_indices_with_inverse_cuda (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/experimental_ops.html#_CPPv415gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t">gqa_attn_splitk (C++ function)</a>
@@ -665,19 +671,33 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv418jagged_1d_to_dense6Tensor6TensorN3c106SymIntE7int64_t">jagged_1d_to_dense (C++ function)</a>
 </li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_1d_to_dense">jagged_1d_to_dense() (in module torch.ops.fbgemm)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv418jagged_2d_to_dense6Tensor6TensorN3c106SymIntE">jagged_2d_to_dense (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_2d_to_dense">jagged_2d_to_dense() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output">jagged_dense_dense_elementwise_add_jagged_output() (in module torch.ops.fbgemm)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv428jagged_dense_elementwise_addRK6TensorRKNSt6vectorI6TensorEERK6Tensor">jagged_dense_elementwise_add (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv442jagged_dense_elementwise_add_jagged_outputRK6TensorRKNSt6vectorI6TensorEERK6Tensor">jagged_dense_elementwise_add_jagged_output (C++ function)</a>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_elementwise_add">jagged_dense_elementwise_add() (in module torch.ops.fbgemm)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv442jagged_dense_elementwise_add_jagged_outputRK6TensorRKNSt6vectorI6TensorEERK6Tensor">jagged_dense_elementwise_add_jagged_output (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output">jagged_dense_elementwise_add_jagged_output() (in module torch.ops.fbgemm)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv447jagged_dense_elementwise_add_jagged_output_cudaRK6TensorRKNSt6vectorI6TensorEERK6Tensor">jagged_dense_elementwise_add_jagged_output_cuda (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv428jagged_dense_elementwise_mulRK6TensorRKNSt6vectorI6TensorEERK6Tensor">jagged_dense_elementwise_mul (C++ function)</a>
 </li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_dense_elementwise_mul">jagged_dense_elementwise_mul() (in module torch.ops.fbgemm)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv422jagged_to_padded_denseRK6TensorRKNSt6vectorI6TensorEEKN3c1014SymIntArrayRefEKd">jagged_to_padded_dense (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.jagged_to_padded_dense">jagged_to_padded_dense() (in module torch.ops.fbgemm)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/jagged_tensor_ops.html#_CPPv430jagged_to_padded_dense_forwardRK6TensorRKNSt6vectorI6TensorEEN3c1014SymIntArrayRefEKd">jagged_to_padded_dense_forward (C++ function)</a>
 </li>
@@ -711,12 +731,10 @@
 </li>
       <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv441linearize_cache_indices_from_row_idx_cudaN2at6TensorEN2at6TensorEN2at6TensorE">linearize_cache_indices_from_row_idx_cuda (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.log">log() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
+      <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv428lru_cache_find_uncached_cudaN2at6TensorEN2at6TensorE7int64_tN2at6TensorE7int64_tN2at6TensorEbN2at6TensorEbN2at6TensorEKb">lru_cache_find_uncached_cuda (C++ function)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv428lru_cache_find_uncached_cudaN2at6TensorEN2at6TensorE7int64_tN2at6TensorE7int64_tN2at6TensorEbN2at6TensorEbN2at6TensorEKb">lru_cache_find_uncached_cuda (C++ function)</a>
-</li>
       <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv428lru_cache_populate_byte_cudaN2at6TensorEN2at6TensorE7int64_tN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorE7int64_tN2at6TensorE7int64_tbNSt8optionalIN2at6TensorEEE">lru_cache_populate_byte_cuda (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/split_table_batched_embeddings.html#_CPPv423lru_cache_populate_cudaN2at6TensorEN2at6TensorE7int64_tN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorEN2at6TensorE7int64_tN2at6TensorEbbNSt8optionalIN2at6TensorEEEbNSt8optionalIN2at6TensorEEE">lru_cache_populate_cuda (C++ function)</a>
@@ -737,10 +755,19 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/ssd_embedding_ops.html#_CPPv421masked_index_put_cuda6Tensor6Tensor6Tensor6TensorKbK7int64_t">masked_index_put_cuda (C++ function)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/ssd_embedding_ops.html#_CPPv424masked_index_select_cuda6Tensor6Tensor6Tensor6TensorKbK7int64_t">masked_index_select_cuda (C++ function)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#torch.ops.fbgemm.merge_pooled_embeddings">merge_pooled_embeddings() (in module torch.ops.fbgemm)</a>
+</li>
+      <li>
+    module
+
+      <ul>
+        <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#module-fbgemm_gpu">fbgemm_gpu</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#module-fbgemm_gpu">[1]</a>
+</li>
+      </ul></li>
   </ul></td>
 </tr></table>
 
@@ -781,13 +808,11 @@
 </li>
       <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv428permute_pooled_embs_cpu_implRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKb">permute_pooled_embs_cpu_impl (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_cpu (C++ function)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_gpu (C++ function)</a>
+      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_cpu (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.prepare_inputs">prepare_inputs() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
+      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_gpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/embedding_ops.html#_CPPv423pruned_array_lookup_cpu6Tensor6Tensor6Tensor6Tensor">pruned_array_lookup_cpu (C++ function)</a>
 </li>
@@ -851,21 +876,23 @@
 </li>
       <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step">set_optimizer_step() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
 </li>
-      <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.should_log">should_log() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
-</li>
       <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights">split_embedding_weights() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states">split_optimizer_states() (fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen method)</a>
 </li>
       <li><a href="fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen">SplitTableBatchedEmbeddingBagsCodegen (class in fbgemm_gpu.split_table_batched_embeddings_ops_training)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/ssd_embedding_ops.html#_CPPv4N3ssd16EmbeddingRocksDBE">ssd::EmbeddingRocksDB (C++ class)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/ssd_embedding_ops.html#_CPPv427ssd_generate_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor">ssd_generate_row_addrs_cuda (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/ssd_embedding_ops.html#_CPPv425ssd_update_row_addrs_cudaRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6TensorRK6Tensor">ssd_update_row_addrs_cuda (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.stacked_jagged_1d_to_dense">stacked_jagged_1d_to_dense() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#torch.ops.fbgemm.stacked_jagged_2d_to_dense">stacked_jagged_2d_to_dense() (in module torch.ops.fbgemm)</a>
 </li>
   </ul></td>
 </tr></table>

@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Contributing &mdash; FBGEMM 0.8.0 documentation</title>
+  <title>Pooled Embedding Operators &mdash; FBGEMM 0.8.0 documentation</title>
   
 
   
@@ -33,8 +33,7 @@
   <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Documentation" href="documentation/Overview.html" />
-    <link rel="prev" title="FBGEMM and FBGEMM_GPU Documentation Homepage" href="../index.html" />
+    <link rel="prev" title="Jagged Tensor Operators" href="jagged_tensor_ops.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -298,11 +297,11 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
-<ul class="current">
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="documentation/Overview.html">Documentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ContactUs.html">Contact Us</a></li>
-<li class="toctree-l1"><a class="reference internal" href="License.html">License</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/documentation/Overview.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Development</span></p>
 <ul>
@@ -338,10 +337,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Pooled Embedding Operators</a></li>
 </ul>
 
             
@@ -382,13 +381,13 @@
       </li>
 
         
-      <li>Contributing</li>
+      <li>Pooled Embedding Operators</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/general/Contributing.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/fbgemm_gpu-python-api/pooled_embedding_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -418,46 +417,33 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="contributing">
-<h1>Contributing<a class="headerlink" href="#contributing" title="Permalink to this heading">¶</a></h1>
-<p>We want to make contributing to FBGEMM and FBGEMM_GPU as easy and transparent as
-possible.</p>
-<section id="code-of-conduct">
-<h2>Code of Conduct<a class="headerlink" href="#code-of-conduct" title="Permalink to this heading">¶</a></h2>
-<p>The code of conduct is described in the
-<a class="reference external" href="https://github.com/pytorch/FBGEMM/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a>.</p>
-</section>
-<section id="pull-requests">
-<h2>Pull Requests<a class="headerlink" href="#pull-requests" title="Permalink to this heading">¶</a></h2>
-<p>We actively welcome your pull requests.</p>
-<ol class="arabic simple">
-<li><p><strong>Fork</strong> the repository and create your branch from <code class="docutils literal notranslate"><span class="pre">main</span></code>.</p></li>
-<li><p>If you’ve added code that should be tested, add tests.</p></li>
-<li><p>If you’ve added or changed APIs, update the documentation.</p></li>
-<li><p>Ensure the test suite passes.</p></li>
-<li><p>Make sure your code lints.</p></li>
-<li><p>If you haven’t already, complete the Contributor License Agreement (“CLA”).</p></li>
-</ol>
-</section>
-<section id="contributor-license-agreement-cla">
-<h2>Contributor License Agreement (“CLA”)<a class="headerlink" href="#contributor-license-agreement-cla" title="Permalink to this heading">¶</a></h2>
-<p>In order to accept your pull request, we need you to submit a CLA. You only need
-to do this once to work on any of Facebook’s open source projects.</p>
-<p>Complete your CLA here: <a class="reference external" href="https://code.facebook.com/cla">https://code.facebook.com/cla</a></p>
-</section>
-<section id="issues">
-<h2>Issues<a class="headerlink" href="#issues" title="Permalink to this heading">¶</a></h2>
-<p>We use GitHub issues to track public bugs. Please ensure your description is
-clear and has sufficient instructions to be able to reproduce the issue.</p>
-<p>Facebook has a <a class="reference external" href="https://www.facebook.com/whitehat/">bounty program</a> for the safe
-disclosure of security bugs. In those cases, please go through the process
-outlined on that page and do not file a public issue.</p>
-</section>
-<section id="license">
-<h2>License<a class="headerlink" href="#license" title="Permalink to this heading">¶</a></h2>
-<p>By contributing to FBGEMM, you agree that your contributions will be licensed
-under the LICENSE file in the root directory of this source tree.</p>
-</section>
+  <section id="module-fbgemm_gpu">
+<span id="pooled-embedding-operators"></span><h1>Pooled Embedding Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.merge_pooled_embeddings">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">merge_pooled_embeddings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pooled_embeddings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">uncat_dim_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_device</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cat_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.merge_pooled_embeddings" title="Permalink to this definition">¶</a></dt>
+<dd><p>Concatenate embedding outputs from different devices (on the same host)
+on to the target device.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>pooled_embeddings</strong> (<em>List</em><em>[</em><em>Tensor</em><em>]</em>) – A list of embedding outputs from
+different devices on the same host. Each output has 2
+dimensions.</p></li>
+<li><p><strong>uncat_dim_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – The size of the dimension that is not
+concatenated, i.e., if <cite>cat_dim=0</cite>, <cite>uncat_dim_size</cite> is the size
+of dim 1 and vice versa.</p></li>
+<li><p><strong>target_device</strong> (<a class="reference external" href="https://pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.6.0a0+git9223c16 ))"><em>torch.device</em></a>) – The target device that aggregates all
+the embedding outputs.</p></li>
+<li><p><strong>cat_dim</strong> (<em>int = 1</em>) – The dimension that the tensors are concatenated</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The concatenated embedding output (2D) on the target device</p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 
 
@@ -468,10 +454,8 @@ under the LICENSE file in the root directory of this source tree.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="documentation/Overview.html" class="btn btn-neutral float-right" title="Documentation" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
-      
-        <a href="../index.html" class="btn btn-neutral" title="FBGEMM and FBGEMM_GPU Documentation Homepage" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="jagged_tensor_ops.html" class="btn btn-neutral" title="Jagged Tensor Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -503,12 +487,8 @@ under the LICENSE file in the root directory of this source tree.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Contributing</a><ul>
-<li><a class="reference internal" href="#code-of-conduct">Code of Conduct</a></li>
-<li><a class="reference internal" href="#pull-requests">Pull Requests</a></li>
-<li><a class="reference internal" href="#contributor-license-agreement-cla">Contributor License Agreement (“CLA”)</a></li>
-<li><a class="reference internal" href="#issues">Issues</a></li>
-<li><a class="reference internal" href="#license">License</a></li>
+<li><a class="reference internal" href="#">Pooled Embedding Operators</a><ul>
+<li><a class="reference internal" href="#torch.ops.fbgemm.merge_pooled_embeddings"><code class="docutils literal notranslate"><span class="pre">merge_pooled_embeddings()</span></code></a></li>
 </ul>
 </li>
 </ul>

@@ -336,8 +336,9 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
 </ul>
 
             
@@ -768,7 +769,7 @@
 
 <span class="sd">            (5) `MTIA` = placing an embedding table in the MTIA memory</span>
 
-<span class="sd">            Available `ComputeDevice`options are</span>
+<span class="sd">            Available `ComputeDevice` options are</span>
 
 <span class="sd">            (1) `CPU` = performing table lookup on CPU</span>
 
@@ -962,86 +963,9 @@
 <span class="sd">            A config for global weight decay</span>
 
 <span class="sd">        uvm_host_mapped (bool = False): If True, allocate every UVM tensor</span>
-<span class="sd">            using `malloc`+`cudaHostRegister`. Otherwise use</span>
+<span class="sd">            using `malloc` + `cudaHostRegister`. Otherwise use</span>
 <span class="sd">            `cudaMallocManaged`</span>
 
-
-<span class="sd">    Inputs:</span>
-<span class="sd">        indices (torch.Tensor): A 1D-tensor that contains indices to be accessed</span>
-<span class="sd">        in all embedding table</span>
-
-<span class="sd">        offsets (torch.Tensor): A 1D-tensor that conatins offsets of indices.</span>
-<span class="sd">        Shape `(B * T + 1)` where `B` = batch size and `T` = number of tables.</span>
-<span class="sd">        `offsets[t * B + b + 1] - offsets[t * B + b]` is the length of bag `b`</span>
-<span class="sd">        of table `t`</span>
-
-<span class="sd">        per_sample_weights (torch.Tensor): An optional 1D-tensor that contains</span>
-<span class="sd">        positional weights. Shape `(max(bag length))`.  Positional weight `i` is</span>
-<span class="sd">        multiplied to all columns of row `i` in each bag after its read from the</span>
-<span class="sd">        embedding table and before pooling (if pooling mode is not</span>
-<span class="sd">        PoolingMode.NONE).</span>
-
-<span class="sd">        feature_requires_grad (torch.Tensor): An optional tensor for checking if</span>
-<span class="sd">        `per_sample_weights` requires gradient</span>
-
-<span class="sd">    Returns:</span>
-<span class="sd">        A 2D-tensor containing looked up data. Shape `(B, total_D)` where `B` =</span>
-<span class="sd">        batch size and `total_D` = the sum of all embedding dimensions in the</span>
-<span class="sd">        table</span>
-
-<span class="sd">    Example:</span>
-<span class="sd">        &gt;&gt;&gt; import torch</span>
-<span class="sd">        &gt;&gt;&gt;</span>
-<span class="sd">        &gt;&gt;&gt; from fbgemm_gpu.split_table_batched_embeddings_ops_common import (</span>
-<span class="sd">        &gt;&gt;&gt;    EmbeddingLocation,</span>
-<span class="sd">        &gt;&gt;&gt; )</span>
-<span class="sd">        &gt;&gt;&gt; from fbgemm_gpu.split_table_batched_embeddings_ops_training import (</span>
-<span class="sd">        &gt;&gt;&gt;    SplitTableBatchedEmbeddingBagsCodegen,</span>
-<span class="sd">        &gt;&gt;&gt;    ComputeDevice,</span>
-<span class="sd">        &gt;&gt;&gt; )</span>
-<span class="sd">        &gt;&gt;&gt;</span>
-<span class="sd">        &gt;&gt;&gt; # Two tables</span>
-<span class="sd">        &gt;&gt;&gt; embedding_specs = [</span>
-<span class="sd">        &gt;&gt;&gt;     (3, 8, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),</span>
-<span class="sd">        &gt;&gt;&gt;     (5, 4, EmbeddingLocation.MANAGED, ComputeDevice.CUDA)</span>
-<span class="sd">        &gt;&gt;&gt; ]</span>
-<span class="sd">        &gt;&gt;&gt;</span>
-<span class="sd">        &gt;&gt;&gt; tbe = SplitTableBatchedEmbeddingBagsCodegen(embedding_specs)</span>
-<span class="sd">        &gt;&gt;&gt; tbe.init_embedding_weights_uniform(-1, 1)</span>
-<span class="sd">        &gt;&gt;&gt;</span>
-<span class="sd">        &gt;&gt;&gt; print(tbe.split_embedding_weights())</span>
-<span class="sd">        [tensor([[-0.9426,  0.7046,  0.4214, -0.0419,  0.1331, -0.7856, -0.8124, -0.2021],</span>
-<span class="sd">                [-0.5771,  0.5911, -0.7792, -0.1068, -0.6203,  0.4813, -0.1677,  0.4790],</span>
-<span class="sd">                [-0.5587, -0.0941,  0.5754,  0.3475, -0.8952, -0.1964,  0.0810, -0.4174]],</span>
-<span class="sd">               device=&#39;cuda:0&#39;), tensor([[-0.2513, -0.4039, -0.3775,  0.3273],</span>
-<span class="sd">                [-0.5399, -0.0229, -0.1455, -0.8770],</span>
-<span class="sd">                [-0.9520,  0.4593, -0.7169,  0.6307],</span>
-<span class="sd">                [-0.1765,  0.8757,  0.8614,  0.2051],</span>
-<span class="sd">                [-0.0603, -0.9980, -0.7958, -0.5826]], device=&#39;cuda:0&#39;)]</span>
-
-
-<span class="sd">        &gt;&gt;&gt; # Batch size = 3</span>
-<span class="sd">        &gt;&gt;&gt; indices = torch.tensor([0, 1, 2, 0, 1, 2, 0, 3, 1, 4, 2, 0, 0],</span>
-<span class="sd">        &gt;&gt;&gt;                        device=&quot;cuda&quot;,</span>
-<span class="sd">        &gt;&gt;&gt;                        dtype=torch.long)</span>
-<span class="sd">        &gt;&gt;&gt; offsets = torch.tensor([0, 2, 5, 7, 9, 12, 13],</span>
-<span class="sd">        &gt;&gt;&gt;                        device=&quot;cuda&quot;,</span>
-<span class="sd">        &gt;&gt;&gt;                        dtype=torch.long)</span>
-<span class="sd">        &gt;&gt;&gt;</span>
-<span class="sd">        &gt;&gt;&gt; output = tbe(indices, offsets)</span>
-<span class="sd">        &gt;&gt;&gt;</span>
-<span class="sd">        &gt;&gt;&gt; # Batch size = 3, total embedding dimension = 12</span>
-<span class="sd">        &gt;&gt;&gt; print(output.shape)</span>
-<span class="sd">        torch.Size([3, 12])</span>
-
-<span class="sd">        &gt;&gt;&gt; print(output)</span>
-<span class="sd">        tensor([[-1.5197,  1.2957, -0.3578, -0.1487, -0.4873, -0.3044, -0.9801,  0.2769,</span>
-<span class="sd">                 -0.7164,  0.8528,  0.7159, -0.6719],</span>
-<span class="sd">                [-2.0784,  1.2016,  0.2176,  0.1988, -1.3825, -0.5008, -0.8991, -0.1405,</span>
-<span class="sd">                 -1.2637, -0.9427, -1.8902,  0.3754],</span>
-<span class="sd">                [-1.5013,  0.6105,  0.9968,  0.3057, -0.7621, -0.9821, -0.7314, -0.6195,</span>
-<span class="sd">                 -0.2513, -0.4039, -0.3775,  0.3273]], device=&#39;cuda:0&#39;,</span>
-<span class="sd">               grad_fn=&lt;CppNode&lt;SplitLookupFunction_sgd_Op&gt;&gt;)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="p">]]</span>
@@ -1712,10 +1636,19 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats_factory</span><span class="p">()</span>
         <span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.log"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.log">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Log with TBE id prefix to distinguish between multiple TBE instances per process.&quot;&quot;&quot;</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[TBE=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Log with TBE id prefix to distinguish between multiple TBE instances</span>
+<span class="sd">        per process</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (str): The message to print</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[TBE=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_register_nonpersistent_buffers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># NOTE: make TorchScript work!</span>
@@ -1745,12 +1678,18 @@
             <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_table_name_for_logging">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Given list of all table names in the TBE, generate a string to represent</span>
-<span class="sd">        them in logging. If there&#39;s more than one table, this method will count</span>
-<span class="sd">        them than list them.</span>
+<span class="sd">        Given a list of all table names in the TBE, generate a string to</span>
+<span class="sd">        represent them in logging. If there is more than one table, this method</span>
+<span class="sd">        will count them than list them.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            table_names (Optional[List[str]]): A list of table anmes in TBE</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A string that represents tables in logging</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">table_names</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="s2">&quot;&lt;Unknown&gt;&quot;</span>
@@ -1759,22 +1698,38 @@
         <span class="n">table_name_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
             <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">))</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span><span class="si">}</span><span class="s2"> tables&gt;&quot;</span></div>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span><span class="si">}</span><span class="s2"> tables&gt;&quot;</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.get_prefetch_passes"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_prefetch_passes">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">get_prefetch_passes</span><span class="p">(</span>
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">],</span>
         <span class="n">input_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">output_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Given input (the indices to forward), return the segmentation for each pass</span>
-<span class="sd">        in the format of (input[start_idx:end_idx], output[start_idx:end_idx], start_idx).</span>
+<span class="sd">        Given inputs (the indices to forward), partition the input and output</span>
+<span class="sd">        into smaller chunks and return them as a list of tuples</span>
+<span class="sd">        (input[start_idx:end_idx], output[start_idx:end_idx], start_idx).</span>
 
-<span class="sd">        Caller should guarantee input and output are having the size on dimension 0</span>
-<span class="sd">        The returned segments are guaranteed to completely and non-overlappingly cover the input tensor.</span>
+<span class="sd">        The caller must guarantee that input and output have non-zero dimension</span>
+<span class="sd">        0. The returned segments are guaranteed to completely and</span>
+<span class="sd">        non-overlappingly cover the input tensor.</span>
 
-<span class="sd">        In non-multipass-prefetch mode, it returns the input/output tensor itself.</span>
+<span class="sd">        In non-multipass-prefetch mode, it returns the input/output tensor</span>
+<span class="sd">        itself.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            multipass_prefetch_config (Optional[MultiPassPrefetchConfig]):</span>
+<span class="sd">                A config for multi-pass cache prefetch. If None, multi-pass</span>
+<span class="sd">                prefetch is not used.</span>
+
+<span class="sd">            input_tensor (Tensor): The input tensor to be partitioned</span>
+
+<span class="sd">            output_tensor (Tensor): The output tensor to be partitioned</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A list of partitioned inputs and outputs (List[Tuple[Tensor,</span>
+<span class="sd">                Tensor, int]])</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">multipass_prefetch_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="p">[(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">output_tensor</span><span class="p">,</span> <span class="mi">0</span><span class="p">)]</span>
@@ -1796,9 +1751,32 @@
                 <span class="n">torch</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">output_tensor</span><span class="p">,</span> <span class="n">pass_size</span><span class="p">),</span>
                 <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">pass_size</span><span class="p">),</span>
             <span class="p">)</span>
-        <span class="p">)</span></div>
+        <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">get_states</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get a state of a given tensor (`prefix`)</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            prefix (str): A prefix of the state to obtain</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A tuple of tensors corresponding to the obtained state containing</span>
+
+<span class="sd">            (1) A GPU state tensor</span>
+
+<span class="sd">            (2) A CPU state tensor</span>
+
+<span class="sd">            (3) A UVM state tensor</span>
+
+<span class="sd">            (4) A placement tensor - containing placements of embedding tables</span>
+<span class="sd">                (torch.int32_t tensor). (0 = DEVICE, 1 = MANAGED, 2 =</span>
+<span class="sd">                MANAGED_CACHING, 3 = HOST, 4 = MTIA)</span>
+
+<span class="sd">            (5) An offset tensor - containing the relative positions of</span>
+<span class="sd">                embedding tables in the corresponding state tensor (GPU, CPU,</span>
+<span class="sd">                or UVM state tensor)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_physical_placements&quot;</span><span class="p">):</span>
             <span class="k">raise</span> <span class="n">DoesNotHavePrefix</span><span class="p">()</span>
         <span class="n">dev_param</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_dev&quot;</span><span class="p">)</span>
@@ -1815,6 +1793,15 @@
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">get_all_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get all states in the TBE (`weights`, `momentum1`, `momentum2`,</span>
+<span class="sd">        `prev_iter`, and `row_counter`)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A list of states. Each state is a tuple of tensors (GPU state</span>
+<span class="sd">            tensor, CPU state tensor, UVM state tensor, placement tensor and</span>
+<span class="sd">            offset tensor)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">all_states</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">prefix</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;weights&quot;</span><span class="p">,</span> <span class="s2">&quot;momentum1&quot;</span><span class="p">,</span> <span class="s2">&quot;momentum2&quot;</span><span class="p">,</span> <span class="s2">&quot;prev_iter&quot;</span><span class="p">,</span> <span class="s2">&quot;row_counter&quot;</span><span class="p">]:</span>
             <span class="k">try</span><span class="p">:</span>
@@ -1825,16 +1812,29 @@
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">get_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-        <span class="c1"># cache_miss_counter contains two items:</span>
-        <span class="c1"># The first one is cache_miss_forward_count which records the total number of forwards which has at least one cache miss</span>
-        <span class="c1"># The second one is the unique_cache_miss_count which records to total number of unique (dedup) cache misses</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the cache miss counter. `cache_miss_counter` contains two items:</span>
 
+<span class="sd">        (1) `cache_miss_forward_count` which records the total number of</span>
+<span class="sd">            forwards which has at least one cache miss</span>
+
+<span class="sd">        (2) `unique_cache_miss_count` which records to total number of unique</span>
+<span class="sd">            (dedup) cache misses</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The cache miss counter</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">get_table_wise_cache_miss</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
-        <span class="c1"># table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the table-wise cache miss tensor. `table_wise_cache_miss` contains</span>
+<span class="sd">        all the cache miss count for each table in this embedding table object:</span>
 
+<span class="sd">        Returns:</span>
+<span class="sd">            The table-wise cache miss tensor</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span>
 
     <span class="c1"># The callback function for AsyncTimer to record duration to different event</span>
@@ -1959,11 +1959,122 @@
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">feature_requires_grad</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="c1"># 2D tensor of batch size for each rank and feature.</span>
-        <span class="c1"># Shape (number of features, number of ranks)</span>
         <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">total_unique_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        The forward pass function that</span>
+
+<span class="sd">        (1) Performs input bound checking</span>
+
+<span class="sd">        (2) Generates necessary variable batch size embedding (VBE) metadata (if</span>
+<span class="sd">            VBE is used)</span>
+
+<span class="sd">        (3) Prefetches data from UVM to cache (if</span>
+<span class="sd">            `EmbeddingLocation.MANAGED_CACHING` is used and the user has not</span>
+<span class="sd">            explicitly prefetched data)</span>
+
+<span class="sd">        (4) Performs the embedding table lookup by invoking a corresponding</span>
+<span class="sd">            Autograd function (based on the chosen optimizer)</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            indices (Tensor): A 1D-tensor that contains indices to be looked up</span>
+<span class="sd">                from all embedding table</span>
+
+<span class="sd">            offsets (Tensor): A 1D-tensor that conatins offsets of indices.</span>
+<span class="sd">                Shape `(B * T + 1)` where `B` = batch size and `T` = the number</span>
+<span class="sd">                of features.  `offsets[t * B + b + 1] - offsets[t * B + b]` is</span>
+<span class="sd">                the length of bag `b` of feature `t`</span>
+
+<span class="sd">            per_sample_weights (Optional[Tensor]): An optional 1D-float-tensor that</span>
+<span class="sd">                contains per sample weights. If None, **unweighted** embedding</span>
+<span class="sd">                lookup will be perform. Otherwise, **weighted** will be used. The</span>
+<span class="sd">                length of this tensor must be the same as the length of the</span>
+<span class="sd">                `indices` tensor.  The value of `per_sample_weights[i]` will be</span>
+<span class="sd">                used to multiply with every element in the looked up row</span>
+<span class="sd">                `indices[i]`, where `0 &lt;= i &lt; len(per_sample_weights)`.</span>
+
+<span class="sd">            feature_requires_grad (Optional[Tensor]): An optional 1D-tensor for</span>
+<span class="sd">                indicating if `per_sample_weights` requires gradient. The</span>
+<span class="sd">                length of the tensor must be equal to the number of features</span>
+
+<span class="sd">            batch_size_per_feature_per_rank (Optional[List[List[int]]]): An</span>
+<span class="sd">                optional 2D-tensor that contains batch sizes for every rank and</span>
+<span class="sd">                every feature. If None, TBE assumes that **every feature has the</span>
+<span class="sd">                same batch size** and computes the batch size from the `offsets`</span>
+<span class="sd">                shape. Otherwise, TBE assumes that different features can have</span>
+<span class="sd">                different batch sizes and uses the **variable batch size</span>
+<span class="sd">                embedding look up mode (VBE)**. Shape (number of features,</span>
+<span class="sd">                number of ranks). `batch_size_per_feature_per_rank[f][r]`</span>
+<span class="sd">                represents the batch size of feature `f` and rank `r`</span>
+
+<span class="sd">            total_unique_indices (Optional[int]): An optional integer that</span>
+<span class="sd">                represents the total number of unique indices. This value must</span>
+<span class="sd">                be set when using `OptimType.NONE`. This is because TBE</span>
+<span class="sd">                requires this information for allocating the weight gradient</span>
+<span class="sd">                tensor in the backward pass.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A 2D-tensor containing looked up data. Shape `(B, total_D)` where `B` =</span>
+<span class="sd">            batch size and `total_D` = the sum of all embedding dimensions in the</span>
+<span class="sd">            table</span>
+
+<span class="sd">        Example:</span>
+
+<span class="sd">            &gt;&gt;&gt; import torch</span>
+<span class="sd">            &gt;&gt;&gt;</span>
+<span class="sd">            &gt;&gt;&gt; from fbgemm_gpu.split_table_batched_embeddings_ops_common import (</span>
+<span class="sd">            &gt;&gt;&gt;    EmbeddingLocation,</span>
+<span class="sd">            &gt;&gt;&gt; )</span>
+<span class="sd">            &gt;&gt;&gt; from fbgemm_gpu.split_table_batched_embeddings_ops_training import (</span>
+<span class="sd">            &gt;&gt;&gt;    SplitTableBatchedEmbeddingBagsCodegen,</span>
+<span class="sd">            &gt;&gt;&gt;    ComputeDevice,</span>
+<span class="sd">            &gt;&gt;&gt; )</span>
+<span class="sd">            &gt;&gt;&gt;</span>
+<span class="sd">            &gt;&gt;&gt; # Two tables</span>
+<span class="sd">            &gt;&gt;&gt; embedding_specs = [</span>
+<span class="sd">            &gt;&gt;&gt;     (3, 8, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),</span>
+<span class="sd">            &gt;&gt;&gt;     (5, 4, EmbeddingLocation.MANAGED, ComputeDevice.CUDA)</span>
+<span class="sd">            &gt;&gt;&gt; ]</span>
+<span class="sd">            &gt;&gt;&gt;</span>
+<span class="sd">            &gt;&gt;&gt; tbe = SplitTableBatchedEmbeddingBagsCodegen(embedding_specs)</span>
+<span class="sd">            &gt;&gt;&gt; tbe.init_embedding_weights_uniform(-1, 1)</span>
+<span class="sd">            &gt;&gt;&gt;</span>
+<span class="sd">            &gt;&gt;&gt; print(tbe.split_embedding_weights())</span>
+<span class="sd">            [tensor([[-0.9426,  0.7046,  0.4214, -0.0419,  0.1331, -0.7856, -0.8124, -0.2021],</span>
+<span class="sd">                    [-0.5771,  0.5911, -0.7792, -0.1068, -0.6203,  0.4813, -0.1677,  0.4790],</span>
+<span class="sd">                    [-0.5587, -0.0941,  0.5754,  0.3475, -0.8952, -0.1964,  0.0810, -0.4174]],</span>
+<span class="sd">                   device=&#39;cuda:0&#39;), tensor([[-0.2513, -0.4039, -0.3775,  0.3273],</span>
+<span class="sd">                    [-0.5399, -0.0229, -0.1455, -0.8770],</span>
+<span class="sd">                    [-0.9520,  0.4593, -0.7169,  0.6307],</span>
+<span class="sd">                    [-0.1765,  0.8757,  0.8614,  0.2051],</span>
+<span class="sd">                    [-0.0603, -0.9980, -0.7958, -0.5826]], device=&#39;cuda:0&#39;)]</span>
+
+
+<span class="sd">            &gt;&gt;&gt; # Batch size = 3</span>
+<span class="sd">            &gt;&gt;&gt; indices = torch.tensor([0, 1, 2, 0, 1, 2, 0, 3, 1, 4, 2, 0, 0],</span>
+<span class="sd">            &gt;&gt;&gt;                        device=&quot;cuda&quot;,</span>
+<span class="sd">            &gt;&gt;&gt;                        dtype=torch.long)</span>
+<span class="sd">            &gt;&gt;&gt; offsets = torch.tensor([0, 2, 5, 7, 9, 12, 13],</span>
+<span class="sd">            &gt;&gt;&gt;                        device=&quot;cuda&quot;,</span>
+<span class="sd">            &gt;&gt;&gt;                        dtype=torch.long)</span>
+<span class="sd">            &gt;&gt;&gt;</span>
+<span class="sd">            &gt;&gt;&gt; output = tbe(indices, offsets)</span>
+<span class="sd">            &gt;&gt;&gt;</span>
+<span class="sd">            &gt;&gt;&gt; # Batch size = 3, total embedding dimension = 12</span>
+<span class="sd">            &gt;&gt;&gt; print(output.shape)</span>
+<span class="sd">            torch.Size([3, 12])</span>
+
+<span class="sd">            &gt;&gt;&gt; print(output)</span>
+<span class="sd">            tensor([[-1.5197,  1.2957, -0.3578, -0.1487, -0.4873, -0.3044, -0.9801,  0.2769,</span>
+<span class="sd">                     -0.7164,  0.8528,  0.7159, -0.6719],</span>
+<span class="sd">                    [-2.0784,  1.2016,  0.2176,  0.1988, -1.3825, -0.5008, -0.8991, -0.1405,</span>
+<span class="sd">                     -1.2637, -0.9427, -1.8902,  0.3754],</span>
+<span class="sd">                    [-1.5013,  0.6105,  0.9968,  0.3057, -0.7621, -0.9821, -0.7314, -0.6195,</span>
+<span class="sd">                     -0.2513, -0.4039, -0.3775,  0.3273]], device=&#39;cuda:0&#39;,</span>
+<span class="sd">                   grad_fn=&lt;CppNode&lt;SplitLookupFunction_sgd_Op&gt;&gt;)</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="p">(</span>
             <span class="n">indices</span><span class="p">,</span>
             <span class="n">offsets</span><span class="p">,</span>
@@ -2487,13 +2598,13 @@
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">should_log</span><span class="p">():</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">print_uvm_cache_stats</span><span class="p">(</span><span class="n">use_local_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.should_log"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.should_log">[docs]</a>    <span class="k">def</span> <span class="nf">should_log</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">should_log</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Determines if we should log for this step, using exponentially decreasing frequency.</span>
 
 <span class="sd">        Logs for steps: 100 200 ... 1,000 2,000 ... 10,000 20,000 ... 100,000 200,000 ...</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># step starts at 0</span>
-        <span class="k">return</span> <span class="n">s</span> <span class="o">&gt;=</span> <span class="mi">100</span> <span class="ow">and</span> <span class="n">s</span> <span class="o">%</span> <span class="p">(</span><span class="mi">10</span> <span class="o">**</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="n">s</span><span class="p">)))</span> <span class="o">==</span> <span class="mi">0</span></div>
+        <span class="k">return</span> <span class="n">s</span> <span class="o">&gt;=</span> <span class="mi">100</span> <span class="ow">and</span> <span class="n">s</span> <span class="o">%</span> <span class="p">(</span><span class="mi">10</span> <span class="o">**</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="n">s</span><span class="p">)))</span> <span class="o">==</span> <span class="mi">0</span>
 
     <span class="k">def</span> <span class="nf">_prefetch_tensors_record_stream</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">forward_stream</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span>
@@ -2572,7 +2683,10 @@
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">split_embedding_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Returns a list of weights, split by table</span>
+<span class="sd">        Returns a list of embedding weights (view), split by table</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A list of weights. Length = the number of tables</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">splits</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span><span class="p">):</span>
@@ -2604,7 +2718,7 @@
                 <span class="k">return</span> <span class="n">buffer</span>
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.get_optimizer_state"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.get_optimizer_state">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">get_optimizer_state</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get the optimizer state dict that matches the OSS Pytorch optims</span>
@@ -2656,14 +2770,47 @@
                 <span class="sa">f</span><span class="s2">&quot;Getting optimizer state </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2"> is not implmeneted&quot;</span>
             <span class="p">)</span>
 
-        <span class="k">return</span> <span class="n">list_of_state_dict</span></div>
+        <span class="k">return</span> <span class="n">list_of_state_dict</span>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">split_optimizer_states</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Returns a list of states, split by table</span>
+<span class="sd">        Returns a list of optimizer states (view), split by table</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A list of list of states. Shape = (the number of tables, the number</span>
+<span class="sd">            of states).</span>
+
+<span class="sd">            The following shows the list of states (in the returned order) for</span>
+<span class="sd">            each optimizer:</span>
+
+<span class="sd">            (1) `ADAM`: `momentum1`, `momentum2`</span>
+
+<span class="sd">            (2) `EXACT_ADAGRAD`: `momentum1`</span>
+
+<span class="sd">            (3) `EXACT_ROWWISE_ADAGRAD`: `momentum1` (rowwise), `prev_iter`</span>
+<span class="sd">                (rowwise; only when using `WeightDecayMode` = `COUNTER` or</span>
+<span class="sd">                `COWCLIP` or `global_weight_decay` is not None), `row_counter`</span>
+<span class="sd">                (rowwise; only when using `WeightDecayMode` = `COUNTER` or</span>
+<span class="sd">                `COWCLIP`)</span>
+
+<span class="sd">            (4) `EXACT_SGD`: no states</span>
+
+<span class="sd">            (5) `LAMB`: `momentum1`, `momentum2`</span>
+
+<span class="sd">            (6) `LARS_SGD`: `momentum1`</span>
+
+<span class="sd">            (7) `PARTIAL_ROWWISE_ADAM`: `momentum1`, `momentum2` (rowwise)</span>
+
+<span class="sd">            (8) `PARTIAL_ROWWISE_LAMB`: `momentum1`, `momentum2` (rowwise)</span>
+
+<span class="sd">            (9) `ENSEMBLE_ROWWISE_ADAGRAD`: `momentum2` (rowwise), `momentum1`,</span>
+<span class="sd">                `prev_iter` (rowwise), `row_counter` (rowwise)</span>
+
+<span class="sd">            (10) `NONE`: no states (throwing an error)</span>
+
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
@@ -2777,6 +2924,9 @@
     <span class="k">def</span> <span class="nf">set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the learning rate.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            lr (float): The learning rate value to set to</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
@@ -2788,6 +2938,10 @@
     <span class="k">def</span> <span class="nf">update_hyper_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets hyper-parameters from external control flow.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            params_dict (Dict[str, float]): The dict that contains the</span>
+<span class="sd">                hyper-parameter names and their values</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
@@ -2824,6 +2978,9 @@
     <span class="k">def</span> <span class="nf">set_optimizer_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the optimizer step.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            step (int): The setp value to set to</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;set_optimizer_step from </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">step</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
@@ -3275,7 +3432,7 @@
                 <span class="n">total_cache_hash_size</span><span class="o">=</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
             <span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.prepare_inputs"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.prepare_inputs">[docs]</a>    <span class="k">def</span> <span class="nf">prepare_inputs</span><span class="p">(</span>
+    <span class="k">def</span> <span class="nf">prepare_inputs</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -3340,7 +3497,7 @@
                 <span class="n">max_B</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
             <span class="p">)</span>
 
-        <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="n">vbe_metadata</span></div>
+        <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="n">vbe_metadata</span>
 
     <span class="k">def</span> <span class="nf">_debug_print_input_stats_factory</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
