@@ -613,6 +613,121 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
 
+    def test_ssd_emb_state_dict(self) -> None:
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+
+        T = 4
+        B = 10
+        D = 128
+        L = 10
+        log_E = 4
+        weights_precision = SparseType.FP32
+        output_dtype = SparseType.FP32
+
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+        ) = self.generate_ssd_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            False,  # weighted
+            lr=lr,
+            eps=eps,
+            ssd_shards=ssd_shards,
+            cache_set_scale=0.2,
+            pooling_mode=PoolingMode.SUM,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=True,
+        )
+
+        Es = [emb.embedding_specs[t][0] for t in range(T)]
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=True,
+        )
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            False,
+        )
+
+        # Generate output gradient
+        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+
+        # Execute torch EmbeddingBag backward
+        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
+
+        grad_test = self.concat_ref_tensors(
+            output_grad_list,
+            True,  # do_pooling
+            B,
+            D * 4,
+        )
+
+        # Execute TBE SSD backward
+        output.backward(grad_test)
+
+        tolerance = (
+            1.0e-4
+            if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
+            else 1.0e-2
+        )
+
+        split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
+        emb.flush()
+
+        # Compare emb state dict with expected values from nn.EmbeddingBag
+        emb_state_dict = emb.split_embedding_weights()
+        for feature_index, table_index in self.get_physical_table_arg_indices_(
+            emb.feature_table_map
+        ):
+            emb_r = emb_ref[feature_index]
+            self.assertLess(table_index, len(emb_state_dict))
+            new_ref_weight = torch.addcdiv(
+                emb_r.weight.float(),
+                value=-lr,
+                tensor1=emb_r.weight.grad.float().to_dense(),  # pyre-ignore[16]
+                tensor2=split_optimizer_states[table_index]
+                .float()
+                .sqrt_()
+                .add_(eps)
+                .view(Es[table_index], 1),
+            ).cpu()
+
+            torch.testing.assert_close(
+                emb_state_dict[table_index].full_tensor().float(),
+                new_ref_weight,
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
     def execute_ssd_cache_pipeline_(  # noqa C901
         self,
         T: int,
