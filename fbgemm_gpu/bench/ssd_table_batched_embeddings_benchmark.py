@@ -149,7 +149,7 @@ def benchmark_read_write(
         gibps_wr = byte_seconds_per_ns / (write_lat_ns * 2**30)
         gibps_tot = 2 * byte_seconds_per_ns / ((read_lat_ns + write_lat_ns) * 2**30)
         logging.info(
-            f"Total bytes: {total_bytes/1e9:0.2f} GB, "
+            f"Total bytes: {total_bytes / 1e9:0.2f} GB, "
             f"Read_us: {read_lat_ns / 1000:8.0f}, "
             f"Write_us: {write_lat_ns / 1000:8.0f}, "
             f"Total_us: {(read_lat_ns + write_lat_ns) / 1000:8.0f}, "
@@ -389,7 +389,7 @@ def ssd_training(  # noqa C901
             + param_size_multiplier * B * sum(Ds) * L
         )
 
-    logging.info(f"Batch read write bytes: {read_write_bytes/1.0e9: .2f} GB")
+    logging.info(f"Batch read write bytes: {read_write_bytes / 1.0e9: .2f} GB")
 
     # Compute width of test name and bandwidth widths to improve report
     # readability
