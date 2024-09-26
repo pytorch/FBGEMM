@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Sphinx Documentation Pointers &mdash; FBGEMM 0.8.0 documentation</title>
+  <title>Pooled Embedding Modules &mdash; FBGEMM 0.8.0 documentation</title>
   
 
   
@@ -26,15 +26,14 @@
 
   
 
-  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="../../_static/graphviz.css" type="text/css" />
-    <link rel="index" title="Index" href="../../genindex.html" />
-    <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Contact Us" href="../ContactUs.html" />
-    <link rel="prev" title="Adding Documentation to Python Code" href="Python.html" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Table Batched Embedding (TBE) Training Module" href="table_batched_embedding_ops.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -45,16 +44,16 @@
   
 
   
-  <script src="../../_static/js/modernizr.min.js"></script>
+  <script src="../_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -281,7 +280,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -298,54 +297,54 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../Contributing.html">Contributing</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="Overview.html">Documentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ContactUs.html">Contact Us</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../License.html">License</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/documentation/Overview.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm-cpp-api/tbe_cpu_autovec.html">TBE CPU Autovectorization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/tbe_cpu_autovec.html">TBE CPU Autovectorization</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/ssd_embedding_ops.html">SSD Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/ssd_embedding_ops.html">SSD Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Operators API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Modules API</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Pooled Embedding Modules</a></li>
 </ul>
 
             
@@ -378,7 +377,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="../../index.html">
+        <a href="../index.html">
           
             Docs
           
@@ -386,15 +385,13 @@
       </li>
 
         
-          <li><a href="Overview.html">Documentation</a> &gt;</li>
-        
-      <li>Sphinx Documentation Pointers</li>
+      <li>Pooled Embedding Modules</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../../_sources/general/documentation/Sphinx.rst.txt" rel="nofollow"><img src="../../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/fbgemm_gpu-python-api/pooled_embedding_modules.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -424,148 +421,92 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="sphinx-documentation-pointers">
-<span id="general-docs-add-cpp"></span><h1>Sphinx Documentation Pointers<a class="headerlink" href="#sphinx-documentation-pointers" title="Permalink to this heading">¶</a></h1>
-<section id="references-other-sections-of-the-documentation">
-<h2>References Other Sections of the Documentation<a class="headerlink" href="#references-other-sections-of-the-documentation" title="Permalink to this heading">¶</a></h2>
-<p>To reference other sections in the documentation, an anchor must first be
-created above the target section:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="nt">_docs.example.reference:</span>
-
-<span class="gh">Example Section Header</span>
-<span class="gh">----------------------</span>
-
-NOTES:
-
-<span class="m">#.</span>  The reference anchor must start with an underscore, i.e. <span class="s">``_``</span>.
-
-<span class="m">#.</span>  !! There must be an empty line between the anchor and its target !!
+  <section id="module-fbgemm_gpu">
+<span id="pooled-embedding-modules"></span><h1>Pooled Embedding Modules<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">fbgemm_gpu.permute_pooled_embedding_modules.</span></span><span class="sig-name descname"><span class="pre">PermutePooledEmbeddings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">embs_dims</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">permute</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.12)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.6.0a0+git9223c16 ))"><span class="pre">device</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/fbgemm_gpu/permute_pooled_embedding_modules.html#PermutePooledEmbeddings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings" title="Permalink to this definition">¶</a></dt>
+<dd><p>A module for permuting embedding outputs along the feature dimension</p>
+<p>An embedding output tensor contains the embedding outputs for all features
+in a batch. It is represented in a 2D format, where the rows are the batch
+size dimension and the columns are the feature * embedding dimension.
+Permuting along the feature dimension is essentially permuting along the
+second dimension (dim 1).</p>
+<p><strong>Example:</strong></p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">torch</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">fbgemm_gpu</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">fbgemm_gpu.permute_pooled_embedding_modules</span> <span class="kn">import</span> <span class="n">PermutePooledEmbeddings</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Suppose batch size = 3 and there are 3 features</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">batch_size</span> <span class="o">=</span> <span class="mi">3</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Embedding dimensions for each feature</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">embs_dims</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Permute list, i.e., move feature 2 to position 0, move feature 0</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># to position 1, so on</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">permute</span> <span class="o">=</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Instantiate the module</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">perm</span> <span class="o">=</span> <span class="n">PermutePooledEmbeddings</span><span class="p">(</span><span class="n">embs_dims</span><span class="p">,</span> <span class="n">permute</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Generate an example input</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">pooled_embs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">embs_dims</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">*</span> <span class="n">batch_size</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">pooled_embs</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="go">tensor([[ 0.,  1.,  2.,  3.,  4.,  5.,  6.,  7.,  8.,  9., 10., 11., 12., 13.,</span>
+<span class="go">         14., 15.],</span>
+<span class="go">        [16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29.,</span>
+<span class="go">         30., 31.],</span>
+<span class="go">        [32., 33., 34., 35., 36., 37., 38., 39., 40., 41., 42., 43., 44., 45.,</span>
+<span class="go">         46., 47.]], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Invoke</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">perm</span><span class="p">(</span><span class="n">pooled_embs</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="go">tensor([[ 8.,  9., 10., 11., 12., 13., 14., 15.,  0.,  1.,  2.,  3.,  4.,  5.,</span>
+<span class="go">          6.,  7.],</span>
+<span class="go">        [24., 25., 26., 27., 28., 29., 30., 31., 16., 17., 18., 19., 20., 21.,</span>
+<span class="go">         22., 23.],</span>
+<span class="go">        [40., 41., 42., 43., 44., 45., 46., 47., 32., 33., 34., 35., 36., 37.,</span>
+<span class="go">         38., 39.]], device=&#39;cuda:0&#39;)</span>
 </pre></div>
 </div>
-<p>The anchor can then be referenced elsewhere in the docs:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span>Referencing the section <span class="na">:ref:</span><span class="nv">`docs.example.reference`</span> from
-another page in the docs.
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>embs_dims</strong> (<em>List</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>]</em>) – A list of embedding dimensions for all features.
+Length = the number of features</p></li>
+<li><p><strong>permute</strong> (<em>List</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>]</em>) – A list that describes how each feature is
+permuted. <cite>permute[i]</cite> is to permute feature <cite>permute[i]</cite> to
+position <cite>i</cite>.</p></li>
+<li><p><strong>device</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.6.0a0+git9223c16 ))"><em>torch.device</em></a><em>] </em><em>= None</em>) – The device to run this module
+on</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings.__call__">
+<span class="sig-name descname"><span class="pre">__call__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pooled_embs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch vmain (2.6.0a0+git9223c16 ))"><span class="pre">Tensor</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://pytorch.org/docs/main/tensors.html#torch.Tensor" title="(in PyTorch vmain (2.6.0a0+git9223c16 ))"><span class="pre">Tensor</span></a></span></span><a class="reference internal" href="../_modules/fbgemm_gpu/permute_pooled_embedding_modules.html#PermutePooledEmbeddings.__call__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings.__call__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Performs pooled embedding output permutation along the feature dimension</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>pooled_embs</strong> (<em>Tensor</em>) – The embedding outputs to permute. Shape is
+<cite>(B_local, total_global_D)</cite>, where <cite>B_local</cite> = a local batch
+size and <cite>total_global_D</cite> is the total embedding dimension
+across all features (global)</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Permuted embedding outputs (Tensor). Same shape as <cite>pooled_embs</cite></p>
+</dd>
+</dl>
+</dd></dl>
 
-Referencing the section with
-<span class="na">:ref:</span><span class="nv">`custom text &lt;docs.example.reference&gt;`</span> from another page
-in the docs.
+</dd></dl>
 
-Note that the prefix underscore is not needed when referencing the anchor.
-</pre></div>
-</div>
-</section>
-<section id="referencing-the-source-code">
-<h2>Referencing the Source Code<a class="headerlink" href="#referencing-the-source-code" title="Permalink to this heading">¶</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">literalinclude</span></code> directive can be used to display the source code inside a
-Sphinx document.  To display the full file content:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">literalinclude</span><span class="p">::</span>  relative/path/from/this/rst/file/to/the/source.txt
-</pre></div>
-</div>
-<p>To display only a section of the file, a pair of unique tags must first be added
-to the target source file, as comments with the tag string enclosed in brackets.</p>
-<p>For Python source files:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># [example.tag.start]</span>
-
-<span class="c1"># ... code section that will be referenced ...</span>
-
-<span class="c1"># [example.tag.end]</span>
-</pre></div>
-</div>
-<p>For C++ source files:</p>
-<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">/// @skipline [example.tag.start]</span>
-
-<span class="c1">/// ... code section that will be referenced ...</span>
-
-<span class="c1">/// @skipline [example.tag.end]</span>
-</pre></div>
-</div>
-<p>The tags then need to be supplied to the <code class="docutils literal notranslate"><span class="pre">literalinclude</span></code> directive:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">literalinclude</span><span class="p">::</span>  relative/path/from/this/rst/file/to/the/source.cpp
-  <span class="nc">:language:</span> cpp
-  <span class="nc">:start-after:</span> example.tag.start
-  <span class="nc">:end-before:</span> example.tag.end
-</pre></div>
-</div>
-<p>See the Sphinx documentation
-<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#directive-literalinclude">here</a>
-for more information.</p>
-</section>
-<section id="adding-latex">
-<h2>Adding LaTeX<a class="headerlink" href="#adding-latex" title="Permalink to this heading">¶</a></h2>
-<p>Math expressions with LaTeX can be added inline to Sphinx docs using the
-<code class="docutils literal notranslate"><span class="pre">math</span></code> directive:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span>Example text: <span class="na">:math:</span><span class="nv">`k_{n+1} = n^2 + k_n^2 - k_{n-1}`</span>
-</pre></div>
-</div>
-<p>The above example will be rendered as: <span class="math notranslate nohighlight">\(k_{n+1} = n^2 + k_n^2 - k_{n-1}\)</span>.</p>
-<p>Math expressinos can also be inserted as a code block:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">math</span><span class="p">::</span>
-
-  \int_a^bu \frac{d^2v}{dx^2} \,dx
-    = \left.u \frac{dv}{dx} \right|_a^b
-    <span class="m">-</span> \int_a^b \frac{du}{dx} \frac{dv}{dx} \,dx
-</pre></div>
-</div>
-<div class="math notranslate nohighlight">
-\[\int_a^bu \frac{d^2v}{dx^2} \,dx
-  = \left.u \frac{dv}{dx} \right|_a^b
-  - \int_a^b \frac{du}{dx} \frac{dv}{dx} \,dx\]</div>
-<p>See the Sphinx documentation
-<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/restructuredtext/directives.html#math">here</a>
-and <a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/extensions/math.html#module-sphinx.ext.mathjax">here</a>
-for more information.</p>
-</section>
-<section id="adding-graphs">
-<h2>Adding Graphs<a class="headerlink" href="#adding-graphs" title="Permalink to this heading">¶</a></h2>
-<p>Graphs can be generated in Sphinx using <code class="docutils literal notranslate"><span class="pre">graphviz</span></code> directive.  Graph
-descriptions can be added inside a block:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">graphviz</span><span class="p">::</span>
-
-  digraph example {
-    &quot;From&quot; -&gt; &quot;To&quot;;
-  }
-</pre></div>
-</div>
-<div class="graphviz"><object data="../../_images/graphviz-ccf5ad3ba86fb8eb684d5a79ba33190abef95eb9.svg" type="image/svg+xml" class="graphviz">
-<p class="warning">digraph example {
-  &quot;From&quot; -&gt; &quot;To&quot;;
-}</p></object></div>
-<p>Alternatively, they can be imported from an external <code class="docutils literal notranslate"><span class="pre">.dot</span></code> file:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">graphviz</span><span class="p">::</span> ExampleGraph.dot
-</pre></div>
-</div>
-<div class="graphviz"><object data="../../_images/graphviz-c3f0a0221e0534aa77ee0a23730958a505d63982.svg" type="image/svg+xml" class="graphviz">
-<p class="warning">digraph &quot;sphinx-ext-graphviz&quot; {
-     size=&quot;6,8&quot;;
-     rankdir=&quot;LR&quot;;
-     graph [fontname=&quot;Verdana&quot;, fontsize=&quot;12&quot;];
-     node [fontname=&quot;Verdana&quot;, fontsize=&quot;12&quot;];
-     edge [fontname=&quot;Sans&quot;, fontsize=&quot;9&quot;];
-
-     sphinx [label=&quot;Sphinx&quot;, shape=&quot;component&quot;,
-               href=&quot;https://www.sphinx-doc.org/&quot;,
-               target=&quot;_blank&quot;];
-     dot [label=&quot;GraphViz&quot;, shape=&quot;component&quot;,
-          href=&quot;https://www.graphviz.org/&quot;,
-          target=&quot;_blank&quot;];
-     docs [label=&quot;Docs (.rst)&quot;, shape=&quot;folder&quot;,
-          fillcolor=green, style=filled];
-     svg_file [label=&quot;SVG Image&quot;, shape=&quot;note&quot;, fontcolor=white,
-               fillcolor=&quot;#3333ff&quot;, style=filled];
-     html_files [label=&quot;HTML Files&quot;, shape=&quot;folder&quot;,
-          fillcolor=yellow, style=filled];
-
-     docs -&gt; sphinx [label=&quot; parse &quot;];
-     sphinx -&gt; dot [label=&quot; call &quot;, style=dashed, arrowhead=none];
-     dot -&gt; svg_file [label=&quot; draw &quot;];
-     sphinx -&gt; html_files [label=&quot; render &quot;];
-     svg_file -&gt; html_files [style=dashed];
-}</p></object></div>
-<p>See the
-<a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/extensions/graphviz.html">Sphinx</a>
-and <a class="reference external" href="https://graphviz.org/documentation/">Graphviz</a> documentation more
-information.</p>
-</section>
 </section>
 
 
@@ -576,10 +517,8 @@ information.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../ContactUs.html" class="btn btn-neutral float-right" title="Contact Us" accesskey="n" rel="next">Next <img src="../../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
-      
-        <a href="Python.html" class="btn btn-neutral" title="Adding Documentation to Python Code" accesskey="p" rel="prev"><img src="../../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="table_batched_embedding_ops.html" class="btn btn-neutral" title="Table Batched Embedding (TBE) Training Module" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -611,11 +550,11 @@ information.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Sphinx Documentation Pointers</a><ul>
-<li><a class="reference internal" href="#references-other-sections-of-the-documentation">References Other Sections of the Documentation</a></li>
-<li><a class="reference internal" href="#referencing-the-source-code">Referencing the Source Code</a></li>
-<li><a class="reference internal" href="#adding-latex">Adding LaTeX</a></li>
-<li><a class="reference internal" href="#adding-graphs">Adding Graphs</a></li>
+<li><a class="reference internal" href="#">Pooled Embedding Modules</a><ul>
+<li><a class="reference internal" href="#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings"><code class="docutils literal notranslate"><span class="pre">PermutePooledEmbeddings</span></code></a><ul>
+<li><a class="reference internal" href="#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings.__call__"><code class="docutils literal notranslate"><span class="pre">PermutePooledEmbeddings.__call__()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
@@ -632,19 +571,18 @@ information.</p>
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
-         <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
-         <script src="../../_static/doctools.js"></script>
-         <script src="../../_static/sphinx_highlight.js"></script>
-         <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   
 
-  <script type="text/javascript" src="../../_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="../../_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -749,7 +687,7 @@ information.</p>
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../../_static/images/pytorch-x.svg">
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -882,7 +820,7 @@ information.</p>
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="../../_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {
