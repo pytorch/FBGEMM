@@ -225,9 +225,9 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
             logging.info(f"qref {torch.gather(qref, dim=1, index=idx)}")
             logging.info(f"dqcat {torch.gather(dqcat, dim=1, index=idx)}")
             logging.info(
-                f"relative error: max: {errors.abs().max()*100:.1f}%, "
-                f"median: {errors.abs().median()*100:.1f}%, "
-                f"mean: {errors.abs().mean()*100:.1f}%"
+                f"relative error: max: {errors.abs().max() * 100:.1f}%, "
+                f"median: {errors.abs().median() * 100:.1f}%, "
+                f"mean: {errors.abs().mean() * 100:.1f}%"
             )
 
         torch.testing.assert_allclose(dqcat, qref, rtol=0.1, atol=0.05)

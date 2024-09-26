@@ -835,7 +835,7 @@ def cache(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     logging.info(
         f"Embedding tables: {E * T} rows, {nparams / 1.0e9: .2f} GParam, "
-        f"{nparams * param_size_multiplier  / 1.0e9: .2f} GB"
+        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
@@ -889,11 +889,11 @@ def cache(  # noqa C901
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
         emb.forward(indices.long(), offsets.long())
     logging.info(
-        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
+        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines) / len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
     )
     logging.info(
-        f"Cache miss -- mean: {sum(cache_misses)/len(requests)}, "
+        f"Cache miss -- mean: {sum(cache_misses) / len(requests)}, "
         f"max: {max(cache_misses)}, min: {min(cache_misses)}"
     )
 
@@ -2386,24 +2386,24 @@ def nbit_cache(  # noqa C901
         input_indices.append(len(indices))
 
     logging.info(
-        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
+        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines) / len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
     )
     logging.info(
-        f"Cache miss -- mean: {sum(cache_misses)/len(requests)}, "
+        f"Cache miss -- mean: {sum(cache_misses) / len(requests)}, "
         f"max: {max(cache_misses)}, min: {min(cache_misses)}"
     )
     logging.info(
-        f"input_indices -- mean: {sum(input_indices)/len(requests)}, "
+        f"input_indices -- mean: {sum(input_indices) / len(requests)}, "
         f"max: {max(input_indices)}, min: {min(input_indices)}"
     )
     logging.info(
-        f"unique_indices -- mean: {sum(unique_indices)/len(requests)}, "
+        f"unique_indices -- mean: {sum(unique_indices) / len(requests)}, "
         f"max: {max(unique_indices)}, min: {min(unique_indices)}"
     )
     unique_miss_rate = [a / b for (a, b) in zip(exchanged_cache_lines, unique_indices)]
     logging.info(
-        f"unique_miss_rate -- mean: {sum(unique_miss_rate)/len(requests)}, "
+        f"unique_miss_rate -- mean: {sum(unique_miss_rate) / len(requests)}, "
         f"max: {max(unique_miss_rate)}, min: {min(unique_miss_rate)}"
     )
     if record_cache_miss_counter or record_tablewise_cache_miss:
