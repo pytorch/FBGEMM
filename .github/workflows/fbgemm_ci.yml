@@ -20,7 +20,8 @@ concurrency:
 
 jobs:
   build-linux:
-    runs-on: ${{ github.repository_owner == 'pytorch' && matrix.host-machine.instance || 'ubuntu-latest' }}
+    if: ${{ github.repository_owner == 'pytorch' }}
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
       options: --user root
@@ -105,7 +106,8 @@ jobs:
 
 
   build-bazel:
-    runs-on: ${{ github.repository_owner == 'pytorch' && matrix.host-machine.instance || 'ubuntu-latest' }}
+    if: ${{ github.repository_owner == 'pytorch' }}
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
       options: --user root
