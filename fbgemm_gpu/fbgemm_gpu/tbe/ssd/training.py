@@ -50,6 +50,7 @@ from torch.autograd.profiler import record_function
 from ..cache import get_unique_indices_v2
 
 from .common import ASSOC
+from .utils.partially_materialized_tensor import PartiallyMaterializedTensor
 
 
 @dataclass
@@ -1606,6 +1607,43 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             assert weight.shape == (row, dim), "Shapes mismatch"
             splits[t] = weight
 
+        return splits
+
+    @torch.jit.export
+    def split_embedding_weights(self) -> List[PartiallyMaterializedTensor]:
+        """
+        This method is intended to be used by the checkpointing engine
+        only.
+
+        Since we cannot materialize SSD backed tensors fully in CPU memory,
+        we would create a KVTensorWrapper (ssd_split_table_batched_embeddings.cpp)
+        for each table (shard), which allows caller to read the weights
+        using `narrow()` in a rolling-window manner.
+
+        Returns:
+            a list of partially materialized tensors, each representing a table
+        """
+        # Force device synchronize for now
+        torch.cuda.synchronize()
+        # Flush L1 and L2 caches
+        self.flush()
+        # Create a snapshot
+        snapshot_handle = self.ssd_db.create_snapshot()
+
+        dtype = self.weights_precision.as_dtype()
+        splits = []
+
+        row_offset = 0
+        for emb_height, emb_dim in self.embedding_specs:
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                db=self.ssd_db,
+                snapshot_handle=snapshot_handle,
+                shape=[emb_height, emb_dim],
+                dtype=dtype,
+                row_offset=row_offset,
+            )
+            row_offset += emb_height
+            splits.append(PartiallyMaterializedTensor(tensor_wrapper))
         return splits
 
     @torch.jit.export
