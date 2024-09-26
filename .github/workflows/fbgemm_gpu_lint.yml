@@ -1,0 +1,60 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+name: FBGEMM_GPU Lint
+
+on:
+  # PR Trigger
+  #
+  push:
+    branches:
+      - main
+
+  # Push Trigger (enable to catch errors coming out of multiple merges)
+  #
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  # Cancel previous runs in the PR if a new commit is pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.12" ]
+
+    steps:
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install Lint Tools
+      run: . $PRELUDE; install_lint_tools $BUILD_ENV
+
+    - name: Linting the Codebase with flake8
+      run: . $PRELUDE; lint_fbgemm_gpu_flake8 $BUILD_ENV
+
+    - name: Linting the Codebase with ufmt
+      run: . $PRELUDE; lint_fbgemm_gpu_ufmt $BUILD_ENV
+
+    - name: Check Meta Copyright Headers
+      run: . $PRELUDE; lint_fbgemm_gpu_copyright $BUILD_ENV
