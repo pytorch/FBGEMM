@@ -83,12 +83,20 @@ Table of Contents
    fbgemm_gpu-cpp-api/ssd_embedding_ops.rst
    fbgemm_gpu-cpp-api/experimental_ops.rst
 
-.. _fbgemm-gpu.toc.api.python:
+.. _fbgemm-gpu.toc.api.python.ops:
 
 .. toctree::
    :maxdepth: 1
-   :caption: FBGEMM_GPU Python API
+   :caption: FBGEMM_GPU Python Operators API
 
-   fbgemm_gpu-python-api/table_batched_embedding_ops.rst
    fbgemm_gpu-python-api/jagged_tensor_ops.rst
    fbgemm_gpu-python-api/pooled_embedding_ops.rst
+
+.. _fbgemm-gpu.toc.api.python.modules:
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM_GPU Python Modules API
+
+   fbgemm_gpu-python-api/table_batched_embedding_ops.rst
+   fbgemm_gpu-python-api/pooled_embedding_modules.rst
