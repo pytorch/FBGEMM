@@ -531,10 +531,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Miss counter value [3] - # of total requested indices : {self.cache_miss_counter[3]}, "
         )
         logging.info(
-            f"unique_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[2]}, \n"
+            f"unique_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[2]}, \n"
         )
         logging.info(
-            f"total_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[3]}, \n"
+            f"total_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[3]}, \n"
         )
 
     def get_uvm_cache_stats(self) -> Tensor:
@@ -558,8 +558,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         if uvm_cache_stats[1]:
             logging.info(
-                f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
-                f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
+                f"unique indices / requested indices: {uvm_cache_stats[2] / uvm_cache_stats[1]}\n"
+                f"unique misses / requested indices: {uvm_cache_stats[3] / uvm_cache_stats[1]}\n"
             )
 
     @torch.jit.export
