@@ -7,6 +7,10 @@
 
 # Trigger the manual addition of docstrings to pybind11-generated operators
 try:
-    from . import jagged_tensor_ops, merge_pooled_embedding_ops  # noqa: F401
+    from . import (  # noqa: F401
+        jagged_tensor_ops,
+        merge_pooled_embedding_ops,
+        permute_pooled_embedding_ops,
+    )
 except Exception:
     pass
