@@ -91,6 +91,7 @@ Table of Contents
 
    fbgemm_gpu-python-api/jagged_tensor_ops.rst
    fbgemm_gpu-python-api/pooled_embedding_ops.rst
+   fbgemm_gpu-python-api/quantize_ops.rst
 
 .. _fbgemm-gpu.toc.api.python.modules:
 
