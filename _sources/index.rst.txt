@@ -89,8 +89,10 @@ Table of Contents
    :maxdepth: 1
    :caption: FBGEMM_GPU Python Operators API
 
-   fbgemm_gpu-python-api/jagged_tensor_ops.rst
+   fbgemm_gpu-python-api/sparse_ops.rst
    fbgemm_gpu-python-api/pooled_embedding_ops.rst
+   fbgemm_gpu-python-api/quantize_ops.rst
+   fbgemm_gpu-python-api/jagged_tensor_ops.rst
 
 .. _fbgemm-gpu.toc.api.python.modules:
 

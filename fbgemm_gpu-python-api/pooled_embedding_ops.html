@@ -33,8 +33,8 @@
   <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Table Batched Embedding (TBE) Training Module" href="table_batched_embedding_ops.html" />
-    <link rel="prev" title="Jagged Tensor Operators" href="jagged_tensor_ops.html" />
+    <link rel="next" title="Quantization Operators" href="quantize_ops.html" />
+    <link rel="prev" title="Sparse Operators" href="sparse_ops.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -339,8 +339,10 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Operators API</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Operators</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Pooled Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Modules API</span></p>
 <ul>
@@ -438,7 +440,7 @@ dimensions.</p></li>
 <li><p><strong>uncat_dim_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – The size of the dimension that is not
 concatenated, i.e., if <cite>cat_dim=0</cite>, <cite>uncat_dim_size</cite> is the size
 of dim 1 and vice versa.</p></li>
-<li><p><strong>target_device</strong> (<a class="reference external" href="https://pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.6.0a0+git9223c16 ))"><em>torch.device</em></a>) – The target device that aggregates all
+<li><p><strong>target_device</strong> (<a class="reference external" href="https://pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.6.0a0+git193073b ))"><em>torch.device</em></a>) – The target device that aggregates all
 the embedding outputs.</p></li>
 <li><p><strong>cat_dim</strong> (<em>int = 1</em>) – The dimension that the tensors are concatenated</p></li>
 </ul>
@@ -554,10 +556,10 @@ the permuted position of feature <cite>i</cite></p></li>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="table_batched_embedding_ops.html" class="btn btn-neutral float-right" title="Table Batched Embedding (TBE) Training Module" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="quantize_ops.html" class="btn btn-neutral float-right" title="Quantization Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="jagged_tensor_ops.html" class="btn btn-neutral" title="Jagged Tensor Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="sparse_ops.html" class="btn btn-neutral" title="Sparse Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   

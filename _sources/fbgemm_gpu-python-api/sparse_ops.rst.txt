@@ -1,0 +1,14 @@
+Sparse Operators
+================
+
+.. automodule:: fbgemm_gpu
+
+.. autofunction:: torch.ops.fbgemm.permute_2D_sparse_data
+
+.. autofunction:: torch.ops.fbgemm.permute_1D_sparse_data
+
+.. autofunction:: torch.ops.fbgemm.expand_into_jagged_permute
+
+.. autofunction:: torch.ops.fbgemm.asynchronous_complete_cumsum
+
+.. autofunction:: torch.ops.fbgemm.offsets_range

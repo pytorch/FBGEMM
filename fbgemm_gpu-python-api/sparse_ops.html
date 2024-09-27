@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>License &mdash; FBGEMM 0.8.0 documentation</title>
+  <title>Sparse Operators &mdash; FBGEMM 0.8.0 documentation</title>
   
 
   
@@ -33,8 +33,8 @@
   <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Build Instructions" href="../fbgemm-development/BuildInstructions.html" />
-    <link rel="prev" title="Contact Us" href="ContactUs.html" />
+    <link rel="next" title="Pooled Embedding Operators" href="pooled_embedding_ops.html" />
+    <link rel="prev" title="Experimental Operators" href="../fbgemm_gpu-cpp-api/experimental_ops.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -298,11 +298,11 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="Contributing.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="documentation/Overview.html">Documentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ContactUs.html">Contact Us</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">License</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/documentation/Overview.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Development</span></p>
 <ul>
@@ -338,16 +338,16 @@
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Operators API</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/sparse_ops.html">Sparse Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Sparse Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Modules API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
 </ul>
 
             
@@ -388,13 +388,13 @@
       </li>
 
         
-      <li>License</li>
+      <li>Sparse Operators</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/general/License.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/fbgemm_gpu-python-api/sparse_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -424,41 +424,203 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="license">
-<h1>License<a class="headerlink" href="#license" title="Permalink to this heading">¶</a></h1>
-<p>Both FBGEMM and FBGEMM_GPU are licensed under the 3-clause BSD License:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>BSD License
-
-For FBGEMM software
-
-Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
- * Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the following disclaimer.
-
- * Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the following disclaimer in the documentation
-   and/or other materials provided with the distribution.
-
- * Neither the name Facebook nor the names of its contributors may be used to
-   endorse or promote products derived from this software without specific
-   prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS &quot;AS IS&quot; AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  <section id="module-fbgemm_gpu">
+<span id="sparse-operators"></span><h1>Sparse Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.permute_2D_sparse_data">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">permute_2D_sparse_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">permute</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lengths</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">permuted_lengths_sum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#torch.ops.fbgemm.permute_2D_sparse_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Permute 2D sparse data along the first dimension (dim 0). Note that 2D
+refers to the number of dense dimensions. The input data is actually 3D
+where the first two dimensions are dense and the last dimension is
+jagged (sparse). The data to permute over can be less or more and with or
+without repetitions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>permute</strong> (<em>Tensor</em>) – A 1D-tensor that describes how data is permuted along dim
+0. <cite>permute[i]</cite> indicates that data at position <cite>permute[i]</cite> is moved
+to position <cite>i</cite>. The length of this tensor is the total amount of data
+in dim 0 to be permuted. The values in <cite>permute</cite> must be &gt;= 0 and &lt;
+<cite>lengths.shape[0]</cite></p></li>
+<li><p><strong>lengths</strong> (<em>Tensor</em>) – A 2D-tensor that contains jagged shapes corresponding to
+the other two dense dimensions. For example, in the case of the
+embedding input, the 3D shape is (num features, batch size, bag size).
+<cite>lengths[t][b]</cite> represents the bag size of feature <cite>t</cite> and sample <cite>b</cite>.</p></li>
+<li><p><strong>values</strong> (<em>Tensor</em>) – A 1D-input-tensor to be permuted. The length of this
+tensor must be equal to <cite>lengths.sum()</cite>. This tensor can be of any data
+type.</p></li>
+<li><p><strong>weights</strong> (<em>Optional</em><em>[</em><em>Tensor</em><em>] </em><em>= None</em>) – An optional 1D-float-tensor. It must
+have the same length as <cite>values</cite>. It will be permuted the same way as
+values</p></li>
+<li><p><strong>permuted_lengths_sum</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>] </em><em>= None</em>) – An optional value that
+represents the total number of elements in the permuted data (output
+shape). If not provided, the operator will compute this data which may
+cause a device-host synchronization (if using GPU). Thus, it is
+recommended to supply this value to avoid such the synchronization.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A tuple of permuted lengths, permuted indices and permuted weights</p>
+</dd>
+</dl>
+<p><strong>Example:</strong></p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">permute</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">lengths</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">values</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="n">low</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">lengths</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">(),),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+<span class="go">tensor([29, 12, 61, 98, 56, 94,  5, 89, 65, 48, 71, 54, 40, 33, 78, 68, 42, 21,</span>
+<span class="go">        60, 51, 15, 47, 48, 68, 52, 19, 38, 30, 38, 97, 97, 98, 18, 40, 42, 89,</span>
+<span class="go">        66], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">permute_2D_sparse_data</span><span class="p">(</span><span class="n">permute</span><span class="p">,</span> <span class="n">lengths</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+<span class="go">(tensor([[1, 2, 4, 8],</span>
+<span class="go">         [2, 3, 4, 5],</span>
+<span class="go">         [0, 3, 2, 3]], device=&#39;cuda:0&#39;),</span>
+<span class="go"> tensor([78, 68, 42, 21, 60, 51, 15, 47, 48, 68, 52, 19, 38, 30, 38, 29, 12, 61,</span>
+<span class="go">         98, 56, 94,  5, 89, 65, 48, 71, 54, 40, 33, 97, 97, 98, 18, 40, 42, 89,</span>
+<span class="go">         66], device=&#39;cuda:0&#39;),</span>
+<span class="go"> None)</span>
 </pre></div>
 </div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.permute_1D_sparse_data">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">permute_1D_sparse_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">permute</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lengths</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">permuted_lengths_sum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#torch.ops.fbgemm.permute_1D_sparse_data" title="Permalink to this definition">¶</a></dt>
+<dd><p>Permute 1D sparse data. Note that 1D referrs to the number of dense dimensions.
+The input data is actually 2D where the first dimension is dense and the second
+dimension is jagged (sparse).  The data to permute over can be less or more and
+withh or without repetitions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>permute</strong> (<em>Tensor</em>) – A 1D-tensor that describes how data is permuted along dim
+0. <cite>permute[i]</cite> indicates that data at position <cite>permute[i]</cite> is moved
+to position <cite>i</cite>. The length of this tensor is the total amount of data
+in dim 0 to be permuted. The values in <cite>permute</cite> must be &gt;= 0 and &lt;
+<cite>lengths.numel()</cite></p></li>
+<li><p><strong>lengths</strong> (<em>Tensor</em>) – A 1D-tensor that contains jagged shapes corresponding to
+the other dense dimension. <cite>lengths[i]</cite> represents the jagged shape of
+data at position <cite>i</cite> in dim 0</p></li>
+<li><p><strong>values</strong> (<em>Tensor</em>) – A 1D-input-tensor to be permuted. The length of this
+tensor must be equal to <cite>lengths.sum()</cite>. This tensor can be of any data
+type.</p></li>
+<li><p><strong>weights</strong> (<em>Optional</em><em>[</em><em>Tensor</em><em>] </em><em>= None</em>) – An optional 1D-float-tensor. It must
+have the same length as <cite>values</cite>. It will be permuted the same way as
+values</p></li>
+<li><p><strong>permuted_lengths_sum</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>] </em><em>= None</em>) – An optional value that
+represents the total number of elements in the permuted data (output
+shape). If not provided, the operator will compute this data which may
+cause a device-host synchronization (if using GPU). Thus, it is
+recommended to supply this value to avoid such the synchronization.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A tuple of permuted lengths, permuted indices and permuted weights</p>
+</dd>
+</dl>
+<dl>
+<dt><strong>Example:</strong></dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">permute</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">lengths</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">values</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="n">low</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">lengths</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">(),),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+<span class="go">tensor([ 1, 76, 24, 84, 94, 25, 15, 23, 31, 46,  9, 23, 34,  3],</span>
+<span class="go">       device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">permute_1D_sparse_data</span><span class="p">(</span><span class="n">permute</span><span class="p">,</span> <span class="n">lengths</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+<span class="go">(tensor([3, 2, 5, 2], device=&#39;cuda:0&#39;),</span>
+<span class="go"> tensor([24, 84, 94,  1, 76, 46,  9, 23, 34,  3,  1, 76], device=&#39;cuda:0&#39;),</span>
+<span class="go"> None)</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.expand_into_jagged_permute">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">expand_into_jagged_permute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">permute</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_size</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.expand_into_jagged_permute" title="Permalink to this definition">¶</a></dt>
+<dd><p>Expand the sparse data permute index from feature dimension to batch dimension,
+for cases where the sparse features has different batch sizes across ranks.</p>
+<p>The op expands the permute from feature level to batch level by contiguously
+mapping each bag of its corresponding features to the position the batch sits
+on after feature permute. The op will automatically derive offset array of
+feature and batch to compute the output permute.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>permute</strong> (<em>Tensor</em>) – The feature level permute index.</p></li>
+<li><p><strong>input_offset</strong> (<em>Tensor</em>) – The exclusive offsets of feature-level length.</p></li>
+<li><p><strong>output_offsets</strong> (<em>Tensor</em>) – The exclusive offsets of feature-level permuted
+length.</p></li>
+<li><p><strong>output_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – The number of elements in the output tensor</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><p>The output follows the following formula</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">output_permute</span><span class="p">[</span><span class="n">feature_offset</span><span class="p">[</span><span class="n">permute</span><span class="p">[</span><span class="n">feature</span><span class="p">]]</span> <span class="o">+</span> <span class="n">batch</span><span class="p">]</span> <span class="o">&lt;-</span> <span class="n">bag_offset</span><span class="p">[</span><span class="n">batch</span><span class="p">]</span>
+</pre></div>
+</div>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.asynchronous_complete_cumsum">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">asynchronous_complete_cumsum</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">t_in</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.asynchronous_complete_cumsum" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute complete cumulative sum. For the GPU operator, the operator is
+nonblocking asynchronous. For the CPU operator, it is a blocking operator.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>t_in</strong> (<em>Tensor</em>) – An input tensor</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The complete cumulative sum of <cite>t_in</cite>. Shape is <cite>t_in.numel() + 1</cite></p>
+</dd>
+</dl>
+<p><strong>Example:</strong></p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">t_in</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">7</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">4</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">asynchronous_complete_cumsum</span><span class="p">(</span><span class="n">t_in</span><span class="p">)</span>
+<span class="go">tensor([ 0,  7, 15, 17, 18, 18, 27, 31], device=&#39;cuda:0&#39;)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.offsets_range">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">offsets_range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">range_size</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.offsets_range" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate an integer sequence from 0 to <cite>(offsets[i+1] - offsets[i])</cite> for every
+<cite>i</cite>, where <cite>0 &lt;= i &lt; offsets.numel()</cite></p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>offsets</strong> (<em>Tensor</em>) – The offsets (complete cumulative sum values)</p></li>
+<li><p><strong>range_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – The output size (the total sum)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A tensor that contains offsets range</p>
+</dd>
+</dl>
+<dl>
+<dt><strong>Example:</strong></dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Generate example inputs</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">lengths</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">9</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">7</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">offsets</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">asynchronous_complete_cumsum</span><span class="p">(</span><span class="n">lengths</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">range_size</span> <span class="o">=</span> <span class="n">offsets</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">range_size</span><span class="p">)</span>
+<span class="go">27</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">offsets</span><span class="p">)</span>
+<span class="go">tensor([ 0,  3,  7,  8, 17, 20], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Invoke</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">offsets_range</span><span class="p">(</span><span class="n">offsets</span><span class="p">,</span> <span class="n">range_size</span><span class="p">)</span>
+<span class="go">tensor([0, 1, 2, 0, 1, 2, 3, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 1, 2, 0, 1, 2, 3,</span>
+<span class="go">        4, 5, 6], device=&#39;cuda:0&#39;)</span>
+</pre></div>
+</div>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 
 
@@ -469,10 +631,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../fbgemm-development/BuildInstructions.html" class="btn btn-neutral float-right" title="Build Instructions" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="pooled_embedding_ops.html" class="btn btn-neutral float-right" title="Pooled Embedding Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="ContactUs.html" class="btn btn-neutral" title="Contact Us" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="../fbgemm_gpu-cpp-api/experimental_ops.html" class="btn btn-neutral" title="Experimental Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -504,7 +666,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">License</a></li>
+<li><a class="reference internal" href="#">Sparse Operators</a><ul>
+<li><a class="reference internal" href="#torch.ops.fbgemm.permute_2D_sparse_data"><code class="docutils literal notranslate"><span class="pre">permute_2D_sparse_data()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.permute_1D_sparse_data"><code class="docutils literal notranslate"><span class="pre">permute_1D_sparse_data()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.expand_into_jagged_permute"><code class="docutils literal notranslate"><span class="pre">expand_into_jagged_permute()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.asynchronous_complete_cumsum"><code class="docutils literal notranslate"><span class="pre">asynchronous_complete_cumsum()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.offsets_range"><code class="docutils literal notranslate"><span class="pre">offsets_range()</span></code></a></li>
+</ul>
+</li>
 </ul>
 
             </div>

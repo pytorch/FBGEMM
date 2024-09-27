@@ -336,8 +336,10 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Operators API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/sparse_ops.html">Sparse Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Modules API</span></p>
 <ul>
@@ -436,6 +438,7 @@
  | <a href="#L"><strong>L</strong></a>
  | <a href="#M"><strong>M</strong></a>
  | <a href="#N"><strong>N</strong></a>
+ | <a href="#O"><strong>O</strong></a>
  | <a href="#P"><strong>P</strong></a>
  | <a href="#Q"><strong>Q</strong></a>
  | <a href="#R"><strong>R</strong></a>
@@ -511,6 +514,10 @@
       <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv417all_to_one_deviceNSt6vectorIN2at6TensorEEEN2at6DeviceE">all_to_one_device (C++ function)</a>
 </li>
   </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-python-api/sparse_ops.html#torch.ops.fbgemm.asynchronous_complete_cumsum">asynchronous_complete_cumsum() (in module torch.ops.fbgemm)</a>
+</li>
+  </ul></td>
 </tr></table>
 
 <h2 id="B">B</h2>
@@ -562,11 +569,13 @@
 </li>
       <li><a href="fbgemm-cpp-api/tbe_cpu_autovec.html#_CPPv4I000E25EmbeddingSpMDMFP8_autovecbK7int64_tK7int64_tK7int64_tK7int64_tPK7uint8_tPK9IndexTypePK10OffsetTypePKfbP7OutTypebb7int64_t7int64_tiib">EmbeddingSpMDMFP8_autovec (C++ function)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="general/documentation/Cpp.html#_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf">example_method (C++ function)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="general/documentation/Python.html#fbgemm_gpu.docs.examples.example_method">example_method() (in module fbgemm_gpu.docs.examples)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/sparse_ops.html#torch.ops.fbgemm.expand_into_jagged_permute">expand_into_jagged_permute() (in module torch.ops.fbgemm)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/sparse_ops.html#_CPPv431expand_into_jagged_permute_cudaRKN2at6TensorERKN2at6TensorERKN2at6TensorE7int64_t">expand_into_jagged_permute_cuda (C++ function)</a>
 </li>
@@ -580,7 +589,7 @@
     fbgemm_gpu
 
       <ul>
-        <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#module-fbgemm_gpu">module</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_modules.html#module-fbgemm_gpu">[1]</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#module-fbgemm_gpu">[2]</a>
+        <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#module-fbgemm_gpu">module</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_modules.html#module-fbgemm_gpu">[1]</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#module-fbgemm_gpu">[2]</a>, <a href="fbgemm_gpu-python-api/quantize_ops.html#module-fbgemm_gpu">[3]</a>, <a href="fbgemm_gpu-python-api/sparse_ops.html#module-fbgemm_gpu">[4]</a>
 </li>
       </ul></li>
       <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv410FindMinMaxPKfPfPf7int64_t">FindMinMax (C++ function)</a>
@@ -592,6 +601,8 @@
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv429float_to_fused8bitrowwise_cpuRK6Tensor">float_to_fused8bitrowwise_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm-cpp-api/QuantUtils.html#_CPPv4I0E44FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfviPK9InputType6size_tiPNSt7uint8_tE">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/quantize_ops.html#torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf() (in module torch.ops.fbgemm)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/quantize_ops.html#_CPPv423FloatToFP8Quantized_refPCKfK6size_tK6size_tPC7uint8_tKiKiKd">FloatToFP8Quantized_ref (C++ function)</a>
 </li>
@@ -771,7 +782,7 @@
     module
 
       <ul>
-        <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#module-fbgemm_gpu">fbgemm_gpu</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_modules.html#module-fbgemm_gpu">[1]</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#module-fbgemm_gpu">[2]</a>
+        <li><a href="fbgemm_gpu-python-api/jagged_tensor_ops.html#module-fbgemm_gpu">fbgemm_gpu</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_modules.html#module-fbgemm_gpu">[1]</a>, <a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#module-fbgemm_gpu">[2]</a>, <a href="fbgemm_gpu-python-api/quantize_ops.html#module-fbgemm_gpu">[3]</a>, <a href="fbgemm_gpu-python-api/sparse_ops.html#module-fbgemm_gpu">[4]</a>
 </li>
       </ul></li>
   </ul></td>
@@ -797,10 +808,22 @@
   </ul></td>
 </tr></table>
 
+<h2 id="O">O</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-python-api/sparse_ops.html#torch.ops.fbgemm.offsets_range">offsets_range() (in module torch.ops.fbgemm)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="P">P</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu-cpp-api/input_combine.html#_CPPv435padding_fused_tbe_input_combine_cpuRKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKNSt6vectorIN2at6TensorEEERKN2at6TensorE7int64_t">padding_fused_tbe_input_combine_cpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/sparse_ops.html#torch.ops.fbgemm.permute_1D_sparse_data">permute_1D_sparse_data() (in module torch.ops.fbgemm)</a>
+</li>
+      <li><a href="fbgemm_gpu-python-api/sparse_ops.html#torch.ops.fbgemm.permute_2D_sparse_data">permute_2D_sparse_data() (in module torch.ops.fbgemm)</a>
 </li>
       <li><a href="fbgemm_gpu-python-api/pooled_embedding_ops.html#torch.ops.fbgemm.permute_pooled_embs">permute_pooled_embs() (in module torch.ops.fbgemm)</a>
 </li>
@@ -814,10 +837,10 @@
 </li>
       <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv439permute_pooled_embs_auto_grad_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_auto_grad_split_gpu (C++ function)</a>
 </li>
-      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv428permute_pooled_embs_cpu_implRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKb">permute_pooled_embs_cpu_impl (C++ function)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv428permute_pooled_embs_cpu_implRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKb">permute_pooled_embs_cpu_impl (C++ function)</a>
+</li>
       <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_cpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu-cpp-api/merge_pooled_embeddings.html#_CPPv429permute_pooled_embs_split_gpuRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorE">permute_pooled_embs_split_gpu (C++ function)</a>
