@@ -33,6 +33,22 @@ generate_vbe_metadata_meta(
   return {row_output_offsets, b_t_map};
 }
 
+std::tuple<Tensor /*row_output_offsets*/, Tensor /*b_t_map*/>
+generate_vbe_metadata_cpu(
+    const Tensor& B_offsets,
+    const Tensor& B_offsets_rank_per_feature,
+    const Tensor& output_offsets_feature_rank,
+    const Tensor& D_offsets,
+    const int64_t D,
+    const bool nobag,
+    const c10::SymInt max_B_feature_rank,
+    const int64_t info_B_num_bits,
+    const c10::SymInt total_B) {
+  Tensor row_output_offsets = output_offsets_feature_rank;
+  Tensor b_t_map = B_offsets_rank_per_feature;
+  return {row_output_offsets, b_t_map};
+}
+
 } // namespace
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -68,6 +84,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA("transpose_embedding_input", transpose_embedding_input);
   DISPATCH_TO_CUDA("get_infos_metadata", get_infos_metadata);
   DISPATCH_TO_CUDA("generate_vbe_metadata", generate_vbe_metadata);
+  DISPATCH_TO_CPU("generate_vbe_metadata", generate_vbe_metadata_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
