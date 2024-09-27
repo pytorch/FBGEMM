@@ -416,6 +416,9 @@ __print_library_infos () {
 
     echo "[CHECK] Listing out external shared libraries linked:"
     print_exec ldd "${library}"
+
+    echo "[CHECK] Displaying ELF information:"
+    print_exec readelf -d "${library}"
     echo "################################################################################"
     echo ""
     echo ""

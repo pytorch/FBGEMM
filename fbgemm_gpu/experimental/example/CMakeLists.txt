@@ -70,3 +70,10 @@ install(TARGETS fbgemm_gpu_experimental_example_py
 
 install(FILES ${experimental_example_python_source_files}
         DESTINATION fbgemm_gpu/experimental/example)
+
+add_custom_target(fbgemm_gpu_experimental_example_py_clean_rpath ALL
+    WORKING_DIRECTORY ${OUTPUT_DIR}
+    COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
+
+add_dependencies(fbgemm_gpu_experimental_example_py_clean_rpath
+    fbgemm_gpu_experimental_example_py)

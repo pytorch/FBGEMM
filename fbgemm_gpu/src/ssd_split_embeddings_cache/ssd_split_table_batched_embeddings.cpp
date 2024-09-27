@@ -8,6 +8,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
+#include <c10/core/ScalarTypeToTypeMeta.h>
 #include <torch/library.h>
 
 #include <torch/custom_class.h>
@@ -384,10 +385,6 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->get_snapshot_count();
   }
 
-  int64_t get_max_D() const {
-    return impl_->get_max_D();
-  }
-
  private:
   friend class KVTensorWrapper;
 
@@ -418,7 +415,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
     CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
     CHECK_EQ(db_->get_max_D(), shape_[1]);
     auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
-    db_->get_range_from_snapshot(t, start, length, snapshot_handle_->handle);
+    db_->get_range_from_snapshot(
+        t, start + row_offset_, length, snapshot_handle_->handle);
     // TBE may have multiple embeddings in one table padded to max D
     // narrow to the actual shape here before returning
     return t.narrow(1, 0, shape_[1]);
@@ -430,6 +428,10 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   c10::ScalarType dtype() {
     return options_.dtype().toScalarType();
+  }
+
+  c10::string_view dtype_str() {
+    return scalarTypeToTypeMeta(dtype()).name();
   }
 
  private:
@@ -545,7 +547,12 @@ static auto kv_tensor_wrapper =
              torch::arg("shape"),
              torch::arg("dtype"),
              torch::arg("row_offset")})
-        .def("narrow", &KVTensorWrapper::narrow)
+        .def(
+            "narrow",
+            &KVTensorWrapper::narrow,
+            "",
+            {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
+        .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property(
             "shape",
             &KVTensorWrapper::size,

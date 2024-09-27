@@ -1,6 +1,8 @@
 Jagged Tensor Operators
 =======================
 
+.. automodule:: fbgemm_gpu
+
 .. autofunction:: torch.ops.fbgemm.jagged_2d_to_dense
 
 .. autofunction:: torch.ops.fbgemm.jagged_1d_to_dense
