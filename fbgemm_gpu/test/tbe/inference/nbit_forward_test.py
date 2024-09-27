@@ -11,6 +11,7 @@
 
 import random
 import unittest
+import os
 from typing import Callable, Dict, List, Optional, Tuple
 
 import hypothesis.strategies as st
@@ -663,7 +664,7 @@ class NBitFowardTest(unittest.TestCase):
             mixed_weights_ty,
             output_dtype,
         )
-
+        
     @unittest.skipIf(*gpu_unavailable)
     def test_nbit_forward_gpu_no_cache_fp8_2048(self) -> None:
         # Test the case of FB8 table with 128B*8 < D <= 128B*16
@@ -1139,7 +1140,79 @@ class NBitFowardTest(unittest.TestCase):
             dequant_output_from_quant_cc.cpu(),
             equal_nan=False,
         )
+    
+    @given(
+            nbit_weights_ty=get_nbit_weights_ty(),
+            use_array_for_index_remapping=st.booleans(),
+            do_pruning=st.booleans(),
+            pooling_mode=st.sampled_from(
+                [PoolingMode.SUM, PoolingMode.NONE, PoolingMode.MEAN]
+            ),
+            output_dtype=st.sampled_from(
+                [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+            ),
+        )
+        
+    @settings(
+            verbosity=VERBOSITY,
+            max_examples=MAX_EXAMPLES_LONG_RUNNING,
+            deadline=None,
+            )
+    def test_nbit_forward_cpu_autovec(
+            self,
+            nbit_weights_ty: Optional[SparseType],
+            use_array_for_index_remapping: bool,
+            do_pruning: bool,
+            pooling_mode: PoolingMode,
+            output_dtype: SparseType,
+        ) -> None:
+            use_cpu = True
+            T = 20 # random.randint(1, 50)
+            B = 32 # random.randint(0, 128)
+            L = 16 # random.randint(0, 32)
+            D = 64 # random.randint(2, 2048)
+            log_E = random.randint(2, 4)
 
+            use_cache = False
+            # cache_algorithm is don't care as we don't use cache.
+            cache_algorithm = CacheAlgorithm.LRU
+
+            mixed = random.choice([True, False])
+            if pooling_mode == PoolingMode.SUM:
+                weighted = random.choice([True, False])
+            else:
+                weighted = False
+
+            if nbit_weights_ty is None:
+                # don't care when mixed type is used.
+                weights_ty: SparseType = SparseType.INT8
+                mixed_weights_ty = True
+            else:
+                weights_ty: SparseType = nbit_weights_ty
+                mixed_weights_ty = False
+
+            os.environ['FBGEMM_FORCE_AUTOVEC'] = '1'
+
+            self.execute_nbit_forward_(
+                T,
+                D,
+                B,
+                log_E,
+                L,
+                weighted,
+                mixed,
+                pooling_mode,
+                weights_ty,
+                use_cache,
+                cache_algorithm,
+                use_cpu,
+                use_array_for_index_remapping,
+                do_pruning,
+                mixed_weights_ty,
+                output_dtype,
+            )
+
+            del os.environ['FBGEMM_FORCE_AUTOVEC']
 
 if __name__ == "__main__":
     unittest.main()
