@@ -1045,7 +1045,10 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">=</span> <span class="n">pooling_mode</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span>
+        <span class="c1"># If environment variable is set, it overwrites the default bounds check mode.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">=</span> <span class="n">weights_precision</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">output_dtype</span><span class="o">.</span><span class="n">as_int</span><span class="p">()</span>
         <span class="k">assert</span> <span class="p">(</span>
