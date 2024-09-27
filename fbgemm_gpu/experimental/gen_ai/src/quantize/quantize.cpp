@@ -116,7 +116,7 @@ at::Tensor get_fp8_per_tensor_scale(
     std::optional<at::Tensor> bs,
     std::optional<at::Tensor> scale_ub); // scale upperbound
 
-TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+TORCH_LIBRARY(fbgemm, m) {
 #ifndef USE_ROCM
   // TODO: on AMD this throws "Undefined symbol" when loading
   // quantize_ops with
