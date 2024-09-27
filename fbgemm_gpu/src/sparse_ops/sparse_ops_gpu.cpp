@@ -216,6 +216,7 @@ group_index_select_dim0_unpack(
 class GroupIndexSelectDim0GPUOp
     : public torch::autograd::Function<GroupIndexSelectDim0GPUOp> {
  public:
+  static constexpr bool is_traceable = true;
   // need to combine input_group and indices_group into one tensor list
   // to get this working with autograd.
   static torch::autograd::variable_list forward_impl(
@@ -435,13 +436,17 @@ class GroupIndexSelectDim0GPUOp
           input_shape_group.end(), input_shape.begin(), input_shape.end());
     }
 
+    for (unsigned long i = 0; i < input_shape_group.size(); i++) {
+      ctx->saved_data["input_shape_group_" + std::to_string(i)] =
+          input_shape_group[i];
+    }
+
     // save indices, args_tensor, saved_data
     auto saved_tensors = std::vector<Tensor>(indices_group);
     saved_tensors.insert(
         saved_tensors.end(), result.cbegin() + group_size, result.cend());
     saved_tensors.push_back(input_group[0]);
     ctx->save_for_backward(saved_tensors);
-    ctx->saved_data["input_shape_group"] = input_shape_group;
 
     return result;
   }
@@ -609,8 +614,20 @@ class GroupIndexSelectDim0GPUOp
 
     auto saved_tensors = ctx->get_saved_variables();
     TORCH_CHECK(saved_tensors.size() == group_size + 3);
-    auto output_shape_group =
-        ctx->saved_data["input_shape_group"].toSymIntVector();
+
+    std::vector<c10::SymInt> output_shape_group;
+    int i = 0;
+    while (true) {
+      auto el = ctx->saved_data.find("input_shape_group_" + std::to_string(i));
+
+      if (el == ctx->saved_data.end()) {
+        break;
+      }
+
+      output_shape_group.emplace_back(el->second.toSymInt());
+      i++;
+    }
+
     grad_output_group.insert(
         grad_output_group.end(), saved_tensors.begin(), saved_tensors.end());
     static auto backward_op =

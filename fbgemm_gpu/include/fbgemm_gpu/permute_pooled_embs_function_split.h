@@ -27,6 +27,7 @@ class PermutePooledEmbsFunctionSplit
     : public torch::autograd::Function<
           PermutePooledEmbsFunctionSplit<permute_pooled_embs_op>> {
  public:
+  static constexpr bool is_traceable = true;
   static Variable forward(
       AutogradContext* ctx,
       const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
