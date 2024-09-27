@@ -119,3 +119,88 @@ Returns:
      None)
     """,
 )
+
+add_docs(
+    torch.ops.fbgemm.expand_into_jagged_permute,
+    """
+expand_into_jagged_permute(permute, input_offset, output_offset, output_size) -> Tensor
+
+Expand the sparse data permute index from feature dimension to batch dimension,
+for cases where the sparse features has different batch sizes across ranks.
+
+The op expands the permute from feature level to batch level by contiguously
+mapping each bag of its corresponding features to the position the batch sits
+on after feature permute. The op will automatically derive offset array of
+feature and batch to compute the output permute.
+
+Args:
+    permute (Tensor): The feature level permute index.
+
+    input_offset (Tensor): The exclusive offsets of feature-level length.
+
+    output_offsets (Tensor): The exclusive offsets of feature-level permuted
+        length.
+
+    output_size (int): The number of elements in the output tensor
+
+Returns:
+    The output follows the following formula
+
+    >>> output_permute[feature_offset[permute[feature]] + batch] <- bag_offset[batch]
+    """,
+)
+
+add_docs(
+    torch.ops.fbgemm.asynchronous_complete_cumsum,
+    """
+asynchronous_complete_cumsum(t_in) -> Tensor
+
+Compute complete cumulative sum. For the GPU operator, the operator is
+nonblocking asynchronous. For the CPU operator, it is a blocking operator.
+
+Args:
+    t_in (Tensor): An input tensor
+
+Returns:
+    The complete cumulative sum of `t_in`. Shape is `t_in.numel() + 1`
+
+**Example:**
+
+    >>> t_in = torch.tensor([7, 8, 2, 1, 0, 9, 4], dtype=torch.int64, device="cuda")
+    >>> torch.ops.fbgemm.asynchronous_complete_cumsum(t_in)
+    tensor([ 0,  7, 15, 17, 18, 18, 27, 31], device='cuda:0')
+    """,
+)
+
+add_docs(
+    torch.ops.fbgemm.offsets_range,
+    """
+offsets_range(offsets, range_size) -> Tensor
+
+Generate an integer sequence from 0 to `(offsets[i+1] - offsets[i])` for every
+`i`, where `0 <= i < offsets.numel()`
+
+Args:
+    offsets (Tensor): The offsets (complete cumulative sum values)
+
+    range_size (int): The output size (the total sum)
+
+Returns:
+    A tensor that contains offsets range
+
+**Example:**
+    >>> # Generate example inputs
+    >>> lengths = torch.tensor([3, 4, 1, 9, 3, 7], dtype=torch.int64, device="cuda")
+    >>> offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+    >>> range_size = offsets[-1].item()
+    >>> print(range_size)
+    27
+    >>> offsets = offsets[:-1]
+    >>> print(offsets)
+    tensor([ 0,  3,  7,  8, 17, 20], device='cuda:0')
+    >>> # Invoke
+    >>> torch.ops.fbgemm.offsets_range(offsets, range_size)
+    tensor([0, 1, 2, 0, 1, 2, 3, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 1, 2, 0, 1, 2, 3,
+            4, 5, 6], device='cuda:0')
+    """,
+)
