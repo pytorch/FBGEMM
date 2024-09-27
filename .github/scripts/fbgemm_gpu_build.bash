@@ -199,7 +199,7 @@ __configure_fbgemm_gpu_build_cuda () {
       #   https://github.com/NVIDIA/nvbench/discussions/129
       #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
       #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
-      local arch_list="7.0;8.0;9.0;9.0a"
+      local arch_list="7.0;8.0;9.0a"
     else
       local arch_list="7.0;8.0"
     fi
