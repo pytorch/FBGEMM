@@ -623,7 +623,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uuid = str(uuid.uuid4())
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.pooling_mode = pooling_mode
-        self.bounds_check_mode_int: int = bounds_check_mode.value
+        # If environment variable is set, it overwrites the default bounds check mode.
+        self.bounds_check_mode_int: int = int(
+            os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
+        )
         self.weights_precision = weights_precision
         self.output_dtype: int = output_dtype.as_int()
         assert (
