@@ -199,7 +199,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             Tuple[str, int, int, SparseType, EmbeddingLocation]
         ],  # tuple of (feature_names, rows, dims, SparseType, EmbeddingLocation/placement)
         feature_table_map: Optional[List[int]] = None,  # [T]
-        index_remapping: Optional[List[Tensor]] = None,
+        index_remappings: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
@@ -420,9 +420,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # pyre-fixme[4]: Attribute must be annotated.
         self.index_remapping_hash_table_cpu = None
 
-        if index_remapping:
+        if index_remappings:
             self.set_index_remappings(
-                index_remapping, pruning_hash_load_factor, use_array_for_index_remapping
+                index_remappings,
+                pruning_hash_load_factor,
+                use_array_for_index_remapping,
             )
 
         # Currently only support cache_precision == embedding_precision.
@@ -1493,13 +1495,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def set_index_remappings_array(
         self,
-        index_remapping: List[Tensor],
+        index_remappings: List[Tensor],
     ) -> None:
         rows: List[int] = [e[1] for e in self.embedding_specs]
         index_remappings_array_offsets = [0]
         original_feature_rows = torch.jit.annotate(List[int], [])
         last_offset = 0
-        for t, mapping in enumerate(index_remapping):
+        for t, mapping in enumerate(index_remappings):
             if mapping is not None:
                 current_original_row = mapping.numel()
                 last_offset += current_original_row
@@ -1522,7 +1524,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         index_remappings_filter_nones = []
-        for mapping in index_remapping:
+        for mapping in index_remappings:
             if mapping is not None:
                 index_remappings_filter_nones.append(mapping)
         if len(index_remappings_filter_nones) == 0:
@@ -1536,7 +1538,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     def set_index_remappings(
         self,
-        index_remapping: List[Tensor],
+        index_remappings: List[Tensor],
         pruning_hash_load_factor: float = 0.5,
         use_array_for_index_remapping: bool = True,
     ) -> None:
@@ -1550,7 +1552,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     if index_remap is not None
                     else 0
                 )
-                for (index_remap, row) in zip(index_remapping, rows)
+                for (index_remap, row) in zip(index_remappings, rows)
             ]
             hash_table = torch.empty(
                 (sum(capacities), 2),
@@ -1561,7 +1563,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             merged_index_remappings = [
                 mapping if mapping is not None else Tensor(list(range(row)))
-                for (mapping, row) in zip(index_remapping, rows)
+                for (mapping, row) in zip(index_remappings, rows)
             ]
             original_feature_rows = [
                 mapping.numel() for mapping in merged_index_remappings
@@ -1603,7 +1605,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remapping_hash_table_cpu = None
         # Array mapping pruning
         else:
-            self.set_index_remappings_array(index_remapping)
+            self.set_index_remappings_array(index_remappings)
 
     def _embedding_inplace_update_per_table(
         self,

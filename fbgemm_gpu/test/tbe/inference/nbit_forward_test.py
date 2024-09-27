@@ -435,7 +435,7 @@ class NBitFowardTest(unittest.TestCase):
                 x, use_cpu=use_cpu
             )
 
-            # generate index_remapping
+            # generate index_remappings
             dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
 
             original_E = E
@@ -444,7 +444,7 @@ class NBitFowardTest(unittest.TestCase):
             indices = indices.view(-1).int()
             offsets = offsets.view(-1).int()
 
-            # generate index_remapping done
+            # generate index_remappings done
             # Initialize and insert Array index remapping based data structure
             index_remappings_array = []
             for t in range(T):
@@ -479,7 +479,7 @@ class NBitFowardTest(unittest.TestCase):
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
             pooling_mode=pooling_mode,
-            index_remapping=index_remappings_array if B != 0 else None,
+            index_remappings=index_remappings_array if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
@@ -820,11 +820,11 @@ class NBitFowardTest(unittest.TestCase):
             average_D = sum(Ds) // T
             for t, d in enumerate(Ds):
                 managed[t] = EmbeddingLocation.DEVICE if d < average_D else managed[t]
-        index_remapping = None
+        index_remappings = None
         pruning_hash_load_factor = 0.5
         if do_pruning:
             current_device = torch.cuda.current_device()
-            index_remapping = []
+            index_remappings = []
             for E in Es:
                 # For each table, keep the first half of rows as is, but
                 # the rest is treated as pruned (-1).
@@ -834,7 +834,7 @@ class NBitFowardTest(unittest.TestCase):
                     dtype=torch.int32,
                     device=current_device,
                 )
-                index_remapping.append(remapping_t)
+                index_remappings.append(remapping_t)
         cc_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
             [
                 (
@@ -846,7 +846,7 @@ class NBitFowardTest(unittest.TestCase):
                 )
                 for (E, D) in zip(Es, Ds)
             ],
-            index_remapping=index_remapping,
+            index_remappings=index_remappings,
             use_array_for_index_remapping=use_array_for_index_remapping,
             pruning_hash_load_factor=pruning_hash_load_factor,
         )
@@ -855,7 +855,7 @@ class NBitFowardTest(unittest.TestCase):
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
             cache_assoc=associativity,
-            index_remapping=index_remapping,
+            index_remappings=index_remappings,
             use_array_for_index_remapping=use_array_for_index_remapping,
             pruning_hash_load_factor=pruning_hash_load_factor,
         )
