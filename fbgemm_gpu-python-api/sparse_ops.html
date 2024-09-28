@@ -621,6 +621,115 @@ nonblocking asynchronous. For the CPU operator, it is a blocking operator.</p>
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.segment_sum_csr">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">segment_sum_csr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">batch_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">csr_seg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.segment_sum_csr" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sum values within each segment on the given CSR data where each row has the
+same number of non-zero elements.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>batch_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – The row stride (number of non-zero elements in each row)</p></li>
+<li><p><strong>csr_seg</strong> (<em>Tensor</em>) – The complete cumulative sum of segment lengths. A segment
+length is the number of rows within each segment. The shape of the
+<cite>csr_seg</cite> tensor is <cite>num_segments + 1</cite> where <cite>num_segments</cite> is the
+number of segments.</p></li>
+<li><p><strong>values</strong> (<em>Tensor</em>) – The values tensor to be segment summed. The number of
+elements in the tensor must be multiple of <cite>batch_size</cite></p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A tensor containing the segment sum results. Shape is the number of
+segments.</p>
+</dd>
+</dl>
+<p><strong>Example:</strong></p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">batch_size</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Randomize inputs</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">lengths</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">offsets</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">asynchronous_complete_cumsum</span><span class="p">(</span><span class="n">lengths</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">offsets</span><span class="p">)</span>
+<span class="go">tensor([0, 3, 7, 8], device=&#39;cuda:0&#39;, dtype=torch.int32)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">values</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="n">lengths</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">*</span> <span class="n">batch_size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+<span class="go">tensor([-2.8642e-01,  1.6451e+00,  1.1322e-01,  1.7335e+00, -8.4700e-02,</span>
+<span class="go">        -1.2756e+00,  1.1206e+00,  9.6385e-01,  6.2122e-02,  1.3104e-03,</span>
+<span class="go">        2.2667e-01,  2.3113e+00, -1.1948e+00, -1.5463e-01, -1.0031e+00,</span>
+<span class="go">        -3.5531e-01], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Invoke</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">segment_sum_csr</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+<span class="go">tensor([ 1.8451,  3.3365, -1.3584], device=&#39;cuda:0&#39;)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.keyed_jagged_index_select_dim1">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">keyed_jagged_index_select_dim1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lengths</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offsets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">indices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selected_lengths_sum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">Tensor</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#torch.ops.fbgemm.keyed_jagged_index_select_dim1" title="Permalink to this definition">¶</a></dt>
+<dd><p>Perform an index select operation on the batch dimension (dim 1) of the given
+keyed jagged tensor (KJT) input. The same samples in the batch of every key
+will be selected. Note that each KJT has 3 dimensions: (<cite>num_keys</cite>, <cite>batch_size</cite>,
+jagged dim), where <cite>num_keys</cite> is the number of keys, and <cite>batch_size</cite> is the
+batch size. This operator is similar to a permute operator.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>values</strong> (<em>Tensor</em>) – The KJT values tensor which contains concatenated data of
+every key</p></li>
+<li><p><strong>lengths</strong> (<em>Tensor</em>) – The KJT lengths tensor which contains the jagged shapes
+of every key (dim 0) and sample (dim 1). Shape is <cite>num_keys *
+batch_size</cite></p></li>
+<li><p><strong>offsets</strong> (<em>Tensor</em>) – The KJT offsets tensor which is the complete cumulative
+sum of <cite>lengths</cite>. Shape is <cite>num_keys * batch_size + 1</cite></p></li>
+<li><p><strong>indices</strong> (<em>Tensor</em>) – The indices to select, i.e., samples in the batch to
+select. The values of <cite>indices</cite> must be &gt;= 0 and &lt; <cite>batch_size</cite></p></li>
+<li><p><strong>batch_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – The batch size (dim 1 of KJT)</p></li>
+<li><p><strong>weights</strong> (<em>Optional</em><em>[</em><em>Tensor</em><em>] </em><em>= None</em>) – An optional float tensor which will be
+selected the same way as <cite>values</cite>. Thus, it must have the same shape as
+<cite>values</cite></p></li>
+<li><p><strong>selected_lengths_sum</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>] </em><em>= None</em>) – An optional value that
+represents the total number of elements in the index select data
+(output shape). If not provided, the operator will compute this data
+which may cause a device-host synchronization (if using GPU). Thus, it
+is recommended to supply this value to avoid such the synchronization.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The index-select KJT tensor (as a list of values, lengths, and weights if
+<cite>weights</cite> is not None)</p>
+</dd>
+</dl>
+<p><strong>Example:</strong></p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">num_keys</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">batch_size</span> <span class="o">=</span> <span class="mi">4</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">output_size</span> <span class="o">=</span> <span class="mi">3</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Randomize inputs</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">lengths</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="n">low</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">batch_size</span> <span class="o">*</span> <span class="n">num_keys</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">lengths</span><span class="p">)</span>
+<span class="go">tensor([8, 5, 1, 4, 2, 7, 5, 9], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">offsets</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">asynchronous_complete_cumsum</span><span class="p">(</span><span class="n">lengths</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">offsets</span><span class="p">)</span>
+<span class="go">tensor([ 0,  8, 13, 14, 18, 20, 27, 32, 41], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">indices</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="n">low</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">high</span><span class="o">=</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">output_size</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span>
+<span class="go">tensor([3, 3, 1], device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Use torch.arange instead of torch.randn to simplify the example</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">values</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">lengths</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">(),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+<span class="go">tensor([ 0.,  1.,  2.,  3.,  4.,  5.,  6.,  7.,  8.,  9., 10., 11., 12., 13.,</span>
+<span class="go">        14., 15., 16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27.,</span>
+<span class="go">        28., 29., 30., 31., 32., 33., 34., 35., 36., 37., 38., 39., 40.],</span>
+<span class="go">       device=&#39;cuda:0&#39;)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Invoke. Output = (output, lengths)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">keyed_jagged_index_select_dim1</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">lengths</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span>
+<span class="go">[tensor([14., 15., 16., 17., 14., 15., 16., 17.,  8.,  9., 10., 11., 12., 32.,</span>
+<span class="go">         33., 34., 35., 36., 37., 38., 39., 40., 32., 33., 34., 35., 36., 37.,</span>
+<span class="go">         38., 39., 40., 20., 21., 22., 23., 24., 25., 26.], device=&#39;cuda:0&#39;),</span>
+<span class="go"> tensor([4, 4, 5, 9, 9, 7], device=&#39;cuda:0&#39;)]</span>
+</pre></div>
+</div>
+</dd></dl>
+
 </section>
 
 
@@ -672,6 +781,8 @@ nonblocking asynchronous. For the CPU operator, it is a blocking operator.</p>
 <li><a class="reference internal" href="#torch.ops.fbgemm.expand_into_jagged_permute"><code class="docutils literal notranslate"><span class="pre">expand_into_jagged_permute()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.asynchronous_complete_cumsum"><code class="docutils literal notranslate"><span class="pre">asynchronous_complete_cumsum()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.offsets_range"><code class="docutils literal notranslate"><span class="pre">offsets_range()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.segment_sum_csr"><code class="docutils literal notranslate"><span class="pre">segment_sum_csr()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.keyed_jagged_index_select_dim1"><code class="docutils literal notranslate"><span class="pre">keyed_jagged_index_select_dim1()</span></code></a></li>
 </ul>
 </li>
 </ul>
