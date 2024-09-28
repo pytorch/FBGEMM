@@ -12,3 +12,7 @@ Sparse Operators
 .. autofunction:: torch.ops.fbgemm.asynchronous_complete_cumsum
 
 .. autofunction:: torch.ops.fbgemm.offsets_range
+
+.. autofunction:: torch.ops.fbgemm.segment_sum_csr
+
+.. autofunction:: torch.ops.fbgemm.keyed_jagged_index_select_dim1
