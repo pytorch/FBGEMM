@@ -33,6 +33,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     TailIdThreshold,
     WeightDecayMode,
 )
+
+try:
+    from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+        EnsembleModeDefinition,
+    )
+except ImportError:
+    EnsembleModeDefinition = None
+
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     get_table_batched_offsets_from_dense,
@@ -311,15 +319,17 @@ class BackwardOptimizersTest(unittest.TestCase):
                 1e-4,
                 1.0,
                 1.0,
-                -1.0,
+                0.0,
                 StepMode.USE_ITER,
                 0.8,
             )
             optimizer_kwargs["eps"] = eps
-            optimizer_kwargs["step_ema"] = step_ema
-            optimizer_kwargs["step_swap"] = step_swap
-            optimizer_kwargs["step_start"] = step_start
-            optimizer_kwargs["step_mode"] = step_mode
+            optimizer_kwargs["ensemble_mode"] = EnsembleModeDefinition(
+                step_ema=step_ema,
+                step_swap=step_swap,
+                step_start=step_start,
+                step_mode=step_mode,
+            )
             optimizer_kwargs["momentum"] = momentum
             optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
 
@@ -555,14 +565,14 @@ class BackwardOptimizersTest(unittest.TestCase):
         if optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
             for t in range(T):
                 iter_ = cc.iter.item()
-                (m2, m1, prev_iter, row_counter) = split_optimizer_states[t]
+                (m1, m2) = split_optimizer_states[t]
                 if (m1.dtype == torch.float) and (m2.dtype == torch.float):
                     tol = 1.0e-4
                 else:
                     tol = 1.0e-2
                 # Some optimizers have non-float momentums
-                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
-                m2_ref = dense_cpu_grad.pow(2).mean(dim=1)
+                m2_ref = torch.mul(bs[t].weight.cpu(), 1.0 - momentum)
+                weights_ref = m2_ref.mul(1.0)
                 torch.testing.assert_close(
                     m2.float().cpu().index_select(dim=0, index=xs[t].view(-1).cpu()),
                     m2_ref.float()
@@ -571,15 +581,8 @@ class BackwardOptimizersTest(unittest.TestCase):
                     atol=tol,
                     rtol=tol,
                 )
-                v_hat_t = m2_ref.view(m2_ref.numel(), 1)
-                weights_new = split_weights[t]
-                weights_ref = torch.addcdiv(
-                    bs[t].weight.cpu(),
-                    value=-lr,
-                    tensor1=dense_cpu_grad,
-                    tensor2=v_hat_t.sqrt_().add_(eps),
-                )
-                m1_ref = torch.mul(weights_ref, 1.0 - momentum)
+                dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
+                m1_ref = dense_cpu_grad.pow(2).mean(dim=1)
                 torch.testing.assert_close(
                     m1.float().cpu().index_select(dim=0, index=xs[t].view(-1).cpu()),
                     m1_ref.float()
@@ -588,7 +591,14 @@ class BackwardOptimizersTest(unittest.TestCase):
                     atol=tol,
                     rtol=tol,
                 )
-                weights_ref = m1_ref.div(1.0)
+                v_hat_t = m1_ref.view(m1_ref.numel(), 1)
+                weights_new = split_weights[t]
+                weights_ref = torch.addcdiv(
+                    weights_ref,
+                    value=-lr,
+                    tensor1=dense_cpu_grad,
+                    tensor2=v_hat_t.sqrt_().add_(eps),
+                )
                 torch.testing.assert_close(
                     weights_new.index_select(dim=0, index=xs[t].view(-1)).cpu(),
                     weights_ref.index_select(dim=0, index=xs[t].view(-1).cpu()),
@@ -599,9 +609,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     optimizer_states_dict = get_optimizer_states[t]
                     assert set(optimizer_states_dict.keys()) == {
                         "sum",
-                        "exp_avg",
-                        "prev_iter",
-                        "row_counter",
+                        "sparse_ema",
                     }
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
