@@ -499,8 +499,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # pyre-fixme[4]: Attribute must be annotated.
         self.ssd_prefetch_data = []
 
-        # Scratch pad value queue
-        self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
         # Scratch pad eviction data queue
         self.ssd_scratch_pad_eviction_data: List[
             Tuple[Tensor, Tensor, Tensor, bool]
@@ -508,6 +506,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_location_update_data: List[Tuple[Tensor, Tensor]] = []
 
         if self.prefetch_pipeline:
+            # Scratch pad value queue
+            self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
+
             # pyre-ignore[4]
             # Scratch pad index queue
             self.scratch_pad_idx_queue = torch.classes.fbgemm.SSDScratchPadIndicesQueue(
@@ -1407,15 +1408,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if t.is_cuda:
                         t.record_stream(forward_stream)
 
-            # Store scratch pad info for the lookup in the next iteration
-            # prefetch
-            self.ssd_scratch_pads.append(
-                (
-                    inserted_rows,
-                    post_bwd_evicted_indices_cpu,
-                    actions_count_cpu,
+            if self.prefetch_pipeline:
+                # Store scratch pad info for the lookup in the next iteration
+                # prefetch
+                self.ssd_scratch_pads.append(
+                    (
+                        inserted_rows,
+                        post_bwd_evicted_indices_cpu,
+                        actions_count_cpu,
+                    )
                 )
-            )
 
             # Store scratch pad info for post backward eviction
             self.ssd_scratch_pad_eviction_data.append(
