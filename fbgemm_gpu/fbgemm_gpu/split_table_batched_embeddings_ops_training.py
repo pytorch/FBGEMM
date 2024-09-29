@@ -145,6 +145,14 @@ class GlobalWeightDecayDefinition:
     lower_bound: float = 0.0
 
 
+@dataclass(frozen=True)
+class EnsembleModeDefinition:
+    step_ema: float = 10000
+    step_swap: float = 10000
+    step_start: float = 0
+    step_mode: StepMode = StepMode.USE_ITER
+
+
 # Keep in sync with fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh
 class UVMCacheStatsIndex(enum.IntEnum):
     num_calls = 0
@@ -473,14 +481,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         beta2 (float = 0.999): The beta2 value used by LAMB and ADAM
 
-        step_ema (float = 10000): Used by ENSEMBLE_ROWWISE_ADAGRAD
-
-        step_swap (float = 10000): Used by ENSEMBLE_ROWWISE_ADAGRAD
-
-        step_start (float = 0.0): Used by ENSEMBLE_ROWWISE_ADAGRAD
-
-        step_mode: (StepMode = StepMode.USE_ITER): Used by
-            ENSEMBLE_ROWWISE_ADAGRAD
+        ensemble_mode (Optional[EnsembleModeDefinition] = None):
+            Used by Ensemble Rowwise Adagrad
 
         counter_based_regularization (Optional[CounterBasedRegularizationDefinition] = None):
             Used by Rowwise Adagrad
@@ -598,10 +600,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         eta: float = 0.001,
         beta1: float = 0.9,
         beta2: float = 0.999,
-        step_ema: float = 10000,
-        step_swap: float = 10000,
-        step_start: float = 0,
-        step_mode: StepMode = StepMode.USE_ITER,
+        ensemble_mode: Optional[EnsembleModeDefinition] = None,
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
         ] = None,
@@ -923,6 +922,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.gwd_start_iter: int = global_weight_decay.start_iter
         self.gwd_lower_bound: float = global_weight_decay.lower_bound
 
+        if ensemble_mode is None:
+            ensemble_mode = EnsembleModeDefinition()
+        self._ensemble_mode: Dict[str, int] = {
+            "step_ema": int(ensemble_mode.step_ema),
+            "step_swap": int(ensemble_mode.step_swap),
+            "step_start": int(ensemble_mode.step_start),
+            "step_mode": int(ensemble_mode.step_mode.value),
+        }
+
         if counter_based_regularization is None:
             counter_based_regularization = CounterBasedRegularizationDefinition()
         if cowclip_regularization is None:
@@ -960,10 +968,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             eps=eps,
             beta1=beta1,
             beta2=beta2,
-            step_ema=step_ema,
-            step_swap=step_swap,
-            step_start=step_start,
-            step_mode=step_mode.value,
             weight_decay=weight_decay,
             weight_decay_mode=opt_arg_weight_decay_mode.value,
             eta=eta,
@@ -1003,6 +1007,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
                 rowwise = optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD,
+                    OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                 ]
                 self._apply_split(
                     construct_split_state(
@@ -1032,7 +1037,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 rowwise = optimizer in (
                     OptimType.PARTIAL_ROWWISE_ADAM,
                     OptimType.PARTIAL_ROWWISE_LAMB,
-                    OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                 )
                 momentum2_dtype = (
                     torch.float32
@@ -1062,9 +1066,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             else:
                 # NOTE: make TorchScript work!
                 self._register_nonpersistent_buffers("momentum2")
-            if self._used_rowwise_adagrad_with_counter or (
-                optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD
-            ):
+            if self._used_rowwise_adagrad_with_counter:
                 self._apply_split(
                     construct_split_state(
                         embedding_specs,
@@ -1868,18 +1870,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert self._feature_is_enabled(
                 FeatureGateName.TBE_ENSEMBLE_ROWWISE_ADAGRAD
             ), "ENSEMBLE_ROWWISE_ADAGRAD is an inactive or deprecated feature!"
+            with torch.no_grad():
+                if self.training:
+                    self.ensemble_and_swap(self._ensemble_mode)
             return self._report_io_size_count(
                 "fwd_output",
-                invokers.lookup_ensemble_rowwise_adagrad.invoke(
+                invokers.lookup_rowwise_adagrad.invoke(
                     common_args,
                     self.optimizer_args,
                     momentum1,
-                    momentum2,
-                    prev_iter,
-                    row_counter,
-                    iter=int(self.iter.item()),
-                    apply_global_weight_decay=False,
-                    gwd_lower_bound=0.0,
                 ),
             )
 
@@ -1937,6 +1936,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 )
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
+
+    def ensemble_and_swap(self, ensemble_mode: Dict[str, int]) -> None:
+        should_ema = self.iter.item() % int(ensemble_mode["step_ema"]) == 0
+        should_swap = self.iter.item() % int(ensemble_mode["step_swap"]) == 0
+        if should_ema or should_swap:
+            weights = self.split_embedding_weights()
+            states = self.split_optimizer_states()
+            for i in range(len(self.embedding_specs)):
+                if should_ema:
+                    coef_ema = (
+                        self.optimizer_args.momentum
+                        if self.iter.item() > int(ensemble_mode["step_start"])
+                        else 0.0
+                    )
+                    weights_cpu = weights[i].to(
+                        dtype=states[i][1].dtype, device=states[i][1].device
+                    )
+                    states[i][1].lerp_(weights_cpu, 1.0 - coef_ema)
+                if should_swap:
+                    weights[i].copy_(states[i][1], non_blocking=True)
 
     def reset_uvm_cache_stats(self) -> None:
         assert (
@@ -2346,9 +2365,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             list_of_state_dict = [
                 {
                     "sum": states[0],
-                    "exp_avg": states[1],
-                    "prev_iter": states[2],
-                    "row_counter": states[3],
+                    "sparse_ema": states[1],
                 }
                 for states in split_optimizer_states
             ]
@@ -2393,8 +2410,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (8) `PARTIAL_ROWWISE_LAMB`: `momentum1`, `momentum2` (rowwise)
 
-            (9) `ENSEMBLE_ROWWISE_ADAGRAD`: `momentum2` (rowwise), `momentum1`,
-                `prev_iter` (rowwise), `row_counter` (rowwise)
+            (9) `ENSEMBLE_ROWWISE_ADAGRAD`: `momentum1` (rowwise), `momentum2`
 
             (10) `NONE`: no states (throwing an error)
 
@@ -2431,19 +2447,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             return splits
 
         states: List[List[torch.Tensor]] = []
-        # For ensemble_rowwise_adagrad, momentum2 ("sum") should go first,
-        # as it is the default optimizer state for embedding pruning later.
-        if self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
-            states.append(
-                get_optimizer_states(
-                    self.momentum2_dev,
-                    self.momentum2_host,
-                    self.momentum2_uvm,
-                    self.momentum2_physical_offsets,
-                    self.momentum2_physical_placements,
-                    rowwise=True,
-                )
-            )
         if self.optimizer not in (OptimType.EXACT_SGD,):
             states.append(
                 get_optimizer_states(
@@ -2455,6 +2458,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     rowwise=self.optimizer
                     in [
                         OptimType.EXACT_ROWWISE_ADAGRAD,
+                        OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                     ],
                 )
             )
@@ -2463,6 +2467,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.PARTIAL_ROWWISE_ADAM,
             OptimType.LAMB,
             OptimType.PARTIAL_ROWWISE_LAMB,
+            OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
         ):
             states.append(
                 get_optimizer_states(
@@ -2478,7 +2483,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if (
             self._used_rowwise_adagrad_with_counter
             or self._used_rowwise_adagrad_with_global_weight_decay
-            or self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD
         ):
             states.append(
                 get_optimizer_states(
@@ -2490,10 +2494,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     rowwise=True,
                 )
             )
-        if (
-            self._used_rowwise_adagrad_with_counter
-            or self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD
-        ):
+        if self._used_rowwise_adagrad_with_counter:
             states.append(
                 get_optimizer_states(
                     self.row_counter_dev,
