@@ -146,18 +146,6 @@ def invoke(
             {%- if "beta2" in args.split_function_arg_names %}
             beta2=optimizer_args.beta2,
             {%- endif %}
-            {%- if "step_ema" in args.split_function_arg_names %}
-            step_ema=optimizer_args.step_ema,
-            {%- endif %}
-            {%- if "step_swap" in args.split_function_arg_names %}
-            step_swap=optimizer_args.step_swap,
-            {%- endif %}
-            {%- if "step_start" in args.split_function_arg_names %}
-            step_start=optimizer_args.step_start,
-            {%- endif %}
-            {%- if "step_mode" in args.split_function_arg_names %}
-            step_mode=optimizer_args.step_mode,
-            {%- endif %}
             {%- if "weight_decay" in args.split_function_arg_names %}
             weight_decay=optimizer_args.weight_decay,
             {%- endif %}
@@ -327,18 +315,6 @@ def invoke(
         {%- endif %}
         {%- if "beta2" in args.split_function_arg_names %}
         beta2=optimizer_args.beta2,
-        {%- endif %}
-        {%- if "step_ema" in args.split_function_arg_names %}
-        step_ema=optimizer_args.step_ema,
-        {%- endif %}
-        {%- if "step_swap" in args.split_function_arg_names %}
-        step_swap=optimizer_args.step_swap,
-        {%- endif %}
-        {%- if "step_start" in args.split_function_arg_names %}
-        step_start=optimizer_args.step_start,
-        {%- endif %}
-        {%- if "step_mode" in args.split_function_arg_names %}
-        step_mode=optimizer_args.step_mode,
         {%- endif %}
         {%- if "weight_decay" in args.split_function_arg_names %}
         weight_decay=optimizer_args.weight_decay,
