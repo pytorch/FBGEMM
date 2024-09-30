@@ -11,10 +11,10 @@
 #include <iostream>
 #include <memory>
 
+#include <folly/coro/BlockingWait.h>
+#include <folly/coro/Collect.h>
+#include <folly/coro/Task.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
-#include <folly/experimental/coro/BlockingWait.h>
-#include <folly/experimental/coro/Collect.h>
-#include <folly/experimental/coro/Task.h>
 #include <torch/nn/init.h>
 #ifdef FBGEMM_FBCODE
 #include "common/strings/UUID.h"
