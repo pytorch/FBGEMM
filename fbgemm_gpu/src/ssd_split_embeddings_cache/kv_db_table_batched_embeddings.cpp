@@ -7,8 +7,8 @@
  */
 
 #include "kv_db_table_batched_embeddings.h"
+#include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
-#include <folly/experimental/coro/BlockingWait.h>
 #include <algorithm>
 #include "common/time/Time.h"
 #include "kv_db_cuda_utils.h"
