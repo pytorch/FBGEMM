@@ -1910,8 +1910,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     ),
                 )
             elif self._used_rowwise_adagrad_with_global_weight_decay:
+                iter_ = int(self.iter.item())
                 apply_global_weight_decay = (
-                    self.step >= self.gwd_start_iter and self.training
+                    iter_ >= self.gwd_start_iter and self.training
                 )
                 return self._report_io_size_count(
                     "fwd_output",
@@ -1919,7 +1920,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         common_args,
                         self.optimizer_args,
                         momentum1,
-                        iter=int(self.iter.item()),
+                        iter=iter_,
                         apply_global_weight_decay=apply_global_weight_decay,
                         prev_iter_dev=self.prev_iter_dev,
                         gwd_lower_bound=self.gwd_lower_bound,
