@@ -730,6 +730,142 @@ is recommended to supply this value to avoid such the synchronization.</p></li>
 </div>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="torch.ops.fbgemm.block_bucketize_sparse_features">
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">block_bucketize_sparse_features</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lengths</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">indices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bucketize_pos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sequence</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_sizes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">my_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">batch_size_per_feature</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_B</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_bucketize_pos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">keep_orig_idx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#torch.ops.fbgemm.block_bucketize_sparse_features" title="Permalink to this definition">¶</a></dt>
+<dd><p>Preprocess sparse features by partitioning sparse features into multiple
+buckets. Every feature is split into the same number of buckets, but the bucket
+sizes (widths) for the different features can be different. Moreover, the
+bucket sizes within each feature can be different.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lengths</strong> (<em>Tensor</em>) – The lengths of the sparse features. The tensor contains
+the lengths of each sample in a batch and each feature. Shape is <cite>B *
+T</cite> where <cite>B</cite> is the batch size and <cite>T</cite> is the number of features</p></li>
+<li><p><strong>indices</strong> (<em>Tensor</em>) – The sparse data. Only support integer types. Shape is the
+sum of <cite>lengths</cite></p></li>
+<li><p><strong>bucketize_pos</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><em>bool</em></a>) – If True, return the original relative indices within
+a sample. For example, <cite>indices = [9, 8, 2, 1, 0, 8, 9]</cite> and <cite>lengths =
+[3, 4]</cite>. The original relative indices within a sample for the indices
+are <cite>[0, 1, 2, 0, 1, 2, 3]</cite></p></li>
+<li><p><strong>sequence</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.12)"><em>bool</em></a>) – If True, return the new indices positions in the original
+indices positions (the tensor is called <cite>unbucketize_permute_data</cite>).</p></li>
+<li><p><strong>block_sizes</strong> (<em>Tensor</em>) – This tensor is used for the case where the bucket
+size within a feature is uniform (i.e., when
+<cite>block_bucketize_pos=None</cite>).  The tensor contains bucket sizes (i.e.,
+bucket widths) for each feature.  <cite>block_sizes[t]</cite> represents the
+bucket size of feature <cite>t</cite>.  Shape is the number of features.</p></li>
+<li><p><strong>my_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – The number of buckets for each feature. Note that every
+feature has the same number of buckets.</p></li>
+<li><p><strong>weights</strong> (<em>Optional</em><em>[</em><em>Tensor</em><em>] </em><em>= None</em>) – An optional float tensor that will be
+bucketized the same way as <cite>indices</cite>. This tensor must have the same
+shape as <cite>indices</cite></p></li>
+<li><p><strong>batch_size_per_feature</strong> (<em>Optional</em><em>[</em><em>Tensor</em><em>] </em><em>= None</em>) – An optional tensor that
+contains batch sizes for different features. If not None, batch sizes
+are not uniform among features. Otherwise, the operator will assume
+that the batch size is uniform and infer it from the <cite>lengths</cite> and
+<cite>block_sizes</cite> tensors</p></li>
+<li><p><strong>max_B</strong> (<em>int = -1</em>) – The max batch size. Must be set if
+<cite>batch_size_per_feature</cite> is not None</p></li>
+<li><p><strong>block_bucketize_pos</strong> (<em>Optional</em><em>[</em><em>List</em><em>[</em><em>Tensor</em><em>]</em><em>] </em><em>= None</em>) – The input is used for
+non-uniform bucket sizes within a feature. <cite>block_bucketize_pos</cite> is a
+list of tensors. Each tensor contains the range offsets of buckets for
+each feature. These range offsets are equivalent to the complete
+cumulative sum of the bucket sizes. For example, <cite>[0, 4, 20]</cite> represents
+two buckets. The first bucket size is <cite>(4 - 0) = 4</cite>, and the second
+bucket size is <cite>(20 - 4) = 16</cite>. The length of <cite>block_bucketize_pos</cite>
+must be equal to the number of features.</p></li>
+<li><p><strong>keep_orig_idx</strong> (<em>bool = False</em>) – If True, return original indices instead of
+the relative indices within each bucket</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><p>A tuple of tensors containing</p>
+<ol class="arabic simple">
+<li><p>Bucketized lengths. Shape is <cite>lengths.num() * my_size</cite>.</p></li>
+<li><p>Bucketized indices. Same shape as <cite>indices</cite>.</p></li>
+<li><p>Bucketized weights or None if <cite>weights</cite> is None. Same shape as
+<cite>indices</cite>.</p></li>
+<li><p>Bucketized positions or None if <cite>bucketize_pos=False</cite>. Same shape as
+<cite>indices</cite>.</p></li>
+<li><p><cite>unbucketize_permute</cite> or None if <cite>sequence=False</cite>. Same shape as
+<cite>indices</cite></p></li>
+</ol>
+</p>
+</dd>
+</dl>
+<p><strong>Example</strong>:</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Generate input example. Batch size = 2. Number of features = 4</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">lengths</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">indices</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="mi">29</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">,</span> <span class="mi">11</span><span class="p">,</span> <span class="mi">22</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">block_sizes</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">my_size</span> <span class="o">=</span> <span class="mi">2</span> <span class="c1"># Number of buckets</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Invoke with keep_orig_idx=False, bucketize_pos=False, and</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># sequence=False</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">block_bucketize_sparse_features</span><span class="p">(</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">lengths</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">indices</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">bucketize_pos</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">sequence</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">block_sizes</span><span class="o">=</span><span class="n">block_sizes</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">my_size</span><span class="o">=</span><span class="n">my_size</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">keep_orig_idx</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># The first 8 values in the returned lengths are the lengths for bucket</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># 0 and the rests are the legths for bucket 1</span>
+<span class="go">(tensor([0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1], device=&#39;cuda:0&#39;,</span>
+<span class="go">        dtype=torch.int32),</span>
+<span class="go"> tensor([ 3,  4, 11,  1, 11,  0, 13, 14,  0,  1,  2,  3,  2,  0,  0],</span>
+<span class="go">        device=&#39;cuda:0&#39;, dtype=torch.int32),</span>
+<span class="go"> None,</span>
+<span class="go"> None,</span>
+<span class="go"> None)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Invoke with keep_orig_idx=True, bucketize_pos=True, and</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># sequence=True</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">block_bucketize_sparse_features</span><span class="p">(</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">lengths</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">indices</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">bucketize_pos</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">sequence</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">block_sizes</span><span class="o">=</span><span class="n">block_sizes</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">my_size</span><span class="o">=</span><span class="n">my_size</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">keep_orig_idx</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="go">(tensor([0, 2, 0, 1, 1, 0, 1, 0, 0, 0, 1, 2, 1, 3, 2, 1], device=&#39;cuda:0&#39;,</span>
+<span class="go">        dtype=torch.int32),</span>
+<span class="go"> tensor([ 3,  4, 11,  1, 11, 15, 28, 29, 10, 11, 12, 13, 22, 20, 20],</span>
+<span class="go">        device=&#39;cuda:0&#39;, dtype=torch.int32),</span>
+<span class="go"> None,</span>
+<span class="go"> tensor([0, 1, 0, 0, 0, 0, 1, 2, 1, 0, 1, 2, 1, 2, 0], device=&#39;cuda:0&#39;,</span>
+<span class="go">        dtype=torch.int32),</span>
+<span class="go"> tensor([ 0,  1,  5,  2,  6,  7,  3,  8,  9, 10, 11,  4, 12, 13, 14],</span>
+<span class="go">        device=&#39;cuda:0&#39;, dtype=torch.int32))</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Invoke with block_bucketize_pos</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">block_bucketize_pos</span> <span class="o">=</span> <span class="p">[</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">),</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">),</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">12</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">),</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">16</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int</span><span class="p">),</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="p">]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">block_bucketize_sparse_features</span><span class="p">(</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">lengths</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">indices</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">bucketize_pos</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">sequence</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">block_sizes</span><span class="o">=</span><span class="n">block_sizes</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">my_size</span><span class="o">=</span><span class="n">my_size</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">block_bucketize_pos</span><span class="o">=</span><span class="n">block_bucketize_pos</span><span class="p">,</span>
+<span class="gp">&gt;&gt;&gt; </span>    <span class="n">keep_orig_idx</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="go">(tensor([0, 0, 0, 1, 1, 1, 2, 1, 0, 2, 1, 2, 1, 2, 1, 0], device=&#39;cuda:0&#39;,</span>
+<span class="go">        dtype=torch.int32),</span>
+<span class="go"> tensor([14,  1,  6, 11, 10, 10,  1,  2,  7,  5, 14,  3,  4,  6,  9],</span>
+<span class="go">        device=&#39;cuda:0&#39;, dtype=torch.int32),</span>
+<span class="go"> None,</span>
+<span class="go"> None,</span>
+<span class="go"> None)</span>
+</pre></div>
+</div>
+</dd></dl>
+
 </section>
 
 
@@ -783,6 +919,7 @@ is recommended to supply this value to avoid such the synchronization.</p></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.offsets_range"><code class="docutils literal notranslate"><span class="pre">offsets_range()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.segment_sum_csr"><code class="docutils literal notranslate"><span class="pre">segment_sum_csr()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.keyed_jagged_index_select_dim1"><code class="docutils literal notranslate"><span class="pre">keyed_jagged_index_select_dim1()</span></code></a></li>
+<li><a class="reference internal" href="#torch.ops.fbgemm.block_bucketize_sparse_features"><code class="docutils literal notranslate"><span class="pre">block_bucketize_sparse_features()</span></code></a></li>
 </ul>
 </li>
 </ul>
