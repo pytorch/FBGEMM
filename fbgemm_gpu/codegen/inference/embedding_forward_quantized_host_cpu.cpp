@@ -21,6 +21,7 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -374,29 +375,37 @@ class PrunedMapCPU : public torch::jit::CustomClassHolder {
   }
 
   Tensor lookup(Tensor indices, Tensor offsets) const {
+    TENSORS_HAVE_SAME_SCALAR_TYPE(indices, offsets);
+
     int32_t T = maps_.size();
     TORCH_CHECK(T > 0);
     int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
     TORCH_CHECK(maps_.size() == T);
+
     auto dense_indices = empty_like(indices);
-    const auto* indices_acc = indices.data_ptr<int32_t>();
-    auto* dense_indices_acc = dense_indices.data_ptr<int32_t>();
-    const auto* offsets_acc = offsets.data_ptr<int32_t>();
-    for (const auto t : c10::irange(T)) {
-      auto& map = maps_[t];
-      for (const auto b : c10::irange(B)) {
-        int32_t indices_start = offsets_acc[t * B + b];
-        int32_t indices_end = offsets_acc[t * B + b + 1];
-        int32_t L = indices_end - indices_start;
-        for (const auto l : c10::irange(L)) {
-          int32_t slot_sparse_index = indices_acc[indices_start + l];
-          auto it = map.find(slot_sparse_index);
-          dense_indices_acc[indices_start + l] =
-              it != map.end() ? it->second : -1;
+
+    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "PrunedMapCPU::lookup", [&] {
+      const auto* indices_acc = indices.data_ptr<index_t>();
+      auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
+      const auto* offsets_acc = offsets.data_ptr<index_t>();
+
+      for (const auto t : c10::irange(T)) {
+        auto& map = maps_[t];
+        for (const auto b : c10::irange(B)) {
+          const auto indices_start = offsets_acc[t * B + b];
+          const auto indices_end = offsets_acc[t * B + b + 1];
+          const auto L = indices_end - indices_start;
+          for (const auto l : c10::irange(L)) {
+            const auto slot_sparse_index = indices_acc[indices_start + l];
+            const auto it = map.find(slot_sparse_index);
+            dense_indices_acc[indices_start + l] =
+                it != map.end() ? it->second : -1;
+          }
         }
       }
-    }
+    });
+
     return dense_indices;
   }
 
