@@ -299,3 +299,43 @@ inline at::Tensor aligned_grad_output_tensor_for_cuda_backwards(
   }
   return aligned_grad_output;
 }
+
+template <typename... ScalarTypes>
+std::string tensor_scalar_type_is_one_of(
+    const at::Tensor& ten,
+    const ScalarTypes&... ttypes) {
+  auto has_match = false;
+
+  // Collect the GPU index of the first non-empty optional tensor and make sure
+  // that all tensors are on this same index.
+  (
+      [&](const auto& ttype) {
+        if (ten.scalar_type() == ttype) {
+          has_match = true;
+        }
+      }(ttypes),
+      ...);
+
+  if (has_match) {
+    return "";
+  }
+
+  std::string msg = "Tensor's scalar type (";
+  msg.append(toString(ten.scalar_type()));
+  msg.append(") did not match any one of the following types: [");
+  (
+      [&](const auto& ttype) {
+        msg.append(toString(ttype));
+        msg.append(", ");
+      }(ttypes),
+      ...);
+
+  msg.append("]");
+  return msg;
+}
+
+#define TENSOR_SCALAR_TYPE_IS_ONE_OF(...)                             \
+  do {                                                                \
+    const auto has_match = tensor_scalar_type_is_one_of(__VA_ARGS__); \
+    TORCH_CHECK(has_match.empty(), has_match);                        \
+  } while (false)
