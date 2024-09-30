@@ -37,7 +37,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
-#include <folly/experimental/coro/Task.h>
+#include <folly/coro/Task.h>
 #include "fbgemm_gpu/split_embeddings_cache/cachelib_cache.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
