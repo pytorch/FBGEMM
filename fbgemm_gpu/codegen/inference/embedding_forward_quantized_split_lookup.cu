@@ -160,7 +160,7 @@ Tensor pruned_hashmap_lookup_cuda(
   TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
   constexpr size_t kForwardMaxThreads = 256;
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_hashmap_lookup", [&] {
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_hashmap_lookup_cuda", [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
     const auto func_name =
         "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel";
@@ -218,7 +218,7 @@ Tensor pruned_array_lookup_cuda(
   TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
   constexpr size_t kForwardMaxThreads = 256;
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_array_lookup", [&] {
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_array_lookup_cuda", [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
     const auto func_name =
         "int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel";
