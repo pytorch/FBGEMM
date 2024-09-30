@@ -7,9 +7,9 @@
  */
 
 #include <ATen/ATen.h>
+#include <ATen/Parallel.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
-#include "ATen/Parallel.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
