@@ -16,3 +16,5 @@ Sparse Operators
 .. autofunction:: torch.ops.fbgemm.segment_sum_csr
 
 .. autofunction:: torch.ops.fbgemm.keyed_jagged_index_select_dim1
+
+.. autofunction:: torch.ops.fbgemm.block_bucketize_sparse_features
