@@ -26,6 +26,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     CounterBasedRegularizationDefinition,
     CounterWeightDecayMode,
     CowClipDefinition,
+    EnsembleModeDefinition,
     GradSumDecay,
     LearningRateMode,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -33,13 +34,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     TailIdThreshold,
     WeightDecayMode,
 )
-
-try:
-    from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
-        EnsembleModeDefinition,
-    )
-except ImportError:
-    EnsembleModeDefinition = None
 
 from fbgemm_gpu.tbe.utils import (
     b_indices,
@@ -315,23 +309,22 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["eta"] = eta
 
         if optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
-            (eps, step_ema, step_swap, step_start, step_mode, momentum) = (
+            (eps, step_ema, step_swap, step_start, step_mode) = (
                 1e-4,
                 1.0,
                 1.0,
                 0.0,
                 StepMode.USE_ITER,
-                0.8,
             )
             optimizer_kwargs["eps"] = eps
+            optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
             optimizer_kwargs["ensemble_mode"] = EnsembleModeDefinition(
                 step_ema=step_ema,
                 step_swap=step_swap,
                 step_start=step_start,
+                step_ema_coef=momentum,
                 step_mode=step_mode,
             )
-            optimizer_kwargs["momentum"] = momentum
-            optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
 
         cc = emb_op(
             embedding_specs=[
