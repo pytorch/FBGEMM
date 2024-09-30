@@ -274,7 +274,7 @@ def invoke_fused_moe_kernel(
         A, A_scale = scaled_fp8_quant(A, A_scale)
         assert B_scale is not None
 
-    grid = lambda META: (
+    grid = lambda META: (  # noqa: E731
         triton.cdiv(sorted_token_ids.shape[0], META["BLOCK_SIZE_M"])
         * triton.cdiv(B.shape[1], META["BLOCK_SIZE_N"]),
     )
