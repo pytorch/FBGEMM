@@ -150,6 +150,7 @@ class EnsembleModeDefinition:
     step_ema: float = 10000
     step_swap: float = 10000
     step_start: float = 0
+    step_ema_coef: float = 0.6
     step_mode: StepMode = StepMode.USE_ITER
 
 
@@ -457,8 +458,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             Adam. Note that default is different from torch.nn.optim.Adagrad
             default of 1e-10
 
-        momentum (float = 0.9): Momentum used by LARS-SGD and
-            ENSEMBLE_ROWWISE_ADAGRAD
+        momentum (float = 0.9): Momentum used by LARS-SGD
 
         weight_decay (float = 0.0): Weight decay used by LARS-SGD, LAMB, ADAM,
             and rowwise-Adagrad.
@@ -921,11 +921,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if ensemble_mode is None:
             ensemble_mode = EnsembleModeDefinition()
-        self._ensemble_mode: Dict[str, int] = {
-            "step_ema": int(ensemble_mode.step_ema),
-            "step_swap": int(ensemble_mode.step_swap),
-            "step_start": int(ensemble_mode.step_start),
-            "step_mode": int(ensemble_mode.step_mode.value),
+        self._ensemble_mode: Dict[str, float] = {
+            key: float(fval) for key, fval in ensemble_mode.__dict__.items()
         }
 
         if counter_based_regularization is None:
@@ -999,6 +996,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     if (
                         optimizer_state_dtypes is None
                         or "momentum1" not in optimizer_state_dtypes
+                        or optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD
                     )
                     else optimizer_state_dtypes["momentum1"].as_dtype()
                 )
@@ -1934,7 +1932,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
-    def ensemble_and_swap(self, ensemble_mode: Dict[str, int]) -> None:
+    def ensemble_and_swap(self, ensemble_mode: Dict[str, float]) -> None:
         should_ema = self.iter.item() % int(ensemble_mode["step_ema"]) == 0
         should_swap = self.iter.item() % int(ensemble_mode["step_swap"]) == 0
         if should_ema or should_swap:
@@ -1943,7 +1941,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for i in range(len(self.embedding_specs)):
                 if should_ema:
                     coef_ema = (
-                        self.optimizer_args.momentum
+                        ensemble_mode["step_ema_coef"]
                         if self.iter.item() > int(ensemble_mode["step_start"])
                         else 0.0
                     )
