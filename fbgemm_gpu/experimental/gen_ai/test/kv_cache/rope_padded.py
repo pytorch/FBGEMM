@@ -38,8 +38,12 @@ except ImportError:
         # pyre-fixme[21]: Could not find name `pow` in `triton.language.math`.
         from triton.language.math import pow
     except ImportError:
-        # @manual=//triton:triton
-        from triton.language.extra.cuda.libdevice import pow
+        try:
+            # @manual=//triton:triton
+            from triton.language.extra.libdevice import pow
+        except ImportError:
+            # @manual=//triton:triton
+            from triton.language.extra.cuda.libdevice import pow
 
 
 _INTERNAL_DTYPE_MAP: Dict[str, int] = {"": 0, "f32": 1, "f64": 2}
