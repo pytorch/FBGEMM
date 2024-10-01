@@ -233,22 +233,24 @@ void bounds_check_indices_cuda(
   constexpr size_t kNumThreads = 256;
   const auto max_B_ = vbe ? max_B : B;
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&] {
-    const auto bounds_check_kernel =
-        (vbe ? bounds_check_indices_kernel<index_t, true>
-             : bounds_check_indices_kernel<index_t, false>);
-    TORCH_DSA_KERNEL_LAUNCH(
-        bounds_check_kernel,
-        div_round_up(max_B_ * T, kNumThreads / fbgemm_gpu::kWarpSize),
-        dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),
-        0,
-        at::cuda::getCurrentCUDAStream(),
-        rows_per_table.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-        offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-        vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,
-        bounds_check_mode_,
-        warning.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-        FixedDivisor(max_B_));
-  });
+  AT_DISPATCH_INDEX_TYPES(
+      indices.scalar_type(), "bounds_check_indices_cuda", [&] {
+        const auto bounds_check_kernel =
+            (vbe ? bounds_check_indices_kernel<index_t, true>
+                 : bounds_check_indices_kernel<index_t, false>);
+        TORCH_DSA_KERNEL_LAUNCH(
+            bounds_check_kernel,
+            div_round_up(max_B_ * T, kNumThreads / fbgemm_gpu::kWarpSize),
+            dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            rows_per_table
+                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,
+            bounds_check_mode_,
+            warning.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            FixedDivisor(max_B_));
+      });
 }
