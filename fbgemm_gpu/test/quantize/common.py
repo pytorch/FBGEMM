@@ -23,7 +23,12 @@ try:
     from fbgemm_gpu import open_source  # noqa: F401
 
 except Exception:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    if torch.version.hip:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 # Eigen/Python round 0.5 away from 0, Numpy rounds to even
 round_to_nearest: Callable[[npt.NDArray], npt.NDArray] = np.vectorize(round)
