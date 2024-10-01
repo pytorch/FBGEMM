@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Adding Documentation to C++ Code &mdash; FBGEMM 0.8.0 documentation</title>
+  <title>FBGEMM_GPU Stable Python API &mdash; FBGEMM 0.8.0 documentation</title>
   
 
   
@@ -26,15 +26,15 @@
 
   
 
-  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="../../_static/graphviz.css" type="text/css" />
-    <link rel="index" title="Index" href="../../genindex.html" />
-    <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Adding Documentation to Python Code" href="Python.html" />
-    <link rel="prev" title="Documentation" href="Overview.html" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Quantization Utilities" href="../fbgemm-cpp-api/QuantUtils.html" />
+    <link rel="prev" title="Jagged Tensor Operators" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -45,16 +45,16 @@
   
 
   
-  <script src="../../_static/js/modernizr.min.js"></script>
+  <script src="../_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -281,7 +281,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -298,60 +298,60 @@
             
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../Contributing.html">Contributing</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="Overview.html">Documentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../ContactUs.html">Contact Us</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../License.html">License</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/documentation/Overview.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Stable API</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-stable-api/python_api.html">FBGEMM_GPU Stable Python API</a></li>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">FBGEMM_GPU Stable Python API</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm-cpp-api/tbe_cpu_autovec.html">TBE CPU Autovectorization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/tbe_cpu_autovec.html">TBE CPU Autovectorization</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/ssd_embedding_ops.html">SSD Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/ssd_embedding_ops.html">SSD Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Operators API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/sparse_ops.html">Sparse Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/sparse_ops.html">Sparse Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Modules API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
 </ul>
 
             
@@ -384,7 +384,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="../../index.html">
+        <a href="../index.html">
           
             Docs
           
@@ -392,15 +392,13 @@
       </li>
 
         
-          <li><a href="Overview.html">Documentation</a> &gt;</li>
-        
-      <li>Adding Documentation to C++ Code</li>
+      <li>FBGEMM_GPU Stable Python API</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../../_sources/general/documentation/Cpp.rst.txt" rel="nofollow"><img src="../../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/fbgemm_gpu-stable-api/python_api.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -430,176 +428,35 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="adding-documentation-to-c-code">
-<span id="general-docs-add-cpp"></span><h1>Adding Documentation to C++ Code<a class="headerlink" href="#adding-documentation-to-c-code" title="Permalink to this heading">¶</a></h1>
-<p>Documentation for C++ is provided through
-<a class="reference external" href="https://www.oracle.com/java/technologies/javase/javadoc-tool.html">Javadoc-style comments</a>
-and generated using Sphinx, <a class="reference external" href="https://www.doxygen.nl/">Doxygen</a>, and
-<a class="reference external" href="https://www.breathe-doc.org/">Breathe</a>.</p>
-<p>Documentation is kept in header files with the <code class="docutils literal notranslate"><span class="pre">.h</span></code> extension as well as in
-<code class="docutils literal notranslate"><span class="pre">.cpp</span></code>, <code class="docutils literal notranslate"><span class="pre">cu</span></code>, and <code class="docutils literal notranslate"><span class="pre">cuh</span></code> files.  In these files, everything between
-<code class="docutils literal notranslate"><span class="pre">#ifndef</span> <span class="pre">DOXYGEN_THIS_WILL_BE_SKIPPED</span></code> and <code class="docutils literal notranslate"><span class="pre">#endif</span></code> will be hidden from the
-HTML output.  When you add descriptionss to a function, make sure that the
-<code class="docutils literal notranslate"><span class="pre">#ifndef</span></code> and <code class="docutils literal notranslate"><span class="pre">#endif</span></code> are configured correctly.</p>
-<p>Follow these instructions to document, generate, and publish a new C++
-docstring:</p>
-<ol class="arabic">
-<li><p>API methods are grouped together by group tags for better organization in
-Sphinx.  If a desired method group for the target method is not defined yet,
-define it near the top of the relevant header file with the <code class="docutils literal notranslate"><span class="pre">&#64;defgroup</span></code>
-command:</p>
-<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">/// @defgroup example-method-group Example Method Group</span>
-<span class="c1">/// This is a description of the example method group.</span>
-</pre></div>
-</div>
-</li>
-<li><p>Add the docstring directly above the target method’s declaration.  At a very
-minimum, please add descriptions of:</p>
+  <section id="fbgemm-gpu-stable-python-api">
+<h1>FBGEMM_GPU Stable Python API<a class="headerlink" href="#fbgemm-gpu-stable-python-api" title="Permalink to this heading">¶</a></h1>
+<p>We provide the stable API support starting from FBGEMM_GPU v1.0. The following
+outlines our supports:</p>
 <ul class="simple">
-<li><p>The method’s functional behavior</p></li>
-<li><p>The type parameters, as denoted by the <code class="docutils literal notranslate"><span class="pre">&#64;tparam</span></code> tag</p></li>
-<li><p>The arguments, as denoted by the <code class="docutils literal notranslate"><span class="pre">&#64;param</span></code> tag</p></li>
-<li><p>The return value, as denoted by the <code class="docutils literal notranslate"><span class="pre">&#64;return</span></code> tag</p></li>
-<li><p>The exceptions that can be thrown (if applicable), as denoted by the
-<code class="docutils literal notranslate"><span class="pre">&#64;throw</span></code> tag</p></li>
+<li><p>API backward compatibility guarantees via thorough testing. We guarantee that
+our stable APIs will be backward compatible within a major version, meaning
+that the stable APIs for v1.0.0 will be compatible with every future release
+unless explicitly announced in advance</p></li>
+<li><p>Enhanced documentation, ensuring that every stable API has comprehensive and
+up-to-date documentation.</p></li>
+<li><p>Functionality guarantees are only provided through unit testing framework.
+We do NOT guarantee any functionalities that are NOT explicitly tested and
+documented in our unit tests.</p></li>
+<li><p>No performance guarantees. However, we are committed to providing support on
+a best-effort basis.</p></li>
 </ul>
-<p>Other commands such as <code class="docutils literal notranslate"><span class="pre">&#64;note</span></code>, <code class="docutils literal notranslate"><span class="pre">&#64;warning</span></code>, and <code class="docutils literal notranslate"><span class="pre">&#64;see</span></code> should be added
-as needed.</p>
-<p>Here is an example C++ docstring:</p>
-<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="c1">/// @ingroup example-method-group</span>
-<span class="c1">///</span>
-<span class="c1">/// @brief A very short description of `example_method`.</span>
-<span class="c1">///</span>
-<span class="c1">/// Here is a much longer description of `example_method` with code examples:</span>
-<span class="c1">///</span>
-<span class="c1">/// **Example:**</span>
-<span class="c1">/// ```python</span>
-<span class="c1">/// # Here is a Python code block</span>
-<span class="c1">/// def foo(lst: list[int]) -&gt; list[int]:</span>
-<span class="c1">///   return [ x ** 2 for x in lst ]</span>
-<span class="c1">/// ```</span>
-<span class="c1">///</span>
-<span class="c1">/// And here is a verbatim-text diagram example:</span>
-<span class="c1">///</span>
-<span class="c1">/// @code{.unparsed}</span>
-<span class="c1">///   .------+---------------------------------.-----------------------------</span>
-<span class="c1">///   |            Block A (first)             |       Block B (second)</span>
-<span class="c1">///</span>
-<span class="c1">///   +------+------+--------------------------+------+------+---------------</span>
-<span class="c1">///   | Next | Prev |   usable space           | Next | Prev | usable space..</span>
-<span class="c1">///   +------+------+--------------------------+------+--+---+---------------</span>
-<span class="c1">///   ^  |                                     ^         |</span>
-<span class="c1">///   |  &#39;-------------------------------------&#39;         |</span>
-<span class="c1">///   |                                                  |</span>
-<span class="c1">///   &#39;----------- Block B&#39;s prev points to Block A -----&#39;</span>
-<span class="c1">/// @endcode</span>
-<span class="c1">///</span>
-<span class="c1">/// @tparam T Description of `T`</span>
-<span class="c1">/// @tparam Alignment Description of the `Alignment` value</span>
-<span class="c1">/// @param param1 Description of `param1`</span>
-<span class="c1">/// @param param2 Description of `param2`</span>
-<span class="c1">///</span>
-<span class="c1">/// @return Description of the method&#39;s return value.</span>
-<span class="c1">///</span>
-<span class="c1">/// @throw std::bad_alloc if allocation failed</span>
-<span class="c1">/// @throw std::logic_error if a logic error occurs</span>
-<span class="c1">///</span>
-<span class="c1">/// @note This is an example note.</span>
-<span class="c1">///</span>
-<span class="c1">/// @warning This is an example warning.</span>
-<span class="c1">///</span>
-<span class="c1">/// @see For more info on Doxygen docstrings, see</span>
-<span class="c1">/// &lt;a href=&quot;https://www.doxygen.nl/manual/commands.html#cmdlink&quot;&gt;here&lt;/a&gt;.</span>
-<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">T</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="w"> </span><span class="n">Alignment</span><span class="o">&gt;</span>
-<span class="kt">int32_t</span><span class="w"> </span><span class="n">example_method</span><span class="p">(</span><span class="n">T</span><span class="w"> </span><span class="n">param1</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">param2</span><span class="p">);</span>
-</pre></div>
-</div>
-</li>
-<li><p>On the Sphinx documentation side, add a <code class="docutils literal notranslate"><span class="pre">doxygengroup</span></code> directive to the
-corresponding <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file.  If an <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file for the corresponding
-header file does not exist, create a new one by the same name as the header
-file.  Using the above example:</p>
-<div class="highlight-rst notranslate"><div class="highlight"><pre><span></span><span class="p">..</span> <span class="ow">doxygengroup</span><span class="p">::</span> example-method-group
-  <span class="nc">:content-only:</span>
-</pre></div>
-</div>
-</li>
-<li><p>Make sure the <code class="docutils literal notranslate"><span class="pre">.rst</span></code> file is included in to the <code class="docutils literal notranslate"><span class="pre">toctree</span></code> in
-<code class="docutils literal notranslate"><span class="pre">index.rst</span></code> (e.g. <a class="reference internal" href="../../index.html#fbgemm-gpu-toc-api-cpp"><span class="std std-ref">FBGEMM_GPU C++ API</span></a>).</p></li>
-<li><p>The C++ source header file needs to be in one of the directories listed in
-the <code class="docutils literal notranslate"><span class="pre">INPUT</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">Doxygen.ini</span></code>.  In general, this has already
-been taken care of, but if it’s in a directory not listed, be sure to
-append the directory path to the parameter.</p></li>
-<li><p>Verify the changes by building the docs locally with
-<a class="reference internal" href="Overview.html#general-docs-build"><span class="std std-ref">Building the Documentation</span></a> or submitting a PR for a Netlify preview.</p></li>
-</ol>
-<hr class="docutils" />
-<p>The Doxygen example above generates the following HTML output:</p>
-<dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf">
-<span id="_CPPv3I0_NSt6size_tEE14example_method1Tf"></span><span id="_CPPv2I0_NSt6size_tEE14example_method1Tf"></span><span class="k"><span class="pre">template</span></span><span class="p"><span class="pre">&lt;</span></span><span class="k"><span class="pre">typename</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">T</span></span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">size_t</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">Alignment</span></span></span><span class="p"><span class="pre">&gt;</span></span><br /><span class="target" id="group__example-method-group_1ga56a504c1752577359ba5b75a9cd52737"></span><span class="n"><span class="pre">int32_t</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">example_method</span></span></span><span class="sig-paren">(</span><a class="reference internal" href="#_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf" title="example_method::T"><span class="n"><span class="pre">T</span></span></a><span class="w"> </span><span class="n sig-param"><span class="pre">param1</span></span>, <span class="kt"><span class="pre">float</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">param2</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv4I0_NSt6size_tEE14example_method7int32_t1Tf" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>A very short description of <code class="docutils literal notranslate"><span class="pre">example_method</span></code>. </p>
-<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span>
-</pre></div>
-</div>
-<p>Here is a much longer description of <code class="docutils literal notranslate"><span class="pre">example_method</span></code> with code examples:</p>
-<p><strong>Example:</strong> <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Here is a Python code block</span>
-<span class="k">def</span> <span class="nf">foo</span><span class="p">(</span><span class="n">lst</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
-  <span class="k">return</span> <span class="p">[</span> <span class="n">x</span> <span class="o">**</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">lst</span> <span class="p">]</span>
-</pre></div>
-</div>
-</p>
-<p>And here is a verbatim-text diagram example:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>.------+---------------------------------.-----------------------------
-|            Block A (first)             |       Block B (second)
-
-+------+------+--------------------------+------+------+---------------
-| Next | Prev |   usable space           | Next | Prev | usable space..
-+------+------+--------------------------+------+--+---+---------------
-^  |                                     ^         |
-|  &#39;-------------------------------------&#39;         |
-|                                                  |
-&#39;----------- Block B&#39;s prev points to Block A -----&#39;
-</pre></div>
-</div>
-<p><div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>For more info on Doxygen docstrings, see <a class="reference external" href="https://www.doxygen.nl/manual/commands.html#cmdlink">here</a>. </p>
-</div>
-</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>This is an example note.</p>
-</div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>This is an example warning.</p>
-</div>
-<dl class="field-list simple">
-<dt class="field-odd">Template Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>T</strong> – Description of <code class="docutils literal notranslate"><span class="pre">T</span></code></p></li>
-<li><p><strong>Alignment</strong> – Description of the <code class="docutils literal notranslate"><span class="pre">Alignment</span></code> value </p></li>
+<section id="stable-apis">
+<h2>Stable APIs<a class="headerlink" href="#stable-apis" title="Permalink to this heading">¶</a></h2>
+<p>Our stable APIs can be found via the links below:</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="../fbgemm_gpu-python-api/table_batched_embedding_ops.html#table-batched-embedding-ops-stable-api"><span class="std std-ref">Table batched embedding (TBE) modules</span></a></p></li>
+<li><p><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_ops.html#pooled-embedding-operators-stable-api"><span class="std std-ref">Pooled embedding operators</span></a></p></li>
+<li><p><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_modules.html#pooled-embedding-modules-stable-api"><span class="std std-ref">Pooled embedding modules</span></a></p></li>
+<li><p><a class="reference internal" href="../fbgemm_gpu-python-api/sparse_ops.html#sparse-ops-stable-api"><span class="std std-ref">Sparse operators</span></a></p></li>
+<li><p><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html#jagged-tensor-ops-stable-api"><span class="std std-ref">Jagged tensor operators</span></a></p></li>
+<li><p><a class="reference internal" href="../fbgemm_gpu-python-api/quantize_ops.html#quantize-ops-stable-api"><span class="std std-ref">Quantization operators</span></a></p></li>
 </ul>
-</dd>
-<dt class="field-even">Parameters<span class="colon">:</span></dt>
-<dd class="field-even"><ul class="simple">
-<li><p><strong>param1</strong> – Description of <code class="docutils literal notranslate"><span class="pre">param1</span></code></p></li>
-<li><p><strong>param2</strong> – Description of <code class="docutils literal notranslate"><span class="pre">param2</span></code></p></li>
-</ul>
-</dd>
-<dt class="field-odd">Throws<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">std</span><span class="p">::</span><span class="n">bad_alloc</span></span></span> – if allocation failed </p></li>
-<li><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">std</span><span class="p">::</span><span class="n">logic_error</span></span></span> – if a logic error occurs</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Description of the method’s return value.</p>
-</dd>
-</dl>
-</dd></dl>
-
+</section>
 </section>
 
 
@@ -610,10 +467,10 @@ append the directory path to the parameter.</p></li>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="Python.html" class="btn btn-neutral float-right" title="Adding Documentation to Python Code" accesskey="n" rel="next">Next <img src="../../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="../fbgemm-cpp-api/QuantUtils.html" class="btn btn-neutral float-right" title="Quantization Utilities" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="Overview.html" class="btn btn-neutral" title="Documentation" accesskey="p" rel="prev"><img src="../../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html" class="btn btn-neutral" title="Jagged Tensor Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -645,7 +502,10 @@ append the directory path to the parameter.</p></li>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Adding Documentation to C++ Code</a></li>
+<li><a class="reference internal" href="#">FBGEMM_GPU Stable Python API</a><ul>
+<li><a class="reference internal" href="#stable-apis">Stable APIs</a></li>
+</ul>
+</li>
 </ul>
 
             </div>
@@ -660,18 +520,18 @@ append the directory path to the parameter.</p></li>
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
-         <script data-url_root="../../" id="documentation_options" src="../../_static/documentation_options.js"></script>
-         <script src="../../_static/doctools.js"></script>
-         <script src="../../_static/sphinx_highlight.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+         <script src="../_static/doctools.js"></script>
+         <script src="../_static/sphinx_highlight.js"></script>
      
 
   
 
-  <script type="text/javascript" src="../../_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="../../_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  <script type="text/javascript" src="../_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -776,7 +636,7 @@ append the directory path to the parameter.</p></li>
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../../_static/images/pytorch-x.svg">
+    <img class="close-button" src="../_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -909,7 +769,7 @@ append the directory path to the parameter.</p></li>
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="../../_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {

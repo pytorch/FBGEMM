@@ -318,6 +318,10 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM Stable API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-stable-api/python_api.html">FBGEMM_GPU Stable Python API</a></li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
@@ -426,6 +430,8 @@
               
   <section id="module-fbgemm_gpu">
 <span id="pooled-embedding-operators"></span><h1>Pooled Embedding Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
+<section id="stable-api">
+<span id="pooled-embedding-operators-stable-api"></span><h2>Stable API<a class="headerlink" href="#stable-api" title="Permalink to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="torch.ops.fbgemm.merge_pooled_embeddings">
 <span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">merge_pooled_embeddings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pooled_embeddings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">uncat_dim_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_device</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cat_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.merge_pooled_embeddings" title="Permalink to this definition">¶</a></dt>
@@ -547,6 +553,10 @@ the permuted position of feature <cite>i</cite></p></li>
 </dd></dl>
 
 </section>
+<section id="other-api">
+<h2>Other API<a class="headerlink" href="#other-api" title="Permalink to this heading">¶</a></h2>
+</section>
+</section>
 
 
              </article>
@@ -592,8 +602,12 @@ the permuted position of feature <cite>i</cite></p></li>
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">Pooled Embedding Operators</a><ul>
+<li><a class="reference internal" href="#stable-api">Stable API</a><ul>
 <li><a class="reference internal" href="#torch.ops.fbgemm.merge_pooled_embeddings"><code class="docutils literal notranslate"><span class="pre">merge_pooled_embeddings()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.permute_pooled_embs"><code class="docutils literal notranslate"><span class="pre">permute_pooled_embs()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#other-api">Other API</a></li>
 </ul>
 </li>
 </ul>

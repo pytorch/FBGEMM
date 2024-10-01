@@ -318,6 +318,10 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM Stable API</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-stable-api/python_api.html">FBGEMM_GPU Stable Python API</a></li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
@@ -426,6 +430,8 @@
               
   <section id="module-fbgemm_gpu">
 <span id="sparse-operators"></span><h1>Sparse Operators<a class="headerlink" href="#module-fbgemm_gpu" title="Permalink to this heading">¶</a></h1>
+<section id="stable-api">
+<span id="sparse-ops-stable-api"></span><h2>Stable API<a class="headerlink" href="#stable-api" title="Permalink to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="torch.ops.fbgemm.permute_2D_sparse_data">
 <span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">permute_2D_sparse_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">permute</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lengths</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">permuted_lengths_sum</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tuple</span><span class="p"><span class="pre">[</span></span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tensor</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.12)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#torch.ops.fbgemm.permute_2D_sparse_data" title="Permalink to this definition">¶</a></dt>
@@ -866,6 +872,8 @@ the relative indices within each bucket</p></li>
 </div>
 </dd></dl>
 
+<p>Other API</p>
+</section>
 </section>
 
 
@@ -912,6 +920,7 @@ the relative indices within each bucket</p></li>
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">Sparse Operators</a><ul>
+<li><a class="reference internal" href="#stable-api">Stable API</a><ul>
 <li><a class="reference internal" href="#torch.ops.fbgemm.permute_2D_sparse_data"><code class="docutils literal notranslate"><span class="pre">permute_2D_sparse_data()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.permute_1D_sparse_data"><code class="docutils literal notranslate"><span class="pre">permute_1D_sparse_data()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.expand_into_jagged_permute"><code class="docutils literal notranslate"><span class="pre">expand_into_jagged_permute()</span></code></a></li>
@@ -920,6 +929,8 @@ the relative indices within each bucket</p></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.segment_sum_csr"><code class="docutils literal notranslate"><span class="pre">segment_sum_csr()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.keyed_jagged_index_select_dim1"><code class="docutils literal notranslate"><span class="pre">keyed_jagged_index_select_dim1()</span></code></a></li>
 <li><a class="reference internal" href="#torch.ops.fbgemm.block_bucketize_sparse_features"><code class="docutils literal notranslate"><span class="pre">block_bucketize_sparse_features()</span></code></a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
