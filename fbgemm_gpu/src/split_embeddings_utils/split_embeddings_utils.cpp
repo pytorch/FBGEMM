@@ -33,58 +33,12 @@ generate_vbe_metadata_meta(
   return {row_output_offsets, b_t_map};
 }
 
-std::tuple<Tensor /*row_output_offsets*/, Tensor /*b_t_map*/>
-generate_vbe_metadata_cpu(
-    const Tensor& B_offsets,
-    const Tensor& B_offsets_rank_per_feature,
-    const Tensor& output_offsets_feature_rank,
-    const Tensor& D_offsets,
-    const int64_t D,
-    const bool nobag,
-    const c10::SymInt max_B_feature_rank,
-    const int64_t info_B_num_bits,
-    const c10::SymInt total_B) {
-  Tensor row_output_offsets = output_offsets_feature_rank;
-  Tensor b_t_map = B_offsets_rank_per_feature;
-  return {row_output_offsets, b_t_map};
-}
-
 } // namespace
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def(
-      "transpose_embedding_input("
-      "    Tensor hash_size_cumsum, "
-      "    int total_hash_size_bits, "
-      "    Tensor indices, "
-      "    Tensor offsets, "
-      "    bool nobag=False, "
-      "    Tensor? vbe_b_t_map=None, "
-      "    int info_B_num_bits=26, "
-      "    int info_B_mask=0x2FFFFFF, "
-      "    int total_unique_indices=-1, "
-      "    bool is_index_select=False, "
-      "    Tensor? total_L_offsets=None, "
-      "    int fixed_L_per_warp=0, "
-      "    int num_warps_per_feature=0"
-      ") -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
-  m.def("get_infos_metadata(Tensor unused, int B, int T) -> (int, int)");
-  m.def(
-      "generate_vbe_metadata("
-      "    Tensor B_offsets, "
-      "    Tensor B_offsets_rank_per_feature, "
-      "    Tensor output_offsets_feature_rank, "
-      "    Tensor D_offsets, "
-      "    int D, "
-      "    bool nobag, "
-      "    SymInt max_B_feature_rank, "
-      "    int info_B_num_bits, "
-      "    SymInt total_B"
-      ") -> (Tensor, Tensor)");
   DISPATCH_TO_CUDA("transpose_embedding_input", transpose_embedding_input);
   DISPATCH_TO_CUDA("get_infos_metadata", get_infos_metadata);
   DISPATCH_TO_CUDA("generate_vbe_metadata", generate_vbe_metadata);
-  DISPATCH_TO_CPU("generate_vbe_metadata", generate_vbe_metadata_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
