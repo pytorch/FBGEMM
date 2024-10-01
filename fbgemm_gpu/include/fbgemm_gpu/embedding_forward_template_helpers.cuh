@@ -88,12 +88,24 @@ __device__ inline int32_t padded_D(
 
 __device__ inline uint32_t pruned_hash_function(uint32_t h) {
   // MurmorHash3 32-bit mixing function.
+  // https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
   h ^= h >> 16;
   h *= 0x85ebca6b;
   h ^= h >> 13;
   h *= 0xc2b2ae35;
   h ^= h >> 16;
   return h;
+}
+
+__device__ inline uint64_t pruned_hash_function(uint64_t k) {
+  // MurmorHash3 64-bit mixing function.
+  // https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
+  k ^= k >> 33;
+  k *= (0xff51afd7ed558ccd);
+  k ^= k >> 33;
+  k *= (0xc4ceb9fe1a85ec53);
+  k ^= k >> 33;
+  return k;
 }
 
 // ---------------------- START cp.async helpers, copied from CUTLASS
