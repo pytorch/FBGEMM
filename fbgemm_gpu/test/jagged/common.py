@@ -24,13 +24,7 @@ from hypothesis import HealthCheck, settings
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 suppressed_list: List[HealthCheck] = (
     [HealthCheck.differing_executors]
