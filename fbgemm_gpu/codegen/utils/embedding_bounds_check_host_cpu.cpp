@@ -70,7 +70,7 @@ void bounds_check_indices_cpu(
   const auto rows_per_table_acc = rows_per_table.accessor<int64_t, 1>();
   auto warning_acc = warning.data_ptr<int64_t>();
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&] {
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices_cpu", [&] {
     auto offsets_acc = offsets.accessor<index_t, 1>();
     auto indices_acc = indices.accessor<index_t, 1>();
     auto num_indices = indices.numel();
