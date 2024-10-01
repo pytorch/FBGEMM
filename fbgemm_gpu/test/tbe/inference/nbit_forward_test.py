@@ -122,6 +122,11 @@ additional_decorators: Dict[str, List[Callable]] = {
             "Operator outputs int4 tensors which do not support opcheck tests"
         ),
     },
+    "test_pt2_compliant_tag_fbgemm_int_nbit_split_embedding_codegen_lookup_function": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
 }
 
 
@@ -327,6 +332,7 @@ class NBitFowardTest(unittest.TestCase):
         use_array_for_index_remapping: bool,
         do_pruning: bool,
         mixed_weights_ty: bool,
+        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
@@ -533,19 +539,22 @@ class NBitFowardTest(unittest.TestCase):
                 fp8_config=fp8_config if has_fp8_weight else None,
             )
 
+        indices = indices.to(dtype=indices_dtype)
+        offsets = offsets.to(dtype=indices_dtype)
+
         if not use_cpu:
             fc2 = (
-                cc(indices.int(), offsets.int())
+                cc(indices, offsets)
                 if not weighted
-                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1))
+                else cc(indices, offsets, xw.contiguous().view(-1))
             )
         else:
             cc = cc.cpu()
             indices, offsets = indices.cpu(), offsets.cpu()
             fc2 = (
-                cc(indices.int(), offsets.int())
+                cc(indices, offsets)
                 if not weighted
-                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
+                else cc(indices, offsets, xw.contiguous().view(-1).cpu())
             )
 
         if do_pooling and B == 0:
@@ -589,6 +598,7 @@ class NBitFowardTest(unittest.TestCase):
             )
         else:
             fc2_float = fc2.float()
+
         torch.testing.assert_close(
             fc2_float.cpu(),
             f.float().cpu(),
@@ -603,6 +613,7 @@ class NBitFowardTest(unittest.TestCase):
         pooling_mode=st.sampled_from(
             [PoolingMode.SUM, PoolingMode.NONE, PoolingMode.MEAN]
         ),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
         ),
@@ -618,6 +629,7 @@ class NBitFowardTest(unittest.TestCase):
         use_array_for_index_remapping: bool,
         do_pruning: bool,
         pooling_mode: PoolingMode,
+        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         use_cpu = True
@@ -661,11 +673,18 @@ class NBitFowardTest(unittest.TestCase):
             use_array_for_index_remapping,
             do_pruning,
             mixed_weights_ty,
+            indices_dtype,
             output_dtype,
         )
 
+    @given(
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
+    )
     @unittest.skipIf(*gpu_unavailable)
-    def test_nbit_forward_gpu_no_cache_fp8_2048(self) -> None:
+    @settings(deadline=None)
+    def test_nbit_forward_gpu_no_cache_fp8_2048(
+        self, indices_dtype: torch.dtype
+    ) -> None:
         # Test the case of FB8 table with 128B*8 < D <= 128B*16
         self.execute_nbit_forward_(
             T=1,
@@ -683,6 +702,7 @@ class NBitFowardTest(unittest.TestCase):
             use_array_for_index_remapping=True,
             do_pruning=False,
             mixed_weights_ty=False,
+            indices_dtype=indices_dtype,
             output_dtype=SparseType.FP16,
         )
 
@@ -691,6 +711,7 @@ class NBitFowardTest(unittest.TestCase):
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
         do_pruning=st.booleans(),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -702,6 +723,7 @@ class NBitFowardTest(unittest.TestCase):
         nbit_weights_ty: Optional[SparseType],
         use_array_for_index_remapping: bool,
         do_pruning: bool,
+        indices_dtype: torch.dtype,
     ) -> None:
         use_cpu = False
         T = random.randint(1, 50)
@@ -756,6 +778,7 @@ class NBitFowardTest(unittest.TestCase):
             use_array_for_index_remapping,
             do_pruning,
             mixed_weights_ty,
+            indices_dtype,
             output_dtype,
         )
 
@@ -978,6 +1001,7 @@ class NBitFowardTest(unittest.TestCase):
         T=st.integers(min_value=10, max_value=20),
         L=st.integers(min_value=10, max_value=100),
         MAXH=st.integers(min_value=50, max_value=100),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -991,6 +1015,7 @@ class NBitFowardTest(unittest.TestCase):
         T: int,
         L: int,
         MAXH: int,
+        indices_dtype: torch.dtype,
     ) -> None:
         """
         we init a quant table split embedding bag with int4 weights and scale of 1 and 0 bias
@@ -1012,6 +1037,7 @@ class NBitFowardTest(unittest.TestCase):
             use_array_for_index_remapping=True,
             do_pruning=False,
             mixed_weights_ty=False,
+            indices_dtype=indices_dtype,
             output_dtype=SparseType.INT4,
         )
 

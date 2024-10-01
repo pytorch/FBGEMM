@@ -87,7 +87,7 @@ additional_decorators: Dict[str, List[Callable]] = {
 
 
 # @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
-class NBitFowardTest(unittest.TestCase):
+class NBitFowardAutovecTest(unittest.TestCase):
     def execute_nbit_forward_(  # noqa C901
         self,
         T: int,
@@ -105,6 +105,7 @@ class NBitFowardTest(unittest.TestCase):
         use_array_for_index_remapping: bool,
         do_pruning: bool,
         mixed_weights_ty: bool,
+        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
@@ -311,19 +312,22 @@ class NBitFowardTest(unittest.TestCase):
                 fp8_config=fp8_config if has_fp8_weight else None,
             )
 
+        indices = indices.to(dtype=indices_dtype)
+        offsets = offsets.to(dtype=indices_dtype)
+
         if not use_cpu:
             fc2 = (
-                cc(indices.int(), offsets.int())
+                cc(indices, offsets)
                 if not weighted
-                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1))
+                else cc(indices, offsets, xw.contiguous().view(-1))
             )
         else:
             cc = cc.cpu()
             indices, offsets = indices.cpu(), offsets.cpu()
             fc2 = (
-                cc(indices.int(), offsets.int())
+                cc(indices, offsets)
                 if not weighted
-                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
+                else cc(indices, offsets, xw.contiguous().view(-1).cpu())
             )
 
         if do_pooling and B == 0:
@@ -373,6 +377,7 @@ class NBitFowardTest(unittest.TestCase):
         pooling_mode=st.sampled_from(
             [PoolingMode.SUM, PoolingMode.MEAN, PoolingMode.NONE]
         ),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
         ),
@@ -386,6 +391,7 @@ class NBitFowardTest(unittest.TestCase):
         self,
         nbit_weights_ty: Optional[SparseType],
         pooling_mode: PoolingMode,
+        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         use_cpu = True
@@ -432,6 +438,7 @@ class NBitFowardTest(unittest.TestCase):
             False,
             False,
             mixed_weights_ty,
+            indices_dtype,
             output_dtype,
         )
 

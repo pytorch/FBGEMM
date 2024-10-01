@@ -21,7 +21,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
         indices,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         offsets,
-    const pta::PackedTensorAccessor64<index_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<int64_t, 2, at::RestrictPtrTraits>
         hash_table,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_table_offsets,
@@ -103,7 +103,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
         indices,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         offsets,
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         index_remappings,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         index_remappings_offsets,
@@ -129,7 +129,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
       index_t idx = indices[indices_start + l];
       dense_indices[indices_start + l] =
-          index_remappings[index_remappings_start + idx];
+          static_cast<index_t>(index_remappings[index_remappings_start + idx]);
     }
   } else {
     for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
@@ -149,7 +149,7 @@ Tensor pruned_hashmap_lookup_cuda(
     Tensor hash_table_offsets) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       indices, offsets, hash_table, hash_table_offsets);
-  TENSORS_HAVE_SAME_SCALAR_TYPE(indices, offsets, hash_table);
+  TENSORS_HAVE_SAME_SCALAR_TYPE(indices, offsets);
 
   CUDA_DEVICE_GUARD(indices);
 
@@ -173,7 +173,7 @@ Tensor pruned_hashmap_lookup_cuda(
         at::cuda::getCurrentCUDAStream()>>>(
         MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
         MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-        MAKE_PTA_WITH_NAME(func_name, hash_table, index_t, 2, 64),
+        MAKE_PTA_WITH_NAME(func_name, hash_table, int64_t, 2, 64),
         MAKE_PTA_WITH_NAME(func_name, hash_table_offsets, int64_t, 1, 32),
         B,
         T,
@@ -191,7 +191,7 @@ Tensor pruned_array_lookup_cuda(
     Tensor index_remappings_offsets) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       indices, offsets, index_remappings, index_remappings_offsets);
-  TENSORS_HAVE_SAME_SCALAR_TYPE(indices, offsets, index_remappings);
+  TENSORS_HAVE_SAME_SCALAR_TYPE(indices, offsets);
 
   CUDA_DEVICE_GUARD(indices);
 
@@ -231,7 +231,7 @@ Tensor pruned_array_lookup_cuda(
         at::cuda::getCurrentCUDAStream()>>>(
         MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
         MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-        MAKE_PTA_WITH_NAME(func_name, index_remappings, index_t, 1, 32),
+        MAKE_PTA_WITH_NAME(func_name, index_remappings, int64_t, 1, 32),
         MAKE_PTA_WITH_NAME(func_name, index_remappings_offsets, int64_t, 1, 32),
         B,
         T,
