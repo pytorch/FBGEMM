@@ -306,8 +306,6 @@ std::string tensor_scalar_type_is_one_of(
     const ScalarTypes&... ttypes) {
   auto has_match = false;
 
-  // Collect the GPU index of the first non-empty optional tensor and make sure
-  // that all tensors are on this same index.
   (
       [&](const auto& ttype) {
         if (ten.scalar_type() == ttype) {
@@ -338,4 +336,40 @@ std::string tensor_scalar_type_is_one_of(
   do {                                                                \
     const auto has_match = tensor_scalar_type_is_one_of(__VA_ARGS__); \
     TORCH_CHECK(has_match.empty(), has_match);                        \
+  } while (false)
+
+template <typename... Tensors>
+std::string tensors_have_same_scalar_type(const Tensors&... tensors) {
+  std::optional<at::ScalarType> dtype;
+  bool have_same_type = true;
+
+  (
+      [&](const auto& tensor) {
+        if (!dtype) {
+          dtype = tensor.scalar_type();
+        } else if (*dtype != tensor.scalar_type()) {
+          have_same_type = false;
+        }
+      }(tensors),
+      ...);
+
+  if (have_same_type) {
+    return "";
+  }
+
+  std::string msg = "Tensors' scalar types (";
+  (
+      [&](const auto& tensor) {
+        msg.append(toString(tensor.scalar_type()));
+        msg.append(", ");
+      }(tensors),
+      ...);
+  msg.append(") are not one and the same!");
+  return msg;
+}
+
+#define TENSORS_HAVE_SAME_SCALAR_TYPE(...)                                  \
+  do {                                                                      \
+    const auto have_same_type = tensors_have_same_scalar_type(__VA_ARGS__); \
+    TORCH_CHECK(have_same_type.empty(), have_same_type);                    \
   } while (false)
