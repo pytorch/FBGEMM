@@ -1075,11 +1075,11 @@ def _setup() -> None:
         )
         impl_abstract("fbgemm::bounds_check_indices", bounds_check_indices_abstract)
         impl_abstract(
-            "fbgemm::group_index_select_dim0_gpu_impl",
+            "fbgemm::group_index_select_dim0_forward_impl",
             group_index_select_dim0_gpu_impl_abstract,
         )
         impl_abstract(
-            "fbgemm::group_index_select_dim0_gpu_backward",
+            "fbgemm::group_index_select_dim0_backward_impl",
             group_index_select_dim0_gpu_backward_abstract,
         )
         impl_abstract(
