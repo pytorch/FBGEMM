@@ -56,6 +56,14 @@ Table of Contents
 
    fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.rst
 
+.. _fbgemm.toc.api.stable:
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM Stable API
+
+   fbgemm_gpu-stable-api/python_api.rst
+
 .. _fbgemm.toc.api.cpp:
 
 .. toctree::
