@@ -3,6 +3,11 @@ Sparse Operators
 
 .. automodule:: fbgemm_gpu
 
+.. _sparse-ops-stable-api:
+
+Stable API
+----------
+
 .. autofunction:: torch.ops.fbgemm.permute_2D_sparse_data
 
 .. autofunction:: torch.ops.fbgemm.permute_1D_sparse_data
@@ -18,3 +23,5 @@ Sparse Operators
 .. autofunction:: torch.ops.fbgemm.keyed_jagged_index_select_dim1
 
 .. autofunction:: torch.ops.fbgemm.block_bucketize_sparse_features
+
+Other API
