@@ -83,6 +83,7 @@ class ForwardSplitGenerator:
             f"gen_embedding_forward_split_pt2_cpu_wrapper.cpp",
             has_cpu_support=True,
             is_forward=True,
+            has_vbe_support=True,
         )
 
         # Generate PT2 forward wrapper (CUDA)

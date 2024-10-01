@@ -35,8 +35,12 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include <torch/script.h>
 #include "fbgemm_gpu/utils/dispatch_macros.h"
-#include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/split_embeddings_utils.h"
 #include "fbgemm_gpu/config/feature_gates.h"
+{%- if has_vbe_support %}
+#include "fbgemm_gpu/utils/pt2_autograd_utils.h"
+{%- endif %}
 
 using Tensor = at::Tensor;
 
@@ -236,9 +240,9 @@ enum SSDTensor {
                 const Tensor& /*prev_iter_dev*/,
                 {%- endif %}
                 {%- if "iter" not in args_pt2.split_function_arg_names %}
-                const int64_t iter,
+                const int64_t /*iter*/,
                 {%- endif %}
-                const double gwd_lower_bound,
+                const double /*gwd_lower_bound*/,
                 {%- endif %} {# /* if is_gwd */ #}
                 {%- for arg_type in args_pt2.split_function_args %}
                 {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
@@ -617,7 +621,6 @@ class {{ autograd_func }} :
                 const c10::SymInt,
                 const int64_t,
                 const c10::SymInt)>();
-
     auto [
         vbe_row_output_offsets,
         vbe_b_t_map
@@ -850,6 +853,11 @@ static torch::autograd::variable_list backward(
     // {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda)
     weights_dev = weights_dev.flatten();
     {%- endif %}
+    {%- if vbe %}
+    if (weights_host.numel() > 1){
+      grad_output = reshape_vbe_output(grad_output, B_offsets, vbe_b_t_map, D_offsets);
+    }
+    {%- endif %}
 
     {%- set grad_indice_weights_op =
         "{}_embedding_codegen_grad_indice_weights{}_pt2_wrapper".format(fwd_mdesc, vdesc)
@@ -883,7 +891,7 @@ static torch::autograd::variable_list backward(
                 {%- else %}
                 const Tensor& /*feature_requires_grad*/
                 {%- endif %}
-            )>();    
+            )>();
 
     const auto grad_indice_weights = !indice_weights.defined() ?
       Variable() :
@@ -1014,7 +1022,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     {%- if not ssd %}
     {%- if has_vbe_support %}
     // has vbe support and on gpu
-    if (B_offsets.has_value() && !(weights[0].numel() > 0)) {
+    if (B_offsets.has_value()) {
       {%- if has_global_weight_decay_support %}
         // vbe and has gwd support
         if (apply_global_weight_decay && weight_decay > 0) {
