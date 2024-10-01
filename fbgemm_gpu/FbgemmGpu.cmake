@@ -480,6 +480,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/split_embeddings_cache/lru_cache_populate_byte.cpp
     src/split_embeddings_cache/lxu_cache.cpp
     src/split_embeddings_cache/split_embeddings_cache_ops.cpp
+    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
     codegen/training/index_select/batch_index_select_dim0_ops.cpp
     codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 
