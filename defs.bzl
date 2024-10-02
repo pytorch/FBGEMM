@@ -105,7 +105,8 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
     asm_srcs = ["src/FbgemmFP16UKernelsAvx2.cc"]
     if buck:
         return select({
-            "DEFAULT": asm_srcs if not msvc else intrinsics_srcs,
+            "DEFAULT": asm_srcs,
+            "ovr_config//compiler:cl": intrinsics_srcs,
             "ovr_config//cpu:arm64": intrinsics_srcs,
         })
     return asm_srcs if not msvc else intrinsics_srcs
@@ -135,7 +136,8 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
     ]
     if buck:
         return select({
-            "DEFAULT": asm_srcs if not msvc else intrinsics_srcs,
+            "DEFAULT": asm_srcs,
+            "ovr_config//compiler:cl": intrinsics_srcs,
             "ovr_config//cpu:arm64": intrinsics_srcs,
         })
     return asm_srcs if not msvc else intrinsics_srcs
