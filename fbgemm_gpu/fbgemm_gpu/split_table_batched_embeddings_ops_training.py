@@ -1944,10 +1944,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             states = self.split_optimizer_states()
             for i in range(len(self.embedding_specs)):
                 if should_ema:
+                    step_start = int(ensemble_mode["step_start"])
+                    if int(ensemble_mode["step_mode"]) == 1:
+                        should_ema_reset = self.iter.item() % step_start == 0
+                    elif int(ensemble_mode["step_mode"]) == 2:
+                        should_ema_reset = self.iter.item() <= step_start
+                    else:
+                        should_ema_reset = (self.iter.item() <= step_start) or (
+                            self.iter.item() % step_start == 0
+                        )
                     coef_ema = (
-                        ensemble_mode["step_ema_coef"]
-                        if self.iter.item() > int(ensemble_mode["step_start"])
-                        else 0.0
+                        0.0 if should_ema_reset else ensemble_mode["step_ema_coef"]
                     )
                     weights_cpu = weights[i].to(
                         dtype=states[i][1].dtype, device=states[i][1].device
