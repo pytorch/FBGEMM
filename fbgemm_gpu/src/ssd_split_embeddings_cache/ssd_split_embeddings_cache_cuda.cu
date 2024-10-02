@@ -343,7 +343,7 @@ ssd_cache_populate_actions_cuda(
     bool gather_cache_stats,
     std::optional<Tensor> ssd_cache_stats,
     const bool lock_cache_line,
-    const c10::optional<Tensor>& lxu_cache_locking_counter) {
+    const std::optional<Tensor>& lxu_cache_locking_counter) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       linear_indices, lxu_cache_state, lru_state, lxu_cache_locking_counter);
 
