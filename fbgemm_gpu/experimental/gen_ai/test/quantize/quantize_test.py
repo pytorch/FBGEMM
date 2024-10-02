@@ -614,12 +614,16 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: BMM ops are not yet suported."
+    )
     @settings(deadline=None)
     @given(
         B=st.sampled_from([1, 4]),
         M=st.sampled_from([2048, 4096]),
         N=st.sampled_from([128, 256]),
         K=st.sampled_from([256, 512]),
+        use_loopover=st.sampled_from([True, False]),
     )
     def test_fp8_batched_gemm(
         self,
@@ -627,6 +631,7 @@ class FP8Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        use_loopover: bool,
     ) -> None:
         x = torch.rand(size=(B, M, K), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.rand(size=(B, N, K), dtype=torch.bfloat16, device="cuda") * 0.01
@@ -655,7 +660,10 @@ class FP8Tests(unittest.TestCase):
             return y
 
         y_ref = torch.bmm(x, w.transpose(1, 2))
-        y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale)
+        if use_loopover:
+            y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale)
+        else:
+            y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(xq, wq, x_scale, w_scale)
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
