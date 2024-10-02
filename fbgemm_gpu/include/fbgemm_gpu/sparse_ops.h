@@ -9,11 +9,8 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <ATen/core/dispatch/Dispatcher.h>
 #include <c10/core/SymInt.h>
 #include <c10/core/SymIntArrayRef.h>
-#include <torch/csrc/autograd/custom_function.h>
-
 #include <cstdint>
 
 namespace fbgemm_gpu {
@@ -926,107 +923,6 @@ at::Tensor index_add_with_unique_indices_cuda(
     std::vector<int64_t>& input_shape,
     const int consecutive_range_start,
     const int consecutive_range_length);
-
-torch::autograd::variable_list group_index_select_dim0_decomposed(
-    at::TensorList input_group,
-    at::TensorList indices_group);
-
-torch::autograd::variable_list group_index_select_dim0_autograd_impl(
-    at::TensorList all_indices_input,
-    const int64_t group_size);
-
-torch::autograd::variable_list group_index_select_dim0(
-    at::TensorList input_group,
-    at::TensorList indices_group);
-
-torch::autograd::variable_list group_index_select_dim0_forward_impl_cpu(
-    at::TensorList all_indices_input,
-    const int64_t group_size);
-
-torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
-    at::TensorList all_inputs,
-    c10::SymIntArrayRef output_shape_group_ref);
-
-std::pair<std::vector<at::Tensor>, std::vector<at::Tensor>>
-group_index_select_dim0_unpack(
-    at::TensorList all_indices_input,
-    const int64_t group_size);
-
-class GroupIndexSelectDim0Op
-    : public torch::autograd::Function<GroupIndexSelectDim0Op> {
- public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
-      at::TensorList all_indices_input,
-      const int64_t group_size) {
-    at::AutoDispatchBelowADInplaceOrView guard;
-    static auto forward_op =
-        at::Dispatcher::singleton()
-            .findSchemaOrThrow(
-                "fbgemm::group_index_select_dim0_forward_impl", "")
-            .typed<decltype(group_index_select_dim0_forward_impl_cpu)>();
-    auto result = forward_op.call(all_indices_input, group_size);
-    TORCH_CHECK(static_cast<int64_t>(result.size()) == group_size + 2);
-
-    auto [input_group, indices_group] =
-        group_index_select_dim0_unpack(all_indices_input, group_size);
-    const auto input_dim = input_group[0].dim();
-    std::vector<c10::SymInt> input_shape_group;
-    input_shape_group.reserve(group_size * input_dim);
-
-    for (const auto i : c10::irange(group_size)) {
-      const auto& input = input_group[i];
-      // Copy input shape
-      auto input_shape = input.sym_sizes().vec();
-      input_shape_group.insert(
-          input_shape_group.end(), input_shape.begin(), input_shape.end());
-    }
-
-    // save indices, args_tensor, saved_data
-    auto saved_tensors = std::vector<at::Tensor>(indices_group);
-    saved_tensors.insert(
-        saved_tensors.end(), result.cbegin() + group_size, result.cend());
-    saved_tensors.push_back(input_group[0]);
-    ctx->save_for_backward(saved_tensors);
-    ctx->saved_data["input_shape_group"] = input_shape_group;
-
-    return result;
-  }
-
-  static torch::autograd::variable_list backward(
-      torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_output_group) {
-    TORCH_CHECK(grad_output_group.size() >= 2);
-    if (grad_output_group.size() == 2) {
-      // empty outputs
-      return torch::autograd::variable_list(1);
-    }
-    // remove redundant grads
-    auto group_size = grad_output_group.size() - 2;
-    grad_output_group.resize(group_size);
-
-    auto saved_tensors = ctx->get_saved_variables();
-    TORCH_CHECK(saved_tensors.size() == group_size + 3);
-    auto output_shape_group =
-        ctx->saved_data["input_shape_group"].toSymIntVector();
-    grad_output_group.insert(
-        grad_output_group.end(), saved_tensors.begin(), saved_tensors.end());
-    static auto backward_op =
-        at::Dispatcher::singleton()
-            .findSchemaOrThrow(
-                "fbgemm::group_index_select_dim0_backward_impl", "")
-            .typed<decltype(group_index_select_dim0_backward_impl_cpu)>();
-    auto res = backward_op.call(grad_output_group, output_shape_group);
-    // 1) Add group_size Variable()'s for indices
-    // Replace all empty tensors with Variable(). This must be done after the
-    // op.call to make __torch_dispatch__ work for the backward op.
-    std::fill(
-        res.begin(), res.begin() + group_size, torch::autograd::Variable());
-    // 3) Add 1 Variable() for group_size
-    res.push_back({});
-    return res;
-  }
-};
 
 ///@ingroup sparse-data-cuda
 void group_index_select_or_add_cuda(
