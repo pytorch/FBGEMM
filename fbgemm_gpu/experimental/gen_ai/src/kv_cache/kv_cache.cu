@@ -1437,6 +1437,7 @@ __global__ void dequantize_fp8_cache_kernel(
   auto MAX_T = cache_K.size(1);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
+  // TODO: support D_H < 128 for small model used in testing.
   CUDA_KERNEL_ASSERT(D_H == 128);
 
   auto b = blockIdx.x;
