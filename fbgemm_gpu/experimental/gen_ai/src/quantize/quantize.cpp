@@ -27,6 +27,11 @@
 
 namespace fbgemm_gpu {
 
+#ifdef USE_ROCM
+// flush icache
+void flush_icache_ck();
+#endif
+
 // SmoothQuant kernels
 at::Tensor
 i8i8bf16(at::Tensor XQ, at::Tensor WQ, double scale, int64_t split_k);
@@ -185,6 +190,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl(
       "quantize_fp8_per_tensor_fixed_scale",
       quantize_fp8_per_tensor_fixed_scale);
+
+#ifdef USE_ROCM
+  m.def("flush_icache_hip() -> ()");
+  m.impl("flush_icache_hip", flush_icache_ck);
+#endif
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
