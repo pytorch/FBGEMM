@@ -396,30 +396,42 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
  public:
   explicit KVTensorWrapper(
       c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
-      c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle,
       std::vector<int64_t> shape,
       int64_t dtype,
-      int64_t row_offset)
-      : db_(db->impl_),
-        snapshot_handle_(std::move(snapshot_handle)),
-        shape_(std::move(shape)),
-        row_offset_(row_offset) {
+      int64_t row_offset,
+      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+          snapshot_handle)
+      : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
     CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
     options_ = at::TensorOptions()
                    .dtype(static_cast<c10::ScalarType>(dtype))
                    .device(at::kCPU)
                    .layout(at::kStrided);
+    if (snapshot_handle.has_value()) {
+      snapshot_handle_ = std::move(snapshot_handle.value());
+    }
   }
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length) {
     CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
     CHECK_EQ(db_->get_max_D(), shape_[1]);
+    CHECK_TRUE(snapshot_handle_ != nullptr);
     auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
     db_->get_range_from_snapshot(
         t, start + row_offset_, length, snapshot_handle_->handle);
     // TBE may have multiple embeddings in one table padded to max D
     // narrow to the actual shape here before returning
     return t.narrow(1, 0, shape_[1]);
+  }
+
+  void set_range(
+      int64_t dim,
+      const int64_t start,
+      const int64_t length,
+      const at::Tensor& weights) {
+    CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
+    CHECK_EQ(db_->get_max_D(), shape_[1]);
+    db_->set_range(weights, start + row_offset_, length);
   }
 
   c10::IntArrayRef size() {
@@ -537,21 +549,25 @@ static auto kv_tensor_wrapper =
         .def(
             torch::init<
                 c10::intrusive_ptr<EmbeddingRocksDBWrapper>,
-                c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>,
                 std::vector<int64_t>,
                 int64_t,
-                int64_t>(),
+                int64_t,
+                std::optional<
+                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>>(),
             "",
             {torch::arg("db"),
-             torch::arg("snapshot_handle"),
              torch::arg("shape"),
              torch::arg("dtype"),
-             torch::arg("row_offset")})
+             torch::arg("row_offset"),
+             // snapshot must be provided for reading
+             // not needed for writing
+             torch::arg("snapshot_handle") = std::nullopt})
         .def(
             "narrow",
             &KVTensorWrapper::narrow,
             "",
             {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
+        .def("set_range", &KVTensorWrapper::set_range)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property(
             "shape",

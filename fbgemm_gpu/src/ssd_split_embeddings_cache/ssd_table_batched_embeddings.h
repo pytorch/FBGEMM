@@ -528,11 +528,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const SnapshotHandle* snapshot_handle) {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
-    int64_t* count_ = new int64_t[1];
-    count_[0] = length;
-    const auto count = at::from_blob(count_, {1}, at::kLong);
+    const auto count = at::tensor({length}, at::ScalarType::Long);
     folly::coro::blockingWait(
         get_kv_db_async_impl(seq_indices, weights, count, snapshot_handle));
+  }
+
+  void set_range(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length) {
+    const auto seq_indices =
+        at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
+    const auto count = at::tensor({length}, at::ScalarType::Long);
+    folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
   }
 
   int64_t get_max_D() {
