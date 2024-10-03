@@ -76,7 +76,7 @@ class KvTensorWrapperTest(TestCase):
             # create a view tensor wrapper
             snapshot = ssd_db.create_snapshot()
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, snapshot, [E, D], weights.dtype, 0
+                ssd_db, [E, D], weights.dtype, 0, snapshot
             )
             self.assertEqual(tensor_wrapper.shape, [E, D])
 
@@ -97,6 +97,75 @@ class KvTensorWrapperTest(TestCase):
                         ),
                     )
 
+            del tensor_wrapper
+            del snapshot
+            self.assertEqual(ssd_db.get_snapshot_count(), 0)
+
+    def test_write_tensor_to_db(self) -> None:
+        E = int(1e4)  # num total rows
+        D = 128  # emb dimension
+        N = 1000  # window size
+        weights_precision = SparseType.FP32
+        weights_dtype = weights_precision.as_dtype()
+
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
+            ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                8,  # num_shards
+                8,  # num_threads
+                0,  # ssd_memtable_flush_period,
+                0,  # ssd_memtable_flush_offset,
+                4,  # ssd_l0_files_per_compact,
+                D,  # embedding_dim
+                0,  # ssd_rate_limit_mbps,
+                1,  # ssd_size_ratio,
+                8,  # ssd_compaction_trigger,
+                536870912,  # 512MB ssd_write_buffer_size,
+                8,  # ssd_max_write_buffer_num,
+                -0.01,  # ssd_uniform_init_lower
+                0.01,  # ssd_uniform_init_upper
+                32,  # row_storage_bitwidth
+                10 * (2**20),  # block cache size
+            )
+
+            weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
+            output_weights = torch.empty_like(weights)
+
+            # no snapshot needed for writing to rocksdb
+            tensor_wrapper0 = torch.classes.fbgemm.KVTensorWrapper(
+                ssd_db, [E, D], weights.dtype, 0
+            )
+            step = N
+            for i in range(0, E, step):
+                tensor_wrapper0.set_range(0, i, step, weights)
+
+            # force waiting for set to complete
+            indices = torch.arange(step)
+            for i in range(0, E, step):
+                ssd_db.get(i + indices, output_weights, torch.tensor(indices.shape[0]))
+
+            # create a view tensor wrapper
+            snapshot = ssd_db.create_snapshot()
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                ssd_db, [E, D], weights.dtype, 0, snapshot
+            )
+            self.assertEqual(tensor_wrapper.shape, [E, D])
+
+            # table has a total of E rows
+            # load 1000 rows at a time
+            step = 1000
+            for i in range(0, E, step):
+                narrowed = tensor_wrapper.narrow(0, i, step)
+                self.assertTrue(
+                    torch.equal(narrowed, weights),
+                    msg=(
+                        f"Tensor value mismatch :\n"
+                        f"actual\n{narrowed}\n\nexpected\n{weights}"
+                    ),
+                )
+
+            del tensor_wrapper0
             del tensor_wrapper
             del snapshot
             self.assertEqual(ssd_db.get_snapshot_count(), 0)
