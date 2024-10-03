@@ -11,7 +11,7 @@
 #include <string>
 
 #ifdef FBGEMM_FBCODE
-#include "fbgemm_gpu/config/feature_gates_fb.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/fb/include/fbgemm_gpu/config/feature_gates_fb.h"
 #endif
 
 /// @defgroup fbgemm-gpu-config FBGEMM_GPU Configuration
