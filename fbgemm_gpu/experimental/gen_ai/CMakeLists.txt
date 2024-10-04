@@ -49,6 +49,7 @@ else()
     src/quantize/cutlass_extensions/f8i4bf16_rowwise.cu
     src/quantize/cutlass_extensions/i8i8bf16_dynamic.cu
     src/quantize/cutlass_extensions/bf16i4bf16_rowwise.cu
+    src/quantize/cutlass_extensions/bf16i4bf16_rowwise_batched.cu
     src/quantize/quantize.cu
     src/quantize/quantize.cpp)
 endif()
