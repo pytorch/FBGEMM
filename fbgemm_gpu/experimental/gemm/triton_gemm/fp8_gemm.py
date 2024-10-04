@@ -2128,9 +2128,10 @@ def quantize_fp8_row_meta(
     """Shape function for torch compile."""
     if output_device is None:
         output_device = a.device
-    M, K = a.shape
+    # Flatten to 2D since each row of each potential batch gets a scale.
+    M = a.view(-1, a.shape[-1]).shape[0]
     dtype = get_fp8_constants()[0]
-    fake_out = torch.empty((M, K), device=output_device, dtype=dtype)
+    fake_out = torch.empty(a.shape, device=output_device, dtype=dtype)
     fake_scale = torch.empty((M), device=output_device, dtype=torch.float32)
     return fake_out, fake_scale
 
