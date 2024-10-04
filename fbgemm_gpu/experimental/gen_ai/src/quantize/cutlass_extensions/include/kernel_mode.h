@@ -12,7 +12,7 @@
 
 namespace fbgemm_gpu {
 
-enum class KernelMode { Small, Large, Default };
+enum class KernelMode { Small, Medium, Large, Default };
 
 inline KernelMode get_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
   auto M = XQ.size(0);
@@ -37,14 +37,14 @@ inline KernelMode get_batched_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
   auto K = XQ.size(2);
   auto N = WQ.size(1);
   auto BM = B * M;
-  auto BN = B * N;
-  auto BK = B * K;
-  // Use a large kernel if at least two shapes are large....
-  bool use_large_kernel =
-      ((BM >= 2048 && BK >= 2048) || (BM >= 2048 && BK >= 2048) ||
-       (BK >= 2048 && BN >= 2048));
-  if (BM <= 128 || BN <= 128) {
+  // Heuristic to determine kernel mode
+  bool use_medium_kernel =
+      ((BM <= 512 && ((N <= 8192 && K < 8192) || (N < 8192 && K <= 8192))));
+  bool use_large_kernel = ((BM > 512 && (N >= 1024 || K >= 1024)));
+  if (BM <= 128 || N <= 128) {
     return KernelMode::Small;
+  } else if (use_medium_kernel) {
+    return KernelMode::Medium;
   } else if (use_large_kernel) {
     return KernelMode::Large;
   } else {

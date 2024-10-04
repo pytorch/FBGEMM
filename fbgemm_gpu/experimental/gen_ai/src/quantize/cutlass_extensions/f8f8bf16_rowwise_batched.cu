@@ -335,6 +335,19 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
         UseBias,
         InputDType,
         BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
+  } else if (kernel == KernelMode::Medium) {
+    return f8f8bf16_rowwise_batched_impl<
+        64,
+        128,
+        128,
+        1,
+        2,
+        1,
+        true,
+        FastAccum,
+        UseBias,
+        InputDType,
+        BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   } else if (kernel == KernelMode::Large) {
     return f8f8bf16_rowwise_batched_impl<
         128,
