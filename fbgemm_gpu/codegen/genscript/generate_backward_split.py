@@ -312,20 +312,24 @@ class BackwardSplitGenerator:
 
     @staticmethod
     def generate_rocm_backward_split(**kwargs: Any) -> None:
-        optimizer = kwargs.get("optimizer")
-        # Generate the backward split kernels
-        for template_filepath, filename_format in [
-            (
-                "training/backward/rocm/embedding_backward_split_device_kernel_template.hip",
-                "gen_embedding_backward_{}_split_{}_device_kernel_hip.hip",
-            ),
-        ]:
-            BackwardSplitGenerator.render_backward_templates(
-                template_filepath,
-                optimizer,
-                filename_format,
-                kwargs,
-            )
+        # Generate backward device kernels based on weighted (True/False), VBE
+        # (True/False), no bag (True/False)
+        template_filepath = (
+            "training/backward/rocm/embedding_backward_split_device_kernel_template.hip"
+        )
+
+        BackwardSplitGenerator.render_backward_templates(
+            template_filepath,
+            "",
+            "{}gen_embedding_backward_{}_device_kernel_hip.hip",
+            {
+                "has_gpu_support": True,
+                "has_vbe_support": False,
+                "has_ssd_support": False,
+                "dense": False,
+                "gen_once": False,
+            },
+        )
     
     def generate_python_sources(
         all_optimizers: List[str], ssd_optimizers: List[str]

@@ -1160,16 +1160,16 @@ Tensor {{ embedding_cuda_op }}(
                 {%- set warp_kernel =
                     "batch_index_select_dim0_codegen_backward_kernel_warp_per_row"
                     if is_index_select else
-                    "split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
+                    "{}_embedding{}_backward_codegen_{}_{}_kernel_warp_per_row_1".format(
+                        mdesc,
                         ndesc,
                         optimizer,
-                        wdesc,
-                        vdesc,
+                        desc_suffix,
                     )
                 %}
 
 #ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name4 = "{{ warp_kernel }}";
+                    const auto func_name4 = "{{ warp_kernel }}";
 #endif
                 // avbokovoy: Note, this values will be overwritten if optimized
                 // hip kernel called
@@ -1188,6 +1188,9 @@ Tensor {{ embedding_cuda_op }}(
                         <emb_t,
                          grad_t,
                          cache_t,
+                         {%- for ph_name in args.placeholder_tensor_names %}
+                         {{ ph_name + "_ph_t" }},
+                         {%- endfor %}
                          kFixedMaxVecsPerThread,
                          kThreadGroupSize,
                          kUseVecBlocking>;
@@ -1207,7 +1210,7 @@ Tensor {{ embedding_cuda_op }}(
                       used_shared_bytes);
                 }
 #ifdef USE_ROCM
-                {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and not dense%}
+                {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and not dense and not is_gwd_kernel and not vbe and not ssd%}
                 bool hip_opt_kernel_supported = false;      // TODO: figure out support range
                 if (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) {
                     const static std::set<int> D_emb_s {64, 128, 160, 192, 256};
@@ -1268,72 +1271,79 @@ Tensor {{ embedding_cuda_op }}(
                 {%- endif %}
 #endif
 
-                backward_warp_per_row_kernel
-                    <<<warp_per_row_grid_size,
-                        blockSize,
-                        warp_per_row_smem_bytes,
-                        at::cuda::getCurrentCUDAStream()>>>(
-                        grad_output_accessor,
-                        {%- if optimizer != "none" %}
-                        {%- if not dense %}
-                        MAKE_PTA_WITH_NAME(func_name4, dev_weights, emb_t, 1, 64),
-                        MAKE_PTA_WITH_NAME(func_name4, uvm_weights, emb_t, 1, 64),
-                        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_weights, cache_t, 2, 64),
-                        MAKE_PTA_WITH_NAME(func_name4, weights_placements, int32_t, 1, 32),
-                        {%- else %}
-                        MAKE_PTA_WITH_NAME(func_name4, dev_weights, emb_t, 1, 64),
-                        {%- endif %}
-                        {%- endif %}
-                        MAKE_PTA_WITH_NAME(func_name4, weights_offsets, int64_t, 1, 32),
-                        {%- if not nobag or is_index_select %}
-                        MAKE_PTA_WITH_NAME(func_name4, D_offsets, int32_t, 1, 32),
-                        {%- else %}
-                        D,
-                        {%- endif %}
-                        MAKE_PTA_WITH_NAME(func_name4, hash_size_cumsum, int64_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_run, int64_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
-                        {%- if not nobag %}
-                        MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int32_t, 1, 32),
-                        {%- else %}
-                        MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int64_t, 1, 32),
-                        {%- endif %}
-                        {%- if not dense %}
-                        MAKE_PTA_WITH_NAME(func_name4, lxu_cache_locations_sorted, int32_t, 1, 32),
-                        use_uniq_cache_locations,
-                        MAKE_PTA_WITH_NAME(func_name4, table_unique_indices_offsets, int32_t, 1, 32),
-                        {%- endif %}
-                        {%- if weighted %}
-                        MAKE_PTA_ACC_WITH_NAME(func_name4, indice_weights_sorted, cache_t, 1, 32),
-                        {%- endif %}
-                        MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_num_runs, int32_t, 1, 32),
-                        max_segment_length_per_warp,
-                        {%- if not dense and optimizer != "none" %}
-                        stochastic_rounding,
-                        rng_engine_inputs,
-                        {%- else %}
-                        MAKE_PTA_WITH_NAME(func_name4, grad_dev_weights, emb_t, 1, 64),
-                        {%- endif %} // if not dense and optimizer != "none"
-                        {%- if vbe %}
-                        MAKE_PTA_WITH_NAME(func_name4, B_offsets, int32_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name4, vbe_row_output_offsets, int64_t, 1, 32),
-                        {%- endif %}
-                        {%- if not nobag %}
-                        info_B_num_bits,
-                        info_B_mask,
-                        {%- endif %}
-                        max_D,
-                        max_vecs_per_thread,
-                        {%- if is_index_select %}
-                        grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-                        permute_output_dim_0_1
-                        {%- else %}
-                        {{ args.split_kernel_arg_constructors | make_pta_acc_format("func_name4") | join(",\n                        ") }}
-                        {%- endif %}
-                );
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                    backward_warp_per_row_kernel
+                        <<<warp_per_row_grid_size,
+                            blockSize,
+                            warp_per_row_smem_bytes,
+                            at::cuda::getCurrentCUDAStream()>>>(
+                            grad_output_accessor,
+                            {%- if optimizer != "none" %}
+                            {%- if not dense %}
+                            MAKE_PTA_WITH_NAME(func_name4, dev_weights, emb_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(func_name4, uvm_weights, emb_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(func_name4, lxu_cache_weights, cache_t, 2, 64),
+                            MAKE_PTA_WITH_NAME(func_name4, weights_placements, int32_t, 1, 32),
+                            {%- else %}
+                            MAKE_PTA_WITH_NAME(func_name4, dev_weights, emb_t, 1, 64),
+                            {%- endif %}
+                            {%- endif %}
+                            MAKE_PTA_WITH_NAME(func_name4, weights_offsets, int64_t, 1, 32),
+                            {%- if not nobag or is_index_select %}
+                            MAKE_PTA_WITH_NAME(func_name4, D_offsets, int32_t, 1, 32),
+                            {%- else %}
+                            D,
+                            {%- endif %}
+                            MAKE_PTA_WITH_NAME(func_name4, hash_size_cumsum, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_run, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
+                            {%- if not nobag %}
+                            MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int32_t, 1, 32),
+                            {%- else %}
+                            MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int64_t, 1, 32),
+                            {%- endif %}
+                            {%- if not dense %}
+                            MAKE_PTA_WITH_NAME(func_name4, {{ locs_or_addrs_tensor }}_sorted, {{ locs_or_addrs_type }}, 1, 32),
+                            use_uniq_cache_locations,
+                            MAKE_PTA_WITH_NAME(func_name4, table_unique_indices_offsets, int32_t, 1, 32),
+                            {%- endif %}
+                            {%- if weighted %}
+                            MAKE_PTA_ACC_WITH_NAME(func_name4, indice_weights_sorted, cache_t, 1, 32),
+                            {%- endif %}
+                            MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_num_runs, int32_t, 1, 32),
+                            max_segment_length_per_warp,
+                            {%- if not dense and optimizer != "none" %}
+                            stochastic_rounding,
+                            rng_engine_inputs,
+                            {%- else %}
+                            MAKE_PTA_WITH_NAME(func_name4, grad_dev_weights, emb_t, 1, 64),
+                            {%- endif %} // if not dense and optimizer != "none"
+                            {%- if vbe %}
+                            MAKE_PTA_WITH_NAME(func_name4, B_offsets, int32_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name4, vbe_row_output_offsets, int64_t, 1, 32),
+                            {%- endif %}
+                            {%- if not nobag %}
+                            info_B_num_bits,
+                            info_B_mask,
+                            {%- endif %}
+                            max_D,
+                            max_vecs_per_thread,
+                            {%- if is_gwd_kernel %}
+                            MAKE_PTA_WITH_NAME(func_name4, prev_iter_dev, float, 1, 64),
+                            {%- if "iter" not in args.split_function_arg_names %}
+                            iter,
+                            {%- endif %}
+                            gwd_lower_bound,
+                            {%- endif %}
+                            {%- if is_index_select %}
+                            grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+                            permute_output_dim_0_1
+                            {%- else %}
+                            {{ args.split_kernel_arg_constructors | make_pta_acc_format("func_name4") | join(",\n                        ") }}
+                            {%- endif %}
+                    );
+                    C10_CUDA_KERNEL_LAUNCH_CHECK();
+                }); // DISPATCH_PLACEHOLDER_TYPES
                 return;
-
             }); // DISPATCH_OPTIMAL_KERNEL
         }); // DISPATCH_EMB_GRAD_CACHE_TYPES
 

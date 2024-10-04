@@ -523,12 +523,12 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 
 {%- endif %}
 
-{%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and not dense %}
+{%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and not dense and not is_gwd_kernel and not vbe and not ssd %}
 // PR23: ROCM
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include "fbgemm_gpu/hip_kernel_inc/split_embeddings_common.h"
-#include "gen_embedding_backward_{{ optimizer }}_split_{{ kdesc }}_device_kernel_hip.hip"
+#include "gen_embedding_backward_split_{{ desc_suffix }}{{ ndesc }}_device_kernel_hip.hip"
 
 
 // PR23: for the reference, the template is
