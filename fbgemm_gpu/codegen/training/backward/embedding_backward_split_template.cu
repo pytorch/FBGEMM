@@ -1180,7 +1180,7 @@ Tensor {{ embedding_cuda_op }}(
                 auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
 
                 // PR23: Call accelerated kernel if suitable
-                std::cout << "Calling Kernel at file" << __FILE__ << " Line: " << __LINE__ << std::endl;
+                // std::cout << "Calling Kernel at file" << __FILE__ << " Line: " << __LINE__ << std::endl;
 
                 // PR23: This constructs the function object for GPU kernel
                 auto backward_warp_per_row_kernel =
@@ -1263,9 +1263,9 @@ Tensor {{ embedding_cuda_op }}(
                             ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256, WDM);
                         }
                     }
-                    std::cout << "Calling HIP Perf Kernel" << std::endl;
+                    // std::cout << "Calling HIP Perf Kernel" << std::endl;
                     {%- if nobag %}
-                    std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
+                    // std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
                     {%- endif %}
                 }
                 {%- endif %}
