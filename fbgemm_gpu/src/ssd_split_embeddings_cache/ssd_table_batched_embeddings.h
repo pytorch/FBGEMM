@@ -11,10 +11,10 @@
 #include <iostream>
 #include <memory>
 
+#include <folly/coro/BlockingWait.h>
+#include <folly/coro/Collect.h>
+#include <folly/coro/Task.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
-#include <folly/experimental/coro/BlockingWait.h>
-#include <folly/experimental/coro/Collect.h>
-#include <folly/experimental/coro/Task.h>
 #include <torch/nn/init.h>
 #ifdef FBGEMM_FBCODE
 #include "common/strings/UUID.h"
@@ -528,11 +528,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const SnapshotHandle* snapshot_handle) {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
-    int64_t* count_ = new int64_t[1];
-    count_[0] = length;
-    const auto count = at::from_blob(count_, {1}, at::kLong);
+    const auto count = at::tensor({length}, at::ScalarType::Long);
     folly::coro::blockingWait(
         get_kv_db_async_impl(seq_indices, weights, count, snapshot_handle));
+  }
+
+  void set_range(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length) {
+    const auto seq_indices =
+        at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
+    const auto count = at::tensor({length}, at::ScalarType::Long);
+    folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
   }
 
   int64_t get_max_D() {
@@ -668,9 +676,11 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       snapshot_ptr_t snapshot = snapshot_handle == nullptr
           ? nullptr
           : snapshot_handle->get_snapshot_for_shard(shard);
+      auto local_ro = ro_;
+      local_ro.snapshot = snapshot;
       tasks.emplace_back(
           folly::coro::co_invoke(
-              [this, &indices, &weights, count_, shard, snapshot]() mutable
+              [this, &indices, &weights, count_, shard, local_ro]() mutable
               -> folly::coro::Task<void> {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_get", [&] {
@@ -734,10 +744,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
                             values.resize(keys.size());
                             statuses.resize(keys.size());
-                            // Set a snapshot if it is available
-                            ro_.snapshot = snapshot;
                             dbs_[shard]->MultiGet(
-                                ro_,
+                                local_ro,
                                 keys.size(),
                                 cfs.data(),
                                 keys.data(),

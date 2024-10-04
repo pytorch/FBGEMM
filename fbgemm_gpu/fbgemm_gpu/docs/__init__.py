@@ -11,6 +11,8 @@ try:
         jagged_tensor_ops,
         merge_pooled_embedding_ops,
         permute_pooled_embedding_ops,
+        quantize_ops,
+        sparse_ops,
     )
 except Exception:
     pass

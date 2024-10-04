@@ -37,7 +37,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     apply_split_helper,
     CounterBasedRegularizationDefinition,
     CowClipDefinition,
-    StepMode,
     UVMCacheStatsIndex,
     WeightDecayMode,
 )
@@ -116,10 +115,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         eta: float = 0.001,  # used by LARS-SGD,
         beta1: float = 0.9,  # used by LAMB and ADAM
         beta2: float = 0.999,  # used by LAMB and ADAM
-        step_ema: float = 10000,  # used by ENSEMBLE_ROWWISE_ADAGRAD
-        step_swap: float = 10000,  # used by ENSEMBLE_ROWWISE_ADAGRAD
-        step_start: float = 0,  # used by ENSEMBLE_ROWWISE_ADAGRAD
-        step_mode: StepMode = StepMode.USE_ITER,  # used by ENSEMBLE_ROWWISE_ADAGRAD
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
         ] = None,  # used by Rowwise Adagrad
@@ -499,8 +494,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # pyre-fixme[4]: Attribute must be annotated.
         self.ssd_prefetch_data = []
 
-        # Scratch pad value queue
-        self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
         # Scratch pad eviction data queue
         self.ssd_scratch_pad_eviction_data: List[
             Tuple[Tensor, Tensor, Tensor, bool]
@@ -508,6 +501,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_location_update_data: List[Tuple[Tensor, Tensor]] = []
 
         if self.prefetch_pipeline:
+            # Scratch pad value queue
+            self.ssd_scratch_pads: List[Tuple[Tensor, Tensor, Tensor]] = []
+
             # pyre-ignore[4]
             # Scratch pad index queue
             self.scratch_pad_idx_queue = torch.classes.fbgemm.SSDScratchPadIndicesQueue(
@@ -535,10 +531,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             eps=eps,
             beta1=beta1,
             beta2=beta2,
-            step_ema=step_ema,
-            step_swap=step_swap,
-            step_start=step_start,
-            step_mode=step_mode.value,
             weight_decay=weight_decay,
             weight_decay_mode=weight_decay_mode.value,
             eta=eta,
@@ -1407,15 +1399,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if t.is_cuda:
                         t.record_stream(forward_stream)
 
-            # Store scratch pad info for the lookup in the next iteration
-            # prefetch
-            self.ssd_scratch_pads.append(
-                (
-                    inserted_rows,
-                    post_bwd_evicted_indices_cpu,
-                    actions_count_cpu,
+            if self.prefetch_pipeline:
+                # Store scratch pad info for the lookup in the next iteration
+                # prefetch
+                self.ssd_scratch_pads.append(
+                    (
+                        inserted_rows,
+                        post_bwd_evicted_indices_cpu,
+                        actions_count_cpu,
+                    )
                 )
-            )
 
             # Store scratch pad info for post backward eviction
             self.ssd_scratch_pad_eviction_data.append(

@@ -27,6 +27,11 @@
 
 namespace fbgemm_gpu {
 
+#ifdef USE_ROCM
+// flush icache
+void flush_icache_ck();
+#endif
+
 // SmoothQuant kernels
 at::Tensor
 i8i8bf16(at::Tensor XQ, at::Tensor WQ, double scale, int64_t split_k);
@@ -57,6 +62,14 @@ at::Tensor f8f8bf16_rowwise(
     std::optional<at::Tensor> bias = c10::nullopt,
     bool use_fast_accum = true,
     std::optional<at::Tensor> output = c10::nullopt);
+at::Tensor f8f8bf16_rowwise_batched(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> bias = c10::nullopt,
+    bool use_fast_accum = true,
+    std::optional<at::Tensor> output = c10::nullopt);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -79,6 +92,11 @@ at::Tensor f8i4bf16_rowwise(
     at::Tensor w_scale,
     at::Tensor w_zp);
 at::Tensor bf16i4bf16_rowwise(
+    at::Tensor X,
+    at::Tensor WQ,
+    at::Tensor w_scale,
+    at::Tensor w_zp);
+at::Tensor bf16i4bf16_rowwise_batched(
     at::Tensor X,
     at::Tensor WQ,
     at::Tensor w_scale,
@@ -132,10 +150,16 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
+  m.def(
+      "f8f8bf16_rowwise_batched(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
 
   m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
+
+  m.def(
+      "bf16i4bf16_rowwise_batched(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
+  m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
 
   m.def(
       "i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor");
@@ -175,6 +199,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl(
       "quantize_fp8_per_tensor_fixed_scale",
       quantize_fp8_per_tensor_fixed_scale);
+
+#ifdef USE_ROCM
+  m.def("flush_icache_hip() -> ()");
+  m.impl("flush_icache_hip", flush_icache_ck);
+#endif
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -188,6 +217,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
+  m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched);
 #endif
 }
 
@@ -213,6 +243,21 @@ at::Tensor f8f8bf16_rowwise_meta(
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f8f8bf16_rowwise_batched_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    bool /* use_fast_accum = true */,
+    std::optional<at::Tensor> /* output = c10::nullopt */) {
+  int B = XQ.size(0);
+  int M = XQ.size(1);
+  int N = WQ.size(1);
+  auto Y = at::empty({B, M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -290,11 +335,25 @@ at::Tensor f8i4bf16_rowwise_meta(
 at::Tensor bf16i4bf16_rowwise_meta(
     at::Tensor X, // BF16
     at::Tensor WQ, // INT4
-    at::Tensor w_scale,
-    at::Tensor w_zp) {
+    at::Tensor /*  w_scale */,
+    at::Tensor /* w_zp */
+) {
   int M = X.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor bf16i4bf16_rowwise_batched_meta(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor /* w_scale */,
+    at::Tensor /* w_zp */
+) {
+  int B = X.size(0);
+  int M = X.size(1);
+  int N = WQ.size(1);
+  auto Y = at::empty({B, M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -331,8 +390,10 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("i8i8bf16", i8i8bf16_meta);
   m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
+  m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
+  m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
 #endif
 }
 

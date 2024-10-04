@@ -60,7 +60,6 @@ set(GPU_ONLY_OPTIMIZERS
     lamb
     partial_rowwise_adam
     partial_rowwise_lamb
-    ensemble_rowwise_adagrad
     lars_sgd
     none
     rowwise_adagrad_with_counter)
@@ -87,7 +86,6 @@ set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
 set(VBE_OPTIMIZERS
     rowwise_adagrad
     rowwise_adagrad_with_counter
-    ensemble_rowwise_adagrad
     sgd
     dense)
 
@@ -265,10 +263,10 @@ list(APPEND gen_gpu_host_source_files
 foreach(optimizer ${ALL_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
     "gen_embedding_backward_split_${optimizer}_cpu.cpp"
-    "gen_embedding_backward_split_${optimizer}_pt2_cpu_wrapper.cpp")
+    "gen_embedding_backward_split_${optimizer}_pt2_cpu_wrapper.cpp"
+    "gen_embedding_split_${optimizer}_pt2_autograd.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}.cpp"
-    "gen_embedding_split_${optimizer}_pt2_autograd.cpp"
     "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp")
 endforeach()
 
@@ -456,6 +454,7 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/training/forward/embedding_forward_split_cpu.cpp
     codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
+    codegen/training/pt2/pt2_autograd_utils.cpp
     codegen/utils/embedding_bounds_check_host_cpu.cpp
     src/config/feature_gates.cpp
     src/memory_utils/memory_utils.cpp
@@ -473,6 +472,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/layout_transform_ops/layout_transform_ops_cpu.cpp
     src/quantize_ops/quantize_ops_cpu.cpp
     src/quantize_ops/quantize_ops_meta.cpp
+    src/sparse_ops/sparse_async_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
@@ -481,6 +481,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/split_embeddings_cache/lru_cache_populate_byte.cpp
     src/split_embeddings_cache/lxu_cache.cpp
     src/split_embeddings_cache/split_embeddings_cache_ops.cpp
+    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
     codegen/training/index_select/batch_index_select_dim0_ops.cpp
     codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 

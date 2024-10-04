@@ -6,7 +6,8 @@
 
 # pyre-unsafe
 import logging
-from typing import List, Optional, Tuple
+import sys
+from typing import List, Optional, Tuple, Union
 
 import torch
 import triton  # @manual
@@ -43,7 +44,7 @@ def get_fp8_constants() -> Tuple[torch.dtype, tl.dtype, float, float]:
     return pt_fp8_dtype, tl_fp8_dtype, torch.finfo(pt_fp8_dtype).max, 1e-12
 
 
-def convert_fp8_type(tensor, dtype) -> triton.TensorWrapper:
+def reinterpret_fp8_type(tensor: torch.Tensor, dtype: tl.dtype) -> TensorWrapper:
     """
     Converts tensor to triton fp8 type.
 
@@ -55,6 +56,28 @@ def convert_fp8_type(tensor, dtype) -> triton.TensorWrapper:
         triton.TensorWrapper: fp8 tensor.
     """
     return tl_reinterpret(tensor, dtype=dtype)
+
+
+def map_dtype_to_triton(dtype: torch.dtype) -> tl.dtype:
+    """
+    Maps torch dtype to triton dtype.
+
+    Args:
+        dtype (torch.dtype): input dtype.
+
+    Returns:
+        tl.dtype: triton dtype.
+    """
+    if dtype == torch.float16:
+        return tl.float16
+    elif dtype == torch.bfloat16:
+        return tl.bfloat16
+    elif dtype == torch.float32:
+        return tl.float32
+    elif dtype == torch.int32:
+        return tl.int32
+    else:
+        raise ValueError(f"Unsupported dtype {dtype}")
 
 
 def init_to_zero(name):
@@ -213,11 +236,6 @@ MATMUL_CONFIGS: List[Config] = [
         "k_key",
     ],
 )
-@triton.heuristics(
-    {
-        "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
-    }
-)
 @triton.jit
 def _kernel_matmul_fp8_row(
     A_ptr,
@@ -246,7 +264,6 @@ def _kernel_matmul_fp8_row(
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr,
     SPLIT_K: tl.constexpr,
-    EVEN_K: tl.constexpr,
     USE_BIAS: tl.constexpr,
     AB_DTYPE: tl.constexpr,
     NUM_SMS: tl.constexpr,
@@ -751,6 +768,7 @@ def _kernel_matmul_fp8_row_tma_persistent(
     stride_cn,
     dot_out_dtype: tl.constexpr,
     c_dtype: tl.constexpr,
+    bias_dtype: tl.constexpr,
     allow_tf32: tl.constexpr,
     fp8_fast_accum: tl.constexpr,
     BLOCK_M: tl.constexpr,
@@ -818,7 +836,6 @@ def _kernel_matmul_fp8_row_tma_persistent(
 
     dtype_fp8 = tl.float8e4nv
     scale_dtype = tl.float32
-    bias_dtype = tl.float32
 
     for _ in range(0, k_tiles * tiles_per_SM):
         ki = tl.where(ki == k_tiles - 1, 0, ki + 1)
@@ -880,10 +897,14 @@ HAS_TMA_DESC = "nv_tma_desc_type" in dir(tl)
 
 if HAS_TMA_DESC:
     print(
-        "TMA benchmarks will be running with experimental grid constant TMA descriptor."
+        "TMA benchmarks will be running with experimental grid constant TMA descriptor.",
+        file=sys.stderr,
     )
 else:
-    print("TMA benchmarks will be running without grid constant TMA descriptor.")
+    print(
+        "TMA benchmarks will be running without grid constant TMA descriptor.",
+        file=sys.stderr,
+    )
 
 
 class TmaAutoTuneHelper:
@@ -964,7 +985,7 @@ class TmaAutoTuneHelper:
             return self.cuda_descriptors[name]
 
 
-@torch.library.custom_op("triton::matmul_fp8_row", mutates_args=())
+@torch._library.triton_op("triton::matmul_fp8_row", mutates_args=())
 def matmul_fp8_row(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -976,6 +997,7 @@ def matmul_fp8_row(
     fp8_fast_accum: bool = True,
     imprecise_acc: bool = False,
     tma_persistent: bool = True,
+    no_use_persistent: bool = False,
 ) -> torch.Tensor:
     """
     Performs matmul on [M, K] and [N, K] fp8 matrices with row-wise scalings [M], [N].
@@ -995,15 +1017,15 @@ def matmul_fp8_row(
         torch.Tensor: [M, N] Output tensor a @ b / (a_scale[:, None] * b_scale[None, :])
     """
     # Get datatypes and constants to use.
-    _, tl_dtype, _, _ = get_fp8_constants()
+    pt_fp8_dtype, _, _, _ = get_fp8_constants()
     # Handle 3D+ a shape
     a_shape = a.shape
     a = a.view(-1, a.size(-1))
-    # Reinterpret inputs into proper triton fp8 dtype.
-    a_tl = convert_fp8_type(a, tl_dtype)
-    b_tl = convert_fp8_type(b, tl_dtype)
+    # View inputs into proper torch fp8 dtype.
+    assert a.dtype == pt_fp8_dtype
+    assert b.dtype == pt_fp8_dtype
     M, N, K, m_key, n_key, k_key, c, c_dtype_triton, dot_out_dtype_triton, device = (
-        prep_matmul(a_tl, b_tl, dot_out_dtype)
+        prep_matmul(a, b, dot_out_dtype)
     )
 
     output_shape = a_shape[:-1] + (N,)
@@ -1035,7 +1057,38 @@ def matmul_fp8_row(
             ),
         )
 
-    if tma_persistent:
+    if no_use_persistent:
+        logger.info("Using non-persistent kernel")
+        if bias is not None:
+            raise AssertionError("bias is not supported in non-persistent kernel")
+        # pyre-ignore
+        torch._library.capture_triton(_kernel_matmul_fp8_row_non_persistent)[grid](
+            a,
+            b,
+            c,
+            M,
+            N,
+            K,
+            m_key,
+            n_key,
+            k_key,
+            a_scale,
+            b_scale,
+            # bias,
+            a.stride(0),
+            a.stride(1),
+            b.stride(0),
+            b.stride(1),
+            c.stride(0),
+            c.stride(1),
+            dot_out_dtype=dot_out_dtype_triton,
+            allow_tf32=allow_tf32,
+            fp8_fast_accum=fp8_fast_accum,
+            # GROUP_M=8,
+            # USE_BIAS=bias is not None,
+            AB_DTYPE=False,
+        )
+    elif tma_persistent:
         # used by TMA persistent kernel
         desc_helper = TmaAutoTuneHelper()
         desc_helper.init_tma_descriptor("a")
@@ -1049,22 +1102,22 @@ def matmul_fp8_row(
             nonlocal desc_helper
             desc_helper.fill_2d_tma_descriptor(
                 "a",
-                a_tl.data_ptr(),
+                a.data_ptr(),
                 M,
                 K,
                 META["BLOCK_M"],
                 META["BLOCK_K"],
-                a_tl.element_size(),
+                a.element_size(),
             )
 
             desc_helper.fill_2d_tma_descriptor(
                 "b",
-                b_tl.data_ptr(),
+                b.data_ptr(),
                 N,
                 K,
                 META["BLOCK_N"],
                 META["BLOCK_K"],
-                b_tl.element_size(),
+                b.element_size(),
             )
             desc_helper.fill_2d_tma_descriptor(
                 "c",
@@ -1111,8 +1164,14 @@ def matmul_fp8_row(
         desc_b_scale = desc_helper.get_tma_descriptor_kernel_param("b_scale")
         desc_bias = desc_helper.get_tma_descriptor_kernel_param("bias")
 
-        # pyre-ignore[28]:
-        _kernel_matmul_fp8_row_tma_persistent[persistent_grid_tma](
+        bias_dtype_triton = None
+        if bias is not None:
+            bias_dtype_triton = map_dtype_to_triton(bias.dtype)
+
+        # pyre-ignore
+        torch._library.capture_triton(_kernel_matmul_fp8_row_tma_persistent)[
+            persistent_grid_tma
+        ](
             desc_a,
             desc_b,
             desc_c,
@@ -1133,6 +1192,7 @@ def matmul_fp8_row(
             c.stride(1),
             dot_out_dtype=dot_out_dtype_triton,
             c_dtype=c_dtype_triton,
+            bias_dtype=bias_dtype_triton,
             allow_tf32=allow_tf32,
             fp8_fast_accum=fp8_fast_accum,
             GROUP_M=8,
@@ -1141,9 +1201,9 @@ def matmul_fp8_row(
             USE_BIAS=bias is not None,
         )
     elif imprecise_acc:
-        _kernel_matmul_fp8_row_imprecise_acc[grid](
-            a_tl,
-            b_tl,
+        torch._library.capture_triton(_kernel_matmul_fp8_row_imprecise_acc)[grid](
+            a,
+            b,
             c,
             M,
             N,
@@ -1168,9 +1228,9 @@ def matmul_fp8_row(
             AB_DTYPE=False,
         )
     elif fp8_fast_accum:
-        _kernel_matmul_fp8_row[persistent_grid](
-            a_tl,
-            b_tl,
+        torch._library.capture_triton(_kernel_matmul_fp8_row)[persistent_grid](
+            a,
+            b,
             c,
             M,
             N,
@@ -1196,9 +1256,11 @@ def matmul_fp8_row(
             NUM_SMS=NUM_SMS,
         )
     else:
-        _kernel_matmul_fp8_row_no_fast_acc[persistent_grid](
-            a_tl,
-            b_tl,
+        torch._library.capture_triton(_kernel_matmul_fp8_row_no_fast_acc)[
+            persistent_grid
+        ](
+            a,
+            b,
             c,
             M,
             N,
@@ -1659,13 +1721,13 @@ def matmul_fp8_block(
         Tensor: [M, N] output tensor, (a / a_scale) @ (b / b_scale)
     """
     # Get datatypes and constants to use.
-    _, tl_dtype, _, _ = get_fp8_constants()
+    _, tl_fp8_dtype, _, _ = get_fp8_constants()
     # Handle 3D+ a shape
     a_shape = a.shape
     a = a.view(-1, a.size(-1))
-    # Reinterpret inputs into proper triton fp8 dtype.
-    a_tl = convert_fp8_type(a, tl_dtype)
-    b_tl = convert_fp8_type(b, tl_dtype)
+    # View inputs into proper triton fp8 dtype.
+    a_tl = reinterpret_fp8_type(a, tl_fp8_dtype)
+    b_tl = reinterpret_fp8_type(b, tl_fp8_dtype)
 
     M, N, K, m_key, n_key, k_key, c, _, dot_out_dtype_triton, device = prep_matmul(
         a_tl, b_tl, dot_out_dtype
@@ -1794,14 +1856,18 @@ def get_matmul_tune(M: int, N: int, K: int) -> Tuple[int, int, int]:
 
 
 def prep_matmul(
-    a: TensorWrapper, b: TensorWrapper, dot_out_dtype: Optional[torch.dtype]
-) -> Tuple[int, int, int, int, int, int, torch.Tensor, str, str, torch.device]:
+    a: Union[TensorWrapper, torch.Tensor],
+    b: Union[TensorWrapper, torch.Tensor],
+    dot_out_dtype: Optional[torch.dtype],
+) -> Tuple[
+    int, int, int, int, int, int, torch.Tensor, tl.dtype, tl.dtype, torch.device
+]:
     """
     Shared bookkeeping for a @ b.T matmul.
 
     Args:
-        a (TensorWrapper): [M, K] input tensor.
-        b (TensorWrapper): [N, K] input tensor.
+        a (torch.Tensor): [M, K] input tensor.
+        b (torch.Tensor): [N, K] input tensor.
         dot_out_dtype (tl.dtype): Output type of tensor core.
 
     Returns:
@@ -1812,7 +1878,8 @@ def prep_matmul(
         n_key (int): Autotuning key for N dim.
         k_key (int): Autotuning key for K dim.
         c (Tensor): [M, N] output tensor.
-        dot_out_dtype (torch.dtype): Output type of tensor core.
+        c_dtype_triton (tl.dtype): Type of output tensor.
+        dot_out_dtype (tl.dtype): Output type of tensor core.
         device (torch.device): Device of output tensor.
     """
     device = a.device
@@ -1827,11 +1894,20 @@ def prep_matmul(
 
     # allocates output
     assert a.dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+        torch.float8_e4m3fnuz,
+        torch.float8_e5m2fnuz,
         tl.float8e4nv,
         tl.float8e4b15,
         tl.float8e5,
         tl.float8e4b8,
-    ] and b.dtype in [
+    ]
+    assert b.dtype in [
+        torch.float8_e4m3fn,
+        torch.float8_e5m2,
+        torch.float8_e4m3fnuz,
+        torch.float8_e5m2fnuz,
         tl.float8e4nv,
         tl.float8e4b15,
         tl.float8e5,
@@ -1847,12 +1923,7 @@ def prep_matmul(
         assert isinstance(
             dot_out_dtype, torch.dtype
         ), f"dot_out_dtype type {type(dot_out_dtype)} must be a torch.dtype"
-        if dot_out_dtype == torch.bfloat16:
-            dot_out_dtype_triton = tl.bfloat16
-        elif dot_out_dtype == torch.float32:
-            dot_out_dtype_triton = tl.float32
-        else:
-            dot_out_dtype_triton = tl.int32
+        dot_out_dtype_triton = map_dtype_to_triton(dot_out_dtype)
 
     return M, N, K, m_key, n_key, k_key, c, c_dtype_triton, dot_out_dtype_triton, device
 
@@ -2383,3 +2454,213 @@ def quantize_fp8_block(
     x_scale = x_scale.to(output_device)  # pyre-ignore
     del x, x_padded
     return x_fp8.view(x_shape), 1 / x_scale  # pyre-ignore
+
+
+def need_split_k(SIZE_M, SIZE_N, SIZE_K):
+    return (SIZE_M < 64 or SIZE_N < 64) and SIZE_K > 1024
+
+
+def prune_configs(configs, named_args, **kwargs):
+
+    SIZE_M = named_args["A"].shape[0]
+    SIZE_N = named_args["B"].shape[1]
+    SIZE_K = named_args["C"].shape[1]
+
+    pruned_configs = []
+    for config in configs:
+        kw = config.kwargs
+        BLOCK_SIZE_M, BLOCK_SIZE_N, _ = (
+            kw["BLOCK_M"],
+            kw["BLOCK_N"],
+            kw["BLOCK_K"],
+        )
+        SPLIT_K = kw["SPLIT_K"]
+        if SIZE_M <= 32 and BLOCK_SIZE_M != 32:
+            continue
+        if SIZE_N <= 32 and BLOCK_SIZE_N != 32:
+            continue
+        # skip large split_k when not necessary
+        if SPLIT_K != 1 and not need_split_k(SIZE_M, SIZE_N, SIZE_K):
+            continue
+        pruned_configs.append(config)
+    logging.info(f"pruned_configs: config len{len(pruned_configs)}")
+    return pruned_configs
+
+
+def get_full_non_persistent_tuning_space(use_split_k):
+    if torch.version.hip is None:
+        logger.warning("Using HIP configs on CUDA device, this may be slow.")
+    configs = []
+    block_mn_range = [32, 64, 128, 256]
+    block_k_range = [32, 64, 128]
+    split_k_range = [1]
+    num_warps_range = [1, 2, 4, 8, 16]
+    group_m_range = [1, 4, 8]
+    num_stage_range = [0]
+
+    for block_m in block_mn_range:
+        for block_n in block_mn_range:
+            for block_k in block_k_range:
+                for num_warps in num_warps_range:
+                    for group_m in group_m_range:
+                        for split_k in split_k_range:
+                            for num_stages in num_stage_range:
+                                configs.append(
+                                    triton.Config(
+                                        {
+                                            "BLOCK_M": block_m,
+                                            "BLOCK_N": block_n,
+                                            "BLOCK_K": block_k,
+                                            "GROUP_M": group_m,
+                                            "SPLIT_K": split_k,
+                                        },
+                                        num_stages=num_stages,
+                                        num_warps=num_warps,
+                                    )
+                                )
+
+    return configs
+
+
+MATMUL_CONFIGS: List[Config] = get_full_non_persistent_tuning_space(True)
+
+
+@triton.autotune(
+    configs=MATMUL_CONFIGS,
+    key=["M", "N", "K"],
+    prune_configs_by={
+        "early_config_prune": prune_configs,
+        "perf_model": None,
+        "top_k": None,
+    },
+)
+@triton.heuristics(
+    {
+        "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
+    }
+)
+@triton.jit
+def _kernel_matmul_fp8_row_non_persistent(
+    A,
+    B,
+    C,
+    M,
+    N,
+    K,
+    m_key,
+    n_key,
+    k_key,
+    A_scale,
+    B_scale,
+    stride_am,
+    stride_ak,
+    stride_bn,
+    stride_bk,
+    stride_cm,
+    stride_cn,
+    dot_out_dtype: tl.constexpr,
+    allow_tf32: tl.constexpr,
+    fp8_fast_accum: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    GROUP_M: tl.constexpr,
+    SPLIT_K: tl.constexpr,
+    EVEN_K: tl.constexpr,
+    AB_DTYPE: tl.constexpr,
+) -> None:
+    """Matmul kernel of [M, K] @ [N, K] with row-wise scales
+
+    performs swizzled matmul in [BLOCK_M, BLOCK_K] with [BLOCK_K, BLOCK_N] tiles.
+
+    Args:
+        A (TensorWrapper): [M, K] input tensor.
+        B (TensorWrapper): [N, K] input tensor.
+        C (TensorWrapper): [M, N] output tensor.
+        M (int): M dimension of input tensor.
+        N (int): N dimension of input tensor.
+        K (int): K dimension of input tensor.
+        m_key (int): Autotuning key for M dimension of input tensor.
+        n_key (int): Autotuning key for N dimension of input tensor.
+        k_key (int): Autotuning key for K dimension of input tensor.
+        A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A
+        B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B
+        stride_am (int): Stride of M dimension of A.
+        stride_ak (int): Stride of K dimension of A.
+        stride_bn (int): Stride of N dimension of B.
+        stride_bk (int): Stride of K dimension of B.
+        stride_cm (int): Stride of M dimension of C.
+        stride_cn (int): Stride of N dimension of C.
+        dot_out_dtype (torch.dtype): Output type of tensor core.
+        allow_tf32 (bool): Whether to use TF32 for tensor core.
+        fp8_fast_accum (bool): Whether to use fast accumulation for tensor core.
+        BLOCK_M (int): Block size for M dimension.
+        BLOCK_N (int): Block size for N dimension.
+        BLOCK_K (int): Block size for K dimension.
+        GROUP_M (int): Number of groups for M dimension swizzle.
+        SPLIT_K (int): Number of SM's to launch per row.
+        EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
+        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+    """
+    # Matrix multiplication.
+    pid = tl.program_id(0)
+    pid_z = tl.program_id(1)
+    grid_m = tl.cdiv(M, BLOCK_M)
+    grid_n = tl.cdiv(N, BLOCK_N)
+    # Re-order program ID for better L2 performance (swizzle).
+    width = GROUP_M * grid_n
+    group_id = pid // width
+    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
+    pid_m = group_id * GROUP_M + (pid % group_size)
+    pid_n = (pid % width) // (group_size)
+    # Do matrix multiplication.
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
+    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
+    rk = pid_z * BLOCK_K + tl.arange(0, BLOCK_K)
+    # Pointers.
+    A = A + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
+    B = B + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=dot_out_dtype)
+
+    for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
+        if EVEN_K:
+            a = tl.load(A)
+            b = tl.load(B)
+        else:
+            k_remaining = K - k * (BLOCK_K * SPLIT_K)
+            _0 = tl.zeros((1, 1), dtype=C.dtype.element_ty)
+            a = tl.load(A, mask=rk[None, :] < k_remaining, other=_0)
+            b = tl.load(B, mask=rk[:, None] < k_remaining, other=_0)
+        if AB_DTYPE:
+            a = a.to(C.dtype.element_ty)
+            b = b.to(C.dtype.element_ty)
+        if fp8_fast_accum:
+            acc = tl.dot(a, b, acc, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+        else:
+            acc += tl.dot(a, b, out_dtype=dot_out_dtype, allow_tf32=allow_tf32)
+
+        A += BLOCK_K * SPLIT_K * stride_ak
+        B += BLOCK_K * SPLIT_K * stride_bk
+
+    # rematerialize rm and rn to save registers
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+
+    # Invert scaling.
+    a_scale = tl.load(A_scale + rm, mask=rm < M)
+    b_scale = tl.load(B_scale + rn, mask=rn < N)
+    # Invert vector, then multiply on matrix for speed.
+    # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
+    scale = a_scale[:, None] * b_scale[None, :]
+    acc *= scale
+
+    acc = acc.to(C.dtype.element_ty)
+    C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
+    mask = (rm < M)[:, None] & (rn < N)[None, :]
+    # Handles write-back with reduction-splitting
+    if SPLIT_K == 1:
+        tl.store(C, acc, mask=mask)
+    else:
+        tl.atomic_add(C, acc, mask=mask)

@@ -9,8 +9,8 @@
 #pragma once
 #include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
 
-#include <folly/experimental/coro/BlockingWait.h>
-#include <folly/experimental/coro/Task.h>
+#include <folly/coro/BlockingWait.h>
+#include <folly/coro/Task.h>
 #include "mvai_infra/experimental/ps_training/tps_client/TrainingParameterServiceClient.h"
 
 namespace ps {

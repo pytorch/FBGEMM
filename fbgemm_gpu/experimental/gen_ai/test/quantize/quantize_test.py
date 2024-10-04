@@ -614,12 +614,16 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: BMM ops are not yet suported."
+    )
     @settings(deadline=None)
     @given(
         B=st.sampled_from([1, 4]),
         M=st.sampled_from([2048, 4096]),
         N=st.sampled_from([128, 256]),
         K=st.sampled_from([256, 512]),
+        use_loopover=st.sampled_from([True, False]),
     )
     def test_fp8_batched_gemm(
         self,
@@ -627,6 +631,7 @@ class FP8Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        use_loopover: bool,
     ) -> None:
         x = torch.rand(size=(B, M, K), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.rand(size=(B, N, K), dtype=torch.bfloat16, device="cuda") * 0.01
@@ -655,7 +660,10 @@ class FP8Tests(unittest.TestCase):
             return y
 
         y_ref = torch.bmm(x, w.transpose(1, 2))
-        y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale)
+        if use_loopover:
+            y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale)
+        else:
+            y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(xq, wq, x_scale, w_scale)
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
@@ -665,6 +673,7 @@ class FP8Tests(unittest.TestCase):
         M=st.sampled_from([2048, 4096]),
         N=st.sampled_from([256, 512]),
         K=st.sampled_from([256, 512]),
+        use_loopover=st.sampled_from([True, False]),
     )
     def test_int4_batched_gemm(
         self,
@@ -672,6 +681,7 @@ class FP8Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        use_loopover: bool,
     ) -> None:
         if not MARLIN_ENABLED:
             return
@@ -681,28 +691,48 @@ class FP8Tests(unittest.TestCase):
         wq = []
         w_scale = []
         group_size = 128
-        for i in range(B):
-            _, wq_, w_scale_ = marlin_quantize(w[i].cuda().t().contiguous(), group_size)
-            wq.append(wq_)
-            w_scale.append(w_scale_)
-        wq = torch.stack(wq)
-        w_scale = torch.stack(w_scale)
 
-        def int4_loopover_bmm(
-            x: torch.Tensor,
-            wq: torch.Tensor,
-            w_scale: torch.Tensor,
-        ) -> torch.Tensor:
-            B = x.shape[0]
-            M = x.shape[1]
-            N = w_scale.shape[2]
-            y = torch.empty((B, M, N), dtype=torch.bfloat16, device=x[0].device)
+        if use_loopover:
             for i in range(B):
-                y[i] = torch.ops.marlin.marlin_gemm(x[i], wq[i], w_scale[i])
-            return y
+                _, wq_, w_scale_ = marlin_quantize(
+                    w[i].cuda().t().contiguous(), group_size
+                )
+                wq.append(wq_)
+                w_scale.append(w_scale_)
+            wq = torch.stack(wq)
+            w_scale = torch.stack(w_scale)
+
+            def int4_loopover_bmm(
+                x: torch.Tensor,
+                wq: torch.Tensor,
+                w_scale: torch.Tensor,
+            ) -> torch.Tensor:
+                B = x.shape[0]
+                M = x.shape[1]
+                N = w_scale.shape[2]
+                y = torch.empty((B, M, N), dtype=torch.bfloat16, device=x[0].device)
+                for i in range(B):
+                    y[i] = torch.ops.marlin.marlin_gemm(x[i], wq[i], w_scale[i])
+                return y
+
+            y_int4 = int4_loopover_bmm(x, wq, w_scale)
+        else:
+            w_zp = []
+            for i in range(B):
+                wq_, w_scale_, w_zp_ = int4_row_quantize(w[i], group_size)
+
+                wq_ = pack_int4(wq_).contiguous().to(device="cuda")
+                w_scale_ = w_scale_.contiguous().to(device="cuda")
+                w_zp_ = w_zp_.contiguous().to(device="cuda")
+                wq.append(wq_)
+                w_scale.append(w_scale_)
+                w_zp.append(w_zp_)
+            wq = torch.stack(wq)
+            w_scale = torch.stack(w_scale).view(-1, N)
+            w_zp = torch.stack(w_zp).view(-1, N)
+            y_int4 = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(x, wq, w_scale, w_zp)
 
         y_ref = torch.bmm(x, w.transpose(1, 2))
-        y_int4 = int4_loopover_bmm(x, wq, w_scale)
         torch.testing.assert_close(y_ref, y_int4, atol=8.0e-2, rtol=8.0e-2)
 
 
