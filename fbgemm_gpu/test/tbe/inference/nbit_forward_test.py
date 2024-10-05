@@ -122,6 +122,11 @@ additional_decorators: Dict[str, List[Callable]] = {
             "Operator outputs int4 tensors which do not support opcheck tests"
         ),
     },
+    "test_pt2_compliant_tag_fbgemm_int_nbit_split_embedding_codegen_lookup_function": [
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    ],
 }
 
 

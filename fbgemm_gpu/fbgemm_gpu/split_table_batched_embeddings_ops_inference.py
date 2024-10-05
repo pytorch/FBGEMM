@@ -397,13 +397,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.assign_embedding_weights(weight_lists)
 
         # Handle index remapping for embedding pruning.
+        # All buffers are int64 in order to support both int32 and int64 indices.
         self.register_buffer(
             "index_remappings_array_offsets",
             torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remappings_array",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remapping_hash_table_offsets",
@@ -411,7 +412,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "index_remapping_hash_table",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "original_rows_per_table",
@@ -946,8 +947,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     @torch.jit.export
     def recompute_module_buffers(self) -> None:
         """
-        Compute module buffers that're on meta device and are not materialized in reset_weights_placements_and_offsets().
-        Currently those buffers are `weights_tys`, `rows_per_table`, `D_offsets` and `bounds_check_warning`.
+        Compute module buffers that're on meta device and are not materialized
+        in reset_weights_placements_and_offsets().  Currently those buffers are
+        `weights_tys`, `rows_per_table`, `D_offsets` and `bounds_check_warning`.
         Pruning related or uvm related buffers are not computed right now.
         """
         if (
@@ -1527,11 +1529,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 index_remappings_filter_nones.append(mapping)
         if len(index_remappings_filter_nones) == 0:
             self.index_remappings_array = torch.empty(
-                0, dtype=torch.int32, device=self.current_device
+                0, dtype=torch.int64, device=self.current_device
             )
         else:
             self.index_remappings_array = torch.cat(index_remappings_filter_nones).to(
-                self.current_device
+                dtype=torch.int64, device=self.current_device
             )
 
     def set_index_remappings(
@@ -1554,7 +1556,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ]
             hash_table = torch.empty(
                 (sum(capacities), 2),
-                dtype=torch.int32,
+                dtype=torch.int64,
             )
             hash_table[:, :] = -1
             hash_table_offsets = torch.tensor([0] + list(accumulate(capacities))).long()

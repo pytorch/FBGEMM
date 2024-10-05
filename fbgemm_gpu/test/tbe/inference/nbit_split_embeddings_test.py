@@ -11,6 +11,7 @@
 
 import random
 import unittest
+from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
 import numpy as np
@@ -38,8 +39,22 @@ else:
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
+# pyre-ignore
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_faketensor__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+    "test_pt2_compliant_tag_fbgemm_int_nbit_split_embedding_codegen_lookup_function": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+}
 
-@optests.generate_opcheck_tests(fast=True)
+
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class NBitSplitEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
