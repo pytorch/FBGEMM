@@ -24,7 +24,7 @@ using Tensor = at::Tensor;
 
 namespace fbgemm_gpu {
 
-// Kernerl for permute pooled embedding op.
+// Kernel for permute pooled embedding op.
 // This kernel is moving D elements per warp.
 template <typename scalar_t, bool reverse_permute>
 __global__ void permute_multi_embs_kernel(
@@ -40,7 +40,7 @@ __global__ void permute_multi_embs_kernel(
     const int32_t permute_size) {
   // workers in a warp handle exact one permute (of a feature/key)
   const int32_t worker_id = threadIdx.x;
-  const int32_t permute_id = threadIdx.y + blockIdx.x * blockDim.x;
+  const int32_t permute_id = threadIdx.y + blockIdx.x * blockDim.y;
   const int32_t batch_id = blockIdx.y + gridDim.y * blockIdx.z;
   if (batch_id >= batch_size) {
     return;
