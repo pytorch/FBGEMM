@@ -87,7 +87,7 @@ additional_decorators: Dict[str, List[Callable]] = {
 
 
 # @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
-class NBitFowardTest(unittest.TestCase):
+class NBitFowardAutovecTest(unittest.TestCase):
     def execute_nbit_forward_(  # noqa C901
         self,
         T: int,
