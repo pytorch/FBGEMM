@@ -31,14 +31,13 @@ class TestFp8Matmul(unittest.TestCase):
 
     def test_quantize_fp8_row(self) -> None:
         def _test_quantize_fp8_row(
-            shape: Tuple[int, int],
+            shape: Tuple[int, ...],
             use_triton: bool,
             device: torch.device,
             output_device: Optional[torch.device] = None,
             use_scale_ub: bool = False,
         ) -> None:
-            M, K = shape
-            a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+            a = torch.randn(shape, dtype=torch.bfloat16, device=device)
 
             scale_ub = (
                 torch.tensor([1200], dtype=torch.float, device=device)
@@ -52,7 +51,8 @@ class TestFp8Matmul(unittest.TestCase):
 
             # Undo scaling.
             a_torch = a_fp8.to(torch.bfloat16)
-            a_torch *= a_scale[:, None]
+            broadcast_shape = list(a_torch.shape[:-1]) + [-1]
+            a_torch *= a_scale.view(broadcast_shape)
 
             self.assertTrue(
                 torch.allclose(
@@ -61,6 +61,8 @@ class TestFp8Matmul(unittest.TestCase):
             )
 
         _test_quantize_fp8_row((2, 3), True, torch.device("cuda"))
+        # Test with batched input.
+        _test_quantize_fp8_row((4, 2, 3), True, torch.device("cuda"))
         _test_quantize_fp8_row((2, 3), True, torch.device("cuda"), use_scale_ub=True)
         _test_quantize_fp8_row((2, 3), False, torch.device("cpu"), torch.device("cuda"))
         _test_quantize_fp8_row(
