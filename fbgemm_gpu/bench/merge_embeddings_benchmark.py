@@ -486,7 +486,7 @@ def benchmark(  # noqa C901
 @click.option("--num_of_embeddings", default=100000, type=int)
 @click.option("--pooling_factor", default=25, type=int)
 @click.option("--sweep", is_flag=True, default=False)
-def main(
+def cli(
     all_to_one_only: bool,
     sum_reduce_to_one_only: bool,
     num_ads: int,
@@ -573,4 +573,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    cli()

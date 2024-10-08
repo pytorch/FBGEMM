@@ -94,7 +94,7 @@ class MyModule(torch.nn.Module):
 @click.option("--num-tasks", default=3)
 @click.option("--repeats", default=100)
 # pyre-fixme[2]: Parameter must be annotated.
-def main(batch_size, num_tables, num_tasks, repeats) -> None:
+def cli(batch_size, num_tables, num_tasks, repeats) -> None:
     device = torch.device("cuda", 0)
     torch.cuda.set_device(device)
     hash_sizes = list(np.random.choice(range(50, 250), size=(num_tables)))
@@ -169,4 +169,4 @@ def main(batch_size, num_tables, num_tasks, repeats) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    cli()

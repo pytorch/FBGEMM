@@ -49,7 +49,7 @@ def benchmark_hbc_function(
 @click.command()
 @click.option("--iters", default=100)
 @click.option("--warmup-runs", default=2)
-def main(
+def cli(
     iters: int,
     warmup_runs: int,
 ) -> None:
@@ -276,4 +276,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    cli()
