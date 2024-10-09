@@ -27,14 +27,18 @@ from .common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, optests
 
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
+torch.ops.import_module("fbgemm_gpu.sparse_ops")
 
 no_long_tests: bool = False
 
 
+@optests.generate_opcheck_tests(fast=True)
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
