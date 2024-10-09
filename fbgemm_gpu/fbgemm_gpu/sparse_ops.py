@@ -969,6 +969,48 @@ def hfp8_quantized_to_float(input: Tensor, ebits: int, exponent_bias: int) -> Te
     return torch.empty_like(input, dtype=torch.float32)
 
 
+def float_or_half_to_fused_nbit_rowwise_quantized_sbhalf(
+    input_t: Tensor,
+    bit_rate: int,
+) -> Tensor:
+    input_sizes = input_t.size()
+    torch._check(len(input_sizes) == 2)
+    nrows = input_sizes[0]
+    ncols = input_sizes[1]
+    num_elem_per_byte = 8 // bit_rate
+
+    torch._check(ncols % (2 * num_elem_per_byte) == 0)
+    output_columns = (ncols + num_elem_per_byte - 1) // num_elem_per_byte + 2 * 2
+    output = torch.empty(
+        (nrows, output_columns), device=input_t.device, dtype=torch.uint8
+    )
+    return output
+
+
+def fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
+    input_t: Tensor,
+    bit_rate: int,
+    output_dtype: int = 0,
+) -> Tensor:
+    torch._check(output_dtype in [SparseType.FP32.as_int(), SparseType.FP16.as_int()])
+    nrows = input_t.size(0)
+    ncols = input_t.size(1)
+    if input_t.dtype == torch.quint2x4:
+        ncols = (ncols + 3) // 4
+    elif input_t.dtype == torch.quint4x2:
+        ncols = (ncols + 1) // 2
+    num_elem_per_byte = 8 // bit_rate
+    output_columns = (ncols - 2 * 2) * num_elem_per_byte
+    if output_dtype == SparseType.FP32.as_int():
+        return torch.empty(
+            (nrows, output_columns), dtype=torch.float32, device=input_t.device
+        )
+    else:  # output_dtype is SparseType.FP16
+        return torch.empty(
+            (nrows, output_columns), dtype=torch.float16, device=input_t.device
+        )
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1102,6 +1144,14 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::HFP8QuantizedToFloat",
             hfp8_quantized_to_float,
+        )
+        impl_abstract(
+            "fbgemm::FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf",
+            float_or_half_to_fused_nbit_rowwise_quantized_sbhalf,
+        )
+        impl_abstract(
+            "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
+            fused_nbit_rowwise_quantized_sb_half_to_float_or_half,
         )
 
         _setup.done = True
