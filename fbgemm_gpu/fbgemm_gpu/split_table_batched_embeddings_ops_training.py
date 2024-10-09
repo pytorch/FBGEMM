@@ -2360,7 +2360,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             or self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB
         ):
             list_of_state_dict = [
-                {"exp_avg": states[0], "exp_avg_sq": states[1]}
+                {"exp_avg": states[0], "exp_avg_sq": states[1], "iter": self.iter}
                 for states in split_optimizer_states
             ]
         elif self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
