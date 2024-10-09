@@ -553,6 +553,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     assert set(optimizer_states_dict.keys()) == {
                         "exp_avg",
                         "exp_avg_sq",
+                        "iter",
                     }
 
         if optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
@@ -641,6 +642,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     assert set(optimizer_states_dict.keys()) == {
                         "exp_avg",
                         "exp_avg_sq",
+                        "iter",
                     }
 
         if optimizer == OptimType.LARS_SGD:
