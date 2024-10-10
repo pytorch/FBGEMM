@@ -45,7 +45,7 @@ on:
 
 jobs:
   test_pypi_install_cpu:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cpu')) }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cpu')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
