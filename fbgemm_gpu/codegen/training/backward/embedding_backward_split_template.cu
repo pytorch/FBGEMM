@@ -858,17 +858,6 @@ Tensor {{ embedding_cuda_op }}(
             vdesc,
             )
      %}
-#define ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(EDIM, DECAY_MODE)   \
-                    backward_warp_per_row_kernel =              \
-                        {{ hip_kernel }}                        \
-                            <emb_t,                             \
-                             grad_t,                            \
-                             cache_t,                           \
-                             kFixedMaxVecsPerThread,            \
-                             kThreadGroupSize,                  \
-                             kUseVecBlocking,                   \
-                             EDIM,                              \
-                             DECAY_MODE>
     {%- endif %}
 
     DISPATCH_EMB_GRAD_CACHE_TYPES(
@@ -1211,62 +1200,33 @@ Tensor {{ embedding_cuda_op }}(
                 }
 #ifdef USE_ROCM
                 {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and not dense and not is_gwd_kernel and not vbe and not ssd%}
-                bool hip_opt_kernel_supported = false;      // TODO: figure out support range
-                if (dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float) {
-                    const static std::set<int> D_emb_s {64, 128, 160, 192, 256};
-                    hip_opt_kernel_supported = (D_emb_s.find(max_D) != D_emb_s.end());
-                }
-                if(hip_opt_kernel_supported)
+                if(dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float)
                 {
                     constexpr int segments_per_workgroup = 4;
                     warp_per_row_grid_size = div_round_up(sorted_linear_indices_num_runs[0].item<int32_t>(), segments_per_workgroup);
                     blockSize = dim3(256);
                     warp_per_row_smem_bytes = 0;
-
-                    if (weight_decay_mode == 1) {
-                        constexpr int32_t WDM = 1;
-                        if (max_D == 64) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
-                        } else if (max_D == 128) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
-                        } else if (max_D == 160) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(160, WDM);
-                        } else if (max_D == 192) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
-                        } else if (max_D == 256) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256, WDM);
-                        }
-                    } else if (weight_decay_mode == 2) {
-                        constexpr int32_t WDM = 2;
-                        if (max_D == 64) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
-                        } else if (max_D == 128) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
-                        } else if (max_D == 160) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(160, WDM);
-                        } else if (max_D == 192) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
-                        } else if (max_D == 256) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256, WDM);
-                        }
-                    } else {
-                        constexpr int32_t WDM = 0;
-                        if (max_D == 64) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(64, WDM);
-                        } else if (max_D == 128) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(128, WDM);
-                        } else if (max_D == 160) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(160, WDM);
-                        } else if (max_D == 192) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(192, WDM);
-                        } else if (max_D == 256) {
-                            ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL(256, WDM);
-                        }
+                    {%- for kDimSize in [64, 128, 160, 192, 256] %}
+                    {%- for kWeightDecayMode in [0, 1, 2] %}
+                    if(max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
+                    {
+                        backward_warp_per_row_kernel =
+                            {{ hip_kernel }}
+                                <emb_t,
+                                grad_t,
+                                cache_t,
+                                kFixedMaxVecsPerThread,
+                                kThreadGroupSize,
+                                kUseVecBlocking,
+                                {{ kDimSize }},
+                                {{ kWeightDecayMode }}>;
+                        // std::cout << "Calling HIP Perf Kernel" << std::endl;
+                        {%- if nobag %}
+                        // std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
+                        {%- endif %}
                     }
-                    // std::cout << "Calling HIP Perf Kernel" << std::endl;
-                    {%- if nobag %}
-                    // std::cout << "[DEBUG]: Calling nobag Perf Kernel" << std::endl;
-                    {%- endif %}
+                    {%- endfor %}
+                    {%- endfor %}
                 }
                 {%- endif %}
 #endif
@@ -1361,7 +1321,6 @@ Tensor {{ embedding_cuda_op }}(
     return Tensor();
     {%- endif %}
 }
-#undef ASSIGN_BACKWARD_WARP_PER_ROW_KERNEL
 
 ////////////////////////////////////////////////////////////////////////////////
 // Op registrations
