@@ -1219,7 +1219,7 @@ Tensor {{ embedding_cuda_op }}(
                 if(hip_opt_kernel_supported)
                 {
                     constexpr int segments_per_workgroup = 4;
-                    warp_per_row_grid_size = div_round_up(sorted_linear_indices_run.numel(), segments_per_workgroup);
+                    warp_per_row_grid_size = div_round_up(sorted_linear_indices_num_runs[0].item<int32_t>(), segments_per_workgroup);
                     blockSize = dim3(256);
                     warp_per_row_smem_bytes = 0;
 
