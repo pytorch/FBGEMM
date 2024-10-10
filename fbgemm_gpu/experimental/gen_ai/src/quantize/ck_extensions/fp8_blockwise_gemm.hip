@@ -15,8 +15,6 @@
 #include <c10/hip/HIPStream.h>
 #include <torch/torch.h>
 
-#if defined(USE_ROCM)
-
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
@@ -272,5 +270,3 @@ at::Tensor f8f8bf16_blockwise(
 }
 
 } // namespace fbgemm_gpu
-
-#endif // defined(USE_ROCM)
