@@ -103,6 +103,7 @@ def _kernel_quantize_mx4(
     STOCHASTIC_CASTING: tl.constexpr,
     FP4_EXP_BIAS: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
+    USE_INT64: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -122,6 +123,7 @@ def _kernel_quantize_mx4(
         STOCHASTIC_CASTING (bool): Whether to use stochastic rounding when downcasting.
         FP4_EXP_BIAS (int): Exponent bias of target mx4 format.
         GROUP_LOAD (int): Number of groups to process simultaneously.
+        USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
     """
     # Define Constant Expressions.
     FP32_EXP_MASK: tl.constexpr = 0x7F800000  # type: ignore[Incompatible variable type]
@@ -147,6 +149,9 @@ def _kernel_quantize_mx4(
 
     # Get the current thread number.
     pid = tl.program_id(0)
+    # For very large inputs, we need to use int64 indexes. This is slower but necessary.
+    if USE_INT64:
+        pid = pid.to(tl.int64)
     # Find starting offsets for this thread. These are calculated before adjusting for padding.
     input_start = pid * (GROUPS_PER_THREAD * GROUP_SIZE)
     output_start = pid * OUTPUT_CHUNK_SIZE
@@ -428,6 +433,8 @@ def triton_quantize_mx4(
     else:
         rand_bits = None
 
+    # Check if we need to use int64 for indexing.
+    use_int64 = a.numel() > 2**31 - 1
     # Invoke triton quantization kernel over rows.
     grid = (num_threads,)
     _kernel_quantize_mx4[grid](
@@ -452,6 +459,8 @@ def triton_quantize_mx4(
         FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
         # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
+        # pyre-ignore[6]
+        USE_INT64=use_int64,
     )
     # Inputs are now fully quantized and ready to return.
     # Try to return in the original shape if possible.
@@ -472,6 +481,7 @@ def _kernel_dequantize_mx4(
     GROUPS_PER_THREAD,
     GROUP_SIZE: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
+    USE_INT64: tl.constexpr,
 ) -> None:
     """Dequantize a packed MX4 tensor and apply scaling.
 
@@ -483,6 +493,7 @@ def _kernel_dequantize_mx4(
         GROUPS_PER_THREAD (int): Number of groups each thread is responsible for.
         GROUP_SIZE (int): Size of chunks that use the same shared exponent.
         GROUP_LOAD (int): Number of groups to process simultaneously.
+        USE_INT64 (bool): Whether to use int64 for indexing.
     """
     # Define constants.
     MX4_BIT_MASK: tl.constexpr = 0xF  # type: ignore[Incompatible variable type]
@@ -495,6 +506,9 @@ def _kernel_dequantize_mx4(
 
     # Get the current thread number.
     pid = tl.program_id(0)
+    # For very large tensors, use int64 for indexing. This is slower but necessary.
+    if USE_INT64:
+        pid = pid.to(tl.int64)
     # Find the starting offsets for this thread.
     input_start = pid * (GROUPS_PER_THREAD * PACKED_GROUP_SIZE)
     exp_start = input_start + GROUP_SIZE // 2
@@ -600,6 +614,8 @@ def triton_dequantize_mx4(
     # Create output tensor.
     output_elems = num_groups * group_size
     out = torch.empty([output_elems], device=a.device, dtype=torch.float)
+    # Check if we need to use int64 for indexing.
+    use_int64 = a.numel() > 2**31 - 1
     # Invoke triton dequantization kernel over rows.
     grid = (num_threads,)
     _kernel_dequantize_mx4[grid](
@@ -612,6 +628,8 @@ def triton_dequantize_mx4(
         GROUP_SIZE=group_size,
         # pyre-ignore[6]
         GROUP_LOAD=GROUP_LOAD,
+        # pyre-ignore[6]
+        USE_INT64=use_int64,
     )
 
     out_shape = list(orig_shape[:-1]) + [-1]
