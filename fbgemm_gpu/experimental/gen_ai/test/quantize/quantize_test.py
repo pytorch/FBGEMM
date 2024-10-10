@@ -735,6 +735,73 @@ class FP8Tests(unittest.TestCase):
         y_ref = torch.bmm(x, w.transpose(1, 2))
         torch.testing.assert_close(y_ref, y_int4, atol=8.0e-2, rtol=8.0e-2)
 
+    @unittest.skipIf(
+        ((not torch.version.cuda) and (not torch.version.hip)),
+        "Skip if no GPU is present.",
+    )
+    def test_quantize_compile(self):
+        # Test that quantize operators can be torch compiled.
+        # Correctness is covered in other tests, we just want to make sure
+        # compile doesnt fail.
+        if torch.version.hip:
+            fp8_dtype = torch.float8_e4m3fnuz
+        else:
+            fp8_dtype = torch.float8_e4m3fn
+        # Initialize tensors for testing.
+        M, N, K = 256, 256, 256
+        X = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        XQ = torch.randn(M, K, device="cuda").to(fp8_dtype)
+        WQ = torch.randn(N, K, device="cuda").to(fp8_dtype)
+        row_scale = torch.randn(M, device="cuda")
+        block_scale = torch.randn(M // 128, K // 128, device="cuda")
+        tensor_scale = torch.tensor(1.0, device="cuda")
+
+        # Run various compiled quantize ops.
+        # Quantize ops.
+        torch.compile(torch.ops.fbgemm.quantize_fp8_per_tensor)(X)
+        torch.compile(torch.ops.fbgemm.quantize_fp8_per_row)(X)
+        torch.compile(torch.ops.fbgemm.quantize_fp8_per_col)(X)
+
+        # GEMM ops.
+        torch.compile(torch.ops.fbgemm.f8f8bf16_blockwise)(
+            XQ, WQ, block_scale, block_scale
+        )
+        torch.compile(torch.ops.fbgemm.f8f8bf16_tensorwise)(XQ, WQ, 1.0)
+        torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise)(XQ, WQ, row_scale, row_scale)
+
+        # These ops are only supported on cuda for now.
+        if torch.version.cuda:
+            torch.compile(torch.ops.fbgemm.i8i8bf16)(
+                XQ.view(torch.int8), WQ.view(torch.int8), 1.0, 1
+            )
+            torch.compile(torch.ops.fbgemm.f8f8bf16)(XQ, WQ, tensor_scale)
+            torch.compile(torch.ops.fbgemm.f8f8bf16_cublas)(XQ, WQ)
+            torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise_batched)(
+                XQ.view(1, M, K),
+                WQ.view(1, N, K),
+                row_scale.view(1, M),
+                row_scale.view(1, N),
+            )
+            torch.compile(torch.ops.fbgemm.f8i4bf16_rowwise)(
+                XQ,
+                WQ[:, ::2].view(torch.int8).contiguous(),
+                row_scale,
+                block_scale[0],
+                block_scale[0],
+            )
+            torch.compile(torch.ops.fbgemm.bf16i4bf16_rowwise)(
+                X,
+                WQ[:, ::2].view(torch.int8).contiguous(),
+                block_scale[0],
+                block_scale[0],
+            )
+            torch.compile(torch.ops.fbgemm.bf16i4bf16_rowwise_batched)(
+                X.view(1, M, K),
+                WQ[:, ::2].view(1, N, K // 2).view(torch.int8).contiguous(),
+                block_scale[0],
+                block_scale[0],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
