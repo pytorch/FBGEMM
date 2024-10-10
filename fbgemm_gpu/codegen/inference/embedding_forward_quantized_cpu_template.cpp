@@ -70,62 +70,66 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
     const int32_t B = (offsets.size(0) - 1) / T;
     TORCH_CHECK(B > 0);
 
-    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_hashmap_insert_{{ wdesc }}_cpu", [&] {
-        using uidx_t =
-            std::conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
+    AT_DISPATCH_INDEX_TYPES(hash_table.scalar_type(), "pruned_hashmap_insert_{{ wdesc }}_cpu", [&] {
+        using hash_t = index_t;
 
-        const auto* indices_acc = indices.data_ptr<index_t>();
-        const auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
-        const auto* offsets_acc = offsets.data_ptr<index_t>();
+        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "pruned_hashmap_insert_{{ wdesc }}_cpu", [&] {
+            using uidx_t =
+                std::conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
 
-        auto hash_table_acc = hash_table.accessor<int64_t, 2>();
-        const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
+            const auto* indices_acc = indices.data_ptr<index_t>();
+            const auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
+            const auto* offsets_acc = offsets.data_ptr<index_t>();
 
-        for (const auto t : c10::irange(T)) {
-            const auto table_start = hash_table_offsets_acc[t];
-            const auto table_end = hash_table_offsets_acc[t + 1];
-            if (table_start == table_end) {
-                continue;
-            }
-            const auto capacity = table_end - table_start;
-            
-            for (const auto b : c10::irange(B)) {
-                const auto indices_start = offsets_acc[t * B + b];
-                const auto indices_end = offsets_acc[t * B + b + 1];
-                const auto L = indices_end - indices_start;
+            auto hash_table_acc = hash_table.accessor<hash_t, 2>();
+            const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
+
+            for (const auto t : c10::irange(T)) {
+                const auto table_start = hash_table_offsets_acc[t];
+                const auto table_end = hash_table_offsets_acc[t + 1];
+                if (table_start == table_end) {
+                    continue;
+                }
+                const auto capacity = table_end - table_start;
                 
-                for (const auto l : c10::irange(L)) {
-                    const auto idx = indices_acc[indices_start + l];
-                    const auto dense_idx = dense_indices_acc[indices_start + l];
-                    if (dense_idx == -1) {
-                        // -1 means this row has been pruned, do not insert it.
-                        continue;
-                    }
+                for (const auto b : c10::irange(B)) {
+                    const auto indices_start = offsets_acc[t * B + b];
+                    const auto indices_end = offsets_acc[t * B + b + 1];
+                    const auto L = indices_end - indices_start;
+                    
+                    for (const auto l : c10::irange(L)) {
+                        const auto idx = indices_acc[indices_start + l];
+                        const auto dense_idx = dense_indices_acc[indices_start + l];
+                        if (dense_idx == -1) {
+                            // -1 means this row has been pruned, do not insert it.
+                            continue;
+                        }
 
-                    auto slot = pruned_hash_function(static_cast<uidx_t>(idx)) % capacity;
-                    while (true) {
-                        const auto ht_idx = table_start + static_cast<int64_t>(slot);
-                        const auto slot_sparse_idx = hash_table_acc[ht_idx][0];
-                        
-                        // Empty slot
-                        if (slot_sparse_idx == -1) {
-                            hash_table_acc[ht_idx][0] = idx;
-                            hash_table_acc[ht_idx][1] = dense_idx;
-                            break;
+                        auto slot = pruned_hash_function(static_cast<uidx_t>(idx)) % capacity;
+                        while (true) {
+                            const auto ht_idx = table_start + static_cast<int64_t>(slot);
+                            const auto slot_sparse_idx = hash_table_acc[ht_idx][0];
+                            
+                            // Empty slot
+                            if (slot_sparse_idx == -1) {
+                                hash_table_acc[ht_idx][0] = idx;
+                                hash_table_acc[ht_idx][1] = dense_idx;
+                                break;
+                            }
+                            
+                            // Already exists (shouldn't happen in practice)
+                            if (slot_sparse_idx == idx) {
+                                hash_table_acc[ht_idx][1] = dense_idx;
+                                break;
+                            }
+                            
+                            // Linear probe
+                            slot = (slot + 1) % capacity;
                         }
-                        
-                        // Already exists (shouldn't happen in practice)
-                        if (slot_sparse_idx == idx) {
-                            hash_table_acc[ht_idx][1] = dense_idx;
-                            break;
-                        }
-                        
-                        // Linear probe
-                        slot = (slot + 1) % capacity;
                     }
                 }
             }
-        }
+        });
     });
 
     return;
