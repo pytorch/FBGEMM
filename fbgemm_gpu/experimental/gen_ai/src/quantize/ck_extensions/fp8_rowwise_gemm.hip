@@ -18,8 +18,6 @@
 #include <c10/hip/HIPStream.h>
 #include <torch/torch.h>
 
-#if defined(USE_ROCM)
-
 #include "kernels/fp8_rowwise_kernel_manifest.h"
 
 namespace fbgemm_gpu {
@@ -302,5 +300,3 @@ at::Tensor f8f8bf16_rowwise(
 }
 
 } // namespace fbgemm_gpu
-
-#endif // defined(USE_ROCM)
