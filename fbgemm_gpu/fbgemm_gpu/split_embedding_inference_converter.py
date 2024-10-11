@@ -119,9 +119,7 @@ class SplitEmbInferenceConverter:
                             f"Embedding dim {D} couldn't be divided by align size {weights_ty.align_size()}!"
                         )
                         assert D % 4 == 0
-                        weights_ty = (
-                            SparseType.FP16
-                        )  # fall back to FP16 if dimension couldn't be aligned with the required size
+                        weights_ty = SparseType.FP16  # fall back to FP16 if dimension couldn't be aligned with the required size
                     embedding_specs.append(("", E, D, weights_ty))
 
                 weight_lists = []

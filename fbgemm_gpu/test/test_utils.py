@@ -212,7 +212,9 @@ def use_cpu_strategy() -> st.SearchStrategy[bool]:
         st.booleans()
         if (gpu_available and not TEST_WITH_ROCM)
         # fmt: off
-        else st.just(False) if (gpu_available and TEST_WITH_ROCM) else st.just(True)
+        else st.just(False)
+        if (gpu_available and TEST_WITH_ROCM)
+        else st.just(True)
         # fmt: on
     )
 

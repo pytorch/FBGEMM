@@ -263,7 +263,6 @@ class SSDUtilsTest(unittest.TestCase):
         for indices, lookup_indices, count, lookup_count in zip(
             all_indices, all_lookup_indices, all_counts, all_lookup_counts
         ):
-
             # Run reference
             # Prepare inputs for the reference run
             sp_prev_curr_map_ref = torch.zeros_like(lookup_indices)
