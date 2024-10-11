@@ -469,7 +469,6 @@ Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda
 ////////////////////////////////////////////////////////////////////////////////
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-
     {%- for weighted in [True, False] %}
     {%- for nobag in ([False] if (weighted or vbe) else [True, False]) %}
     {%- set wdesc = "weighted" if weighted else "unweighted" %}
@@ -485,11 +484,14 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       else [False]) %}
     {%- set gwddesc = "_gwd" if is_gwd else "" %}
     {%- set desc_suffix = wdesc + vdesc + gwddesc %}
+
     {%- if is_forward %}
     {%- set embedding_codegen_forward_op = "{}_embedding{}_codegen_forward_{}_pt2".format(
       fwd_mdesc, ndesc, desc_suffix
       )
     %}
+    {%- if ssd or is_gwd or nobag %}
+    /* Register scehema for wrappers with GPU-only support */
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
         "    Tensor host_weights, "
         "    Tensor dev_weights, "
@@ -540,17 +542,20 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         , {PT2_COMPLIANT_TAG}
         {%- endif %}
         );
-
+    {%- endif %}
     DISPATCH_TO_CUDA(
       "{{ embedding_codegen_forward_op }}_wrapper",
       {{ embedding_codegen_forward_op }}_cuda_wrapper
     );
     m.impl("{{ embedding_codegen_forward_op }}_wrapper", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ embedding_codegen_forward_op }}_meta_wrapper)));
-    {%- else %}
+    
+    {%- else %} {#-/* backward */#}
     {%- set embedding_codegen_backward_op = "{}_embedding{}_backward_codegen_{}_{}_pt2".format(
         bwd_mdesc, ndesc, optimizer, desc_suffix
         )
     %}
+    {%- if ssd or is_gwd or nobag or not has_cpu_support %}
+    /* Register scehema for wrappers with GPU-only support */
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
         "    Tensor(a!) host_weights, "
@@ -606,11 +611,12 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    , int output_dtype=0 "
         {%- endif %}
         ") -> Tensor");
+    {%- endif %}
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_backward_op }}_wrapper",
         {{ embedding_codegen_backward_op }}_cuda_wrapper
     );
-    {%- endif %}
+    {%- endif %} {#-/* if is_forward */#}
     {%- endfor %} {#-/*for is_gwd*/#}
     {%- endfor %} {#-/*for nobag*/#}
     {%- endfor %} {#-/*for weighted*/#}
@@ -620,6 +626,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
             fwd_mdesc, vdesc
         )
     %}
+    {%- if ssd %}
+    /* Register scehema for wrappers with GPU-only support */
     m.def("{{ embedding_codegen_grad_indice_weights_op }}_wrapper("
         "    Tensor grad_output, "
         "    Tensor host_weights, "
@@ -647,7 +655,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor feature_requires_grad"
         {%- endif %}
         ") -> Tensor");
-
+    {%- endif %}
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_grad_indice_weights_op }}_wrapper",
         {{ embedding_codegen_grad_indice_weights_op }}_cuda_wrapper
