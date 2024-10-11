@@ -1147,6 +1147,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     torch.zeros(1, dtype=torch.int64, device=self.current_device),
                     persistent=False,
                 )
+            self.iter_int: int = 0
 
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
@@ -1791,10 +1792,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets=self.momentum2_offsets,
             placements=self.momentum2_placements,
         )
-        # Ensure iter is always on CPU so the increment doesn't synchronize.
-        if not self.iter.is_cpu:
-            self.iter = self.iter.cpu()
-        self.iter[0] += 1
+        # Sync with loaded state
+        if self.iter_int == 0:
+            self.iter_int = int(self.iter.item())
+        # Increment the iteration counter
+        self.iter_int += 1  # used for local computation
+        self.iter.add_(1)  # used for checkpointing
 
         if self.optimizer == OptimType.ADAM:
             return self._report_io_size_count(
@@ -1804,9 +1807,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                    #  int]`.
-                    self.iter.item(),
+                    self.iter_int,
                 ),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
@@ -1817,9 +1818,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                    #  int]`.
-                    self.iter.item(),
+                    self.iter_int,
                 ),
             )
         if self.optimizer == OptimType.LAMB:
@@ -1830,9 +1829,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                    #  int]`.
-                    self.iter.item(),
+                    self.iter_int,
                 ),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB:
@@ -1843,9 +1840,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    # pyre-fixme[6]: Expected `int` for 5th param but got `Union[float,
-                    #  int]`.
-                    self.iter.item(),
+                    self.iter_int,
                 ),
             )
 
@@ -1883,7 +1878,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self._used_rowwise_adagrad_with_counter:
             if (
                 self._max_counter_update_freq > 0
-                and self.iter.item() % self._max_counter_update_freq == 0
+                and self.iter_int % self._max_counter_update_freq == 0
             ):
                 row_counter_dev = self.row_counter_dev.detach()
                 if row_counter_dev.numel() > 0:
@@ -1901,16 +1896,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         momentum1,
                         prev_iter,
                         row_counter,
-                        int(
-                            self.iter.item()
-                        ),  # Cast to int to suppress pyre type error
+                        self.iter_int,
                         self.max_counter.item(),
                     ),
                 )
             elif self._used_rowwise_adagrad_with_global_weight_decay:
-                iter_ = int(self.iter.item())
                 apply_global_weight_decay = (
-                    iter_ >= self.gwd_start_iter and self.training
+                    self.iter_int >= self.gwd_start_iter and self.training
                 )
                 return self._report_io_size_count(
                     "fwd_output",
@@ -1918,7 +1910,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         common_args,
                         self.optimizer_args,
                         momentum1,
-                        iter=iter_,
+                        iter=self.iter_int,
                         apply_global_weight_decay=apply_global_weight_decay,
                         prev_iter_dev=self.prev_iter_dev,
                         gwd_lower_bound=self.gwd_lower_bound,
@@ -1943,14 +1935,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Returns:
             Sparse embedding weights and optimizer states will be updated in-place.
         """
-        should_ema = self.iter.item() % int(ensemble_mode["step_ema"]) == 0
-        should_swap = self.iter.item() % int(ensemble_mode["step_swap"]) == 0
+        should_ema = self.iter_int % int(ensemble_mode["step_ema"]) == 0
+        should_swap = self.iter_int % int(ensemble_mode["step_swap"]) == 0
         if should_ema or should_swap:
             weights = self.split_embedding_weights()
             states = self.split_optimizer_states()
             coef_ema = (
                 0.0
-                if self.iter.item() <= int(ensemble_mode["step_start"])
+                if self.iter_int <= int(ensemble_mode["step_start"])
                 else ensemble_mode["step_ema_coef"]
             )
             for i in range(len(self.embedding_specs)):
@@ -2337,7 +2329,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         for name, buffer in self.named_buffers():
             if name == state:
                 return buffer
-        return torch.tensor(0)
+        raise ValueError(f"Optimizer buffer {state} not found")
 
     @torch.jit.export
     def get_optimizer_state(self) -> List[Dict[str, torch.Tensor]]:
@@ -2355,7 +2347,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
                     if self._used_rowwise_adagrad_with_counter
                     else (
-                        {"sum": states[0], "prev_iter": states[1]}
+                        {
+                            "sum": states[0],
+                            "prev_iter": states[1],
+                            "iter": self.iter,
+                        }
                         if self._used_rowwise_adagrad_with_global_weight_decay
                         else {"sum": states[0]}
                     )
@@ -2583,9 +2579,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Sets the optimizer step.
 
         Args:
-            step (int): The setp value to set to
+            step (int): The step value to set to
         """
-        self.log(f"set_optimizer_step from {self.iter[0]} to {step}")
+        self.log(f"set_optimizer_step from {self.iter[0]=} to {step=}")
         if self.optimizer == OptimType.NONE:
             raise NotImplementedError(
                 f"Setting optimizer step is not supported for {self.optimizer}"
