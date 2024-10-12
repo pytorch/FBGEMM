@@ -441,8 +441,8 @@
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>values</strong> (<em>Tensor</em>) – Jagged tensor values</p></li>
 <li><p><strong>offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
-<li><p><strong>max_lengths</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>[</em><em>]</em>) – A list with max_length for each jagged dimension.</p></li>
-<li><p><strong>padding_value</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.12)"><em>float</em></a>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
+<li><p><strong>max_lengths</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>[</em><em>]</em>) – A list with max_length for each jagged dimension.</p></li>
+<li><p><strong>padding_value</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -478,7 +478,7 @@
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>values</strong> (<em>Tensor</em>) – 2D tensor containing the values of the jagged tensor.</p></li>
 <li><p><strong>x_offsets</strong> (<em>Tensor</em>) – 1D tensor containing the starting point of each jagged row in the values tensor.</p></li>
-<li><p><strong>max_sequence_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – Maximum length of any row in the jagged dimension.</p></li>
+<li><p><strong>max_sequence_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Maximum length of any row in the jagged dimension.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -511,8 +511,8 @@
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>values</strong> (<em>Tensor</em>) – 1D tensor containing the values of the jagged tensor.</p></li>
 <li><p><strong>offsets</strong> (<em>Tensor</em>) – 1D tensor containing the starting point of each jagged row in the values tensor.</p></li>
-<li><p><strong>max_sequence_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – Maximum length of any row in the jagged dimension.</p></li>
-<li><p><strong>padding_value</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
+<li><p><strong>max_sequence_length</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Maximum length of any row in the jagged dimension.</p></li>
+<li><p><strong>padding_value</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Value to set in the empty areas of the dense output, outside of the jagged tensor coverage.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -541,7 +541,7 @@
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>dense</strong> (<em>Tensor</em>) – A dense input tensor to be converted</p></li>
 <li><p><strong>x_offsets</strong> (<em>Tensor</em><em>[</em><em>]</em>) – A list of jagged offset tensors, one for each jagged dimension.</p></li>
-<li><p><strong>total_L</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><em>int</em></a><em>, </em><em>Optional</em>) – Total number of values in the resulting jagged tensor.</p></li>
+<li><p><strong>total_L</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>Optional</em>) – Total number of values in the resulting jagged tensor.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
