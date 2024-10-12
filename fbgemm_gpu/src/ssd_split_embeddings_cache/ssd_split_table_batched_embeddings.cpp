@@ -414,7 +414,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length) {
     CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-    CHECK_EQ(db_->get_max_D(), shape_[1]);
+    CHECK_GE(db_->get_max_D(), shape_[1]);
     CHECK_TRUE(snapshot_handle_ != nullptr);
     auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
     db_->get_range_from_snapshot(
@@ -430,8 +430,16 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const int64_t length,
       const at::Tensor& weights) {
     CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
-    CHECK_EQ(db_->get_max_D(), shape_[1]);
-    db_->set_range(weights, start + row_offset_, length);
+    CHECK_GE(db_->get_max_D(), shape_[1]);
+    int pad_right = db_->get_max_D() - weights.size(1);
+    if (pad_right == 0) {
+      db_->set_range(weights, start + row_offset_, length);
+    } else {
+      std::vector<int64_t> padding = {0, pad_right, 0, 0};
+      auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
+      CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+      db_->set_range(padded_weights, start + row_offset_, length);
+    }
   }
 
   c10::IntArrayRef size() {
