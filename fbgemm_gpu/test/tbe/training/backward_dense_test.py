@@ -36,9 +36,16 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gradcheck, optests, skipIfRocm, use_cpu_strategy
+    from test_utils import (
+        additional_decorators,
+        gradcheck,
+        optests,
+        skipIfRocm,
+        use_cpu_strategy,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
         gradcheck,
         optests,
         skipIfRocm,
@@ -49,7 +56,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-@optests.generate_opcheck_tests(fast=True)
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardDenseTest(unittest.TestCase):
     @skipIfRocm("Currently runs into memory access issues")
     @given(
