@@ -586,8 +586,9 @@ def uvm(
         assert (
             use_cache
         ), "--use-cache is required for --no-conflict-misses or all-conflict-misses"
-        assert (no_conflict_misses and not all_conflict_misses) or (
-            not no_conflict_misses and all_conflict_misses
+        assert (
+            (no_conflict_misses and not all_conflict_misses)
+            or (not no_conflict_misses and all_conflict_misses)
         ), "Cannot use both --no-conflict-misses and --all-conflict-misses at the same time!"
         logging.info(
             "Evaluate {}: Cache shape {}".format(

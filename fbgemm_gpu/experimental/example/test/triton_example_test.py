@@ -15,8 +15,10 @@ import triton.language as tl
 
 @triton.jit
 # fmt: off
-def triton_add_kernel(x_ptr, y_ptr, z_ptr, n_elements, BLOCK_SIZE: tl.constexpr) -> None:
-# fmt: on  # noqa E115
+def triton_add_kernel(
+    x_ptr, y_ptr, z_ptr, n_elements, BLOCK_SIZE: tl.constexpr
+) -> None:
+    # fmt: on  # noqa E115
 
     # We use a 1D launch grid so axis is 0.
     pid = tl.program_id(axis=0)

@@ -271,9 +271,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                 reference = torch.from_numpy(
                     fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference(
                         quantize_data_numpy
-                    )[
-                        :, :ncols
-                    ]
+                    )[:, :ncols]
                 )
             if output_dtype == SparseType.FP32:
                 torch.testing.assert_close(

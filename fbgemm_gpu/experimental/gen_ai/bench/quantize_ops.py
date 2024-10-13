@@ -91,7 +91,7 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
         self,
         *args,
         bench_quantize: bool = False,
-        use_rotating_buffer_bench: bool = False
+        use_rotating_buffer_bench: bool = False,
     ) -> float:
         """Benchmark runtime of this operator."""
         if bench_quantize:

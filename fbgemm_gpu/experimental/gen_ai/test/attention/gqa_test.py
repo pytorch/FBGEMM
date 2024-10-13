@@ -335,7 +335,6 @@ class Int4GQATest(unittest.TestCase):
             q[0][0][0][0] = 1000
         # cache_x_ref is for input to reference implementation
         if dtype in ["fp8", "int4"]:
-
             if dtype == "fp8":
                 num_groups = 1
                 qparam_offset = 4 * num_groups

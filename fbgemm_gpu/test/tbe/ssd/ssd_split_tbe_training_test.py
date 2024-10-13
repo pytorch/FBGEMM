@@ -925,10 +925,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # pyre-fixme[16]: Optional type has no attribute `float`.
                 optim_state_r.add_(
                     # pyre-fixme[16]: `Optional` has no attribute `float`.
-                    emb_r.weight.grad.float()
-                    .to_dense()
-                    .pow(2)
-                    .mean(dim=1)
+                    emb_r.weight.grad.float().to_dense().pow(2).mean(dim=1)
                 )
                 torch.testing.assert_close(
                     optim_state_t.float(),

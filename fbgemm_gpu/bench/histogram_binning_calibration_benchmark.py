@@ -178,9 +178,9 @@ def cli(
             if step >= warmup_runs:
                 total_time["hbc"]["cpu"][data_type] += hbc_time
                 total_time["hbc_by_feature"]["cpu"][data_type] += hbc_by_feature_time
-                total_time["generic_hbc_by_feature"]["cpu"][
-                    data_type
-                ] += generic_hbc_by_feature_time
+                total_time["generic_hbc_by_feature"]["cpu"][data_type] += (
+                    generic_hbc_by_feature_time
+                )
 
         if torch.cuda.is_available():
             bin_num_examples_gpu: Tensor = bin_num_examples.cuda()
@@ -260,12 +260,12 @@ def cli(
                 )
                 if step >= warmup_runs:
                     total_time["hbc"]["gpu"][data_type] += hbc_time
-                    total_time["hbc_by_feature"]["gpu"][
-                        data_type
-                    ] += hbc_by_feature_time
-                    total_time["generic_hbc_by_feature"]["gpu"][
-                        data_type
-                    ] += generic_hbc_by_feature_time
+                    total_time["hbc_by_feature"]["gpu"][data_type] += (
+                        hbc_by_feature_time
+                    )
+                    total_time["generic_hbc_by_feature"]["gpu"][data_type] += (
+                        generic_hbc_by_feature_time
+                    )
 
     for op, curr_items in total_time.items():
         for platform, data_items in curr_items.items():

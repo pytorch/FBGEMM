@@ -1436,7 +1436,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         if len(self.timesteps_prefetched) == 0:
-
             with self._recording_to_timer(
                 self.ssd_prefetch_read_timer,
                 context=self.step,
@@ -1776,7 +1775,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         this function fetch the stats from EmbeddingRocksDB and report it with stats_reporter
         """
         ssd_io_duration = self.ssd_db.get_rocksdb_io_duration(
-            self.step, self.stats_reporter.report_interval  # pyre-ignore
+            self.step,
+            self.stats_reporter.report_interval,  # pyre-ignore
         )
 
         if len(ssd_io_duration) != 5:
@@ -1878,7 +1878,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             return
 
         l2_cache_perf_stats = self.ssd_db.get_l2cache_perf(
-            self.step, stats_reporter.report_interval  # pyre-ignore
+            self.step,
+            stats_reporter.report_interval,  # pyre-ignore
         )
 
         if len(l2_cache_perf_stats) != 15:
@@ -2001,9 +2002,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if self.stats_reporter is not None and self.stats_reporter.should_report(
             self.step
         ):
-            assert (
-                timer
-            ), "We shouldn't be here, async timer must have been initiated if reporter is present."
+            assert timer, "We shouldn't be here, async timer must have been initiated if reporter is present."
             return timer.recording(**kwargs)
         # No-Op context manager
         return contextlib.nullcontext()
