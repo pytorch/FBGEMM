@@ -36,6 +36,7 @@ class KvTensorWrapperTest(TestCase):
     def test_read_tensor_using_wrapper_from_db(self) -> None:
         E = int(1e4)
         D = 128
+        max_D = 256  # max emb dimension seen by rocksDB
         N = 1000
         weights_precision = SparseType.FP32
         weights_dtype = weights_precision.as_dtype()
@@ -49,7 +50,7 @@ class KvTensorWrapperTest(TestCase):
                 0,  # ssd_memtable_flush_period,
                 0,  # ssd_memtable_flush_offset,
                 4,  # ssd_l0_files_per_compact,
-                D,  # embedding_dim
+                max_D,  # embedding_dim
                 0,  # ssd_rate_limit_mbps,
                 1,  # ssd_size_ratio,
                 8,  # ssd_compaction_trigger,
@@ -65,13 +66,14 @@ class KvTensorWrapperTest(TestCase):
             indices = torch.randperm(N)
             # insert the weights with the corresponding indices into the table
             weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
-            output_weights = torch.empty_like(weights)
+            padded_weights = torch.nn.functional.pad(weights, (0, max_D - D))
+            output_weights = torch.empty_like(padded_weights)
             count = torch.tensor([N])
-            ssd_db.set(indices, weights, count)
+            ssd_db.set(indices, padded_weights, count)
 
             # force waiting for set to complete
             ssd_db.get(indices, output_weights, torch.tensor(indices.shape[0]))
-            torch.testing.assert_close(weights, output_weights)
+            torch.testing.assert_close(padded_weights, output_weights)
 
             # create a view tensor wrapper
             snapshot = ssd_db.create_snapshot()
@@ -104,6 +106,7 @@ class KvTensorWrapperTest(TestCase):
     def test_write_tensor_to_db(self) -> None:
         E = int(1e4)  # num total rows
         D = 128  # emb dimension
+        max_D = 256  # max emb dimension seen by rocksDB
         N = 1000  # window size
         weights_precision = SparseType.FP32
         weights_dtype = weights_precision.as_dtype()
@@ -117,7 +120,7 @@ class KvTensorWrapperTest(TestCase):
                 0,  # ssd_memtable_flush_period,
                 0,  # ssd_memtable_flush_offset,
                 4,  # ssd_l0_files_per_compact,
-                D,  # embedding_dim
+                max_D,  # embedding_dim
                 0,  # ssd_rate_limit_mbps,
                 1,  # ssd_size_ratio,
                 8,  # ssd_compaction_trigger,
@@ -128,9 +131,9 @@ class KvTensorWrapperTest(TestCase):
                 32,  # row_storage_bitwidth
                 10 * (2**20),  # block cache size
             )
-
             weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
-            output_weights = torch.empty_like(weights)
+            padded_weights = torch.nn.functional.pad(weights, (0, max_D - D))
+            output_weights = torch.empty_like(padded_weights)
 
             # no snapshot needed for writing to rocksdb
             tensor_wrapper0 = torch.classes.fbgemm.KVTensorWrapper(
