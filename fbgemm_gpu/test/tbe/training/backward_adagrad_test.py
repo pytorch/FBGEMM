@@ -15,6 +15,7 @@ from typing import Any, Dict
 from hypothesis import given, settings
 
 from .backward_adagrad_common import (
+    additional_decorators,
     adjust_mixed_B_st,
     common_settings,
     common_strategy,
@@ -31,7 +32,7 @@ test_st: Dict[str, Any] = common_strategy.copy()
 test_st["D"] = st.integers(min_value=2, max_value=128)
 
 
-@optests.generate_opcheck_tests(fast=True)
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardAdagradTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(mixed_B=st.booleans(), **test_st)

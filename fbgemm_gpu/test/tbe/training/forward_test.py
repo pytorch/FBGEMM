@@ -11,7 +11,6 @@
 
 import random
 import unittest
-from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
 import numpy as np
@@ -45,28 +44,40 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
 # pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
-    # TODO: Implement the operator registrations later
-    "test_faketensor__test_forward_cpu_int8": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_forward_fused_pooled_emb_quant": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_forward_gpu_no_cache_int8": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_forward_gpu_uvm_cache_int8": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-}
+additional_decorators.update(
+    {
+        # TODO: Implement the operator registrations later
+        "test_faketensor__test_forward_cpu_int8": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+        "test_faketensor__test_forward_fused_pooled_emb_quant": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+        "test_faketensor__test_forward_gpu_no_cache_int8": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+        "test_faketensor__test_forward_gpu_uvm_cache_int8": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+    }
+)
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)

@@ -53,9 +53,16 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM, use_cpu_strategy
+    from test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+        use_cpu_strategy,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
         gpu_unavailable,
         optests,
         TEST_WITH_ROCM,
@@ -66,7 +73,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-@optests.generate_opcheck_tests(fast=True)
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardOptimizersTest(unittest.TestCase):
     def assert_close_optim_state(self, test: torch.Tensor, ref: torch.Tensor) -> None:
         tolerance = 1.0e-4 if test.dtype == torch.float else 1.0e-2
