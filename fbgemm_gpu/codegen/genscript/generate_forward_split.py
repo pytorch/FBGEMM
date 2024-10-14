@@ -41,7 +41,7 @@ class ForwardSplitGenerator:
                 continue
             if dense and ssd:
                 continue
-            if ssd and (vbe or is_gwd):
+            if ssd and is_gwd:
                 continue
 
             desc = "".join(
