@@ -43,9 +43,16 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM, use_cpu_strategy
+    from test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+        use_cpu_strategy,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
         gpu_unavailable,
         optests,
         TEST_WITH_ROCM,
@@ -56,7 +63,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-@optests.generate_opcheck_tests(fast=True)
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardSGDTest(unittest.TestCase):
     def execute_backward_sgd_(  # noqa C901
         self,
