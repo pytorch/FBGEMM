@@ -24,6 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 from hypothesis import given, settings
 
 from .backward_adagrad_common import (  # noqa
+    additional_decorators,
     adjust_mixed_B_st,
     common_settings,
     common_strategy,
@@ -356,7 +357,7 @@ def execute_global_weight_decay(  # noqa C901
             )
 
 
-@optests.generate_opcheck_tests(fast=True)
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardAdagradGlobalWeightDecay(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(

@@ -45,6 +45,7 @@ enum SSDTensor {
 {%- for vbe in ([True, False] if has_vbe_support else [False]) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
+{%- for dispatch_type in ["cuda", "meta"] %}
 {%- for weighted in [True, False] %}
 {%- for nobag in ([False] if (weighted or vbe) else [True, False]) %}
 {%- set wdesc = "weighted" if weighted else "unweighted" %}
@@ -61,9 +62,8 @@ enum SSDTensor {
 {%- set gwddesc = "_gwd" if is_gwd else "" %}
 {%- set desc_suffix = wdesc + vdesc + gwddesc %}
 
-{%- if is_forward %}
 {#-/* PT2 wrapper function for forward CUDA */#}
-{%- for dispatch_type in ["cuda", "meta"] %}
+{%- if is_forward %}
 Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt2_{{ dispatch_type }}_wrapper(
     const Tensor& /*host_weights*/,
     const Tensor& dev_weights,
@@ -199,11 +199,10 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
             is_experimental
         );
     };
-{%- endfor %} {#-/*for dispatch_type in ["cuda", "meta"]*/#}
 {%- else %}
 
 {#-/* PT2 wrapper function for backward CUDA */#}
-Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_pt2_cuda_wrapper(
+Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc_suffix }}_pt2_{{ dispatch_type }}_wrapper(
     const Tensor& grad_output,
     const Tensor& /*host_weights*/,
     const Tensor& dev_weights,
@@ -372,14 +371,14 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     }
 
 {%- endif %}
-{%- endfor %} {#-/*for weighted*/#}
 {%- endfor %} {#-/*for is_gwd*/#}
 {%- endfor %} {#-/*for nobag*/#}
+{%- endfor %} {#-/*for weighted*/#}
 
 
 {%- if is_forward %}
 {#-/* PT2 wrapper function for backward grad_indice_weights CUDA */#}
-Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda_wrapper(
+Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_{{ dispatch_type }}_wrapper(
     const Tensor& grad_output,
     const Tensor& /*host_weights*/,
     const Tensor& dev_weights,
@@ -464,6 +463,8 @@ Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda
         );
 }
 {%- endif %}
+{%- endfor %} {#-/*for dispatch_type*/#}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Op registrations
 ////////////////////////////////////////////////////////////////////////////////
@@ -616,6 +617,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "{{ embedding_codegen_backward_op }}_wrapper",
         {{ embedding_codegen_backward_op }}_cuda_wrapper
     );
+    m.impl("{{ embedding_codegen_backward_op }}_wrapper", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ embedding_codegen_backward_op }}_meta_wrapper)));
     {%- endif %} {#-/* if is_forward */#}
     {%- endfor %} {#-/*for is_gwd*/#}
     {%- endfor %} {#-/*for nobag*/#}
@@ -660,6 +662,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "{{ embedding_codegen_grad_indice_weights_op }}_wrapper",
         {{ embedding_codegen_grad_indice_weights_op }}_cuda_wrapper
     );
+    m.impl("{{ embedding_codegen_grad_indice_weights_op }}_wrapper", torch::dispatch(c10::DispatchKey::Meta, TORCH_FN({{ embedding_codegen_grad_indice_weights_op }}_meta_wrapper)));
     {%- endif %}
 
 }

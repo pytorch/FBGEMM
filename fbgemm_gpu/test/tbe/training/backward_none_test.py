@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -44,23 +44,41 @@ from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 VERBOSITY: Verbosity = Verbosity.verbose
 
 # pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
-    "test_schema__test_backward_none_with_rowwise_adagrad": [
-        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    ],
-    "test_faketensor__test_backward_none_with_rowwise_adagrad": [
-        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    ],
-    "test_autograd_registration__test_backward_none_with_rowwise_adagrad": [
-        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    ],
-}
+additional_decorators.update(
+    {
+        "test_schema__test_backward_none_with_rowwise_adagrad": [
+            unittest.skip(
+                "Cannot access data pointer of Tensor that doesn't have storage"
+            )
+        ],
+        "test_faketensor__test_backward_none_with_rowwise_adagrad": [
+            unittest.skip(
+                "Cannot access data pointer of Tensor that doesn't have storage"
+            )
+        ],
+        "test_autograd_registration__test_backward_none_with_rowwise_adagrad": [
+            unittest.skip(
+                "Cannot access data pointer of Tensor that doesn't have storage"
+            )
+        ],
+    }
+)
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
