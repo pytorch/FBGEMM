@@ -165,7 +165,7 @@ jobs:
 
 
   test_pypi_install_rocm:
-    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'rocm') }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'rocm')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
