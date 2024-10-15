@@ -371,6 +371,16 @@
     "fbgemm::split_embedding_codegen_lookup_partial_rowwise_lamb_function": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_cpu": {},
+    "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_pt2": {
+      "ForwardTest.test_faketensor__test_forward_cpu_fp32": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "ForwardTest.test_schema__test_forward_cpu_fp32": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_with_counter_function": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_weighted_adagrad_function": {},
     "fbgemm::split_embedding_codegen_lookup_sgd_function": {},
