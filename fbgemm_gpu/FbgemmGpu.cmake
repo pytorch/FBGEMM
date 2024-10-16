@@ -169,11 +169,15 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_ssd_weighted_codegen_cuda.cu"
     "gen_embedding_forward_ssd_unweighted_codegen_cuda.cu"
     "gen_embedding_forward_ssd_unweighted_nobag_kernel_small.cu"
+    "gen_embedding_forward_ssd_weighted_vbe_codegen_cuda.cu"
+    "gen_embedding_forward_ssd_unweighted_vbe_codegen_cuda.cu"
 )
 
 list(APPEND gen_gpu_host_source_files
     "gen_embedding_forward_split_unweighted_vbe_codegen_meta.cpp"
-    "gen_embedding_backward_sgd_split_unweighted_vbe_meta.cpp"
+    "gen_embedding_forward_split_weighted_vbe_codegen_meta.cpp"
+    "gen_embedding_forward_ssd_unweighted_vbe_codegen_meta.cpp"
+    "gen_embedding_forward_ssd_weighted_vbe_codegen_meta.cpp"
   )
 
 if(NOT USE_ROCM)
@@ -267,7 +271,10 @@ foreach(optimizer ${ALL_OPTIMIZERS})
     "gen_embedding_split_${optimizer}_pt2_autograd.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}.cpp"
-    "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp")
+    "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp"
+    "gen_embedding_backward_${optimizer}_split_unweighted_meta.cpp"
+    "gen_embedding_backward_${optimizer}_split_weighted_meta.cpp"
+    )
 endforeach()
 
 list(APPEND gen_gpu_host_source_files
@@ -337,7 +344,10 @@ foreach(optimizer ${SSD_OPTIMIZERS})
     list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_backward_${optimizer}_ssd_${wdesc}_cuda.cu"
       "gen_embedding_backward_${optimizer}_ssd_${wdesc}_kernel_cta.cu"
-      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_kernel_warp.cu")
+      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_kernel_warp.cu"
+      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_vbe_cuda.cu"
+      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_vbe_kernel_cta.cu"
+      "gen_embedding_backward_${optimizer}_ssd_${wdesc}_vbe_kernel_warp.cu")
   endforeach()
 
 endforeach()

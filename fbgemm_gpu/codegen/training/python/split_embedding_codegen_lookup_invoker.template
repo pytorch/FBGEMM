@@ -263,6 +263,7 @@ def invoke(
     {%- endfor %}
     {%- endif %}
 
+
     return torch.ops.fbgemm.{{ mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
         # common_args
         {%- if not dense %}

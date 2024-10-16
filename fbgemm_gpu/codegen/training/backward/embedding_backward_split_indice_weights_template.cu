@@ -45,7 +45,7 @@ using namespace fbgemm_gpu;
     -}}
   }()
 
-{%- for vbe in ([True, False] if not ssd else [False]) %}
+{%- for vbe in ([True, False]) %}
 {%- set vdesc = "_vbe" if vbe else "" %}
 
 {#-
