@@ -184,11 +184,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.def(
       "quantize_fp8_per_row(Tensor input, Tensor? bs=None, Tensor? scale_ub=None, ScalarType? output_dtype=None, bool stochastic_rounding = False) -> Tensor[] ");
-  m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
 
   m.def(
       "quantize_fp8_per_col(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]");
-  m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
 
   m.def(
       "get_fp8_per_tensor_scale(Tensor input, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor");
