@@ -147,6 +147,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             [SparseType.FP16, SparseType.FP32, SparseType.BF16]
         ),
         test_generic_op=st.booleans(),
+        test_meta=st.booleans(),
         test_cuda=st.booleans(),
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
@@ -157,6 +158,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         bit_rate: int,
         output_dtype: SparseType,
         test_generic_op: bool,
+        test_meta: bool,
         test_cuda: bool,
     ) -> None:
         assert 8 % bit_rate == 0
@@ -186,6 +188,16 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                         output_dtype.as_int(),
                     )
                 )
+                if test_meta:
+                    dequantized_data_meta = (
+                        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                            quantized_data.to(torch.device("meta")),
+                            bit_rate,
+                            output_dtype.as_int(),
+                        )
+                    )
+                    assert dequantized_data_meta.device == torch.device("meta")
+                    assert dequantized_data_meta.shape == dequantized_data.shape
             else:
                 if output_dtype == SparseType.FP32:
                     quantized_data = (
