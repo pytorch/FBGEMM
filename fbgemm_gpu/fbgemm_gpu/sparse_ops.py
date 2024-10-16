@@ -1073,7 +1073,6 @@ def _setup() -> None:
         )
         impl_abstract("fbgemm::segment_sum_csr", segment_sum_csr_abstract)
         impl_abstract("fbgemm::dense_to_jagged_forward", dense_to_jagged_forward)
-        impl_abstract("fbgemm::dense_to_jagged", dense_to_jagged)
         impl_abstract(
             "fbgemm::batch_index_select_dim0", batch_index_select_dim0_abstract
         )
