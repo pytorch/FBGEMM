@@ -356,14 +356,14 @@ def check_all_same_device(*tensors: Optional[Tensor]) -> None:
     tensors, _ = pytree.tree_flatten(tensors)
     if len(tensors) == 0:
         return
+    if all(t.device.type in ["cpu", "meta"] for t in tensors if t is not None):
+        return
     first_tensor: Optional[Tensor] = None
     for tensor in tensors:
         if tensor is None:
             continue
         if first_tensor is None:
             first_tensor = tensor
-        if first_tensor.device.type == "cpu" and tensor.device.type == "cpu":
-            return
         torch._check(tensor.device == first_tensor.device)
 
 
