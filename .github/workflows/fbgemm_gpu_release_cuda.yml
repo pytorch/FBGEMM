@@ -35,7 +35,7 @@ on:
         type: choice
         required: false
         options: [ "11.8.0", "12.1.1", "12.4.1" ]
-        default: "12.1.1"
+        default: "12.4.1"
       publish_to_pypi:
         description: Publish Artifact to PyPI
         type: boolean
