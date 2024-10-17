@@ -970,7 +970,6 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl(
       "batched_dense_vec_jagged_2d_mul",
       TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul));
-  m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
   m.impl("jagged_softmax", TORCH_FN(fbgemm_gpu::jagged_softmax));
   m.impl("jagged_jagged_bmm", TORCH_FN(fbgemm_gpu::jagged_jagged_bmm));
   m.impl("jagged_dense_bmm", TORCH_FN(fbgemm_gpu::jagged_dense_bmm));
@@ -979,4 +978,5 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, CompositeImplicitAutograd, m) {
   m.impl("jagged_index_select", TORCH_FN(fbgemm_gpu::jagged_index_select_2d));
+  m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
 }
