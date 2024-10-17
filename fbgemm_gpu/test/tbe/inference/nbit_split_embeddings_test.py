@@ -191,12 +191,14 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             ]
         ),
         emulate_pruning=st.booleans(),
+        indices_dtype=st.sampled_from([torch.int, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         self,
         weights_ty: SparseType,
         emulate_pruning: bool,
+        indices_dtype: torch.dtype,
     ) -> None:
         # TODO: support direct-mapped in int_nbit_split_embedding_uvm_caching_codegen_lookup_function
         # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
@@ -260,8 +262,8 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         )
         for req in requests:
             indices, offsets = req.unpack_2()
-            indices = indices.int()
-            offsets = offsets.int()
+            indices = indices.to(dtype=indices_dtype)
+            offsets = offsets.to(dtype=indices_dtype)
             output_ref = cc_ref(indices, offsets)
 
             # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM_CACHING.
