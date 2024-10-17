@@ -332,8 +332,10 @@ def execute_global_weight_decay(  # noqa C901
                     gwd_lower_bound,
                 )
             if i != 1:
-                tbe.iter_int = i - 1  # step will be incremented when forward is called
-                tbe.iter = torch.Tensor([tbe.iter_int])
+                tbe.iter_cpu.fill_(
+                    i - 1
+                )  # step will be incremented when forward is called
+                tbe.iter.fill_(i - 1)
 
             # Run forward pass
             output = tbe(

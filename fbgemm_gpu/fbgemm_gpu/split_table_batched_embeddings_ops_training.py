@@ -1147,7 +1147,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     torch.zeros(1, dtype=torch.int64, device=self.current_device),
                     persistent=False,
                 )
-            self.iter_int: int = 0
+            self.iter_cpu: torch.Tensor = torch.zeros(
+                1, dtype=torch.int64, device="cpu"
+            )
 
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
@@ -1793,10 +1795,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             placements=self.momentum2_placements,
         )
         # Sync with loaded state
-        if self.iter_int == 0:
-            self.iter_int = int(self.iter.item())
+        if (
+            not is_torchdynamo_compiling()
+        ):  # wrap to make it compatible with PT2 compile
+            if self.iter_cpu.item() == 0:
+                self.iter_cpu.fill_(self.iter.cpu().item())
         # Increment the iteration counter
-        self.iter_int += 1  # used for local computation
+        iter_int = int(self.iter_cpu.add_(1).item())  # used for local computation
         self.iter.add_(1)  # used for checkpointing
 
         if self.optimizer == OptimType.ADAM:
@@ -1807,7 +1812,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    self.iter_int,
+                    iter_int,
                 ),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
@@ -1818,7 +1823,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    self.iter_int,
+                    iter_int,
                 ),
             )
         if self.optimizer == OptimType.LAMB:
@@ -1829,7 +1834,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    self.iter_int,
+                    iter_int,
                 ),
             )
         if self.optimizer == OptimType.PARTIAL_ROWWISE_LAMB:
@@ -1840,7 +1845,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.optimizer_args,
                     momentum1,
                     momentum2,
-                    self.iter_int,
+                    iter_int,
                 ),
             )
 
@@ -1878,7 +1883,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self._used_rowwise_adagrad_with_counter:
             if (
                 self._max_counter_update_freq > 0
-                and self.iter_int % self._max_counter_update_freq == 0
+                and iter_int % self._max_counter_update_freq == 0
             ):
                 row_counter_dev = self.row_counter_dev.detach()
                 if row_counter_dev.numel() > 0:
@@ -1896,13 +1901,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         momentum1,
                         prev_iter,
                         row_counter,
-                        self.iter_int,
+                        iter_int,
                         self.max_counter.item(),
                     ),
                 )
             elif self._used_rowwise_adagrad_with_global_weight_decay:
                 apply_global_weight_decay = (
-                    self.iter_int >= self.gwd_start_iter and self.training
+                    iter_int >= self.gwd_start_iter and self.training
                 )
                 return self._report_io_size_count(
                     "fwd_output",
@@ -1910,7 +1915,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         common_args,
                         self.optimizer_args,
                         momentum1,
-                        iter=self.iter_int,
+                        iter=iter_int,
                         apply_global_weight_decay=apply_global_weight_decay,
                         prev_iter_dev=self.prev_iter_dev,
                         gwd_lower_bound=self.gwd_lower_bound,
@@ -1935,14 +1940,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Returns:
             Sparse embedding weights and optimizer states will be updated in-place.
         """
-        should_ema = self.iter_int % int(ensemble_mode["step_ema"]) == 0
-        should_swap = self.iter_int % int(ensemble_mode["step_swap"]) == 0
+        iter_int = int(self.iter_cpu.item())
+        should_ema = iter_int % int(ensemble_mode["step_ema"]) == 0
+        should_swap = iter_int % int(ensemble_mode["step_swap"]) == 0
         if should_ema or should_swap:
             weights = self.split_embedding_weights()
             states = self.split_optimizer_states()
             coef_ema = (
                 0.0
-                if self.iter_int <= int(ensemble_mode["step_start"])
+                if iter_int <= int(ensemble_mode["step_start"])
                 else ensemble_mode["step_ema_coef"]
             )
             for i in range(len(self.embedding_specs)):
