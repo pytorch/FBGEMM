@@ -108,6 +108,28 @@ def pack_int4(x: torch.Tensor) -> torch.Tensor:
 
 
 @unittest.skipIf(
+    not torch.cuda.is_available(),
+    "Skip when no GPU is available. This test is only for GPU.",
+)
+class FP8TorchExportTests(unittest.TestCase):
+    """Test that FP8 ops can be exported."""
+
+    def test_model_export(self) -> None:
+        class TestModule(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                # let's go trough all our cuda quantize operations here
+                _, _ = torch.ops.fbgemm.quantize_fp8_per_row(x)
+                _, _ = torch.ops.fbgemm.quantize_fp8_per_col(x)
+
+        model = TestModule().cuda()
+        # bf16 required here
+        _ = torch.export.export(model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),))
+
+
+@unittest.skipIf(
     not torch.cuda.is_available()
     or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
     "Skip when MI300 or H100 is not available",
