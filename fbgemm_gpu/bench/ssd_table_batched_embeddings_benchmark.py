@@ -286,6 +286,7 @@ def ssd_training(  # noqa C901
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
+        # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
         Ds: List[int] = [D] * T

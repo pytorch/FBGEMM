@@ -34,6 +34,7 @@ except ImportError:
 
 @dataclass
 class OptimizerArgsSetItem:
+    # pyre-fixme[11]: Annotation `ArgType` is not defined as a type.
     ty: ArgType  # type
     name: str
     default: Union[float, ArgType] = 0  # DEFAULT_ARG_VAL

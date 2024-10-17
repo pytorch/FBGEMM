@@ -70,7 +70,7 @@ class MiscOpsTest(unittest.TestCase):
         offsets_type: "Union[Type[torch.int32], Type[torch.int64]]",
     ) -> None:
         lengths = np.array([np.random.randint(low=0, high=20) for _ in range(N)])
-        offsets = np.cumsum(np.concatenate(([0], lengths)))[:-1]
+        offsets = np.cumsum(np.concatenate([[0], lengths]))[:-1]
         range_ref = torch.from_numpy(
             np.concatenate([np.arange(size) for size in lengths])
         )

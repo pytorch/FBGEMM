@@ -106,6 +106,8 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         offset = 0
         for _ in range(batch_size):
             n_indices = 1
+            # pyre-fixme[6]: For 1st argument expected `Iterable[typing.Any]` but
+            #  got `float`.
             indices += np.round(
                 np.random.random(n_indices) * (num_embeddings - 1)
             ).tolist()

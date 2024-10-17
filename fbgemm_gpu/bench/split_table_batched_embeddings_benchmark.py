@@ -365,6 +365,8 @@ def device(  # noqa C901
     if do_pooling:
         grad_output = torch.randn(B, sum(Ds)).to(get_device())
     else:
+        # pyre-fixme[6]: For 2nd argument expected `Union[int, SymInt]` but got
+        #  `Union[floating[typing.Any], int]`.
         grad_output = torch.randn(B * T * L, D).to(get_device())
 
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
@@ -839,6 +841,8 @@ def cache(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -1049,6 +1053,8 @@ def nbit_cpu(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -1232,6 +1238,8 @@ def nbit_device(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -1337,6 +1345,8 @@ def nbit_device(  # noqa C901
                 B,
                 L,
                 E,
+                # pyre-fixme[6]: For 6th argument expected `int` but got
+                #  `Union[floating[typing.Any], int]`.
                 D,
                 pooling,
                 weighted,
@@ -2037,6 +2047,7 @@ def nbit_uvm_compare_direct_mapped(
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
+        # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
         Ds: List[int] = [D] * T
@@ -2323,6 +2334,8 @@ def nbit_cache(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
