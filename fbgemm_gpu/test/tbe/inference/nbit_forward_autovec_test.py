@@ -105,7 +105,6 @@ class NBitFowardAutovecTest(unittest.TestCase):
         use_array_for_index_remapping: bool,
         do_pruning: bool,
         mixed_weights_ty: bool,
-        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
@@ -312,22 +311,19 @@ class NBitFowardAutovecTest(unittest.TestCase):
                 fp8_config=fp8_config if has_fp8_weight else None,
             )
 
-        indices = indices.to(dtype=indices_dtype)
-        offsets = offsets.to(dtype=indices_dtype)
-
         if not use_cpu:
             fc2 = (
-                cc(indices, offsets)
+                cc(indices.int(), offsets.int())
                 if not weighted
-                else cc(indices, offsets, xw.contiguous().view(-1))
+                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1))
             )
         else:
             cc = cc.cpu()
             indices, offsets = indices.cpu(), offsets.cpu()
             fc2 = (
-                cc(indices, offsets)
+                cc(indices.int(), offsets.int())
                 if not weighted
-                else cc(indices, offsets, xw.contiguous().view(-1).cpu())
+                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
             )
 
         if do_pooling and B == 0:
@@ -377,7 +373,6 @@ class NBitFowardAutovecTest(unittest.TestCase):
         pooling_mode=st.sampled_from(
             [PoolingMode.SUM, PoolingMode.MEAN, PoolingMode.NONE]
         ),
-        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
         ),
@@ -391,7 +386,6 @@ class NBitFowardAutovecTest(unittest.TestCase):
         self,
         nbit_weights_ty: Optional[SparseType],
         pooling_mode: PoolingMode,
-        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         use_cpu = True
@@ -438,7 +432,6 @@ class NBitFowardAutovecTest(unittest.TestCase):
             False,
             False,
             mixed_weights_ty,
-            indices_dtype,
             output_dtype,
         )
 
