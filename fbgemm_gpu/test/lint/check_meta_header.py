@@ -6,8 +6,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
-"""Check Python source code contains Meta copyright header
-"""
+"""Check Python source code contains Meta copyright header"""
 
 from __future__ import annotations
 

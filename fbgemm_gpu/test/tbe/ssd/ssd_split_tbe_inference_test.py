@@ -329,9 +329,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 scale_shift[:, :] = torch.tensor(
                     # pyre-fixme[61]: `scales` is undefined, or not always defined.
                     # pyre-fixme[61]: `shifts` is undefined, or not always defined.
-                    np.stack([scales, shifts], axis=1)
-                    .astype(np.float16)
-                    .view(np.uint8)
+                    np.stack([scales, shifts], axis=1).astype(np.float16).view(np.uint8)
                 )
 
             D_bytes = rounded_row_size_in_bytes(

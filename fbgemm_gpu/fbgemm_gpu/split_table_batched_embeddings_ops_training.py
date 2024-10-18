@@ -2823,9 +2823,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.stats_reporter is not None and self.stats_reporter.should_report(
             self.step
         ):
-            assert (
-                timer
-            ), "We shouldn't be here, async timer must have been initiated if reporter is present."
+            assert timer, "We shouldn't be here, async timer must have been initiated if reporter is present."
             return timer.recording(**kwargs)
         # No-Op context manager
         return contextlib.nullcontext()

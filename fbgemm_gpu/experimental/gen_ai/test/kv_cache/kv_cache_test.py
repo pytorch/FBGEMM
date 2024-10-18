@@ -328,7 +328,6 @@ class KVCacheTests(unittest.TestCase):
         B: int,
         BLOCK_N: int,
     ) -> None:
-
         N_H_L = 1
         N_KVH_L = 8
         D_H = 128

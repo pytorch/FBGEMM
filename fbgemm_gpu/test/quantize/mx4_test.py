@@ -145,7 +145,6 @@ def fake_quantize_mx(
 
 # @optests.generate_opcheck_tests()
 class TestMXQuantizationConversion(unittest.TestCase):
-
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
     @given(

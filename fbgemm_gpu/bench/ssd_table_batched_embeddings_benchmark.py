@@ -525,7 +525,6 @@ def nbit_ssd(
     enforce_hbm: bool,
     ssd_cache_loc: str,
 ) -> None:
-
     np.random.seed(42)
     torch.manual_seed(42)
     B = batch_size

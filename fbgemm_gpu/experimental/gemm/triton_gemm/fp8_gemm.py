@@ -908,7 +908,6 @@ else:
 
 
 class TmaAutoTuneHelper:
-
     # duck typing wrapper to implement the same interface as TmaDescKernelParam in Triton PR #4498
     class KernelParamWrapper:
         def __init__(self, desc):
@@ -1452,7 +1451,6 @@ def _kernel_matmul_fp8_block_fastacc(
     k_multiple = scale_block_k // BLOCK_K
 
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
-
         k_remaining = K - k * (BLOCK_K * SPLIT_K)
 
         if EVEN_K:
@@ -2336,8 +2334,8 @@ def triton_quantize_fp8_block(
         torch.Tensor : [M, K] fp8 scaled tensor.
         torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block.
     """
-    assert x.device != torch.device(
-        "cpu"
+    assert (
+        x.device != torch.device("cpu")
     ), "Blockwise quantization not support on cpu, please use row-wise quantization instead."
     x_shape = x.shape
     x = x.view(-1, x.size(-1))
