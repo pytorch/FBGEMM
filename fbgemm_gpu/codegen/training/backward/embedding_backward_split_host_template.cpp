@@ -564,8 +564,8 @@ class {{ autograd_func }} :
     {%- if not nobag and dense and not vbe %}
     const Tensor& offsets,
     const int64_t pooling_mode,
-    const c10::optional<Tensor>& indice_weights,
-    const c10::optional<Tensor>& feature_requires_grad
+    const std::optional<Tensor>& indice_weights,
+    const std::optional<Tensor>& feature_requires_grad
     {%- elif not nobag %}
     const Tensor& offsets,
     const int64_t pooling_mode,
@@ -610,9 +610,9 @@ class {{ autograd_func }} :
     {{ args.split_function_args | join(", ") }}
     {%- else %}
     {%- if vbe %}
-    const c10::optional<Tensor>& B_offsets,
-    const c10::optional<Tensor>& vbe_output_offsets_feature_rank,
-    const c10::optional<Tensor>& vbe_B_offsets_rank_per_feature,
+    const std::optional<Tensor>& B_offsets,
+    const std::optional<Tensor>& vbe_output_offsets_feature_rank,
+    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature,
     const c10::SymInt max_B,
     const c10::SymInt max_B_feature_rank,
     const c10::SymInt vbe_output_size
@@ -1025,7 +1025,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- endif %}
     const bool apply_global_weight_decay = false,
     {%- if ssd %}
-    const c10::optional<at::TensorList>& ssd_tensors = c10::nullopt,
+    const std::optional<at::TensorList>& ssd_tensors = c10::nullopt,
     {%- endif %}
     const double gwd_lower_bound = 0
     {%- else %}
