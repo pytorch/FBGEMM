@@ -1005,7 +1005,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     {%- endif %}
     const bool apply_global_weight_decay = false,
     {%- if ssd %}
-    const c10::optional<at::TensorList>& ssd_tensors = c10::nullopt,
+    const std::optional<at::TensorList>& ssd_tensors = c10::nullopt,
     {%- endif %}
     const double gwd_lower_bound = 0
 ) {
