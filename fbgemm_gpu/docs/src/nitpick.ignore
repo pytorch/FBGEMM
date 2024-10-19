@@ -12,10 +12,10 @@ cpp:identifier at::Tensor
 cpp:identifier block_type_t
 cpp:identifier c10
 cpp:identifier c10::Error
-cpp:identifier c10::optional<at::SymInt>
-cpp:identifier c10::optional<at::Tensor>
-cpp:identifier c10::optional<int64_t>
-cpp:identifier c10::optional<Tensor>
+cpp:identifier std::optional<at::SymInt>
+cpp:identifier std::optional<at::Tensor>
+cpp:identifier std::optional<int64_t>
+cpp:identifier std::optional<Tensor>
 cpp:identifier c10::SymInt
 cpp:identifier c10::SymIntArrayRef
 cpp:identifier int32_t
