@@ -78,7 +78,7 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
         const auto* dense_indices_acc = dense_indices.data_ptr<index_t>();
         const auto* offsets_acc = offsets.data_ptr<index_t>();
 
-        auto hash_table_acc = hash_table.accessor<int64_t, 2>();
+        auto hash_table_acc = hash_table.accessor<int32_t, 2>();
         const auto hash_table_offsets_acc = hash_table_offsets.accessor<int64_t, 1>();
 
         for (const auto t : c10::irange(T)) {
