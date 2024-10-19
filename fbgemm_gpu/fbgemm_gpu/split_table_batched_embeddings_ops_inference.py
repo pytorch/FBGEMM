@@ -397,14 +397,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.assign_embedding_weights(weight_lists)
 
         # Handle index remapping for embedding pruning.
-        # All buffers are int64 in order to support both int32 and int64 indices.
         self.register_buffer(
             "index_remappings_array_offsets",
             torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remappings_array",
-            torch.empty(0, device=self.current_device, dtype=torch.int64),
+            torch.empty(0, device=self.current_device, dtype=torch.int32),
         )
         self.register_buffer(
             "index_remapping_hash_table_offsets",
@@ -412,7 +411,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "index_remapping_hash_table",
-            torch.empty(0, device=self.current_device, dtype=torch.int64),
+            torch.empty(0, device=self.current_device, dtype=torch.int32),
         )
         self.register_buffer(
             "original_rows_per_table",
@@ -1529,11 +1528,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 index_remappings_filter_nones.append(mapping)
         if len(index_remappings_filter_nones) == 0:
             self.index_remappings_array = torch.empty(
-                0, dtype=torch.int64, device=self.current_device
+                0, dtype=torch.int32, device=self.current_device
             )
         else:
             self.index_remappings_array = torch.cat(index_remappings_filter_nones).to(
-                dtype=torch.int64, device=self.current_device
+                self.current_device
             )
 
     def set_index_remappings(
@@ -1556,7 +1555,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ]
             hash_table = torch.empty(
                 (sum(capacities), 2),
-                dtype=torch.int64,
+                dtype=torch.int32,
             )
             hash_table[:, :] = -1
             hash_table_offsets = torch.tensor([0] + list(accumulate(capacities))).long()
