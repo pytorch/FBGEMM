@@ -33,6 +33,15 @@ try:
 except ImportError:
     MARLIN_ENABLED = False
 
+# Machete is also only supported internally at Meta for now.
+try:
+    from machete.machete import machete_gemm
+    from machete.quantize import machete_quantize_and_pack
+
+    MACHETE_ENABLED = True
+except ImportError:
+    MACHETE_ENABLED = False
+
 
 quantize_op_registry = []
 
@@ -767,3 +776,38 @@ class MarlinBF16I4(QuantizeOpBase):
     def cuda(self) -> bool:
         # This op is not always supported.
         return MARLIN_ENABLED
+
+
+@register_quantize_op
+class MacheteBF16I4(QuantizeOpBase):
+    """
+    Mixed Precision BF16 Activations with Int4 Weights using Machete.
+    """
+
+    def quantize(self, x, w):
+        # Marlin quantize expects weights in [K, N] layout.
+        _, wq, scale, _ = machete_quantize_and_pack(
+            w.t().contiguous(), bits=4, groupsize=128
+        )
+        return x, wq, scale
+
+    def compute(self, x, wq, scale):
+        return machete_gemm(x, wq, bits=4, groupsize=128, scales=scale)
+
+    def quantize_and_compute(self, x, w):
+        x, wq, scale = self.quantize(x, w)
+        return self.compute(x, wq, scale)
+
+    @property
+    def name(self) -> str:
+        return "machete_bf16i4"
+
+    @property
+    def hip(self) -> bool:
+        # Machete only supported for cuda.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        # This op is not always supported.
+        return MACHETE_ENABLED
