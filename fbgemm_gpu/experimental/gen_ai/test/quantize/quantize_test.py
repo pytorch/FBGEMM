@@ -124,6 +124,57 @@ def pack_int4(x: torch.Tensor) -> torch.Tensor:
 
 
 @unittest.skipIf(
+    not torch.cuda.is_available(),
+    "Skip when no GPU is available. This test is only for GPU.",
+)
+class FP8TorchExportTests(unittest.TestCase):
+    """Test that FP8 ops can be exported."""
+
+    def test_quantize_export(self) -> None:
+        class TestModule(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                # let's go trough all our cuda quantize operations here
+                _, _ = torch.ops.fbgemm.quantize_fp8_per_row(x)
+                _, _ = torch.ops.fbgemm.quantize_fp8_per_col(x)
+                o, _ = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+                return o
+
+        model = TestModule().cuda()
+        # bf16 required here
+        _ = torch.export.export(model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),))
+
+    def test_f8f8bf16_export(self) -> None:
+        class TestModule(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def forward(self, xq: torch.Tensor, wq: torch.Tensor) -> torch.Tensor:
+                M, K = xq.shape
+                N, _ = wq.shape
+                row_scale = torch.randn(M).cuda()
+                col_scale = torch.randn(N).cuda()
+                block_scale = torch.randn(M // 128, K // 128).cuda()
+                _ = torch.ops.fbgemm.f8f8bf16_blockwise(
+                    xq, wq, block_scale, block_scale
+                )
+                _ = torch.ops.fbgemm.f8f8bf16_tensorwise(xq, wq, 1.0)
+                o = torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, row_scale, col_scale)
+                return o
+
+        model = TestModule().cuda()
+        M, N, K = 256, 256, 256
+        fp8_dtype = torch.float8_e4m3fn
+        if torch.version.hip:
+            fp8_dtype = torch.float8_e4m3fnuz
+        xq = torch.randn(M, K).to(fp8_dtype).cuda()
+        wq = torch.randn(N, K).to(fp8_dtype).cuda()
+        _ = torch.export.export(model, (xq, wq))
+
+
+@unittest.skipIf(
     not torch.cuda.is_available()
     or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
     "Skip when MI300 or H100 is not available",
