@@ -278,4 +278,15 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
 }
 
+// Though it shouldnt be used, it is useful to define these functions for CPU to
+// accomodate model creation.
+TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
+  m.impl("nccl_allreduce", nccl_allreduce);
+  m.impl("nccl_allgather", nccl_allgather);
+  m.impl("nccl_alltoall", nccl_alltoall);
+  m.impl("nccl_reducescatter", nccl_reducescatter);
+  m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
+  m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
+}
+
 } // namespace fbgemm_gpu
