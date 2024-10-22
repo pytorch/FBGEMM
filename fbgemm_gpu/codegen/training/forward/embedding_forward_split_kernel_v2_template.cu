@@ -794,7 +794,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
       return;
     }
 
-    uint32_t load_D;
+    uint32_t load_D = 0;
     uint32_t D_start;
     uint32_t total_load_D;
 
@@ -814,7 +814,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     const uint32_t load_d = (table_warp_id % num_warps_per_row) * kWarpSize;
     // Compute sample ID
     const uint32_t b = table_warp_id / num_warps_per_row * (is_small_L ? NUM_OFFSETS_PER_WARP : 1);
-    uint32_t L;
+    uint32_t L = 0;
     uint32_t row_start;
     bool use_lxu_cache = USE_LXU_CACHE;
 
@@ -896,7 +896,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     }
 
     if (is_small_L) {
-      INVOKE_PROCESS_ALL_INDICES(small_Ls, 32, 0xf)
+      INVOKE_PROCESS_ALL_INDICES(small_Ls, kWarpSize, 0xf)
       return;
     }
 
@@ -957,14 +957,14 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
         INVOKE_PROCESS_ALL_INDICES(large_Ls, 16, 0x55)
       }
       else {
-        INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, 0xf)
+        INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
       }
     }
     else {
-      INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, 0xf)
+      INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
     }
     {% else %}
-    INVOKE_PROCESS_ALL_INDICES(large_Ls, 32, 0xf)
+    INVOKE_PROCESS_ALL_INDICES(large_Ls, kWarpSize, 0xf)
     {% endif %}
 
 #undef INVOKE_PROCESS_ALL_INDICES_HELPER
