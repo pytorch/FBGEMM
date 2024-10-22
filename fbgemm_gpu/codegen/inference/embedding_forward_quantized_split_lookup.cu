@@ -100,14 +100,14 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
   }
 }
 
-template <typename index_t, typename hash_t>
+template <typename index_t, typename remap_t>
 __global__
 __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         offsets,
-    const pta::PackedTensorAccessor32<hash_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<remap_t, 1, at::RestrictPtrTraits>
         index_remappings,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         index_remappings_offsets,
@@ -231,7 +231,7 @@ Tensor pruned_array_lookup_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       index_remappings.scalar_type(), "pruned_array_lookup_cuda_0", [&] {
-        using hash_t = index_t;
+        using remap_t = index_t;
 
         AT_DISPATCH_INDEX_TYPES(
             indices.scalar_type(), "pruned_array_lookup_cuda_1", [&] {
@@ -249,7 +249,7 @@ Tensor pruned_array_lookup_cuda(
                   MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
                   MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
                   MAKE_PTA_WITH_NAME(
-                      func_name, index_remappings, hash_t, 1, 32),
+                      func_name, index_remappings, remap_t, 1, 32),
                   MAKE_PTA_WITH_NAME(
                       func_name, index_remappings_offsets, int64_t, 1, 32),
                   B,
