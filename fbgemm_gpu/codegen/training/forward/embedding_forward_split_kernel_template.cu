@@ -77,7 +77,11 @@ using namespace fbgemm_gpu;
     {%- endif %}
     {%- endif %}
     {#-/* Set the weights row */#}
+#if VEC_WIDTH_M == 4
     const auto weights_row = WeightRowAccessor
+#else
+    const auto weights_row = WeightRowAccessor2
+#endif
         <
             emb_t,
             cache_t,
@@ -268,9 +272,17 @@ using namespace fbgemm_gpu;
         {%- endif %}
         #define VAL_BLOCK 4
         {%- if not nobag %}
+#if VEC_WIDTH_M == 4
         Vec4T<cache_t> vals[VAL_BLOCK*kMaxVecsPerThread];        
+#else
+        Vec2T<cache_t> vals[VAL_BLOCK*kMaxVecsPerThread];        
+#endif
         {%- else %}
-        Vec4T<cache_t> vals[VAL_BLOCK];
+#if VEC_WIDTH_M == 4
+        Vec4T<cache_t> vals[VAL_BLOCK];        
+#else
+        Vec2T<cache_t> vals[VAL_BLOCK];        
+#endif
         {%- endif %}
         // Iterate over kThreadGroupSize indices
         // TODO: (avbokovoy) Take into account trailing iteration
@@ -498,7 +510,8 @@ batch_index_select_dim0_codegen_forward_kernel(
 #endif
 
     // Elements are processed 4 at a time through fbgemm_gpu::Vec4 (CUDA float4, 16 bytes)
-    constexpr int VEC_WIDTH = 4;
+    constexpr int VEC_WIDTH = 2;
+#define VEC_WIDTH_M 2
 
     // Determine the linearized warp ID, and exit early if needed
     int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -598,7 +611,12 @@ batch_index_select_dim0_codegen_forward_kernel(
     const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
 
     // Set up the accumulator buffer
+
+#if VEC_WIDTH_M == 4
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
+#else
+    Vec2T<cache_t> accumulators[kMaxVecsPerThread];
+#endif
     {%- endif %}
 
     {%- if dense %}
@@ -784,7 +802,7 @@ batch_index_select_dim0_codegen_forward_kernel
             cache_type,
             output_type,
             use_cache,
-            kMaxVecsPerThread,
+            kMaxVecsPerThread * 2,
             kThreadGroupSize)
         }}
     {%- endfor %}
