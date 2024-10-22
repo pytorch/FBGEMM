@@ -372,6 +372,14 @@
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_cpu": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_pt2": {
+      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BackwardAdagradTest.test_schema__test_backward_adagrad_fp32_pmMEAN": {
+        "comment": "",
+        "status": "xfail"
+      },
       "ForwardTest.test_faketensor__test_forward_cpu_fp32": {
         "comment": "",
         "status": "xfail"
