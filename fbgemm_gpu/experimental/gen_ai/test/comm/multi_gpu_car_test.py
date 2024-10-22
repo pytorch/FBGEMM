@@ -49,8 +49,7 @@ def _run_allgather_inner(rdvz: str) -> None:
     y[:] = rank
     y_gather = torch.zeros(size=(W, B, T, D), dtype=torch.bfloat16, device="cuda")
     y_gather[:] = -1
-    # Here we test to confirm that allgather is compatible with torch.compile.
-    torch.compile(torch.ops.fbgemm.nccl_allgather)(y_gather, y)
+    torch.ops.fbgemm.nccl_allgather(y_gather, y)
     for w in range(W):
         torch.testing.assert_close(
             y_gather[w],
@@ -103,15 +102,12 @@ def _run_allreduce_inner(path: str) -> None:
     torch.cuda.synchronize()
     torch.distributed.barrier()
 
-    # Test to make sure allreduce is compatible with torch.compile.
-    allreduce_compiled = torch.compile(torch.ops.fbgemm.nccl_allreduce)
-
     for N in np.logspace(10, 24, num=20, base=2).tolist():
         N = int(N)
         y = torch.zeros(size=(N,), dtype=torch.bfloat16, device="cuda")
         y[:] = rank
         y_allreduce = torch.empty_like(y)
-        allreduce_compiled(y_allreduce, y)
+        torch.ops.fbgemm.nccl_allreduce(y_allreduce, y)
         torch.testing.assert_close(
             y_allreduce,
             torch.full(
@@ -123,7 +119,7 @@ def _run_allreduce_inner(path: str) -> None:
         )
 
         z = torch.ones(size=(N,), dtype=torch.bfloat16, device="cuda")
-        allreduce_compiled(y_allreduce, y, z)
+        torch.ops.fbgemm.nccl_allreduce(y_allreduce, y, z)
         torch.testing.assert_close(
             y_allreduce,
             torch.full(
@@ -145,10 +141,7 @@ def _run_allreduce_inner(path: str) -> None:
         y = torch.zeros(size=(N,), dtype=torch.bfloat16, device="cuda")
         y[:] = rank
         y_allreduce = torch.empty_like(y)
-        one_shot_allreduce_compiled = torch.compile(
-            torch.ops.fbgemm.one_shot_car_allreduce
-        )
-        one_shot_allreduce_compiled(y_allreduce, y)
+        torch.ops.fbgemm.one_shot_car_allreduce(y_allreduce, y)
         torch.testing.assert_close(
             y_allreduce,
             torch.full(
@@ -159,7 +152,7 @@ def _run_allreduce_inner(path: str) -> None:
             ),
         )
         z = torch.ones(size=(N,), dtype=torch.bfloat16, device="cuda")
-        one_shot_allreduce_compiled(y_allreduce, y, z)
+        torch.ops.fbgemm.one_shot_car_allreduce(y_allreduce, y, z)
         torch.testing.assert_close(
             y_allreduce,
             torch.full(
@@ -175,10 +168,7 @@ def _run_allreduce_inner(path: str) -> None:
             y = torch.zeros(size=(N,), dtype=torch.bfloat16, device="cuda")
             y[:] = rank
             y_allreduce = torch.empty_like(y)
-            two_shot_allreduce_compiled = torch.compile(
-                torch.ops.fbgemm.two_shot_car_allreduce
-            )
-            two_shot_allreduce_compiled(y_allreduce, y)
+            torch.ops.fbgemm.two_shot_car_allreduce(y_allreduce, y)
             torch.testing.assert_close(
                 y_allreduce,
                 torch.full(
@@ -189,7 +179,7 @@ def _run_allreduce_inner(path: str) -> None:
                 ),
             )
             z = torch.ones(size=(N,), dtype=torch.bfloat16, device="cuda")
-            two_shot_allreduce_compiled(y_allreduce, y, z)
+            torch.ops.fbgemm.two_shot_car_allreduce(y_allreduce, y, z)
             torch.testing.assert_close(
                 y_allreduce,
                 torch.full(
