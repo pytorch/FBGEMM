@@ -214,4 +214,24 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 #endif
 }
 
+// Though it should never be used, it still seems helpful to define these
+// functions for CPU to accomodate model creation.
+TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
+  m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
+  m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
+  m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
+  m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
+  m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
+  m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
+#ifndef USE_ROCM
+  m.impl("i8i8bf16", i8i8bf16);
+  m.impl("f8f8bf16", f8f8bf16);
+  m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
+  m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched);
+  m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
+  m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
+  m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
+#endif
+}
+
 } // namespace fbgemm_gpu
