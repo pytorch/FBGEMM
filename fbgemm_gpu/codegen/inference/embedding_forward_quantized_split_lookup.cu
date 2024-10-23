@@ -36,13 +36,13 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
   if (b_t >= B * T) {
     return;
   }
-  const index_t indices_start = offsets[t * B + b];
-  const index_t indices_end = offsets[t * B + b + 1];
-  const index_t L = indices_end - indices_start;
+  const auto indices_start = offsets[t * B + b];
+  const auto indices_end = offsets[t * B + b + 1];
+  const auto L = indices_end - indices_start;
 
-  const int64_t table_start = hash_table_offsets[t];
-  const int64_t table_end = hash_table_offsets[t + 1];
-  const int64_t capacity = table_end - table_start;
+  const auto table_start = hash_table_offsets[t];
+  const auto table_end = hash_table_offsets[t + 1];
+  const auto capacity = table_end - table_start;
 
   if (capacity == 0) {
     // No pruning applied on the indices associated with this table.
@@ -121,13 +121,13 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
   if (b_t >= B * T) {
     return;
   }
-  const index_t indices_start = offsets[t * B + b];
-  const index_t indices_end = offsets[t * B + b + 1];
-  const index_t L = indices_end - indices_start;
+  const auto indices_start = offsets[t * B + b];
+  const auto indices_end = offsets[t * B + b + 1];
+  const auto L = indices_end - indices_start;
 
-  const int64_t index_remappings_start = index_remappings_offsets[t];
-  const int64_t index_remappings_end = index_remappings_offsets[t + 1];
-  const int64_t capacity = index_remappings_end - index_remappings_start;
+  const auto index_remappings_start = index_remappings_offsets[t];
+  const auto index_remappings_end = index_remappings_offsets[t + 1];
+  const auto capacity = index_remappings_end - index_remappings_start;
 
   if (capacity > 0) {
     for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
