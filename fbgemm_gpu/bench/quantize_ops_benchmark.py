@@ -22,8 +22,8 @@ from hypothesis import given, settings
 # pyre-ignore[21]
 from torch.profiler import profile, ProfilerActivity
 
-
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -34,11 +34,7 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 
 @click.group()
@@ -333,7 +329,7 @@ def bench_mx4(
             enable_trace_profile, activities, "MX4 triton quantize", input_size
         ):
             q_average_time, dequant_data = benchmark(
-                fp32_to_mx4, (input_data, group_size, True)
+                fp32_to_mx4, (input_data, group_size)
             )
 
         with _create_profile(
@@ -341,7 +337,7 @@ def bench_mx4(
         ):
             d_average_time, _ = benchmark(
                 mx4_to_fp32,
-                (dequant_data, group_size, True),
+                (dequant_data, group_size),
             )
         print(
             f"input_size={input_size} MX4 triton quantized time per iter: {q_average_time * 1.0e6:.0f}us"
@@ -469,7 +465,7 @@ def mixdim(
     )  # output is FP32
 
     print(
-        f"Input tensor batch_size: {batch_size}, num_tables: {num_tables}, tensor_size: {input_data.numel() / (1 << 30)} GB, average table dimension: {sum(table_dims) * 1.0/num_tables}."
+        f"Input tensor batch_size: {batch_size}, num_tables: {num_tables}, tensor_size: {input_data.numel() / (1 << 30)} GB, average table dimension: {sum(table_dims) * 1.0 / num_tables}."
     )
     print(
         f"Mixed dim dequantize average time per iter FP32: {average_time_mixed_dim_fp32} s, bandwidth : {input_data.numel() / (1 << 30) / average_time_mixed_dim_fp32} GB/s."

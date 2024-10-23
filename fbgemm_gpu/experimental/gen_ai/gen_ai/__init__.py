@@ -27,6 +27,9 @@ if open_source:
     torch.ops.load_library(
         os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_gen_ai_py.so")
     )
+    torch.classes.load_library(
+        os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_gen_ai_py.so")
+    )
 else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:attention_ops"
@@ -34,9 +37,16 @@ else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:comm_ops"
     )
+    from fbgemm_gpu.experimental.gen_ai import comm_ops  # noqa: F401
+
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:gemm_ops"
     )
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:quantize_ops"
+    )
+    from fbgemm_gpu.experimental.gen_ai import quantize_ops  # noqa: F401
+
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:kv_cache_ops"
     )

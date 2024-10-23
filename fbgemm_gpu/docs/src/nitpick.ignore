@@ -12,10 +12,10 @@ cpp:identifier at::Tensor
 cpp:identifier block_type_t
 cpp:identifier c10
 cpp:identifier c10::Error
-cpp:identifier c10::optional<at::SymInt>
-cpp:identifier c10::optional<at::Tensor>
-cpp:identifier c10::optional<int64_t>
-cpp:identifier c10::optional<Tensor>
+cpp:identifier std::optional<at::SymInt>
+cpp:identifier std::optional<at::Tensor>
+cpp:identifier std::optional<int64_t>
+cpp:identifier std::optional<Tensor>
 cpp:identifier c10::SymInt
 cpp:identifier c10::SymIntArrayRef
 cpp:identifier int32_t
@@ -29,6 +29,8 @@ cpp:identifier Tensor
 cpp:identifier TensorQuantizationParams
 cpp:identifier uint32_t
 cpp:identifier uint8_t
+cpp:identifier cudaStream_t
+cpp:identifier cudaError_t
 
 py:class BoundsCheckMode
 py:class c_size_t

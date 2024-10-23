@@ -45,6 +45,7 @@ from ..common import (  # noqa E402
 if open_source:
     # pyre-ignore[21]
     from test_utils import (
+        additional_decorators,
         gpu_available,
         gpu_unavailable,
         gradcheck,
@@ -55,6 +56,7 @@ if open_source:
     )
 else:
     from fbgemm_gpu.test.test_utils import (  # noqa F401
+        additional_decorators,
         gpu_available,
         gpu_unavailable,
         gradcheck,

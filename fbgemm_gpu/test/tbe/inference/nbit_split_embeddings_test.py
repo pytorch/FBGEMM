@@ -11,6 +11,7 @@
 
 import random
 import unittest
+from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
 import numpy as np
@@ -38,8 +39,22 @@ else:
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
+# pyre-ignore
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_faketensor__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+    "test_pt2_compliant_tag_fbgemm_int_nbit_split_embedding_codegen_lookup_function": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+}
 
-@optests.generate_opcheck_tests(fast=True)
+
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class NBitSplitEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -346,6 +361,62 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 lxu_state=None,
             )
             torch.testing.assert_close(output_uvm, output_ref, equal_nan=True)
+
+    @given(
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_int_nbit_split_embedding_cpu_mixed_indices_offsets_dtypes(
+        self,
+        weights_ty: SparseType,
+    ) -> None:
+        T = random.randint(1, 5)
+        B = random.randint(1, 128)
+        L = random.randint(1, 20)
+        D = random.randint(2, 256)
+        log_E = random.randint(3, 5)
+
+        iters = 4
+        E = int(10**log_E)
+
+        D_alignment = (
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
+        )
+        D = round_up(D, D_alignment)
+
+        Ds = [D] * T
+        Es = [E] * T
+        cpu_locations = [EmbeddingLocation.HOST] * T
+
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, cpu_locations)],
+            device=torch.device("cpu"),
+        )
+        cc.fill_random_weights()
+
+        requests = generate_requests(
+            iters, B, T, L, min(Es), reuse=0.1, emulate_pruning=False, use_cpu=True
+        )
+        dtypes_combo = [
+            (torch.int64, torch.int64),
+            (torch.int32, torch.int32),
+            (torch.int32, torch.int64),
+            (torch.int64, torch.int32),
+        ]
+        for i, req in enumerate(requests):
+            indices, offsets = req.unpack_2()
+            indices_dtype, offsets_dtype = dtypes_combo[i]
+            indices = indices.to(indices_dtype)
+            offsets = offsets.to(offsets_dtype)
+            _ = cc(indices, offsets)
 
 
 if __name__ == "__main__":

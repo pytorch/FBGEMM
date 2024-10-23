@@ -171,6 +171,11 @@ set(gen_gpu_kernel_source_files
     "gen_embedding_forward_ssd_unweighted_nobag_kernel_small.cu"
 )
 
+list(APPEND gen_gpu_host_source_files
+    "gen_embedding_forward_split_unweighted_vbe_codegen_meta.cpp"
+    "gen_embedding_backward_sgd_split_unweighted_vbe_meta.cpp"
+  )
+
 if(NOT USE_ROCM)
   list(APPEND gen_gpu_kernel_source_files
     "gen_embedding_forward_split_weighted_v2_kernel.cu"
@@ -258,10 +263,10 @@ list(APPEND gen_gpu_host_source_files
 foreach(optimizer ${ALL_OPTIMIZERS})
   list(APPEND gen_cpu_source_files
     "gen_embedding_backward_split_${optimizer}_cpu.cpp"
-    "gen_embedding_backward_split_${optimizer}_pt2_cpu_wrapper.cpp")
+    "gen_embedding_backward_split_${optimizer}_pt2_cpu_wrapper.cpp"
+    "gen_embedding_split_${optimizer}_pt2_autograd.cpp")
   list(APPEND gen_gpu_host_source_files
     "gen_embedding_backward_split_${optimizer}.cpp"
-    "gen_embedding_split_${optimizer}_pt2_autograd.cpp"
     "gen_embedding_backward_split_${optimizer}_pt2_cuda_wrapper.cpp")
 endforeach()
 
@@ -449,7 +454,11 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/training/forward/embedding_forward_split_cpu.cpp
     codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
+    codegen/training/pt2/pt2_autograd_utils.cpp
     codegen/utils/embedding_bounds_check_host_cpu.cpp
+    src/config/feature_gates.cpp
+    src/memory_utils/memory_utils.cpp
+    src/memory_utils/memory_utils_ops.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
     src/permute_multi_embedding_ops/permute_multi_embedding_function.cpp
     src/permute_multi_embedding_ops/permute_multi_embedding_ops_cpu.cpp
@@ -463,6 +472,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/layout_transform_ops/layout_transform_ops_cpu.cpp
     src/quantize_ops/quantize_ops_cpu.cpp
     src/quantize_ops/quantize_ops_meta.cpp
+    src/sparse_ops/sparse_async_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
@@ -471,6 +481,7 @@ set(fbgemm_gpu_sources_static_cpu
     src/split_embeddings_cache/lru_cache_populate_byte.cpp
     src/split_embeddings_cache/lxu_cache.cpp
     src/split_embeddings_cache/split_embeddings_cache_ops.cpp
+    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
     codegen/training/index_select/batch_index_select_dim0_ops.cpp
     codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 
@@ -480,9 +491,6 @@ if(NOT FBGEMM_CPU_ONLY)
     codegen/utils/embedding_bounds_check_host.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
-    src/memory_utils/memory_utils.cpp
-    src/memory_utils/memory_utils_ops.cpp
-    src/memory_utils/memory_utils_ops_cpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
     src/quantize_ops/quantize_ops_gpu.cpp
@@ -718,3 +726,9 @@ install(FILES ${gen_python_source_files}
 
 install(FILES ${gen_defused_optim_py_files}
         DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
+
+add_custom_target(fbgemm_gpu_py_clean_rpath ALL
+  WORKING_DIRECTORY ${OUTPUT_DIR}
+  COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
+
+add_dependencies(fbgemm_gpu_py_clean_rpath fbgemm_gpu_py)

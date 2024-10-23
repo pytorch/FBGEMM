@@ -48,7 +48,7 @@ prepare_fbgemm_gpu_build () {
   (exec_with_retries 3 conda run --no-capture-output ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
   # BUILD_VARIANT is provided by the github workflow file
-  if [ "$BUILD_VARIANT" == "cuda" ]; then
+  if [ "$BUILD_VARIANT" == "cuda" ] || [ "$BUILD_VARIANT" == "genai" ]; then
     (install_triton_pip "${env_name}") || return 1
   fi
 
@@ -301,7 +301,7 @@ __build_fbgemm_gpu_set_python_tag () {
   # shellcheck disable=SC2206
   local python_version_arr=(${python_version[1]//./ })
 
-  # Set the python tag (e.g. Python 3.12 -> py312)
+  # Set the python tag (e.g. Python 3.12 --> py312)
   export python_tag="py${python_version_arr[0]}${python_version_arr[1]}"
   echo "[BUILD] Extracted and set Python tag: ${python_tag}"
 }
@@ -375,8 +375,12 @@ __build_fbgemm_gpu_common_pre_steps () {
   # permit for this
   __build_fbgemm_gpu_set_run_multicore
 
+  # Check LD_LIBRARY_PATH for numpy
+  echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
+
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
+
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} python setup.py clean
 
@@ -400,11 +404,21 @@ __print_library_infos () {
     echo "[CHECK] Listing out the GLIBCXX versions referenced:"
     print_glibc_info "${library}"
 
+    echo "[CHECK] Checking symbols: "
+    print_exec "nm -gDC ${library} > symbols"
+    echo "[CHECK] Number of symbols in ${library}: $(wc -l < symbols)"
+    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm symbols)"
+
+    print_exec "nm -gDCu ${library} > usymbols"
+    echo "[CHECK] Number of undefined symbols: $(wc -l < usymbols)"
     echo "[CHECK] Listing out undefined symbols:"
-    print_exec "nm -gDCu ${library} | sort"
+    print_exec "sort usymbols"
 
     echo "[CHECK] Listing out external shared libraries linked:"
     print_exec ldd "${library}"
+
+    echo "[CHECK] Displaying ELF information:"
+    print_exec readelf -d "${library}"
     echo "################################################################################"
     echo ""
     echo ""

@@ -34,7 +34,6 @@
 {%- set locs_or_addrs_idx = "row_idx" if ssd else "cache_idx" %}
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -188,7 +187,8 @@ using namespace fbgemm_gpu;
         {%- if is_gwd_kernel %}
         // if l > L or prev_iter == 0, global_weight_decay = 1
         const auto prev_it = prev_iter[idx];
-        const auto global_weight_decay = (l > L || prev_it == 0) ? 1 : max(gwd_lower_bound, std::pow(weight_decay_base, iter - prev_it - 1));
+        CUDA_KERNEL_ASSERT(prev_it < iter);
+        const auto global_weight_decay = (l > L || prev_it == 0) ? 1 : max(gwd_lower_bound, powf(weight_decay_base, iter - prev_it - 1));
         {%- endif %}
 
         {%- if weighted %}

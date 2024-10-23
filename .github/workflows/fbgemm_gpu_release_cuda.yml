@@ -35,7 +35,7 @@ on:
         type: choice
         required: false
         options: [ "11.8.0", "12.1.1", "12.4.1" ]
-        default: "12.1.1"
+        default: "12.4.1"
       publish_to_pypi:
         description: Publish Artifact to PyPI
         type: boolean
@@ -50,6 +50,7 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
+    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
@@ -69,7 +70,7 @@ jobs:
         host-machine: [
           { arch: x86, instance: "amz2023.linux.24xlarge" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]
 
     steps:
@@ -120,11 +121,13 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: fbgemm_gpu_release_cuda_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu-*.whl
+        path: fbgemm_gpu/dist/*.whl
+        if-no-files-found: error
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
+    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     defaults:
       run:
@@ -140,7 +143,7 @@ jobs:
         host-machine: [
           { arch: x86, instance: "amz2023.linux.g5.4xlarge.nvidia.gpu" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]
     needs: build_artifact
 
@@ -185,11 +188,11 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 20
+      timeout-minutes: 40
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
-    - name: Push FBGEMM_GPU Binary to PYPI
+    - name: Push Wheel to PyPI
       if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == github.event.inputs.cuda_version }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu-*.whl "$PYPI_TOKEN"
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl

@@ -13,10 +13,11 @@ import logging
 from itertools import accumulate
 from typing import List, Optional, Tuple, Union
 
+import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import sparse_type_to_int, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -30,21 +31,26 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     round_up,
     SplitState,
 )
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
 try:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
-        )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference",
     )
 except Exception:
     pass
+
+try:
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference",
+    )
+except Exception:
+    pass
+
+import fbgemm_gpu  # noqa
 
 
 def rounded_row_size_in_bytes(
@@ -147,6 +153,26 @@ def random_quant_scaled_tensor(
         )
 
 
+@torch.fx.wrap
+def inputs_to_device(
+    indices: torch.Tensor,
+    offsets: torch.Tensor,
+    per_sample_weights: Optional[torch.Tensor],
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    if device.type == "meta":
+        return indices, offsets, per_sample_weights
+
+    non_blocking = device.type != "cpu"
+    if indices.device != device:
+        indices = indices.to(device, non_blocking=non_blocking)
+    if offsets.device != device:
+        offsets = offsets.to(device, non_blocking=non_blocking)
+    if per_sample_weights is not None and per_sample_weights.device != device:
+        per_sample_weights = per_sample_weights.to(device, non_blocking=non_blocking)
+    return indices, offsets, per_sample_weights
+
+
 # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
@@ -156,10 +182,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
+    # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
     cache_miss_counter: torch.Tensor
+    # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
     local_uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_offsets` is never initialized.
     weights_offsets: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_placements` is never initialized.
     weights_placements: torch.Tensor
 
     def __init__(  # noqa C901
@@ -500,10 +531,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Miss counter value [3] - # of total requested indices : {self.cache_miss_counter[3]}, "
         )
         logging.info(
-            f"unique_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[2]}, \n"
+            f"unique_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[2]}, \n"
         )
         logging.info(
-            f"total_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[3]}, \n"
+            f"total_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[3]}, \n"
         )
 
     def get_uvm_cache_stats(self) -> Tensor:
@@ -527,8 +558,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         if uvm_cache_stats[1]:
             logging.info(
-                f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
-                f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
+                f"unique indices / requested indices: {uvm_cache_stats[2] / uvm_cache_stats[1]}\n"
+                f"unique misses / requested indices: {uvm_cache_stats[3] / uvm_cache_stats[1]}\n"
             )
 
     @torch.jit.export
@@ -745,6 +776,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.weight_initialized
         ), "weight needs to be initialized before forward function"
 
+        indices, offsets, per_sample_weights = inputs_to_device(
+            indices, offsets, per_sample_weights, self.bounds_check_warning.device
+        )
+
         # First bound check: check if the indices/offsets are within the boundary
         # of the original embedding rows before pruning.
         # Note that this is only applied when we enable pruning (if the perf becomes
@@ -908,10 +943,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for spec in self.embedding_specs
         ]
 
+    @torch.jit.export
     def recompute_module_buffers(self) -> None:
         """
-        Compute module buffers that're on meta device and are not materialized in reset_weights_placements_and_offsets().
-        Currently those buffers are `weights_tys`, `rows_per_table`, `D_offsets` and `bounds_check_warning`.
+        Compute module buffers that're on meta device and are not materialized
+        in reset_weights_placements_and_offsets().  Currently those buffers are
+        `weights_tys`, `rows_per_table`, `D_offsets` and `bounds_check_warning`.
         Pruning related or uvm related buffers are not computed right now.
         """
         if (
@@ -920,7 +957,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             return
 
-        weights_tys_int = [e[3].as_int() for e in self.embedding_specs]
+        weights_tys_int = [sparse_type_to_int(e[3]) for e in self.embedding_specs]
         self.weights_tys = torch.tensor(
             [weights_tys_int[t] for t in self.feature_table_map],
             device=self.current_device,
@@ -933,8 +970,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=torch.int64,
         )
         dims = [e[2] for e in self.embedding_specs]
-        D_offsets_list = [dims[t] for t in self.feature_table_map]
-        D_offsets_list = [0] + list(accumulate(D_offsets_list))
+        D_offsets_list = [0]
+        for t in self.feature_table_map:
+            D_offsets_list.append(dims[t] + D_offsets_list[-1])
         self.D_offsets = torch.tensor(
             D_offsets_list, device=self.current_device, dtype=torch.int32
         )
@@ -963,6 +1001,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.table_wise_cache_miss = torch.empty_like(
             self.table_wise_cache_miss, device=self.current_device
+        )
+        self.weights_uvm = torch.empty_like(
+            self.weights_uvm, device=self.current_device
         )
 
     def _apply_split(

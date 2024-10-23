@@ -24,11 +24,11 @@
 #include <mutex>
 
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/find_qparams.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/shared_memory.cuh"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/weight_row.cuh"
 
@@ -54,7 +54,7 @@ namespace {
 // number of SMs gives good performance across the board
 constexpr int MAX_THREAD_BLOCKS_FACTOR = 64;
 
-int get_max_thread_blocks_() {
+inline int get_max_thread_blocks_() {
   return MAX_THREAD_BLOCKS_FACTOR *
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 }

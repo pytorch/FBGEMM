@@ -34,6 +34,13 @@ class TBEStatsReporter(abc.ABC):
         ...
 
     @abc.abstractmethod
+    def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
+        """
+        Register stats_name in the whitelist of the reporter
+        """
+        ...
+
+    @abc.abstractmethod
     def report_duration(
         self,
         iteration_step: int,
@@ -41,6 +48,7 @@ class TBEStatsReporter(abc.ABC):
         duration_ms: float,
         embedding_id: str = "",
         tbe_id: str = "",
+        time_unit: str = "ms",
     ) -> None:
         """
         Report the duration of a timed event.
@@ -67,6 +75,9 @@ class StdLogStatsReporter(TBEStatsReporter):
         assert report_interval > 0, "Report interval must be positive"
         self.report_interval = report_interval
 
+    def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
+        return
+
     def should_report(self, iteration_step: int) -> bool:
         return iteration_step % self.report_interval == 0
 
@@ -77,9 +88,10 @@ class StdLogStatsReporter(TBEStatsReporter):
         duration_ms: float,
         embedding_id: str = "",
         tbe_id: str = "",
+        time_unit: str = "ms",
     ) -> None:
         logging.info(
-            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} ms"
+            f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} took {duration_ms} {time_unit}"
         )
 
     def report_data_amount(
@@ -93,6 +105,9 @@ class StdLogStatsReporter(TBEStatsReporter):
         logging.info(
             f"[Batch #{iteration_step}][TBE:{tbe_id}][Table:{embedding_id}] The event {event_name} used {data_bytes} bytes"
         )
+
+    def __repr__(self) -> str:
+        return "StdLogStatsReporter{ " f"report_interval={self.report_interval} " "}"
 
 
 @dataclass(frozen=True)
@@ -163,7 +178,7 @@ class AsyncSeriesTimer:
     """
     A wrapper class on top of torch.cuda.Event to measure the time between a
     series of CUDA events. Once initiated, every start() and stop() call pair
-    will measure the timing between them on GPU. Caller cannot inititate another
+    will measure the timing between them on GPU. Caller cannot initiate another
     recording if there's already one ongoing.
 
     Reporting is asynchronous as the timing result is not ready immediately at
@@ -200,7 +215,7 @@ class AsyncSeriesTimer:
         return AsyncSeriesTimerRecordedContext(self, context, stream)
 
     def _lazy_report(self) -> None:
-        # Since this is a series of timing event, the earlies recorded event
+        # Since this is a series of timing events, the earliest recorded event
         # finishes earliest. So we only need to check the leftmost stop event
         # to decide if we need to report now.
 

@@ -33,6 +33,7 @@ class EmbOptimType(enum.Enum):
     SHAMPOO_V2 = "shampoo_v2"  # not currently supported for sparse embedding tables
     MADGRAD = "madgrad"
     EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"  # deprecated
+    ENSEMBLE_ROWWISE_ADAGRAD = "ensemble_row_wise_adagrad"
     NONE = "none"
 
     def __str__(self) -> str:
@@ -65,6 +66,19 @@ class FP8QuantizationConfig(QuantizationConfig):
         if name not in self.config:
             raise RuntimeError("{} must be set in config".format(name))
         return self.config[name]
+
+
+def sparse_type_to_int(sparse_type: "SparseType") -> int:
+    return {
+        SparseType.FP32.value: 0,
+        SparseType.FP16.value: 1,
+        SparseType.INT8.value: 2,
+        SparseType.INT4.value: 3,
+        SparseType.INT2.value: 4,
+        SparseType.BF16.value: 5,
+        SparseType.FP8.value: 6,
+        SparseType.MX4.value: 7,
+    }[sparse_type.value]
 
 
 @enum.unique
@@ -103,16 +117,7 @@ class SparseType(enum.Enum):
             raise ValueError(f"Unsupported sparse type: {ty}")
 
     def as_int(self) -> int:
-        return {
-            SparseType.FP32.value: 0,
-            SparseType.FP16.value: 1,
-            SparseType.INT8.value: 2,
-            SparseType.INT4.value: 3,
-            SparseType.INT2.value: 4,
-            SparseType.BF16.value: 5,
-            SparseType.FP8.value: 6,
-            SparseType.MX4.value: 7,
-        }[self.value]
+        return sparse_type_to_int(self)
 
     @staticmethod
     def from_dtype(dtype: torch.dtype, is_mx: bool = False) -> "SparseType":

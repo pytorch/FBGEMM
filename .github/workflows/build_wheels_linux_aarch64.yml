@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   generate-matrix:
+    if: ${{ github.repository_owner == 'pytorch' }}
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
     with:
       package-type: wheel
@@ -32,6 +33,7 @@ jobs:
       test-infra-ref: main
       with-cuda: disable
   build:
+    if: ${{ github.repository_owner == 'pytorch' }}
     needs: generate-matrix
     strategy:
       fail-fast: false

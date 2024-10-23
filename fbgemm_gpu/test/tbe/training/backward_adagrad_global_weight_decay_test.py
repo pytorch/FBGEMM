@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-unsafe
+
 # pyre-ignore-all-errors[56]
 
 import copy
@@ -22,6 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 from hypothesis import given, settings
 
 from .backward_adagrad_common import (  # noqa
+    additional_decorators,
     adjust_mixed_B_st,
     common_settings,
     common_strategy,
@@ -329,8 +332,10 @@ def execute_global_weight_decay(  # noqa C901
                     gwd_lower_bound,
                 )
             if i != 1:
-                tbe.step = i - 1  # step will be incremented when forward is called
-                tbe.iter = torch.Tensor([tbe.step])
+                tbe.iter_cpu.fill_(
+                    i - 1
+                )  # step will be incremented when forward is called
+                tbe.iter.fill_(i - 1)
 
             # Run forward pass
             output = tbe(
@@ -354,7 +359,7 @@ def execute_global_weight_decay(  # noqa C901
             )
 
 
-@optests.generate_opcheck_tests(fast=True)
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardAdagradGlobalWeightDecay(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(

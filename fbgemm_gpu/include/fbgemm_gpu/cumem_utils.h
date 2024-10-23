@@ -73,6 +73,21 @@ Tensor new_unified_tensor(
 
 /// @ingroup cumem-utils
 ///
+/// Placeholder operator for the `Meta` dispatch key for new_unified_tensor
+///
+/// @param self The input tensor
+/// @param sizes The target tensor dimensions
+/// @param is_host_mapped Whether to allocate UVM or host-mapped memory
+///
+/// @return A new tensor backed by UVM or host-mapped memory, depending on the
+/// value of `is_host_mapped`
+Tensor new_unified_tensor_meta(
+    const Tensor& self,
+    const std::vector<std::int64_t>& sizes,
+    bool is_host_mapped);
+
+/// @ingroup cumem-utils
+///
 /// Allocate an `at::Tensor` with unified managed memory (UVM), but allow for
 /// its preferred storage location to be automatically managed.
 ///
@@ -124,6 +139,7 @@ Tensor uvm_to_cpu(const Tensor& self);
 /// @return A new tensor that shares the same device and UVM storage with
 /// `prototype`.
 Tensor uvm_to_device(const Tensor& self, const Tensor& prototype);
+Tensor uvm_to_device_d(const Tensor& self, const at::Device& device);
 
 /// @ingroup cumem-utils
 ///
@@ -135,7 +151,7 @@ Tensor uvm_to_device(const Tensor& self, const Tensor& prototype);
 /// @param cuda_memory_advise The `cudaMemoryAdvise` enum value, as integer
 ///
 /// @see See <a
-/// href="https://nvidia.github.io/cuda-python/module/cudart.html#cuda.cudart.cudaMemAdvise">here</a>
+/// href="https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html">here</a>
 /// for more information on the `cudaMemoryAdvise` enum.
 void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 
@@ -149,7 +165,7 @@ void uvm_cuda_mem_advise(const Tensor& self, int64_t cuda_memory_advise);
 ///                 destination
 ///
 /// @see See <a
-/// href="https://nvidia.github.io/cuda-python/module/cudart.html#cuda.cudart.cudaMemPrefetchAsync">here</a>
+/// href="https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__MEMORY.html">here</a>
 /// for more information on `cudaMemPrefetchAsync()`.
 void uvm_cuda_mem_prefetch_async(
     const Tensor& self,

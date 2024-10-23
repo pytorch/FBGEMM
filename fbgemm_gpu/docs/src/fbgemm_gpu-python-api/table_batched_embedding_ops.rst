@@ -1,6 +1,18 @@
-Table Batched Embedding (TBE) Operators
-=======================================
+Table Batched Embedding (TBE) Training Module
+=============================================
 
-.. automodule:: fbgemm_gpu
+.. _table-batched-embedding-ops-stable-api:
 
-.. autofunction:: fbgemm_gpu.split_table_batched_embeddings_ops.SplitTableBatchedEmbeddingBagsCodegen
+Stable API
+----------
+
+.. autoclass:: fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen
+    :members: forward,
+              split_embedding_weights,
+              split_optimizer_states,
+              set_learning_rate,
+              update_hyper_parameters,
+              set_optimizer_step
+
+Other API
+---------

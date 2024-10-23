@@ -70,6 +70,12 @@ install_cuda () {
   nm -gDC "${libcuda_path}"
   append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
 
+  # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
+  # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
+  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+    print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+  fi
+
   echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
@@ -77,6 +83,10 @@ install_cuda () {
   local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
+
+  local nvcc_prepend_flags=(
+    -allow-unsupported-compiler
+  )
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
@@ -90,13 +100,20 @@ install_cuda () {
     # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
     #   https://github.com/ROCm/HIP/issues/931
     #
-    echo "[BUILD] Explicitly setting Clang as the host compiler for NVCC: ${cxx_path}"
+    echo "[BUILD] Setting Clang as the NVCC host compiler: ${cxx_path}"
 
     # shellcheck disable=SC2155,SC2086
     local cxx_path=$(conda run ${env_prefix} which c++)
-    # shellcheck disable=SC2086
-    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
+
+    nvcc_prepend_flags+=(
+      -Xcompiler -stdlib=libstdc++
+      -ccbin "${cxx_path}"
+    )
   fi
+
+  echo "[BUILD] Setting prepend flags for NVCC ..."
+  # shellcheck disable=SC2086,SC2145
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\""${nvcc_prepend_flags[@]}"\"
 
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."

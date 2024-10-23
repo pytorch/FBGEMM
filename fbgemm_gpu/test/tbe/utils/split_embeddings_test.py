@@ -559,6 +559,59 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         check_weight_momentum(0)
 
+    @unittest.skipIf(*gpu_unavailable)
+    def test_update_hyper_parameters(self) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**2
+        Ds = [D] * T
+        Es = [E] * T
+
+        hyperparameters = {
+            "eps": 0.1,
+            "beta1": 0.9,
+            "beta2": 0.999,
+            "weight_decay": 0.0,
+        }
+        cc = SplitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    E,
+                    D,
+                    EmbeddingLocation.DEVICE,
+                    ComputeDevice.CUDA,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            learning_rate=0.1,
+            **hyperparameters,  # pyre-ignore[6]
+        )
+
+        # Update hyperparameters
+        updated_parameters = {
+            key: value + 1.0 for key, value in hyperparameters.items()
+        } | {"lr": 1.0, "lower_bound": 2.0}
+        cc.update_hyper_parameters(updated_parameters)
+        self.assertAlmostEqual(
+            cc.optimizer_args.learning_rate, updated_parameters["lr"]
+        )
+        self.assertAlmostEqual(cc.optimizer_args.eps, updated_parameters["eps"])
+        self.assertAlmostEqual(cc.optimizer_args.beta1, updated_parameters["beta1"])
+        self.assertAlmostEqual(cc.optimizer_args.beta2, updated_parameters["beta2"])
+        self.assertAlmostEqual(
+            cc.optimizer_args.weight_decay, updated_parameters["weight_decay"]
+        )
+        self.assertAlmostEqual(cc.gwd_lower_bound, updated_parameters["lower_bound"])
+
+        # Update hyperparameters with invalid parameter name
+        invalid_parameter = "invalid_parameter"
+        with self.assertRaisesRegex(
+            NotImplementedError,
+            f"Setting hyper-parameter {invalid_parameter} is not supported",
+        ):
+            cc.update_hyper_parameters({"invalid_parameter": 1.0})
+
 
 if __name__ == "__main__":
     unittest.main()

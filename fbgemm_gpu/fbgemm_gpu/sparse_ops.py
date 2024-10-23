@@ -7,38 +7,31 @@
 # pyre-strict
 
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.utils.loader import load_torch_module
 
 try:
     # pyre-ignore
     from fbgemm_gpu import open_source  # noqa: F401
 except Exception:
+    load_torch_module("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
+    load_torch_module("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
     if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
-        )
         torch.ops.load_library(
             "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip"
         )
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine_hip")
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops_hip"
-        )
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
-        )
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
 
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    else:
+        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
+
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:input_combine")
+
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
     )
@@ -254,7 +247,7 @@ def tbe_input_combine_abstract(
         torch._check(index.is_contiguous())
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -291,7 +284,7 @@ def tbe_input_combine_with_length_abstract(
         torch._check(offset.is_contiguous())
         total_indices = total_indices + index.numel()
         total_offsets = total_offsets + offset.numel()
-        if weight.numel() > 0:
+        if guard_size_oblivious(weight.numel() > 0):
             torch._check(weight.dim() == 1)
             torch._check(weight.numel() == index.numel())
             torch._check(weight.is_contiguous())
@@ -363,14 +356,14 @@ def check_all_same_device(*tensors: Optional[Tensor]) -> None:
     tensors, _ = pytree.tree_flatten(tensors)
     if len(tensors) == 0:
         return
+    if all(t.device.type in ["cpu", "meta"] for t in tensors if t is not None):
+        return
     first_tensor: Optional[Tensor] = None
     for tensor in tensors:
         if tensor is None:
             continue
         if first_tensor is None:
             first_tensor = tensor
-        if first_tensor.device.type == "cpu" and tensor.device.type == "cpu":
-            return
         torch._check(tensor.device == first_tensor.device)
 
 
@@ -464,6 +457,8 @@ def block_bucketize_sparse_features_meta(
     weights: Optional[torch.Tensor] = None,
     batch_size_per_feature: Optional[torch.Tensor] = None,
     max_B: int = -1,
+    block_bucketize_pos: Optional[torch.Tensor] = None,
+    keep_orig_idx: bool = False,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -951,6 +946,71 @@ def permute_pooled_embs_split_abstract(
     return torch.empty_like(pooled_embs)
 
 
+def histogram_binning_calibration_abstract(
+    logit: Tensor,
+    bin_num_examples: Tensor,
+    bin_num_positives: Tensor,
+    positive_weight: float,
+    lower_bound: float,
+    upper_bound: float,
+    bin_ctr_in_use_after: int,
+    bin_ctr_weight_value: float,
+) -> Tuple[Tensor, Tensor]:
+    return torch.empty_like(logit), torch.empty([logit.numel()], dtype=torch.int64)
+
+
+def float_to_hfp8_quantized(
+    input: Tensor, ebits: int, exponent_bias: int, max_pos: float
+) -> Tensor:
+    return torch.empty_like(input, dtype=torch.uint8)
+
+
+def hfp8_quantized_to_float(input: Tensor, ebits: int, exponent_bias: int) -> Tensor:
+    return torch.empty_like(input, dtype=torch.float32)
+
+
+def float_or_half_to_fused_nbit_rowwise_quantized_sbhalf(
+    input_t: Tensor,
+    bit_rate: int,
+) -> Tensor:
+    input_sizes = input_t.size()
+    torch._check(len(input_sizes) == 2)
+    nrows = input_sizes[0]
+    ncols = input_sizes[1]
+    num_elem_per_byte = 8 // bit_rate
+
+    torch._check(ncols % (2 * num_elem_per_byte) == 0)
+    output_columns = (ncols + num_elem_per_byte - 1) // num_elem_per_byte + 2 * 2
+    output = torch.empty(
+        (nrows, output_columns), device=input_t.device, dtype=torch.uint8
+    )
+    return output
+
+
+def fused_nbit_rowwise_quantized_sb_half_to_float_or_half(
+    input_t: Tensor,
+    bit_rate: int,
+    output_dtype: int = 0,
+) -> Tensor:
+    torch._check(output_dtype in [SparseType.FP32.as_int(), SparseType.FP16.as_int()])
+    nrows = input_t.size(0)
+    ncols = input_t.size(1)
+    if input_t.dtype == torch.quint2x4:
+        ncols = (ncols + 3) // 4
+    elif input_t.dtype == torch.quint4x2:
+        ncols = (ncols + 1) // 2
+    num_elem_per_byte = 8 // bit_rate
+    output_columns = (ncols - 2 * 2) * num_elem_per_byte
+    if output_dtype == SparseType.FP32.as_int():
+        return torch.empty(
+            (nrows, output_columns), dtype=torch.float32, device=input_t.device
+        )
+    else:  # output_dtype is SparseType.FP16
+        return torch.empty(
+            (nrows, output_columns), dtype=torch.float16, device=input_t.device
+        )
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1013,7 +1073,6 @@ def _setup() -> None:
         )
         impl_abstract("fbgemm::segment_sum_csr", segment_sum_csr_abstract)
         impl_abstract("fbgemm::dense_to_jagged_forward", dense_to_jagged_forward)
-        impl_abstract("fbgemm::dense_to_jagged", dense_to_jagged)
         impl_abstract(
             "fbgemm::batch_index_select_dim0", batch_index_select_dim0_abstract
         )
@@ -1073,7 +1132,43 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::permute_pooled_embs_split", permute_pooled_embs_split_abstract
         )
+        impl_abstract(
+            "fbgemm::histogram_binning_calibration",
+            histogram_binning_calibration_abstract,
+        )
+        impl_abstract(
+            "fbgemm::FloatToHFP8Quantized",
+            float_to_hfp8_quantized,
+        )
+        impl_abstract(
+            "fbgemm::HFP8QuantizedToFloat",
+            hfp8_quantized_to_float,
+        )
+        impl_abstract(
+            "fbgemm::FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf",
+            float_or_half_to_fused_nbit_rowwise_quantized_sbhalf,
+        )
+        impl_abstract(
+            "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf",
+            fused_nbit_rowwise_quantized_sb_half_to_float_or_half,
+        )
+
         _setup.done = True
 
 
 _setup()
+
+
+@torch.library.register_fake("fbgemm::lengths_range")
+def lengths_range_abstract(
+    lengths: Tensor,
+    output_shape: Optional[Sequence[int]] = None,
+) -> Tensor:
+    torch._check(lengths.dim() == 1, lambda: "lengths must be a 1D tensor")
+    output_size = 0
+    if output_shape is not None:
+        output_size = math.prod(output_shape)
+    else:
+        ctx = torch.library.get_ctx()
+        output_size = ctx.new_dynamic_size()
+    return lengths.new_empty([output_size], dtype=lengths.dtype)

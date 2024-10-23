@@ -9,8 +9,11 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <ATen/core/dispatch/Dispatcher.h>
 #include <c10/core/SymInt.h>
 #include <c10/core/SymIntArrayRef.h>
+#include <torch/csrc/autograd/custom_function.h>
+
 #include <cstdint>
 
 namespace fbgemm_gpu {
@@ -37,6 +40,11 @@ at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
 at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in);
+
+///@ingroup sparse-data-cpu
+void asynchronous_exclusive_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
 at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
@@ -176,7 +184,8 @@ block_bucketize_sparse_features_cuda(
     const std::optional<at::Tensor>& weights,
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
-    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos);
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx);
 
 std::tuple<
     at::Tensor,
@@ -196,7 +205,8 @@ block_bucketize_sparse_features_cpu(
     const std::optional<at::Tensor>& weights,
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
-    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos);
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx);
 
 std::tuple<
     at::Tensor,
@@ -217,7 +227,8 @@ block_bucketize_sparse_features_inference_cuda(
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool return_bucket_mapping);
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx);
 
 ///@ingroup sparse-data-cuda
 at::Tensor populate_bucketized_permute_cuda(
@@ -245,7 +256,8 @@ block_bucketize_sparse_features_inference_cpu(
     const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool return_bucket_mapping);
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx);
 
 ///@ingroup sparse-data-cpu
 at::Tensor populate_bucketized_permute_cpu(
@@ -914,6 +926,44 @@ at::Tensor index_add_with_unique_indices_cuda(
     std::vector<int64_t>& input_shape,
     const int consecutive_range_start,
     const int consecutive_range_length);
+
+torch::autograd::variable_list group_index_select_dim0_decomposed(
+    at::TensorList input_group,
+    at::TensorList indices_group);
+
+torch::autograd::variable_list group_index_select_dim0_autograd_impl(
+    at::TensorList all_indices_input,
+    const int64_t group_size);
+
+torch::autograd::variable_list group_index_select_dim0(
+    at::TensorList input_group,
+    at::TensorList indices_group);
+
+torch::autograd::variable_list group_index_select_dim0_forward_impl_cpu(
+    at::TensorList all_indices_input,
+    const int64_t group_size);
+
+torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
+    at::TensorList all_inputs,
+    c10::SymIntArrayRef output_shape_group_ref);
+
+std::pair<std::vector<at::Tensor>, std::vector<at::Tensor>>
+group_index_select_dim0_unpack(
+    at::TensorList all_indices_input,
+    const int64_t group_size);
+
+class GroupIndexSelectDim0Op
+    : public torch::autograd::Function<GroupIndexSelectDim0Op> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      at::TensorList all_indices_input,
+      const int64_t group_size);
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output_group);
+};
 
 ///@ingroup sparse-data-cuda
 void group_index_select_or_add_cuda(

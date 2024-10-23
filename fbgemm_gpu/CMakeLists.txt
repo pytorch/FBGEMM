@@ -22,9 +22,10 @@ set(CMAKE_VERBOSE_MAKEFILE on)
 # FBGEMM_GPU Build Options
 ################################################################################
 
-option(FBGEMM_CPU_ONLY  "Build FBGEMM_GPU without GPU support" OFF)
-option(USE_ROCM         "Build FBGEMM_GPU for ROCm" OFF)
-option(FBGEMM_GENAI_ONLY  "Build FBGEMM_GPU with GEN AI only support" OFF)
+option(FBGEMM_CPU_ONLY   "Build FBGEMM_GPU without GPU support" OFF)
+option(USE_ROCM          "Build FBGEMM_GPU for ROCm" OFF)
+option(FBGEMM_GENAI_ONLY "Build FBGEMM_GPU with GEN AI only support" OFF)
+option(USE_FB_ONLY       "Build FBGEMM_GPU FB only operators" OFF)
 
 if((NOT FBGEMM_CPU_ONLY) AND
    ((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND

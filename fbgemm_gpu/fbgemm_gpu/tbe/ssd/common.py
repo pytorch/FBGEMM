@@ -8,25 +8,13 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
-import torch
+from fbgemm_gpu.utils.loader import load_torch_module
 
 try:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
-        )
-    else:
-        try:
-            torch.ops.load_library(
-                "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-            )
-        except OSError:
-            # Keep for BC: will be deprecated soon.
-            torch.ops.load_library(
-                "//deeplearning/fbgemm/fbgemm_gpu/fb:ssd_split_table_batched_embeddings"
-            )
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
+    )
 except Exception:
     pass
-
 
 ASSOC = 32

@@ -78,53 +78,141 @@ class BlockBucketizeTest(unittest.TestCase):
     @given(
         long_indices=st.booleans(),
         use_cpu=st.booleans() if gpu_available else st.just(True),
+        keep_orig_idx=st.booleans(),
+        sequence=st.booleans(),
+        bucketize_pos=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_long_indices(
-        self, long_indices: bool, use_cpu: bool
+        self,
+        long_indices: bool,
+        use_cpu: bool,
+        keep_orig_idx: bool,
+        sequence: bool,
+        bucketize_pos: bool,
     ) -> None:
-        bucketize_pos = False
-        sequence = False
         index_type = torch.long if long_indices else torch.int
-
         # 3 GPUs
         my_size = 3
         block_sizes = torch.tensor([3, 4, 5], dtype=index_type)
 
         if not long_indices:
-            lengths = torch.tensor([0, 3, 2, 0, 1, 4], dtype=index_type)
-            indices = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=index_type)
+            # batch size 2, 3 features to 3 gpus
+            lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+            indices = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0], dtype=index_type)
+
             new_lengths_ref = torch.tensor(
-                [0, 2, 0, 0, 0, 0, 0, 1, 2, 0, 1, 3, 0, 0, 0, 0, 0, 1], dtype=index_type
-            )
-            new_indices_ref = torch.tensor(
-                [1, 2, 0, 0, 1, 1, 2, 3, 4, 0], dtype=index_type
-            )
-        else:
-            lengths = torch.tensor([0, 3, 2, 0, 1, 4], dtype=index_type)
-            # Test long and negative indices: -8 will be casted to 18446644015555759292
-            indices = torch.tensor(
-                [1, 2, 3, 100061827127359, 5, 6, 7, -8, 100058153792324, 10],
-                dtype=index_type,
-            )
-            new_lengths_ref = torch.tensor(
-                [0, 2, 0, 0, 0, 0, 0, 1, 2, 0, 1, 1, 0, 0, 0, 0, 0, 3], dtype=index_type
-            )
-            new_indices_ref = torch.tensor(
                 [
+                    0,
+                    2,
+                    0,
+                    0,
+                    0,
+                    1,  # GPU 0, F0 = [0-3), F1 = [0-4), F2 = [0-5)
+                    0,
                     1,
                     2,
                     0,
-                    33353942375786,  # 100061827127359/3 = 33353942375786
                     1,
-                    1,
-                    2,
-                    6148914691236517202,  # -8 cast to 18446644015555759292, 18446644015555759292 /3 = 6148914691236517202
-                    33352717930774,  # 100058153792324/3 = 33352717930774
+                    3,  # GPU 1, F0 = [3-6), F1 = [4-8), F2 = [5-10)
                     0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,  # GPU 2, F0 = [6-9), F1 = [8-12), F2 = [10-15)
                 ],
                 dtype=index_type,
             )
+            if keep_orig_idx:
+                new_indices_ref = torch.tensor(
+                    [
+                        1,
+                        2,
+                        0,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                    ],
+                    dtype=index_type,
+                )
+            else:
+                new_indices_ref = torch.tensor(
+                    [
+                        1,
+                        2,
+                        0,
+                        0,
+                        0,
+                        1,
+                        1,
+                        2,
+                        3,
+                        4,
+                        0,
+                    ],
+                    dtype=index_type,
+                )
+
+        else:
+            lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+            # Test long and negative indices: -8 will be casted to 18446644015555759292
+            indices = torch.tensor(
+                [1, 2, 3, 100061827127359, 5, 6, 7, -8, 100058153792324, 10, 0],
+                dtype=index_type,
+            )
+            new_lengths_ref = torch.tensor(
+                [
+                    0,
+                    2,
+                    0,
+                    0,
+                    0,
+                    1,  # GPU 0, F0 = [0-3), F1 = [0-4), F2 = [0-5) + relevant outliers
+                    0,
+                    1,
+                    2,
+                    0,
+                    1,
+                    1,  # GPU 1, F0 = [3-6), F1 = [4-8), F2 = [5-10) + relevant outliers
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    3,  # GPU 2, F0 = [6-9), F1 = [8-12), F2 = [10-15) + relevant outliers
+                ],
+                dtype=index_type,
+            )
+
+            if keep_orig_idx:
+                new_indices_ref = torch.tensor(
+                    [1, 2, 0, 3, 100061827127359, 5, 6, 7, -8, 100058153792324, 10],
+                    dtype=index_type,
+                )
+
+            else:
+                new_indices_ref = torch.tensor(
+                    [
+                        1,
+                        2,
+                        0,
+                        0,
+                        33353942375786,  # 100061827127359/3 = 33353942375786
+                        1,
+                        1,
+                        2,
+                        6148914691236517202,  # -8 cast to 18446644015555759292, 18446644015555759292 /3 = 6148914691236517202
+                        33352717930774,  # 100058153792324/3 = 33352717930774
+                        0,
+                    ],
+                    dtype=index_type,
+                )
 
         (
             new_lengths_cpu,
@@ -140,9 +228,14 @@ class BlockBucketizeTest(unittest.TestCase):
             block_sizes,
             my_size,
             None,
+            keep_orig_idx=keep_orig_idx,
         )
         torch.testing.assert_close(new_lengths_cpu, new_lengths_ref)
-        torch.testing.assert_close(new_indices_cpu, new_indices_ref)
+        torch.testing.assert_close(
+            new_indices_cpu,
+            new_indices_ref,
+            msg=f"{new_indices_cpu=} != {new_indices_ref=}",
+        )
 
         if not use_cpu:
             (
@@ -159,10 +252,10 @@ class BlockBucketizeTest(unittest.TestCase):
                 block_sizes.cuda(),
                 my_size,
                 None,
+                keep_orig_idx=keep_orig_idx,
             )
 
             torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_ref)
-
             torch.testing.assert_close(new_lengths_gpu.cpu(), new_lengths_cpu)
 
             if not sequence:

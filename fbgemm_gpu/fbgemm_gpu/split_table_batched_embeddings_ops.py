@@ -41,7 +41,6 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     CounterWeightDecayMode,
     DEFAULT_ASSOC,
     DenseTableBatchedEmbeddingBagsCodegen,
-    GlobalWeightDecayDefinition,
     GradSumDecay,
     INT8_EMB_ROW_DIM_OFFSET,
     LearningRateMode,

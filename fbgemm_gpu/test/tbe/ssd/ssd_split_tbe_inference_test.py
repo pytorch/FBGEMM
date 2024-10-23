@@ -8,13 +8,17 @@
 # pyre-ignore-all-errors[3,6,56]
 
 import random
+import time
 import unittest
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    PoolingMode,
+)
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     rounded_row_size_in_bytes,
     unpadded_row_size_in_bytes,
@@ -51,14 +55,21 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
         E = int(1e4)
         D = 128
         N = 100
+        embedding_specs = [("", E, D, SparseType.FP32)]
+        weight_dim = rounded_row_size_in_bytes(
+            embedding_specs[0][2],
+            embedding_specs[0][3],
+            16,
+            DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+        )
         indices = torch.as_tensor(np.random.choice(E, replace=False, size=(N,)))
-        weights = torch.empty(N, D, dtype=torch.uint8)
+        weights = torch.empty(N, weight_dim, dtype=torch.uint8)
         output_weights = torch.empty_like(weights)
         count = torch.tensor([N])
 
         feature_table_map = list(range(1))
         emb = SSDIntNBitTableBatchedEmbeddingBags(
-            embedding_specs=[("", E, D, SparseType.FP32)],
+            embedding_specs=embedding_specs,
             feature_table_map=feature_table_map,
             ssd_storage_directory=tempfile.mkdtemp(),
             cache_sets=1,
@@ -236,6 +247,7 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             rtol=1.0e-2,
             equal_nan=True,
         )
+        time.sleep(0.1)
 
     @given(
         T=st.integers(min_value=1, max_value=10),
@@ -444,3 +456,4 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=1.0e-2,
                 rtol=1.0e-2,
             )
+        time.sleep(0.1)

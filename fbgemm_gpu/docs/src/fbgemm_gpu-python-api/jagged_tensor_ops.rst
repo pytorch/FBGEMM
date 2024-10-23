@@ -1,13 +1,23 @@
 Jagged Tensor Operators
 =======================
 
+.. automodule:: fbgemm_gpu
+
+.. _jagged-tensor-ops-stable-api:
+
+Stable API
+----------
+
+.. autofunction:: torch.ops.fbgemm.jagged_to_padded_dense
+
+Other API
+---------
+
 .. autofunction:: torch.ops.fbgemm.jagged_2d_to_dense
 
 .. autofunction:: torch.ops.fbgemm.jagged_1d_to_dense
 
 .. autofunction:: torch.ops.fbgemm.dense_to_jagged
-
-.. autofunction:: torch.ops.fbgemm.jagged_to_padded_dense
 
 .. autofunction:: torch.ops.fbgemm.jagged_dense_elementwise_add
 

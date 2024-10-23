@@ -122,6 +122,8 @@
           at::ScalarType::BFloat16, at::BFloat16, __VA_ARGS__)               \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Byte, uint8_t, __VA_ARGS__)  \
+      PRIVATE_CASE_TYPE_OUTPUT2(                                             \
+          at::ScalarType::QUInt4x2, uint8_t, __VA_ARGS__)                    \
       default:                                                               \
         AT_ERROR(                                                            \
             #NAME,                                                           \
@@ -223,7 +225,7 @@
   FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(__VA_ARGS__)
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Dispatch Macros
+/// Type Dispatch Macros
 ///
 /// These macros are similar to AT_DISPATCH_*, but do not support
 /// at::ScalarType::Double

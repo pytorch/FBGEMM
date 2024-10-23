@@ -30,10 +30,14 @@ run_python_test () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
+  # shellcheck disable=SC2155
+  local start=$(date +%s)
 
   # shellcheck disable=SC2086
   if print_exec conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --cache-clear  "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED: ${python_test_file}"
+    local test_time=$(($(date +%s)-start))
+    echo "[TEST] Python test time for ${python_test_file}: ${test_time} seconds"
     echo ""
     echo ""
     echo ""
@@ -52,6 +56,8 @@ run_python_test () {
   # shellcheck disable=SC2086
   if exec_with_retries 2 conda run --no-capture-output ${env_prefix} python -m pytest "${pytest_args[@]}" --lf --last-failed-no-failures none "${python_test_file}"; then
     echo "[TEST] Python test suite PASSED with retries: ${python_test_file}"
+    local test_time=$(($(date +%s)-start))
+    echo "[TEST] Python test time with retries for ${python_test_file}: ${test_time} seconds"
     echo ""
     echo ""
     echo ""
@@ -95,6 +101,7 @@ __configure_fbgemm_gpu_test_cuda () {
 
   ignored_tests=(
   )
+
 }
 
 __configure_fbgemm_gpu_test_rocm () {
@@ -119,6 +126,24 @@ __configure_fbgemm_gpu_test_rocm () {
     # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
   )
+}
+
+__set_feature_flags () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # NOTE: The full list of feature flags is defined (without the `FBGEMM_`
+  # prefix) in:
+  #   fbgemm_gpu/include/config/feature_gates.h
+  local feature_flags=(
+    FBGEMM_TBE_ENSEMBLE_ROWWISE_ADAGRAD
+  )
+
+  echo "[TEST] Setting feature flags ..."
+  for flag in "${feature_flags[@]}"; do
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} ${flag}=1
+  done
 }
 
 __setup_fbgemm_gpu_test () {
@@ -163,6 +188,9 @@ __setup_fbgemm_gpu_test () {
   if [ "$fbgemm_gpu_variant" != "genai" ]; then
     (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
   fi
+
+  # Set the feature flags to enable experimental features as needed
+  __set_feature_flags
 
   # Configure the PyTest args
   pytest_args=(
@@ -265,6 +293,7 @@ test_all_fbgemm_gpu_modules () {
 
   # Determine the FBGEMM_GPU varaiant if needed
   if [ "$fbgemm_gpu_variant" == "" ]; then
+    echo "[TEST] FBGEMM_GPU variant not explicitly provided by user; will automatically determine from the FBGEMM_GPU installation ..."
     # shellcheck disable=SC2086
     fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
     echo "[TEST] Determined FBGEMM_GPU variant from installation: ${fbgemm_gpu_variant}"
@@ -350,6 +379,7 @@ test_setup_conda_environment () {
 test_fbgemm_gpu_build_and_install () {
   local env_name="$1"
   local pytorch_variant_type="$2"
+  local repo="$3"
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VARIANT_TYPE"
     echo "Example(s):"
@@ -364,29 +394,39 @@ test_fbgemm_gpu_build_and_install () {
     echo ""
   fi
 
+  if [ "$repo" == "" ]; then
+    repo=~/FBGEMM
+  fi
+
   # Assume we are starting from the repository root directory
-  cd ~/FBGEMM/fbgemm_gpu                                                      || return 1
+  cd "${repo}/fbgemm_gpu"                                                     || return 1
   prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
   build_fbgemm_gpu_package    "${env_name}" release "${pytorch_variant_type}" || return 1
 
-  cd ~/FBGEMM/                                                                || return 1
+  cd "${repo}"                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
 }
 
 test_fbgemm_gpu_build_and_install_and_run () {
   local env_name="$1"
   local pytorch_variant_type="$2"
+  local repo="$3"
 
-  test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}"   || return 1
+  if [ "$repo" == "" ]; then
+    repo=~/FBGEMM
+  fi
 
-  cd ~/FBGEMM/                                                                || return 1
-  test_all_fbgemm_gpu_modules "${env_name}"                                   || return 1
+  test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}" "${repo}"  || return 1
+
+  cd "${repo}"                                                                         || return 1
+  test_all_fbgemm_gpu_modules "${env_name}"                                            || return 1
 }
 
 test_fbgemm_gpu_setup_and_pip_install () {
   local variant_type="$1"
   local pytorch_channel_version="$2"
   local fbgemm_gpu_channel_version="$3"
+  local repo="$4"
   if [ "$fbgemm_gpu_channel_version" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_CHANNEL[/VERSION] FBGEMM_GPU_CHANNEL[/VERSION]"
     echo "Example(s):"
@@ -403,15 +443,20 @@ test_fbgemm_gpu_setup_and_pip_install () {
     echo ""
   fi
 
+  if [ "$repo" == "" ]; then
+    repo=~/FBGEMM
+  fi
+
   __single_run () {
     local py_version="$1"
     local variant_version="$2"
+    local repo="$3"
 
     local env_name="test_py${py_version}_pytorch_${pytorch_channel_version}_fbgemm_${fbgemm_gpu_channel_version}_${variant_type}/${variant_version}"
     local env_name="${env_name//\//_}"
     test_setup_conda_environment  "${env_name}" 'no-compiler' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"   || return 1
     install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                                    || return 1
-    cd ~/FBGEMM                                                                                                                                         || return 1
+    cd "${repo}"                                                                                                                                        || return 1
 
     test_all_fbgemm_gpu_modules "${env_name}"
     local retcode=$?
@@ -438,7 +483,6 @@ test_fbgemm_gpu_setup_and_pip_install () {
   }
 
   local python_versions=(
-    3.8
     3.9
     3.10
     3.11
@@ -466,7 +510,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
 
   for py_ver in "${python_versions[@]}"; do
     for var_ver in "${variant_versions[@]}"; do
-      __single_run "${py_ver}" "${var_ver}" || return 1
+      __single_run "${py_ver}" "${var_ver}" "${repo}" || return 1
     done
   done
 }

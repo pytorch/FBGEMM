@@ -21,7 +21,7 @@
 # As such, The `SPHINX_LINT` environment variable is used to enable this
 # toggling.
 ifdef SPHINX_LINT
-SPHINXOPTS    ?= -j auto -b linkcheck -W
+SPHINXOPTS    ?= -j auto -b linkcheck --keep-going -n
 else
 SPHINXOPTS    ?= -j auto
 endif

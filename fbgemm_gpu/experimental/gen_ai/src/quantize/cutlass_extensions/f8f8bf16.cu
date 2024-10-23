@@ -7,16 +7,7 @@
  */
 
 #include <ATen/ATen.h>
-#include <ATen/DeviceGuard.h>
-#include <ATen/Dispatch.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/core/ScalarType.h>
-#include <c10/cuda/CUDAGuard.h>
-#include <ATen/cuda/Atomic.cuh>
-
-#include <cutlass/cutlass.h>
-#include <cutlass/library/library.h>
 #include <cutlass/util/host_tensor.h>
 #include <cutlass/util/packed_stride.hpp>
 
@@ -28,243 +19,220 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
-#include <cutlass_extensions/include/gemm_description.h>
-#include <cutlass_extensions/include/manifest.h>
-#include <cutlass_extensions/include/operation_table.h>
-#include <cutlass_extensions/include/singleton.h>
-#include <cutlass_extensions/include/utils.h>
-#include <iostream>
-
 namespace fbgemm_gpu {
 
-class Fp8GemmTensorWiseHeuristics {
-  //
-  // Data members
-  //
+#if CUDART_VERSION >= 12000
 
- private:
-  // GemmPerformanceKey -> [operations]
-  cutlass_extensions::GemmOperationPerformanceMap operation_map;
+// Cutlass tensorwise kernel
+template <
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool FAST_ACCUM>
+at::Tensor f8f8bf16_impl(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor scale) {
+  // XQ: M x K
+  // WQ: N x K
+  // output: M x N
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int N = WQ.size(0);
+  int K = WQ.size(1);
+  // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
+  // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
 
-  //
-  // Methods
-  //
+  TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
+  TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 
- private:
-  /// Returns an operation ptr given a performance key.
-  cutlass::library::Operation const* _find_operation(
-      cutlass_extensions::GemmPerformanceKey const& key) const {
-    auto operation_it = operation_map.find(key);
-    if (operation_it == operation_map.end()) {
-      std::stringstream ss;
-      ss << "cutlass_extensions::GemmPerformanceKey key = ";
-      cutlass_extensions::operator<<(ss, key) << std::endl;
-      ss << "Not found in the GemmOperationPerformanceMap.";
-      throw std::runtime_error(ss.str());
-    }
-    return operation_it->second[0];
-  }
+  auto Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
 
-  /// Returns an operation based on a strict problem_shape -> operation mapping.
-  cutlass::library::Operation const* _strict_heuristics(
-      cutlass::gemm::GemmCoord problem_shape) const {
-    /*
-      TODO: For every problem shape we dispatch to the top-performning
-      operation*
-    */
-    return nullptr;
-  }
+  using ElementInputA = cutlass::float_e4m3_t;
+  using LayoutInputA = cutlass::layout::RowMajor;
+  constexpr int AlignmentInputA =
+      128 /
+      cutlass::sizeof_bits<
+          ElementInputA>::value; // Memory access granularity/alignment of A
+                                 // matrix in units of elements (up to 16 bytes)
 
-  /// Returns an operation based on a relaxed generalized heuristcs.
-  cutlass::library::Operation const* _relaxed_heuristics(
-      cutlass::gemm::GemmCoord problem_shape) const {
-    if (problem_shape.n() <= 128) {
-      cutlass_extensions::GemmPerformanceKey perf_key(
-          {64, 128, 32}, // instruction shape
-          {64, 128, 128}, // threadblock shape
-          {2, 1, 1}, // cluster shape
-          cutlass_extensions::MainloopSchedule::kWarpspecialized,
-          cutlass_extensions::EpilogueSchedule::kUnknown);
-      return _find_operation(perf_key);
-    } else {
-      cutlass_extensions::GemmPerformanceKey perf_key(
-          {64, 128, 32}, // instruction shape
-          {128, 128, 128}, // threadblock shape
-          {1, 2, 1}, // cluster shape
-          cutlass_extensions::MainloopSchedule::kWarpspecialized,
-          cutlass_extensions::EpilogueSchedule::kUnknown);
-      return _find_operation(perf_key);
-    }
-  }
+  using ElementInputB = cutlass::float_e4m3_t;
+  using LayoutInputB = cutlass::layout::ColumnMajor;
+  constexpr int AlignmentInputB =
+      128 /
+      cutlass::sizeof_bits<
+          ElementInputB>::value; // Memory access granularity/alignment of B
+                                 // matrix in units of elements (up to 16 bytes)
 
- public:
-  /// ctor
-  Fp8GemmTensorWiseHeuristics(
-      cutlass_extensions::GemmOperationPerformanceMap operation_map)
-      : operation_map(operation_map) {}
+  using ElementOutput = cutlass::bfloat16_t;
+  using LayoutOutput = cutlass::layout::ColumnMajor;
+  constexpr int AlignmentOutput =
+      128 /
+      cutlass::sizeof_bits<
+          ElementOutput>::value; // Memory access granularity/alignment of C
+                                 // matrix in units of elements (up to 16 bytes)
 
-  /// Returns a operation give a gemm problem shape.
-  cutlass::library::Operation const* operator()(
-      cutlass::gemm::GemmCoord problem_shape) const {
-    if (auto const* operation = _strict_heuristics(problem_shape))
-      return operation;
-    else
-      return _relaxed_heuristics(problem_shape);
-  }
-};
+  using ElementAccumulator = float;
+  using ElementComputeEpilogue = float;
+  using ArchTag = cutlass::arch::Sm90; // Tag indicating the minimum SM that
+                                       // supports the intended feature
+  using OperatorClass = cutlass::arch::OpClassTensorOp;
+  using TileShape = cute::Shape<
+      cute::Int<TB_M>,
+      cute::Int<TB_N>,
+      cute::Int<TB_K>>; // Threadblock-level
+                        // tile size
+  using ClusterShape = cute::Shape<
+      cute::Int<TBS_M>,
+      cute::Int<TBS_N>,
+      cute::Int<TBS_K>>; // Shape of the
+                         // threadblocks in a
+                         // cluster
+  using StageCountType =
+      cutlass::gemm::collective::StageCountAuto; // Stage count maximized
+                                                 // based on the tile size
+  using KernelSchedule = cutlass::gemm::collective::
+      KernelScheduleAuto; // Kernel to launch based on the default setting in
+                          // the Collective Builder
 
-/// FP8 Gemm with tensor wise scaling.
-/// Input A   : MxK matrix in FP8 and RowMajor layout.
-/// Input B   : KxN matrix in FP8 and ColumnMajor layout.
-/// Returns Y  : MxN matrix in FP8 and ColumnMajor layout.
-at::Tensor f8f8bf16_tnn(
-    at::Tensor A, // FP8, RowMajor
-    at::Tensor B, // FP8, ColumnMajor
-    at::Tensor scale,
-    bool use_fast_accum) {
-  // Get the gemm_operation_with_tensorwise operation table.
-  auto& operation_map = cutlass_extensions::Singleton::get()
-                            .operation_table.gemm_operations_with_tensorwise;
+  using MainLoopSchedule = cute::conditional_t<
+      FAST_ACCUM,
+      cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum,
+      cutlass::gemm::KernelTmaWarpSpecialized>;
 
-  // Select a gemm operation with tensorwise scaling.
-  cutlass_extensions::AccumKind accum_kind = (use_fast_accum)
-      ? (cutlass_extensions::AccumKind::kFastAccum)
-      : (cutlass_extensions::AccumKind::kDefault);
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          ElementInputA,
+          LayoutInputA,
+          AlignmentInputA,
+          ElementInputB,
+          LayoutInputB,
+          AlignmentInputB,
+          ElementAccumulator,
+          TileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAuto,
+          MainLoopSchedule>::CollectiveOp;
 
-  cutlass_extensions::GemmFunctionalKey functional_key(
-      cutlass::library::Provider::kCUTLASS, // Operator provider
-      cutlass::library::GemmKind::kUniversal, // Gemm kind
-      cutlass::library::NumericTypeID::kF32, // Accumulation type
-      cutlass::library::NumericTypeID::kFE4M3, // ElementA
-      cutlass::library::LayoutTypeID::kRowMajor, // LayoutA
-      cutlass::library::NumericTypeID::kFE4M3, // ElementB
-      cutlass::library::LayoutTypeID::kColumnMajor, // LayoutB
-      cutlass::library::NumericTypeID::kBF16, // ElementC
-      cutlass::library::LayoutTypeID::kColumnMajor, // LayoutC
-      cutlass::library::NumericTypeID::kBF16, // ElementD
-      cutlass::library::LayoutTypeID::kColumnMajor, // LayoutC
-      cutlass_extensions::FusionKind::kTensorwiseScaling, // Scaling type
-      accum_kind);
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          cutlass::arch::Sm90,
+          cutlass::arch::OpClassTensorOp,
+          TileShape,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementComputeEpilogue,
+          ElementOutput,
+          LayoutOutput,
+          AlignmentOutput,
+          ElementOutput,
+          LayoutOutput,
+          AlignmentOutput,
+          cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
 
-  auto operation_perf_it = operation_map.find(functional_key);
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      cute::Shape<int, int, int>,
+      CollectiveMainloop,
+      CollectiveEpilogue>;
 
-  if (operation_perf_it == operation_map.end()) {
-    std::stringstream ss;
-    ss << "GemmFunctionaKey key = ";
-    cutlass_extensions::operator<<(ss, functional_key) << std::endl;
-    ss << "Not found in the GemmOperationFunctionalMap.";
-    throw std::runtime_error(ss.str());
-  }
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 
-  int M = A.size(0);
-  int N = B.size(0);
-  int K = A.size(1);
-  cutlass::gemm::GemmCoord problem_shape{M, N, K};
+  using StrideInputA = typename Gemm::GemmKernel::StrideA;
+  using StrideInputB = typename Gemm::GemmKernel::StrideB;
+  using StrideOutput = typename Gemm::GemmKernel::StrideC;
 
-  // Query heuristics and select a gemm with tensorwise scaling operation.
-  Fp8GemmTensorWiseHeuristics heur(operation_perf_it->second);
-  auto const* operation = heur(problem_shape);
-  if (!operation) {
-    throw std::runtime_error("Heuristics returned null operation.");
-  }
+  StrideInputA stride_a = cutlass::make_cute_packed_stride(
+      StrideInputA{}, cute::make_shape(M, K, cute::Int<1>{}));
+  StrideInputB stride_b = cutlass::make_cute_packed_stride(
+      StrideInputB{}, cute::make_shape(N, K, cute::Int<1>{}));
+  StrideOutput stride_output = cutlass::make_cute_packed_stride(
+      StrideOutput{}, cute::make_shape(N, M, cute::Int<1>{}));
 
-  // Output tensor
-  auto Y = at::empty(
-      {problem_shape.n(), problem_shape.m()}, A.options().dtype(at::kBFloat16));
+  typename Gemm::Arguments arguments{
+      cutlass::gemm::GemmUniversalMode::kGemm,
+      {N, M, K},
+      {reinterpret_cast<ElementInputB*>(WQ.data_ptr()),
+       stride_b,
+       reinterpret_cast<ElementInputA*>(XQ.data_ptr()),
+       stride_a},
+      {{scale.data_ptr<float>(), 0},
+       (ElementOutput*)Y.data_ptr<at::BFloat16>(),
+       stride_output,
+       (ElementOutput*)Y.data_ptr<at::BFloat16>(),
+       stride_output}};
+  Gemm gemm;
 
-  // Initialize configuration
-  cutlass::library::GemmUniversalConfiguration configuration{
-      cutlass::library::GemmUniversalMode::kGemm,
-      problem_shape, // Gemm problem shape
-      1, // Batch size
-      problem_shape.k(), // lda (row-major)
-      problem_shape.k(), // ldb (column-major)
-      problem_shape.m(), // ldc (column-major)
-      problem_shape.m() // ldd (column-major)
-  };
+  // Using the arguments, query for extra workspace required for matrix
+  // multiplication computation
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
 
-  // Initialize arguments
-  cutlass::library::GemmUniversalArguments arguments;
-  arguments.problem_size = problem_shape;
-  arguments.batch_count = 1;
-  arguments.lda = configuration.lda;
-  arguments.ldb = configuration.ldb;
-  arguments.ldc = configuration.ldc;
-  arguments.ldd = configuration.ldd;
-  arguments.batch_stride_A = problem_shape.mk().product();
-  arguments.batch_stride_B = problem_shape.nk().product();
-  arguments.batch_stride_C = problem_shape.mn().product();
-  arguments.batch_stride_D = problem_shape.mn().product();
+  // Allocate workspace memory
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
 
-  arguments.A = reinterpret_cast<void const*>(A.data_ptr());
-  arguments.B = reinterpret_cast<void const*>(B.data_ptr());
-  arguments.C = reinterpret_cast<void*>(Y.data_ptr());
-  arguments.D = reinterpret_cast<void*>(Y.data_ptr());
-  arguments.alpha = reinterpret_cast<void const*>(scale.data_ptr());
-  arguments.beta = nullptr;
-  arguments.pointer_mode = cutlass::library::ScalarPointerMode::kDevice;
-  arguments.sm_count = 132;
-  arguments.raster_order = cutlass::library::RasterOrder::kHeuristic;
-
-  // Buffer used for the operation's host workspace
-  std::vector<uint8_t> host_workspace;
-  uint64_t host_workspace_size =
-      operation->get_host_workspace_size(&configuration);
-  host_workspace.resize(host_workspace_size, 0);
-
-  // Device workspace size
-  uint64_t device_workspace_size =
-      operation->get_device_workspace_size(&configuration, &arguments);
-
-  // Allocate device workspace memory
-  cutlass::device_memory::allocation<uint8_t> device_workspace(
-      device_workspace_size);
-
-  // Check if we can call this kernel
-  cutlass::Status status = cutlass::Status::kSuccess;
-  status = operation->can_implement(&configuration, &arguments);
-
+  // Check the problem size is supported or not
+  cutlass::Status status = gemm.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass operation can_implement failed.");
+    throw std::runtime_error("cutlass cannot implement");
   }
 
-  // Initialize host and device workspaces
-  status = operation->initialize(
-      &configuration,
-      host_workspace.data(),
-      device_workspace.get(),
-      at::cuda::getCurrentCUDAStream());
+  // Initialize CUTLASS kernel with arguments and workspace pointer
+  status = gemm.initialize(arguments, workspace.get());
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass operation initialize failed.");
+    throw std::runtime_error("cutlass cannot initialize");
   }
 
-  // Run the Gemm operator
-  status = operation->run(
-      &arguments,
-      host_workspace.data(),
-      device_workspace.get(),
-      at::cuda::getCurrentCUDAStream());
-
+  status = gemm(at::cuda::getCurrentCUDAStream());
   if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass operation run failed.");
+    throw std::runtime_error(
+        std::string("cutlass cannot run") +
+        cutlass::cutlassGetStatusString(status));
   }
-
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return Y;
 }
 
-/// FP8 Gemm with tensor wise scaling.
-/// Input XQ   : MxK matrix in FP8 and RowMajor layout.
-/// Input WQ   : KxN matrix in FP8 and ColumnMajor layout.
-/// Returns Y  : MxN matrix in FP8 and RowMajor layout.
-at::Tensor f8f8bf16_v2(
-    at::Tensor XQ, // FP8, RowMajor
-    at::Tensor WQ, // FP8, ColumnMajor
+at::Tensor f8f8bf16(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
     at::Tensor scale,
     bool use_fast_accum) {
-  // Swap and run the kernel with ColumnMajor output
-  return f8f8bf16_tnn(WQ, XQ, scale, use_fast_accum);
+  auto M = XQ.size(0);
+  // auto K = XQ.size(1);
+  // auto N = WQ.size(0);
+  if (use_fast_accum) {
+    if (M <= 128) {
+      return f8f8bf16_impl<64, 128, 128, 2, 1, 1, true>(XQ, WQ, scale);
+    } else {
+      return f8f8bf16_impl<128, 128, 128, 1, 2, 1, true>(XQ, WQ, scale);
+    }
+  } else {
+    if (M <= 128) {
+      return f8f8bf16_impl<64, 128, 128, 2, 1, 1, false>(XQ, WQ, scale);
+    } else {
+      return f8f8bf16_impl<128, 128, 128, 1, 2, 1, false>(XQ, WQ, scale);
+    }
+  }
 }
+
+#else
+
+at::Tensor f8f8bf16(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor scale,
+    bool use_fast_accum) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+
+#endif
 
 } // namespace fbgemm_gpu

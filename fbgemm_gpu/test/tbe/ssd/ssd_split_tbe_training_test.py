@@ -8,13 +8,17 @@
 # pyre-ignore-all-errors[3,6,56]
 
 import unittest
-from typing import List, Optional, Tuple
+
+from typing import Any, Dict, List, Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    BoundsCheckMode,
+    PoolingMode,
+)
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import b_indices, get_table_batched_offsets_from_dense
 from hypothesis import assume, given, settings, Verbosity
@@ -22,15 +26,46 @@ from hypothesis import assume, given, settings, Verbosity
 from .. import common  # noqa E402
 from ..common import open_source
 
-
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable, running_on_github
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_github
 
+from enum import Enum
+
 
 MAX_EXAMPLES = 40
+MAX_PIPELINE_EXAMPLES = 10
+
+default_st: Dict["str", Any] = {
+    "T": st.integers(min_value=1, max_value=10),
+    "D": st.integers(min_value=2, max_value=128),
+    "B": st.integers(min_value=1, max_value=128),
+    "log_E": st.integers(min_value=3, max_value=5),
+    "L": st.integers(min_value=0, max_value=20),
+    "weighted": st.booleans(),
+    "cache_set_scale": st.sampled_from([0.0, 0.005, 1]),
+    "pooling_mode": st.sampled_from(
+        [PoolingMode.NONE, PoolingMode.SUM, PoolingMode.MEAN]
+    ),
+    "weights_precision": st.sampled_from([SparseType.FP32, SparseType.FP16]),
+    "output_dtype": st.sampled_from([SparseType.FP32, SparseType.FP16]),
+    "share_table": st.booleans(),
+    "trigger_bounds_check": st.booleans(),
+}
+
+
+class PrefetchLocation(Enum):
+    BEFORE_FWD = 1
+    BETWEEN_FWD_BWD = 2
+
+
+class FlushLocation(Enum):
+    AFTER_FWD = 1
+    AFTER_BWD = 2
+    BEFORE_TRAINING = 3
+    ALL = 4
 
 
 @unittest.skipIf(*running_on_github)
@@ -59,15 +94,23 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        indice_int64_t=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_ssd(self, weights_precision: SparseType) -> None:
+    def test_ssd(self, indice_int64_t: bool, weights_precision: SparseType) -> None:
         import tempfile
 
         E = int(1e4)
         D = 128
         N = 100
-        indices = torch.as_tensor(np.random.choice(E, replace=False, size=(N,)))
+        if indice_int64_t:
+            indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
+            )
+        else:
+            indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(N,)), dtype=torch.int32
+            )
         weights = torch.randn(N, D, dtype=weights_precision.as_dtype())
         output_weights = torch.empty_like(weights)
         count = torch.tensor([N])
@@ -81,6 +124,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_lower=-0.1,
             ssd_uniform_init_upper=0.1,
             weights_precision=weights_precision,
+            l2_cache_size=8,
         )
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
@@ -99,6 +143,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         Es: List[int],
         feature_table_map: List[int],
         weights_precision: SparseType = SparseType.FP32,
+        trigger_bounds_check: bool = False,
     ) -> Tuple[
         List[torch.Tensor], List[torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor
     ]:
@@ -109,7 +154,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         # Generate random indices and per sample weights
         indices_list = [
-            torch.randint(low=0, high=Es[t], size=(B, L)).cuda()
+            torch.randint(
+                low=0, high=Es[t] * (2 if trigger_bounds_check else 1), size=(B, L)
+            ).cuda()
             for t in feature_table_map
         ]
         per_sample_weights_list = [torch.randn(size=(B, L)).cuda() for _ in range(T)]
@@ -124,6 +171,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             dim=0,
         )
         (indices, offsets) = get_table_batched_offsets_from_dense(indices)
+
+        if trigger_bounds_check:
+            # Manual bounds check
+            for f, (t, indices_ref) in enumerate(zip(feature_table_map, indices_list)):
+                indices_ref[indices_ref >= Es[t]] = 0
+                indices_list[f] = indices_ref
 
         return (
             indices_list,
@@ -152,6 +205,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         output_dtype: SparseType = SparseType.FP32,
         stochastic_rounding: bool = True,
         share_table: bool = False,
+        prefetch_pipeline: bool = False,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -193,6 +247,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if weights_precision == SparseType.FP16:
             emb_ref = [emb.half() for emb in emb_ref]
 
+        # Init weights
+        [emb.weight.data.uniform_(-2.0, 2.0) for emb in emb_ref]
+
         # Construct feature_table_map
         feature_table_map = list(range(T))
         table_to_replicate = -1
@@ -216,24 +273,35 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_upper=0.1,
             learning_rate=lr,
             eps=eps,
-            ssd_shards=ssd_shards,
+            ssd_rocksdb_shards=ssd_shards,
             optimizer=optimizer,
             pooling_mode=pooling_mode,
             weights_precision=weights_precision,
             output_dtype=output_dtype,
             stochastic_rounding=stochastic_rounding,
+            prefetch_pipeline=prefetch_pipeline,
+            bounds_check_mode=BoundsCheckMode.WARNING,
+            l2_cache_size=8,
         ).cuda()
+
+        # A list to keep the CPU tensor alive until `set` (called inside
+        # `set_cuda`) is complete. Note that `set_cuda` is non-blocking
+        # asynchronous
+        emb_ref_cpu = []
 
         # Initialize TBE SSD weights
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-            emb_r = emb_ref[f]
-            emb_r.weight.data.uniform_(-2.0, 2.0)
+            emb_ref_ = emb_ref[f].weight.clone().detach().cpu()
             emb.ssd_db.set_cuda(
                 torch.arange(t * E, (t + 1) * E).to(torch.int64),
-                emb_r.weight.cpu(),
+                emb_ref_,
                 torch.as_tensor([E]),
                 t,
             )
+            emb_ref_cpu.append(emb_ref_)
+
+        # Ensure that `set` (invoked by `set_cuda`) is done
+        torch.cuda.synchronize()
 
         # Convert back to float (to make sure that accumulation is done
         # in FP32 -- like TBE)
@@ -339,21 +407,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         return output_ref_list, output
 
-    @given(
-        T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=128),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weighted=st.booleans(),
-        cache_set_scale=st.sampled_from([0.0, 0.005, 1]),
-        pooling_mode=st.sampled_from(
-            [PoolingMode.NONE, PoolingMode.SUM, PoolingMode.MEAN]
-        ),
-        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
-        share_table=st.booleans(),
-    )
+    @given(**default_st)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_forward(
         self,
@@ -368,6 +422,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision: SparseType,
         output_dtype: SparseType,
         share_table: bool,
+        trigger_bounds_check: bool,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
 
@@ -398,7 +453,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             offsets,
             per_sample_weights,
         ) = self.generate_inputs_(
-            B, L, Es, emb.feature_table_map, weights_precision=weights_precision
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
         )
 
         # Execute forward
@@ -415,21 +475,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weighted,
         )
 
-    @given(
-        T=st.integers(min_value=1, max_value=5),
-        D=st.integers(min_value=2, max_value=128),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weighted=st.booleans(),
-        cache_set_scale=st.sampled_from([0.0, 0.005, 1]),
-        pooling_mode=st.sampled_from(
-            [PoolingMode.NONE, PoolingMode.SUM, PoolingMode.MEAN]
-        ),
-        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
-        share_table=st.booleans(),
-    )
+    @given(**default_st)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_backward_adagrad(
         self,
@@ -444,6 +490,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision: SparseType,
         output_dtype: SparseType,
         share_table: bool,
+        trigger_bounds_check: bool,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
 
@@ -486,6 +533,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             Es,
             emb.feature_table_map,
             weights_precision=weights_precision,
+            trigger_bounds_check=trigger_bounds_check,
         )
 
         # Execute forward
@@ -565,23 +613,122 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
 
-    @given(
-        T=st.integers(min_value=1, max_value=10),
-        D=st.integers(min_value=2, max_value=128),
-        B=st.integers(min_value=1, max_value=128),
-        log_E=st.integers(min_value=3, max_value=5),
-        L=st.integers(min_value=0, max_value=20),
-        weighted=st.booleans(),
-        cache_set_scale=st.sampled_from([0.0, 0.005, 1]),
-        pooling_mode=st.sampled_from(
-            [PoolingMode.NONE, PoolingMode.SUM, PoolingMode.MEAN]
-        ),
-        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
-        output_dtype=st.sampled_from([SparseType.FP32, SparseType.FP16]),
-        share_table=st.booleans(),
-    )
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_ssd_cache(
+    def test_ssd_emb_state_dict(self) -> None:
+        # Constants
+        lr = 0.5
+        eps = 0.2
+        ssd_shards = 2
+
+        T = 4
+        B = 10
+        D = 128
+        L = 10
+        log_E = 4
+        weights_precision = SparseType.FP32
+        output_dtype = SparseType.FP32
+
+        # Generate embedding modules and inputs
+        (
+            emb,
+            emb_ref,
+        ) = self.generate_ssd_tbes(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            False,  # weighted
+            lr=lr,
+            eps=eps,
+            ssd_shards=ssd_shards,
+            cache_set_scale=0.2,
+            pooling_mode=PoolingMode.SUM,
+            weights_precision=weights_precision,
+            output_dtype=output_dtype,
+            share_table=True,
+        )
+
+        Es = [emb.embedding_specs[t][0] for t in range(T)]
+        (
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+        ) = self.generate_inputs_(
+            B,
+            L,
+            Es,
+            emb.feature_table_map,
+            weights_precision=weights_precision,
+            trigger_bounds_check=True,
+        )
+
+        # Execute forward
+        output_ref_list, output = self.execute_ssd_forward_(
+            emb,
+            emb_ref,
+            indices_list,
+            per_sample_weights_list,
+            indices,
+            offsets,
+            per_sample_weights,
+            B,
+            L,
+            False,
+        )
+
+        # Generate output gradient
+        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+
+        # Execute torch EmbeddingBag backward
+        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
+
+        grad_test = self.concat_ref_tensors(
+            output_grad_list,
+            True,  # do_pooling
+            B,
+            D * 4,
+        )
+
+        # Execute TBE SSD backward
+        output.backward(grad_test)
+
+        tolerance = (
+            1.0e-4
+            if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
+            else 1.0e-2
+        )
+
+        split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
+        emb.flush()
+
+        # Compare emb state dict with expected values from nn.EmbeddingBag
+        emb_state_dict = emb.split_embedding_weights()
+        for feature_index, table_index in self.get_physical_table_arg_indices_(
+            emb.feature_table_map
+        ):
+            emb_r = emb_ref[feature_index]
+            self.assertLess(table_index, len(emb_state_dict))
+            new_ref_weight = torch.addcdiv(
+                emb_r.weight.float(),
+                value=-lr,
+                tensor1=emb_r.weight.grad.float().to_dense(),  # pyre-ignore[16]
+                tensor2=split_optimizer_states[table_index]
+                .float()
+                .sqrt_()
+                .add_(eps)
+                .view(Es[table_index], 1),
+            ).cpu()
+
+            torch.testing.assert_close(
+                emb_state_dict[table_index].full_tensor().float(),
+                new_ref_weight,
+                atol=tolerance,
+                rtol=tolerance,
+            )
+
+    def execute_ssd_cache_pipeline_(  # noqa C901
         self,
         T: int,
         D: int,
@@ -594,8 +741,16 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         weights_precision: SparseType,
         output_dtype: SparseType,
         share_table: bool,
+        prefetch_pipeline: bool,
+        # If True, prefetch will be invoked by the user.
+        explicit_prefetch: bool,
+        prefetch_location: Optional[PrefetchLocation],
+        use_prefetch_stream: bool,
+        flush_location: Optional[FlushLocation],
+        trigger_bounds_check: bool,
     ) -> None:
-        assume(not weighted or pooling_mode == PoolingMode.SUM)
+        # If using pipeline prefetching, explicit prefetching must be True
+        assert not prefetch_pipeline or explicit_prefetch
 
         lr = 0.5
         eps = 0.2
@@ -625,6 +780,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # functionality of the cache
             stochastic_rounding=False,
             share_table=share_table,
+            prefetch_pipeline=prefetch_pipeline,
         )
 
         optimizer_states_ref = [
@@ -639,48 +795,74 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else 1.0e-2
         )
 
+        batches = []
         for it in range(10):
+            batches.append(
+                self.generate_inputs_(
+                    B,
+                    L,
+                    Es,
+                    emb.feature_table_map,
+                    weights_precision=weights_precision,
+                    trigger_bounds_check=trigger_bounds_check,
+                )
+            )
+
+        prefetch_stream = (
+            torch.cuda.Stream() if use_prefetch_stream else torch.cuda.current_stream()
+        )
+        forward_stream = torch.cuda.current_stream() if use_prefetch_stream else None
+
+        iters = 10
+
+        force_flush = flush_location == FlushLocation.ALL
+
+        if force_flush or flush_location == FlushLocation.BEFORE_TRAINING:
+            emb.flush()
+
+        # pyre-ignore[53]
+        def _prefetch(b_it: int) -> int:
+            if not explicit_prefetch or b_it >= iters:
+                return b_it + 1
+
+            (
+                _,
+                _,
+                indices,
+                offsets,
+                _,
+            ) = batches[b_it]
+            with torch.cuda.stream(prefetch_stream):
+                emb.prefetch(indices, offsets, forward_stream=forward_stream)
+            return b_it + 1
+
+        if prefetch_pipeline:
+            # Prefetch the first iteration
+            _prefetch(0)
+            b_it = 1
+        else:
+            b_it = 0
+
+        for it in range(iters):
             (
                 indices_list,
                 per_sample_weights_list,
                 indices,
                 offsets,
                 per_sample_weights,
-            ) = self.generate_inputs_(
-                B,
-                L,
-                Es,
-                emb.feature_table_map,
-                weights_precision=weights_precision,
-            )
-            assert emb.timestep == it
+            ) = batches[it]
 
-            emb.prefetch(indices, offsets)
+            # Ensure that prefetch i is done before forward i
+            if use_prefetch_stream:
+                assert forward_stream is not None
+                forward_stream.wait_stream(prefetch_stream)
 
-            linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
-                emb.hash_size_cumsum,
-                indices,
-                offsets,
-            )
-
-            # Verify that prefetching twice avoids any actions.
-            (
-                _,
-                _,
-                _,
-                actions_count_gpu,
-                _,
-                _,
-                _,
-                _,
-            ) = torch.ops.fbgemm.ssd_cache_populate_actions(  # noqa
-                linear_cache_indices,
-                emb.total_hash_size,
-                emb.lxu_cache_state,
-                emb.timestep,
-                0,  # prefetch_dist
-                emb.lru_state,
-            )
+            # Prefetch before forward
+            if (
+                not prefetch_pipeline
+                or prefetch_location == PrefetchLocation.BEFORE_FWD
+            ):
+                b_it = _prefetch(b_it)
 
             # Execute forward
             output_ref_list, output = self.execute_ssd_forward_(
@@ -697,6 +879,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 tolerance=tolerance,
                 it=it,
             )
+
+            if force_flush or flush_location == FlushLocation.AFTER_FWD:
+                emb.flush()
 
             # Generate output gradient
             output_grad_list = [torch.randn_like(out) for out in output_ref_list]
@@ -717,8 +902,18 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 D * 4,
             )
 
+            # Prefetch between forward and backward
+            if (
+                prefetch_pipeline
+                and prefetch_location == PrefetchLocation.BETWEEN_FWD_BWD
+            ):
+                b_it = _prefetch(b_it)
+
             # Execute TBE SSD backward
             output.backward(grad_test)
+
+            if force_flush or flush_location == FlushLocation.AFTER_BWD:
+                emb.flush()
 
             # Compare optimizer states
             split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
@@ -768,3 +963,136 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 atol=tolerance,
                 rtol=tolerance,
             )
+
+    @given(
+        flush_location=st.sampled_from(FlushLocation),
+        prefetch_pipeline=st.booleans(),
+        explicit_prefetch=st.booleans(),
+        prefetch_location=st.sampled_from(PrefetchLocation),
+        use_prefetch_stream=st.booleans(),
+        **default_st,
+    )
+    @settings(
+        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+    )
+    def test_ssd_cache_flush(self, **kwargs: Any):
+        """
+        Test the correctness of the SSD cache prefetch workflow with
+        excessive flushing
+        """
+        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
+        assume(kwargs["prefetch_pipeline"] and kwargs["explicit_prefetch"])
+        assume(not kwargs["use_prefetch_stream"] or kwargs["prefetch_pipeline"])
+        self.execute_ssd_cache_pipeline_(
+            **kwargs,
+        )
+
+    @given(**default_st)
+    @settings(
+        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+    )
+    def test_ssd_cache_implicit_prefetch(self, **kwargs: Any):
+        """
+        Test the correctness of the SSD cache prefetch workflow
+        without pipeline prefetching and with implicit prefetching.
+        Implicit prefetching relies on TBE forward to invoke prefetch.
+        """
+        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
+        self.execute_ssd_cache_pipeline_(
+            prefetch_pipeline=False,
+            explicit_prefetch=False,
+            prefetch_location=None,
+            use_prefetch_stream=False,
+            flush_location=None,
+            **kwargs,
+        )
+
+    @given(**default_st)
+    @settings(
+        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+    )
+    def test_ssd_cache_explicit_prefetch(self, **kwargs: Any):
+        """
+        Test the correctness of the SSD cache prefetch workflow
+        without pipeline prefetching and with explicit prefetching
+        (the user explicitly invokes prefetch).  Each prefetch invoked
+        before a forward TBE fetches data for that specific iteration.
+
+        For example:
+
+        ------------------------- Timeline ------------------------>
+        pf(i) -> fwd(i) -> ... -> pf(i+1) -> fwd(i+1) -> ...
+
+        Note:
+        - pf(i) = prefetch of iteration i
+        - fwd(i) = forward TBE of iteration i
+        """
+        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
+        self.execute_ssd_cache_pipeline_(
+            prefetch_pipeline=False,
+            explicit_prefetch=True,
+            prefetch_location=None,
+            use_prefetch_stream=False,
+            flush_location=None,
+            **kwargs,
+        )
+
+    @given(use_prefetch_stream=st.booleans(), **default_st)
+    @settings(
+        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+    )
+    def test_ssd_cache_pipeline_before_fwd(self, **kwargs: Any):
+        """
+        Test the correctness of the SSD cache prefetch workflow with
+        pipeline prefetching when cache prefetching of the next
+        iteration is invoked before the forward TBE of the current
+        iteration.
+
+        For example:
+
+        ------------------------- Timeline ------------------------>
+        pf(i+1) -> fwd(i) -> ... -> pf(i+2) -> fwd(i+1) -> ...
+
+        Note:
+        - pf(i) = prefetch of iteration i
+        - fwd(i) = forward TBE of iteration i
+        """
+        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
+        self.execute_ssd_cache_pipeline_(
+            prefetch_pipeline=True,
+            explicit_prefetch=True,
+            prefetch_location=PrefetchLocation.BEFORE_FWD,
+            flush_location=None,
+            **kwargs,
+        )
+
+    @given(use_prefetch_stream=st.booleans(), **default_st)
+    @settings(
+        verbosity=Verbosity.verbose, max_examples=MAX_PIPELINE_EXAMPLES, deadline=None
+    )
+    def test_ssd_cache_pipeline_between_fwd_bwd(self, **kwargs: Any):
+        """
+        Test the correctness of the SSD cache prefetch workflow with
+        pipeline prefetching when cache prefetching of the next
+        iteration is invoked after the forward TBE and before the
+        backward TBE of the current iteration.
+
+        For example:
+
+        ------------------------- Timeline ------------------------>
+        fwd(i) -> pf(i+1) -> bwd(i) -> ... -> fwd(i+1) -> pf(i+2) -> bwd(i+1) -> ...
+
+        Note:
+        - pf(i) = prefetch of iteration i
+        - fwd(i) = forward TBE of iteration i
+        - bwd(i) = backward TBE of iteration i
+        """
+
+        assume(not kwargs["weighted"] or kwargs["pooling_mode"] == PoolingMode.SUM)
+        self.execute_ssd_cache_pipeline_(
+            prefetch_pipeline=True,
+            explicit_prefetch=True,
+            prefetch_location=PrefetchLocation.BETWEEN_FWD_BWD,
+            flush_location=None,
+            **kwargs,
+        )

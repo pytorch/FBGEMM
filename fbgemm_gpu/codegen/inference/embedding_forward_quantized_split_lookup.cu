@@ -14,19 +14,20 @@ using Tensor = at::Tensor;
 
 namespace nbit {
 
+template <typename index_t, typename hash_t>
 __global__
 __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel(
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         offsets,
-    const pta::PackedTensorAccessor64<int32_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<hash_t, 2, at::RestrictPtrTraits>
         hash_table,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_table_offsets,
     const int32_t B,
     const int32_t T,
-    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
   // uint32_t capacity = hash_table.size(0);
   const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -35,9 +36,9 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
   if (b_t >= B * T) {
     return;
   }
-  const int32_t indices_start = offsets[t * B + b];
-  const int32_t indices_end = offsets[t * B + b + 1];
-  const int32_t L = indices_end - indices_start;
+  const index_t indices_start = offsets[t * B + b];
+  const index_t indices_end = offsets[t * B + b + 1];
+  const index_t L = indices_end - indices_start;
 
   const int64_t table_start = hash_table_offsets[t];
   const int64_t table_end = hash_table_offsets[t + 1];
@@ -51,6 +52,13 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     return;
   }
 
+  using uidx_t =
+      std::conditional_t<std::is_same_v<index_t, int64_t>, uint64_t, uint32_t>;
+
+  // Use nv type of size (hash_t x 2)
+  using nv_hash_t =
+      std::conditional_t<std::is_same_v<hash_t, int64_t>, longlong2, int2>;
+
   const uint32_t subwarp_id = threadIdx.x / 4;
   const uint32_t subwarp_tid = threadIdx.x % 4;
 #ifdef USE_ROCM
@@ -58,17 +66,19 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
 #else
   const uint32_t subwarp_mask = static_cast<uint32_t>(0xF) << (4 * subwarp_id);
 #endif
+
   for (int32_t l_start = 0; l_start + subwarp_id < L;
        l_start += kWarpSize / 4) {
-    const int32_t idx = indices[indices_start + l_start + subwarp_id];
-    uint32_t slot_start =
-        pruned_hash_function(static_cast<uint32_t>(idx)) % capacity;
+    const index_t idx = indices[indices_start + l_start + subwarp_id];
+    auto slot_start = pruned_hash_function(static_cast<uidx_t>(idx)) % capacity;
+
     while (true) {
-      const uint32_t slot = (slot_start + subwarp_tid) % capacity;
-      const int2 val = *reinterpret_cast<const int2*>(
+      const auto slot = (slot_start + subwarp_tid) % capacity;
+
+      const nv_hash_t val = *reinterpret_cast<const nv_hash_t*>(
           &hash_table[table_start + static_cast<int64_t>(slot)][0]);
-      const int32_t slot_sparse_idx = val.x;
-      const int32_t slot_dense_idx = val.y;
+      const auto slot_sparse_idx = val.x;
+      const auto slot_dense_idx = val.y;
 
       bool found = false;
       bool empty = false;
@@ -78,6 +88,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
         found = true;
         dense_indices[indices_start + l_start + subwarp_id] = slot_dense_idx;
       }
+
       if (__any_sync(subwarp_mask, found)) {
         break;
       } else if (__any_sync(subwarp_mask, empty)) {
@@ -89,19 +100,20 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
   }
 }
 
+template <typename index_t, typename remap_t>
 __global__
 __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel(
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         offsets,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<remap_t, 1, at::RestrictPtrTraits>
         index_remappings,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         index_remappings_offsets,
     const int32_t B,
     const int32_t T,
-    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
   const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t t = b_t / B;
@@ -109,28 +121,30 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
   if (b_t >= B * T) {
     return;
   }
-  const int32_t indices_start = offsets[t * B + b];
-  const int32_t indices_end = offsets[t * B + b + 1];
-  const int32_t L = indices_end - indices_start;
+  const index_t indices_start = offsets[t * B + b];
+  const index_t indices_end = offsets[t * B + b + 1];
+  const index_t L = indices_end - indices_start;
 
   const int64_t index_remappings_start = index_remappings_offsets[t];
   const int64_t index_remappings_end = index_remappings_offsets[t + 1];
   const int64_t capacity = index_remappings_end - index_remappings_start;
 
   if (capacity > 0) {
-    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
-      int32_t idx = indices[indices_start + l];
+    for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
+      index_t idx = indices[indices_start + l];
       dense_indices[indices_start + l] =
-          index_remappings[index_remappings_start + idx];
+          static_cast<index_t>(index_remappings[index_remappings_start + idx]);
     }
   } else {
-    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+    for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
       dense_indices[indices_start + l] = indices[indices_start + l];
     }
   }
 }
 
 } // namespace nbit
+
+using namespace nbit;
 
 Tensor pruned_hashmap_lookup_cuda(
     Tensor indices,
@@ -139,6 +153,7 @@ Tensor pruned_hashmap_lookup_cuda(
     Tensor hash_table_offsets) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       indices, offsets, hash_table, hash_table_offsets);
+  TENSORS_HAVE_SAME_SCALAR_TYPE(indices, offsets);
 
   CUDA_DEVICE_GUARD(indices);
 
@@ -149,23 +164,32 @@ Tensor pruned_hashmap_lookup_cuda(
   TORCH_CHECK(hash_table.size(0) < std::numeric_limits<int32_t>::max());
   constexpr size_t kForwardMaxThreads = 256;
 
+  AT_DISPATCH_INDEX_TYPES(
+      hash_table.scalar_type(), "pruned_hashmap_lookup_cuda_0", [&] {
+        using hash_t = index_t;
+
+        AT_DISPATCH_INDEX_TYPES(
+            indices.scalar_type(), "pruned_hashmap_lookup_cuda_1", [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-  const auto func_name =
-      "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel";
+              const auto func_name =
+                  "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel";
 #endif
 
-  nbit::int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<<<
-      nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
-      dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      MAKE_PTA_WITH_NAME(func_name, indices, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, offsets, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, hash_table, int32_t, 2, 64),
-      MAKE_PTA_WITH_NAME(func_name, hash_table_offsets, int64_t, 1, 32),
-      B,
-      T,
-      MAKE_PTA_WITH_NAME(func_name, dense_indices, int32_t, 1, 32));
+              int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<<<
+                  nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
+                  dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(func_name, hash_table, hash_t, 2, 64),
+                  MAKE_PTA_WITH_NAME(
+                      func_name, hash_table_offsets, int64_t, 1, 32),
+                  B,
+                  T,
+                  MAKE_PTA_WITH_NAME(func_name, dense_indices, index_t, 1, 32));
+            });
+      });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
@@ -178,6 +202,7 @@ Tensor pruned_array_lookup_cuda(
     Tensor index_remappings_offsets) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       indices, offsets, index_remappings, index_remappings_offsets);
+  TENSORS_HAVE_SAME_SCALAR_TYPE(indices, offsets);
 
   CUDA_DEVICE_GUARD(indices);
 
@@ -204,23 +229,35 @@ Tensor pruned_array_lookup_cuda(
   TORCH_CHECK(dense_indices.dim() == 1, "Tensor dim: ", dense_indices.dim());
   constexpr size_t kForwardMaxThreads = 256;
 
+  AT_DISPATCH_INDEX_TYPES(
+      index_remappings.scalar_type(), "pruned_array_lookup_cuda_0", [&] {
+        using remap_t = index_t;
+
+        AT_DISPATCH_INDEX_TYPES(
+            indices.scalar_type(), "pruned_array_lookup_cuda_1", [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-  const auto func_name =
-      "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel";
+              const auto func_name =
+                  "int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel";
 #endif
 
-  nbit::int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<<<
-      nbit::div_round_up(offsets.size(0), kForwardMaxThreads / kWarpSize),
-      dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-      0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      MAKE_PTA_WITH_NAME(func_name, indices, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, offsets, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, index_remappings, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, index_remappings_offsets, int64_t, 1, 32),
-      B,
-      T,
-      MAKE_PTA_WITH_NAME(func_name, dense_indices, int32_t, 1, 32));
+              int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<<<
+                  nbit::div_round_up(
+                      offsets.size(0), kForwardMaxThreads / kWarpSize),
+                  dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                      func_name, index_remappings, remap_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                      func_name, index_remappings_offsets, int64_t, 1, 32),
+                  B,
+                  T,
+                  MAKE_PTA_WITH_NAME(func_name, dense_indices, index_t, 1, 32));
+            });
+      });
+
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
 }

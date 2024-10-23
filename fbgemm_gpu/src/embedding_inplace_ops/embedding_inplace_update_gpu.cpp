@@ -11,6 +11,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/library.h>
 #include "fbgemm_gpu/embedding_inplace_update.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(

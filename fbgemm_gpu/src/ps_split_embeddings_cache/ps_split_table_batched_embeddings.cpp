@@ -9,7 +9,6 @@
 #include "./ps_table_batched_embeddings.h"
 
 #include <torch/custom_class.h>
-#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using namespace at;
 using namespace ps;
@@ -22,7 +21,10 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
       const std::vector<int64_t>& tps_ports,
       int64_t tbe_id,
       int64_t maxLocalIndexLength = 54,
-      int64_t num_threads = 32) {
+      int64_t num_threads = 32,
+      int64_t maxKeysPerRequest = 500,
+      int64_t l2_cache_size_gb = 0,
+      int64_t max_D = 0) {
     TORCH_CHECK(
         tps_ips.size() == tps_ports.size(),
         "tps_ips and tps_ports must have the same size");
@@ -32,20 +34,30 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
     }
 
     impl_ = std::make_shared<ps::EmbeddingParameterServer>(
-        std::move(tpsHosts), tbe_id, maxLocalIndexLength, num_threads);
+        std::move(tpsHosts),
+        tbe_id,
+        maxLocalIndexLength,
+        num_threads,
+        maxKeysPerRequest,
+        l2_cache_size_gb,
+        max_D);
   }
 
-  void
-  set_cuda(Tensor indices, Tensor weights, Tensor count, int64_t timestep) {
-    return impl_->set_cuda(indices, weights, count, timestep);
+  void set_cuda(
+      Tensor indices,
+      Tensor weights,
+      Tensor count,
+      int64_t timestep,
+      bool is_bwd = false) {
+    return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
   }
 
   void get_cuda(Tensor indices, Tensor weights, Tensor count) {
     return impl_->get_cuda(indices, weights, count);
   }
 
-  void set(Tensor indices, Tensor weights, Tensor count) {
-    return impl_->set(indices, weights, count);
+  void set(Tensor indices, Tensor weights, Tensor count, bool is_bwd = false) {
+    return impl_->set(indices, weights, count, is_bwd);
   }
 
   void get(Tensor indices, Tensor weights, Tensor count) {
@@ -76,6 +88,9 @@ static auto embedding_parameter_server_wrapper =
         .def(torch::init<
              const std::vector<std::string>,
              const std::vector<int64_t>,
+             int64_t,
+             int64_t,
+             int64_t,
              int64_t,
              int64_t,
              int64_t>())

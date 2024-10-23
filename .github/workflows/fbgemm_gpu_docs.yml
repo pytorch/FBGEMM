@@ -24,6 +24,7 @@ on:
 
 jobs:
   build-docs:
+    if: ${{ github.repository_owner == 'pytorch' }}
     permissions:
       # Grant write permission here so that the generated docs can be pushed to `gh-pages` branch
       contents: write

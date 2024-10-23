@@ -14,6 +14,8 @@
 #include <torch/library.h>
 
 #include "fbgemm_gpu/embedding_inplace_update.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -128,34 +130,43 @@ Tensor pruned_array_lookup_from_row_idx_cpu(
   const auto num_indices = update_row_indices.numel();
 
   AT_DISPATCH_INDEX_TYPES(
-      update_row_indices.scalar_type(),
-      "pruned_array_lookup_from_row_idx_cpu_kernel",
+      index_remappings.scalar_type(),
+      "pruned_array_lookup_from_row_idx_cpu_0",
       [&] {
-        const auto update_row_indices_acc =
-            update_row_indices.accessor<index_t, 1>();
-        auto dense_indices_acc = dense_indices.accessor<index_t, 1>();
-        const auto update_table_indices_acc =
-            update_table_indices.accessor<int32_t, 1>();
+        using remap_t = index_t;
 
-        const auto index_remappings_acc =
-            index_remappings.accessor<int32_t, 1>();
-        const auto index_remappings_offsets_acc =
-            index_remappings_offsets.accessor<int64_t, 1>();
-        for (const auto idx : c10::irange(num_indices)) {
-          const int table_idx = update_table_indices_acc[idx];
-          const auto row_idx = update_row_indices_acc[idx];
-          int64_t index_remappings_start =
-              index_remappings_offsets_acc[table_idx];
-          int64_t index_remappings_end =
-              index_remappings_offsets_acc[table_idx + 1];
-          int64_t capacity = index_remappings_end - index_remappings_start;
-          if (capacity > 0) {
-            dense_indices_acc[idx] =
-                index_remappings_acc[index_remappings_start + row_idx];
-          } else {
-            dense_indices_acc[idx] = row_idx;
-          }
-        }
+        AT_DISPATCH_INDEX_TYPES(
+            update_row_indices.scalar_type(),
+            "pruned_array_lookup_from_row_idx_cpu_1",
+            [&] {
+              const auto update_row_indices_acc =
+                  update_row_indices.accessor<index_t, 1>();
+              auto dense_indices_acc = dense_indices.accessor<index_t, 1>();
+              const auto update_table_indices_acc =
+                  update_table_indices.accessor<int32_t, 1>();
+              const auto index_remappings_acc =
+                  index_remappings.accessor<remap_t, 1>();
+              const auto index_remappings_offsets_acc =
+                  index_remappings_offsets.accessor<int64_t, 1>();
+
+              for (const auto idx : c10::irange(num_indices)) {
+                const auto table_idx = update_table_indices_acc[idx];
+                const auto row_idx = update_row_indices_acc[idx];
+                const auto index_remappings_start =
+                    index_remappings_offsets_acc[table_idx];
+                const auto index_remappings_end =
+                    index_remappings_offsets_acc[table_idx + 1];
+                const auto capacity =
+                    index_remappings_end - index_remappings_start;
+
+                if (capacity > 0) {
+                  dense_indices_acc[idx] = static_cast<index_t>(
+                      index_remappings_acc[index_remappings_start + row_idx]);
+                } else {
+                  dense_indices_acc[idx] = static_cast<index_t>(row_idx);
+                }
+              }
+            });
       });
   return dense_indices;
 }

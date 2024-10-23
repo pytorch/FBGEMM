@@ -7,7 +7,7 @@
 # pyre-strict
 
 import unittest
-from typing import List
+from typing import List, Tuple
 
 import fbgemm_gpu.quantize.quantize_ops  # noqa F401
 import hypothesis.strategies as st
@@ -17,7 +17,7 @@ import torch
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, mx4_to_fp32, RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
 
-from hypothesis import assume, given, settings, Verbosity
+from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402
 
@@ -101,6 +101,7 @@ def fake_quantize_mx(
         method=shared_exp_method,
         axes=shared_exp_axes,
         ebits=0,
+        rounding_mode="floor",
     )
 
     # Flush subnormal FP32 inputs to zero
@@ -220,12 +221,16 @@ class TestMXQuantizationConversion(unittest.TestCase):
             mx_group_size=group_size,
         )
 
-        check_diff_quantize(input, output_ref, output_cuda)
-        check_diff_quantize(input, output_cuda, output_triton)
-        check_diff_quantize(input, output_cuda, output_cuda_from_quantized_triton)
-        check_diff_quantize(input, output_cuda_from_quantized_triton, output_triton)
-        check_diff_quantize(input, output_triton, output_cpu)
-        check_diff_quantize(input, output_cuda, output_from_ops)
+        assert check_diff_quantize(input, output_ref, output_cuda)
+        assert check_diff_quantize(input, output_cuda, output_triton)
+        assert check_diff_quantize(
+            input, output_cuda, output_cuda_from_quantized_triton
+        )
+        assert check_diff_quantize(
+            input, output_cuda_from_quantized_triton, output_triton
+        )
+        assert check_diff_quantize(input, output_triton, output_cpu)
+        assert check_diff_quantize(input, output_cuda, output_from_ops)
 
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]:
@@ -233,15 +238,18 @@ class TestMXQuantizationConversion(unittest.TestCase):
         shape=st.sampled_from(
             [
                 [32],  # Small shape with group_size = num_elements.
-                [2, 16],  # Multi dimensional shape.
-                [2, 2, 4, 4],  # Even more multi dimensional shape.
+                [2, 16],  # Multi dimensional shape that is padded.
+                [2, 2, 4, 32],  # Even more multi dimensional shape without padding.
                 [96],  # Shape that cannot be made into even rows.
-                [16, 1028],  # Large shape with multiple rows.
+                [16, 1028],  # Large shape with multiple padded rows.
+                [4, 30],  # Multiple small rows with padding.
             ]
         ),
         group_size=st.sampled_from([32, 64]),
         rounding_mode=st.sampled_from(list(RoundingMode)),
         magnitude=st.sampled_from([1.0, 1e3, 1e-3]),
+        mx4_format=st.sampled_from([(2, 1), (3, 0)]),
+        device=st.sampled_from(["cpu", "cuda"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_mx4_cases(
@@ -250,27 +258,50 @@ class TestMXQuantizationConversion(unittest.TestCase):
         group_size: int,
         rounding_mode: RoundingMode,
         magnitude: int,
+        mx4_format: Tuple[int, int],
+        device: str,
     ) -> None:
         """Test correctness of mx4 routines with random inputs and unusual shapes."""
         # We only want to consider total sizes that are divisible by group_size.
-        assume(sum(shape) % group_size == 0)
+        ebits, mbits = mx4_format
 
         # Generate a random input with the specified magnitude.
-        input = torch.randn(shape, device="cuda", dtype=torch.float32) * magnitude
+        input = torch.randn(shape, device=device, dtype=torch.float32) * magnitude
 
         # Perform quant then dequant to check that proper shape is maintained and
         # outputs are reasonably correct.
-        mx_quantized = fp32_to_mx4(input, group_size, rounding_mode=rounding_mode)
-        mx_dequantized = mx4_to_fp32(mx_quantized, group_size)
+        mx_quantized = fp32_to_mx4(
+            input, group_size, rounding_mode=rounding_mode, ebits=ebits, mbits=mbits
+        )
+        mx_dequantized = mx4_to_fp32(mx_quantized, group_size, ebits=ebits, mbits=mbits)
+
+        # If the rows of input are not divisible by group_size, we expect the output
+        # to be padded.
+        if input.shape[-1] % group_size != 0:
+            pad = group_size - (input.shape[-1] % group_size)
+            input = torch.nn.functional.pad(input, (0, pad))
 
         # Check that output shape matches input shape.
         assert mx_dequantized.shape == input.shape
 
         # Check that values are reasonably close, based on expected variance.
         # I give quite a bit of wiggle room to make sure this isnt flaky.
-        torch.testing.assert_allclose(
-            input, mx_dequantized, rtol=1.0, atol=magnitude / 2
-        )
+        torch.testing.assert_close(input, mx_dequantized, rtol=1.0, atol=magnitude / 2)
+
+    # pyre-fixme[56]:
+    @unittest.skipIf(
+        not (
+            torch.cuda.is_available() and torch.cuda.mem_get_info()[0] / (1024**3) >= 32
+        ),
+        "Test requires a gpu with at least 32GB of memory.",
+    )
+    def test_mx4_index_overflow(self) -> None:
+        """Tests that mx4 quantization kernels can handle inputs that would overflow int32 indices."""
+        large_input = torch.zeros(2**32, dtype=torch.float32).to("cuda")
+        mx_quantized = fp32_to_mx4(large_input, 32)
+        mx_dequantized = mx4_to_fp32(mx_quantized, 32)
+        # We just need to check that everything ran without an illegal memory access.
+        assert mx_dequantized[0] == 0
 
 
 if __name__ == "__main__":

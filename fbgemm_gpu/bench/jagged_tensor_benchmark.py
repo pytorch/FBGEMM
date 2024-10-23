@@ -6,9 +6,12 @@
 
 # pyre-strict
 
+from __future__ import annotations
+
 import functools
 import logging
 import random
+from dataclasses import dataclass
 from typing import List, Tuple
 
 import click
@@ -16,7 +19,8 @@ import fbgemm_gpu
 import torch
 from torch.profiler import profile
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -27,10 +31,7 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu"
     )
@@ -43,12 +44,332 @@ else:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_multi_embedding_ops_gpu"
     )
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 
 
 @click.group()
 def cli() -> None:
     pass
+
+
+@dataclass
+class JaggedTensor:
+    """
+    A simple wrapper class around jagged tensors for benchmarking purposes.
+    Jagged tensors are a tensor of variable length vectors.  They are
+    represented as a tuple of (values, lengths, offsets) where values is a 2D
+    tensor of shape (total_lengths, embedding_dim) and lengths is a 1D tensor
+    of shape (batch_size,) containing the length of each row in the batch.
+    Offsets is a 1D tensor of shape (batch_size + 1,) containing the offset of
+    each row.
+    """
+
+    values: torch.Tensor
+    lengths: torch.Tensor
+    offsets: torch.Tensor
+    batch_size: int
+    embedding_dim: int
+    max_len: int
+
+    @property
+    def total_lengths(self) -> int:
+        return int(self.lengths.sum().item())
+
+    @staticmethod
+    def rand_2d(
+        batch_size: int, embedding_dim: int, max_len: int, elem_type: str
+    ) -> JaggedTensor:
+        """
+        Generate a random JaggedTensor with 2D values.
+        """
+        # Each row in the batch has different length
+        lengths = torch.randint(max_len, size=(batch_size,))
+        total_lengths = lengths.sum().item()
+
+        # Compute the offsets
+        offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+        # Set dtype
+        dtype = (
+            torch.float16
+            if elem_type == "half" or elem_type == "float16"
+            else torch.float32
+        )
+
+        # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
+        values_2d = torch.rand(total_lengths, embedding_dim, dtype=dtype)
+
+        if torch.cuda.is_available():
+            values_2d = values_2d.cuda()
+            offsets = offsets.cuda()
+
+        return JaggedTensor(
+            values_2d, lengths, offsets, batch_size, embedding_dim, max_len
+        )
+
+    def to_dense(self) -> torch.Tensor:
+        """
+        Convert the JaggedTensor into a dense tensor.
+        """
+        if self.values.dim() == 2:
+            return torch.ops.fbgemm.jagged_2d_to_dense(
+                self.values, self.offsets, self.max_len
+            )
+        elif self.values.dim() == 1:
+            return torch.ops.fbgemm.jagged_1d_to_dense(
+                self.values, self.offsets, self.max_len, padding_value=0
+            )
+        else:
+            raise RuntimeError(f"Unsupported JaggedTensor dim {self.values.dim()}")
+
+    def as_nested(self) -> torch.Tensor:
+        """
+        Convert the JaggedTensor into a PyTorch NestedTensor.
+        """
+        tensors = []
+
+        for i in range(1, len(self.offsets)):
+            tensors.append(self.values[self.offsets[i - 1] : self.offsets[i],])
+
+        return torch.nested.nested_tensor(tensors)
+
+    def nbytes(self) -> int:
+        """
+        Return the number of bytes used by the JaggedTensor.
+        """
+        offsets_nbytes = self.offsets.numel() * self.offsets.element_size()
+        values_nbytes = self.values.numel() * self.values.element_size()
+        return offsets_nbytes + values_nbytes
+
+
+def dense_to_nested(values: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    """
+    Convert a dense tensor into a PyTorch NestedTensor.
+    """
+    return torch.nested.nested_tensor(
+        [values[i][: lengths[i],] for i in range(len(lengths))]
+    )
+
+
+def bench_jagged_2d_to_dense(jten: JaggedTensor) -> None:
+    logging.info("######## Jagged (2D) to Dense ########")
+
+    time, output = benchmark_torch_function(
+        jten.to_dense,
+        (),
+        iters=1000,
+    )
+
+    dense_nbytes = output.numel() * output.element_size()
+    num_bytes = jten.nbytes() + dense_nbytes
+    logging.info(f"FBGEMM JaggedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+
+    nten = jten.as_nested()
+    time, output = benchmark_torch_function(
+        torch.nested.to_padded_tensor,
+        (nten, 0.0, (jten.batch_size, jten.max_len, jten.embedding_dim)),
+        iters=1000,
+    )
+
+    nten_bytes = nten.numel() * nten.element_size()
+    dense_nbytes = output.numel() * output.element_size()
+    num_bytes = nten_bytes + dense_nbytes
+    logging.info(f"PyTorch NestedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+    logging.info("")
+
+
+def bench_dense_to_jagged_2d(jten: JaggedTensor) -> None:
+    logging.info("######## Dense to Jagged (2D) ########")
+
+    dense_values = jten.to_dense()
+
+    time, output = benchmark_torch_function(
+        torch.ops.fbgemm.dense_to_jagged,
+        (dense_values, [jten.offsets], jten.total_lengths),
+        iters=1000,
+    )
+
+    dense_nbytes = dense_values.numel() * dense_values.element_size()
+    output_nbytes = output[0].numel() * output[0].element_size()
+    offsets_nbytes = jten.offsets.numel() * jten.offsets.element_size()
+    num_bytes = dense_nbytes + output_nbytes + offsets_nbytes
+    logging.info(f"FBGEMM JaggedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+
+    time, output = benchmark_torch_function(
+        dense_to_nested,
+        (dense_values, jten.lengths),
+        iters=1000,
+    )
+
+    output_nbytes = output.numel() * output.element_size()
+    num_bytes = dense_nbytes + output_nbytes
+    logging.info(f"PyTorch NestedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+    logging.info("")
+
+
+def bench_jagged_dense_elementwise_op_jagged_output(jten: JaggedTensor) -> None:
+    logging.info("######## Jagged (x) Dense -> Jagged ########")
+
+    def nested_tensor_add(
+        jagged_x: JaggedTensor, nested_x: torch.Tensor, dense_y: torch.Tensor
+    ) -> torch.Tensor:
+        return nested_x + dense_to_nested(
+            dense_y,
+            jagged_x.lengths,
+        )
+
+    def nested_tensor_mul(
+        jagged_x: JaggedTensor, nested_x: torch.Tensor, dense_y: torch.Tensor
+    ) -> torch.Tensor:
+        return nested_x * dense_to_nested(
+            dense_y,
+            jagged_x.lengths,
+        )
+
+    offsets_nbytes = jten.offsets.numel() * jten.offsets.element_size()
+    values_nbytes = jten.values.numel() * jten.values.element_size()
+    num_bytes = offsets_nbytes + 3 * values_nbytes
+
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output,
+        (jten.values, [jten.offsets], jten.to_dense()),
+        iters=1000,
+    )
+    logging.info(f"(Add) FBGEMM JaggedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+
+    time, nested_output = benchmark_torch_function(
+        nested_tensor_add,
+        (jten, jten.as_nested(), jten.to_dense()),
+        iters=1000,
+    )
+    logging.info(
+        f"(Add) PyTorch NestedTensor: {time} sec {num_bytes / time / 1e9} GB/s"
+    )
+
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_dense_elementwise_mul,
+        (jten.values, [jten.offsets], jten.to_dense()),
+        iters=1000,
+    )
+    logging.info(f"(Mul) FBGEMM JaggedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+
+    time, nested_output = benchmark_torch_function(
+        nested_tensor_mul,
+        (jten, jten.as_nested(), jten.to_dense()),
+        iters=1000,
+    )
+    logging.info(
+        f"(Mul) PyTorch NestedTensor: {time} sec {num_bytes / time / 1e9} GB/s"
+    )
+    logging.info("")
+
+
+def bench_jagged_dense_dense_elementwise_add_jagged_output(jten: JaggedTensor) -> None:
+    logging.info("######## Jagged + Dense + Dense -> Jagged ########")
+
+    def nested_tensor_add(
+        jagged_x: JaggedTensor,
+        nested_x: torch.Tensor,
+        dense_y0: torch.Tensor,
+        dense_y1: torch.Tensor,
+    ) -> torch.Tensor:
+        return (
+            nested_x
+            + dense_to_nested(
+                dense_y0,
+                jagged_x.lengths,
+            )
+            + dense_to_nested(
+                dense_y1,
+                jagged_x.lengths,
+            )
+        )
+
+    offsets_nbytes = jten.offsets.numel() * jten.offsets.element_size()
+    values_nbytes = jten.values.numel() * jten.values.element_size()
+    num_bytes = offsets_nbytes + 4 * values_nbytes
+
+    output = jten.to_dense()
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output,
+        (jten.values, [jten.offsets], output, output * output),
+        iters=1000,
+    )
+    logging.info(f"FBGEMM JaggedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+
+    time, nested_output = benchmark_torch_function(
+        nested_tensor_add,
+        (jten, jten.as_nested(), output, output * output),
+        iters=1000,
+    )
+    logging.info(f"PyTorch NestedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+    logging.info("")
+
+
+def bench_jagged_1d_to_dense(jten: JaggedTensor) -> None:
+    logging.info("######## Jagged (1D) to Dense ########")
+
+    # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+    #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+    jten.values = torch.rand(jten.total_lengths)
+    if torch.cuda.is_available():
+        jten.values = jten.values.cuda()
+
+    time, output = benchmark_torch_function(
+        jten.to_dense,
+        (),
+        iters=1000,
+    )
+
+    dense_nbytes = output.numel() * output.element_size()
+    num_bytes = jten.nbytes() + dense_nbytes
+    logging.info(f"FBGEMM JaggedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+
+    nten = jten.as_nested()
+    time, output = benchmark_torch_function(
+        torch.nested.to_padded_tensor,
+        (nten, 0.0, (jten.batch_size, jten.embedding_dim)),
+        iters=1000,
+    )
+
+    nten_bytes = nten.numel() * nten.element_size()
+    num_bytes = nten_bytes + dense_nbytes
+    logging.info(f"PyTorch NestedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+    logging.info("")
+
+
+def bench_dense_to_jagged_1d(jten: JaggedTensor) -> None:
+    logging.info("######## Dense to Jagged (1D) ########")
+
+    # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
+    #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
+    jten.values = torch.rand(jten.total_lengths)
+    if torch.cuda.is_available():
+        jten.values = jten.values.cuda()
+    dense_values = jten.to_dense()
+
+    dense_1d = torch.unsqueeze(dense_values, -1)
+    time, jagged_output = benchmark_torch_function(
+        torch.ops.fbgemm.dense_to_jagged,
+        (dense_1d, [jten.offsets], jten.total_lengths),
+        iters=1000,
+    )
+
+    dense_1d_nbytes = dense_1d.numel() * dense_1d.element_size()
+    offsets_nbytes = jten.offsets.numel() * jten.offsets.element_size()
+    jagged_output_bytes = jagged_output[0].numel() * jagged_output[0].element_size()
+    num_bytes = offsets_nbytes + dense_1d_nbytes + jagged_output_bytes
+    logging.info(f"FBGEMM JaggedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+
+    time, output = benchmark_torch_function(
+        dense_to_nested,
+        (dense_1d, jten.lengths),
+        iters=1000,
+    )
+
+    nten_nbytes = output.numel() * output.element_size()
+    num_bytes = dense_1d_nbytes + nten_nbytes
+    logging.info(f"PyTorch NestedTensor: {time} sec {num_bytes / time / 1e9} GB/s")
+    logging.info("")
 
 
 @cli.command()
@@ -62,100 +383,19 @@ def device(
     max_len: int,
     elem_type: str,
 ) -> None:
-    lengths = torch.randint(max_len, size=(batch_size,))
-    total_lengths = lengths.sum().item()
-    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+    jtensor = JaggedTensor.rand_2d(batch_size, embedding_dim, max_len, elem_type)
 
-    dtype = (
-        torch.float16
-        if elem_type == "half" or elem_type == "float16"
-        else torch.float32
-    )
+    bench_jagged_2d_to_dense(jtensor)
 
-    # pyre-fixme[6]: For 1st param expected `int` but got `Union[bool, float, int]`.
-    values_2d = torch.rand(total_lengths, embedding_dim, dtype=dtype)
+    bench_dense_to_jagged_2d(jtensor)
 
-    if torch.cuda.is_available():
-        offsets = offsets.cuda()
-        values_2d = values_2d.cuda()
+    bench_jagged_dense_elementwise_op_jagged_output(jtensor)
 
-    time, output = benchmark_torch_function(
-        torch.ops.fbgemm.jagged_2d_to_dense, (values_2d, offsets, max_len), iters=1000
-    )
+    bench_jagged_dense_dense_elementwise_add_jagged_output(jtensor)
 
-    offsets_nbytes = offsets.numel() * offsets.element_size()
-    values_nbytes = values_2d.numel() * values_2d.element_size()
-    dense_nbytes = output.numel() * output.element_size()
+    bench_jagged_1d_to_dense(jtensor)
 
-    num_bytes = offsets_nbytes + values_nbytes + dense_nbytes
-    logging.info(f"jagged_2d_to_dense {time} sec {num_bytes / time / 1e9} GB/s")
-
-    total_L = values_2d.size(0)
-    time, jagged_output = benchmark_torch_function(
-        torch.ops.fbgemm.dense_to_jagged, (output, [offsets], total_L), iters=1000
-    )
-
-    num_bytes = offsets_nbytes + 2 * values_nbytes
-    logging.info(f"dense_to_jagged (2d) {time} sec {num_bytes / time / 1e9} GB/s")
-
-    time, jagged_output = benchmark_torch_function(
-        torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output,
-        (values_2d, [offsets], output),
-        iters=1000,
-    )
-    num_bytes = offsets_nbytes + 3 * values_nbytes
-    logging.info(
-        f"jagged_dense_elementwise_add_jagged_output {time} sec {num_bytes / time / 1e9} GB/s"
-    )
-
-    time, jagged_output = benchmark_torch_function(
-        torch.ops.fbgemm.jagged_dense_elementwise_mul,
-        (values_2d, [offsets], output),
-        iters=1000,
-    )
-    num_bytes = offsets_nbytes + 3 * values_nbytes
-    logging.info(
-        f"jagged_dense_elementwise_mul {time} sec {num_bytes / time / 1e9} GB/s"
-    )
-
-    output_sq = output * output
-    time, jagged_output = benchmark_torch_function(
-        torch.ops.fbgemm.jagged_dense_dense_elementwise_add_jagged_output,
-        (values_2d, [offsets], output, output_sq),
-        iters=1000,
-    )
-    num_bytes = offsets_nbytes + 4 * values_nbytes
-    logging.info(
-        f"jagged_dense_dense_elementwise_add_jagged_output {time} sec {num_bytes / time / 1e9} GB/s"
-    )
-
-    # pyre-fixme[6]: For 1st param expected `Union[List[int], Size,
-    #  typing.Tuple[int, ...]]` but got `Union[bool, float, int]`.
-    values_1d = torch.rand(total_lengths)
-    if torch.cuda.is_available():
-        values_1d = values_1d.cuda()
-    values_nbytes = values_1d.numel() * values_1d.element_size()
-
-    time, output = benchmark_torch_function(
-        lambda: torch.ops.fbgemm.jagged_1d_to_dense(
-            values_1d, offsets, max_len, padding_value=0
-        ),
-        (),
-        iters=1000,
-    )
-    dense_nbytes = output.numel() * output.element_size()
-
-    num_bytes = offsets_nbytes + values_nbytes + dense_nbytes
-    logging.info(f"jagged_1d_to_dense {time} sec {num_bytes / time / 1e9} GB/s")
-
-    total_L = values_1d.size(0)
-    output_1d = torch.unsqueeze(output, -1)
-    time, jagged_output = benchmark_torch_function(
-        torch.ops.fbgemm.dense_to_jagged, (output_1d, [offsets], total_L), iters=1000
-    )
-
-    num_bytes = offsets_nbytes + 2 * values_nbytes
-    logging.info(f"dense_to_jagged (1d) {time} sec {num_bytes / time / 1e9} GB/s")
+    bench_dense_to_jagged_1d(jtensor)
 
 
 @cli.command()

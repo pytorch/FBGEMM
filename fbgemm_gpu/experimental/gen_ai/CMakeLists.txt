@@ -15,6 +15,7 @@ set(fbgemm_sources_include_directories
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
   ${CMAKE_CURRENT_SOURCE_DIR}/../../include
   ${CMAKE_CURRENT_SOURCE_DIR}/../../../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
   # PyTorch
   ${TORCH_INCLUDE_DIRS}
   # Third-party
@@ -29,19 +30,51 @@ set(attention_ops_sources
     src/attention/attention.cpp
     src/attention/gqa_attn_splitk.cu)
 
-set(quantize_ops_sources
-    src/quantize/cutlass_extensions.cu
+if(USE_ROCM)
+  set(quantize_ops_sources
+    src/quantize/ck_extensions/fp8_tensorwise_gemm.hip
+    src/quantize/ck_extensions/fp8_rowwise_gemm.hip
+    src/quantize/ck_extensions/fp8_blockwise_gemm.hip
     src/quantize/quantize.cu
     src/quantize/quantize.cpp)
+else()
+  set(quantize_ops_sources
+    src/quantize/cutlass_extensions/f8f8bf16.cu
+    src/quantize/cutlass_extensions/f8f8bf16_blockwise.cu
+    src/quantize/cutlass_extensions/f8f8bf16_cublas.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise_batched.cu
+    src/quantize/cutlass_extensions/f8f8bf16_tensorwise.cu
+    src/quantize/cutlass_extensions/i8i8bf16.cu
+    src/quantize/cutlass_extensions/f8i4bf16_rowwise.cu
+    src/quantize/cutlass_extensions/i8i8bf16_dynamic.cu
+    src/quantize/cutlass_extensions/bf16i4bf16_rowwise.cu
+    src/quantize/cutlass_extensions/bf16i4bf16_rowwise_batched.cu
+    src/quantize/quantize.cu
+    src/quantize/quantize.cpp)
+endif()
 
 set(comm_ops_sources
     src/comm/car.cu
     src/comm/car.cpp)
 
+set(kv_cache_ops_sources
+    src/kv_cache/kv_cache.cu
+    src/kv_cache/kv_cache.cpp)
+
 set(experimental_gen_ai_cpp_source_files
     ${attention_ops_sources}
     ${quantize_ops_sources}
-    ${comm_ops_sources})
+    ${comm_ops_sources}
+    ${kv_cache_ops_sources})
+
+# Set the source file for FB only CPP
+if(USE_FB_ONLY)
+  file(GLOB fb_only_ops_sources
+      fb/src/*/*.cu
+      fb/src/*/*.cpp)
+  list(APPEND experimental_gen_ai_cpp_source_files ${fb_only_ops_sources})
+endif()
 
 set_source_files_properties(${experimental_gen_ai_cpp_source_files}
     PROPERTIES INCLUDE_DIRECTORIES
@@ -123,3 +156,10 @@ install(TARGETS fbgemm_gpu_experimental_gen_ai_py
 
 install(FILES ${experimental_gen_ai_python_source_files}
         DESTINATION fbgemm_gpu/experimental/gen_ai)
+
+add_custom_target(fbgemm_gpu_experimental_gen_ai_py_clean_rpath ALL
+  WORKING_DIRECTORY ${OUTPUT_DIR}
+  COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
+
+add_dependencies(fbgemm_gpu_experimental_gen_ai_py_clean_rpath
+  fbgemm_gpu_experimental_gen_ai_py)

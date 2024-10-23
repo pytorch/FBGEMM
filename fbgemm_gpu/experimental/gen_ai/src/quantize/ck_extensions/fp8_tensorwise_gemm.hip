@@ -12,10 +12,8 @@
 #include <numeric>
 
 #include <ATen/ATen.h>
-#include <c10/cuda/CUDAStream.h>
+#include <c10/hip/HIPStream.h>
 #include <torch/torch.h>
-
-#if defined(USE_ROCM)
 
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
@@ -243,5 +241,3 @@ at::Tensor f8f8bf16_tensorwise(
 }
 
 } // namespace fbgemm_gpu
-
-#endif // defined(USE_ROCM)

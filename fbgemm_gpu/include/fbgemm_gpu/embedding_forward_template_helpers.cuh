@@ -31,11 +31,11 @@
 #include <mutex>
 
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/find_qparams.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/vec4acc.cuh"
 #include "fbgemm_gpu/utils/vecn.cuh"
@@ -88,12 +88,24 @@ __device__ inline int32_t padded_D(
 
 __device__ inline uint32_t pruned_hash_function(uint32_t h) {
   // MurmorHash3 32-bit mixing function.
+  // https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
   h ^= h >> 16;
   h *= 0x85ebca6b;
   h ^= h >> 13;
   h *= 0xc2b2ae35;
   h ^= h >> 16;
   return h;
+}
+
+__device__ inline uint64_t pruned_hash_function(uint64_t k) {
+  // MurmorHash3 64-bit mixing function.
+  // https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
+  k ^= k >> 33;
+  k *= (0xff51afd7ed558ccd);
+  k ^= k >> 33;
+  k *= (0xc4ceb9fe1a85ec53);
+  k ^= k >> 33;
+  return k;
 }
 
 // ---------------------- START cp.async helpers, copied from CUTLASS

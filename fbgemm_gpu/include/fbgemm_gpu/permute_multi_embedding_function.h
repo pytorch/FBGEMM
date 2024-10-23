@@ -13,9 +13,9 @@
 #include <torch/csrc/api/include/torch/types.h>
 #include <torch/csrc/autograd/custom_function.h>
 
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 namespace fbgemm_gpu {
 
@@ -30,13 +30,14 @@ using torch::autograd::variable_list;
 class PermuteMultiEmbeddingOp
     : public torch::autograd::Function<PermuteMultiEmbeddingOp> {
  public:
+  static constexpr bool is_traceable = true;
   static variable_list forward(
       AutogradContext* ctx,
       const at::TensorList& pooled_embs,
       const Tensor& permutes,
       const Tensor& in_shapes,
       const Tensor& out_shapes,
-      const std::vector<int64_t>& out_lengths);
+      const c10::SymIntArrayRef out_lengths);
 
   static variable_list backward(
       AutogradContext* ctx,
@@ -48,7 +49,7 @@ std::vector<Tensor> permute_multi_embedding_function_cpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths,
+    const c10::IntArrayRef out_lengths,
     const bool& reverse_permute);
 
 std::vector<Tensor> permute_multi_embedding_function_meta(
@@ -56,7 +57,7 @@ std::vector<Tensor> permute_multi_embedding_function_meta(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths,
+    const c10::SymIntArrayRef out_lengths,
     const bool& reverse_permute);
 
 std::vector<Tensor> permute_multi_embedding_function_gpu(
@@ -64,7 +65,7 @@ std::vector<Tensor> permute_multi_embedding_function_gpu(
     const Tensor& permutes,
     const Tensor& in_shapes,
     const Tensor& out_shapes,
-    const std::vector<int64_t>& out_lengths,
+    const c10::IntArrayRef out_lengths,
     const bool& reverse_permute);
 
 std::tuple<std::vector<int32_t>, std::vector<int32_t>, std::vector<int32_t>>

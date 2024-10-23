@@ -9,7 +9,7 @@
 
 import unittest
 
-from typing import Tuple
+from typing import List, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -24,6 +24,16 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
 
 from hypothesis import given, settings, strategies as st
 
+# Marlin is currently only supported internally at Meta.
+try:
+    if not torch.version.hip:
+        from marlin.quantize import marlin_quantize
+
+        torch.ops.load_library("//ai_codesign/gen_ai/marlin:marlin_ops")
+        MARLIN_ENABLED = True
+except ImportError:
+    MARLIN_ENABLED = False
+
 # Supported FP8 format is different on NV and AMD.
 if torch.version.hip is not None:
     fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
@@ -35,6 +45,22 @@ else:
 E4M3_MAX_POS: float = torch.finfo(fp8_e4m3).max
 EPS: float = 1e-12
 FP16_MAX_POS: float = torch.finfo(torch.float16).max
+
+
+# pyre-ignore
+def patch_inductor_if_available():
+    """Helper function to disable currently buggy inductor pass."""
+
+    # pyre-ignore
+    def wrapper(func):
+        if hasattr(torch._inductor, "config"):
+            return torch._inductor.config.patch(enable_auto_functionalized_v2=False)(
+                func
+            )
+        else:
+            return func
+
+    return wrapper
 
 
 def fp8_row_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -95,6 +121,57 @@ def pack_int4(x: torch.Tensor) -> torch.Tensor:
 
     # Recombine into a single value with bitwise or.
     return torch.bitwise_or(low_x, high_x).contiguous()
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available(),
+    "Skip when no GPU is available. This test is only for GPU.",
+)
+class FP8TorchExportTests(unittest.TestCase):
+    """Test that FP8 ops can be exported."""
+
+    def test_quantize_export(self) -> None:
+        class TestModule(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                # let's go trough all our cuda quantize operations here
+                _, _ = torch.ops.fbgemm.quantize_fp8_per_row(x)
+                _, _ = torch.ops.fbgemm.quantize_fp8_per_col(x)
+                o, _ = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+                return o
+
+        model = TestModule().cuda()
+        # bf16 required here
+        _ = torch.export.export(model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),))
+
+    def test_f8f8bf16_export(self) -> None:
+        class TestModule(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+
+            def forward(self, xq: torch.Tensor, wq: torch.Tensor) -> torch.Tensor:
+                M, K = xq.shape
+                N, _ = wq.shape
+                row_scale = torch.randn(M).cuda()
+                col_scale = torch.randn(N).cuda()
+                block_scale = torch.randn(M // 128, K // 128).cuda()
+                _ = torch.ops.fbgemm.f8f8bf16_blockwise(
+                    xq, wq, block_scale, block_scale
+                )
+                _ = torch.ops.fbgemm.f8f8bf16_tensorwise(xq, wq, 1.0)
+                o = torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, row_scale, col_scale)
+                return o
+
+        model = TestModule().cuda()
+        M, N, K = 256, 256, 256
+        fp8_dtype = torch.float8_e4m3fn
+        if torch.version.hip:
+            fp8_dtype = torch.float8_e4m3fnuz
+        xq = torch.randn(M, K).to(fp8_dtype).cuda()
+        wq = torch.randn(N, K).to(fp8_dtype).cuda()
+        _ = torch.export.export(model, (xq, wq))
 
 
 @unittest.skipIf(
@@ -603,6 +680,197 @@ class FP8Tests(unittest.TestCase):
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
+
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: BMM ops are not yet suported."
+    )
+    @settings(deadline=None)
+    @given(
+        B=st.sampled_from([1, 4]),
+        M=st.sampled_from([2048, 4096]),
+        N=st.sampled_from([128, 256]),
+        K=st.sampled_from([256, 512]),
+        use_loopover=st.sampled_from([True, False]),
+    )
+    def test_fp8_batched_gemm(
+        self,
+        B: int,
+        M: int,
+        N: int,
+        K: int,
+        use_loopover: bool,
+    ) -> None:
+        x = torch.rand(size=(B, M, K), dtype=torch.bfloat16, device="cuda") * 0.1
+        w = torch.rand(size=(B, N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+
+        xq, x_scale = quantize_fp8_row(x)
+        x_scale = x_scale.view(B, -1)
+        assert x_scale.shape == (B, M)
+        wq, w_scale = quantize_fp8_row(w)
+        w_scale = w_scale.view(B, -1)
+        assert w_scale.shape == (B, N)
+
+        def fp8_loopover_bmm(
+            xq: List[torch.Tensor],
+            wq: List[torch.Tensor],
+            x_scale: List[torch.Tensor],
+            w_scale: List[torch.Tensor],
+        ) -> torch.Tensor:
+            B = len(xq)
+            M = xq[0].shape[0]
+            N = wq[0].shape[0]
+            y = torch.empty((B, M, N), dtype=torch.bfloat16, device=xq[0].device)
+            for i in range(B):
+                y[i] = torch.ops.fbgemm.f8f8bf16_rowwise(
+                    xq[i], wq[i], x_scale[i], w_scale[i]
+                )
+            return y
+
+        y_ref = torch.bmm(x, w.transpose(1, 2))
+        if use_loopover:
+            y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale)
+        else:
+            y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(xq, wq, x_scale, w_scale)
+        torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
+
+    @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
+    @settings(deadline=None)
+    @given(
+        B=st.sampled_from([1, 4]),
+        M=st.sampled_from([2048, 4096]),
+        N=st.sampled_from([256, 512]),
+        K=st.sampled_from([256, 512]),
+        use_loopover=st.sampled_from([True, False]),
+    )
+    def test_int4_batched_gemm(
+        self,
+        B: int,
+        M: int,
+        N: int,
+        K: int,
+        use_loopover: bool,
+    ) -> None:
+        if not MARLIN_ENABLED:
+            return
+        x = torch.rand(size=(B, M, K), dtype=torch.bfloat16, device="cuda") * 0.1
+        w = torch.rand(size=(B, N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+
+        wq = []
+        w_scale = []
+        group_size = 128
+
+        if use_loopover:
+            for i in range(B):
+                _, wq_, w_scale_ = marlin_quantize(
+                    w[i].cuda().t().contiguous(), group_size
+                )
+                wq.append(wq_)
+                w_scale.append(w_scale_)
+            wq = torch.stack(wq)
+            w_scale = torch.stack(w_scale)
+
+            def int4_loopover_bmm(
+                x: torch.Tensor,
+                wq: torch.Tensor,
+                w_scale: torch.Tensor,
+            ) -> torch.Tensor:
+                B = x.shape[0]
+                M = x.shape[1]
+                N = w_scale.shape[2]
+                y = torch.empty((B, M, N), dtype=torch.bfloat16, device=x[0].device)
+                for i in range(B):
+                    y[i] = torch.ops.marlin.marlin_gemm(x[i], wq[i], w_scale[i])
+                return y
+
+            y_int4 = int4_loopover_bmm(x, wq, w_scale)
+        else:
+            w_zp = []
+            for i in range(B):
+                wq_, w_scale_, w_zp_ = int4_row_quantize(w[i], group_size)
+
+                wq_ = pack_int4(wq_).contiguous().to(device="cuda")
+                w_scale_ = w_scale_.contiguous().to(device="cuda")
+                w_zp_ = w_zp_.contiguous().to(device="cuda")
+                wq.append(wq_)
+                w_scale.append(w_scale_)
+                w_zp.append(w_zp_)
+            wq = torch.stack(wq)
+            w_scale = torch.stack(w_scale).view(-1, N)
+            w_zp = torch.stack(w_zp).view(-1, N)
+            y_int4 = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(x, wq, w_scale, w_zp)
+
+        y_ref = torch.bmm(x, w.transpose(1, 2))
+        torch.testing.assert_close(y_ref, y_int4, atol=8.0e-2, rtol=8.0e-2)
+
+    @unittest.skipIf(
+        ((not torch.version.cuda) and (not torch.version.hip)),
+        "Skip if no GPU is present.",
+    )
+    # TODO We can probably turn this back on later, it seems to currently be buggy.
+    @patch_inductor_if_available()
+    def test_quantize_compile(self) -> None:
+        # Test that quantize operators can be torch compiled.
+        # Correctness is covered in other tests, we just want to make sure
+        # compile doesnt fail.
+        if torch.version.hip:
+            fp8_dtype = torch.float8_e4m3fnuz
+        else:
+            fp8_dtype = torch.float8_e4m3fn
+        # Initialize tensors for testing.
+        M, N, K = 256, 256, 256
+        X = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+        XQ = torch.randn(M, K, device="cuda").to(fp8_dtype)
+        WQ = torch.randn(N, K, device="cuda").to(fp8_dtype)
+        row_scale = torch.randn(M, device="cuda")
+        col_scale = torch.randn(N, device="cuda")
+        block_scale = torch.randn(M // 128, K // 128, device="cuda")
+        tensor_scale = torch.tensor(1.0, device="cuda")
+
+        # Run various compiled quantize ops.
+        # Quantize ops.
+        torch.compile(torch.ops.fbgemm.quantize_fp8_per_tensor)(X)
+        torch.compile(torch.ops.fbgemm.quantize_fp8_per_row)(X)
+        torch.compile(torch.ops.fbgemm.quantize_fp8_per_col)(X)
+
+        # GEMM ops.
+        torch.compile(torch.ops.fbgemm.f8f8bf16_blockwise)(
+            XQ, WQ, block_scale, block_scale
+        )
+        torch.compile(torch.ops.fbgemm.f8f8bf16_tensorwise)(XQ, WQ, 1.0)
+        torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise)(XQ, WQ, row_scale, col_scale)
+
+        # These ops are only supported on cuda for now.
+        if torch.version.cuda:
+            torch.compile(torch.ops.fbgemm.i8i8bf16)(
+                XQ.view(torch.int8), WQ.view(torch.int8), 1.0, 1
+            )
+            torch.compile(torch.ops.fbgemm.f8f8bf16)(XQ, WQ, tensor_scale)
+            torch.compile(torch.ops.fbgemm.f8f8bf16_cublas)(XQ, WQ)
+            torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise_batched)(
+                XQ.view(1, M, K),
+                WQ.view(1, N, K),
+                row_scale.view(1, M),
+                col_scale.view(1, N),
+            )
+            torch.compile(torch.ops.fbgemm.f8i4bf16_rowwise)(
+                XQ,
+                WQ[:, ::2].view(torch.int8).contiguous(),
+                row_scale,
+                block_scale[0],
+                block_scale[0],
+            )
+            torch.compile(torch.ops.fbgemm.bf16i4bf16_rowwise)(
+                X,
+                WQ[:, ::2].view(torch.int8).contiguous(),
+                block_scale[0],
+                block_scale[0],
+            )
+            torch.compile(torch.ops.fbgemm.bf16i4bf16_rowwise_batched)(
+                X.view(1, M, K),
+                WQ[:, ::2].view(1, N, K // 2).view(torch.int8).contiguous(),
+                block_scale[0],
+                block_scale[0],
+            )
 
 
 if __name__ == "__main__":

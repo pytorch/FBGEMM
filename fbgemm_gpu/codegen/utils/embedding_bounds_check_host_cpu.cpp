@@ -11,8 +11,9 @@
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -48,6 +49,9 @@ void bounds_check_indices_cpu(
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
     const int64_t max_B) {
+  if (offsets.scalar_type() != indices.scalar_type()) {
+    offsets = offsets.toType(indices.scalar_type());
+  }
   const auto vbe = B_offsets.has_value();
   if (vbe) {
     TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
@@ -66,7 +70,7 @@ void bounds_check_indices_cpu(
   const auto rows_per_table_acc = rows_per_table.accessor<int64_t, 1>();
   auto warning_acc = warning.data_ptr<int64_t>();
 
-  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices", [&] {
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices_cpu", [&] {
     auto offsets_acc = offsets.accessor<index_t, 1>();
     auto indices_acc = indices.accessor<index_t, 1>();
     auto num_indices = indices.numel();

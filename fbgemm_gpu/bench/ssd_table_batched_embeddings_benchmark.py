@@ -36,22 +36,16 @@ from fbgemm_gpu.tbe.ssd import (
     SSDTableBatchedEmbeddingBags,
 )
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
+from fbgemm_gpu.utils.loader import load_torch_module
 from torch.autograd.profiler import record_function
 from torch.profiler import profile
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
-if torch.version.hip:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings_hip"
-    )
-else:
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-    )
-
-
-logging.basicConfig(level=logging.DEBUG)
+load_torch_module(
+    "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings",
+)
 
 
 @click.group()
@@ -155,7 +149,7 @@ def benchmark_read_write(
         gibps_wr = byte_seconds_per_ns / (write_lat_ns * 2**30)
         gibps_tot = 2 * byte_seconds_per_ns / ((read_lat_ns + write_lat_ns) * 2**30)
         logging.info(
-            f"Total bytes: {total_bytes/1e9:0.2f} GB, "
+            f"Total bytes: {total_bytes / 1e9:0.2f} GB, "
             f"Read_us: {read_lat_ns / 1000:8.0f}, "
             f"Write_us: {write_lat_ns / 1000:8.0f}, "
             f"Total_us: {(read_lat_ns + write_lat_ns) / 1000:8.0f}, "
@@ -292,6 +286,7 @@ def ssd_training(  # noqa C901
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
+        # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
         Ds: List[int] = [D] * T
@@ -353,9 +348,9 @@ def ssd_training(  # noqa C901
             embedding_specs=[(E, d) for d in Ds],
             cache_sets=cache_set,
             ssd_storage_directory=tempdir,
-            ssd_cache_location=EmbeddingLocation.MANAGED,
-            ssd_shards=8,
-            ssd_block_cache_size=block_cache_size_mb * (2**20),
+            ssd_cache_location=EmbeddingLocation.DEVICE,
+            ssd_rocksdb_shards=8,
+            ssd_block_cache_size_per_tbe=block_cache_size_mb * (2**20),
             **common_args,
         ),
     }
@@ -395,7 +390,7 @@ def ssd_training(  # noqa C901
             + param_size_multiplier * B * sum(Ds) * L
         )
 
-    logging.info(f"Batch read write bytes: {read_write_bytes/1.0e9: .2f} GB")
+    logging.info(f"Batch read write bytes: {read_write_bytes / 1.0e9: .2f} GB")
 
     # Compute width of test name and bandwidth widths to improve report
     # readability
@@ -704,6 +699,109 @@ def nbit_ssd(
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
         f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"Time: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--iters", default=100, help="Number of iterations to benchmark")
+@click.option("--num-inserts", default=1024, help="Number of rows to insert")
+@click.option("--dim", default=128, help="Width of each row to insert")
+@click.option(
+    "--use-pipeline",
+    is_flag=True,
+    default=False,
+    help="Use a fraction of SMs (using a grid size < the number of SMs)",
+)
+@click.option(
+    "--use-malloc-managed",
+    is_flag=True,
+    default=False,
+    help="Use cudaMallocManaged for the host buffer instead of "
+    "malloc+cudaHostRegister",
+)
+@click.option(
+    "--preferred-sms",
+    default=-1,
+    help="The preferred number of SMs for the kernel to use when using "
+    "--use-pipeline. The value is ignored when not using "
+    "--use-pipeline.",
+)
+def masked_index_benchmark(
+    iters: int,
+    num_inserts: int,
+    dim: int,
+    use_pipeline: bool,
+    use_malloc_managed: bool,
+    preferred_sms: int,
+) -> None:
+    """
+    A benchmark for measuring host-to-device copy performance using
+    `torch.ops.fbgemm.masked_index_put`. The host buffer is a UVM
+    buffer (by default it is malloc+cudaHostRegister).
+
+    Args:
+
+        iters (int): Number of iterations to benchmark
+
+        num_inserts (int):  Number of rows to insert
+
+        dim (int): Width of each row to insert
+
+        use_pipeline (bool): Use a fraction of SMs (using a grid size
+        < the number of SMs)
+
+        use_malloc_managed (bool): Use cudaMallocManaged for the host
+        buffer instead of malloc+cudaHostRegister
+
+        preferred_sms (int): The preferred number of SMs for the
+        kernel to use when use_pipeline=True. The value is ignored
+        when use_pipeline=False
+
+    Returns:
+
+        None
+    """
+
+    # Common configs
+    dtype = torch.half
+    device = "cuda"
+
+    # Generate requests
+    values_all = torch.ops.fbgemm.new_unified_tensor(
+        torch.zeros(1, device=device, dtype=dtype),
+        [num_inserts * iters, dim],
+        is_host_mapped=not use_malloc_managed,
+    )
+    output = torch.empty(num_inserts, dim, dtype=dtype, device=device)
+    indices = torch.arange(num_inserts, dtype=torch.long, device=device)
+    count = torch.as_tensor([indices.numel()], dtype=torch.int, device=device)
+
+    requests = []
+    for it in range(iters):
+        values = values_all[it * num_inserts : (it + 1) * num_inserts]
+        requests.append(TBERequest(output, indices, values))
+
+    # Run benchmark
+    time_per_iter = benchmark_requests(
+        requests,
+        lambda output, indices, values: torch.ops.fbgemm.masked_index_put(
+            output,
+            indices,
+            values,
+            count=count,
+            use_pipeline=use_pipeline,
+            preferred_sms=preferred_sms,
+        ),
+        num_warmups=10,
+    )
+
+    # Report performance
+    buffer_bytes = num_inserts * dim * values_all.element_size()
+    logging.info(
+        f"masked_index_benchmark: use_pipeline {use_pipeline}, "
+        f"Read/write bytes {buffer_bytes} bytes, "
+        f"BW: {buffer_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"Time {time_per_iter * 1.0e6:.0f} us"
     )
 
 

@@ -13,21 +13,6 @@
 /// @defgroup experimental-gen-ai-attention
 /// This is a description of Grouped Query Attention operators.
 
-#if !(                                                  \
-    defined(USE_ROCM) ||                                \
-    ((defined(CUDA_VERSION) && CUDA_VERSION < 11000) || \
-     (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 800))))
-#include <cuda_bf16.h>
-#include <cuda_fp16.h>
-#elif (defined(USE_ROCM))
-#include <hip/hip_bfloat16.h>
-#include <hip/hip_fp16.h>
-#endif
-
-#if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
-#include <cuda_fp8.h>
-#endif
-
 #ifndef USE_ROCM
 #include <mma.h>
 #endif
@@ -38,16 +23,36 @@
 #define USE_WMMA_FRAG
 #endif
 
-#ifdef USE_ROCM
-constexpr int32_t kThreadsPerWarp = 64;
-constexpr int32_t kWarpsPerBlock = 16;
-#else
-constexpr int32_t kThreadsPerWarp = 32;
-constexpr int32_t kWarpsPerBlock = 32;
-#endif
+#include <fbgemm_gpu/utils/vec_quant.cuh>
 
-#define DEVICE_INLINE __device__ inline __attribute__((always_inline))
-#define FINAL_MASK 0xffffffff
+template <typename func_t>
+void set_gpu_max_dynamic_shared_memory(
+    func_t kernel,
+    const int smem_bytes,
+    const int device) {
+  // V100: 96 KB; A100: 160 KB; H100: 228 KB.
+  int max_shared_bytes = 0;
+  C10_CUDA_CHECK(cudaDeviceGetAttribute(
+      &max_shared_bytes,
+#ifndef __HIP_PLATFORM_AMD__
+      cudaDevAttrMaxSharedMemoryPerBlockOptin,
+#else
+      hipDeviceAttributeMaxSharedMemoryPerBlock,
+#endif
+      device));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  TORCH_CHECK(
+      smem_bytes <= max_shared_bytes,
+      "Try to allocate ",
+      smem_bytes / 1024,
+      " KB of shared memory but only ",
+      max_shared_bytes / 1024,
+      " KB is available");
+
+  C10_CUDA_CHECK(cudaFuncSetAttribute(
+      (void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_bytes));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
 
 namespace fbgemm_gpu::gen_ai::attention {
 
@@ -68,417 +73,6 @@ constexpr int32_t kSplitKWarpsPerBlock = 4;
 
 namespace {
 
-static __host__ DEVICE_INLINE int32_t div_up(int32_t a, int32_t b) {
-  return (a + b - 1) / b;
-};
-
-static __host__ DEVICE_INLINE int32_t round_up(int32_t a, int32_t b) {
-  return ((a + b - 1) / b) * b;
-}
-
-template <typename func_t>
-void set_gpu_max_dynamic_shared_memory(
-    func_t kernel,
-    const int smem_bytes,
-    const int device) {
-  // V100: 96 KB; A100: 160 KB; H100: 228 KB.
-  int max_shared_bytes = 0;
-  cudaDeviceGetAttribute(
-      &max_shared_bytes,
-#ifndef __HIP_PLATFORM_AMD__
-      cudaDevAttrMaxSharedMemoryPerBlockOptin,
-#else
-      hipDeviceAttributeMaxSharedMemoryPerBlock,
-#endif
-      device);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-  TORCH_CHECK(
-      smem_bytes <= max_shared_bytes,
-      "Try to allocate ",
-      smem_bytes / 1024,
-      " KB of shared memory but only ",
-      max_shared_bytes / 1024,
-      " KB is available");
-
-  C10_CUDA_CHECK(cudaFuncSetAttribute(
-      (void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_bytes));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-}
-
-#ifdef __HIP_PLATFORM_AMD__
-using __nv_bfloat16 = hip_bfloat16;
-
-typedef struct __align__(4) {
-  uint16_t x;
-  uint16_t y;
-}
-__nv_bfloat162_raw;
-
-struct __align__(4) __nv_bfloat162 {
-  __nv_bfloat16 x;
-  __nv_bfloat16 y;
-};
-
-// the descriptions of __float2bfloat16 and __float2bfloat16_rn are identical
-// https://docs.nvidia.com/cuda/cuda-math-api/group__CUDA__MATH____BFLOAT16__MISC.html#group__CUDA__MATH____BFLOAT16__MISC
-static __host__ __device__ __nv_bfloat16 __float2bfloat16(float f) {
-  __nv_bfloat16 output;
-  return output.round_to_bfloat16(f);
-}
-
-static __host__ __device__ __nv_bfloat16 __float2bfloat16_rn(float f) {
-  __nv_bfloat16 output;
-  return output.round_to_bfloat16(f);
-}
-
-static __host__ __device__ float __bfloat162float(__nv_bfloat16 f) {
-  // float output;
-  // https://docs.amd.com/projects/HIP/en/docs-5.0.0/doxygen/html/hip__bfloat16_8h_source.html
-  return float(f);
-}
-
-static __host__ __device__ __nv_bfloat162
-__floats2bfloat162_rn(float x, float y) {
-  __nv_bfloat162 output;
-  output.x = __float2bfloat16_rn(x);
-  output.y = __float2bfloat16_rn(y);
-  return output;
-}
-
-#endif
-
-struct __align__(16) fx4 {
-  float x;
-  float y;
-  float z;
-  float w;
-  __host__ __device__ fx4() {
-    x = 0;
-    y = 0;
-    z = 0;
-    w = 0;
-  }
-};
-
-struct __align__(8) bfx4 {
-  __nv_bfloat162 vals[2];
-};
-
-// TODO: Include the following code from fbgemm_gpu header
-struct __align__(16) bfx8 {
-  __nv_bfloat162 vals[4];
-};
-
-struct __align__(8) halfx4 {
-  __half2 vals[2];
-};
-
-struct __align__(16) halfx8 {
-  __half2 vals[4];
-};
-
-// Reinterpret a  pair of uint16_t (packed into a uint32_t) as half2, and
-// multiply by rhs.
-DEVICE_INLINE __half2 hmul_short2(uint32_t lhs, __half rhs) {
-#if __CUDA_ARCH__ >= 530 && __CUDA_ARCH__ != 610
-#ifndef __HALF2_TO_UI
-// cuda_fp16.hpp
-#define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
-#endif
-#ifndef __HALF2_TO_CUI
-// cuda_fp16.hpp
-#define __HALF2_TO_CUI(var) *(reinterpret_cast<const unsigned int*>(&(var)))
-#endif
-  __half2 ret;
-  __half2 rhsp = make_half2(rhs, rhs);
-  asm("mul.f16x2 %0, %1, %2;"
-      : "=r"(__HALF2_TO_UI(ret))
-      : "r"(__HALF2_TO_CUI(lhs)), "r"(__HALF2_TO_CUI(rhsp)));
-  return ret;
-#else
-#ifndef __HALF2_TO_UI
-// cuda_fp16.hpp
-#define __HALF2_TO_UI(var) *(reinterpret_cast<unsigned int*>(&(var)))
-#endif
-  __half2 lhs_h2;
-  __HALF2_TO_UI(lhs_h2) = lhs;
-  float2 fx = __half22float2(lhs_h2);
-  float2 fy = __half22float2(make_half2(rhs, rhs));
-  float2 fr;
-  fr.x = fx.x * fy.x;
-  fr.y = fx.y * fy.y;
-  return __float22half2_rn(fr);
-#endif
-}
-
-__forceinline__ __device__ bfx8
-dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale) {
-  halfx8 res;
-  uint32_t v = packedVals;
-  // What's going on here, you might ask? We extra out 4-bit pairs of integers
-  // as 2xuint16 packed into an int32 via the mask operation, and then we
-  // convert them to half precision values. As these are all integers in [0,
-  // 15], we can actually just interpret the 4-bit integer values as
-  // half-precision values. We multiply by 4096 x 4096 to go from the 4-bit
-  // representation to the equivalent fp16 value, or alternatively 32768 * 512
-  // (or 32 when we have shifted the 4-bit value up). See e.g.
-  // https://gist.github.com/ajtulloch/021254a291a95966bc509db4e34ffeff for a
-  // NumPy implementation. We do this dance because: a) doing bitwise operations
-  // on each 4-bit value is expensive on the ALU, and 4-bit to half is expensive
-  // on the XU. b) doing a 256-entry shared memory LUT on 8-bit pairs is
-  // expensive on SMEM throughput. Credit to @jhj.
-  res.vals[0] = hmul_short2(v & 0x000F000F, __float2half(32768));
-  res.vals[1] = hmul_short2(v & 0x00F000F0, __float2half(32768));
-  v >>= 8;
-  res.vals[2] = hmul_short2(v & 0x000F000F, __float2half(32768));
-  res.vals[3] = hmul_short2(v & 0x00F000F0, __float2half(32768));
-
-  // ~5% perf gain is observed with the explicit type conversions using
-  // __float2half on Nvidia A100 GPUs (https://fburl.com/diff/ss8372zw) using
-  // NVCC 11.0. Additionally, HIP compiler requires these explicit type
-  // conversions.
-  half shift_scale_x = __low2half(shift_scale);
-  half shift_scale_y = __high2half(shift_scale);
-
-  // now, dequantize
-  auto shifts = __half2(shift_scale_y, shift_scale_y);
-  auto scales_lower_temp = __hmul(shift_scale_x, __float2half(512));
-  auto scales_lower = __half2(scales_lower_temp, scales_lower_temp);
-  auto scales_upper_temp = __hmul(shift_scale_x, __float2half(32));
-  auto scales_upper = __half2(scales_upper_temp, scales_upper_temp);
-
-  auto r0 = __half22float2(__hfma2(res.vals[0], scales_lower, shifts));
-  auto r1 = __half22float2(__hfma2(res.vals[1], scales_upper, shifts));
-  auto r2 = __half22float2(__hfma2(res.vals[2], scales_lower, shifts));
-  auto r3 = __half22float2(__hfma2(res.vals[3], scales_upper, shifts));
-
-  bfx8 result;
-  result.vals[0] = __floats2bfloat162_rn(r0.x, r1.x);
-  result.vals[1] = __floats2bfloat162_rn(r2.x, r3.x);
-  result.vals[2] = __floats2bfloat162_rn(r0.y, r1.y);
-  result.vals[3] = __floats2bfloat162_rn(r2.y, r3.y);
-
-  return result;
-}
-
-// struct __align__(16) bfx8 {
-//   __nv_bfloat162 vals[4];
-// };
-
-// DEVICE_INLINE bfx4 dequantize_packed_int4(uint16_t vs, __half2
-// shift_scale_0); DEVICE_INLINE bfx8 dequantize_packed_int4(
-//     uint32_t v,
-//     __half2 shift_scale_0,
-//     __half2 shift_scale_1);
-// DEVICE_INLINE bfx8
-// dequantize_permuted_int4(uint32_t packedVals, __half2 shift_scale);
-
-#if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
-DEVICE_INLINE bfx4 dequantize_packed_fp8(uint32_t vs, __half2 shift_scale_0) {
-  uint32_t v = vs;
-  __nv_fp8_e4m3* fp8_k = reinterpret_cast<__nv_fp8_e4m3*>(&v); // 4 element
-
-  auto shift_0 = float(__high2half(shift_scale_0));
-  auto scale_0 = float(__low2half(shift_scale_0));
-
-  // now, dequantize
-  auto r0 = make_float2(
-      float(fp8_k[0]) * scale_0 + shift_0, float(fp8_k[1]) * scale_0 + shift_0);
-  auto r1 = make_float2(
-      float(fp8_k[2]) * scale_0 + shift_0, float(fp8_k[3]) * scale_0 + shift_0);
-
-  bfx4 result;
-  result.vals[0] = __floats2bfloat162_rn(r0.x, r0.y);
-  result.vals[1] = __floats2bfloat162_rn(r1.x, r1.y);
-  return result;
-}
-#endif
-
-DEVICE_INLINE bfx4 dequantize_packed_int4(uint16_t vs, __half2 shift_scale_0) {
-  uint32_t v = vs;
-  // move 2nd byte to 3rd byte, so our bits are in 0x00FF00FF positions.
-  v = (v & 0xFF) | ((v & 0xFF00) << 8);
-
-  halfx4 res;
-  res.vals[0] = hmul_short2(v & 0x000F000F, __float2half(32768));
-  res.vals[1] = hmul_short2(v & 0x00F000F0, __float2half(32768));
-
-  // ~5% perf gain is observed with the explicit type conversions using
-  // __float2half on Nvidia A100 GPUs (https://fburl.com/diff/ss8372zw) using
-  // NVCC 11.0. Additionally, HIP compiler requires these explicit type
-  // conversions.
-  half shift_scale_0_x = __low2half(shift_scale_0);
-  half shift_scale_0_y = __high2half(shift_scale_0);
-
-  // now, dequantize
-  auto shifts = __half2(shift_scale_0_y, shift_scale_0_y);
-  auto scales_lower = __half2(
-      __hmul(shift_scale_0_x, __float2half(512)),
-      __hmul(shift_scale_0_x, __float2half(512)));
-  auto scales_upper = __half2(
-      __hmul(shift_scale_0_x, __float2half(32)),
-      __hmul(shift_scale_0_x, __float2half(32)));
-
-  auto r0 = __half22float2(__hfma2(res.vals[0], scales_lower, shifts));
-  auto r1 = __half22float2(__hfma2(res.vals[1], scales_upper, shifts));
-
-  bfx4 result;
-  result.vals[0] = __floats2bfloat162_rn(r0.x, r1.x);
-  result.vals[1] = __floats2bfloat162_rn(r0.y, r1.y);
-  return result;
-}
-
-DEVICE_INLINE bfx8 dequantize_packed_int4(
-    uint32_t v,
-    __half2 shift_scale_0,
-    __half2 shift_scale_1) {
-  halfx8 res;
-  res.vals[0] = hmul_short2(v & 0x000F000F, __float2half(32768));
-  res.vals[1] = hmul_short2(v & 0x00F000F0, __float2half(32768));
-  v >>= 8;
-  res.vals[2] = hmul_short2(v & 0x000F000F, __float2half(32768));
-  res.vals[3] = hmul_short2(v & 0x00F000F0, __float2half(32768));
-
-  half shift_scale_0_x = __low2half(shift_scale_0);
-  half shift_scale_0_y = __high2half(shift_scale_0);
-  half shift_scale_1_x = __low2half(shift_scale_1);
-  half shift_scale_1_y = __high2half(shift_scale_1);
-
-  // now, dequantize
-  auto shifts = __half2(shift_scale_0_y, shift_scale_1_y);
-  auto scales_lower = __half2(
-      __hmul(shift_scale_0_x, __float2half(512)),
-      __hmul(shift_scale_1_x, __float2half(512)));
-  auto scales_upper = __half2(
-      __hmul(shift_scale_0_x, __float2half(32)),
-      __hmul(shift_scale_1_x, __float2half(32)));
-
-  auto r0 = __half22float2(__hfma2(res.vals[0], scales_lower, shifts));
-  auto r1 = __half22float2(__hfma2(res.vals[1], scales_upper, shifts));
-  auto r2 = __half22float2(__hfma2(res.vals[2], scales_lower, shifts));
-  auto r3 = __half22float2(__hfma2(res.vals[3], scales_upper, shifts));
-
-  bfx8 result;
-  result.vals[0] = __floats2bfloat162_rn(r0.x, r1.x);
-  result.vals[1] = __floats2bfloat162_rn(r2.x, r3.x);
-  result.vals[2] = __floats2bfloat162_rn(r0.y, r1.y);
-  result.vals[3] = __floats2bfloat162_rn(r2.y, r3.y);
-  return result;
-}
-
-DEVICE_INLINE float2 bf1622float2(const __nv_bfloat162 val) {
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
-  float2 f_val;
-  f_val.x = __low2float(val);
-  f_val.y = __high2float(val);
-  return f_val;
-#elif defined(USE_ROCM)
-  float2 f_val;
-  f_val.x = __bfloat162float(val.x);
-  f_val.y = __bfloat162float(val.y);
-  return f_val;
-#else
-  return __bfloat1622float2(val);
-#endif
-}
-
-#define CALL_INT4_KERNEL_WITH_KV_GROUPWISE_QUANT_CHECK(NAME, NUM_GROUPS, ...)                                    \
-  switch (NUM_GROUPS) {                                                                                          \
-    case 1:                                                                                                      \
-      NAME(1, __VA_ARGS__);                                                                                      \
-      break;                                                                                                     \
-    case 2:                                                                                                      \
-      NAME(2, __VA_ARGS__);                                                                                      \
-      break;                                                                                                     \
-    case 4:                                                                                                      \
-      NAME(4, __VA_ARGS__);                                                                                      \
-      break;                                                                                                     \
-    case 8:                                                                                                      \
-      NAME(8, __VA_ARGS__);                                                                                      \
-      break;                                                                                                     \
-    case 16:                                                                                                     \
-      TORCH_CHECK(                                                                                               \
-          false,                                                                                                 \
-          "With head dim = 128 we're almost even with int8 at this point. Are you sure about this? Num groups:", \
-          NUM_GROUPS);                                                                                           \
-      break;                                                                                                     \
-    default:                                                                                                     \
-      TORCH_CHECK(false, "Unsupported number of groups: ", NUM_GROUPS);                                          \
-  }
-
-DEVICE_INLINE float bfx4_dot(bfx4 a, bfx4 b) {
-  // float2 acc = {0, 0};
-  // __nv_bfloat162 acc;
-  // acc.x = static_cast<int>(0);
-  // acc.y = static_cast<int>(0);
-  // TODO: need to be performed in float32?
-  auto a0 = bf1622float2(a.vals[0]);
-  auto a1 = bf1622float2(a.vals[1]);
-  auto b0 = bf1622float2(b.vals[0]);
-  auto b1 = bf1622float2(b.vals[1]);
-  return a0.x * b0.x + a0.y * b0.y + a1.x * b1.x + a1.y * b1.y;
-
-  // acc = __hfma2(a.vals[0], b.vals[0], acc);
-  // acc = __hfma2(a.vals[1], b.vals[1], acc);
-  // auto r = bf1622float2(acc);
-  // return r.x + r.y;
-}
-
-DEVICE_INLINE fx4 bfx4_scale_acc(fx4 acc, bfx4 a, float b) {
-  auto axy = bf1622float2(a.vals[0]);
-  auto azw = bf1622float2(a.vals[1]);
-  acc.x += axy.x * b;
-  acc.y += axy.y * b;
-  acc.z += azw.x * b;
-  acc.w += azw.y * b;
-  return acc;
-}
-
-DEVICE_INLINE fx4 fx4_acc(fx4 a, fx4 b) {
-  a.x += b.x;
-  a.y += b.y;
-  a.z += b.z;
-  a.w += b.w;
-  return a;
-}
-
-DEVICE_INLINE bfx4 fx4_to_bfx4(fx4 a) {
-  bfx4 r;
-  r.vals[0] = __floats2bfloat162_rn(a.x, a.y);
-  r.vals[1] = __floats2bfloat162_rn(a.z, a.w);
-  return r;
-}
-
-template <typename T>
-DEVICE_INLINE T shfl_xor(
-    unsigned shfl_sync_mask,
-    const T val,
-    int laneMask,
-    int width = kThreadsPerWarp) {
-#if defined(__HIP_PLATFORM_AMD__) || CUDA_VERSION < 9000
-  return __shfl_xor(val, laneMask, width);
-#else
-  return __shfl_xor_sync(shfl_sync_mask, val, laneMask, width);
-#endif
-}
-
-template <typename T>
-DEVICE_INLINE T warpReduceSum(T val, uint32_t warp_mask = FINAL_MASK) {
-#pragma unroll
-  for (int mask = 16; mask > 0; mask >>= 1)
-    val += shfl_xor(warp_mask, val, mask, 32);
-  return val;
-}
-
-template <typename T>
-DEVICE_INLINE T warpReduceMax(T val, uint32_t warp_mask = FINAL_MASK) {
-#pragma unroll
-  for (int mask = 16; mask > 0; mask >>= 1)
-    val = max(val, shfl_xor(warp_mask, val, mask, 32));
-  return val;
-}
-
-enum class CacheLogicalDtype { BF16, FP8, INT4 };
 template <
     typename kv_t,
     int KVQuantNumGroups = 1,
@@ -829,7 +423,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
     __syncthreads();
   }
 
-  const int hPerWarp = div_up(h_total_per_block, kSplitKWarpsPerBlock);
+  const int hPerWarp = div_round_up(h_total_per_block, kSplitKWarpsPerBlock);
   const int h_begin = warp_idx * hPerWarp;
   const int h_end = min(h_begin + hPerWarp, h_total_per_block);
 
@@ -903,7 +497,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   __nv_bfloat16* smem_bf16 = reinterpret_cast<__nv_bfloat16*>(smem);
   float2 p[CONV_UNROLLS];
   const int t_stride = blockDim.x * blockDim.y * 2;
-  const int t_rounds = div_up(t_total_per_block, t_stride);
+  const int t_rounds = div_round_up(t_total_per_block, t_stride);
   const int global_tid = warp_idx * blockDim.x + threadIdx.x;
 
   // Ensure that all threads finish writing to smem before modifying it in the
@@ -917,7 +511,8 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
     auto* smem_fp32_ = smem + t_start;
     auto* smem_bf16_ = smem_bf16 + t_start;
 
-    for (int h_i = 0; h_i < div_up(h_total_per_block, CONV_UNROLLS); h_i++) {
+    for (int h_i = 0; h_i < div_round_up(h_total_per_block, CONV_UNROLLS);
+         h_i++) {
       // Read FP32
 #pragma unroll
       for (int h_j = 0; h_j < CONV_UNROLLS; h_j++) {
@@ -1209,7 +804,7 @@ __global__ void gqa_attn_splitk_reduce_wmma_kernel(
   const int32_t t_max = seq_positions[b] + 1;
   const int32_t t_total = round_up(t_max, num_split_ks);
   const int32_t t_per_block = t_total / num_split_ks;
-  const int32_t num_split_ks_max = div_up(t_max, t_per_block);
+  const int32_t num_split_ks_max = div_round_up(t_max, t_per_block);
 
   for (int k = 1; k < num_split_ks_max; ++k) {
     float m_k = metadata[b][0][k][h];
@@ -1829,7 +1424,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
   auto metadata = at::empty({B, 2, num_split_ks, H}, out_splitK.options());
 
   // TODO: Check if the grid size is valid
-  const int32_t H_blocks = div_up(H, kMaxHeads);
+  const int32_t H_blocks = div_round_up(H, kMaxHeads);
   dim3 blocks(B, H_blocks, num_split_ks);
   dim3 threads(kThreadsPerWarp, kSplitKWarpsPerBlock);
 
@@ -1837,7 +1432,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk_wmma_impl(
     return {O, out_splitK, metadata};
   }
 
-  const int32_t t_per_block = div_up(cache_K.size(1), num_split_ks);
+  const int32_t t_per_block = div_round_up(cache_K.size(1), num_split_ks);
   // This is called ldc inside gqa_attn_splitk_wmma_kernel kernel
   const int32_t t_per_block_round_up = round_up(t_per_block, F_N);
 
@@ -2140,6 +1735,850 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> gqa_attn_splitk(
       qk_scale,
       num_split_ks,
       kv_cache_quant_num_groups);
+}
+
+// TODO: can also fuse RoPe into this kernel. Doesn't seem worth it.
+__global__ void mqa_attn_kernel(
+    at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> XQ,
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits> cache_K,
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits> cache_V,
+    at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> O,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> seq_positions,
+    float qk_scale) {
+  static_assert(kWarpsPerBlock <= kThreadsPerWarp, "");
+
+  extern __shared__ __align__(16) float smem[];
+
+  // Each block handles a single batch and head
+  int32_t b = blockIdx.x;
+  int32_t h = blockIdx.y;
+
+  // Note: this is decoding case where we attent to current and all previous
+  // tokens.
+  int32_t max_t = seq_positions[b] + 1;
+
+  int32_t warp_idx = threadIdx.y;
+  // need kWarpsPerBlock == blockDim.y;
+  // Need D_H == 128
+  auto* q_ = &(XQ[b][0][h][0]);
+
+  bool multiquery = cache_K.size(2) == 1;
+  auto* cache_K_base = &cache_K[b][0][multiquery ? 0 : h][0];
+  auto* cache_V_base = &cache_V[b][0][multiquery ? 0 : h][0];
+
+  // Load Q into registers in all warps.
+  // Each thread handles 4 D dimensions
+  bfx4 q_thread;
+  *reinterpret_cast<uint2*>(&q_thread) =
+      *(reinterpret_cast<const uint2*>(q_) + threadIdx.x);
+
+  // Each block computes different B value
+  float max_qk_acc = std::numeric_limits<float>::lowest();
+
+  // Compute S[MAX_T] = for i in range(T): S[t] = sum(Q[d] * K[t, d])
+  // Split T across warps in a block, unroll loads to expose more
+  // parallelism.
+
+  constexpr int32_t kTimeUnroll = 4;
+  bfx4 k_loads[kTimeUnroll];
+
+  int32_t max_t_unroll =
+      (max_t / (kWarpsPerBlock * kTimeUnroll)) * (kWarpsPerBlock * kTimeUnroll);
+  for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
+       tt += kWarpsPerBlock * kTimeUnroll) {
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* k_ = cache_K_base + t * cache_K.stride(1);
+      // bfx4 k_thread;
+      *reinterpret_cast<uint2*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint2*>(k_) + threadIdx.x);
+    }
+
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      float qk_acc = 0;
+      int32_t t = tt + ttt;
+      qk_acc += bfx4_dot(q_thread, k_loads[ttt]) * qk_scale;
+
+      qk_acc = warpReduceSum<float>(qk_acc);
+      max_qk_acc = max(qk_acc, max_qk_acc);
+
+      // write accumulated sums to smem.
+      if (threadIdx.x == 0) {
+        smem[t] = qk_acc;
+      }
+    }
+  }
+
+  constexpr int32_t kTimeUnroll1 = 1;
+  for (auto tt = max_t_unroll + warp_idx; tt < max_t;
+       tt += kWarpsPerBlock * kTimeUnroll1) {
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* k_ = cache_K_base + t * cache_K.stride(1);
+      // bfx4 k_thread;
+      *reinterpret_cast<uint2*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint2*>(k_) + threadIdx.x);
+    }
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      float qk_acc = 0;
+      int32_t t = tt + ttt;
+      qk_acc += bfx4_dot(q_thread, k_loads[ttt]) * qk_scale;
+
+      qk_acc = warpReduceSum<float>(qk_acc);
+      max_qk_acc = max(qk_acc, max_qk_acc);
+
+      // write accumulated sums to smem.
+      if (threadIdx.x == 0) {
+        smem[t] = qk_acc;
+      }
+    }
+  }
+
+  // Use shared reduction to compute max and compute softmax on shared memory.
+  // write max acc
+  if (threadIdx.x == 0) {
+    smem[MAX_T + warp_idx] = max_qk_acc;
+  }
+  __syncthreads();
+  if (threadIdx.x < kWarpsPerBlock) {
+    max_qk_acc = max(max_qk_acc, smem[MAX_T + threadIdx.x]);
+  }
+  // shared across all threads in block
+  max_qk_acc = warpReduceMax(max_qk_acc);
+  // each warp computes partial sum of exp.
+  float softmax_denominator = 0.0f;
+  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+       t += kWarpsPerBlock * kThreadsPerWarp) {
+    softmax_denominator += __expf(smem[t] - max_qk_acc);
+  }
+  softmax_denominator = warpReduceSum(softmax_denominator);
+
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    smem[MAX_T + warp_idx] = softmax_denominator;
+  }
+  __syncthreads();
+  // now, compute sum of exp(x - max(x)) over all intermediate results.
+  softmax_denominator = 0.0;
+  if (threadIdx.x < kWarpsPerBlock) {
+    softmax_denominator = smem[MAX_T + threadIdx.x];
+  }
+  softmax_denominator = warpReduceSum(softmax_denominator);
+
+  // now, compute the normalization across all threads.
+  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+       t += kWarpsPerBlock * kThreadsPerWarp) {
+    smem[t] = __expf(smem[t] - max_qk_acc) / softmax_denominator;
+  }
+  __syncthreads();
+
+  // Now, we can comute the softmax and write the outputs.
+
+  // Split T across warps in a block
+  // each warp compute sum(t_subset) P[t] * V[t_subset, d]
+  // outputs are of size float[D]
+
+  float ps[kTimeUnroll];
+  fx4 o_acc;
+  for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
+       tt += kWarpsPerBlock * kTimeUnroll) {
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* v_ = cache_V_base + t * cache_V.stride(1);
+      //   bfx4 v_thread;
+      *reinterpret_cast<uint2*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint2*>(v_) + threadIdx.x);
+      ps[ttt] = smem[t];
+    }
+
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      o_acc = bfx4_scale_acc(o_acc, k_loads[ttt], ps[ttt]);
+    }
+  }
+
+  for (auto tt = max_t_unroll + warp_idx; tt < max_t;
+       tt += kWarpsPerBlock * kTimeUnroll1) {
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* v_ = cache_V_base + t * cache_V.stride(1);
+      //   bfx4 v_thread;
+      *reinterpret_cast<uint2*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint2*>(v_) + threadIdx.x);
+      ps[ttt] = smem[t];
+    }
+
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      o_acc = bfx4_scale_acc(o_acc, k_loads[ttt], ps[ttt]);
+    }
+  }
+
+  // now, each thread has partial sums. Write to smem and get accumulated
+  // results back.
+  __syncthreads();
+  *(reinterpret_cast<fx4*>(&smem[0]) + warp_idx * kThreadsPerWarp +
+    threadIdx.x) = o_acc;
+  __syncthreads();
+  // sum up partial D rows from other warps
+  if (warp_idx == 0) {
+    fx4 r;
+    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+      auto partial_r = *(
+          reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
+      r = fx4_acc(r, partial_r);
+    }
+    // write output D row
+    auto* o_ = (&O[b][0][h][0]);
+    auto bf_r = fx4_to_bfx4(r);
+    *(reinterpret_cast<uint2*>(o_) + threadIdx.x) =
+        *reinterpret_cast<const uint2*>(&bf_r);
+  }
+}
+
+#if CUDART_VERSION >= 12000
+__global__ void mqa_attn_fp8_kernel(
+    at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> XQ,
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits> cache_K,
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits> cache_V,
+    at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> O,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> seq_positions,
+    float qk_scale) {
+  static_assert(kWarpsPerBlock <= kThreadsPerWarp, "");
+
+  extern __shared__ __align__(16) float smem[];
+
+  // Each block handles a single batch and head
+  int32_t b = blockIdx.x;
+  int32_t h = blockIdx.y;
+
+  // Note: this is decoding case where we attent to current and all previous
+  // tokens.
+  int32_t max_t = seq_positions[b] + 1;
+
+  int32_t warp_idx = threadIdx.y;
+  // need kWarpsPerBlock == blockDim.y;
+  // Need D_H == 128
+  int32_t qparam_offset = 4; // 4 bytes
+  int32_t qparam_idx = 0;
+  auto* q_ = &(XQ[b][0][h][0]);
+
+  bool multiquery = cache_K.size(2) == 1;
+  auto* cache_K_base = &cache_K[b][0][multiquery ? 0 : h][0];
+  auto* cache_V_base = &cache_V[b][0][multiquery ? 0 : h][0];
+
+  // Load Q into registers in all warps.
+  // Each thread handles 4 D dimensions
+  bfx4 q_thread;
+  *reinterpret_cast<uint2*>(&q_thread) =
+      *(reinterpret_cast<const uint2*>(q_) + threadIdx.x);
+
+  // Each block computes different B value
+  float max_qk_acc = std::numeric_limits<float>::lowest();
+
+  // Compute S[MAX_T] = for i in range(T): S[t] = sum(Q[d] * K[t, d])
+  // Split T across warps in a block, unroll loads to expose more
+  // parallelism.
+
+  constexpr int32_t kTimeUnroll = 4;
+  uint32_t k_loads[kTimeUnroll];
+  // The maximum vectorized read is 32 bits
+  // such that the memory address is aligned.
+  __half2 k_scales[kTimeUnroll];
+
+  int32_t max_t_unroll =
+      (max_t / (kWarpsPerBlock * kTimeUnroll)) * (kWarpsPerBlock * kTimeUnroll);
+  for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
+       tt += kWarpsPerBlock * kTimeUnroll) {
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* k_ = cache_K_base + t * cache_K.stride(1);
+      CUDA_KERNEL_ASSERT(
+          uintptr_t(
+              reinterpret_cast<const uint32_t*>(k_ + qparam_offset) +
+              threadIdx.x) %
+              4 ==
+          0);
+      *reinterpret_cast<uint32_t*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint32_t*>(k_ + qparam_offset) +
+            threadIdx.x); // reads 4 elements // TODO: Try 8 elements
+      *reinterpret_cast<uint32_t*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint32_t*>(&k_[qparam_idx]));
+    }
+
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      float qk_acc = 0;
+      qk_acc +=
+          bfx4_dot(
+              q_thread, dequantize_packed_fp8(k_loads[ttt], k_scales[ttt])) *
+          qk_scale;
+
+      qk_acc = warpReduceSum<float>(qk_acc);
+      max_qk_acc = max(qk_acc, max_qk_acc);
+
+      // write accumulated sums to smem.
+      if (threadIdx.x == 0) {
+        smem[t] = qk_acc;
+      }
+    }
+  }
+
+  constexpr int32_t kTimeUnroll1 = 1;
+  for (auto tt = max_t_unroll + warp_idx; tt < max_t;
+       tt += kWarpsPerBlock * kTimeUnroll1) {
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* k_ = cache_K_base + t * cache_K.stride(1);
+      // bfx4 k_thread;
+      *reinterpret_cast<uint32_t*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint32_t*>(k_ + qparam_offset) +
+            threadIdx.x); // reads 4 elements
+      *reinterpret_cast<uint*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint*>(&k_[qparam_idx]));
+    }
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      float qk_acc = 0;
+      int32_t t = tt + ttt;
+      qk_acc +=
+          bfx4_dot(
+              q_thread, dequantize_packed_fp8(k_loads[ttt], k_scales[ttt])) *
+          qk_scale;
+      qk_acc = warpReduceSum<float>(qk_acc);
+      max_qk_acc = max(qk_acc, max_qk_acc);
+
+      // write accumulated sums to smem.
+      if (threadIdx.x == 0) {
+        smem[t] = qk_acc;
+      }
+    }
+  }
+
+  // Use shared reduction to compute max and compute softmax on shared memory.
+  // write max acc
+  if (threadIdx.x == 0) {
+    smem[MAX_T + warp_idx] = max_qk_acc;
+  }
+  __syncthreads();
+  if (threadIdx.x < kWarpsPerBlock) {
+    max_qk_acc = max(max_qk_acc, smem[MAX_T + threadIdx.x]);
+  }
+  // shared across all threads in block
+  max_qk_acc = warpReduceMax(max_qk_acc);
+  // each warp computes partial sum of exp.
+  float softmax_denominator = 0.0f;
+  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+       t += kWarpsPerBlock * kThreadsPerWarp) {
+    softmax_denominator += __expf(smem[t] - max_qk_acc);
+  }
+  softmax_denominator = warpReduceSum(softmax_denominator);
+
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    smem[MAX_T + warp_idx] = softmax_denominator;
+  }
+  __syncthreads();
+  // now, compute sum of exp(x - max(x)) over all intermediate results.
+  softmax_denominator = 0.0;
+  if (threadIdx.x < kWarpsPerBlock) {
+    softmax_denominator = smem[MAX_T + threadIdx.x];
+  }
+  softmax_denominator = warpReduceSum(softmax_denominator);
+
+  // now, compute the normalization across all threads.
+  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+       t += kWarpsPerBlock * kThreadsPerWarp) {
+    smem[t] = __expf(smem[t] - max_qk_acc) / softmax_denominator;
+  }
+  __syncthreads();
+
+  // Now, we can comute the softmax and write the outputs.
+
+  // Split T across warps in a block
+  // each warp compute sum(t_subset) P[t] * V[t_subset, d]
+  // outputs are of size float[D]
+
+  float ps[kTimeUnroll];
+  fx4 o_acc;
+  for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
+       tt += kWarpsPerBlock * kTimeUnroll) {
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* v_ = cache_V_base + t * cache_V.stride(1);
+      //   bfx4 v_thread;
+      *reinterpret_cast<uint32_t*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint32_t*>(v_ + qparam_offset) +
+            threadIdx.x); // reads 4 elements
+      *reinterpret_cast<uint32_t*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint32_t*>(&v_[qparam_idx]));
+      ps[ttt] = smem[t];
+    }
+
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      o_acc = bfx4_scale_acc(
+          o_acc, dequantize_packed_fp8(k_loads[ttt], k_scales[ttt]), ps[ttt]);
+    }
+  }
+
+  for (auto tt = max_t_unroll + warp_idx; tt < max_t;
+       tt += kWarpsPerBlock * kTimeUnroll1) {
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* v_ = cache_V_base + t * cache_V.stride(1);
+      //   bfx4 v_thread;
+      *reinterpret_cast<uint32_t*>(&k_loads[ttt]) =
+          *(reinterpret_cast<const uint32_t*>(v_ + qparam_offset) +
+            threadIdx.x); // reads 4 elements
+      *reinterpret_cast<uint*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint*>(&v_[qparam_idx]));
+      ps[ttt] = smem[t];
+    }
+
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      o_acc = bfx4_scale_acc(
+          o_acc, dequantize_packed_fp8(k_loads[ttt], k_scales[ttt]), ps[ttt]);
+    }
+  }
+
+  // now, each thread has partial sums. Write to smem and get accumulated
+  // results back.
+  __syncthreads();
+  *(reinterpret_cast<fx4*>(&smem[0]) + warp_idx * kThreadsPerWarp +
+    threadIdx.x) = o_acc;
+  __syncthreads();
+  // sum up partial D rows from other warps
+  if (warp_idx == 0) {
+    fx4 r;
+    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+      auto partial_r = *(
+          reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
+      r = fx4_acc(r, partial_r);
+    }
+    // write output D row
+    auto* o_ = (&O[b][0][h][0]);
+    auto bf_r = fx4_to_bfx4(r);
+    *(reinterpret_cast<uint2*>(o_) + threadIdx.x) =
+        *reinterpret_cast<const uint2*>(&bf_r);
+  }
+}
+#endif
+// TODO: can also fuse RoPe into this kernel. Doesn't seem worth it.
+template <int KVQuantNumGroups = 1>
+__global__ void mqa_attn_int4_kernel(
+    at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> XQ,
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits> cache_K,
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits> cache_V,
+    at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> O,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> seq_positions,
+    float qk_scale) {
+  static_assert(kWarpsPerBlock <= kThreadsPerWarp, "");
+
+  extern __shared__ __align__(16) float smem[];
+
+  // Each block handles a single batch and head
+  int32_t b = blockIdx.x;
+  int32_t h = blockIdx.y;
+
+  // Note: this is decoding case where we attent to current and all previous
+  // tokens.
+  int32_t max_t = seq_positions[b] + 1;
+
+  int32_t warp_idx = threadIdx.y;
+  // need kWarpsPerBlock == blockDim.y;
+  // Need D_H == 128
+  int32_t int4_qparam_offset = 4;
+  int32_t qparam_idx = 0;
+  if (KVQuantNumGroups > 1) {
+    int4_qparam_offset = 4 * KVQuantNumGroups;
+    int32_t group_size = D_H / KVQuantNumGroups;
+    int32_t group_idx = threadIdx.x * 4 / group_size;
+    qparam_idx = 4 * group_idx;
+  }
+  auto* q_ = &(XQ[b][0][h][0]);
+
+  bool multiquery = cache_K.size(2) == 1;
+  auto* cache_K_base = &cache_K[b][0][multiquery ? 0 : h][0];
+  auto* cache_V_base = &cache_V[b][0][multiquery ? 0 : h][0];
+
+  // Load Q into registers in all warps.
+  // Each thread handles 4 D dimensions
+  bfx4 q_thread;
+  *reinterpret_cast<uint2*>(&q_thread) =
+      *(reinterpret_cast<const uint2*>(q_) + threadIdx.x);
+
+  // Each block computes different B value
+  float max_qk_acc = std::numeric_limits<float>::lowest();
+
+  // Compute S[MAX_T] = for i in range(T): S[t] = sum(Q[d] * K[t, d])
+  // Split T across warps in a block, unroll loads to expose more
+  // parallelism.
+
+  constexpr int32_t kTimeUnroll = 4;
+  uint16_t k_qvals[kTimeUnroll];
+  __half2 k_scales[kTimeUnroll];
+
+  int32_t max_t_unroll =
+      (max_t / (kWarpsPerBlock * kTimeUnroll)) * (kWarpsPerBlock * kTimeUnroll);
+  for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
+       tt += kWarpsPerBlock * kTimeUnroll) {
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* k_ = cache_K_base + t * cache_K.stride(1);
+      // bfx4 k_thread;
+      *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
+          *(reinterpret_cast<const uint16_t*>(
+              &k_[threadIdx.x * 2 + int4_qparam_offset]));
+      *reinterpret_cast<uint*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint*>(&k_[qparam_idx]));
+    }
+
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      float qk_acc =
+          bfx4_dot(
+              q_thread, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt])) *
+          qk_scale;
+
+      qk_acc = warpReduceSum<float>(qk_acc);
+      max_qk_acc = max(qk_acc, max_qk_acc);
+
+      // write accumulated sums to smem.
+      if (threadIdx.x == 0) {
+        smem[t] = qk_acc;
+      }
+    }
+#else
+    // Before H100, we're instruction bound so this unrolling helps.
+    // This slows down H100 (maybe due to register pressure?)
+#pragma unroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ttt += 2) {
+      int32_t t = tt + ttt;
+      auto k_dq = dequantize_packed_int4(
+          k_qvals[ttt] | (static_cast<uint32_t>(k_qvals[ttt + 1]) << 16),
+          k_scales[ttt],
+          k_scales[ttt + 1]);
+      float qk_acc0 =
+          bfx4_dot(q_thread, *reinterpret_cast<bfx4*>(&k_dq)) * qk_scale;
+      float qk_acc1 =
+          bfx4_dot(q_thread, *reinterpret_cast<bfx4*>(&k_dq.vals[2])) *
+          qk_scale;
+
+      qk_acc0 = warpReduceSum<float>(qk_acc0);
+      qk_acc1 = warpReduceSum<float>(qk_acc1);
+      max_qk_acc = max(qk_acc0, max_qk_acc);
+      max_qk_acc = max(qk_acc1, max_qk_acc);
+
+      // write accumulated sums to smem.
+      if (threadIdx.x == 0) {
+        smem[t] = qk_acc0;
+        smem[t + 1] = qk_acc1;
+      }
+    }
+#endif // defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
+  }
+
+  constexpr int32_t kTimeUnroll1 = 1;
+  for (auto tt = max_t_unroll + warp_idx; tt < max_t;
+       tt += kWarpsPerBlock * kTimeUnroll1) {
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* k_ = cache_K_base + t * cache_K.stride(1);
+      // bfx4 k_thread;
+      *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
+          *(reinterpret_cast<const uint16_t*>(
+              &k_[threadIdx.x * 2 + int4_qparam_offset]));
+      *reinterpret_cast<uint*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint*>(&k_[qparam_idx]));
+    }
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      float qk_acc = 0;
+      int32_t t = tt + ttt;
+      qk_acc +=
+          bfx4_dot(
+              q_thread, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt])) *
+          qk_scale;
+
+      qk_acc = warpReduceSum<float>(qk_acc);
+      max_qk_acc = max(qk_acc, max_qk_acc);
+
+      // write accumulated sums to smem.
+      if (threadIdx.x == 0) {
+        smem[t] = qk_acc;
+      }
+    }
+  }
+
+  // Use shared reduction to compute max and compute softmax on shared memory.
+  // write max acc
+  if (threadIdx.x == 0) {
+    smem[MAX_T + warp_idx] = max_qk_acc;
+  }
+  __syncthreads();
+  if (threadIdx.x < kWarpsPerBlock) {
+    max_qk_acc = max(max_qk_acc, smem[MAX_T + threadIdx.x]);
+  }
+  // shared across all threads in block
+  max_qk_acc = warpReduceMax(max_qk_acc);
+  // each warp computes partial sum of exp.
+  float softmax_denominator = 0.0f;
+  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+       t += kWarpsPerBlock * kThreadsPerWarp) {
+    softmax_denominator += __expf(smem[t] - max_qk_acc);
+  }
+  softmax_denominator = warpReduceSum(softmax_denominator);
+
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    smem[MAX_T + warp_idx] = softmax_denominator;
+  }
+  __syncthreads();
+  // now, compute sum of exp(x - max(x)) over all intermediate results.
+  softmax_denominator = 0.0;
+  if (threadIdx.x < kWarpsPerBlock) {
+    softmax_denominator = smem[MAX_T + threadIdx.x];
+  }
+  softmax_denominator = warpReduceSum(softmax_denominator);
+
+  // now, compute the normalization across all threads.
+  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+       t += kWarpsPerBlock * kThreadsPerWarp) {
+    smem[t] = __expf(smem[t] - max_qk_acc) / softmax_denominator;
+  }
+  __syncthreads();
+
+  // Now, we can comute the softmax and write the outputs.
+
+  // Split T across warps in a block
+  // each warp compute sum(t_subset) P[t] * V[t_subset, d]
+  // outputs are of size float[D]
+
+  float ps[kTimeUnroll];
+  fx4 o_acc;
+  for (auto tt = warp_idx * kTimeUnroll; tt < max_t_unroll;
+       tt += kWarpsPerBlock * kTimeUnroll) {
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* v_ = cache_V_base + t * cache_V.stride(1);
+      //   bfx4 v_thread;
+      *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
+          *(reinterpret_cast<const uint16_t*>(
+              &v_[threadIdx.x * 2 + int4_qparam_offset]));
+      *reinterpret_cast<uint*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint*>(&v_[qparam_idx]));
+      ps[ttt] = smem[t];
+    }
+
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
+#pragma unroll kTimeUnroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ++ttt) {
+      o_acc = bfx4_scale_acc(
+          o_acc, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt]), ps[ttt]);
+    }
+#else
+    // Before H100, we're instruction bound so this unrolling helps.
+    // This slows down H100 (maybe due to register pressure?)
+#pragma unroll
+    for (auto ttt = 0; ttt < kTimeUnroll; ttt += 2) {
+      auto v_dq = dequantize_packed_int4(
+          k_qvals[ttt] | (static_cast<uint32_t>(k_qvals[ttt + 1]) << 16),
+          k_scales[ttt],
+          k_scales[ttt + 1]);
+      o_acc = bfx4_scale_acc(o_acc, *reinterpret_cast<bfx4*>(&v_dq), ps[ttt]);
+      o_acc = bfx4_scale_acc(
+          o_acc, *reinterpret_cast<bfx4*>(&v_dq.vals[2]), ps[ttt + 1]);
+    }
+#endif // defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
+  }
+
+  for (auto tt = max_t_unroll + warp_idx; tt < max_t;
+       tt += kWarpsPerBlock * kTimeUnroll1) {
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      int32_t t = tt + ttt;
+      auto* v_ = cache_V_base + t * cache_V.stride(1);
+      //   bfx4 v_thread;
+      *reinterpret_cast<uint16_t*>(&k_qvals[ttt]) =
+          *(reinterpret_cast<const uint16_t*>(
+              &v_[threadIdx.x * 2 + int4_qparam_offset]));
+      *reinterpret_cast<uint*>(&k_scales[ttt]) =
+          *(reinterpret_cast<uint*>(&v_[qparam_idx]));
+      ps[ttt] = smem[t];
+    }
+
+#pragma unroll kTimeUnroll1
+    for (auto ttt = 0; ttt < kTimeUnroll1; ++ttt) {
+      o_acc = bfx4_scale_acc(
+          o_acc, dequantize_packed_int4(k_qvals[ttt], k_scales[ttt]), ps[ttt]);
+    }
+  }
+
+  // now, each thread has partial sums. Write to smem and get accumulated
+  // results back.
+  __syncthreads();
+  *(reinterpret_cast<fx4*>(&smem[0]) + warp_idx * kThreadsPerWarp +
+    threadIdx.x) = o_acc;
+  __syncthreads();
+  // sum up partial D rows from other warps
+  if (warp_idx == 0) {
+    fx4 r;
+    for (int32_t w = 0; w < kWarpsPerBlock; ++w) {
+      auto partial_r = *(
+          reinterpret_cast<fx4*>(&smem[0]) + w * kThreadsPerWarp + threadIdx.x);
+      r = fx4_acc(r, partial_r);
+    }
+    // write output D row
+    auto* o_ = (&O[b][0][h][0]);
+    auto bf_r = fx4_to_bfx4(r);
+    *(reinterpret_cast<uint2*>(o_) + threadIdx.x) =
+        *reinterpret_cast<const uint2*>(&bf_r);
+  }
+}
+
+// Each block handles a single batch and head
+
+// Each warp handles separate D dimension.
+
+// Load Q into registers in all warps.
+// Split T across warps in a block
+// Compute S[MAX_T] = for i in range(T): S[t] = sum(Q[d] * K[t, d])
+// Use shared reduction to compute max and compute softmax on shared memory.
+
+// Split T across warps in a block
+
+// each warp compute sum(t_subset) P[t] * V[t_subset, d]
+// outputs are of size float[D]
+at::Tensor mqa_attn(
+    at::Tensor XQ, // [B, 1, H, D]
+    at::Tensor cache_K, // [B, MAX_T, 1, D]
+    at::Tensor cache_V, // [B, MAX_T, 1, D]
+    at::Tensor seq_positions, // [B]
+    double qk_scale,
+    std::optional<int64_t> num_groups,
+    int64_t cache_logical_dtype_int) {
+  at::OptionalDeviceGuard guard(XQ.device());
+  TORCH_CHECK(XQ.is_cuda());
+  TORCH_CHECK(cache_K.is_cuda());
+  TORCH_CHECK(cache_V.is_cuda());
+  TORCH_CHECK(cache_K.is_contiguous());
+  TORCH_CHECK(cache_V.is_contiguous());
+
+  TORCH_CHECK(seq_positions.is_cuda());
+
+  TORCH_CHECK(cache_K.size(1) <= MAX_T);
+
+  CacheLogicalDtype cache_logical_dtype =
+      static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
+
+  if (cache_K.dtype() == at::kBFloat16) {
+    TORCH_CHECK(cache_K.size(3) == D_H);
+  } else {
+    auto num_groups_ = num_groups ? num_groups.value() : 1;
+    auto qparam_offset = 4 * num_groups_;
+    if (cache_logical_dtype == CacheLogicalDtype::FP8) {
+      TORCH_CHECK(cache_K.size(3) == D_H + qparam_offset);
+    } else {
+      TORCH_CHECK(cache_K.size(3) == D_H / 2 + qparam_offset);
+    }
+  }
+
+  auto O = at::empty_like(XQ);
+  auto B = XQ.size(0);
+  auto H = XQ.size(2);
+
+  if (B == 0) {
+    return O;
+  }
+
+  dim3 blocks(B, H);
+  dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
+
+  int32_t smem_softmax = MAX_T * sizeof(float) + kWarpsPerBlock * sizeof(float);
+  int32_t smem_output = D_H * sizeof(float) * kWarpsPerBlock;
+  int32_t smem = std::max(smem_softmax, smem_output);
+
+  const bool set_max_dynamic_smem = smem > SMEM_ADJUST_THRESHOLD;
+  if (cache_K.dtype() == at::kBFloat16) {
+    if (set_max_dynamic_smem) {
+      set_gpu_max_dynamic_shared_memory(mqa_attn_kernel, smem, XQ.get_device());
+    }
+    mqa_attn_kernel<<<
+        blocks,
+        threads,
+        smem,
+        at::cuda::getCurrentCUDAStream()>>>(
+        XQ.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_K.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        cache_V.packed_accessor64<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        O.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),
+        seq_positions.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+        qk_scale);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+  } else {
+    if (cache_logical_dtype == CacheLogicalDtype::FP8) {
+#if (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+      if (set_max_dynamic_smem) {
+        set_gpu_max_dynamic_shared_memory(
+            mqa_attn_fp8_kernel, smem, XQ.get_device());
+      }
+      mqa_attn_fp8_kernel<<<
+          blocks,
+          threads,
+          smem,
+          at::cuda::getCurrentCUDAStream()>>>(
+          XQ.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),
+          cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+          cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+          O.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),
+          seq_positions.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+          qk_scale);
+#else
+      throw std::runtime_error("CUDA version is older than 12.0");
+#endif
+    } else {
+#define CALL_MQA_ATTN_INT4_GROUPWISE_KERNEL(NUM_GROUPS, ...)              \
+  if (set_max_dynamic_smem) {                                             \
+    set_gpu_max_dynamic_shared_memory(                                    \
+        mqa_attn_int4_kernel<NUM_GROUPS>, smem, XQ.get_device());         \
+  }                                                                       \
+  mqa_attn_int4_kernel<NUM_GROUPS>                                        \
+      <<<blocks, threads, smem, at::cuda::getCurrentCUDAStream()>>>(      \
+          XQ.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(), \
+          cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(), \
+          cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(), \
+          O.packed_accessor32<at::BFloat16, 4, at::RestrictPtrTraits>(),  \
+          seq_positions                                                   \
+              .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),    \
+          qk_scale);
+
+      auto num_groups_ = num_groups ? num_groups.value() : 1;
+      CALL_INT4_KERNEL_WITH_KV_GROUPWISE_QUANT_CHECK(
+          CALL_MQA_ATTN_INT4_GROUPWISE_KERNEL, num_groups_);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+#undef CALL_MQA_ATTN_INT4_GROUPWISE_KERNEL
+    }
+  }
+  return O;
 }
 
 } // namespace fbgemm_gpu::gen_ai::attention

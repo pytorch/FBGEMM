@@ -18,13 +18,18 @@ from .lookup_args{{ sdesc }} import *
 
 {%- if is_fbcode %}
 
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 # Provide compatibility to downstream packages for eventual migration to the split training / inference packages
 try:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training")
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_training",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_training",
+    )
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_training_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_training",
+    )
 except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu")
@@ -34,11 +39,15 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:split_table_batched_emb
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:embedding_inplace_update_cpu")
 
 {%- endif %}
 
-
+{%- if is_prototype_optimizer %}
+# Decorate the prototype optimizers which may be deprecated in the future with jit.ignore to avoid
+# possible errors from torch.jit.script. 
+# Note that backends can be removed but the lookup invoker is still needed for backward compatibility
+@torch.jit.ignore
+{%- endif %}
 def invoke(
     common_args: CommonArgs,
     optimizer_args: OptimizerArgs,

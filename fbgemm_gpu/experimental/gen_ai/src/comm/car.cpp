@@ -35,7 +35,7 @@ namespace {
 
 static_assert(sizeof(cudaIpcMemHandle_t) == 64, "");
 
-constexpr size_t kMaxNumNcclComms = 3;
+constexpr size_t kMaxNumNcclComms = 5;
 
 static ncclComm_t* get_nccl_comm(int64_t comm_idx) {
   static ncclComm_t comms[kMaxNumNcclComms];
@@ -229,6 +229,8 @@ void two_shot_car_allreduce(
 at::Tensor car_tensor();
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.set_python_module("fbgemm_gpu.experimental.gen_ai.comm_ops");
+
   m.def(
       "nccl_init(int rank, int world_size, str rendevouz, int comm_idx=0) -> ()");
   m.impl("nccl_init", nccl_init);
@@ -240,20 +242,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "nccl_comm_init_rank(int world_size, int rank, Tensor id_, int comm_idx=0) -> ()");
   m.impl("nccl_comm_init_rank", nccl_comm_init_rank);
 
-  m.def("nccl_allgather(Tensor dst, Tensor src, int comm_idx=0) -> ()");
-  m.impl("nccl_allgather", nccl_allgather);
+  m.def("nccl_allgather(Tensor(a!) dst, Tensor src, int comm_idx=0) -> ()");
 
   m.def(
-      "nccl_alltoall(Tensor dst, Tensor src, int world_size, int comm_idx=0) -> ()");
-  m.impl("nccl_alltoall", nccl_alltoall);
+      "nccl_alltoall(Tensor(a!) dst, Tensor src, int world_size, int comm_idx=0) -> ()");
 
-  m.def("nccl_reducescatter(Tensor dst, Tensor src, int comm_idx=0) -> ()");
-  m.impl("nccl_reducescatter", nccl_reducescatter);
+  m.def("nccl_reducescatter(Tensor(a!) dst, Tensor src, int comm_idx=0) -> ()");
 
   m.def(
-      "nccl_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
-  m.impl("nccl_allreduce", nccl_allreduce);
-
+      "nccl_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
   // car: customized all reduce
   m.def("car_tensor() -> Tensor");
   m.impl("car_tensor", car_tensor);
@@ -266,11 +263,29 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("car_init", car_init);
 
   m.def(
-      "one_shot_car_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
-  m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
+      "one_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
 
   m.def(
-      "two_shot_car_allreduce(Tensor dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+      "two_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
+  m.impl("nccl_allreduce", nccl_allreduce);
+  m.impl("nccl_allgather", nccl_allgather);
+  m.impl("nccl_alltoall", nccl_alltoall);
+  m.impl("nccl_reducescatter", nccl_reducescatter);
+  m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
+  m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
+}
+
+// Though it shouldnt be used, it is useful to define these functions for CPU to
+// accomodate model creation.
+TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
+  m.impl("nccl_allreduce", nccl_allreduce);
+  m.impl("nccl_allgather", nccl_allgather);
+  m.impl("nccl_alltoall", nccl_alltoall);
+  m.impl("nccl_reducescatter", nccl_reducescatter);
+  m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
 }
 

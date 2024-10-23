@@ -83,6 +83,18 @@ class ForwardSplitGenerator:
             f"gen_embedding_forward_split_pt2_cpu_wrapper.cpp",
             has_cpu_support=True,
             is_forward=True,
+            has_vbe_support=True,
+        )
+
+        # Generate PT2 forward wrapper (CUDA)
+        CodeTemplate.load(
+            "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
+        ).write(
+            f"gen_embedding_forward_ssd_pt2_cuda_wrapper.cpp",
+            has_gpu_support=True,
+            is_forward=True,
+            has_vbe_support=True,
+            ssd=True,
         )
 
     @staticmethod

@@ -79,8 +79,8 @@ Follow the instructions for setting up the Conda environment at
 :ref:`fbgemm-gpu.build.setup.tools.install`.
 
 
-Set Up for CUDA Build
----------------------
+Set Up for CUDA / GenAI-Only Build
+----------------------------------
 
 The CUDA build of FBGEMM_GPU requires a recent version of ``nvcc`` **that
 supports compute capability 3.5+**. Setting the machine up for CUDA builds of
@@ -177,8 +177,8 @@ desired ROCm version:
 
 .. code:: sh
 
-  # Run for ROCm 5.6.1
-  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:5.6.1
+  # Run for ROCm 6.1.2
+  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:6.1.2
 
 While the `full ROCm Docker image <https://hub.docker.com/r/rocm/dev-ubuntu-20.04>`__
 comes with all ROCm packages pre-installed, it results in a very large Docker
@@ -280,8 +280,8 @@ toolchain **that supports C++20**:
 
 .. code:: sh
 
-  # Use a recent version of LLVM+Clang
-  llvm_version=15.0.7
+  # Minimum LLVM+Clang version required for FBGEMM_GPU
+  llvm_version=16.0.6
 
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number
@@ -447,8 +447,8 @@ Verify the PyTorch-Triton installation with an ``import`` test:
   # Ensure that the package loads properly
   conda run -n ${env_name} python -c "import triton"
 
-Build the FBGEMM_GPU Package
-----------------------------
+Other Pre-Build Setup
+---------------------
 
 .. _fbgemm-gpu.build.prepare:
 
@@ -499,7 +499,7 @@ Python platform name must first be properly set:
   export package_name=fbgemm_gpu_{cpu, cuda, rocm}
 
   # Set the Python version tag.  It should follow the convention `py<major><minor>`,
-  # e.g. Python 3.12 -> py312
+  # e.g. Python 3.12 --> py312
   export python_tag=py312
 
   # Determine the processor architecture
@@ -517,7 +517,7 @@ Python platform name must first be properly set:
 .. _fbgemm-gpu.build.process.cpu:
 
 CPU-Only Build
-~~~~~~~~~~~~~~
+--------------
 
 For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
 
@@ -558,10 +558,13 @@ Note that this presumes the Clang toolchain is properly installed along with the
 GCC toolchain, and is made available as ``${cxxprefix}/bin/cc`` and
 ``${cxxprefix}/bin/c++``.
 
+To enable runtime debug features, such as device-side assertions in CUDA and
+HIP, simply append the ``--debug`` flag when invoking ``setup.py``.
+
 .. _fbgemm-gpu.build.process.cuda:
 
 CUDA Build
-~~~~~~~~~~
+----------
 
 Building FBGEMM_GPU for CUDA requires both NVML and cuDNN to be installed and
 made available to the build through environment variables.  The presence of a
@@ -582,6 +585,20 @@ toolchains have been properly installed.
 
   # [OPTIONAL] Provide the CUB installation directory (applicable only to CUDA versions prior to 11.1)
   export CUB_DIR=/path/to/cub
+
+  # [OPTIONAL] Allow NVCC to use host compilers that are newer than what NVCC officially supports
+  nvcc_prepend_flags=(
+    -allow-unsupported-compiler
+  )
+
+  # [OPTIONAL] If clang is the host compiler, set NVCC to use libstdc++ since libc++ is not supported
+  nvcc_prepend_flags+=(
+    -Xcompiler -stdlib=libstdc++
+    -ccbin "/path/to/clang++"
+  )
+
+  # [OPTIONAL] Set NVCC_PREPEND_FLAGS as needed
+  export NVCC_PREPEND_FLAGS="${nvcc_prepend_flags[@]}"
 
   # Specify cuDNN header and library paths
   export CUDNN_INCLUDE_DIR=/path/to/cudnn/include
@@ -620,8 +637,8 @@ toolchains have been properly installed.
 
 .. _fbgemm-gpu.build.process.genai:
 
-Experimental-Only (GenAI) Build
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+GenAI-Only Build
+----------------
 
 By default, the CUDA build of FBGEMM_GPU includes all experimental modules that
 are used for GenAI applications.  The instructions for building just the
@@ -651,7 +668,7 @@ Note that currently, only CUDA is supported for the experimental modules.
 .. _fbgemm-gpu.build.process.rocm:
 
 ROCm Build
-~~~~~~~~~~
+----------
 
 For ROCm builds, ``ROCM_PATH`` and ``PYTORCH_ROCM_ARCH`` need to be specified.
 The presence of a ROCm device, however, is not required for building
@@ -688,13 +705,13 @@ presuming the toolchains have been properly installed.
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
 
 Post-Build Checks (For Developers)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+----------------------------------
 
 After the build completes, it is useful to run some checks that verify
 that the build is actually correct.
 
 Undefined Symbols Check
-^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~
 
 Because FBGEMM_GPU contains a lot of Jinja and C++ template instantiations, it
 is important to make sure that there are no undefined symbols that are
@@ -711,7 +728,7 @@ accidentally generated over the course of development:
   nm -gDCu "${fbgemm_gpu_lib_path}" | sort
 
 GLIBC Version Compatibility Check
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 It is also useful to verify that the version numbers of GLIBCXX
 referenced as well as the availability of certain function symbols:

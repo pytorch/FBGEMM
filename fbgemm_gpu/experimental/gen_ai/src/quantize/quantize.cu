@@ -16,7 +16,7 @@
 #include <ATen/cuda/Atomic.cuh>
 #include <algorithm>
 
-#include <fbgemm_gpu/sparse_ops_utils.h>
+#include "fbgemm_gpu/utils/cuda_block_count.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 
@@ -44,11 +44,7 @@
 #include <hip/hip_fp8.h>
 #endif
 
-#if (                         \
-    defined(__CUDA_ARCH__) && \
-    ((__CUDA_ARCH__ == 800) || (__CUDA_ARCH__ == 900)))
-#define USE_WMMA_FRAG
-#endif
+#include <fbgemm_gpu/utils/vec_quant.cuh>
 
 /// @defgroup FP8/INT8 quantized FC Operators
 ///
@@ -69,49 +65,6 @@ namespace fbgemm_gpu {
 // each warp compute sum(t_subset) P[t] * V[t_subset, d]
 // outputs are of size float[D]
 
-#define DEVICE_INLINE __device__ inline __attribute__((always_inline))
-
-static __host__ DEVICE_INLINE int32_t div_up(int32_t a, int32_t b) {
-  return (a + b - 1) / b;
-};
-
-static __host__ DEVICE_INLINE int32_t round_up(int32_t a, int32_t b) {
-  return ((a + b - 1) / b) * b;
-}
-
-#ifdef __HIP_PLATFORM_AMD__
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
-constexpr int32_t kThreadsPerWarp = 64;
-// constexpr int32_t kWarpsPerBlock = 16;
-#endif
-#else
-constexpr int32_t kThreadsPerWarp = 32;
-// constexpr int32_t kWarpsPerBlock = 32;
-#endif
-
-// constexpr int32_t D_H = 128;
-// MAX_T: max seq len. We need to make sure shared memory size
-// (https://fburl.com/code/ruc41vc7) <= limit of V100/A100/H100 GPUs
-// (https://fburl.com/code/gh9j9go4).
-// constexpr int32_t MAX_T = 16384;
-// constexpr int SMEM_ADJUST_THRESHOLD = 48 * 1024;
-
-#ifdef __HIP_PLATFORM_AMD__
-static __host__ __device__ float __bfloat162float(__nv_bfloat16 f) {
-  // float output;
-  // https://docs.amd.com/projects/HIP/en/docs-5.0.0/doxygen/html/hip__bfloat16_8h_source.html
-  return float(f);
-}
-
-static __host__ __device__ __nv_bfloat162
-__floats2bfloat162_rn(float x, float y) {
-  __nv_bfloat162 output;
-  output.x = __float2bfloat16_rn(x);
-  output.y = __float2bfloat16_rn(y);
-  return output;
-}
-#endif
-
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
 using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3_fnuz;
 using __nv_fp8_e4m3 = __hip_fp8_e4m3_fnuz;
@@ -122,53 +75,6 @@ using __nv_fp8_e5m2 = __hip_fp8_e5m2_fnuz;
 #define torch_fp8_e4m3 at::kFloat8_e4m3fn
 #define torch_fp8_e5m2 at::kFloat8_e5m2
 #endif
-
-struct __align__(16) bf16x8 {
-  __nv_bfloat162 vals[4];
-};
-
-struct __align__(16) fx4 {
-  float x;
-  float y;
-  float z;
-  float w;
-  __host__ __device__ fx4() {
-    x = 0;
-    y = 0;
-    z = 0;
-    w = 0;
-  }
-};
-
-struct __align__(8) bfx4 {
-  __nv_bfloat162 vals[2];
-};
-
-struct __align__(16) bfx8 {
-  __nv_bfloat162 vals[4];
-};
-
-DEVICE_INLINE bfx4 dequantize_packed_int4(uint16_t vs, __half2 shift_scale_0);
-DEVICE_INLINE bfx8 dequantize_packed_int4(
-    uint32_t v,
-    __half2 shift_scale_0,
-    __half2 shift_scale_1);
-
-DEVICE_INLINE float2 bf1622float2(const __nv_bfloat162 val) {
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
-  float2 f_val;
-  f_val.x = __low2float(val);
-  f_val.y = __high2float(val);
-  return f_val;
-#elif defined(USE_ROCM)
-  float2 f_val;
-  f_val.x = __bfloat162float(val.x);
-  f_val.y = __bfloat162float(val.y);
-  return f_val;
-#else
-  return __bfloat1622float2(val);
-#endif
-}
 
 struct __align__(8) i8x8 {
   int8_t vals[8];
@@ -245,7 +151,8 @@ at::Tensor per_tensor_quantize_i8(at::Tensor X, double scale) {
   constexpr int32_t kThreadsPerBlock = 1024;
   auto XQ = at::empty({X.numel()}, X.options().dtype(at::kChar));
   dim3 threads = kThreadsPerBlock;
-  dim3 blocks = cuda_calc_block_count(div_up(X.numel(), 8), kThreadsPerBlock);
+  dim3 blocks =
+      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
   per_tensor_quantize_i8_kernel<<<
       blocks,
       threads,
@@ -271,7 +178,8 @@ std::tuple<at::Tensor, at::Tensor> per_tensor_dynamic_quantize_i8(
                    .to(X.dtype());
 
   dim3 threads = kThreadsPerBlock;
-  dim3 blocks = cuda_calc_block_count(div_up(X.numel(), 8), kThreadsPerBlock);
+  dim3 blocks =
+      cuda_calc_block_count(div_round_up(X.numel(), 8), kThreadsPerBlock);
 
   per_tensor_quantize_i8_kernel<<<
       blocks,
@@ -651,29 +559,6 @@ void invokeQuantizeMatrixColwise(
   scaleMatrixColwise<true>
       <<<grid, block, 0, stream>>>(output, input_scale, input, numel, lda);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
-}
-
-#define FINAL_MASK 0xffffffff
-
-template <typename T>
-DEVICE_INLINE T shfl_xor(
-    unsigned shfl_sync_mask,
-    const T val,
-    int laneMask,
-    int width = kThreadsPerWarp) {
-#if defined(__HIP_PLATFORM_AMD__) || CUDA_VERSION < 9000
-  return __shfl_xor(val, laneMask, width);
-#else
-  return __shfl_xor_sync(shfl_sync_mask, val, laneMask, width);
-#endif
-}
-
-template <typename T>
-DEVICE_INLINE T warpReduceMax(T val, uint32_t warp_mask = FINAL_MASK) {
-#pragma unroll
-  for (int mask = 16; mask > 0; mask >>= 1)
-    val = max(val, shfl_xor(warp_mask, val, mask, 32));
-  return val;
 }
 
 template <typename T>

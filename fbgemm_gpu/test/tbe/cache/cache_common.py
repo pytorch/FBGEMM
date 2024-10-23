@@ -33,12 +33,12 @@ from ..common import assert_torch_equal, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, skipIfRocm
+    from test_utils import gpu_unavailable, optests, running_on_rocm
 else:
     from fbgemm_gpu.test.test_utils import (  # noqa: F401
         gpu_unavailable,  # noqa: F401
         optests,  # noqa: F401
-        skipIfRocm,  # noqa: F401
+        running_on_rocm,  # noqa: F401
     )
 
 
@@ -54,6 +54,9 @@ class TestingStatsReporter(TBEStatsReporter):
     def should_report(self, iteration_step: int) -> bool:
         return (iteration_step - 1) % self.reporting_interval == 0
 
+    def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
+        return
+
     def report_duration(
         self,
         iteration_step: int,
@@ -61,6 +64,7 @@ class TestingStatsReporter(TBEStatsReporter):
         duration_ms: float,
         embedding_id: str = "",
         tbe_id: str = "",
+        time_unit: str = "ms",
     ) -> None:
         self.reported_data.setdefault(event_name, [])
         self.reported_data[event_name].append(

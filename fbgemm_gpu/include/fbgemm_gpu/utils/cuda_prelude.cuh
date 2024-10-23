@@ -15,7 +15,7 @@
 
 namespace {
 
-int get_device_sm_cnt_() {
+inline int get_device_sm_cnt_() {
   cudaDeviceProp* deviceProp =
       at::cuda::getDeviceProperties(c10::cuda::current_device());
   return deviceProp->multiProcessorCount;
@@ -157,6 +157,10 @@ __device__ int __any_sync(uint64_t mask, int predicate) {
 
 __host__ DEVICE_INLINE int32_t div_round_up(int32_t a, int32_t b) {
   return (a + b - 1) / b;
+}
+
+static __host__ DEVICE_INLINE int32_t round_up(int32_t a, int32_t b) {
+  return ((a + b - 1) / b) * b;
 }
 
 __host__ DEVICE_INLINE int32_t round_down(int32_t a, int32_t b) {

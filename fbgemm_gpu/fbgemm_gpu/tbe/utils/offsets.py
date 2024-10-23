@@ -25,6 +25,8 @@ def get_table_batched_offsets_from_dense(
     if L is None and total_B is None:
         (T, B, L) = merged_indices.size()
         total_B = T * B
+    # pyre-fixme[6]: For 1st argument expected `Union[Sequence[SupportsIndex],
+    #  SupportsIndex]` but got `Optional[int]`.
     lengths = np.ones(total_B) * L
     return (
         to_device(merged_indices.contiguous().view(-1), use_cpu),

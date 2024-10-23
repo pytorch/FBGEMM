@@ -45,7 +45,7 @@ on:
 
 jobs:
   test_pypi_install_cpu:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cpu') }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cpu')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
@@ -64,7 +64,7 @@ jobs:
           { arch: x86, instance: "amz2023.linux.4xlarge", timeout: 20 },
           { arch: arm, instance: "amz2023.linux.arm64.2xlarge", timeout: 30 },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
 
     steps:
     - name: Setup Build Container
@@ -104,7 +104,7 @@ jobs:
 
 
   test_pypi_install_cuda:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cuda') }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cuda')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     defaults:
       run:
@@ -120,7 +120,7 @@ jobs:
         host-machine: [
           { instance: "amz2023.linux.g5.4xlarge.nvidia.gpu" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
         cuda-version: [ "11.8.0", "12.1.1", "12.4.1" ]
 
     steps:
@@ -160,12 +160,12 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 20
+      timeout-minutes: 40
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
 
   test_pypi_install_rocm:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'rocm') }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'rocm')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
@@ -186,7 +186,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.11", "3.12" ]
-        rocm-version: [ "6.0.2" ]
+        rocm-version: [ "6.1" ]
 
     steps:
     - name: Setup Build Container

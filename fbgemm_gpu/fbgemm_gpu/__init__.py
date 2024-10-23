@@ -5,24 +5,27 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import os
 
 import torch
 
-try:
-    torch.ops.load_library(os.path.join(os.path.dirname(__file__), "fbgemm_gpu_py.so"))
-except Exception as error_ranking:
+
+def _load_library(filename: str) -> None:
+    """Load a shared library from the given filename."""
     try:
-        torch.ops.load_library(
-            os.path.join(
-                os.path.dirname(__file__),
-                "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py.so",
-            )
+        torch.ops.load_library(os.path.join(os.path.dirname(__file__), filename))
+    except Exception as error:
+        logging.warning(
+            f"Could not the library '{filename}': {error}.  This may be expected depending on the FBGEMM_GPU variant."
         )
-    except Exception as error_gen_ai:
-        # When both ranking/gen_ai so files are not available, print the error logs
-        print(error_ranking)
-        print(error_gen_ai)
+
+
+for filename in [
+    "fbgemm_gpu_py.so",
+    "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py.so",
+]:
+    _load_library(filename)
 
 # Since __init__.py is only used in OSS context, we define `open_source` here
 # and use its existence to determine whether or not we are in OSS context

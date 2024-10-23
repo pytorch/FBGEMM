@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   build-linux:
+    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
@@ -105,7 +106,8 @@ jobs:
 
 
   build-bazel:
-    runs-on: amz2023.linux.12xlarge
+    if: ${{ github.repository_owner == 'pytorch' }}
+    runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
       options: --user root

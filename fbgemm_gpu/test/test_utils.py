@@ -10,6 +10,7 @@ import inspect
 import os
 import subprocess
 import unittest
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -23,6 +24,18 @@ settings.load_profile("derandomize")
 
 
 TEST_WITH_ROCM: bool = os.getenv("FBGEMM_TEST_WITH_ROCM", "0") == "1"
+
+# Skip pt2 compliant tag test for certain operators
+# TODO: remove this once the operators are pt2 compliant
+# pyre-ignore
+additional_decorators: Dict[str, List[Callable]] = {
+    # vbe_generate_metadata_cpu return different values from vbe_generate_metadata_meta
+    # this fails fake_tensor test as the test expects them to be the same
+    # fake_tensor test is added in failures_dict but failing fake_tensor test still cause pt2_compliant tag test to fail
+    "test_pt2_compliant_tag_fbgemm_split_embedding_codegen_lookup_rowwise_adagrad_function_pt2": [
+        unittest.skip("Operator failed on pt2 compliant tag"),
+    ]
+}
 
 # Used for `@unittest.skipIf`
 gpu_unavailable: Tuple[bool, str] = (
@@ -41,6 +54,11 @@ running_on_sm70: Tuple[bool, str] = (
 running_on_github: Tuple[bool, str] = (
     os.getenv("GITHUB_ENV") is not None,
     "Test is currently known to fail or hang when run in the GitHub runners",
+)
+
+running_on_rocm: Tuple[bool, str] = (
+    TEST_WITH_ROCM,
+    "Test currently doesn't work on the ROCm stack",
 )
 
 # Tests with this marker generally fails with `free(): corrupted unsorted chunks`
@@ -110,7 +128,9 @@ class optests:
             if not has_optests():
                 return test_class
             import torch.testing._internal.optests as optests
-            from torch._utils_internal import get_file_path_2
+            from torch._utils_internal import (  # @manual=//caffe2:utils_internal
+                get_file_path_2,
+            )
 
             filename = inspect.getfile(test_class)
             failures_dict_name = "failures_dict.json"
@@ -162,6 +182,17 @@ class optests:
         import torch.testing._internal.optests as optests
 
         return optests.dontGenerateOpCheckTests(reason)
+
+
+class TestSuite(unittest.TestCase):
+    @contextmanager
+    # pyre-ignore[2]
+    def assertNotRaised(self, exc_type) -> None:
+        try:
+            # pyre-ignore[7]
+            yield None
+        except exc_type as e:
+            raise self.failureException(e)
 
 
 # Version of torch.autograd.gradcheck that works with generate_opcheck_tests.

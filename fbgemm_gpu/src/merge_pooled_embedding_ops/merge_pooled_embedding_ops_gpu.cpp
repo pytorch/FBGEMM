@@ -21,7 +21,8 @@
 #include <tuple>
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
 
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/topology_utils.h"
 
 using Tensor = at::Tensor;
@@ -368,7 +369,12 @@ Tensor sum_reduce_to_one(
   });
 
   auto target_device_index = target_device.index();
-  TORCH_CHECK(target_device_index < num_gpus && target_device_index >= 0);
+  TORCH_CHECK(
+      target_device_index < num_gpus && target_device_index >= 0,
+      "target_device_index=",
+      target_device_index,
+      ", num_gpus=",
+      num_gpus);
 
   // Local reduction for tensors residing the same GPU.
   // And if there's a tensor already in target device, use it for output tensor.

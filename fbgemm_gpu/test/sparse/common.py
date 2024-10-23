@@ -16,19 +16,14 @@ from typing import Callable, Dict, List, Optional, Tuple, Type
 import fbgemm_gpu
 import torch
 from hypothesis import HealthCheck, settings
-from torch._utils_internal import get_file_path_2
+from torch._utils_internal import get_file_path_2  # @manual=//caffe2:utils_internal
 from torch.testing._internal.optests import generate_opcheck_tests
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu/codegen:index_select_ops")
 
 suppressed_list: List[HealthCheck] = (

@@ -10,7 +10,9 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
 #include "fbgemm_gpu/utils/ops_utils.h" // @manual
 #include "fbgemm_gpu/utils/tensor_accessor.h" // @manual
-
+#ifdef USE_ROCM
+#include <rocprim/device/device_radix_sort.hpp>
+#endif
 // clang-format off
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh" // @manual
 #include <cub/device/device_radix_sort.cuh>
@@ -272,10 +274,10 @@ transpose_embedding_input(
   }
 
   AT_DISPATCH_INDEX_TYPES(
-      infos.scalar_type(), "transpose_embedding_input1", [&] {
+      infos.scalar_type(), "transpose_embedding_input_1", [&] {
         using info_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            indices.scalar_type(), "transpose_embedding_input2", [&] {
+            indices.scalar_type(), "transpose_embedding_input_2", [&] {
               if (!is_index_select) {
                 if (!nobag) {
                   INVOKE_LINEARIZE_INDEX_KERNEL(int32_t, false);
@@ -307,6 +309,7 @@ transpose_embedding_input(
               }
               {
                 size_t temp_storage_bytes = 0;
+#ifndef USE_ROCM
                 AT_CUDA_CHECK(
                     FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
                         nullptr,
@@ -336,6 +339,40 @@ transpose_embedding_input(
                         total_hash_size_bits,
                         at::cuda::getCurrentCUDAStream(),
                         false));
+#else
+	        using config = rocprim::radix_sort_config<
+                rocprim::default_config,
+                rocprim::default_config,
+                rocprim::default_config,
+                400000>;
+	        rocprim::radix_sort_pairs<config>(
+                    nullptr,
+                    temp_storage_bytes,
+                    linear_indices.data_ptr<index_t>(),
+                    linear_indices_sorted.data_ptr<index_t>(),
+                    infos.data_ptr<info_t>(),
+                    infos_sorted.data_ptr<info_t>(),
+                    linear_indices.numel(),
+                    0,
+                    total_hash_size_bits,
+                    at::cuda::getCurrentCUDAStream(),
+                    false);
+                auto temp_storage = at::empty(
+                    {static_cast<int64_t>(temp_storage_bytes)},
+                    indices.options().dtype(at::kByte));
+                rocprim::radix_sort_pairs<config>(
+                    temp_storage.data_ptr(),
+                    temp_storage_bytes,
+                    linear_indices.data_ptr<index_t>(),
+                    linear_indices_sorted.data_ptr<index_t>(),
+                    infos.data_ptr<info_t>(),
+                    infos_sorted.data_ptr<info_t>(),
+                    linear_indices.numel(),
+                    0,
+                    total_hash_size_bits,
+                    at::cuda::getCurrentCUDAStream(),
+                    false);
+#endif
               }
               if (total_unique_indices != -1) {
                 TORCH_CHECK(total_unique_indices >= 0);

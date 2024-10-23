@@ -111,4 +111,41 @@ hfp8_to_float(uint8_t hfp8_val, int ebits, int exponent_bias) {
   return val_out.F;
 }
 
+// Get the number of bytes of a row in a tensor with quantized nbit integers
+inline int32_t nbit_elems_to_bytes(const at::Tensor& input) {
+  const auto input_sizes = input.sizes();
+  const int32_t ncols = input_sizes[1];
+  // at::kQUInt4x2 is the dtype for quantized int4 tensors and at::kQUInt2x4 is
+  // for quantized int2 tensors. QUIntMxN (M*N=8) means quantized M-bit integer
+  // with each byte holding N such elements.
+  // input_sizes[1] is the number of elements in each row, so we need to divide
+  // it by 2 or 4 for quint4x2 or quint2x4 respectively to get the number of
+  // bytes in each row.
+  if (input.dtype() == at::kQUInt2x4) {
+    return fbgemm_gpu::div_up(ncols, 4);
+  } else if (input.dtype() == at::kQUInt4x2) {
+    return fbgemm_gpu::div_up(ncols, 2);
+  } else {
+    return ncols;
+  }
+}
+
+inline at::SymInt nbit_elems_to_bytes_meta(const at::Tensor& input) {
+  const at::SymIntArrayRef input_sizes = input.sym_sizes();
+  const at::SymInt ncols = input_sizes[1];
+  // at::kQUInt4x2 is the dtype for quantized int4 tensors and at::kQUInt2x4 is
+  // for quantized int2 tensors. QUIntMxN (M*N=8) means quantized M-bit integer
+  // with each byte holding N such elements.
+  // input_sizes[1] is the number of elements in each row, so we need to divide
+  // it by 2 or 4 for quint4x2 or quint2x4 respectively to get the number of
+  // bytes in each row.
+  if (input.dtype() == at::kQUInt2x4) {
+    return (ncols + 4 - 1) / 4;
+  } else if (input.dtype() == at::kQUInt4x2) {
+    return (ncols + 2 - 1) / 2;
+  } else {
+    return ncols;
+  }
+}
+
 } // namespace fbgemm_gpu

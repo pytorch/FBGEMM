@@ -9,10 +9,13 @@
 
 # flake8: noqa F401
 
+# @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_optimizer_codegen
 from fbgemm_gpu.split_embedding_optimizer_codegen.optimizer_args import (
     SplitEmbeddingArgs,
     SplitEmbeddingOptimizerParams,
 )
+
+# @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_optimizer_codegen
 from fbgemm_gpu.split_embedding_optimizer_codegen.split_embedding_optimizer_rowwise_adagrad import (
     SplitEmbeddingRowwiseAdagrad,
 )
