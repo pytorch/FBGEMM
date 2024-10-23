@@ -257,7 +257,7 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias,
     bool use_fast_accum,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = std::nullopt) {
   // Check that input datatypes are valid.
   TORCH_CHECK(
       (XQ.dtype() == at::kFloat8_e4m3fnuz) &&

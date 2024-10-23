@@ -20,7 +20,7 @@ inline Tensor native_empty_like(const Tensor& self) {
       self.options().layout_opt(),
       self.options().device_opt(),
       self.options().pinned_memory_opt(),
-      c10::nullopt);
+      std::nullopt);
 }
 
 } // namespace

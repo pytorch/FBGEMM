@@ -164,11 +164,11 @@ Tensor split_embedding_codegen_lookup_dense_function(
     const std::optional<Tensor>& indice_weights,
     const std::optional<Tensor>& feature_requires_grad,
     int64_t /* output_dtype = static_cast<int64_t>(SparseType::FP32) */,
-    const std::optional<Tensor>& /* B_offsets = c10::nullopt */,
+    const std::optional<Tensor>& /* B_offsets = std::nullopt */,
     const std::optional<
-        Tensor>& /* vbe_output_offsets_feature_rank = c10::nullopt */,
+        Tensor>& /* vbe_output_offsets_feature_rank = std::nullopt */,
     const std::optional<
-        Tensor>& /* vbe_B_offsets_rank_per_feature = c10::nullopt */,
+        Tensor>& /* vbe_B_offsets_rank_per_feature = std::nullopt */,
     c10::SymInt /* max_B = -1 */,
     c10::SymInt /* max_B_feature_rank = -1 */,
     c10::SymInt /* vbe_output_size = -1 */) {

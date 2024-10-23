@@ -217,8 +217,8 @@ get_unique_indices_cuda_impl(
   auto unique_indices = at::empty_like(linear_indices);
   auto unique_indices_length =
       at::empty({1}, linear_indices.options().dtype(at::kInt));
-  std::optional<Tensor> unique_indices_count = c10::nullopt;
-  std::optional<Tensor> linear_index_positions_sorted = c10::nullopt;
+  std::optional<Tensor> unique_indices_count = std::nullopt;
+  std::optional<Tensor> linear_index_positions_sorted = std::nullopt;
 
   Tensor linear_index_positions;
   if (compute_inverse_indices) {

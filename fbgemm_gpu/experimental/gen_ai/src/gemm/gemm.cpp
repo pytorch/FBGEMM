@@ -14,7 +14,7 @@ namespace fbgemm_gpu {
 at::Tensor bf16_gemm(
     at::Tensor A,
     at::Tensor B,
-    std::optional<at::Tensor> bias = c10::nullopt);
+    std::optional<at::Tensor> bias = std::nullopt);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 #ifdef USE_ROCM
@@ -31,7 +31,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 at::Tensor bf16_gemm_meta(
     at::Tensor A,
     at::Tensor B,
-    std::optional<at::Tensor> /* bias */ = c10::nullopt) {
+    std::optional<at::Tensor> /* bias */ = std::nullopt) {
   const at::SymInt M = A.sym_size(0);
   const at::SymInt N = B.sym_size(0);
   auto C = at::empty_symint({M, N}, A.options().dtype(at::kBFloat16));

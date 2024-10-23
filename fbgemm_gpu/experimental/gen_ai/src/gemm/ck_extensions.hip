@@ -211,7 +211,7 @@ at::Tensor dispatch_bf16_gemm(at::Tensor A, at::Tensor B, std::optional<at::Tens
   }
 }
 
-at::Tensor bf16_gemm(at::Tensor A, at::Tensor B, std::optional<at::Tensor> bias = c10::nullopt) {
+at::Tensor bf16_gemm(at::Tensor A, at::Tensor B, std::optional<at::Tensor> bias = std::nullopt) {
   TORCH_CHECK(
       A.dtype() == at::kBFloat16 && B.dtype() == at::kBFloat16,
       "Inputs must be bfloat16.");

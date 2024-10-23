@@ -1006,9 +1006,9 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {{ args.split_function_args | join(", ") }},
     {%- endif %}
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
-    const std::optional<Tensor>& B_offsets = c10::nullopt,
-    const std::optional<Tensor>& vbe_output_offsets_feature_rank = c10::nullopt,
-    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature = c10::nullopt,
+    const std::optional<Tensor>& B_offsets = std::nullopt,
+    const std::optional<Tensor>& vbe_output_offsets_feature_rank = std::nullopt,
+    const std::optional<Tensor>& vbe_B_offsets_rank_per_feature = std::nullopt,
     const c10::SymInt max_B = -1,
     const c10::SymInt max_B_feature_rank = -1,
     {%- if not dense %}
@@ -1016,16 +1016,16 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const bool is_experimental_tbe = false, // formerly named is_experimental
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
-    const std::optional<Tensor>& uvm_cache_stats = c10::nullopt,
+    const std::optional<Tensor>& uvm_cache_stats = std::nullopt,
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-    const std::optional<Tensor>& prev_iter_dev = c10::nullopt,
+    const std::optional<Tensor>& prev_iter_dev = std::nullopt,
     {%- endif %}
     {%- if "iter" not in args.split_function_arg_names %}
     const int64_t iter = 0,
     {%- endif %}
     const bool apply_global_weight_decay = false,
     {%- if ssd %}
-    const std::optional<at::TensorList>& ssd_tensors = c10::nullopt,
+    const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
     {%- endif %}
     const double gwd_lower_bound = 0
     {%- else %}
