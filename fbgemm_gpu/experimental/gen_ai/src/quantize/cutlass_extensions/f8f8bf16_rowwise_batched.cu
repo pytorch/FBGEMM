@@ -448,7 +448,7 @@ at::Tensor handle_transposition(
           BIAS_DTYPE>(
           WQ.transpose(1, 2), XQ.transpose(1, 2), w_scale, x_scale, bias, out);
     }
-    return out_.transpose(1, 2);
+    return out_.transpose(1, 2).contiguous();
   }
 }
 
