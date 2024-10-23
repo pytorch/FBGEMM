@@ -93,8 +93,8 @@ permute_2D_sparse_data_cuda(
     return {
         lengths.clone(),
         indices.clone(),
-        weights.has_value() ? c10::make_optional(weights->clone())
-                            : c10::nullopt,
+        weights.has_value() ? std::make_optional(weights->clone())
+                            : std::nullopt,
     };
   }
 

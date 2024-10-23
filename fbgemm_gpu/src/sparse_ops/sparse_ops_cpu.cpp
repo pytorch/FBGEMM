@@ -2354,7 +2354,7 @@ Tensor& lengths_range_out(
         });
   }
 
-  at::native::resize_(output, {output_size}, c10::nullopt);
+  at::native::resize_(output, {output_size}, std::nullopt);
 
   AT_DISPATCH_INDEX_TYPES(
       t_in_contig->scalar_type(), "lengths_range_compute", [&]() {

@@ -87,8 +87,8 @@ permute_1D_sparse_data_cuda(
     return {
         lengths.view({-1}).clone(),
         indices.clone(),
-        weights.has_value() ? c10::make_optional(weights->clone())
-                            : c10::nullopt};
+        weights.has_value() ? std::make_optional(weights->clone())
+                            : std::nullopt};
   }
 
   Tensor permuted_lengths;
