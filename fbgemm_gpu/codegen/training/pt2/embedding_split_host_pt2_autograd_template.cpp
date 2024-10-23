@@ -78,7 +78,7 @@ enum SSDTensor {
         )
     %}
     {%- set has_experimental = has_experimental_support(
-            dense, nobag, vbe, is_index_select=False, is_rocm=False, ssd=ssd
+            dense, nobag, vbe, is_index_select=False, ssd=ssd
         ) and not is_gwd
     %}
     static auto embedding_codegen_forward_op =

@@ -653,7 +653,7 @@ batch_index_select_dim0_codegen_forward_kernel
 
 {%- macro instantiate_templates(use_subwarp_shuffle) %}
 {%- set has_experimental =
-      has_experimental_support(dense, nobag, vbe, is_index_select, False, ssd)
+      has_experimental_support(dense, nobag, vbe, is_index_select, ssd)
 %}
 {%- set max_forward_embedding_dim =
       legacy_max_embedding_dim if has_experimental else max_embedding_dim
