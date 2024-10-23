@@ -340,14 +340,14 @@ void embedding_inplace_update_single_placement_cuda(
       });
 }
 
-template <typename index_t>
+template <typename index_t, typename remap_t>
 __global__
 __launch_bounds__(kMaxThreads) void pruned_array_lookup_from_row_idx_kernel(
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         update_row_indices,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         update_table_indices,
-    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<remap_t, 1, at::RestrictPtrTraits>
         index_remappings,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         index_remappings_offsets,
@@ -363,12 +363,13 @@ __launch_bounds__(kMaxThreads) void pruned_array_lookup_from_row_idx_kernel(
   }
   const int table_idx = update_table_indices[idx];
 
-  const int64_t index_remappings_start = index_remappings_offsets[table_idx];
-  const int64_t index_remappings_end = index_remappings_offsets[table_idx + 1];
-  const int64_t capacity = index_remappings_end - index_remappings_start;
+  const auto index_remappings_start = index_remappings_offsets[table_idx];
+  const auto index_remappings_end = index_remappings_offsets[table_idx + 1];
+  const auto capacity = index_remappings_end - index_remappings_start;
 
   if (capacity > 0) {
-    dense_indices[idx] = index_remappings[index_remappings_start + row_idx];
+    dense_indices[idx] = static_cast<index_t>(
+        index_remappings[index_remappings_start + row_idx]);
   } else {
     dense_indices[idx] = row_idx;
   }
@@ -411,24 +412,34 @@ Tensor pruned_array_lookup_from_row_idx_cuda(
   constexpr size_t kForwardMaxThreads = 256;
 
   AT_DISPATCH_INDEX_TYPES(
-      update_row_indices.scalar_type(),
-      "pruned_array_lookup_from_row_idx_kernel",
+      index_remappings.scalar_type(),
+      "pruned_array_lookup_from_row_idx_cuda_0",
       [&] {
+        using remap_t = index_t;
+
+        AT_DISPATCH_INDEX_TYPES(
+            update_row_indices.scalar_type(),
+            "pruned_array_lookup_from_row_idx_cuda_1",
+            [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "pruned_array_lookup_from_row_idx_kernel";
+              const auto func_name = "pruned_array_lookup_from_row_idx_kernel";
 #endif
-        pruned_array_lookup_from_row_idx_kernel<<<
-            nbit::div_round_up(num_indices, kForwardMaxThreads),
-            kForwardMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, update_row_indices, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, update_table_indices, int32_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, index_remappings, int32_t, 1, 32),
-            MAKE_PTA_WITH_NAME(
-                func_name, index_remappings_offsets, int64_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, dense_indices, index_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+              pruned_array_lookup_from_row_idx_kernel<<<
+                  nbit::div_round_up(num_indices, kForwardMaxThreads),
+                  kForwardMaxThreads,
+                  0,
+                  at::cuda::getCurrentCUDAStream()>>>(
+                  MAKE_PTA_WITH_NAME(
+                      func_name, update_row_indices, index_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                      func_name, update_table_indices, int32_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                      func_name, index_remappings, remap_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(
+                      func_name, index_remappings_offsets, int64_t, 1, 32),
+                  MAKE_PTA_WITH_NAME(func_name, dense_indices, index_t, 1, 32));
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
       });
   return dense_indices;
 }

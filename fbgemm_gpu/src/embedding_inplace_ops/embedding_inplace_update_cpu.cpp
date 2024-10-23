@@ -163,7 +163,7 @@ Tensor pruned_array_lookup_from_row_idx_cpu(
                   dense_indices_acc[idx] = static_cast<index_t>(
                       index_remappings_acc[index_remappings_start + row_idx]);
                 } else {
-                  dense_indices_acc[idx] = static_cast<index_t>(row_idx);
+                  dense_indices_acc[idx] = row_idx;
                 }
               }
             });
