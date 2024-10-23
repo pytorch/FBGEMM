@@ -46,6 +46,9 @@ E4M3_MAX_POS: float = torch.finfo(fp8_e4m3).max
 EPS: float = 1e-12
 FP16_MAX_POS: float = torch.finfo(torch.float16).max
 
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
 
 # pyre-ignore
 def patch_inductor_if_available():
@@ -127,6 +130,7 @@ def pack_int4(x: torch.Tensor) -> torch.Tensor:
     not torch.cuda.is_available(),
     "Skip when no GPU is available. This test is only for GPU.",
 )
+@unittest.skipIf(open_source, "Temporarily disabled in OSS.")
 class FP8TorchExportTests(unittest.TestCase):
     """Test that FP8 ops can be exported."""
 
@@ -806,6 +810,7 @@ class FP8Tests(unittest.TestCase):
         ((not torch.version.cuda) and (not torch.version.hip)),
         "Skip if no GPU is present.",
     )
+    @unittest.skipIf(open_source, "Temporarily disabled in OSS.")
     # TODO We can probably turn this back on later, it seems to currently be buggy.
     @patch_inductor_if_available()
     def test_quantize_compile(self) -> None:
