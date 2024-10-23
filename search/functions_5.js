@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['embedding_5finplace_5fupdate_5fcuda_0',['embedding_inplace_update_cuda',['../namespacefbgemm__gpu.html#a3cc719c9fd4057da0365bcab8f66ae21',1,'fbgemm_gpu']]],
+  ['embedding_5finplace_5fupdate_5fcuda_0',['embedding_inplace_update_cuda',['../namespacefbgemm__gpu.html#a358cc74c17a25856e51a4bf73a8247ec',1,'fbgemm_gpu']]],
   ['embeddingspmdm_5fautovec_1',['EmbeddingSpMDM_autovec',['../group__tbe-cpu-autovec.html#ga25906504931b7f9cdfd9dc2a696afd1c',1,'fbgemm']]],
   ['embeddingspmdmfp8_5fautovec_2',['EmbeddingSpMDMFP8_autovec',['../group__tbe-cpu-autovec.html#gac8da724711ff9553d4b08cea87191ae8',1,'fbgemm']]],
   ['emitextracthalfvector_3',['emitExtractHalfVector',['../namespacefbgemm.html#a602ac18c0e6c32448ff8d21818bded38',1,'fbgemm']]],

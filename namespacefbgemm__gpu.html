@@ -113,8 +113,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga01301ad686f7570c21e81c122d2c7af8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga161495e682d9eac3701dca87469930db" id="r_ga161495e682d9eac3701dca87469930db"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__cumem-utils.html#ga161495e682d9eac3701dca87469930db">uvm_to_cpu_clone</a> (const Tensor &amp;self)</td></tr>
 <tr class="separator:ga161495e682d9eac3701dca87469930db"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3cc719c9fd4057da0365bcab8f66ae21" id="r_a3cc719c9fd4057da0365bcab8f66ae21"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3cc719c9fd4057da0365bcab8f66ae21">embedding_inplace_update_cuda</a> (Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, Tensor update_weights, Tensor update_table_idx, Tensor update_row_idx, Tensor update_offsets, const int64_t row_alignment, std::optional&lt; Tensor &gt; lxu_cache_weights=c10::nullopt, std::optional&lt; Tensor &gt; lxu_cache_locations=c10::nullopt)</td></tr>
-<tr class="separator:a3cc719c9fd4057da0365bcab8f66ae21"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a358cc74c17a25856e51a4bf73a8247ec" id="r_a358cc74c17a25856e51a4bf73a8247ec"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a358cc74c17a25856e51a4bf73a8247ec">embedding_inplace_update_cuda</a> (Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, Tensor update_weights, Tensor update_table_idx, Tensor update_row_idx, Tensor update_offsets, const int64_t row_alignment, std::optional&lt; Tensor &gt; lxu_cache_weights=std::nullopt, std::optional&lt; Tensor &gt; lxu_cache_locations=std::nullopt)</td></tr>
+<tr class="separator:a358cc74c17a25856e51a4bf73a8247ec"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adda552b8784184a2f17aa997e10869f9" id="r_adda552b8784184a2f17aa997e10869f9"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adda552b8784184a2f17aa997e10869f9">pruned_array_lookup_from_row_idx_cuda</a> (const Tensor &amp;update_row_indices, const Tensor &amp;update_table_indices, const Tensor &amp;index_remappings, const Tensor &amp;index_remappings_offsets)</td></tr>
 <tr class="separator:adda552b8784184a2f17aa997e10869f9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a0b0cc504f8b357b0ca086e2c78d9b54c" id="r_a0b0cc504f8b357b0ca086e2c78d9b54c"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; std::vector&lt; int32_t &gt;, std::vector&lt; int32_t &gt;, std::vector&lt; int32_t &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0b0cc504f8b357b0ca086e2c78d9b54c">kt_regroup_arguments_impl</a> (const std::vector&lt; std::vector&lt; std::string &gt; &gt; &amp;keys, const std::vector&lt; std::vector&lt; int64_t &gt; &gt; &amp;lengths, const std::vector&lt; std::vector&lt; std::string &gt; &gt; &amp;groups)</td></tr>
@@ -294,8 +294,8 @@ template&lt;int NUM_JAGGED_DIM, typename index_t , typename scalar_t , typename 
 
 </div>
 </div>
-<a id="a3cc719c9fd4057da0365bcab8f66ae21" name="a3cc719c9fd4057da0365bcab8f66ae21"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3cc719c9fd4057da0365bcab8f66ae21">&#9670;&#160;</a></span>embedding_inplace_update_cuda()</h2>
+<a id="a358cc74c17a25856e51a4bf73a8247ec" name="a358cc74c17a25856e51a4bf73a8247ec"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a358cc74c17a25856e51a4bf73a8247ec">&#9670;&#160;</a></span>embedding_inplace_update_cuda()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -358,12 +358,12 @@ template&lt;int NUM_JAGGED_DIM, typename index_t , typename scalar_t , typename 
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_weights</em><span class="paramdefsep"> = </span><span class="paramdefval">c10::nullopt</span>, </span></td>
+          <td class="paramtype">std::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_weights</em><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </span></td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">std::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em><span class="paramdefsep"> = </span><span class="paramdefval">c10::nullopt</span></span>&#160;)</td>
+          <td class="paramtype">std::optional&lt; Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>lxu_cache_locations</em><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
