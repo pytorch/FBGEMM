@@ -507,7 +507,7 @@ struct TensorQueue : torch::CustomClassHolder {
 
     for (const auto index : c10::irange(queue_size)) {
       Tensor val;
-      queue_[index] = dict.at(key + "/" + c10::to_string(index));
+      queue_[index] = dict.at(key + "/" + std::to_string(index));
       queue_.push_back(val);
     }
   }
@@ -519,7 +519,7 @@ struct TensorQueue : torch::CustomClassHolder {
     dict.insert(
         key + "/size", torch::tensor(static_cast<int64_t>(queue_.size())));
     for (const auto index : c10::irange(queue_.size())) {
-      dict.insert(key + "/" + c10::to_string(index), queue_[index]);
+      dict.insert(key + "/" + std::to_string(index), queue_[index]);
     }
     return dict;
   }
