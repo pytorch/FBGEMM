@@ -20,10 +20,10 @@ namespace fbgemm_gpu {
 at::Tensor f8f8bf16_cublas(
     at::Tensor A, // FP8
     at::Tensor B, // FP8
-    std::optional<at::Tensor> Ainvs = c10::nullopt,
-    std::optional<at::Tensor> Binvs = c10::nullopt,
+    std::optional<at::Tensor> Ainvs = std::nullopt,
+    std::optional<at::Tensor> Binvs = std::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = std::nullopt) {
   auto m = A.size(0);
   auto n = B.size(0);
   auto k = A.size(1);
@@ -167,10 +167,10 @@ at::Tensor f8f8bf16_cublas(
 at::Tensor f8f8bf16_cublas(
     at::Tensor A, // FP8
     at::Tensor B, // FP8
-    std::optional<at::Tensor> Ainvs = c10::nullopt,
-    std::optional<at::Tensor> Binvs = c10::nullopt,
+    std::optional<at::Tensor> Ainvs = std::nullopt,
+    std::optional<at::Tensor> Binvs = std::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt) {
+    std::optional<at::Tensor> output = std::nullopt) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

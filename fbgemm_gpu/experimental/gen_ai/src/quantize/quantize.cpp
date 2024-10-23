@@ -59,17 +59,17 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias = c10::nullopt,
+    std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt);
+    std::optional<at::Tensor> output = std::nullopt);
 at::Tensor f8f8bf16_rowwise_batched(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    std::optional<at::Tensor> bias = c10::nullopt,
+    std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt);
+    std::optional<at::Tensor> output = std::nullopt);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -81,10 +81,10 @@ at::Tensor f8f8bf16_blockwise(
 at::Tensor f8f8bf16_cublas(
     at::Tensor A,
     at::Tensor B,
-    std::optional<at::Tensor> Ainvs = c10::nullopt,
-    std::optional<at::Tensor> Binvs = c10::nullopt,
+    std::optional<at::Tensor> Ainvs = std::nullopt,
+    std::optional<at::Tensor> Binvs = std::nullopt,
     bool use_fast_accum = true,
-    std::optional<at::Tensor> output = c10::nullopt);
+    std::optional<at::Tensor> output = std::nullopt);
 at::Tensor f8i4bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
