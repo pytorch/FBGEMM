@@ -601,7 +601,6 @@ __noinline__ __device__ void process_all_indices_large_Ls(
               &SMEM_CACHE_WEIGHT_DATA((l_start % kWarpSize) + SMEM_OFFSET, WEIGHT_OFFSET);
             ACC_ADD_OR_FMA(weight, index_weights[SMEM_OFFSET])
           }
-          // Bypass the hip clang error of "shift count >= width of type"
           cache_look_up_bits >>= STEP * NUM_LOAD_GROUPS;
         }
         else {
@@ -649,7 +648,6 @@ __noinline__ __device__ void process_all_indices_large_Ls(
         {%- endif %}
 
         if (USE_MIXED_TYPE_CACHE) {
-          // Bypass the hip clang error of "shift count >= width of type"
           cache_look_up_bits >>= STEP * NUM_LOAD_GROUPS;
         }
       }
