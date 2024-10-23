@@ -10,6 +10,8 @@ from typing import Optional, Tuple
 
 import torch
 
+from fbgemm_gpu.experimental.gen_ai.utils.loader import load_custom_library
+
 """
 This file contains manual shape registrations for quantize custom operators.
 These are needed for custom operators to be compatible with torch.compile.
@@ -19,6 +21,9 @@ directly in cpp. However, for more complicated functions such as those that invo
 cross device synchronization, pytorch requires a full fake implementation be registered
 in python.
 """
+
+# Load all custom operators.
+load_custom_library("//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:quantize_ops")
 
 
 @torch.library.register_fake("fbgemm::f8f8bf16_blockwise")

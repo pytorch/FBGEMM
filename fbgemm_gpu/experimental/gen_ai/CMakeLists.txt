@@ -80,9 +80,9 @@ set_source_files_properties(${experimental_gen_ai_cpp_source_files}
     PROPERTIES INCLUDE_DIRECTORIES
     "${fbgemm_sources_include_directories}")
 
-set(experimental_gen_ai_python_source_files
-    gen_ai/__init__.py)
-
+file(GLOB_RECURSE experimental_gen_ai_python_source_files
+  RELATIVE gen_ai
+  *.py)
 
 ################################################################################
 # FBGEMM_GPU HIP Code Generation
