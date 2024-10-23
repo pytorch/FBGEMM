@@ -229,7 +229,7 @@ void two_shot_car_allreduce(
 at::Tensor car_tensor();
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.set_python_module("fbgemm_gpu.experimental.gen_ai.comm_ops");
+  m.set_python_module("fbgemm_gpu.experimental.gen_ai.custom_ops.comm_ops");
 
   m.def(
       "nccl_init(int rank, int world_size, str rendevouz, int comm_idx=0) -> ()");
