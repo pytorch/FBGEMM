@@ -222,6 +222,7 @@ template <
   typename cache_t,
   typename cache_vec_t,
   typename output_vec_t,
+  typename look_up_bits_t,
   bool USE_CACHE_WEIGHTS,
   bool USE_MIXED_TYPE_CACHE,
   uint32_t WEIGHT_PTR_OFFSET,
@@ -317,7 +318,7 @@ __noinline__ __device__ void process_all_indices_small_Ls(
 
   uint32_t l_start = 0;
   // The ith LSB bit is set to 1 if the ith row needs to be looked up from cache
-  uint32_t cache_look_up_bits = 0;
+  look_up_bits_t cache_look_up_bits = 0;
   for (; l_start < total_L; l_start += STEP) {
     if ((l_start % kWarpSize) == 0) {
       const uint32_t l = l_start + threadIdx.x;
@@ -513,6 +514,7 @@ template <
   typename cache_t,
   typename cache_vec_t,
   typename output_vec_t,
+  typename look_up_bits_t,
   bool USE_CACHE_WEIGHTS,
   bool USE_MIXED_TYPE_CACHE,
   uint32_t WEIGHT_PTR_OFFSET,
@@ -541,7 +543,7 @@ __noinline__ __device__ void process_all_indices_large_Ls(
 
   uint32_t l_start = 0;
   // The ith LSB bit is set to 1 if the ith row needs to be looked up from cache
-  uint32_t cache_look_up_bits = 0;
+  look_up_bits_t cache_look_up_bits = 0;
   for (;
       l_start < L;
       l_start += (IS_FULL_WARP ? STEP : (NUM_LOAD_GROUPS * STEP))) {
@@ -600,7 +602,7 @@ __noinline__ __device__ void process_all_indices_large_Ls(
             ACC_ADD_OR_FMA(weight, index_weights[SMEM_OFFSET])
           }
           // Bypass the hip clang error of "shift count >= width of type"
-          cache_look_up_bits >>= std::min(STEP * NUM_LOAD_GROUPS, 31u);
+          cache_look_up_bits >>= STEP * NUM_LOAD_GROUPS;
         }
         else {
           // Load and accumulate STEP rows for UVM caching that emb_t and cache_t
@@ -648,7 +650,7 @@ __noinline__ __device__ void process_all_indices_large_Ls(
 
         if (USE_MIXED_TYPE_CACHE) {
           // Bypass the hip clang error of "shift count >= width of type"
-          cache_look_up_bits >>= std::min(STEP * NUM_LOAD_GROUPS, 31u);
+          cache_look_up_bits >>= STEP * NUM_LOAD_GROUPS;
         }
       }
     }
@@ -738,6 +740,12 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     using emb_vec_t = vec4_type<emb_t>;
     using cache_vec_t = vec4_type<cache_t>;
     using output_vec_t = vec4_type<output_t>;
+#if defined(USE_ROCM)
+    using look_up_bits_t = uint64_t;
+#else
+    using look_up_bits_t = uint32_t;
+#endif
+
 
     constexpr uint32_t NUM_WARPS = kForwardMaxThreads / kWarpSize;
     constexpr uint32_t NUM_OFFSETS_PER_WARP = kWarpSize;
@@ -873,6 +881,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
       cache_t, \
       cache_vec_t, \
       output_vec_t, \
+      look_up_bits_t, \
       USE_CACHE, \
       USE_CACHE && !std::is_same<emb_t, cache_t>::value, \
       NUM_PARAMS * NUM_WARPS, \
