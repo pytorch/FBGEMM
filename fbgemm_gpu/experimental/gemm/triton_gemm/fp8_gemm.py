@@ -734,6 +734,11 @@ def _kernel_matmul_fp8_row_imprecise_acc(
             num_stages=4,
             num_warps=4,
         ),
+        Config(
+            {"BLOCK_M": 64, "BLOCK_N": 64, "BLOCK_K": 512, "SPLIT_K": 1},
+            num_stages=3,
+            num_warps=4,
+        ),
     ],
     key=[
         "m_key",
