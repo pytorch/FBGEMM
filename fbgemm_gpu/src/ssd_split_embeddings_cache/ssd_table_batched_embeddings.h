@@ -830,4 +830,52 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t max_D_;
 }; // class EmbeddingRocksDB
 
+class EmbeddingRocksDBWrapper;
+
+struct EmbeddingSnapshotHandleWrapper : public torch::jit::CustomClassHolder {
+  explicit EmbeddingSnapshotHandleWrapper(
+      const EmbeddingRocksDB::SnapshotHandle* handle,
+      std::shared_ptr<EmbeddingRocksDB> db)
+      : handle(handle), db(std::move(db)) {}
+
+  ~EmbeddingSnapshotHandleWrapper() {
+    db->release_snapshot(handle);
+  }
+
+  const EmbeddingRocksDB::SnapshotHandle* handle;
+  std::shared_ptr<EmbeddingRocksDB> db;
+};
+
+class KVTensorWrapper : public torch::jit::CustomClassHolder {
+ public:
+  explicit KVTensorWrapper(
+      c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
+      std::vector<int64_t> shape,
+      int64_t dtype,
+      int64_t row_offset,
+      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+          snapshot_handle);
+
+  at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
+
+  void set_range(
+      int64_t dim,
+      const int64_t start,
+      const int64_t length,
+      const at::Tensor& weights);
+
+  c10::IntArrayRef size();
+
+  c10::ScalarType dtype();
+
+  c10::string_view dtype_str();
+
+ private:
+  std::shared_ptr<EmbeddingRocksDB> db_;
+  c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
+  at::TensorOptions options_;
+  std::vector<int64_t> shape_;
+  int64_t row_offset_;
+};
+
 } // namespace ssd
