@@ -826,24 +826,21 @@ accuracy.</p>
 <dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv430_paddedFP8rowwise_to_float_gpuRKN2at6TensorEKbK7int64_tK7int64_tK7int64_t">
 <span id="_CPPv330_paddedFP8rowwise_to_float_gpuRKN2at6TensorEKbK7int64_tK7int64_tK7int64_t"></span><span id="_CPPv230_paddedFP8rowwise_to_float_gpuRKN2at6TensorEKbK7int64_tK7int64_tK7int64_t"></span><span id="_paddedFP8rowwise_to_float_gpu__at::TensorCR.bC.int64_tC.int64_tC.int64_tC"></span><span class="target" id="group__quantize-ops-cuda_1ga6c6d6fc1318239ecfaf902349a988cd6"></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">_paddedFP8rowwise_to_float_gpu</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">input</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">forward</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">row_dim</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_last_dim</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">output_dtype</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv430_paddedFP8rowwise_to_float_gpuRKN2at6TensorEKbK7int64_tK7int64_tK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Converts a tensor of padded <code class="docutils literal notranslate"><span class="pre">fp8</span></code> rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span> <span class="pre">values</span></code>.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>input</strong> – A tensor of <code class="docutils literal notranslate"><span class="pre">float</span></code> values. The dtype can be either <code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, or <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code></p></li>
-<li><p><strong>forward</strong> – </p></li>
-<li><p><strong>row_dim</strong> – </p></li>
-<li><p><strong>output_last_dim</strong> – </p></li>
-<li><p><strong>output_dtype</strong> – The target floating point type, specified as integer representation of <code class="docutils literal notranslate"><span class="pre">SparseType</span></code> enum</p></li>
-</ul>
-</dd>
-<dt class="field-even">Throws<span class="colon">:</span></dt>
-<dd class="field-even"><p><span><span class="cpp-expr sig sig-inline cpp"><span class="n">c10</span><span class="p">::</span><a class="reference external" href="https://pytorch.org/cppdocs/api/classc10_1_1_error.html#_CPPv4N3c105ErrorE" title="(in PyTorch vmain)"><span class="n">Error</span></a></span></span> – if <code class="docutils literal notranslate"><span class="pre">output_dtype</span></code> is not one of (<code class="docutils literal notranslate"><span class="pre">SparseType::FP32</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::FP16</span></code>, <code class="docutils literal notranslate"><span class="pre">SparseType::BF16</span></code>). </p>
-</dd>
-<dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>A new tensor with values from the input tensor converted to <code class="docutils literal notranslate"><span class="pre">float</span></code>.</p>
-</dd>
-</dl>
+<dd><p>Converts a tensor of padded <code class="docutils literal notranslate"><span class="pre">fp8</span></code> rowwise values into a tensor of <code class="docutils literal notranslate"><span class="pre">float</span> <span class="pre">/</span> <span class="pre">values</span></code>. <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span>@param input A tensor of `float` values.  The dtype can be either
+             `SparseType::FP32`, `SparseType::FP16`, or `SparseType::BF16`
+@param forward
+@param row_dim
+@param output_last_dim
+@param output_dtype The target floating point type, specified as integer
+                    representation of `SparseType` enum
+
+@return A new tensor with values from the input tensor converted to `float`.
+
+@throw c10::Error if `output_dtype` is not one of (`SparseType::FP32`,
+`SparseType::FP16`, `SparseType::BF16`).
+</pre></div>
+</div>
+</p>
 </dd></dl>
 
 </section>
