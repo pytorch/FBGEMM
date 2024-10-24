@@ -256,22 +256,7 @@ void compact_indices_cuda(
     Tensor masks,
     Tensor count);
 
-namespace {
-class KVTensorWrapper;
-
-struct EmbeddingSnapshotHandleWrapper : public torch::jit::CustomClassHolder {
-  explicit EmbeddingSnapshotHandleWrapper(
-      const EmbeddingRocksDB::SnapshotHandle* handle,
-      std::shared_ptr<EmbeddingRocksDB> db)
-      : handle(handle), db(std::move(db)) {}
-
-  ~EmbeddingSnapshotHandleWrapper() {
-    db->release_snapshot(handle);
-  }
-
-  const EmbeddingRocksDB::SnapshotHandle* handle;
-  std::shared_ptr<EmbeddingRocksDB> db;
-};
+namespace ssd {
 
 class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
  public:
@@ -392,75 +377,68 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
   std::shared_ptr<ssd::EmbeddingRocksDB> impl_;
 };
 
-class KVTensorWrapper : public torch::jit::CustomClassHolder {
- public:
-  explicit KVTensorWrapper(
-      c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
-      std::vector<int64_t> shape,
-      int64_t dtype,
-      int64_t row_offset,
-      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-          snapshot_handle)
-      : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
-    CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
-    options_ = at::TensorOptions()
-                   .dtype(static_cast<c10::ScalarType>(dtype))
-                   .device(at::kCPU)
-                   .layout(at::kStrided);
-    if (snapshot_handle.has_value()) {
-      snapshot_handle_ = std::move(snapshot_handle.value());
-    }
+KVTensorWrapper::KVTensorWrapper(
+    c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
+    std::vector<int64_t> shape,
+    int64_t dtype,
+    int64_t row_offset,
+    std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+        snapshot_handle)
+    : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
+  CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
+  options_ = at::TensorOptions()
+                 .dtype(static_cast<c10::ScalarType>(dtype))
+                 .device(at::kCPU)
+                 .layout(at::kStrided);
+  if (snapshot_handle.has_value()) {
+    snapshot_handle_ = std::move(snapshot_handle.value());
   }
+}
 
-  at::Tensor narrow(int64_t dim, int64_t start, int64_t length) {
-    CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-    CHECK_GE(db_->get_max_D(), shape_[1]);
-    CHECK_TRUE(snapshot_handle_ != nullptr);
-    auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
-    db_->get_range_from_snapshot(
-        t, start + row_offset_, length, snapshot_handle_->handle);
-    // TBE may have multiple embeddings in one table padded to max D
-    // narrow to the actual shape here before returning
-    return t.narrow(1, 0, shape_[1]);
+at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
+  CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
+  CHECK_GE(db_->get_max_D(), shape_[1]);
+  CHECK_TRUE(snapshot_handle_ != nullptr);
+  auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
+  db_->get_range_from_snapshot(
+      t, start + row_offset_, length, snapshot_handle_->handle);
+  // TBE may have multiple embeddings in one table padded to max D
+  // narrow to the actual shape here before returning
+  return t.narrow(1, 0, shape_[1]);
+}
+
+void KVTensorWrapper::set_range(
+    int64_t dim,
+    const int64_t start,
+    const int64_t length,
+    const at::Tensor& weights) {
+  CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
+  CHECK_GE(db_->get_max_D(), shape_[1]);
+  int pad_right = db_->get_max_D() - weights.size(1);
+  if (pad_right == 0) {
+    db_->set_range(weights, start + row_offset_, length);
+  } else {
+    std::vector<int64_t> padding = {0, pad_right, 0, 0};
+    auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
+    CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+    db_->set_range(padded_weights, start + row_offset_, length);
   }
+}
 
-  void set_range(
-      int64_t dim,
-      const int64_t start,
-      const int64_t length,
-      const at::Tensor& weights) {
-    CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
-    CHECK_GE(db_->get_max_D(), shape_[1]);
-    int pad_right = db_->get_max_D() - weights.size(1);
-    if (pad_right == 0) {
-      db_->set_range(weights, start + row_offset_, length);
-    } else {
-      std::vector<int64_t> padding = {0, pad_right, 0, 0};
-      auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
-      CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
-      db_->set_range(padded_weights, start + row_offset_, length);
-    }
-  }
+c10::IntArrayRef KVTensorWrapper::size() {
+  return shape_;
+}
 
-  c10::IntArrayRef size() {
-    return shape_;
-  }
+c10::ScalarType KVTensorWrapper::dtype() {
+  return options_.dtype().toScalarType();
+}
 
-  c10::ScalarType dtype() {
-    return options_.dtype().toScalarType();
-  }
+c10::string_view KVTensorWrapper::dtype_str() {
+  return scalarTypeToTypeMeta(dtype()).name();
+}
+} // namespace ssd
 
-  c10::string_view dtype_str() {
-    return scalarTypeToTypeMeta(dtype()).name();
-  }
-
- private:
-  std::shared_ptr<EmbeddingRocksDB> db_;
-  c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
-  at::TensorOptions options_;
-  std::vector<int64_t> shape_;
-  int64_t row_offset_;
-};
+namespace {
 
 static auto embedding_snapshot_handle_wrapper =
     torch::class_<EmbeddingSnapshotHandleWrapper>(
@@ -654,4 +632,5 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor count) -> ()");
   DISPATCH_TO_CUDA("compact_indices", compact_indices_cuda);
 }
+
 } // namespace
