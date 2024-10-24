@@ -57,7 +57,7 @@ def patch_inductor_if_available():
     # pyre-ignore
     def wrapper(func):
         if hasattr(torch._inductor, "config"):
-            return torch._inductor.config.patch(enable_auto_functionalized_v2=False)(
+            return torch._inductor.config.patch(enable_auto_functionalized_v2=True)(
                 func
             )
         else:
