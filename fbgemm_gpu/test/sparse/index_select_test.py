@@ -419,6 +419,7 @@ additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],
     "test_autograd_registration__test_index_select_dim0": [unittest.skip("hangs")],
     "test_schema__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_faketensor__test_group_index_select_dim0": [unittest.skip("hangs")],
 }
 
 extend_test_class(IndexSelectTest, additional_decorators)

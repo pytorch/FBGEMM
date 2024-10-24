@@ -391,6 +391,8 @@ static torch::autograd::variable_list group_index_select_dim0_backward_impl_gpu(
     c10::SymIntArrayRef output_shape_group_ref) {
   TORCH_CHECK(all_inputs.size() > 2);
 
+  // all_input size =  group_size * 2 (from grads, indices)
+  // + 1 args_tensor + 1 saved_data + 1 first input
   const int64_t group_size = (all_inputs.size() - 3) / 2;
 
   Tensor fwd_input = all_inputs[2 * group_size + 2];
