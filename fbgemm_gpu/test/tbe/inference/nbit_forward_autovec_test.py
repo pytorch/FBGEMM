@@ -105,6 +105,7 @@ class NBitFowardAutovecTest(unittest.TestCase):
         use_array_for_index_remapping: bool,
         do_pruning: bool,
         mixed_weights_ty: bool,
+        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
@@ -232,13 +233,13 @@ class NBitFowardAutovecTest(unittest.TestCase):
                 )
                 index_remappings_array_t = torch.tensor(
                     [-1] * original_E,
-                    dtype=torch.int32,
+                    dtype=torch.int64,
                     device=current_device,
                 )
                 index_remappings_array_t[indice_t] = dense_indice_t
                 index_remappings_array.append(index_remappings_array_t.cpu())
         else:
-            index_remappings_array = [torch.arange(E, dtype=torch.int32) for E in Es]
+            index_remappings_array = [torch.arange(E, dtype=torch.int64) for E in Es]
             x = torch.cat([x.view(1, B, L) for x in xs], dim=0)
             xw = torch.cat([xw.view(1, B, L) for xw in xws], dim=0)
             (indices, offsets) = get_table_batched_offsets_from_dense(
@@ -268,6 +269,7 @@ class NBitFowardAutovecTest(unittest.TestCase):
             fp8_exponent_bias=(
                 fp8_config.get("exponent_bias") if has_fp8_weight else None
             ),
+            indices_dtype=indices_dtype,
         )
         # Initialize the random weights for int nbit table split embedding bag
         cc.fill_random_weights()
@@ -311,19 +313,22 @@ class NBitFowardAutovecTest(unittest.TestCase):
                 fp8_config=fp8_config if has_fp8_weight else None,
             )
 
+        indices = indices.to(dtype=indices_dtype)
+        offsets = offsets.to(dtype=indices_dtype)
+
         if not use_cpu:
             fc2 = (
-                cc(indices.int(), offsets.int())
+                cc(indices, offsets)
                 if not weighted
-                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1))
+                else cc(indices, offsets, xw.contiguous().view(-1))
             )
         else:
             cc = cc.cpu()
             indices, offsets = indices.cpu(), offsets.cpu()
             fc2 = (
-                cc(indices.int(), offsets.int())
+                cc(indices, offsets)
                 if not weighted
-                else cc(indices.int(), offsets.int(), xw.contiguous().view(-1).cpu())
+                else cc(indices, offsets, xw.contiguous().view(-1).cpu())
             )
 
         if do_pooling and B == 0:
@@ -373,6 +378,7 @@ class NBitFowardAutovecTest(unittest.TestCase):
         pooling_mode=st.sampled_from(
             [PoolingMode.SUM, PoolingMode.MEAN, PoolingMode.NONE]
         ),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
         ),
@@ -386,6 +392,7 @@ class NBitFowardAutovecTest(unittest.TestCase):
         self,
         nbit_weights_ty: Optional[SparseType],
         pooling_mode: PoolingMode,
+        indices_dtype: torch.dtype,
         output_dtype: SparseType,
     ) -> None:
         use_cpu = True
@@ -432,6 +439,7 @@ class NBitFowardAutovecTest(unittest.TestCase):
             False,
             False,
             mixed_weights_ty,
+            indices_dtype,
             output_dtype,
         )
 
