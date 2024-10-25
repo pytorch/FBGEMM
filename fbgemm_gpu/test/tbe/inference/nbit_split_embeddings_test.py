@@ -191,12 +191,14 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             ]
         ),
         emulate_pruning=st.booleans(),
+        indices_dtype=st.sampled_from([torch.int, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         self,
         weights_ty: SparseType,
         emulate_pruning: bool,
+        indices_dtype: torch.dtype,
     ) -> None:
         # TODO: support direct-mapped in int_nbit_split_embedding_uvm_caching_codegen_lookup_function
         # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
@@ -233,6 +235,7 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         cc_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed_caching)],
             cache_algorithm=cache_algorithm,
+            indices_dtype=indices_dtype,
         )
         cc_ref.fill_random_weights()
 
@@ -241,6 +244,7 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed_caching)],
             cache_algorithm=cache_algorithm,
+            indices_dtype=indices_dtype,
         )
         cc.fill_random_weights()
 
@@ -260,8 +264,8 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         )
         for req in requests:
             indices, offsets = req.unpack_2()
-            indices = indices.int()
-            offsets = offsets.int()
+            indices = indices.to(dtype=indices_dtype)
+            offsets = offsets.to(dtype=indices_dtype)
             output_ref = cc_ref(indices, offsets)
 
             # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM_CACHING.
@@ -396,12 +400,6 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         Es = [E] * T
         cpu_locations = [EmbeddingLocation.HOST] * T
 
-        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
-            [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, cpu_locations)],
-            device=torch.device("cpu"),
-        )
-        cc.fill_random_weights()
-
         requests = generate_requests(
             iters, B, T, L, min(Es), reuse=0.1, emulate_pruning=False, use_cpu=True
         )
@@ -414,6 +412,14 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         for i, req in enumerate(requests):
             indices, offsets = req.unpack_2()
             indices_dtype, offsets_dtype = dtypes_combo[i]
+
+            cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+                [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, cpu_locations)],
+                device=torch.device("cpu"),
+                indices_dtype=indices_dtype,
+            )
+            cc.fill_random_weights()
+
             indices = indices.to(indices_dtype)
             offsets = offsets.to(offsets_dtype)
             _ = cc(indices, offsets)
