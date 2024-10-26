@@ -28,10 +28,10 @@ copyright = f"2020 - {datetime.date.today().year}, FBGEMM Team"
 author = "FBGEMM Team"
 
 # The short X.Y version.
-version = "0.8"
+version = "1.0"
 
 # The full version, including alpha/beta/rc tags
-release = "0.8.0"
+release = "1.0.0"
 
 
 # -- Path setup --------------------------------------------------------------
