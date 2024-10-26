@@ -177,7 +177,7 @@ def inputs_to_device(
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
-    Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
+    Inference version, with support for FP32/FP16/FP8/INT8/INT4/INT2 weights
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
@@ -223,6 +223,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
         feature_names_per_table: Optional[List[List[str]]] = None,
+        indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -247,6 +248,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.output_dtype: int = output_dtype.as_int()
         self.uvm_host_mapped = uvm_host_mapped
         self.feature_names_per_table = feature_names_per_table
+        self.indices_dtype = indices_dtype
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
@@ -397,13 +399,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.assign_embedding_weights(weight_lists)
 
         # Handle index remapping for embedding pruning.
+        # All buffers are int64 in order to support both int32 and int64 indices.
         self.register_buffer(
             "index_remappings_array_offsets",
             torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remappings_array",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.current_device, dtype=self.indices_dtype),
         )
         self.register_buffer(
             "index_remapping_hash_table_offsets",
@@ -411,7 +414,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "index_remapping_hash_table",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.current_device, dtype=self.indices_dtype),
         )
         self.register_buffer(
             "original_rows_per_table",
@@ -1528,11 +1531,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 index_remappings_filter_nones.append(mapping)
         if len(index_remappings_filter_nones) == 0:
             self.index_remappings_array = torch.empty(
-                0, dtype=torch.int32, device=self.current_device
+                0, dtype=self.indices_dtype, device=self.current_device
             )
         else:
             self.index_remappings_array = torch.cat(index_remappings_filter_nones).to(
-                self.current_device
+                dtype=self.indices_dtype, device=self.current_device
             )
 
     def set_index_remappings(
@@ -1555,7 +1558,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ]
             hash_table = torch.empty(
                 (sum(capacities), 2),
-                dtype=torch.int32,
+                dtype=self.indices_dtype,
             )
             hash_table[:, :] = -1
             hash_table_offsets = torch.tensor([0] + list(accumulate(capacities))).long()
@@ -1597,7 +1600,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     hash_table,
                     hash_table_offsets,
                 )
-                self.index_remapping_hash_table = hash_table.to(self.current_device)
+                self.index_remapping_hash_table = hash_table.to(
+                    dtype=self.indices_dtype, device=self.current_device
+                )
                 self.index_remapping_hash_table_offsets = hash_table_offsets.to(
                     self.current_device
                 )

@@ -469,7 +469,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         # Initialize and insert Hashmap index remapping based data structure
         hash_table = torch.empty(
             (sum(capacities), 2),
-            dtype=torch.int32,
+            dtype=torch.int64,
         )
         hash_table[:, :] = -1
         hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
@@ -486,7 +486,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         # Initialize and insert Array index remapping based data structure
         index_remappings_array = torch.tensor(
             [-1] * original_E * T,
-            dtype=torch.int32,
+            dtype=torch.int64,
             device=current_device,
         )
         index_remappings_array_offsets = torch.empty(
@@ -498,7 +498,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         for t in range(T):
             indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
             dense_indice_t = (
-                (dense_indices.view(T, B, L))[t].view(-1).to(current_device)
+                (dense_indices.view(T, B, L))[t].long().view(-1).to(current_device)
             )
             selected_indices = torch.add(indice_t, t * original_E)[:E]
             index_remappings_array[selected_indices] = dense_indice_t

@@ -118,9 +118,12 @@ class NBitCacheTest(unittest.TestCase):
         self.assertEqual(total_access_count, expected_total_access)
 
     @unittest.skipIf(*gpu_unavailable)
-    @given(N=st.integers(min_value=1, max_value=8))
+    @given(
+        N=st.integers(min_value=1, max_value=8),
+        indices_dtype=st.sampled_from([torch.int, torch.long]),
+    )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_nbit_cache_miss_counter(self, N: int) -> None:
+    def test_nbit_cache_miss_counter(self, N: int, indices_dtype: torch.dtype) -> None:
         # Create an abstract split table
         D = 8
         T = 2
@@ -140,6 +143,7 @@ class NBitCacheTest(unittest.TestCase):
             ],
             device=torch.cuda.current_device(),
             record_cache_metrics=RecordCacheMetrics(True, True),
+            indices_dtype=indices_dtype,
         )
         cc.fill_random_weights()
 
@@ -156,7 +160,7 @@ class NBitCacheTest(unittest.TestCase):
         ):
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
-                cc(indices.int(), offsets.int())
+                cc(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (
                     cache_miss_forward_count,
                     unique_cache_miss_count,
@@ -173,9 +177,12 @@ class NBitCacheTest(unittest.TestCase):
     @given(
         N=st.integers(min_value=1, max_value=8),
         dtype=st.sampled_from([SparseType.INT8, SparseType.INT4, SparseType.INT2]),
+        indices_dtype=st.sampled_from([torch.int, torch.long]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_nbit_uvm_cache_stats(self, N: int, dtype: SparseType) -> None:
+    def test_nbit_uvm_cache_stats(
+        self, N: int, dtype: SparseType, indices_dtype: torch.dtype
+    ) -> None:
         # Create an abstract split table
         D = 8
         T = 2
@@ -195,6 +202,7 @@ class NBitCacheTest(unittest.TestCase):
             ],
             device=torch.cuda.current_device(),
             gather_uvm_cache_stats=True,
+            indices_dtype=indices_dtype,
         )
         cc.fill_random_weights()
 
@@ -215,7 +223,7 @@ class NBitCacheTest(unittest.TestCase):
             for _ in range(N):
                 num_calls_expected = num_calls_expected + 1
                 num_indices_expcted = num_indices_expcted + len(indices)
-                cc(indices.int(), offsets.int())
+                cc(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (
                     num_calls,
                     num_indices,
@@ -250,6 +258,7 @@ class NBitCacheTest(unittest.TestCase):
             device=torch.cuda.current_device(),
             gather_uvm_cache_stats=True,
             cache_sets=1,  # Only one set.
+            indices_dtype=indices_dtype,
         )
         cc1.fill_random_weights()
 
@@ -271,7 +280,7 @@ class NBitCacheTest(unittest.TestCase):
         for x, e in zip((indices1, indices2, indices3), expected):
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
-                cc1(indices.int(), offsets.int())
+                cc1(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (
                     _,
                     _,
@@ -288,10 +297,11 @@ class NBitCacheTest(unittest.TestCase):
     @given(
         N=st.integers(min_value=1, max_value=8),
         dtype=st.sampled_from([SparseType.INT8, SparseType.INT4, SparseType.INT2]),
+        indices_dtype=st.sampled_from([torch.int, torch.long]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_direct_mapped_uvm_cache_stats(
-        self, N: int, dtype: SparseType
+        self, N: int, dtype: SparseType, indices_dtype: torch.dtype
     ) -> None:
         # Create an abstract split table
         D = 8
@@ -313,6 +323,7 @@ class NBitCacheTest(unittest.TestCase):
             device=torch.cuda.current_device(),
             gather_uvm_cache_stats=True,
             cache_assoc=1,  # Direct Mapped
+            indices_dtype=indices_dtype,
         )
         cc.fill_random_weights()
 
@@ -333,7 +344,7 @@ class NBitCacheTest(unittest.TestCase):
             for _ in range(N):
                 num_calls_expected = num_calls_expected + 1
                 num_indices_expcted = num_indices_expcted + len(indices)
-                cc(indices.int(), offsets.int())
+                cc(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (
                     num_calls,
                     num_indices,
@@ -371,6 +382,7 @@ class NBitCacheTest(unittest.TestCase):
             gather_uvm_cache_stats=True,
             cache_sets=1,  # Only one set.
             cache_assoc=1,  # Direct Mapped
+            indices_dtype=indices_dtype,
         )
         cc1.fill_random_weights()
 
@@ -393,7 +405,7 @@ class NBitCacheTest(unittest.TestCase):
         for x, e in zip((indices1, indices2, indices3), expected):
             (indices, offsets) = get_table_batched_offsets_from_dense(x, use_cpu=False)
             for _ in range(N):
-                cc1(indices.int(), offsets.int())
+                cc1(indices.to(dtype=indices_dtype), offsets.to(dtype=indices_dtype))
                 (
                     _,
                     _,
