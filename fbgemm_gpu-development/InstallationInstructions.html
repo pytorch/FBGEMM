@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Installation Instructions &mdash; FBGEMM 0.8.0 documentation</title>
+  <title>Installation Instructions &mdash; FBGEMM 1.0.0 documentation</title>
   
 
   
@@ -269,7 +269,7 @@
               
               
                 <div class="version">
-                  0.8
+                  1.0
                 </div>
               
             
@@ -441,6 +441,72 @@ of scripts bundled in the FBGEMM repo under
 <li><p>Install the FBGEMM_GPU package.</p></li>
 <li><p>Run post-installation checks.</p></li>
 </ol>
+<section id="fbgemm-releases-compatibility-table">
+<h2>FBGEMM Releases Compatibility Table<a class="headerlink" href="#fbgemm-releases-compatibility-table" title="Permalink to this heading">¶</a></h2>
+<p>FBGEMM is released in accordance to the PyTorch release schedule, and is each
+release has no guarantee to work in conjunction with PyTorch releases that are
+older than the one that the FBGEMM release corresponds to.</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>FBGEMM Release</p></th>
+<th class="head"><p>Corresponding
+PyTorch Release</p></th>
+<th class="head"><p>Supported
+Python Versions</p></th>
+<th class="head"><p>Supported
+CUDA Versions</p></th>
+<th class="head"><p>(Experimental) Supported
+ROCm Versions</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1.0.0</p></td>
+<td><p>2.5.x</p></td>
+<td><p>3.9, 3.10, 3.11,
+3.12</p></td>
+<td><p>11.8, 12.1,
+12.4</p></td>
+<td><p>6.0, 6.1</p></td>
+</tr>
+<tr class="row-odd"><td><p>0.8.0</p></td>
+<td><p>2.4.x</p></td>
+<td><p>3.8, 3.9, 3.10,
+3.11, 3.12</p></td>
+<td><p>11.8, 12.1,
+12.4</p></td>
+<td><p>6.0, 6.1</p></td>
+</tr>
+<tr class="row-even"><td><p>0.7.0</p></td>
+<td><p>2.3.x</p></td>
+<td><p>3.8, 3.9, 3.10,
+3.11, 3.12</p></td>
+<td><p>11.8, 12.1</p></td>
+<td><p>6.0</p></td>
+</tr>
+<tr class="row-odd"><td><p>0.6.0</p></td>
+<td><p>2.2.x</p></td>
+<td><p>3.8, 3.9, 3.10,
+3.11, 3.12</p></td>
+<td><p>11.8, 12.1</p></td>
+<td><p>5.7</p></td>
+</tr>
+<tr class="row-even"><td><p>0.5.0</p></td>
+<td><p>2.1.x</p></td>
+<td><p>3.8, 3.9, 3.10,
+3.11</p></td>
+<td><p>11.8, 12.1</p></td>
+<td><p>5.5, 5.6</p></td>
+</tr>
+<tr class="row-odd"><td><p>0.4.0</p></td>
+<td><p>2.0.x</p></td>
+<td><p>3.8, 3.9, 3.10</p></td>
+<td><p>11.7, 11.8</p></td>
+<td><p>5.3, 5.4</p></td>
+</tr>
+</tbody>
+</table>
+<p>For more information, please visit the <a class="reference external" href="https://github.com/pytorch/FBGEMM/releases">FBGEMM Releases Page</a>.</p>
+</section>
 <section id="set-up-cpu-only-environment">
 <h2>Set Up CPU-Only Environment<a class="headerlink" href="#set-up-cpu-only-environment" title="Permalink to this heading">¶</a></h2>
 <p>Follow the instructions for setting up the Conda environment at
@@ -731,6 +797,7 @@ be reported to the FBGEMM developers.</p>
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">Installation Instructions</a><ul>
+<li><a class="reference internal" href="#fbgemm-releases-compatibility-table">FBGEMM Releases Compatibility Table</a></li>
 <li><a class="reference internal" href="#set-up-cpu-only-environment">Set Up CPU-Only Environment</a></li>
 <li><a class="reference internal" href="#set-up-cuda-environment">Set Up CUDA Environment</a><ul>
 <li><a class="reference internal" href="#install-nvidia-drivers">Install NVIDIA Drivers</a></li>
