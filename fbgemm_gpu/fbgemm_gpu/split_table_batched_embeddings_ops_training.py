@@ -1943,32 +1943,31 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         iter_int = int(self.iter_cpu.item())
         should_ema = iter_int % int(ensemble_mode["step_ema"]) == 0
         should_swap = iter_int % int(ensemble_mode["step_swap"]) == 0
+        should_start = iter_int > int(ensemble_mode["step_start"])
         if should_ema or should_swap:
             weights = self.split_embedding_weights()
             states = self.split_optimizer_states()
-            coef_ema = (
-                0.0
-                if iter_int <= int(ensemble_mode["step_start"])
-                else ensemble_mode["step_ema_coef"]
-            )
             for i in range(len(self.embedding_specs)):
-                # 0) copying weights from gpu to cpu
-                weights_cpu = weights[i].to(
-                    dtype=states[i][1].dtype, device=states[i][1].device
-                )
                 # 1) ema step
                 if should_ema:
+                    coef_ema = ensemble_mode["step_ema_coef"] if should_start else 0.0
+                    weights_cpu = weights[i].to(
+                        dtype=states[i][1].dtype, device=states[i][1].device
+                    )
                     states[i][1].lerp_(weights_cpu, 1.0 - coef_ema)
                 # 2) swap step
                 if should_swap:
-                    weights[i].copy_(states[i][1], non_blocking=True)
-                # 3) post-processing step
-                if should_ema:
-                    if int(ensemble_mode["step_mode"]) == 0:  # embedding scaling
-                        states[i][1].mul_(0.0)
-                    elif int(ensemble_mode["step_mode"]) == 1:  # nesterov
-                        states[i][1].copy_(weights_cpu, non_blocking=True)
-                #  elif int(ensemble_mode["step_mode"]) == 2:  pure ema
+                    if should_start and int(ensemble_mode["step_mode"]) != 0:
+                        weights[i].copy_(states[i][1], non_blocking=True)
+
+        # 3) reset lr warmup
+        if should_start and int(ensemble_mode["step_mode"]) != 2:
+            coef_lr = (iter_int % int(ensemble_mode["step_swap"])) / float(
+                ensemble_mode["step_swap"]
+            )
+            self.set_learning_rate(
+                self.optimizer_args.learning_rate * (coef_lr + 0.01 * (1.0 - coef_lr))
+            )
 
     def reset_uvm_cache_stats(self) -> None:
         assert (
