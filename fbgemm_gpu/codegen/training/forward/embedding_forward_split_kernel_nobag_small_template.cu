@@ -59,8 +59,8 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     {%- endif %}
     {%- if is_index_select %}
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> output_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> total_L_offsets,
     const int32_t fixed_L_per_warp,
     const bool permute_output_dim_0_1,
     {%- endif %} // if dense
