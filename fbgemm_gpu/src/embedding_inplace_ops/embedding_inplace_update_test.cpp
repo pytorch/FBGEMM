@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include <folly/Random.h>
 #include <gtest/gtest.h>
 #include "fbgemm_gpu/embedding_inplace_update.h"
@@ -101,7 +102,7 @@ void test_embedding_inplace_update() {
   std::vector<int64_t> update_offsets;
   int64_t update_offset = 0;
   update_offsets.push_back(0);
-  for (int i = 0; i < update_table_idx.size(); ++i) {
+  for (const auto i : c10::irange(update_table_idx.size())) {
     int32_t idx = update_table_idx[i];
     update_offset +=
         get_D_bytes(D_offsets_tensor, weights_tys_tensor, idx, row_alignment);
@@ -149,7 +150,7 @@ void test_embedding_inplace_update() {
   auto uvm_weight_cpu = uvm_weight.cpu();
   auto update_weight_cpu = update_weight.cpu();
   int offset = 0;
-  for (int i = 0; i < update_table_idx.size(); i++) {
+  for (const auto i : c10::irange(update_table_idx.size())) {
     auto table_idx = update_table_idx[i];
     auto row_idx = update_row_idx[i];
     auto weight_offset = weights_offsets[table_idx];
