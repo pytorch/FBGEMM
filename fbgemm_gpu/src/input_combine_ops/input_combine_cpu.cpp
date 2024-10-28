@@ -15,6 +15,7 @@
 #include <c10/core/ScalarType.h>
 #include <c10/core/TensorOptions.h>
 #include <c10/util/Exception.h>
+#include <c10/util/irange.h>
 #include <torch/script.h>
 
 #include "fbgemm_gpu/input_combine.h"
@@ -121,7 +122,7 @@ Tensor _cat_int_tensors_with_padding(
   auto* combined_tensors_data_ptr =
       combined_tensors.mutable_data_ptr<int32_t>();
 
-  for (size_t i = 0; i < tensor_list.size(); i++) {
+  for (const auto i : c10::irange(tensor_list.size())) {
     size_t idx = i * batch_size;
     const auto& tensor = tensor_list[i];
     AT_DISPATCH_INDEX_TYPES(tensor.scalar_type(), "tbe_cat_inputs_", [&] {
@@ -130,7 +131,7 @@ Tensor _cat_int_tensors_with_padding(
       TORCH_INTERNAL_ASSERT_DEBUG_ONLY(tensor.is_contiguous());
       auto indices_data_ptr = tensor.const_data_ptr<index_t>();
       const auto numel = tensor.numel();
-      for (auto j = 0; j < numel; j++) {
+      for (const auto j : c10::irange(numel)) {
         combined_tensors_data_ptr[idx++] =
             static_cast<int32_t>(indices_data_ptr[j]);
       }
@@ -156,7 +157,7 @@ void _cat_per_sample_weights_list_out(
 
   auto* out_weights_ptr = out.mutable_data_ptr<float>();
 
-  for (size_t i = 0; i < per_sample_weights.size(); i++) {
+  for (const auto i : c10::irange(per_sample_weights.size())) {
     auto element_size = per_sample_weights[i].numel();
     auto actual_indices_size = indices_list[i].numel();
     if (to_trim_padding) {
@@ -236,7 +237,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
   std::vector<int64_t> indices_terminating_idx;
   indices_terminating_idx.reserve(indices_list.size());
 
-  for (size_t i = 0; i < indices_list.size(); i++) {
+  for (const auto i : c10::irange(indices_list.size())) {
     TORCH_CHECK(
         indices_list[i].dtype() == c10::kInt ||
         indices_list[i].dtype() == c10::kLong);
@@ -287,7 +288,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_cpu(
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
-  for (size_t i = 0; i < offsets_list.size(); i++) {
+  for (const auto i : c10::irange(offsets_list.size())) {
     AT_DISPATCH_INDEX_TYPES(
         offsets_list[i].scalar_type(), "tbe_input_offsets_", [&] {
           // TORCH_CHECKed to be contiguous above, so data_ptr is safe.
@@ -339,7 +340,7 @@ void tbe_input_combine_with_length_cpu_out(
   int64_t total_lengths = 0;
   bool need_weights = false;
 
-  for (size_t i = 0; i < indices_list.size(); i++) {
+  for (const auto i : c10::irange(indices_list.size())) {
     TORCH_CHECK(
         indices_list[i].dtype() == c10::kInt ||
         indices_list[i].dtype() == c10::kLong);
@@ -445,7 +446,7 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
   bool need_weights = false;
   bool pin_memory = false;
 
-  for (size_t i = 0; i < indices_list.size(); i++) {
+  for (const auto i : c10::irange(indices_list.size())) {
     TORCH_CHECK(
         indices_list[i].dtype() == c10::kInt ||
         indices_list[i].dtype() == c10::kLong);
@@ -481,7 +482,7 @@ std::tuple<Tensor, Tensor, Tensor> padding_fused_tbe_input_combine_cpu(
   size_t offsets_acc_idx = 0;
   combined_offsets_data_ptr[offsets_acc_idx++] = 0;
 
-  for (size_t i = 0; i < offsets_list.size(); i++) {
+  for (const auto i : c10::irange(offsets_list.size())) {
     AT_DISPATCH_INDEX_TYPES(
         offsets_list[i].scalar_type(), "tbe_input_offsets_", [&] {
           // TORCH_CHECKed to be contiguous above, so data_ptr is safe.
@@ -531,7 +532,7 @@ padding_fused_tbe_input_combine_with_length_cpu(
   bool need_weights = false;
   bool pin_memory = false;
 
-  for (size_t i = 0; i < indices_list.size(); i++) {
+  for (const auto i : c10::irange(indices_list.size())) {
     TORCH_CHECK(
         indices_list[i].dtype() == c10::kInt ||
         indices_list[i].dtype() == c10::kLong);
