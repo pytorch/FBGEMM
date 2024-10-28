@@ -11,6 +11,7 @@
 #include <ATen/TensorUtils.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <c10/core/SymIntArrayRef.h>
+#include <c10/util/irange.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <torch/torch.h>
@@ -179,7 +180,7 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
       torch::autograd::variable_list grad_outputs) {
     const Tensor x_values = ctx->get_saved_variables().front();
     std::vector<Tensor> x_offsets;
-    for (size_t i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
+    for (const auto i : c10::irange(1, ctx->get_saved_variables().size() - 1)) {
       x_offsets.push_back(ctx->get_saved_variables()[i]);
     }
     Tensor y = ctx->get_saved_variables().back();
@@ -802,7 +803,7 @@ Tensor jagged_dense_elementwise_add(
   // Construct max_lengths from y
   std::vector<c10::SymInt> max_lengths;
   max_lengths.reserve(x_offsets.size());
-  for (int d = 1; d < y.dim() - 1; d++) {
+  for (const auto d : c10::irange(1, y.dim() - 1)) {
     max_lengths.push_back(y.sym_size(d));
   }
   TORCH_CHECK(max_lengths.size() == x_offsets.size());

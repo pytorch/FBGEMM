@@ -11,6 +11,7 @@
 #include <functional>
 
 #include <ATen/ATen.h>
+#include <c10/util/irange.h>
 #include <torch/library.h>
 
 #include "fbgemm_gpu/embedding_inplace_update.h"
@@ -34,7 +35,7 @@ void embedding_inplace_update_cpu_kernel(
     const at::TensorAccessor<index_t, 1>& update_row_idx,
     const at::TensorAccessor<int64_t, 1>& update_offsets,
     int64_t row_alignment) {
-  for (int64_t n = 0; n < update_row_idx.size(0); n++) {
+  for (const auto n : c10::irange(update_row_idx.size(0))) {
     int32_t t = update_table_idx[n];
     auto row_idx = update_row_idx[n];
 

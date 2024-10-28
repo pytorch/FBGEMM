@@ -67,7 +67,7 @@ class TensorAccessorBase {
         ptr_name_(ptr_name),
         func_name_(func_name) {
     numel_ = 1;
-    for (size_t d = 0; d < N; d++) {
+    for (const auto d : c10::irange(N)) {
       numel_ += (sizes[d] - 1) * strides[d];
     }
   }
@@ -220,7 +220,7 @@ class GenericPackedTensorAccessorBase {
     std::copy(strides, strides + N, std::begin(strides_));
     // Compute numel_
     numel_ = 1;
-    for (size_t d = 0; d < N; d++) {
+    for (const auto d : c10::irange(N)) {
       numel_ += (sizes[d] - 1) * strides[d];
     }
     copy_str(ptr_name_, ptr_name, PTR_NAME_MAX_LEN);
@@ -245,7 +245,7 @@ class GenericPackedTensorAccessorBase {
     }
     // Compute numel_
     numel_ = 1;
-    for (size_t d = 0; d < N; d++) {
+    for (const auto d : c10::irange(N)) {
       numel_ += (sizes[d] - 1) * strides[d];
     }
     copy_str(ptr_name_, ptr_name, PTR_NAME_MAX_LEN);
