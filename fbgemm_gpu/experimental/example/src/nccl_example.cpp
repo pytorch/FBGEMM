@@ -6,6 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <c10/util/irange.h>
 #include <nccl.h>
 
 namespace fbgemm_gpu::experimental {
@@ -15,7 +16,7 @@ void example_nccl_code() {
   int devs[4] = {0, 1, 2, 3};
   ncclCommInitAll(comms, 4, devs);
 
-  for (int i = 0; i < 4; i++) {
+  for (const auto i : c10::irange(4)) {
     ncclCommDestroy(comms[i]);
   }
 }
