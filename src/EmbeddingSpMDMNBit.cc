@@ -1149,35 +1149,23 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
   if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
       is_autovec_forced()) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDMNBit_autovec(
-          input_bit_rate,
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          is_bf16_out,
-          no_bag,
-          output_bit_rate);
-    };
+    return GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/indxType,
+        /*OffsetType=*/offsetType,
+        /*OutType=*/outType>(
+        input_bit_rate,
+        block_size,
+        has_weight,
+        normalize_by_lengths,
+        prefetch,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        is_bf16_out,
+        no_bag,
+        output_bit_rate);
   }
 #endif
 

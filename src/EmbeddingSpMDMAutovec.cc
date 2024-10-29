@@ -22,6 +22,12 @@
 #include <numeric>
 #include <thread>
 
+#ifdef _WIN32
+#define do_prefetch(...)
+#else
+#define do_prefetch(...) __builtin_prefetch(__VA_ARGS__)
+#endif
+
 namespace fbgemm {
 
 template <typename OutType>
@@ -46,7 +52,7 @@ static inline void fill_output(
 }
 
 template <typename IndexType, typename OffsetType, typename OutType>
-bool EmbeddingSpMDM8Bit_autovec(
+static bool EmbeddingSpMDM8Bit_autovec(
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -57,33 +63,21 @@ bool EmbeddingSpMDM8Bit_autovec(
     const float* weights, // optional, can be null for non-weighted sum
     const bool normalize_by_lengths,
     OutType* out,
-    const bool is_weight_positional /*=false*/,
-    const bool use_offsets /*=true*/,
-    int64_t output_stride /*=-1*/,
-    int64_t input_stride /*=-1*/,
-    const bool scale_bias_last /*=true*/,
-    const bool no_bag /*=false*/,
-    const bool is_bf16_out /*=false*/) {
+    const bool is_weight_positional,
+    const bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    const bool scale_bias_last,
+    const bool no_bag,
+    const bool is_bf16_out) {
   constexpr bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
   if (data_size < 0) {
     return false;
-  }
-  if (output_stride == -1) {
-    output_stride = block_size;
   }
   if constexpr (isOutput8bit) {
     assert(input_stride == output_stride);
   }
 
-  // block_size is the number of elements and fused_block_size is the size of
-  // an entire row, including scale and bias.
-  if (input_stride == -1) {
-    // scale_bias_last == false is for table batched embedding that stores
-    // scale and bias in float16
-    const auto scale_bias_offset =
-        2 * (scale_bias_last ? sizeof(float) : sizeof(float16));
-    input_stride = block_size + scale_bias_offset;
-  }
   constexpr int64_t CACHE_LINE_SIZE = 64;
   constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
   const int64_t prefetch_stride =
@@ -236,48 +230,8 @@ bool EmbeddingSpMDM8Bit_autovec(
   return current == index_size;
 }
 
-#define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template FBGEMM_API bool EmbeddingSpMDM8Bit_autovec(            \
-      const int64_t block_size,                                   \
-      const int64_t output_size,                                  \
-      const int64_t index_size,                                   \
-      const int64_t data_size,                                    \
-      const uint8_t* input,                                       \
-      const INDEX_TYPE* indices,                                  \
-      const OFFSET_TYPE* offsets_or_lengths,                      \
-      const float* weights,                                       \
-      const bool normalize_by_lengths,                            \
-      OUT_TYPE* out,                                              \
-      const bool is_weight_positional,                            \
-      const bool use_offsets,                                     \
-      int64_t input_stride,                                       \
-      int64_t output_stride,                                      \
-      const bool scale_bias_last,                                 \
-      const bool no_bag,                                          \
-      const bool is_bf16_out);
-
-#define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float16) \
-  INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, std::uint8_t)
-
-#define INSTANTIATE_SPMDM_OFFSET_T(INDEX_TYPE)      \
-  INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int32_t) \
-  INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, std::int64_t)
-
-#define INSTANTIATE_SPMDM_INDEX_T()        \
-  INSTANTIATE_SPMDM_OFFSET_T(std::int32_t) \
-  INSTANTIATE_SPMDM_OFFSET_T(std::int64_t)
-
-INSTANTIATE_SPMDM_INDEX_T()
-
-#undef INSTANTIATE_SPMDM_INDEX_T
-#undef INSTANTIATE_SPMDM_OFFSET_T
-#undef INSTANTIATE_SPMDM_OUT_T
-#undef INSTANTIATE_SPMDM_BASE
-
 template <typename IndexType, typename OffsetType, typename OutType>
-bool EmbeddingSpMDMNBit_autovec(
+static bool EmbeddingSpMDMNBit_autovec(
     const int input_bit_rate,
     const int64_t block_size,
     const int64_t output_size,
@@ -289,31 +243,17 @@ bool EmbeddingSpMDMNBit_autovec(
     const float* weights, // optional, can be null for non-weighted sum
     const bool normalize_by_lengths,
     OutType* out,
-    const bool is_weight_positional /*=false*/,
-    const bool use_offsets /*=true*/,
-    int64_t output_stride /*=-1*/,
-    int64_t input_stride /*=-1*/,
-    const bool scale_bias_last /*=true*/,
-    const bool is_bf16_out /*=false*/,
-    const bool no_bag /*=false*/,
-    int output_bit_rate /*=-1*/) {
-  if (output_bit_rate == -1) {
-    output_bit_rate = 8 * sizeof(OutType);
-  }
+    const bool is_weight_positional,
+    const bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    const bool scale_bias_last,
+    const bool is_bf16_out,
+    const bool no_bag,
+    int output_bit_rate) {
   nbit_embedding_sanity_check<OutType>(input_bit_rate, output_bit_rate, no_bag);
-  const int num_elem_per_byte = 8 / input_bit_rate;
   if (data_size < 0) {
     return false;
-  }
-  if (output_stride == -1) {
-    output_stride = block_size;
-  }
-
-  // block_size is the number of elements and fused_block_size is the size of
-  // an entire row, including scale and bias.
-  const size_t scale_bias_size = 2 * sizeof(float16);
-  if (input_stride == -1) {
-    input_stride = div_up(block_size, num_elem_per_byte) + scale_bias_size;
   }
 
   // more prefetch
@@ -326,8 +266,10 @@ bool EmbeddingSpMDMNBit_autovec(
   const int64_t rows_to_prefetch =
       std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
   const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
+  const int num_elem_per_byte = 8 / input_bit_rate;
   const int64_t scale_bias_offset =
       scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0;
+  const size_t scale_bias_size = 2 * sizeof(float16);
   const int64_t input_row_offset = scale_bias_last ? 0 : scale_bias_size;
   // The following prefetch loop is written in this way for better performance.
   // My understanding is that manually separating the case of input_stride being
@@ -457,7 +399,7 @@ template <
     typename IndexType,
     typename OffsetType,
     typename OutType>
-bool EmbeddingSpMDM_autovec(
+static bool EmbeddingSpMDM_autovec(
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -468,40 +410,16 @@ bool EmbeddingSpMDM_autovec(
     const float* weights, // optional, can be null for non-weighted sum
     bool normalize_by_lengths,
     OutType* out,
-    bool is_weight_positional /*=false*/,
-    bool use_offsets /*=true*/,
-    int64_t output_stride /*=-1*/,
-    int64_t input_stride /*=-1*/,
-    bool scale_bias_last /*=true*/,
-    bool no_bag /*=false*/,
-    bool is_bf16_out /*=false*/,
-    bool is_bf16_in /*=false*/) {
-  if (std::is_same<InType, std::uint8_t>::value) {
-    const uint8_t* input_u8 = reinterpret_cast<const uint8_t*>(input);
-    return EmbeddingSpMDM8Bit_autovec(
-        block_size,
-        output_size,
-        index_size,
-        data_size,
-        input_u8,
-        indices,
-        offsets_or_lengths,
-        weights,
-        normalize_by_lengths,
-        out,
-        is_weight_positional,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        no_bag,
-        is_bf16_out);
-  }
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    bool scale_bias_last,
+    bool no_bag,
+    bool is_bf16_out,
+    bool is_bf16_in) {
   if (data_size < 0) {
     return false;
-  }
-  if (output_stride == -1) {
-    output_stride = block_size;
   }
 
   std::array<float, 256> local_storage;
@@ -512,10 +430,6 @@ bool EmbeddingSpMDM_autovec(
   } else {
     heap_storage.reset(new float[block_size]);
     buf = heap_storage.get();
-  }
-
-  if (input_stride == -1) {
-    input_stride = block_size;
   }
 
   if (no_bag) {
@@ -628,7 +542,7 @@ bool EmbeddingSpMDM_autovec(
 }
 
 template <typename InType, typename IndexType, typename OffsetType>
-bool EmbeddingSpMDMRowWiseSparse_autovec(
+static bool EmbeddingSpMDMRowWiseSparse_autovec(
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -756,63 +670,6 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
   }
 }
 
-#define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template FBGEMM_API bool EmbeddingSpMDM_autovec(                         \
-      const int64_t block_size,                                            \
-      const int64_t output_size,                                           \
-      const int64_t index_size,                                            \
-      const int64_t data_size,                                             \
-      const IN_TYPE* input,                                                \
-      const INDEX_TYPE* indices,                                           \
-      const OFFSET_TYPE* offsets_or_lengths,                               \
-      const float* weights,                                                \
-      bool normalize_by_lengths,                                           \
-      OUT_TYPE* out,                                                       \
-      bool is_weight_positional,                                           \
-      bool use_offsets,                                                    \
-      int64_t input_stride,                                                \
-      int64_t output_stride,                                               \
-      bool scale_bias_last,                                                \
-      bool no_bag,                                                         \
-      bool is_bf16_out,                                                    \
-      bool is_bf16_in);
-
-#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
-  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
-  template FBGEMM_API bool EmbeddingSpMDMRowWiseSparse_autovec(          \
-      const int64_t block_size,                                          \
-      const int64_t output_size,                                         \
-      const int64_t index_size,                                          \
-      const int64_t uncompressed_data_size,                              \
-      const IN_TYPE* input,                                              \
-      const INDEX_TYPE* indices,                                         \
-      const int32_t* compressed_indices_table,                           \
-      const OFFSET_TYPE* offsets_or_lengths,                             \
-      const float* weights,                                              \
-      bool normalize_by_lengths,                                         \
-      float* out,                                                        \
-      bool is_weight_positional,                                         \
-      bool use_offsets);
-
-#define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
-  INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, std::int32_t) \
-  INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, std::int64_t)
-
-#define INSTANTIATE_SPMDM_INDEX_T(IN_TYPE)          \
-  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int32_t) \
-  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int64_t)
-
-INSTANTIATE_SPMDM_INDEX_T(float)
-INSTANTIATE_SPMDM_INDEX_T(float16)
-INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
-
-#undef INSTANTIATE_SPMDM_INDEX_T
-#undef INSTANTIATE_SPMDM_OFFSET_T
-#undef INSTANTIATE_SPMDM_OUT_T
-#undef INSTANTIATE_SPMDM_BASE
-
 namespace {
 void Float8ToFloat_ref_batch(
     const uint8_t* input,
@@ -837,7 +694,7 @@ void Float8ToFloat_ref_batch(
 } // namespace
 
 template <typename IndexType, typename OffsetType, typename OutType>
-bool EmbeddingSpMDMFP8_autovec(
+static bool EmbeddingSpMDMFP8_autovec(
     const int64_t block_size,
     const int64_t output_size,
     const int64_t index_size,
@@ -854,12 +711,9 @@ bool EmbeddingSpMDMFP8_autovec(
     int64_t input_stride,
     int exponent_bits,
     int exponent_bias,
-    bool is_bf16_out /*=false*/) {
+    bool is_bf16_out) {
   if (data_size < 0) {
     return false;
-  }
-  if (output_stride == -1) {
-    output_stride = block_size;
   }
 
   std::array<float, 256> local_storage;
@@ -872,9 +726,6 @@ bool EmbeddingSpMDMFP8_autovec(
     buf = heap_storage.get();
   }
 
-  if (input_stride == -1) {
-    input_stride = block_size;
-  }
   // more prefetch: prefetch up to 16 rows from the embedding table. Increasing
   // prefetching helps reduce backend stall and therefore enable vectorization
   // reach better of its potential. 16 is tuned for Neoverse-V2.
@@ -981,45 +832,294 @@ bool EmbeddingSpMDMFP8_autovec(
   return current == index_size;
 }
 
-#define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
-  template FBGEMM_API bool EmbeddingSpMDMNBit_autovec(            \
-      const int input_bit_rate,                                   \
-      const int64_t block_size,                                   \
-      const int64_t output_size,                                  \
-      const int64_t index_size,                                   \
-      const int64_t data_size,                                    \
-      const uint8_t* input,                                       \
-      const INDEX_TYPE* indices,                                  \
-      const OFFSET_TYPE* offsets_or_lengths,                      \
-      const float* weights,                                       \
-      const bool normalize_by_lengths,                            \
-      OUT_TYPE* out,                                              \
-      const bool is_weight_positional,                            \
-      const bool use_offsets,                                     \
-      int64_t output_stride,                                      \
-      int64_t input_stride,                                       \
-      const bool scale_bias_last,                                 \
-      const bool is_bf16_out,                                     \
-      const bool no_bag,                                          \
-      int output_bit_rate);                                       \
-  template FBGEMM_API bool EmbeddingSpMDMFP8_autovec(             \
-      const int64_t block_size,                                   \
-      const int64_t output_size,                                  \
-      const int64_t index_size,                                   \
-      const int64_t data_size,                                    \
-      const uint8_t* input,                                       \
-      const INDEX_TYPE* indices,                                  \
-      const OFFSET_TYPE* offsets_or_lengths,                      \
-      const float* weights,                                       \
-      bool normalize_by_lengths,                                  \
-      OUT_TYPE* out,                                              \
-      bool is_weight_positional,                                  \
-      bool use_offsets,                                           \
-      int64_t output_stride,                                      \
-      int64_t input_stride,                                       \
-      int exponent_bits,                                          \
-      int exponent_bias,                                          \
+template <
+    typename InType,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType>
+typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
+    Type
+    GenerateEmbeddingSpMDMWithStrides_autovec(
+        int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional,
+        bool use_offsets,
+        int64_t output_stride,
+        int64_t input_stride,
+        bool scale_bias_last,
+        bool no_bag,
+        bool is_bf16_out,
+        bool is_bf16_in) {
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+  if (input_stride == -1) {
+    if (std::is_same<InType, uint8_t>::value) {
+      const size_t scale_bias_offset =
+          2 * (scale_bias_last ? sizeof(float) : sizeof(uint16_t));
+      input_stride = block_size + scale_bias_offset;
+    } else {
+      input_stride = block_size;
+    }
+  }
+
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const InType* input,
+             const IndexType* indices,
+             const OffsetType* offsets_or_lengths,
+             const float* weights,
+             OutType* out) {
+    const uint8_t* input_u8 = reinterpret_cast<const uint8_t*>(input);
+    if (std::is_same<InType, uint8_t>::value) {
+      assert(!is_bf16_in);
+      return EmbeddingSpMDM8Bit_autovec(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input_u8,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          is_bf16_out);
+    } else {
+      return EmbeddingSpMDM_autovec(
+          block_size,
+          output_size,
+          index_size,
+          data_size,
+          input,
+          indices,
+          offsets_or_lengths,
+          weights,
+          normalize_by_lengths,
+          out,
+          is_weight_positional,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          no_bag,
+          is_bf16_out,
+          is_bf16_in);
+    }
+  };
+}
+
+template <typename IndexType, typename OffsetType, typename OutType>
+FBGEMM_API typename EmbeddingSpMDMKernelSignature<
+    uint8_t,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMNBitWithStrides_autovec(
+    int input_bit_rate,
+    int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    bool scale_bias_last,
+    bool is_bf16_out,
+    bool no_bag,
+    int output_bit_rate) {
+  if (output_bit_rate == -1) {
+    output_bit_rate = 8 * sizeof(OutType);
+  }
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+
+  // block_size is the number of elements and fused_block_size is the size of
+  // an entire row, including scale and bias.
+  const int num_elem_per_byte = 8 / input_bit_rate;
+  const size_t scale_bias_size = 2 * sizeof(float16);
+  if (input_stride == -1) {
+    input_stride = div_up(block_size, num_elem_per_byte) + scale_bias_size;
+  }
+
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const uint8_t* input,
+             const IndexType* indices,
+             const OffsetType* offsets_or_lengths,
+             const float* weights,
+             OutType* out) {
+    return EmbeddingSpMDMNBit_autovec(
+        input_bit_rate,
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        is_bf16_out,
+        no_bag,
+        output_bit_rate);
+  };
+}
+
+template <typename IndexType, typename OffsetType, typename OutType>
+typename EmbeddingSpMDMKernelSignature<
+    uint8_t,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMFP8WithStrides_autovec(
+    int64_t block_size,
+    bool normalize_by_lengths,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    int exponent_bits,
+    int exponent_bias,
+    bool is_bf16_out) {
+  if (output_stride == -1) {
+    output_stride = block_size;
+  }
+  if (input_stride == -1) {
+    input_stride = block_size;
+  }
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const uint8_t* input,
+             const IndexType* indices,
+             const OffsetType* offsets_or_lengths,
+             const float* weights,
+             OutType* out) {
+    return EmbeddingSpMDMFP8_autovec(
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        exponent_bits,
+        exponent_bias,
+        is_bf16_out);
+  };
+}
+
+template <typename InType, typename IndexType, typename OffsetType>
+typename EmbeddingSpMDMRowWiseSparseKernelSignature<
+    InType,
+    IndexType,
+    OffsetType>::Type
+GenerateEmbeddingSpMDMRowWiseSparse_autovec(
+    int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets) {
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t uncompressed_data_size,
+             const InType* input,
+             const IndexType* indices,
+             const OffsetType* offsets_or_lengths,
+             const float* weights,
+             float* out,
+             const int32_t* compressed_indices_table) {
+    return EmbeddingSpMDMRowWiseSparse_autovec(
+        block_size,
+        output_size,
+        index_size,
+        uncompressed_data_size,
+        input,
+        indices,
+        compressed_indices_table,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets);
+  };
+}
+
+#define INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  template typename EmbeddingSpMDMKernelSignature<                             \
+      uint8_t,                                                                 \
+      INDEX_TYPE,                                                              \
+      OFFSET_TYPE,                                                             \
+      OUT_TYPE>::Type                                                          \
+  GenerateEmbeddingSpMDMNBitWithStrides_autovec<                               \
+      INDEX_TYPE,                                                              \
+      OFFSET_TYPE,                                                             \
+      OUT_TYPE>(                                                               \
+      int input_bit_rate,                                                      \
+      int64_t block_size,                                                      \
+      bool has_weight,                                                         \
+      bool normalize_by_lengths,                                               \
+      int prefetch,                                                            \
+      bool is_weight_positional,                                               \
+      bool use_offsets,                                                        \
+      int64_t output_stride,                                                   \
+      int64_t input_stride,                                                    \
+      bool scale_bias_last,                                                    \
+      bool is_bf16_out,                                                        \
+      bool no_bag,                                                             \
+      int output_bit_rate);
+
+#define INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  template typename EmbeddingSpMDMKernelSignature<               \
+      uint8_t,                                                   \
+      INDEX_TYPE,                                                \
+      OFFSET_TYPE,                                               \
+      OUT_TYPE>::Type                                            \
+  GenerateEmbeddingSpMDMFP8WithStrides_autovec<                  \
+      INDEX_TYPE,                                                \
+      OFFSET_TYPE,                                               \
+      OUT_TYPE>(                                                 \
+      int64_t block_size,                                        \
+      bool normalize_by_lengths,                                 \
+      bool is_weight_positional,                                 \
+      bool use_offsets,                                          \
+      int64_t output_stride,                                     \
+      int64_t input_stride,                                      \
+      int exponent_bits,                                         \
+      int exponent_bias,                                         \
       bool is_bf16_out);
+
+#define INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)        \
+  INSTANTIATE_SPMDM_NBIT_WITH_STRIDES(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  INSTANTIATE_SPMDM_FP8(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)   \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \
@@ -1033,6 +1133,67 @@ bool EmbeddingSpMDMFP8_autovec(
 INSTANTIATE_SPMDM_OFFSET_T(int32_t)
 INSTANTIATE_SPMDM_OFFSET_T(int64_t)
 
+#undef INSTANTIATE_SPMDM_OFFSET_T
+#undef INSTANTIATE_SPMDM_OUT_T
+#undef INSTANTIATE_SPMDM_BASE
+
+#define INSTANTIATE_SPMDM_ROWWISE(IN_TYPE, OFFSET_TYPE, OUT_TYPE)              \
+  template typename EmbeddingSpMDMRowWiseSparseKernelSignature<                \
+      IN_TYPE,                                                                 \
+      OFFSET_TYPE,                                                             \
+      OUT_TYPE>::Type                                                          \
+  GenerateEmbeddingSpMDMRowWiseSparse_autovec<IN_TYPE, OFFSET_TYPE, OUT_TYPE>( \
+      int64_t block_size,                                                      \
+      bool has_weight,                                                         \
+      bool normalize_by_lengths,                                               \
+      int prefetch,                                                            \
+      bool is_weight_positional,                                               \
+      bool use_offsets);
+
+#define INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
+  template typename EmbeddingSpMDMKernelSignature<                         \
+      IN_TYPE,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE,                                                         \
+      OUT_TYPE>::Type                                                      \
+  GenerateEmbeddingSpMDMWithStrides_autovec<                               \
+      IN_TYPE,                                                             \
+      INDEX_TYPE,                                                          \
+      OFFSET_TYPE,                                                         \
+      OUT_TYPE>(                                                           \
+      int64_t block_size,                                                  \
+      bool has_weight,                                                     \
+      bool normalize_by_lengths,                                           \
+      int prefetch,                                                        \
+      bool is_weight_positional,                                           \
+      bool use_offsets,                                                    \
+      int64_t output_stride,                                               \
+      int64_t input_stride,                                                \
+      bool scale_bias_last,                                                \
+      bool no_bag,                                                         \
+      bool is_bf16_out,                                                    \
+      bool is_bf16_in);
+
+#define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float16)      \
+  INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, std::uint8_t) \
+  INSTANTIATE_SPMDM_ROWWISE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)
+
+#define INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, INDEX_TYPE)      \
+  INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, std::int32_t) \
+  INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, std::int64_t)
+
+#define INSTANTIATE_SPMDM_INDEX_T(IN_TYPE)          \
+  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int32_t) \
+  INSTANTIATE_SPMDM_OFFSET_T(IN_TYPE, std::int64_t)
+
+INSTANTIATE_SPMDM_INDEX_T(float)
+INSTANTIATE_SPMDM_INDEX_T(float16)
+INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
+
+#undef INSTANTIATE_SPMDM_ROWWISE
+#undef INSTANTIATE_SPMDM_INDEX_T
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_OUT_T
 #undef INSTANTIATE_SPMDM_BASE
