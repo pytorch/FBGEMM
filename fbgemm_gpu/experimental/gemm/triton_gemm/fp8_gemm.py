@@ -2610,6 +2610,7 @@ MATMUL_CONFIGS_NON_PERSISTENT: List[Config] = get_full_non_persistent_tuning_spa
         "perf_model": None,
         "top_k": None,
     },
+    use_cuda_graph=True,
 )
 @triton.heuristics(
     {
