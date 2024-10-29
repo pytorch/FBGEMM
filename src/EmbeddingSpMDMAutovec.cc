@@ -31,17 +31,14 @@ static inline void fill_output(
     const int64_t block_size,
     const bool is_bf16_out) {
   if (std::is_same<OutType, float>::value) {
-#pragma omp simd
     for (int j = 0; j < block_size; ++j) {
       out[j] = src[j];
     }
   } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
-#pragma omp simd
     for (int j = 0; j < block_size; ++j) {
       out[j] = cpu_float2bfloat16(src[j]);
     }
   } else {
-#pragma omp simd
     for (int j = 0; j < block_size; ++j) {
       out[j] = cpu_float2half(src[j]);
     }
@@ -91,16 +88,16 @@ bool EmbeddingSpMDM8Bit_autovec(
   constexpr int64_t MAX_INITIAL_PREFETCH_ROWS = 16;
   const int64_t prefetch_stride =
       std::min(MAX_INITIAL_PREFETCH_ROWS, index_size);
-  for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    for (int col = 0; col < input_stride; col += CACHE_LINE_SIZE) {
-      do_prefetch(
-          reinterpret_cast<const char*>(
-              input + input_stride * indices[pf_idx] + col),
-          0,
-          0);
+  for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
+    for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
+      do_prefetch(prefetch_addr + offset, 0, 0);
     }
   }
-  IndexType current = 0;
+
+  const int64_t scale_bias_size = 2 * sizeof(float16);
+  const int64_t scale_bias_offset = scale_bias_last ? block_size : 0;
+  const int64_t input_offset = scale_bias_last ? 0 : scale_bias_size;
 
   std::array<float, 256> local_storage;
   std::unique_ptr<float[]> heap_storage;
@@ -113,47 +110,43 @@ bool EmbeddingSpMDM8Bit_autovec(
   }
 
   if (no_bag) {
-    // compiler may see this as unused even if it's used in pragma
-    [[maybe_unused]] constexpr int unroll_factor = 4;
-#if defined(__clang__)
-#pragma unroll unroll_factor
-#elif defined(__GNUC__)
-#pragma GCC unroll unroll_factor
-#endif
-    for (int m = 0; m < output_size; ++m) {
-      const auto idx = indices[m];
+    for (int64_t m = 0; m < output_size; ++m) {
+      const IndexType idx = indices[m];
 
       if (idx < 0 || idx >= data_size) {
         return false;
       }
+
+      const uint8_t* input_row_base = input + input_stride * idx;
       if constexpr (isOutput8bit) {
-        const uint8_t* input_row_ptr = input + input_stride * idx;
-        memcpy(out, input_row_ptr, sizeof(uint8_t) * input_stride);
+        memcpy(out, input_row_base, sizeof(uint8_t) * input_stride);
       } else {
         memset(buf, 0, sizeof(float) * block_size);
-        const float* scale_bias = reinterpret_cast<const float*>(
-            input + input_stride * idx + (scale_bias_last ? block_size : 0));
-
-        const auto weight = weights ? weights[m] : 1.0f;
 
         float scale;
         float bias;
+        const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
         if (scale_bias_last) {
-          scale = weight * scale_bias[0];
-          bias = weight * scale_bias[1];
+          memcpy(&scale, scale_bias_addr, sizeof(float));
+          memcpy(&bias, scale_bias_addr + sizeof(float), sizeof(float));
         } else {
-          scale = weight *
-              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[0]);
-          bias = weight *
-              cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
+          float16 scale16;
+          float16 bias16;
+          memcpy(&scale16, scale_bias_addr, sizeof(float16));
+          memcpy(&bias16, scale_bias_addr + sizeof(float16), sizeof(float16));
+          scale = cpu_half2float(scale16);
+          bias = cpu_half2float(bias16);
+        }
+        if (weights) {
+          float weight = weights[m];
+          scale *= weight;
+          bias *= weight;
         }
 
-        const size_t input_offset =
-            input_stride * idx + (scale_bias_last ? 0 : (2 * sizeof(float16)));
-#pragma omp simd
-        for (int j = 0; j < block_size; ++j) {
-          buf[j] =
-              std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
+        const uint8_t* input_row = input_row_base + input_offset;
+        for (int64_t j = 0; j < block_size; ++j) {
+          uint8_t value = input_row[j];
+          buf[j] = std::fma(scale, (float)value, buf[j] + bias);
         }
         fill_output(out, buf, block_size, is_bf16_out);
       }
@@ -162,77 +155,78 @@ bool EmbeddingSpMDM8Bit_autovec(
     return true;
   } // no_bag
 
-  for (int m = 0; m < output_size; ++m) {
+  int64_t current = 0;
+  for (int64_t m = 0; m < output_size; ++m) {
     memset(buf, 0, sizeof(float) * block_size);
-    const auto len = use_offsets
+    const OffsetType len = use_offsets
         ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
         : offsets_or_lengths[m];
-    if (current + len > index_size) {
+    int64_t end = current + len;
+    if (end > index_size) {
       return false;
     }
 
-    for (OffsetType i = 0; i < len; ++i) {
-      const auto idx = indices[current];
-      const auto prefetch_idx =
+    const float* weights_addr = weights != nullptr
+        ? (is_weight_positional ? weights : weights + current)
+        : nullptr;
+    for (; current < end; ++current) {
+      IndexType idx = indices[current];
+
+      IndexType prefetch_idx =
           indices[std::min(current + prefetch_stride, index_size - 1)];
-      for (int64_t col = 0; col < input_stride; col += CACHE_LINE_SIZE) {
-        do_prefetch(
-            reinterpret_cast<const char*>(
-                input + input_stride * prefetch_idx + col),
-            1);
-      }
-      if (!scale_bias_last && idx == -1) {
-        // When scale_bias_last == false, assume this is for table batched
-        // embedding (TBE) that can get -1 for pruned rows.
-        continue;
+      const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
+      for (int64_t offset = 0; offset < input_stride;
+           offset += CACHE_LINE_SIZE) {
+        do_prefetch(prefetch_addr + offset, 1);
       }
       if (idx < 0 || idx >= data_size) {
+        if (!scale_bias_last && idx == -1) {
+          // When scale_bias_last == false, assume this is for table batched
+          // embedding (TBE) that can get -1 for pruned rows.
+          continue;
+        }
         return false;
       }
 
-      const float* scale_bias = reinterpret_cast<const float*>(
-          input + input_stride * idx + (scale_bias_last ? block_size : 0));
+      const uint8_t* input_row_base = input + input_stride * idx;
 
-      const auto weight =
-          weights ? weights[is_weight_positional ? i : current] : 1.0f;
+      const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
       float scale;
       float bias;
       if (scale_bias_last) {
-        scale = weight * scale_bias[0];
-        bias = weight * scale_bias[1];
+        memcpy(&scale, scale_bias_addr, sizeof(float));
+        memcpy(&bias, scale_bias_addr + sizeof(float), sizeof(float));
       } else {
-        scale = weight *
-            cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[0]);
-        bias = weight *
-            cpu_half2float(reinterpret_cast<const float16*>(scale_bias)[1]);
+        float16 scale16;
+        float16 bias16;
+        memcpy(&scale16, scale_bias_addr, sizeof(float16));
+        memcpy(&bias16, scale_bias_addr + sizeof(float16), sizeof(float16));
+        scale = cpu_half2float(scale16);
+        bias = cpu_half2float(bias16);
       }
 
-      size_t input_offset =
-          input_stride * idx + (scale_bias_last ? 0 : 2 * sizeof(float16));
+      if (weights != nullptr) {
+        float weight = *weights_addr++;
+        scale *= weight;
+        bias *= weight;
+      }
+
+      const uint8_t* input_row = input_row_base + input_offset;
       if (block_size <= 64) {
-#ifdef __clang__
-#pragma clang loop vectorize_width(4) interleave_count(8)
-#endif
-        for (int j = 0; j < block_size; ++j) {
-          buf[j] =
-              std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
+        for (int64_t j = 0; j < block_size; ++j) {
+          uint8_t value = input_row[j];
+          buf[j] = std::fma(scale, (float)value, buf[j] + bias);
         }
       } else {
-#ifdef __clang__
-#pragma clang loop vectorize_width(4) interleave_count(16)
-#endif
-        for (int j = 0; j < block_size; ++j) {
-          buf[j] =
-              std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
+        for (int64_t j = 0; j < block_size; ++j) {
+          uint8_t value = input_row[j];
+          buf[j] = std::fma(scale, (float)value, buf[j] + bias);
         }
       }
-
-      ++current;
     }
     if (normalize_by_lengths && len) {
-      const float scale = 1.f / len;
-#pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
+      float scale = 1.f / len;
+      for (int64_t j = 0; j < block_size; ++j) {
         buf[j] *= scale;
       }
     }
@@ -317,9 +311,9 @@ bool EmbeddingSpMDMNBit_autovec(
 
   // block_size is the number of elements and fused_block_size is the size of
   // an entire row, including scale and bias.
-  const auto scale_bias_offset = 2 * sizeof(float16);
+  const size_t scale_bias_size = 2 * sizeof(float16);
   if (input_stride == -1) {
-    input_stride = div_up(block_size, num_elem_per_byte) + scale_bias_offset;
+    input_stride = div_up(block_size, num_elem_per_byte) + scale_bias_size;
   }
 
   // more prefetch
@@ -332,24 +326,17 @@ bool EmbeddingSpMDMNBit_autovec(
   const int64_t rows_to_prefetch =
       std::min(max_initial_prefetch_rows, max_prefetch_bytes / input_stride);
   const int64_t prefetch_stride = std::min(rows_to_prefetch, index_size);
+  const int64_t scale_bias_offset =
+      scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0;
+  const int64_t input_row_offset = scale_bias_last ? 0 : scale_bias_size;
   // The following prefetch loop is written in this way for better performance.
   // My understanding is that manually separating the case of input_stride being
   // greater or not greater than cache line size will make the branch predictor
   // work better. Same for line 113-126.
-  for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    do_prefetch(
-        reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-        0,
-        0);
-    if (input_stride > CACHE_LINE_SIZE) {
-      for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(
-            reinterpret_cast<const char*>(
-                input + input_stride * indices[pf_idx] + offset),
-            0,
-            0);
-      }
+  for (int64_t pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
+    const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
+    for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
+      do_prefetch(prefetch_addr + offset, 0, 0);
     }
   }
 
@@ -386,18 +373,19 @@ bool EmbeddingSpMDMNBit_autovec(
     buf = heap_storage.get();
   }
 
-  for (int m = 0; m < output_size; ++m) {
+  for (int64_t m = 0; m < output_size; ++m) {
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
-    if (current + len > index_size) {
+    int64_t end = current + len;
+    if (end > index_size) {
       return false;
     }
     memset(buf, 0, sizeof(float) * rounded_block_size);
-#if _OPENMP >= 202011
-    constexpr int tile_size = 4;
-#pragma omp tile sizes(tile_size)
-#endif
-    for (int i = 0; i < len; ++i) {
+
+    const float* weights_addr = weights != nullptr
+        ? (is_weight_positional ? weights : weights + current)
+        : nullptr;
+    for (; current < end; ++current) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         return false;
@@ -405,68 +393,56 @@ bool EmbeddingSpMDMNBit_autovec(
       int64_t prefetch_idx =
           indices[std::min(current + prefetch_stride, index_size - 1)];
 
-      do_prefetch(
-          reinterpret_cast<const char*>(input + input_stride * prefetch_idx),
-          0,
-          0);
-      if (input_stride > CACHE_LINE_SIZE) {
-        for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
-             offset += CACHE_LINE_SIZE) {
-          do_prefetch(
-              reinterpret_cast<const char*>(
-                  input + input_stride * prefetch_idx + offset),
-              0,
-              0);
-        }
-      }
+      const uint8_t* input_row_base = input + input_stride * idx;
+      const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
+      const uint8_t* input_row = input_row_base + input_row_offset;
 
-      const float16* scale_bias = reinterpret_cast<const float16*>(
-          input + input_stride * idx +
-          (scale_bias_last ? div_up(block_size, num_elem_per_byte) : 0));
+      float16 scale16;
+      float16 bias16;
+      memcpy(&scale16, scale_bias_addr, sizeof(float16));
+      memcpy(&bias16, scale_bias_addr + sizeof(float16), sizeof(float16));
+      static_assert(sizeof(scale16) + sizeof(bias16) == scale_bias_size);
 
-      float scale = cpu_half2float(scale_bias[0]);
-      float bias = cpu_half2float(scale_bias[1]);
-      if (weights) {
-        float weight = weights[is_weight_positional ? i : current];
+      float scale = cpu_half2float(scale16);
+      float bias = cpu_half2float(bias16);
+      if (weights != nullptr) {
+        float weight = *weights_addr++;
         scale *= weight;
         bias *= weight;
       }
 
-      const int64_t offset =
-          input_stride * idx + (scale_bias_last ? 0 : scale_bias_offset);
-      const uint8_t* input_row = input + offset;
       if (input_bit_rate == 4) {
-        const size_t halfbufsz = (block_size + 1) / 2;
-        for (size_t j = 0; j < halfbufsz; ++j) {
-          float quantized1 = float(input_row[j] & 0xf);
-          float quantized2 = float(input_row[j] >> 4);
-          buf[j * 2] = std::fma(scale, quantized1, buf[j * 2] + bias);
-          buf[j * 2 + 1] = std::fma(scale, quantized2, buf[j * 2 + 1] + bias);
+        for (int64_t j = 0, k = 0; j < block_size; j += 2) {
+          uint8_t tmp = input_row[k++];
+          float quantized1 = float(tmp & 0xf);
+          float quantized2 = float(tmp >> 4);
+          buf[j] = std::fma(scale, quantized1, buf[j] + bias);
+          buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
         }
       } else if (input_bit_rate == 2) {
-        size_t qbufsz = (block_size + 3) / 4;
-        const uint8_t mask1 = 0x3;
-        const uint8_t mask2 = 0xC;
-        const uint8_t mask3 = 0x30;
-        for (size_t j = 0; j < qbufsz; ++j) {
-          uint8_t tmp = input[offset + j];
-          float quantized1 = float(tmp & mask1);
-          buf[j * 4] = std::fma(scale, quantized1, buf[j * 4] + bias);
-          float quantized2 = float((tmp & mask2) >> 2);
-          buf[j * 4 + 1] = std::fma(scale, quantized2, buf[j * 4 + 1] + bias);
-          float quantized3 = float((tmp & mask3) >> 4);
-          buf[j * 4 + 2] = std::fma(scale, quantized3, buf[j * 4 + 2] + bias);
+        for (int64_t j = 0, k = 0; j < block_size; j += 4) {
+          uint8_t tmp = input_row[k++];
+          float quantized1 = float(tmp & 0x3);
+          float quantized2 = float((tmp & 0xC) >> 2);
+          float quantized3 = float((tmp & 0x30) >> 4);
           float quantized4 = float(tmp >> 6);
-          buf[j * 4 + 3] = std::fma(scale, quantized4, buf[j * 4 + 3] + bias);
+          buf[j] = std::fma(scale, quantized1, buf[j] + bias);
+          buf[j + 1] = std::fma(scale, quantized2, buf[j + 1] + bias);
+          buf[j + 2] = std::fma(scale, quantized3, buf[j + 2] + bias);
+          buf[j + 3] = std::fma(scale, quantized4, buf[j + 3] + bias);
         }
       }
-      ++current;
+
+      const uint8_t* prefetch_addr = input + input_stride * prefetch_idx;
+      for (int64_t offset = 0; offset < input_stride;
+           offset += CACHE_LINE_SIZE) {
+        do_prefetch(prefetch_addr + offset, 0, 0);
+      }
     }
 
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;
-#pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
+      for (int64_t j = 0; j < block_size; ++j) {
         buf[j] *= scale;
       }
     }
@@ -550,14 +526,18 @@ bool EmbeddingSpMDM_autovec(
         return false;
       }
 
-      float w = 1.f;
-      if (weights) {
-        w = weights[m];
-      }
-#pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
-        const InType* inptr = input + input_stride * idx + j;
-        buf[j] = std::fma(w, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
+      if (weights != nullptr) {
+        float weight = weights[m];
+        for (int64_t j = 0; j < block_size; ++j) {
+          const InType* inptr = input + input_stride * idx + j;
+          buf[j] = std::fma(
+              weight, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
+        }
+      } else {
+        for (int64_t j = 0; j < block_size; ++j) {
+          const InType* inptr = input + input_stride * idx + j;
+          buf[j] += convert_to_float_ref(*inptr, is_bf16_in);
+        }
       }
       fill_output(out, buf, block_size, is_bf16_out);
       out += output_stride;
@@ -580,19 +560,10 @@ bool EmbeddingSpMDM_autovec(
   // input_stride being greater or not greater than cache line size will make
   // the branch predictor work better. Same for line 113-126.
   for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    do_prefetch(
-        reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-        0,
-        0);
-    if (input_stride > CACHE_LINE_SIZE) {
-      for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(
-            reinterpret_cast<const char*>(
-                input + input_stride * indices[pf_idx] + offset),
-            0,
-            0);
-      }
+    const uint8_t* prefetch_addr = reinterpret_cast<const uint8_t*>(
+        input + input_stride * indices[pf_idx]);
+    for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
+      do_prefetch(prefetch_addr + offset, 0, 0);
     }
   }
 
@@ -606,10 +577,6 @@ bool EmbeddingSpMDM_autovec(
       return false;
     }
 
-#if _OPENMP >= 202011
-    constexpr int tile_size = 4;
-#pragma omp tile sizes(tile_size)
-#endif
     for (int i = 0; i < len; ++i) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
@@ -639,8 +606,7 @@ bool EmbeddingSpMDM_autovec(
         w = weights[is_weight_positional ? i : current];
       }
 
-#pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
+      for (int64_t j = 0; j < block_size; ++j) {
         const InType* inptr = input + input_stride * idx + j;
         buf[j] = std::fma(w, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
       }
@@ -650,8 +616,7 @@ bool EmbeddingSpMDM_autovec(
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;
 
-#pragma omp simd
-      for (int j = 0; j < block_size; ++j) {
+      for (int64_t j = 0; j < block_size; ++j) {
         buf[j] *= scale;
       }
     }
@@ -690,10 +655,14 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
       memset(out, 0, sizeof(float) * block_size);
       int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                             : offsets_or_lengths[m];
-      if (current + len > index_size) {
+      int64_t end = current + len;
+      if (end > index_size) {
         return false;
       }
-      for (int i = 0; i < len; ++i) {
+      const float* weights_addr = weights != nullptr
+          ? (is_weight_positional ? weights : weights + current)
+          : nullptr;
+      for (; current < end; ++current) {
         IndexType uncompressed_idx = indices[current];
         if (uncompressed_idx < 0 ||
             uncompressed_idx >= uncompressed_data_size) {
@@ -701,29 +670,29 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
         if (idx == -1) {
-          ++current;
           continue;
         }
         // if (idx < 0 || idx >= compressed_data_size) {
         //   return false;
         // }
 
-        const float* scale_bias = reinterpret_cast<const float*>(
+        const uint8_t* scale_bias_addr = reinterpret_cast<const uint8_t*>(
             input + fused_block_size * idx + block_size);
 
-        float weight = 1.0f;
-        if (weights) {
-          weight = weights[is_weight_positional ? i : current];
+        float scale;
+        float bias;
+        memcpy(&scale, scale_bias_addr, sizeof(float));
+        memcpy(&bias, scale_bias_addr + sizeof(float), sizeof(float));
+        if (weights != nullptr) {
+          float weight = *weights_addr++;
+          scale *= weight;
+          bias *= weight;
         }
-        const float scale = weight * scale_bias[0];
-        const float bias = weight * scale_bias[1];
 
         for (int j = 0; j < block_size; ++j) {
           out[j] =
               std::fma(scale, input[fused_block_size * idx + j], out[j] + bias);
         }
-
-        ++current;
       }
       if (normalize_by_lengths && len) {
         float scale = 1.f / len;
@@ -742,15 +711,15 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
       memset(out, 0, sizeof(float) * block_size);
       int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                             : offsets_or_lengths[m];
-      if (current + len > index_size) {
+      int64_t end = current + len;
+      if (end > index_size) {
         return false;
       }
 
-#if _OPENMP >= 202011
-      constexpr int tile_size = 4;
-#pragma omp tile sizes(tile_size)
-#endif
-      for (int i = 0; i < len; ++i) {
+      const float* weights_addr = weights != nullptr
+          ? (is_weight_positional ? weights : weights + current)
+          : nullptr;
+      for (; current < end; ++current) {
         IndexType uncompressed_idx = indices[current];
         if (uncompressed_idx < 0 ||
             uncompressed_idx >= uncompressed_data_size) {
@@ -758,29 +727,25 @@ bool EmbeddingSpMDMRowWiseSparse_autovec(
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
         if (idx == -1) {
-          ++current;
           continue;
         }
 
-        float w = 1.f;
-        if (weights) {
-          w = weights[is_weight_positional ? i : current];
+        float weight = 1.f;
+        if (weights != nullptr) {
+          weight = *weights_addr++;
         }
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + block_size * idx + j;
           out[j] = std::fma(
-              w,
+              weight,
               std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
                                                    : *inptr,
               out[j]);
         }
-
-        ++current;
       }
       if (normalize_by_lengths && len) {
         float scale = 1.f / len;
-#pragma omp simd
         for (int j = 0; j < block_size; ++j) {
           out[j] *= scale;
         }
@@ -929,19 +894,9 @@ bool EmbeddingSpMDMFP8_autovec(
   // greater or not greater than cache line size will make the branch predictor
   // work better. Same for line 113-126.
   for (int pf_idx = 0; pf_idx < prefetch_stride; ++pf_idx) {
-    do_prefetch(
-        reinterpret_cast<const char*>(input + input_stride * indices[pf_idx]),
-        0,
-        0);
-    if (input_stride > CACHE_LINE_SIZE) {
-      for (int64_t offset = CACHE_LINE_SIZE; offset < input_stride;
-           offset += CACHE_LINE_SIZE) {
-        do_prefetch(
-            reinterpret_cast<const char*>(
-                input + input_stride * indices[pf_idx] + offset),
-            0,
-            0);
-      }
+    const uint8_t* prefetch_addr = input + input_stride * indices[pf_idx];
+    for (int64_t offset = 0; offset < input_stride; offset += CACHE_LINE_SIZE) {
+      do_prefetch(prefetch_addr + offset, 0, 0);
     }
   }
 
@@ -953,7 +908,8 @@ bool EmbeddingSpMDMFP8_autovec(
     memset(buf, 0, sizeof(float) * block_size);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
-    if (current + len > index_size) {
+    int64_t end = current + len;
+    if (end > index_size) {
       return false;
     }
 
@@ -964,11 +920,10 @@ bool EmbeddingSpMDMFP8_autovec(
     // Temporary buffer to hold the converted floats
     std::unique_ptr<float[]> converted_inputs(new float[batch_size]);
 
-#if _OPENMP >= 202011
-    constexpr int tile_size = 4;
-#pragma omp tile sizes(tile_size)
-#endif
-    for (int i = 0; i < len; ++i) {
+    const float* weights_addr = weights != nullptr
+        ? (is_weight_positional ? weights : weights + current)
+        : nullptr;
+    for (; current < end; ++current) {
       int64_t idx = indices[current];
       if (idx < 0 || idx >= data_size) {
         return false;
@@ -993,8 +948,8 @@ bool EmbeddingSpMDMFP8_autovec(
       }
 
       float w = 1.f;
-      if (weights) {
-        w = weights[is_weight_positional ? i : current];
+      if (weights != nullptr) {
+        w = *weights_addr++;
       }
       // check if each loop interation depends on one another
       //  if not, approach it with parellel,
@@ -1009,16 +964,12 @@ bool EmbeddingSpMDMFP8_autovec(
           exponent_bias);
 
       // Now accumulate the results using vectorized operations if possible
-#pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         buf[j] = std::fma(w, converted_inputs[j], buf[j]);
       }
-
-      ++current;
     }
     if (normalize_by_lengths && len) {
       float scale = 1.f / len;
-#pragma omp simd
       for (int j = 0; j < block_size; ++j) {
         buf[j] *= scale;
       }
