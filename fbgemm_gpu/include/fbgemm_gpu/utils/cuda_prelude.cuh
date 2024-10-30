@@ -127,8 +127,9 @@ DEVICE_INLINE uint32_t ballot_sync(
 
 /// Sums a register value across all warp threads
 template <typename T, int ReduceWidth = kWarpSize>
-DEVICE_INLINE T
-warpReduceAllSum(T val, unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
+DEVICE_INLINE T warpReduceAllSum(
+    T val,
+    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
 #pragma unroll
   for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
     val += shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
