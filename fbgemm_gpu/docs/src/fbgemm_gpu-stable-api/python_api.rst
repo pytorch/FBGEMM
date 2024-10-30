@@ -24,7 +24,7 @@ Stable APIs
 
 Our stable APIs can be found via the links below:
 
-- :ref:`Table batched embedding (TBE) modules<table-batched-embedding-ops-stable-api>`
+- Table batched embedding (TBE) modules (:ref:`training<tbe-ops-training-stable-api>` and :ref:`inference<tbe-ops-inference-stable-api>`)
 
 - :ref:`Pooled embedding operators<pooled-embedding-operators-stable-api>`
 

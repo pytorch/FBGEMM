@@ -1,7 +1,7 @@
 Table Batched Embedding (TBE) Training Module
 =============================================
 
-.. _table-batched-embedding-ops-stable-api:
+.. _tbe-ops-training-stable-api:
 
 Stable API
 ----------
