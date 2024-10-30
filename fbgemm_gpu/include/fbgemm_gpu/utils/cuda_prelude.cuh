@@ -58,7 +58,11 @@ static constexpr int32_t kMaxBlockYDim = 65535;
 static constexpr int32_t kMaxBlockZDim = 65535;
 
 // Full warp mask
+#if defined(USE_ROCM)
+static constexpr uint64_t kFullWarpMask = 0xff'ff'ff'ff'ff'ff'ff'ff;
+#else
 static constexpr uint32_t kFullWarpMask = 0xff'ff'ff'ff;
+#endif
 
 static constexpr float kQParamEps = 1e-8f;
 
@@ -73,7 +77,7 @@ DEVICE_INLINE T shfl_xor(
     const T val,
     int laneMask,
     int width = kWarpSize,
-    unsigned shfl_sync_mask = kFullWarpMask) {
+    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM) || CUDA_VERSION < 9000
   return __shfl_xor(val, laneMask, width);
 #else
@@ -86,7 +90,7 @@ DEVICE_INLINE T shfl_sync(
     const T val,
     int srcLane = 0,
     int width = kWarpSize,
-    unsigned shfl_sync_mask = kFullWarpMask) {
+    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM) || CUDA_VERSION < 9000
   return __shfl(val, srcLane, width);
 #else
@@ -99,7 +103,7 @@ DEVICE_INLINE T shfl_down_sync(
     const T val,
     unsigned delta,
     int width = kWarpSize,
-    unsigned shfl_sync_mask = kFullWarpMask) {
+    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM) || CUDA_VERSION < 9000
   return __shfl_down(val, delta, width);
 #else
@@ -113,7 +117,7 @@ DEVICE_INLINE uint64_t ballot_sync(
 DEVICE_INLINE uint32_t ballot_sync(
 #endif
     int predicate,
-    unsigned shfl_sync_mask = kFullWarpMask) {
+    unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
 #if defined(USE_ROCM) || CUDA_VERSION < 9000
   return __ballot(predicate);
 #else
@@ -124,7 +128,7 @@ DEVICE_INLINE uint32_t ballot_sync(
 /// Sums a register value across all warp threads
 template <typename T, int ReduceWidth = kWarpSize>
 DEVICE_INLINE T
-warpReduceAllSum(T val, unsigned shfl_sync_mask = kFullWarpMask) {
+warpReduceAllSum(T val, unsigned shfl_sync_mask = static_cast<unsigned>(kFullWarpMask)) {
 #pragma unroll
   for (int mask = ReduceWidth / 2; mask > 0; mask >>= 1) {
     val += shfl_xor(val, mask, ReduceWidth, shfl_sync_mask);
