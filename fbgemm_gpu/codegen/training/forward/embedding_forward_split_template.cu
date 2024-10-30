@@ -92,7 +92,6 @@ batch_index_select_dim0_codegen_forward_small_kernel(
 {%- endif %} {#-/* if not weighted */#}
 
 {% if not dense %}
-#ifndef USE_ROCM
 // Support only the split-pooled TBE case
 template <
     typename emb_t,
@@ -121,14 +120,13 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     const int64_t* __restrict__ const weights_offsets,
     const int32_t* __restrict__ const lxu_cache_locations,
     output_t* __restrict__ const output);
-#endif
 {% endif %} {#-/* if not dense */#}
 
 
 {%- for nobag in ([True, False] if (not is_gwd) else [False]) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
-{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm, ssd) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, ssd) %}
 
 {%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
     dense,
@@ -318,7 +316,7 @@ batch_index_select_dim0_codegen_forward_kernel(
 {%- for nobag in ([True, False] if (not is_gwd) else [False]) %}
 {%- set ndesc = "_nobag" if nobag else "" %}
 {%- if is_valid_forward_config(nobag, weighted, vbe, is_index_select) %}
-{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, is_rocm, ssd) %}
+{%- set has_experimental = has_experimental_support(dense, nobag, vbe, is_index_select, ssd) %}
 
 {#- /* Generate a separate cuda host to enable global weight decay using Jinja */ #}
 {%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
@@ -780,10 +778,6 @@ batch_index_select_dim0_codegen_forward_cuda(
         {%- if has_experimental %}
         // if (!is_experimental)
         } else {
-
-#ifdef USE_ROCM
-            TORCH_CHECK(false, "is_experimental=True is not supported in ROCm");
-#else
             // Allocate num warps per table based on max_D
             const int num_warps_per_table = B * div_round_up(max_D, kWarpSize * 4);
             const uint32_t num_warps_per_threadblock = kForwardMaxThreads / kWarpSize;
@@ -822,7 +816,6 @@ batch_index_select_dim0_codegen_forward_cuda(
                 output.data_ptr<output_t>()
               );
             C10_CUDA_KERNEL_LAUNCH_CHECK();
-#endif
         }
         {%- endif %} // if has_experimental
         });
