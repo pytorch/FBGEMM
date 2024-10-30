@@ -120,7 +120,7 @@ class NBitCacheTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         N=st.integers(min_value=1, max_value=8),
-        indices_dtype=st.sampled_from([torch.int, torch.long]),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_cache_miss_counter(self, N: int, indices_dtype: torch.dtype) -> None:
@@ -177,7 +177,7 @@ class NBitCacheTest(unittest.TestCase):
     @given(
         N=st.integers(min_value=1, max_value=8),
         dtype=st.sampled_from([SparseType.INT8, SparseType.INT4, SparseType.INT2]),
-        indices_dtype=st.sampled_from([torch.int, torch.long]),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_uvm_cache_stats(
@@ -297,7 +297,7 @@ class NBitCacheTest(unittest.TestCase):
     @given(
         N=st.integers(min_value=1, max_value=8),
         dtype=st.sampled_from([SparseType.INT8, SparseType.INT4, SparseType.INT2]),
-        indices_dtype=st.sampled_from([torch.int, torch.long]),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_nbit_direct_mapped_uvm_cache_stats(
