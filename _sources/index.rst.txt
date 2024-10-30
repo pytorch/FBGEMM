@@ -108,5 +108,6 @@ Table of Contents
    :maxdepth: 1
    :caption: FBGEMM_GPU Python Modules API
 
-   fbgemm_gpu-python-api/table_batched_embedding_ops.rst
+   fbgemm_gpu-python-api/tbe_ops_training.rst
+   fbgemm_gpu-python-api/tbe_ops_inference.rst
    fbgemm_gpu-python-api/pooled_embedding_modules.rst

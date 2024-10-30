@@ -347,7 +347,8 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Modules API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html">Table Batched Embedding (TBE) Training Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/tbe_ops_training.html">Table Batched Embedding (TBE) Training Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html">Table Batched Embedding (TBE) Inference Module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../fbgemm_gpu-python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
 </ul>
 
@@ -758,7 +759,7 @@
 
 <span class="c1"># pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.</span>
 <span class="c1"># pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.</span>
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span> <span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span> <span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Table Batched Embedding (TBE) operator.  Looks up one or more embedding</span>
 <span class="sd">    tables. The module is application for training. The backward operator is</span>
@@ -1969,7 +1970,7 @@
         <span class="c1"># This allows models using this class to compile correctly</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -2725,7 +2726,7 @@
             <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">splits</span><span class="p">:</span>
                 <span class="n">param</span><span class="o">.</span><span class="n">uniform_</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">split_embedding_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Returns a list of embedding weights (view), split by table</span>
@@ -2819,7 +2820,7 @@
 
         <span class="k">return</span> <span class="n">list_of_state_dict</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">split_optimizer_states</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
@@ -2951,7 +2952,7 @@
         <span class="n">return_states</span> <span class="o">=</span> <span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">states</span><span class="p">)]</span>
         <span class="k">return</span> <span class="n">return_states</span></div>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the learning rate.</span>
@@ -2965,7 +2966,7 @@
             <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_set_learning_rate</span><span class="p">(</span><span class="n">lr</span><span class="p">)</span></div>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">update_hyper_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets hyper-parameters from external control flow.</span>
@@ -3005,7 +3006,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span><span class="n">learning_rate</span><span class="o">=</span><span class="n">lr</span><span class="p">)</span>
         <span class="k">return</span> <span class="mf">0.0</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/table_batched_embedding_ops.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span> <span class="nf">set_optimizer_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the optimizer step.</span>
