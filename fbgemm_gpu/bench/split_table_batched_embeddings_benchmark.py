@@ -1127,6 +1127,12 @@ def nbit_cpu(  # noqa C901
 @click.option("--tables", type=str, default=None)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1155,6 +1161,8 @@ def nbit_device(  # noqa C901
     tables: Optional[str],
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1300,6 +1308,49 @@ def nbit_device(  # noqa C901
         f"Time: {time_per_iter * 1.0e6:.0f}us, "
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
+
+    # Get trace for one run of iter
+    tbe_type: str = "split"
+
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
+        )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weighted=weighted,
+        requests_data_file=requests_data_file,
+        tables=tables,
+    )
+    requests = [
+        TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+        for req in requests
+    ]
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        # forward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.int(),
+                offsets.int(),
+                per_sample_weights,
+            ),
+            check_median=check_median,
+        )
+    # free up GPU memory
+    del requests
 
     if report_aibench and haveAIBench:
         print(
