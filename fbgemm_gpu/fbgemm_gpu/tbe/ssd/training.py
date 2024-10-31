@@ -1603,7 +1603,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return splits
 
     @torch.jit.export
-    def split_embedding_weights(self) -> List[PartiallyMaterializedTensor]:
+    def split_embedding_weights(
+        self, no_snapshot: bool = True
+    ) -> List[PartiallyMaterializedTensor]:
         """
         This method is intended to be used by the checkpointing engine
         only.
@@ -1621,7 +1623,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Flush L1 and L2 caches
         self.flush()
         # Create a snapshot
-        snapshot_handle = self.ssd_db.create_snapshot()
+        if no_snapshot:
+            snapshot_handle = None
+        else:
+            snapshot_handle = self.ssd_db.create_snapshot()
 
         dtype = self.weights_precision.as_dtype()
         splits = []
@@ -1630,10 +1635,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         for emb_height, emb_dim in self.embedding_specs:
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
                 db=self.ssd_db,
-                snapshot_handle=snapshot_handle,
                 shape=[emb_height, emb_dim],
                 dtype=dtype,
                 row_offset=row_offset,
+                snapshot_handle=snapshot_handle,
             )
             row_offset += emb_height
             splits.append(PartiallyMaterializedTensor(tensor_wrapper))

@@ -46,6 +46,7 @@ class PartiallyMaterializedTensor:
             wrapped: torch.classes.fbgemm.KVTensorWrapper
         """
         self._wrapped = wrapped
+        self._requires_grad = True
 
     @property
     def wrapped(self):
@@ -81,6 +82,37 @@ class PartiallyMaterializedTensor:
         """
         return self.narrow(0, 0, self.size(0))
 
+    @implements(torch.detach)
+    def detach(self) -> PartiallyMaterializedTensor:
+        return self
+
+    def to(self, *args, **kwargs) -> PartiallyMaterializedTensor:
+        return self
+
+    def is_floating_point(self):
+        # this class only deals with embedding vectors
+        return True
+
+    @implements(torch._has_compatible_shallow_copy_type)
+    def _has_compatible_shallow_copy_type(*args, **kwargs):
+        return False
+
+    def requires_grad_(self, requires_grad=True) -> PartiallyMaterializedTensor:
+        self._requires_grad = requires_grad
+        return self
+
+    @property
+    def requires_grad(self) -> bool:
+        return self._requires_grad
+
+    @property
+    def grad(self) -> Optional[torch.Tensor]:
+        return None
+
+    @property
+    def is_leaf(self) -> bool:
+        return True
+
     @property
     def shape(self) -> torch.Size:
         """
@@ -98,9 +130,110 @@ class PartiallyMaterializedTensor:
             )
         return sz[dim]
 
+    def is_contiguous(self):
+        return True
+
+    def is_pinned(self):
+        return False
+
     @property
     def dtype(self) -> torch.dtype:
-        dtype_str: str = self._wrapped.dtype_str()
+        mapping = {"c10::Half": "half"}
+        dtype_str: str = self._wrapped.dtype_str
+        dtype_str = mapping.get(dtype_str, dtype_str)
+
         dtype = getattr(torch, dtype_str)
         assert isinstance(dtype, torch.dtype)
         return dtype
+
+    @property
+    def device(self) -> torch.device:
+        device_str: str = self._wrapped.device_str
+        device = torch.device(device_str)
+        assert isinstance(device, torch.device)
+        return device
+
+    @property
+    def layout(self) -> torch.layout:
+        pass
+        layout_str_mapping = {
+            "SparseCsr": "sparse_csr",
+            "Strided": "strided",
+            "SparseCsr": "sparse_csr",
+            "SparseCsc": "sparse_csc",
+            "Jagged": "jagged",
+        }
+        layout_str: str = self._wrapped.layout_str
+        layout_str = layout_str_mapping[layout_str]
+        layout = getattr(torch, layout_str)
+        assert isinstance(layout, torch.layout)
+        return layout
+
+    @property
+    def __class__(self):
+        # this is a hack to avoid assertion error in torch.nn.Module.register_parameter()
+        return torch.nn.Parameter
+
+    @property
+    def grad_fn(self):
+        return None
+
+    def view(self, *args, **kwargs):
+        return self
+
+    def is_meta(*args, **kwargs):
+        return False
+
+    def copy_(self, src, non_blocking=False):
+        # noop
+        pass
+
+    def numel(self):
+        return torch.tensor(self.shape).prod().item()
+
+    def nelement(self):
+        return torch.tensor(self.shape).prod().item()
+
+    def element_size(self):
+        return torch.tensor([], dtype=self.dtype).element_size()
+
+    def __deepcopy__(self, memo):
+        # torch.classes.fbgemm.KVTensorWrapper doesn't support deepcopy
+        new_obj = PartiallyMaterializedTensor(self._wrapped)
+        memo[id(self)] = new_obj
+        return new_obj
+
+    def required_grad(self) -> bool:
+        return True
+
+    @property
+    def is_quantized(self) -> bool:
+        return False
+
+    @implements(torch.equal)
+    def __eq__(self, tensor1, tensor2, **kwargs):
+        if not isinstance(tensor2, PartiallyMaterializedTensor):
+            return False
+
+        return torch.equal(tensor1.full_tensor(), tensor2.full_tensor())
+
+    def __hash__(self):
+        return id(self)
+
+    @property
+    def is_mps(self):
+        return False
+
+    @property
+    def is_sparse(self):
+        return False
+
+    @implements(torch.isclose)
+    def isclose(self, tensor1, tensor2, rtol=1e-05, atol=1e-08, equal_nan=False):
+        return torch.isclose(
+            tensor1.full_tensor(),
+            tensor2.full_tensor(),
+            rtol=rtol,
+            atol=atol,
+            equal_nan=equal_nan,
+        )

@@ -704,7 +704,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict = emb.split_embedding_weights()
+        emb_state_dict = emb.split_embedding_weights(no_snapshot=False)
         for feature_index, table_index in self.get_physical_table_arg_indices_(
             emb.feature_table_map
         ):
