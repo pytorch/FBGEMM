@@ -870,6 +870,12 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   c10::string_view dtype_str();
 
+  c10::Device device();
+
+  std::string device_str();
+
+  std::string layout_str();
+
  private:
   std::shared_ptr<EmbeddingRocksDB> db_;
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
