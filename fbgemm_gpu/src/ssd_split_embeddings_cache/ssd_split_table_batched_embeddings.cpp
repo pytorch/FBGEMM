@@ -436,6 +436,20 @@ c10::ScalarType KVTensorWrapper::dtype() {
 c10::string_view KVTensorWrapper::dtype_str() {
   return scalarTypeToTypeMeta(dtype()).name();
 }
+
+c10::Device KVTensorWrapper::device() {
+  return options_.device();
+}
+
+std::string KVTensorWrapper::device_str() {
+  return device().str();
+}
+
+std::string KVTensorWrapper::layout_str() {
+  std::ostringstream oss;
+  oss << options_.layout();
+  return oss.str();
+}
 } // namespace ssd
 
 namespace {
@@ -555,6 +569,8 @@ static auto kv_tensor_wrapper =
             {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
         .def("set_range", &KVTensorWrapper::set_range)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
+        .def_property("device_str", &KVTensorWrapper::device_str)
+        .def_property("layout_str", &KVTensorWrapper::layout_str)
         .def_property(
             "shape",
             &KVTensorWrapper::size,
@@ -632,5 +648,4 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor count) -> ()");
   DISPATCH_TO_CUDA("compact_indices", compact_indices_cuda);
 }
-
 } // namespace
