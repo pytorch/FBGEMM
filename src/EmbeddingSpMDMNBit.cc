@@ -249,7 +249,7 @@ GenEmbeddingSpMDMNBitLookup<
           filename += "_rowwise_sparse";
         }
         if (!scale_bias_last) {
-          filename += "_scale_bias_first"
+          filename += "_scale_bias_first";
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
@@ -1047,9 +1047,6 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         "we currently only support int4 to int4 when using sequential TBE");
   }
 
-  if (!cpuinfo_initialize()) {
-    throw runtime_error("Failed to initialize cpuinfo!");
-  }
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1058,8 +1055,33 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     input_stride =
         ceil_div(block_size, num_elem_per_byte) + 2 * sizeof(uint16_t);
   }
-  if (no_bag) {
-    if (!is_autovec_disabled()) {
+
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  if (!no_bag) {
+    if (!cpuinfo_initialize()) {
+      throw runtime_error("Failed to initialize cpuinfo!");
+    }
+    if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
+      static GenEmbeddingSpMDMNBitLookup<
+          indxType,
+          offsetType,
+          outType,
+          inst_set_t::avx512,
+          /*ROWWISE_SPARSE=*/false,
+          THREAD_LOCAL>
+          kernel_generator;
+      const auto original_func = kernel_generator.getOrCreate(
+          input_bit_rate,
+          block_size,
+          has_weight,
+          is_weight_positional,
+          normalize_by_lengths,
+          prefetch,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          is_bf16_out);
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
@@ -1068,9 +1090,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
                  const offsetType* offsets_or_lengths,
                  const float* weights,
                  outType* out) {
-        return EmbeddingSpMDMNBit_autovec(
-            input_bit_rate,
-            block_size,
+        return original_func(
             output_size,
             index_size,
             data_size,
@@ -1078,18 +1098,31 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
             indices,
             offsets_or_lengths,
             weights,
-            normalize_by_lengths,
             out,
-            is_weight_positional,
-            use_offsets,
-            output_stride,
-            input_stride,
-            scale_bias_last,
-            is_bf16_out,
-            no_bag,
-            output_bit_rate);
+            nullptr /* mask not used in avx512 */);
       };
-    } else {
+    }
+    if (fbgemmHasAvx2Support() && !is_asmjit_disabled()) {
+      static GenEmbeddingSpMDMNBitLookup<
+          indxType,
+          offsetType,
+          outType,
+          inst_set_t::avx2,
+          /*ROWWISE_SPARSE=*/false,
+          THREAD_LOCAL>
+          kernel_generator;
+      const auto original_func = kernel_generator.getOrCreate(
+          input_bit_rate,
+          block_size,
+          has_weight,
+          is_weight_positional,
+          normalize_by_lengths,
+          prefetch,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          is_bf16_out);
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
@@ -1098,9 +1131,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
                  const offsetType* offsets_or_lengths,
                  const float* weights,
                  outType* out) {
-        return EmbeddingSpMDMNBit_ref(
-            input_bit_rate,
-            block_size,
+        return original_func(
             output_size,
             index_size,
             data_size,
@@ -1108,164 +1139,69 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
             indices,
             offsets_or_lengths,
             weights,
-            normalize_by_lengths,
             out,
-            is_weight_positional,
-            use_offsets,
-            output_stride,
-            input_stride,
-            scale_bias_last,
-            is_bf16_out,
-            no_bag,
-            output_bit_rate);
+            internal::avx2_ps_or_epi32_combined_mask);
       };
     }
   }
+#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 
-  if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
-    static GenEmbeddingSpMDMNBitLookup<
-        indxType,
-        offsetType,
-        outType,
-        inst_set_t::avx512,
-        /*ROWWISE_SPARSE=*/false,
-        THREAD_LOCAL>
-        kernel_generator;
-    const auto original_func = kernel_generator.getOrCreate(
-        input_bit_rate,
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        is_bf16_out);
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return original_func(
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          out,
-          nullptr /* mask not used in avx512 */);
-    };
-  } else if (fbgemmHasAvx2Support() && !is_asmjit_disabled()) {
-    static GenEmbeddingSpMDMNBitLookup<
-        indxType,
-        offsetType,
-        outType,
-        inst_set_t::avx2,
-        /*ROWWISE_SPARSE=*/false,
-        THREAD_LOCAL>
-        kernel_generator;
-    const auto original_func = kernel_generator.getOrCreate(
-        input_bit_rate,
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        is_bf16_out);
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return original_func(
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          out,
-          internal::avx2_ps_or_epi32_combined_mask);
-    };
-#ifdef __linux__
-  } else if (
-      (fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
       is_autovec_forced()) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDMNBit_autovec(
-          input_bit_rate,
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          is_bf16_out);
-    };
-#endif // #ifdef __linux__
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDMNBit_ref(
-          input_bit_rate,
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          is_bf16_out);
-    };
+    return GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/indxType,
+        /*OffsetType=*/offsetType,
+        /*OutType=*/outType>(
+        input_bit_rate,
+        block_size,
+        has_weight,
+        normalize_by_lengths,
+        prefetch,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        is_bf16_out,
+        no_bag,
+        output_bit_rate);
   }
+#endif
+
+#ifdef VLOG
+  VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const uint8_t* input,
+             const indxType* indices,
+             const offsetType* offsets_or_lengths,
+             const float* weights,
+             outType* out) {
+    return EmbeddingSpMDMNBit_ref(
+        input_bit_rate,
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        is_bf16_out,
+        no_bag,
+        output_bit_rate);
+  };
 }
 
 template <typename IndexType, typename OffsetType, typename OutType>
@@ -1307,6 +1243,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     bool use_offsets) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
 
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   if (!cpuinfo_initialize()) {
     throw runtime_error("Failed to initialize cpuinfo!");
   }
@@ -1354,7 +1291,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
           compressed_indices_table,
           nullptr /* mask not used in avx512 */);
     };
-  } else if (fbgemmHasAvx2Support()) {
+  }
+  if (fbgemmHasAvx2Support()) {
     static GenEmbeddingSpMDMNBitLookup<
         indxType,
         offsetType,
@@ -1395,37 +1333,38 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
           compressed_indices_table,
           internal::avx2_ps_or_epi32_combined_mask);
     };
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t uncompressed_data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               float* out,
-               const int32_t* compressed_indices_table) {
-      return EmbeddingSpMDMNBitRowWiseSparse_ref(
-          bit_rate,
-          block_size,
-          output_size,
-          index_size,
-          uncompressed_data_size,
-          // compressed_data_size,
-          input,
-          indices,
-          compressed_indices_table,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets);
-    };
   }
+#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+
+#ifdef VLOG
+  VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t uncompressed_data_size,
+             const uint8_t* input,
+             const indxType* indices,
+             const offsetType* offsets_or_lengths,
+             const float* weights,
+             float* out,
+             const int32_t* compressed_indices_table) {
+    return EmbeddingSpMDMNBitRowWiseSparse_ref(
+        bit_rate,
+        block_size,
+        output_size,
+        index_size,
+        uncompressed_data_size,
+        // compressed_data_size,
+        input,
+        indices,
+        compressed_indices_table,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets);
+  };
 }
 
 #define INSTANTIATE_SPMDM_BASE(                               \

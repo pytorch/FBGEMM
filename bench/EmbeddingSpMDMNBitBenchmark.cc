@@ -169,6 +169,40 @@ int run_benchmark(
         normalize_by_lengths,
         prefetch ? 16 : 0);
 #endif // OUT_TYPE_FLOAT16
+    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int32_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/OutType>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/is_bf16_out,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
+    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int64_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/OutType>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/is_bf16_out,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
 
     vector<OutType>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
@@ -232,9 +266,7 @@ int run_benchmark(
       double t_autovec = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              success_autovec = EmbeddingSpMDMNBit_autovec(
-                  bit_rate,
-                  embedding_dim,
+              success_autovec = kernel_32_autovec(
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -242,18 +274,9 @@ int run_benchmark(
                   indices_32.data(),
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output_autovec.data(),
-                  false, // is_weight_positional
-                  true, // use_offsets
-                  -1, // output_stride
-                  -1, // input_stride
-                  true, // scale_bias_last
-                  is_bf16_out);
+                  output_autovec.data());
             } else {
-              success_autovec = EmbeddingSpMDMNBit_autovec(
-                  bit_rate,
-                  embedding_dim,
+              success_autovec = kernel_64_autovec(
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -261,14 +284,7 @@ int run_benchmark(
                   indices.data(),
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output_autovec.data(),
-                  false, // is_weight_positional
-                  true, // use_offsets
-                  -1, // output_stride
-                  -1, // input_stride
-                  true, // scale_bias_last
-                  is_bf16_out);
+                  output_autovec.data());
             }
           },
           NUM_WARMUP,
