@@ -522,7 +522,8 @@ endif()
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_static_gpu
-      codegen/utils/embedding_bounds_check.cu
+      codegen/utils/embedding_bounds_check_v1.cu
+      codegen/utils/embedding_bounds_check_v2.cu
       codegen/inference/embedding_forward_quantized_split_lookup.cu
       src/embedding_inplace_ops/embedding_inplace_update.cu
       src/histogram_binning_calibration_ops.cu

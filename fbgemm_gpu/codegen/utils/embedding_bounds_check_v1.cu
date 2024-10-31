@@ -29,7 +29,7 @@ __device__ void adjust_offset_kernel(
 }
 
 template <typename index_t, bool vbe>
-__global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
+__global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         rows_per_table,
     at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
@@ -178,7 +178,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel(
   }
 }
 
-void bounds_check_indices_cuda(
+void _bounds_check_indices_cuda_v1(
     Tensor& rows_per_table,
     Tensor& indices,
     Tensor& offsets,
@@ -234,10 +234,10 @@ void bounds_check_indices_cuda(
   const auto max_B_ = vbe ? max_B : B;
 
   AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "bounds_check_indices_cuda", [&] {
+      indices.scalar_type(), "bounds_check_indices_v1", [&] {
         const auto bounds_check_kernel =
-            (vbe ? bounds_check_indices_kernel<index_t, true>
-                 : bounds_check_indices_kernel<index_t, false>);
+            (vbe ? bounds_check_indices_kernel_v1<index_t, true>
+                 : bounds_check_indices_kernel_v1<index_t, false>);
         TORCH_DSA_KERNEL_LAUNCH(
             bounds_check_kernel,
             div_round_up(max_B_ * T, kNumThreads / fbgemm_gpu::kWarpSize),
