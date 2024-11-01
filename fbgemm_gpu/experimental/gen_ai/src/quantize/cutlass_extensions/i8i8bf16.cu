@@ -232,11 +232,11 @@ at::Tensor i8i8bf16sm90a_impl(
   using StrideOutput = typename Gemm::GemmKernel::StrideC;
 
   StrideInputA stride_a = cutlass::make_cute_packed_stride(
-      StrideInputA{}, cute::make_shape(M, K, cute::Int<1>{}));
+      StrideInputA{}, cute::make_shape(M, K, 1));
   StrideInputB stride_b = cutlass::make_cute_packed_stride(
-      StrideInputB{}, cute::make_shape(N, K, cute::Int<1>{}));
+      StrideInputB{}, cute::make_shape(N, K, 1));
   StrideOutput stride_output = cutlass::make_cute_packed_stride(
-      StrideOutput{}, cute::make_shape(N, M, cute::Int<1>{}));
+      StrideOutput{}, cute::make_shape(N, M, 1));
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,

@@ -112,17 +112,20 @@ at::Tensor f8f8bf16_rowwise_impl(
       0,
       TileShape,
       ElementComputeEpilogue,
+      ElementComputeEpilogue,
       cute::Stride<cute::Int<1>, cute::Int<0>, cute::Int<0>>>;
 
   using WScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
+      0,
       TileShape,
+      ElementComputeEpilogue,
       ElementComputeEpilogue,
       cute::Stride<cute::Int<0>, cute::Int<1>, cute::Int<0>>>;
 
   using Bias = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
+      0,
       TileShape,
+      ElementBias,
       ElementBias,
       cute::Stride<cute::Int<0>, cute::Int<1>, cute::Int<0>>>;
 
@@ -220,11 +223,11 @@ at::Tensor f8f8bf16_rowwise_impl(
   using StrideOutput = typename Gemm::GemmKernel::StrideC;
 
   StrideInputA stride_a = cutlass::make_cute_packed_stride(
-      StrideInputA{}, cute::make_shape(M, K, cute::Int<1>{}));
+      StrideInputA{}, cute::make_shape(M, K, 1));
   StrideInputB stride_b = cutlass::make_cute_packed_stride(
-      StrideInputB{}, cute::make_shape(N, K, cute::Int<1>{}));
+      StrideInputB{}, cute::make_shape(N, K, 1));
   StrideOutput stride_output = cutlass::make_cute_packed_stride(
-      StrideOutput{}, cute::make_shape(M, N, cute::Int<1>{}));
+      StrideOutput{}, cute::make_shape(M, N, 1));
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
