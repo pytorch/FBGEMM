@@ -295,7 +295,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
               {%- endif %}
               shfl_sync_mask,
               max_vecs,
-              {{ args.split_kernel_arg_names | join(", ") }}
+              {{ args.split_function_arg_names | join(", ") }}
         );
         {%- else %}
         // Write deduplicated gradient to grad_dev_weights gradient is sparse

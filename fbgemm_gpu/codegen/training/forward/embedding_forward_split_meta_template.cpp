@@ -98,7 +98,7 @@ Tensor
     {%- if is_gwd %}
     const Tensor& hash_size_cumsum,
     const Tensor& prev_iter_dev,
-    const Tensor& learning_rate_tensor,
+    const double learning_rate,
     const double weight_decay,
     const int64_t iter,
     const double gwd_lower_bound,

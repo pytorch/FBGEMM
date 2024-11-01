@@ -199,9 +199,6 @@ def make_kernel_arg(
     default: Union[int, float, None],
     pass_by_ref: bool = False,
 ) -> str:
-    if name == "learning_rate_tensor":
-        ty = ArgType.FLOAT
-        name = "learning_rate"
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg(x, pass_by_ref=pass_by_ref),
         ArgType.INT_TENSOR: lambda x: int_tensor_arg(x, pass_by_ref=pass_by_ref),
@@ -228,10 +225,6 @@ def make_kernel_arg(
 
 
 def make_kernel_arg_constructor(ty: ArgType, name: str) -> str:
-    # learning_rate is a float in kernels
-    if name == "learning_rate_tensor":
-        ty = ArgType.FLOAT
-        name = "learning_rate"
     return {
         ArgType.TENSOR: acc_cache_tensor_arg_constructor,
         ArgType.INT_TENSOR: int_tensor_arg_constructor,
@@ -244,10 +237,6 @@ def make_kernel_arg_constructor(ty: ArgType, name: str) -> str:
 
 
 def make_cpu_kernel_arg(ty: ArgType, name: str, default: Union[int, float]) -> str:
-    # learning_rate is a float in kernels
-    if name == "learning_rate_tensor":
-        ty = ArgType.FLOAT
-        name = "learning_rate"
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg(x, gpu=False),
         ArgType.INT_TENSOR: lambda x: int_tensor_arg(x, gpu=False),
@@ -260,10 +249,6 @@ def make_cpu_kernel_arg(ty: ArgType, name: str, default: Union[int, float]) -> s
 
 
 def make_cpu_kernel_arg_constructor(ty: ArgType, name: str) -> str:
-    # learning_rate is a float in kernels
-    if name == "learning_rate_tensor":
-        ty = ArgType.FLOAT
-        name = "learning_rate"
     return {
         ArgType.TENSOR: lambda x: acc_cache_tensor_arg_constructor(x, gpu=False),
         ArgType.INT_TENSOR: lambda x: int_tensor_arg_constructor(x, gpu=False),
@@ -316,71 +301,6 @@ def make_function_schema_arg(ty: ArgType, name: str, default: Union[int, float])
     }[ty](name)
 
 
-def _extend_tensor_str(name: str, is_cuda: bool) -> str:
-    """
-    Take a tensor name and extend for cpu or cuda
-
-    Parameters:
-    name (str)  - tensor name e.g., "momentum1"
-    is_cuda (bool) - If True, extend for cuda tensors. Otherwise, extend for cpu tensors
-
-    Returns:
-    String of extended tensors
-    """
-    if is_cuda:
-        return f"Tensor {name}_dev, Tensor {name}_uvm, Tensor {name}_placements, Tensor {name}_offsets"
-    else:
-        return f"Tensor {name}_host, Tensor {name}_placements, Tensor {name}_offsets"
-
-
-def extend_tensors_args_from_str(args_str: str, example_tensor: str) -> str:
-    """
-    Extend tensor name for cuda/cpu if tensor args exist.
-    For example, if `args_str` contains 'Tensor x', it needs to be extended to
-    'Tensor x_host' for cpu, and 'Tensor x_dev, Tensor x_uvm, ...' for cuda
-
-    Parameters:
-        args: str - function args e.g., "Tensor momentum1, float eps"
-        example_tensor: str - a tensor name already extended
-                e.g., "momentum1_dev" for cuda or "momentum1_host" for cpu
-
-    Returns:
-        function args where tensor args are extended
-    """
-    num_tensors = args_str.count("Tensor")
-    if num_tensors > 0:
-        is_cuda = "_dev" in example_tensor
-        args = args_str.split(", ", num_tensors)
-        tensors_args = args[:num_tensors]
-        non_tensors_args = args[-1]
-        extended_tensors_args = [
-            _extend_tensor_str(t.split(" ")[1], is_cuda) for t in tensors_args
-        ]
-        return ", ".join(extended_tensors_args + [non_tensors_args])
-    else:
-        return args_str
-
-
-def make_split_function_args_v1(args_str: str) -> str:
-    """
-    Create function args for V1 interface from the args_str
-
-    Parameters:
-    args: str - function args e.g., "Tensor momentum1_host, float eps"
-
-    Returns:
-    function args in string where
-        int -> int64_t
-        SymInt -> c10::SymInt
-        float -> double
-    """
-    return (
-        args_str.replace("int", "int64_t")
-        .replace("SymInt", "c10::SymInt")
-        .replace("float", "double")
-    )
-
-
 def make_ivalue_cast(ty: ArgType) -> str:
     return {
         ArgType.INT: "toInt",
@@ -405,10 +325,6 @@ class PT2ArgsSet:
         PT2ArgsSet.create() is a method that creates different formats given the optimization arguments
         to be used in TBE codegen PT2 templates.
 
-        Mainly, PT2 unified interface packs tensors to tensor list
-        due to limited number of arguments for registered torch ops
-        e.g., instead of passing `momentum_host, `momentum_dev`, etc, we pass `momentum`
-
         Parameters:
         split_arg_spec: List[OptimItem] - list of argument specs
 
@@ -428,11 +344,7 @@ class PT2ArgsSet:
         split_function_schemas = []
         split_saved_tensor_list = []
         for s in split_arg_spec:
-            if s.name == "learning_rate_tensor":
-                split_function_arg_names.append(s.name)
-                split_function_args.append(tensor_arg(s.name))
-                split_function_schemas.append(tensor_arg(s.name))
-            elif s.ty in (
+            if s.ty in (
                 ArgType.TENSOR,
                 ArgType.INT_TENSOR,
                 ArgType.LONG_TENSOR,
@@ -488,16 +400,12 @@ class OptimizerArgs:
     # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
     placeholder_type_combos: Union[List[Dict[str, TensorType]], List[None]]
     unified_pt2: PT2ArgsSet
-    split_kernel_arg_names: List[str]
-    split_function_args_v1: Optional[str] = None
-    split_function_schemas_v1: Optional[str] = None
 
     @staticmethod
     # pyre-ignore[3]
     def create(
         split_arg_spec: List[OptimItem],
         arg_spec: List[OptimItem],
-        additional_spec: Optional[dict[str, Any]] = None,
     ):
         # Compute placeholder tensor combinations
         ph_tensor_names = [
@@ -517,32 +425,6 @@ class OptimizerArgs:
             ]
         else:
             ph_combos = [None]
-
-        split_saved_tensors = [
-            s.name
-            for s in split_arg_spec
-            if s.ty
-            in (
-                ArgType.TENSOR,
-                ArgType.INT_TENSOR,
-                ArgType.LONG_TENSOR,
-                ArgType.PLACEHOLDER_TENSOR,
-            )
-        ]
-        # Create function args and schemas for V1 interface for backward compatibility
-        # V1 interface refers to separate CPU/CUDA lookup functions
-        # e.g., split_embedding_codegen_lookup_{}_funtion and split_embedding_codegen_lookup_{}_funtion_cpu)
-        split_function_args_v1 = None
-        split_function_schemas_v1 = None
-        if additional_spec is not None:
-            if len(split_saved_tensors) > 0:
-                extended_args_str = extend_tensors_args_from_str(
-                    additional_spec["v1"], split_saved_tensors[0]
-                )
-            else:
-                extended_args_str = additional_spec["v1"]
-            split_function_args_v1 = make_split_function_args_v1(extended_args_str)
-            split_function_schemas_v1 = extended_args_str
 
         # pyre-fixme[28]: Unexpected keyword argument `placeholder_type_combos`.
         return OptimizerArgs(
@@ -574,8 +456,7 @@ class OptimizerArgs:
             split_tensors=[
                 s.name
                 for s in arg_spec
-                if (s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR))
-                and s.name != "learning_rate_tensor"
+                if s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)
             ],
             split_tensor_types={
                 s.name: (
@@ -586,7 +467,17 @@ class OptimizerArgs:
                 for s in arg_spec
                 if s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)
             },
-            split_saved_tensors=split_saved_tensors,
+            split_saved_tensors=[
+                s.name
+                for s in split_arg_spec
+                if s.ty
+                in (
+                    ArgType.TENSOR,
+                    ArgType.INT_TENSOR,
+                    ArgType.LONG_TENSOR,
+                    ArgType.PLACEHOLDER_TENSOR,
+                )
+            ],
             saved_data=[
                 (s.name, make_ivalue_cast(s.ty))
                 for s in arg_spec
@@ -605,13 +496,6 @@ class OptimizerArgs:
             placeholder_tensor_names=ph_tensor_names,
             placeholder_type_combos=ph_combos,
             unified_pt2=PT2ArgsSet.create(split_arg_spec),
-            # learning rate remains float in kernels
-            split_kernel_arg_names=[
-                "learning_rate" if s.name == "learning_rate_tensor" else s.name
-                for s in split_arg_spec
-            ],
-            split_function_args_v1=split_function_args_v1,
-            split_function_schemas_v1=split_function_schemas_v1,
         )
 
 
@@ -628,24 +512,18 @@ class OptimizerArgsSet:
 
     @staticmethod
     def create_optim_args(
-        arg_spec: List[OptimItem],
-        ext_fn: Callable[[OptimItem], List[OptimItem]],
-        additional_spec: Optional[dict[str, Any]] = None,
+        arg_spec: List[OptimItem], ext_fn: Callable[[OptimItem], List[OptimItem]]
     ) -> OptimizerArgs:
         split_arg_spec = []
         for s in arg_spec:
-            # no cpu/cuda extension for learning_rate
-            if (
-                s.ty in (ArgType.FLOAT, ArgType.INT, ArgType.SYM_INT)
-                or s.name == "learning_rate_tensor"
-            ):
+            if s.ty in (ArgType.FLOAT, ArgType.INT, ArgType.SYM_INT):
                 # pyre-fixme[19]: Expected 1 positional argument.
                 split_arg_spec.append(OptimItem(s.ty, s.name, s.default))
             else:
                 assert s.ty in (ArgType.TENSOR, ArgType.PLACEHOLDER_TENSOR)
                 # Treat PLACEHOLDER_TENSOR as TENSOR for CPU
                 split_arg_spec.extend(ext_fn(s))
-        return OptimizerArgs.create(split_arg_spec, arg_spec, additional_spec)
+        return OptimizerArgs.create(split_arg_spec, arg_spec)
 
     @staticmethod
     def extend_for_cpu(spec: OptimItem) -> List[OptimItem]:
@@ -698,12 +576,10 @@ class OptimizerArgsSet:
 
     @staticmethod
     # pyre-ignore[3]
-    def create(
-        arg_spec: List[OptimItem], additional_spec: Optional[dict[str, Any]] = None
-    ):
+    def create(arg_spec: List[OptimItem]):
         return OptimizerArgsSet(
             *(
-                OptimizerArgsSet.create_optim_args(arg_spec, ext_fn, additional_spec)
+                OptimizerArgsSet.create_optim_args(arg_spec, ext_fn)
                 for ext_fn in (
                     OptimizerArgsSet.extend_for_cpu,
                     OptimizerArgsSet.extend_for_cuda,

@@ -133,7 +133,7 @@ def invoke(
             gradient_clipping = optimizer_args.gradient_clipping,
             max_gradient=optimizer_args.max_gradient,
             stochastic_rounding=optimizer_args.stochastic_rounding,
-            {%- if "learning_rate" in args.split_function_args_v1 %}
+            {%- if "learning_rate" in args.split_function_arg_names %}
             learning_rate=optimizer_args.learning_rate,
             {%- endif %}
             {%- if "eps" in args.split_function_arg_names %}
@@ -303,8 +303,7 @@ def invoke(
         max_gradient=optimizer_args.max_gradient,
         stochastic_rounding=optimizer_args.stochastic_rounding,
         {%- endif %} # if optimizer == none
-        {%- if "learning_rate" in args.split_function_args_v1 %}
-        # V1 interface still accepts learning_rate as float
+        {%- if "learning_rate" in args.split_function_arg_names %}
         learning_rate=optimizer_args.learning_rate,
         {%- endif %}
         {%- if "eps" in args.split_function_arg_names %}
