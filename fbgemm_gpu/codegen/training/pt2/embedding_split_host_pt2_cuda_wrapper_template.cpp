@@ -96,7 +96,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
     {%- endif %}
     {%- if is_gwd %}
     const Tensor& prev_iter_dev,
-    const Tensor& learning_rate_tensor,
+    const double learning_rate,
     const double weight_decay,
     const int64_t iter,
     const double gwd_lower_bound,
@@ -145,7 +145,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
                 {%- if is_gwd %}
                 const Tensor& /*hash_size_cumsum*/,
                 const Tensor& /*prev_iter_dev*/,
-                const Tensor& /*learning_rate_tensor*/,
+                const double /*learning_rate*/,
                 const double /*weight_decay*/,
                 const int64_t /*iter*/,
                 const double /*gwd_lower_bound*/,
@@ -191,7 +191,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
             {%- if is_gwd %}
             hash_size_cumsum,
             prev_iter_dev,
-            learning_rate_tensor,
+            learning_rate,
             weight_decay,
             iter,
             gwd_lower_bound,
@@ -529,7 +529,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- endif %}
         {%- if is_gwd %}
         "    Tensor prev_iter_dev, "
-        "    Tensor learning_rate_tensor, "
+        "    float learning_rate, "
         "    float weight_decay, "
         "    int iter, "
         "    float gwd_lower_bound, "
