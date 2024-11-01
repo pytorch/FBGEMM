@@ -249,7 +249,7 @@ GenEmbeddingSpMDMNBitLookup<
           filename += "_rowwise_sparse";
         }
         if (!scale_bias_last) {
-          filename += "_scale_bias_first"
+          filename += "_scale_bias_first";
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
