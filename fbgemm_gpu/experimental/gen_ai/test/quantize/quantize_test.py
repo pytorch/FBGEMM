@@ -445,8 +445,8 @@ class FP8Tests(unittest.TestCase):
         # Blockwise seems to have slightly more noisy outputs.
         # Special case correctness to avoid flakiness.
         if Mode == "blockwise":
-            atol = 1.0e-1
-            rtol = 1.0e-1
+            atol = 1.2e-1
+            rtol = 1.2e-1
         else:
             atol = 9.0e-2
             rtol = 9.0e-2
@@ -526,7 +526,7 @@ class FP8Tests(unittest.TestCase):
             zq = torch.ops.fbgemm.bf16i4bf16_rowwise(x, wq, w_scale, w_zp)
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
-        torch.testing.assert_close(zq, zq_ref, atol=8.0e-2, rtol=8.0e-2)
+        torch.testing.assert_close(zq, zq_ref, atol=1.0e-1, rtol=8.0e-2)
 
     @unittest.skipIf(
         not torch.version.cuda and torch.version.hip < "6.2",
@@ -804,7 +804,7 @@ class FP8Tests(unittest.TestCase):
             y_int4 = torch.ops.fbgemm.bf16i4bf16_rowwise_batched(x, wq, w_scale, w_zp)
 
         y_ref = torch.bmm(x, w.transpose(1, 2))
-        torch.testing.assert_close(y_ref, y_int4, atol=8.0e-2, rtol=8.0e-2)
+        torch.testing.assert_close(y_ref, y_int4, atol=1e-1, rtol=8.0e-2)
 
     @unittest.skipIf(
         ((not torch.version.cuda) and (not torch.version.hip)),

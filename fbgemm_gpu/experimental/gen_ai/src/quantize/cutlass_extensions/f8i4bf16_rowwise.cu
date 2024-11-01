@@ -102,8 +102,9 @@ at::Tensor f8i4bf16_rowwise_impl(
 
   // Implement rowwise scaling epilogue for x
   using XScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
+      0,
       TileShape,
+      ElementComputeEpilogue,
       ElementComputeEpilogue,
       cute::Stride<cute::Int<0>, cute::Int<1>, cute::Int<0>>>;
 
@@ -166,13 +167,13 @@ at::Tensor f8i4bf16_rowwise_impl(
   using StrideS = typename CollectiveMainloop::StrideScale;
 
   StrideInputA stride_a = cutlass::make_cute_packed_stride(
-      StrideInputA{}, cute::make_shape(M, K, cute::Int<1>{}));
+      StrideInputA{}, cute::make_shape(M, K, 1));
   StrideInputB stride_b = cutlass::make_cute_packed_stride(
-      StrideInputB{}, cute::make_shape(N, K, cute::Int<1>{}));
+      StrideInputB{}, cute::make_shape(N, K, 1));
   StrideOutput stride_output = cutlass::make_cute_packed_stride(
-      StrideOutput{}, cute::make_shape(N, M, cute::Int<1>{}));
+      StrideOutput{}, cute::make_shape(N, M, 1));
   StrideS stride_S = cutlass::make_cute_packed_stride(
-      StrideS{}, cute::make_shape(N, num_groups, cute::Int<1>{}));
+      StrideS{}, cute::make_shape(N, num_groups, 1));
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
