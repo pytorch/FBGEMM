@@ -14,9 +14,31 @@
 
 #include "fbgemm_gpu/utils/ops_utils.h"
 
+#include "fbgemm_gpu/config/feature_gates.h"
+
 using Tensor = at::Tensor;
 
 /// @defgroup embedding-cuda Embedding CUDA Operators
+
+void _bounds_check_indices_cuda_v1(
+    Tensor& rows_per_table,
+    Tensor& indices,
+    Tensor& offsets,
+    int64_t bounds_check_mode,
+    Tensor& warning,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& B_offsets,
+    const int64_t max_B);
+
+void _bounds_check_indices_cuda_v2(
+    Tensor& rows_per_table,
+    Tensor& indices,
+    Tensor& offsets,
+    int64_t bounds_check_mode,
+    Tensor& warning,
+    const std::optional<Tensor>& weights,
+    const std::optional<Tensor>& B_offsets,
+    const int64_t max_B);
 
 ///@ingroup embedding-cuda
 void bounds_check_indices_cuda(
@@ -26,9 +48,22 @@ void bounds_check_indices_cuda(
     int64_t bounds_check_mode,
     Tensor& warning,
     const std::optional<Tensor>& weights,
-    const std::optional<Tensor>& B_ofsets,
-    const int64_t max_B);
-
+    const std::optional<Tensor>& B_offsets,
+    const int64_t max_B) {
+  const static bool use_v2 = fbgemm_gpu::config::is_feature_enabled(
+      fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_INDICES_V2);
+  const auto bounds_check_indices_fn =
+      use_v2 ? _bounds_check_indices_cuda_v2 : _bounds_check_indices_cuda_v1;
+  bounds_check_indices_fn(
+      rows_per_table,
+      indices,
+      offsets,
+      bounds_check_mode,
+      warning,
+      weights,
+      B_offsets,
+      max_B);
+}
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
   DISPATCH_TO_CUDA("bounds_check_indices", bounds_check_indices_cuda);
