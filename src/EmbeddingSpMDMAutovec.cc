@@ -68,6 +68,9 @@ bool EmbeddingSpMDM8Bit_autovec(
     const bool no_bag /*=false*/,
     const bool is_bf16_out /*=false*/) {
   constexpr bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
+  if (data_size < 0) {
+    return false;
+  }
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -305,7 +308,9 @@ bool EmbeddingSpMDMNBit_autovec(
   }
   nbit_embedding_sanity_check<OutType>(input_bit_rate, output_bit_rate, no_bag);
   const int num_elem_per_byte = 8 / input_bit_rate;
-
+  if (data_size < 0) {
+    return false;
+  }
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -515,6 +520,9 @@ bool EmbeddingSpMDM_autovec(
         scale_bias_last,
         no_bag,
         is_bf16_out);
+  }
+  if (data_size < 0) {
+    return false;
   }
   if (output_stride == -1) {
     output_stride = block_size;
@@ -882,6 +890,9 @@ bool EmbeddingSpMDMFP8_autovec(
     int exponent_bits,
     int exponent_bias,
     bool is_bf16_out /*=false*/) {
+  if (data_size < 0) {
+    return false;
+  }
   if (output_stride == -1) {
     output_stride = block_size;
   }
