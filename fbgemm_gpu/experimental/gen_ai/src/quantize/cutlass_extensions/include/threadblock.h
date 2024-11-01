@@ -34,36 +34,6 @@
 // Each warp compute sum(t_subset) P[t] * V[t_subset, d]
 // outputs are of size float[D]
 
-namespace cutlass::epilogue::threadblock::detail {
-
-/// Partial specialization for bfloat16 <= int32_t x 4
-template <
-    typename ThreadblockShape,
-    typename WarpShape,
-    typename InstructionShape,
-    typename ThreadMap>
-struct DefaultIteratorsTensorOp<
-    cutlass::bfloat16_t,
-    int32_t,
-    8,
-    ThreadblockShape,
-    WarpShape,
-    InstructionShape,
-    ThreadMap> {
-  using WarpTileIterator = cutlass::epilogue::warp::TileIteratorTensorOp<
-      WarpShape,
-      InstructionShape,
-      int32_t,
-      layout::RowMajor>;
-
-  using SharedLoadIterator =
-      cutlass::epilogue::threadblock::SharedLoadIterator<ThreadMap, int32_t>;
-
-  static int const kFragmentsPerIteration = 1;
-};
-
-} // namespace cutlass::epilogue::threadblock::detail
-
 // Wrapper to allow passing alpha/beta scaling params
 // as device pointers.
 namespace cutlass::epilogue::thread {

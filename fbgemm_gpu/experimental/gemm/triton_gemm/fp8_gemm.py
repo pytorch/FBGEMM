@@ -1027,7 +1027,10 @@ def matmul_fp8_row(
     a_shape = a.shape
     a = a.view(-1, a.size(-1))
     # View inputs into proper torch fp8 dtype.
-    assert a.dtype == pt_fp8_dtype
+    if torch.version.cuda:
+        assert a.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+    else:
+        assert a.dtype in (torch.float8_e4m3fnuz, torch.float8_e5m2fnuz)
     assert b.dtype == pt_fp8_dtype
     M, N, K, m_key, n_key, k_key, c, c_dtype_triton, dot_out_dtype_triton, device = (
         prep_matmul(a, b, dot_out_dtype)

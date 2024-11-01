@@ -132,17 +132,20 @@ at::Tensor f8f8bf16_rowwise_batched_impl(
       0,
       TileShape,
       ElementComputeEpilogue,
+      ElementComputeEpilogue,
       cute::Stride<cute::Int<1>, cute::Int<0>, int32_t>>;
 
   using WScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
+      0,
       TileShape,
+      ElementComputeEpilogue,
       ElementComputeEpilogue,
       cute::Stride<cute::Int<0>, cute::Int<1>, int32_t>>;
 
   using Bias = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      PONG ? 2 : 1,
+      0,
       TileShape,
+      ElementBias,
       ElementBias,
       cute::Stride<cute::Int<0>, cute::Int<1>, int32_t>>;
 

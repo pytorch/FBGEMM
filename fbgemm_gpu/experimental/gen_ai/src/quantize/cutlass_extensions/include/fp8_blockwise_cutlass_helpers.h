@@ -1017,6 +1017,18 @@ class GemmUniversal<
     void* workspace;
   };
 
+  // IF_SWAP_AB<T>::value will be true only if:
+  //   class T has member SwapAB and T::SwapAB is true
+  template <typename T, typename = void>
+  struct IF_SWAP_AB {
+    static constexpr bool value = false;
+  };
+
+  template <typename T>
+  struct IF_SWAP_AB<T, void_t<decltype(T::SwapAB)>> {
+    static constexpr bool value = T::SwapAB;
+  };
+
   //
   // Methods
   //
@@ -1029,7 +1041,7 @@ class GemmUniversal<
     CUTLASS_TRACE_HOST("to_underlying_arguments():");
 
     auto problem_shape = args.problem_shape;
-    if constexpr (detail::IF_SWAP_AB<CollectiveMainloop>::value) {
+    if constexpr (IF_SWAP_AB<CollectiveMainloop>::value) {
       // swap M/N
       get<0>(problem_shape) = get<1>(args.problem_shape);
       get<1>(problem_shape) = get<0>(args.problem_shape);
@@ -1106,8 +1118,6 @@ class GemmUniversal<
     }
     implementable &=
         CollectiveMainloop::can_implement(args.problem_shape, args.mainloop);
-    implementable &=
-        CollectiveEpilogue::can_implement(args.problem_shape, args.epilogue);
     implementable &= TileScheduler::can_implement(args.scheduler);
     return implementable;
   }
@@ -1136,7 +1146,8 @@ class GemmUniversal<
   static cutlass::Status initialize_workspace(
       Arguments const& args,
       void* workspace = nullptr,
-      cudaStream_t stream = nullptr) {
+      cudaStream_t stream = nullptr,
+      CudaHostAdapter* cuda_adapter = nullptr) {
     Status status = Status::kSuccess;
     uint8_t* workspace_ptr = reinterpret_cast<uint8_t*>(workspace);
     size_t workspace_offset = 0;
@@ -1191,12 +1202,9 @@ class GemmUniversal<
         params.scheduler.raster_order_ == TileScheduler::RasterOrder::AlongN
         ? TileScheduler::RasterOrderOptions::AlongN
         : TileScheduler::RasterOrderOptions::AlongM;
-    return TileScheduler::get_grid_shape(
-        params.problem_shape,
-        TileShape{},
-        ClusterShape{},
-        params.hw_info,
-        args);
+    auto problem_shape_MNKL = append<4>(params.problem_shape, Int<1>{});
+    return TileScheduler::get_tiled_cta_shape_mnl(
+        problem_shape_MNKL, TileShape{}, ClusterShape{});
   }
 
   static dim3 get_block_shape() {
