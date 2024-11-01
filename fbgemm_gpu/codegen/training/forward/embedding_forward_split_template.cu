@@ -384,7 +384,7 @@ batch_index_select_dim0_codegen_forward_cuda(
     {%- if is_gwd_kernel %}
     const Tensor& hash_size_cumsum,
     const Tensor& prev_iter_dev,
-    const double learning_rate,
+    const Tensor& learning_rate_tensor,
     const double weight_decay,
     const int64_t iter,
     const double gwd_lower_bound,
@@ -483,12 +483,14 @@ batch_index_select_dim0_codegen_forward_cuda(
     TENSORS_HAVE_SAME_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
     TORCH_CHECK_GE(vbe_output_size, 0);
 
-    {%- if is_gwd_kernel %}
-    TORCH_CHECK(learning_rate >= 0, "Expect to apply weight decay but learning rate is < 0")
-    {%- endif %}
-
     // Cast info_B_mask from int64_t to uint32_t
     const uint32_t info_B_mask = info_B_mask_int64;
+    {%- endif %}
+
+    {%- if is_gwd_kernel %}
+    // convert `learning rate` to float since `learning rate` is float in kernels
+    const float learning_rate = learning_rate_tensor.item<float>();
+    TORCH_CHECK(learning_rate >= 0, "Expect to apply weight decay but learning rate is < 0");
     {%- endif %}
 
     Tensor output;
@@ -872,7 +874,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- if is_gwd_kernel %}
           "    Tensor hash_size_cumsum, "
           "    Tensor prev_iter_dev, "
-          "    float learning_rate, "
+          "    Tensor learning_rate_tensor, "
           "    float weight_decay, "
           "    int iter, "
           "    float gwd_lower_bound, "
