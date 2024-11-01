@@ -36,10 +36,7 @@ def dense() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.FLOAT, "unused"),
-            ],
-            {
-                "v1": "float unused = 0",
-            },
+            ]
         ),
         "has_cpu_support": True,
         "has_gpu_support": True,
@@ -78,10 +75,9 @@ def adagrad() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
-            ],
-            {"v1": "Tensor momentum1, float eps = 0, float learning_rate = 0"},
+                OptimItem(ArgType.FLOAT, "learning_rate"),
+            ]
         ),
         "split_precomputation": "",
         "split_weight_update": split_weight_update,
@@ -246,15 +242,12 @@ def rowwise_adagrad() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "weight_decay_mode", 0),
                 OptimItem(ArgType.FLOAT, "max_norm", 0.0),
-            ],
-            {
-                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0, float max_norm = 0.0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -282,14 +275,11 @@ def approx_rowwise_adagrad() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "weight_decay_mode", 0),
-            ],
-            {
-                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0",
-            },
+            ]
         ),
         "split_precomputation": rowwise_adagrad_args["split_precomputation"],
         "split_weight_update": approx_split_weight_update,
@@ -392,14 +382,11 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "weight_decay_mode", 0),
-            ],
-            {
-                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -428,14 +415,11 @@ def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "weight_decay_mode", 0),
-            ],
-            {
-                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0"
-            },
+            ]
         ),
         "split_precomputation": rowwise_adagrad_with_weight_decay_args[
             "split_precomputation"
@@ -597,8 +581,8 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 OptimItem(ArgType.TENSOR, "momentum1"),
                 OptimItem(ArgType.TENSOR, "prev_iter"),
                 OptimItem(ArgType.TENSOR, "row_counter"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "iter"),
                 OptimItem(ArgType.INT, "counter_halflife", -1),
@@ -613,10 +597,7 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 OptimItem(ArgType.INT, "regularization_mode", 0),
                 OptimItem(ArgType.FLOAT, "weight_norm_coefficient", 0.0),
                 OptimItem(ArgType.FLOAT, "lower_bound", 0.0),
-            ],
-            {
-                "v1": "Tensor momentum1, Tensor prev_iter, Tensor row_counter, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int iter = 0, int counter_halflife = -1, int adjustment_iter = -1, float adjustment_ub = 1.0, int learning_rate_mode = -1, int weight_decay_mode = 1, int grad_sum_decay = -1, float max_counter = 0, float tail_id_threshold = 0.0, int is_tail_id_thresh_ratio = 0, int regularization_mode = 0, float weight_norm_coefficient = 0.0, float lower_bound = 0.0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -646,8 +627,8 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 OptimItem(ArgType.TENSOR, "momentum1"),
                 OptimItem(ArgType.TENSOR, "prev_iter"),
                 OptimItem(ArgType.TENSOR, "row_counter"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "iter"),
                 OptimItem(ArgType.INT, "counter_halflife", -1),
@@ -662,10 +643,7 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 OptimItem(ArgType.INT, "regularization_mode", 0),
                 OptimItem(ArgType.FLOAT, "weight_norm_coefficient", 0.0),
                 OptimItem(ArgType.FLOAT, "lower_bound", 0.0),
-            ],
-            {
-                "v1": "Tensor momentum1, Tensor prev_iter, Tensor row_counter, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int iter = 0, int counter_halflife = -1, int adjustment_iter = -1, float adjustment_ub = 1.0, int learning_rate_mode = -1, int weight_decay_mode = 1, int grad_sum_decay = -1, float max_counter = 0, float tail_id_threshold = 0.0, int is_tail_id_thresh_ratio = 0, int regularization_mode = 0, float weight_norm_coefficient = 0.0, float lower_bound = 0.0"
-            },
+            ]
         ),
         "split_precomputation": rowwise_adagrad_with_counter_args[
             "split_precomputation"
@@ -744,14 +722,11 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
                 OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
                 OptimItem(ArgType.INT, "iter"),
-            ],
-            {
-                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0, int iter = 0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -777,10 +752,7 @@ def sgd() -> Dict[str, Any]:
 
     return {
         "optimizer": "sgd",
-        "args": OptimizerArgsSet.create(
-            [OptimItem(ArgType.TENSOR, "learning_rate_tensor")],
-            {"v1": "float learning_rate = 0"},
-        ),
+        "args": OptimizerArgsSet.create([OptimItem(ArgType.FLOAT, "learning_rate")]),
         "split_precomputation": "",
         "split_weight_update": split_weight_update,
         "split_post_update": "",
@@ -805,10 +777,7 @@ def approx_sgd() -> Dict[str, Any]:
 
     return {
         "optimizer": "approx_sgd",
-        "args": OptimizerArgsSet.create(
-            [OptimItem(ArgType.TENSOR, "learning_rate_tensor")],
-            {"v1": "float learning_rate = 0"},
-        ),
+        "args": OptimizerArgsSet.create([OptimItem(ArgType.FLOAT, "learning_rate")]),
         "split_precomputation": "",
         "split_weight_update": approx_split_weight_update,
         "split_post_update": "",
@@ -880,16 +849,13 @@ def lamb() -> Dict[str, Any]:
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
                 OptimItem(ArgType.TENSOR, "momentum2"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "eps"),
                 OptimItem(ArgType.FLOAT, "beta1"),
                 OptimItem(ArgType.FLOAT, "beta2"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
                 OptimItem(ArgType.INT, "iter"),
-            ],
-            {
-                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -977,16 +943,13 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
                 OptimItem(ArgType.TENSOR, "momentum2"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "eps"),
                 OptimItem(ArgType.FLOAT, "beta1"),
                 OptimItem(ArgType.FLOAT, "beta2"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
                 OptimItem(ArgType.INT, "iter"),
-            ],
-            {
-                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -1037,16 +1000,13 @@ def adam() -> Dict[str, Any]:
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
                 OptimItem(ArgType.TENSOR, "momentum2"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "eps"),
                 OptimItem(ArgType.FLOAT, "beta1"),
                 OptimItem(ArgType.FLOAT, "beta2"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
                 OptimItem(ArgType.INT, "iter"),
-            ],
-            {
-                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
-            },
+            ]
         ),
         "split_precomputation": "",
         "split_weight_update": split_weight_update,
@@ -1117,16 +1077,13 @@ def partial_rowwise_adam() -> Dict[str, Any]:
                     "momentum2",
                     ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
                 ),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "eps"),
                 OptimItem(ArgType.FLOAT, "beta1"),
                 OptimItem(ArgType.FLOAT, "beta2"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
                 OptimItem(ArgType.INT, "iter"),
-            ],
-            {
-                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -1188,14 +1145,11 @@ def lars_sgd() -> Dict[str, Any]:
         "args": OptimizerArgsSet.create(
             [
                 OptimItem(ArgType.TENSOR, "momentum1"),
-                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "learning_rate"),
                 OptimItem(ArgType.FLOAT, "eta"),
                 OptimItem(ArgType.FLOAT, "momentum"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
-            ],
-            {
-                "v1": "Tensor momentum1, float learning_rate = 0, float eta = 0, float momentum = 0, float weight_decay = 0"
-            },
+            ]
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -1217,10 +1171,7 @@ def none_optimizer() -> Dict[str, Any]:
             [
                 OptimItem(ArgType.INT, "total_hash_size"),
                 OptimItem(ArgType.SYM_INT, "total_unique_indices"),
-            ],
-            {
-                "v1": "int total_hash_size = 0, SymInt total_unique_indices = 0",
-            },
+            ]
         ),
         # Generate only GPU code
         "has_cpu_support": False,

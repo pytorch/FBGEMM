@@ -517,11 +517,6 @@ Tensor {{ embedding_cuda_op }}(
     const int64_t D = D_.guard_int(__FILE__, __LINE__);
     {%- endif %}
 
-    {%- if "learning_rate" in args.split_kernel_arg_names %}
-    // convert `learning rate` to float since `learning rate` is float in kernels
-    const float learning_rate = learning_rate_tensor.item<float>();
-    {%- endif %}
-
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
         {%- if optimizer != "none" %}
         dev_weights,
