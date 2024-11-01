@@ -58,7 +58,8 @@ namespace fbgemm_gpu::config {
 #define ENUMERATE_ALL_FEATURE_FLAGS \
   X(TBE_V2)                         \
   X(TBE_ENSEMBLE_ROWWISE_ADAGRAD)   \
-  X(TBE_ANNOTATE_KINETO_TRACE)
+  X(TBE_ANNOTATE_KINETO_TRACE)      \
+  X(BOUNDS_CHECK_INDICES_V2)
 // X(EXAMPLE_FEATURE_FLAG)
 
 /// @ingroup fbgemm-gpu-config
