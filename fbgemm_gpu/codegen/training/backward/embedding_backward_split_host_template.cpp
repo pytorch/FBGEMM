@@ -103,7 +103,7 @@ enum SSDTensor {
       {%- if is_gwd %}
       hash_size_cumsum,
       prev_iter_dev_,
-      learning_rate_tensor,
+      learning_rate,
       weight_decay,
       iter,
       gwd_lower_bound,
@@ -461,7 +461,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward{{ desc_suffix }}_cud
     {%- if is_gwd %}
     const Tensor& hash_size_cumsum,
     const Tensor& prev_iter_dev,
-    const Tensor& learning_rate_tensor,
+    const double learning_rate,
     const double weight_decay,
     const int64_t iter,
     const double gwd_lower_bound,
@@ -1048,7 +1048,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const double max_gradient,
     const bool stochastic_rounding,
     {%- endif %}
-    {{ args.split_function_args_v1 }},
+    {{ args.split_function_args | join(", ") }},
     {%- endif %}
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32),
     const std::optional<Tensor>& B_offsets = std::nullopt,
@@ -1079,14 +1079,6 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
-
-    {%- if "learning_rate_tensor" in args.split_function_arg_names %}
-    // `learning rate` is changed to tensor to prevent recompilation. 
-    // This interface (V1) still accepts learning rate as float for backward compatibility, 
-    // We convert learning rate to tensor here to work with the backend
-    // The unified PT2 interface already accepts learning rate as tensor.
-    const auto learning_rate_tensor = at::tensor({learning_rate}, at::TensorOptions().dtype(at::kFloat).device(dev_weights.options().device()));
-    {%- endif %}
 
     {%- if not dense %}
     // Load the config value from JK once
@@ -1170,7 +1162,7 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    float max_gradient, "
           "    bool stochastic_rounding, "
           {%- endif %}
-          "    {{ args.split_function_schemas_v1 }}, "
+          "    {{ args.split_function_schemas | join(", ") }}, "
           "    int output_dtype=0, "
           "    Tensor? B_offsets=None, "
           "    Tensor? vbe_output_offsets_feature_rank=None, "
