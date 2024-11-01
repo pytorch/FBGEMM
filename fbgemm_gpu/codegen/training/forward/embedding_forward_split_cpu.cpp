@@ -390,7 +390,6 @@ void csr2csc_template_(
       table_to_feature_offset[1] > table_to_feature_offset[0] + 1;
   auto NS = csr_offsets[table_to_feature_offset[1] * B] -
       csr_offsets[table_to_feature_offset[0] * B];
-  int num_non_empty_segments = 0;
 
   using pair_t = std::pair<int, scalar_t>;
   using value_t = typename std::conditional<IS_VALUE_PAIR, pair_t, int>::type;
