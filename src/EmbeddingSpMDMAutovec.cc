@@ -14,14 +14,13 @@
 #include "fbgemm/FbgemmBuild.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <cstring>
 #include <new>
 #include <numeric>
 #include <thread>
-
-using std::vector;
 
 namespace fbgemm {
 
@@ -75,7 +74,6 @@ bool EmbeddingSpMDM8Bit_autovec(
   if constexpr (isOutput8bit) {
     assert(input_stride == output_stride);
   }
-  vector<float> buf(block_size);
 
   // block_size is the number of elements and fused_block_size is the size of
   // an entire row, including scale and bias.
@@ -101,6 +99,16 @@ bool EmbeddingSpMDM8Bit_autovec(
   }
   IndexType current = 0;
 
+  std::array<float, 256> local_storage;
+  std::unique_ptr<float[]> heap_storage;
+  float* buf;
+  if (block_size <= 256) {
+    buf = local_storage.data();
+  } else {
+    heap_storage.reset(new float[block_size]);
+    buf = heap_storage.get();
+  }
+
   if (no_bag) {
     // compiler may see this as unused even if it's used in pragma
     [[maybe_unused]] constexpr int unroll_factor = 4;
@@ -119,7 +127,7 @@ bool EmbeddingSpMDM8Bit_autovec(
         const uint8_t* input_row_ptr = input + input_stride * idx;
         memcpy(out, input_row_ptr, sizeof(uint8_t) * input_stride);
       } else {
-        memset(buf.data(), 0, sizeof(float) * block_size);
+        memset(buf, 0, sizeof(float) * block_size);
         const float* scale_bias = reinterpret_cast<const float*>(
             input + input_stride * idx + (scale_bias_last ? block_size : 0));
 
@@ -144,7 +152,7 @@ bool EmbeddingSpMDM8Bit_autovec(
           buf[j] =
               std::fma(scale, (float)input[input_offset + j], buf[j] + bias);
         }
-        fill_output(out, buf.data(), block_size, is_bf16_out);
+        fill_output(out, buf, block_size, is_bf16_out);
       }
       out += output_stride;
     } // m
@@ -152,7 +160,7 @@ bool EmbeddingSpMDM8Bit_autovec(
   } // no_bag
 
   for (int m = 0; m < output_size; ++m) {
-    memset(buf.data(), 0, sizeof(float) * block_size);
+    memset(buf, 0, sizeof(float) * block_size);
     const auto len = use_offsets
         ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
         : offsets_or_lengths[m];
@@ -225,7 +233,7 @@ bool EmbeddingSpMDM8Bit_autovec(
         buf[j] *= scale;
       }
     }
-    fill_output(out, buf.data(), block_size, is_bf16_out);
+    fill_output(out, buf, block_size, is_bf16_out);
     out += output_stride;
   }
   return current == index_size;
@@ -361,15 +369,25 @@ bool EmbeddingSpMDMNBit_autovec(
   }
 
   int64_t current = 0;
-  const int64_t rounded_bs = round_up(block_size, num_elem_per_byte);
-  vector<float> buf(rounded_bs);
+  const int64_t rounded_block_size = round_up(block_size, num_elem_per_byte);
+
+  std::array<float, 256> local_storage;
+  std::unique_ptr<float[]> heap_storage;
+  float* buf;
+  if (rounded_block_size <= 256) {
+    buf = local_storage.data();
+  } else {
+    heap_storage.reset(new float[rounded_block_size]);
+    buf = heap_storage.get();
+  }
+
   for (int m = 0; m < output_size; ++m) {
-    memset(buf.data(), 0, sizeof(float) * rounded_bs);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
     if (current + len > index_size) {
       return false;
     }
+    memset(buf, 0, sizeof(float) * rounded_block_size);
 #if _OPENMP >= 202011
     constexpr int tile_size = 4;
 #pragma omp tile sizes(tile_size)
@@ -447,7 +465,7 @@ bool EmbeddingSpMDMNBit_autovec(
         buf[j] *= scale;
       }
     }
-    fill_output(out, buf.data(), block_size, is_bf16_out);
+    fill_output(out, buf, block_size, is_bf16_out);
     out += output_stride;
   }
   return current == index_size;
@@ -501,7 +519,16 @@ bool EmbeddingSpMDM_autovec(
   if (output_stride == -1) {
     output_stride = block_size;
   }
-  vector<float> buf(block_size);
+
+  std::array<float, 256> local_storage;
+  std::unique_ptr<float[]> heap_storage;
+  float* buf;
+  if (block_size <= 256) {
+    buf = local_storage.data();
+  } else {
+    heap_storage.reset(new float[block_size]);
+    buf = heap_storage.get();
+  }
 
   if (input_stride == -1) {
     input_stride = block_size;
@@ -509,7 +536,7 @@ bool EmbeddingSpMDM_autovec(
 
   if (no_bag) {
     for (int m = 0; m < output_size; ++m) {
-      memset(buf.data(), 0, sizeof(float) * block_size);
+      memset(buf, 0, sizeof(float) * block_size);
       int64_t idx = indices[m];
       if (idx < 0 || idx >= data_size) {
         return false;
@@ -524,7 +551,7 @@ bool EmbeddingSpMDM_autovec(
         const InType* inptr = input + input_stride * idx + j;
         buf[j] = std::fma(w, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
       }
-      fill_output(out, buf.data(), block_size, is_bf16_out);
+      fill_output(out, buf, block_size, is_bf16_out);
       out += output_stride;
     } // m
     return true;
@@ -564,7 +591,7 @@ bool EmbeddingSpMDM_autovec(
   // Reference implementation of FP32 SLS
   int64_t current = 0;
   for (int m = 0; m < output_size; ++m) {
-    memset(buf.data(), 0, sizeof(float) * block_size);
+    memset(buf, 0, sizeof(float) * block_size);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
     if (current + len > index_size) {
@@ -621,7 +648,7 @@ bool EmbeddingSpMDM_autovec(
       }
     }
 
-    fill_output(out, buf.data(), block_size, is_bf16_out);
+    fill_output(out, buf, block_size, is_bf16_out);
     out += output_stride;
   }
   return current == index_size;
@@ -859,7 +886,15 @@ bool EmbeddingSpMDMFP8_autovec(
     output_stride = block_size;
   }
 
-  vector<float> buf(block_size);
+  std::array<float, 256> local_storage;
+  std::unique_ptr<float[]> heap_storage;
+  float* buf;
+  if (block_size <= 256) {
+    buf = local_storage.data();
+  } else {
+    heap_storage.reset(new float[block_size]);
+    buf = heap_storage.get();
+  }
 
   if (input_stride == -1) {
     input_stride = block_size;
@@ -904,12 +939,19 @@ bool EmbeddingSpMDMFP8_autovec(
   int64_t current = 0;
 
   for (int m = 0; m < output_size; ++m) {
-    memset(buf.data(), 0, sizeof(float) * block_size);
+    memset(buf, 0, sizeof(float) * block_size);
     int len = use_offsets ? offsets_or_lengths[m + 1] - offsets_or_lengths[m]
                           : offsets_or_lengths[m];
     if (current + len > index_size) {
       return false;
     }
+
+    // Adjust these as necessary to reflect actual batch size
+    const int batch_size = block_size; // Assuming the entire block is
+                                       // processed at once; adjust if needed
+
+    // Temporary buffer to hold the converted floats
+    std::unique_ptr<float[]> converted_inputs(new float[batch_size]);
 
 #if _OPENMP >= 202011
     constexpr int tile_size = 4;
@@ -947,17 +989,10 @@ bool EmbeddingSpMDMFP8_autovec(
       //  if not, approach it with parellel,
       //  the code is iterating thru a dimisonals of a embedding vectory
 
-      // Adjust these as necessary to reflect actual batch size
-      const int batch_size = block_size; // Assuming the entire block is
-                                         // processed at once; adjust if needed
-
-      // Temporary buffer to hold the converted floats
-      std::vector<float> converted_inputs(batch_size);
-
       // Perform the batch conversion
       Float8ToFloat_ref_batch(
           input + input_stride * idx,
-          converted_inputs.data(),
+          converted_inputs.get(),
           batch_size,
           exponent_bits,
           exponent_bias);
@@ -978,7 +1013,7 @@ bool EmbeddingSpMDMFP8_autovec(
       }
     }
 
-    fill_output(out, buf.data(), block_size, is_bf16_out);
+    fill_output(out, buf, block_size, is_bf16_out);
     out += output_stride;
   }
   return current == index_size;
