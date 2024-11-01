@@ -133,6 +133,10 @@ void split_embedding_{{ optimizer }}_update(
     if (grad_dev_indices.numel() == 0) {
         return;
     }
+    {%- if "learning_rate" in args.split_kernel_arg_constructors %}
+    // convert `learning rate` to float since `learning rate` is float in kernels
+    const float learning_rate = learning_rate_tensor.item<float>();
+    {%- endif %}
 
     CUDA_DEVICE_GUARD(dev_weights);
 
