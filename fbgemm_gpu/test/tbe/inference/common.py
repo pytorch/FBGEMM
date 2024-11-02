@@ -24,6 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.ssd_prefetcher import DummyPrefetcher
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     fake_quantize_embs,
@@ -78,6 +79,7 @@ class NBitFowardTestCommon(unittest.TestCase):
         mixed_weights_ty: bool,
         indices_dtype: torch.dtype,
         output_dtype: SparseType,
+        test_ssd_prefetcher: bool = False,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
@@ -229,17 +231,27 @@ class NBitFowardTestCommon(unittest.TestCase):
                 x, use_cpu=use_cpu
             )
 
+        embedding_specs = [
+            (
+                "",
+                E,
+                D,
+                W_TY,
+                EmbeddingLocation(M),
+            )
+            for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+        ]
+        if test_ssd_prefetcher:
+            ssd_prefetcher = DummyPrefetcher(embedding_specs)
+            ssd_table_placements = []
+            for t in range(T):
+                ssd_table_placements.extend([t] * B * L)
+        else:
+            ssd_prefetcher = None
+            ssd_table_placements = None
+
         cc = IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    "",
-                    E,
-                    D,
-                    W_TY,
-                    EmbeddingLocation(M),
-                )
-                for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
-            ],
+            embedding_specs=embedding_specs,
             pooling_mode=pooling_mode,
             index_remapping=index_remappings_array if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
@@ -253,16 +265,22 @@ class NBitFowardTestCommon(unittest.TestCase):
                 fp8_config.get("exponent_bias") if has_fp8_weight else None
             ),
             indices_dtype=indices_dtype,
+            ssd_prefetcher=ssd_prefetcher,
+            ssd_placements=ssd_table_placements,
         )
         # Initialize the random weights for int nbit table split embedding bag
-        cc.fill_random_weights()
+        if not test_ssd_prefetcher:
+            cc.fill_random_weights()
 
         if not use_cpu:
             # NOTE: test TorchScript-compatible!
             cc = torch.jit.script(cc)
 
         for t in range(T):
-            (weights, scale_shift) = cc.split_embedding_weights()[t]
+            if ssd_prefetcher is None:
+                (weights, scale_shift) = cc.split_embedding_weights()[t]
+            else:
+                (weights, scale_shift) = ssd_prefetcher.split_embedding_weights()[t]
             if scale_shift is not None:
                 (E, R) = scale_shift.shape
                 self.assertEqual(R, 4)
