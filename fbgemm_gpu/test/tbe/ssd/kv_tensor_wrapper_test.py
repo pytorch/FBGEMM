@@ -15,6 +15,7 @@ import torch
 import torch.testing
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.utils.loader import load_torch_module
+from hypothesis import given, settings, strategies as st, Verbosity
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -33,12 +34,24 @@ else:
 
 @unittest.skipIf(*running_on_github)
 class KvTensorWrapperTest(TestCase):
-    def test_read_tensor_using_wrapper_from_db(self) -> None:
+    # pyre-ignore[56]
+    @given(
+        precision=st.sampled_from(
+            [
+                (SparseType.FP16, 16),
+                (SparseType.FP32, 32),
+            ]
+        ),
+    )
+    @settings(verbosity=Verbosity.verbose, deadline=None)
+    def test_read_tensor_using_wrapper_from_db(
+        self, precision: tuple[SparseType, int]
+    ) -> None:
         E = int(1e4)
         D = 128
         max_D = 256  # max emb dimension seen by rocksDB
         N = 1000
-        weights_precision = SparseType.FP32
+        weights_precision, dtype_width = precision
         weights_dtype = weights_precision.as_dtype()
 
         with tempfile.TemporaryDirectory() as ssd_directory:
@@ -58,7 +71,7 @@ class KvTensorWrapperTest(TestCase):
                 8,  # ssd_max_write_buffer_num,
                 -0.01,  # ssd_uniform_init_lower
                 0.01,  # ssd_uniform_init_upper
-                32,  # row_storage_bitwidth
+                dtype_width,  # row_storage_bitwidth
                 10 * (2**20),  # block cache size
             )
 
@@ -103,12 +116,22 @@ class KvTensorWrapperTest(TestCase):
             del snapshot
             self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
-    def test_write_tensor_to_db(self) -> None:
+    # pyre-ignore[56]
+    @given(
+        precision=st.sampled_from(
+            [
+                (SparseType.FP16, 16),
+                (SparseType.FP32, 32),
+            ]
+        ),
+    )
+    @settings(verbosity=Verbosity.verbose, deadline=None)
+    def test_write_tensor_to_db(self, precision: tuple[SparseType, int]) -> None:
         E = int(1e4)  # num total rows
         D = 128  # emb dimension
         max_D = 256  # max emb dimension seen by rocksDB
         N = 1000  # window size
-        weights_precision = SparseType.FP32
+        weights_precision, dtype_width = precision
         weights_dtype = weights_precision.as_dtype()
 
         with tempfile.TemporaryDirectory() as ssd_directory:
@@ -128,12 +151,12 @@ class KvTensorWrapperTest(TestCase):
                 8,  # ssd_max_write_buffer_num,
                 -0.01,  # ssd_uniform_init_lower
                 0.01,  # ssd_uniform_init_upper
-                32,  # row_storage_bitwidth
+                dtype_width,  # row_storage_bitwidth
                 10 * (2**20),  # block cache size
             )
             weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
             padded_weights = torch.nn.functional.pad(weights, (0, max_D - D))
-            output_weights = torch.empty_like(padded_weights)
+            output_weights = torch.empty_like(padded_weights, dtype=weights_dtype)
 
             # no snapshot needed for writing to rocksdb
             tensor_wrapper0 = torch.classes.fbgemm.KVTensorWrapper(
