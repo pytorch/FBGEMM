@@ -1017,8 +1017,16 @@ def _setup() -> None:
 
     # pyre-ignore[2]
     def impl_abstract(op_name, fn) -> None:
-        if not torch._C._dispatch_has_kernel_for_dispatch_key(op_name, "Meta"):
-            torch.library.register_fake(op_name, fn)
+        # NOTE: Failures have occasionally been observed with register_fake,
+        # where the error signatures can be found in:
+        # https://github.com/pytorch/pytorch/blob/main/torch/_library/fake_impl.py
+        #
+        # To work around this, we first check if the kernel is already registered
+        # for the following dispatch keys, and if so, we skip the registration.
+        for dkey in ["CompositeImplicitAutograd", "Meta"]:
+            if torch._C._dispatch_has_kernel_for_dispatch_key(op_name, dkey):
+                return
+        torch.library.register_fake(op_name, fn)
 
     # pyre-ignore[2,24]
     def impl_autograd(op_name, fn, setup_context: Optional[Callable] = None) -> None:
