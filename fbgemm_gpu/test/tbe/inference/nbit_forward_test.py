@@ -367,6 +367,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         ),
         register_prefetcher_at_tbe_init=st.booleans(),
         add_ssd_placement_at_tbe_init=st.booleans(),
+        prefetch_before_forward=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -383,6 +384,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         output_dtype: SparseType,
         register_prefetcher_at_tbe_init: bool,
         add_ssd_placement_at_tbe_init: bool,
+        prefetch_before_forward: bool,
     ) -> None:
         use_cpu = True
         T = random.randint(1, 50)
@@ -412,6 +414,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         settings = SSDPrefetcherTestSetting()
         settings.register_prefetcher_at_tbe_init = register_prefetcher_at_tbe_init
         settings.add_ssd_placement_at_tbe_init = add_ssd_placement_at_tbe_init
+        settings.prefetch_before_forward = prefetch_before_forward
 
         self.execute_nbit_forward_(
             T,

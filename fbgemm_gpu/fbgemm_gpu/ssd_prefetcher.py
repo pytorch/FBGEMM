@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import abc
+from collections import deque
 from typing import List, Optional, Tuple
 
 import torch
@@ -54,6 +55,27 @@ class SSDPrefetcher:
             will be treated as a single table (equivalent to `weights_offsets = [0]`).
         """
         pass
+
+    @abc.abstractmethod
+    def get(
+        self,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        Return and remove a tuple of [Tensor, Optional[Tensor], Optional[Tensor]] from the queue of this prefetcher,
+        which is the result of the prefetch() call, in FIFO order. If the queue is empty, raise IndexError.
+
+        @return A tuple of tensors. Please see the @return section of prefetch() for the definition.
+        """
+        pass
+
+    @abc.abstractmethod
+    def is_empty(self) -> bool:
+        """
+        Return whether the queue of this prefetcher is empty.
+
+        @return True if the queue is empty, False otherwise.
+        """
+        return True
 
     def split_embedding_weights(
         self, split_scale_shifts: bool = True
@@ -156,6 +178,7 @@ class DummyPrefetcher(SSDPrefetcher):
         self.weights: List[torch.Tensor] = []
         self.nrows: List[int] = [0]
         self._generate_weights(embedding_specs)
+        self.queue: deque[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = deque()
 
     def prefetch(
         self,
@@ -184,11 +207,23 @@ class DummyPrefetcher(SSDPrefetcher):
             idx += 1
             bytes_added += self.weights[tbl][indices[i]].numel()
 
-        return (
+        fetched_tables = (
             torch.cat(fetched_rows),
             torch.tensor(new_indices, dtype=indices.dtype, device="cpu"),
             torch.tensor(weights_offsets, dtype=torch.int64, device="cpu"),
         )
+        self.queue.append(fetched_tables)
+        return fetched_tables
+
+    def get(
+        self,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        if len(self.queue) == 0:
+            raise IndexError("Prefetcher's queue is empty")
+        return self.queue.popleft()
+
+    def is_empty(self) -> bool:
+        return len(self.queue) == 0
 
 
 class SSDPrefetcherTestSetting:
@@ -196,3 +231,4 @@ class SSDPrefetcherTestSetting:
     def __init__(self):
         self.register_prefetcher_at_tbe_init: bool = True
         self.add_ssd_placement_at_tbe_init: bool = True
+        self.prefetch_before_forward: bool = False

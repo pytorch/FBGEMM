@@ -349,6 +349,18 @@ class NBitFowardTestCommon(unittest.TestCase):
         indices = indices.to(dtype=indices_dtype)
         offsets = offsets.to(dtype=indices_dtype)
 
+        if (
+            test_ssd_prefetcher
+            and ssd_prefetcher is not None
+            and ssd_table_placements is not None
+            and ssd_prefetcher_test_setting.prefetch_before_forward
+        ):
+            ssd_prefetcher.prefetch(
+                indices.int(),
+                offsets.int(),
+                torch.tensor(ssd_table_placements, dtype=torch.int32, device="cpu"),
+            )
+
         if not use_cpu:
             fc2 = (
                 cc(indices, offsets)

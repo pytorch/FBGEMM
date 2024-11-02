@@ -906,9 +906,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # indices and offsets
         if self.ssd_prefetcher is not None:
             pf: SSDPrefetcher = self.ssd_prefetcher
-            weights_ssd, indices_ssd, weights_offsets = pf.prefetch(
-                indices, offsets, self.ssd_placements
-            )
+            if pf.is_empty():
+                pf.prefetch(indices, offsets, self.ssd_placements)
+            weights_ssd, indices_ssd, weights_offsets = pf.get()
             weights_ssd = weights_ssd.to(self.current_device)
             if indices_ssd is not None:
                 indices_ssd = indices_ssd.to(self.current_device)
