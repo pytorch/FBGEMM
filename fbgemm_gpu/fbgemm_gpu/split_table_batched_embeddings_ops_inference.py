@@ -533,6 +533,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ssd_placements, device=self.current_device, dtype=torch.int32
             )
 
+    def register_ssd_prefetcher(self, ssd_prefetcher: SSDPrefetcher) -> None:
+        self.ssd_prefetcher = ssd_prefetcher
+        if ssd_prefetcher is not None:
+            self.weight_initialized = True
+
     def get_cache_miss_counter(self) -> Tensor:
         # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
         # cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses
@@ -900,7 +905,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # If we use SSD mode, use SSD prefetcher to query weights with given
         # indices and offsets
         if self.ssd_prefetcher is not None:
-            weights_ssd, indices_ssd, weights_offsets = self.ssd_prefetcher.prefetch(
+            pf: SSDPrefetcher = self.ssd_prefetcher
+            weights_ssd, indices_ssd, weights_offsets = pf.prefetch(
                 indices, offsets, self.ssd_placements
             )
             weights_ssd = weights_ssd.to(self.current_device)

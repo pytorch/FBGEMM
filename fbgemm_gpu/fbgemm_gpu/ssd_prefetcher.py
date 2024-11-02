@@ -33,8 +33,10 @@ class SSDPrefetcher:
         table_placement: torch.Tensor,
     ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
-        Fetch embedding table rows specified by the indicies
-        And return the requested rows and remapped indcies as two Tensors
+        Fetch embedding table rows specified by the indicies,
+        push the tuple of [Tensor, Optional[Tensor], Optional[Tensor]] into a
+        queue of this prefetcher, and return a reference to the tuple. For meaning of
+        elements in the tuple, see the @return section.
 
         @param indices Indices of the rows that we want to fetch
         @param offsets Pooling offsets
@@ -187,3 +189,10 @@ class DummyPrefetcher(SSDPrefetcher):
             torch.tensor(new_indices, dtype=indices.dtype, device="cpu"),
             torch.tensor(weights_offsets, dtype=torch.int64, device="cpu"),
         )
+
+
+class SSDPrefetcherTestSetting:
+
+    def __init__(self):
+        self.register_prefetcher_at_tbe_init: bool = True
+        self.add_ssd_placement_at_tbe_init: bool = True
