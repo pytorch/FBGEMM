@@ -15,6 +15,469 @@
 namespace fbgemm_gpu {
 
 ////////////////////////////////////////////////////////////////////////////////
+// Vec2T Base
+////////////////////////////////////////////////////////////////////////////////
+
+template <typename T>
+struct Vec2BaseT {
+  float2 acc;
+
+  DEVICE_INLINE Vec2BaseT() {
+    acc.x = 0;
+    acc.y = 0;
+  }
+
+  DEVICE_INLINE T vmin() const {
+    T min_val = min(acc.x, acc.y);
+
+    return min_val;
+  }
+
+  DEVICE_INLINE T vmax() const {
+    T max_val = max(acc.x, acc.y);
+
+    return max_val;
+  }
+};
+
+template <typename T>
+struct Vec2T {};
+
+// A wrapper for Vec4T with acc_type
+template <typename T>
+using Vec2TAcc = Vec2T<at::acc_type<T, true>>;
+
+////////////////////////////////////////////////////////////////////////////////
+// Vec2T<float>
+////////////////////////////////////////////////////////////////////////////////
+
+template <>
+struct Vec2T<float> : public Vec2BaseT<float> {
+  DEVICE_INLINE Vec2T() {}
+
+  DEVICE_INLINE Vec2T(const float* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec2T(const at::Half* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec2T(const at::BFloat16* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE void load(const float* p) {
+    acc = *((const float2*)p);
+  }
+
+  DEVICE_INLINE void load(const at::Half* p) {
+#ifdef USE_ROCM
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+#else
+    Half4 out;
+#if CUDA_VERSION >= 9000
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
+        : "l"(p));
+#else
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(out.a.x), "=r"(out.b.x)
+        : "l"(p));
+#endif
+
+    float2 a = __half22float2(out.a);
+
+    acc.x = a.x;
+    acc.y = a.y;
+#endif
+  }
+
+  DEVICE_INLINE void load(const at::BFloat16* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+  }
+
+  DEVICE_INLINE void load(const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(float* p) const {
+    *((float2*)p) = acc;
+  }
+
+  DEVICE_INLINE void store(float2* p) const {
+    *p = acc;
+  }
+
+  DEVICE_INLINE void store(at::Half* p) const {
+    float2 a;
+    a.x = acc.x;
+    a.y = acc.y;
+
+    Half2 out;
+    out.a = __float22half2_rn(a);
+    out.store(p);
+  }
+
+  DEVICE_INLINE void store(at::BFloat16* p) const {
+    p[0] = acc.x;
+    p[1] = acc.y;
+  }
+
+  DEVICE_INLINE void store(uint8_t* p) const {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE static void copy(const float* src, float* dst) {
+    *((float2*)dst) = *((const float2*)src);
+  }
+
+  // this <- this + a * b
+  DEVICE_INLINE void fma_(const Vec2T<float>& a, const float b) {
+    acc.x = __fmaf_rn(a.acc.x, b, acc.x);
+    acc.y = __fmaf_rn(a.acc.y, b, acc.y);
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(const Vec2T<float>& a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+  }
+
+  // this <- this * scale
+  DEVICE_INLINE void mul_(float scale) {
+    acc.x *= scale;
+    acc.y *= scale;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(const Vec2T<float>& a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+  }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Vec2T<at::Half>
+////////////////////////////////////////////////////////////////////////////////
+
+template <>
+struct Vec2T<at::Half> : public Vec2BaseT<at::Half> {
+  DEVICE_INLINE Vec2T() {}
+
+  DEVICE_INLINE Vec2T(const at::Half* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec2T(const at::BFloat16* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec2T(const float* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE void load(const at::Half* p) {
+#ifdef USE_ROCM
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+
+#else
+    Half4 out;
+#if CUDA_VERSION >= 9000
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
+        : "l"(p));
+#else
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(out.a.x), "=r"(out.b.x)
+        : "l"(p));
+#endif
+
+    float2 a = __half22float2(out.a);
+
+    acc.x = a.x;
+    acc.y = a.y;
+#endif
+  }
+
+  DEVICE_INLINE void load(const at::BFloat16* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+  }
+
+  DEVICE_INLINE void load(const float* p) {
+    acc = *((const float2*)p);
+  }
+
+  DEVICE_INLINE void load(const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(at::Half* p) const {
+    float2 a;
+    a.x = acc.x;
+    a.y = acc.y;
+
+    Half2 out;
+    out.a = __float22half2_rn(a);
+    out.store(p);
+  }
+
+  DEVICE_INLINE void store(at::BFloat16* p) const {
+    p[0] = acc.x;
+    p[1] = acc.y;
+  }
+
+  DEVICE_INLINE void store(float* p) const {
+    *((float2*)p) = acc;
+  }
+
+  DEVICE_INLINE void store(uint8_t* p) const {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE static void copy(const at::Half* src, at::Half* dst) {
+#ifdef USE_ROCM
+    dst[0] = src[0];
+    dst[1] = src[1];
+#else
+    Half4 out;
+#if CUDA_VERSION >= 9000
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
+        : "l"(src));
+#else
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(out.a.x), "=r"(out.b.x)
+        : "l"(src));
+#endif
+#if CUDA_VERSION >= 9000
+    asm("st.v2.u32 [%0], {%1, %2};"
+        :
+        : "l"(dst), "r"(__HALF2_TO_UI(out.a)), "r"(__HALF2_TO_UI(out.b)));
+#else
+    asm("st.v2.u32 [%0], {%1, %2};" : : "l"(dst), "r"(out.a.x), "r"(out.b.x));
+#endif
+#endif
+  }
+
+  // this <- this + a * b
+  DEVICE_INLINE void fma_(const Vec2T<at::Half>& a, const float b) {
+    acc.x = __fmaf_rn(a.acc.x, b, acc.x);
+    acc.y = __fmaf_rn(a.acc.y, b, acc.y);
+  }
+
+  DEVICE_INLINE void fma_(const Vec2T<float>& a, const float b) {
+    acc.x = __fmaf_rn(a.acc.x, b, acc.x);
+    acc.y = __fmaf_rn(a.acc.y, b, acc.y);
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(const Vec2T<float>& a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(const Vec2T<at::Half>& a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(const Vec2T<float>& a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(const Vec2T<at::Half>& a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+  }
+
+  // this <- this * scale
+  DEVICE_INLINE void mul_(float scale) {
+    acc.x *= scale;
+    acc.y *= scale;
+  }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Vec2T<at::BFloat16>
+////////////////////////////////////////////////////////////////////////////////
+
+template <>
+struct Vec2T<at::BFloat16> : public Vec2BaseT<at::BFloat16> {
+  DEVICE_INLINE Vec2T() {}
+
+  DEVICE_INLINE Vec2T(const at::BFloat16* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec2T(const at::Half* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE Vec2T(const float* p) {
+    load(p);
+  }
+
+  DEVICE_INLINE void load(const at::BFloat16* p) {
+    acc.x = p[0];
+    acc.y = p[1];
+  }
+
+  DEVICE_INLINE void load(const at::Half* p) {
+#ifdef USE_ROCM
+    union U {
+      half2 h[2];
+      uint2 ui;
+    } tmp_out;
+
+    // uint2 = 2 uints = 8 bytes
+    tmp_out.ui = *reinterpret_cast<uint2 const*>(p);
+
+    float2 a = __half22float2(tmp_out.h[0]);
+
+    acc.x = a.x;
+    acc.y = a.y;
+#else
+    Half4 out;
+#if CUDA_VERSION >= 9000
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(__HALF2_TO_UI(out.a)), "=r"(__HALF2_TO_UI(out.b))
+        : "l"(p));
+#else
+    asm("ld.global.v2.u32 {%0, %1}, [%2];"
+        : "=r"(out.a.x), "=r"(out.b.x)
+        : "l"(p));
+#endif
+
+    float2 a = __half22float2(out.a);
+
+    acc.x = a.x;
+    acc.y = a.y;
+#endif
+  }
+
+  DEVICE_INLINE void load(const float* p) {
+    acc = *((const float2*)p);
+  }
+
+  DEVICE_INLINE void load(const uint8_t* p) {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE void store(at::Half* p) const {
+    float2 a;
+    a.x = acc.x;
+    a.y = acc.y;
+
+    Half2 out;
+    out.a = __float22half2_rn(a);
+    out.store(p);
+  }
+
+  DEVICE_INLINE void store(at::BFloat16* p) const {
+    p[0] = acc.x;
+    p[1] = acc.y;
+  }
+
+  DEVICE_INLINE void store(float* p) const {
+    *((float2*)p) = acc;
+  }
+
+  DEVICE_INLINE void store(uint8_t* p) const {
+    CUDA_KERNEL_ASSERT(false);
+  }
+
+  DEVICE_INLINE static void copy(const at::BFloat16* src, at::BFloat16* dst) {
+    dst[0] = src[0];
+    dst[1] = src[1];
+  }
+
+  // this <- this + a * b
+  DEVICE_INLINE void fma_(const Vec2T<at::Half>& a, const float b) {
+    acc.x = __fmaf_rn(a.acc.x, b, acc.x);
+    acc.y = __fmaf_rn(a.acc.y, b, acc.y);
+  }
+
+  DEVICE_INLINE void fma_(const Vec2T<float>& a, const float b) {
+    acc.x = __fmaf_rn(a.acc.x, b, acc.x);
+    acc.y = __fmaf_rn(a.acc.y, b, acc.y);
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(const Vec2T<float>& a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+  }
+
+  // this <- this + a
+  DEVICE_INLINE void add_(const Vec2T<at::Half>& a) {
+    acc.x += a.acc.x;
+    acc.y += a.acc.y;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(const Vec2T<float>& a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+  }
+
+  // this <- this element-wise mul a
+  DEVICE_INLINE void element_wise_mul_(const Vec2T<at::Half>& a) {
+    acc.x *= a.acc.x;
+    acc.y *= a.acc.y;
+  }
+
+  // this <- this * scale
+  DEVICE_INLINE void mul_(float scale) {
+    acc.x *= scale;
+    acc.y *= scale;
+  }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Vec2T Ops
+////////////////////////////////////////////////////////////////////////////////
+
+template <typename scalar_t>
+DEVICE_INLINE Vec2T<scalar_t> vec2_acc(
+    const Vec2T<scalar_t>& lhs,
+    const Vec2T<scalar_t>& rhs) {
+  Vec2T<scalar_t> s;
+  s.acc.x = lhs.acc.x + rhs.acc.x;
+  s.acc.y = lhs.acc.y + rhs.acc.y;
+
+  return s;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Vec4T Base
 ////////////////////////////////////////////////////////////////////////////////
 

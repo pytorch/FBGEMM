@@ -35,10 +35,30 @@ DEVICE_INLINE void quantize_store(
 }
 
 template <typename dst_t, typename src_t>
+DEVICE_INLINE void quantize_store(
+    dst_t* output,
+    const Vec2T<src_t>& value,
+    StochasticRoundingRNGState* state,
+    const float2 qparams) {
+  if (!state) {
+    nearest_rounding_vector<dst_t, src_t>(output, value, qparams);
+  } else {
+    stochastic_rounding_vector<dst_t, src_t>(output, value, *state, qparams);
+  }
+}
+
+template <typename dst_t, typename src_t>
 DEVICE_INLINE Vec4T<dst_t> dequantize_load(
     const src_t* value,
     const float2 /* unused */) {
   return Vec4T<dst_t>(value);
+}
+
+template <typename dst_t, typename src_t>
+DEVICE_INLINE Vec2T<dst_t> dequantize_load2(
+    const src_t* value,
+    const float2 /* unused */) {
+  return Vec2T<dst_t>(value);
 }
 
 template <>
@@ -62,6 +82,28 @@ DEVICE_INLINE Vec4T<at::Half> dequantize_load(
   out.acc.y = value[1] * qparams.x + qparams.y;
   out.acc.z = value[2] * qparams.x + qparams.y;
   out.acc.w = value[3] * qparams.x + qparams.y;
+  return out;
+}
+
+template <>
+DEVICE_INLINE Vec2T<float> dequantize_load2(
+    const uint8_t* value,
+    const float2 qparams) {
+  Vec2T<float> out;
+  out.acc.x = value[0] * qparams.x + qparams.y;
+  out.acc.y = value[1] * qparams.x + qparams.y;
+
+  return out;
+}
+
+template <>
+DEVICE_INLINE Vec2T<at::Half> dequantize_load2(
+    const uint8_t* value,
+    const float2 qparams) {
+  Vec2T<at::Half> out;
+  out.acc.x = value[0] * qparams.x + qparams.y;
+  out.acc.y = value[1] * qparams.x + qparams.y;
+
   return out;
 }
 
@@ -164,6 +206,16 @@ struct WeightRow {
     }
   }
 
+  // Load from cache if resident; else load from embedding
+  DEVICE_INLINE Vec2T<dst_t> load2(const int32_t d, const float2 qparams)
+      const {
+    if (cache_row_) {
+      return dequantize_load2<dst_t, cache_t>(cache_row_ + d, qparams);
+    } else {
+      return dequantize_load2<dst_t, emb_t>(row_ + d, qparams);
+    }
+  }
+
   // Write back weight (high precision) to cache if resident; else write to
   // embedding assume dst_t is higher precision than cache_t and emb_t
   DEVICE_INLINE void
@@ -172,6 +224,17 @@ struct WeightRow {
       quantize_store(cache_row_ + d, v, stoc_rounding_state_, qparams);
     } else {
       quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
+    }
+  }
+
+  // Write back weight (high precision) to cache if resident; else write to
+  // embedding assume dst_t is higher precision than cache_t and emb_t
+  DEVICE_INLINE void
+  store(const Vec2T<dst_t>& v, const int32_t d, const float2 qparams) {
+    if (cache_row_) {
+      quantize_store2(cache_row_ + d, v, stoc_rounding_state_, qparams);
+    } else {
+      quantize_store2(row_ + d, v, stoc_rounding_state_, qparams);
     }
   }
 
@@ -294,6 +357,37 @@ struct WeightRowAccessor {
       return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
     } else {
       return dequantize_load<dst_t, emb_t>(row_ + d, qparams);
+    }
+  }
+
+  DEVICE_INLINE float2 load_qparams() const {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
+      return load_qparams_from_row<emb_t>(row_ + dim_);
+    } else {
+      return make_float2(0.0f, 0.0f);
+    }
+  }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Weight Row Accessor2
+////////////////////////////////////////////////////////////////////////////////
+
+template <typename emb_t, typename cache_t, typename dst_t, bool uses_cache>
+struct WeightRowAccessor2 {
+  const emb_t* row_;
+  const cache_t* cache_row_;
+  const int dim_;
+
+  DEVICE_INLINE
+  WeightRowAccessor2(const emb_t* row, const cache_t* cache_row, const int dim)
+      : row_(row), cache_row_(cache_row), dim_(dim) {}
+
+  DEVICE_INLINE Vec2T<dst_t> load(const int32_t d, const float2 qparams) const {
+    if constexpr (uses_cache) {
+      return dequantize_load2<dst_t, cache_t>(cache_row_ + d, qparams);
+    } else {
+      return dequantize_load2<dst_t, emb_t>(row_ + d, qparams);
     }
   }
 
