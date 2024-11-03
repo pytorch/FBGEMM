@@ -53,6 +53,95 @@ def get_llama_shapes() -> List[Tuple[int, int, int]]:
     return llama_shapes
 
 
+def benchmark_grouped(
+    quantize_ops: List[QuantizeOpBase],
+    m: List[int],
+    n: List[int],
+    k: List[int],
+    kernels: Optional[List[str]] = None,
+    bench_quantize: bool = False,
+    use_rotating_buffer_bench: bool = False,
+) -> Dict[str, Any]:
+    num_groups = len(m)
+    # Create input tensors.
+    A = []
+    B = []
+    for i in range(num_groups):
+        A.append(torch.randn(m[i], k[i], device="cuda", dtype=torch.bfloat16))
+        B.append(torch.randn(n[i], k[i], device="cuda", dtype=torch.bfloat16))
+    # Compute baseline output for correctness checking.
+    out_ref = []
+    for i in range(num_groups):
+        out_ref.append(torch.matmul(A[i], B[i].t()))
+    # Keep track of results.
+    results: Dict[str, Any] = {"M": m, "N": n, "K": k, "groups": num_groups}
+    # Benchmark each operator.
+    for quantize_op in quantize_ops:
+        # If kernel filter is provided, skip kernels that arent requested.
+        kernel_requested = (kernels is None) or (
+            kernels is not None and quantize_op.name in kernels
+        )
+        # Also check if the operator is supported.
+        if kernel_requested and quantize_op.supported:
+            # Get the quantized tensors for this operator.
+            quantized_vals = quantize_op.quantize(A, B)
+            # Compute the output given quantized values.
+            output = quantize_op.compute(*quantized_vals)
+            # Compare the quantize op output to reference as a sanity check.
+            sim_check: float = 0
+            for i in range(num_groups):
+                sim_check += float(
+                    torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
+                )
+
+            # Now perform benchmark.
+            if bench_quantize:
+                # Benchmark both quantize and compute.
+                ms_runtime = quantize_op.benchmark(
+                    A,
+                    B,
+                    bench_quantize=True,
+                    use_rotating_buffer_bench=use_rotating_buffer_bench,
+                    use_cuda_graph=False,
+                )
+            else:
+                ms_runtime = quantize_op.benchmark(
+                    *quantized_vals,
+                    bench_quantize=False,
+                    use_rotating_buffer_bench=use_rotating_buffer_bench,
+                    use_cuda_graph=False,
+                )
+
+            # Print out results for this op.
+            tflops = 0
+            gbps = 0
+            for i in range(num_groups):
+                tflops += 2 * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
+                gbps += (
+                    (
+                        quantized_vals[0][i].numel()
+                        * quantized_vals[0][i].element_size()
+                        + quantized_vals[1][i].numel()
+                        * quantized_vals[1][i].element_size()
+                        + output[i].numel() * output[i].element_size()
+                    )
+                    / (ms_runtime / 1e3)
+                    / 1e9
+                )
+            print(f"{quantize_op.name} sim: {sim_check:.3f}.")
+            print(f"{quantize_op.name} ms: {ms_runtime:.3f}.")
+            print(f"{quantize_op.name} TFLOPS: {tflops:.3f}.")
+            print(f"{quantize_op.name} GB/s: {gbps:.3f}.")
+
+            # Save results for this operator.
+            results[f"{quantize_op.name}_sim"] = sim_check
+            results[f"{quantize_op.name}_ms"] = ms_runtime
+            results[f"{quantize_op.name}_tflops"] = tflops
+            results[f"{quantize_op.name}_gb/s"] = gbps
+
+    return results
+
+
 def benchmark(
     quantize_ops: List[QuantizeOpBase],
     m: int,
@@ -163,33 +252,46 @@ def main(args: Any):
         kernels = None
 
     # Enumerate shapes to benchmark.
-    if args.use_llama_shapes:
-        MNK = get_llama_shapes()
+    if args.grouped:
+        # In grouped mode, M, N, and K represent the groups of a single gemm.
+        assert args.M is not None and args.N is not None and args.K is not None
+        M = [int(m) for m in args.M.strip().split(",")]
+        N = [int(n) for n in args.N.strip().split(",")]
+        K = [int(k) for k in args.K.strip().split(",")]
+        assert (
+            len(M) == len(N) == len(K)
+        ), "M, N, and K must be the same length in grouped mode."
+        # Note this is a single grouped gemm.
+        MNK = [[M, N, K]]
     else:
-        if args.M is None:
-            M = [1, 4, 8, 16, 32, 64, 128, 2048, 4096, 8192, 16384]
+        if args.use_llama_shapes:
+            MNK = get_llama_shapes()
         else:
-            M = [int(m) for m in args.M.strip().split(",")]
-        if args.N is None:
-            N = [1280, 2304, 7168, 8192, 16384]
-        else:
-            N = [int(n) for n in args.N.strip().split(",")]
-        if args.K is None:
-            K = [1024, 3584, 8192, 16384]
-        else:
-            K = [int(k) for k in args.K.strip().split(",")]
-        # List all shapes for simplicity.
-        MNK = list(itertools.product(M, N, K))
+            if args.M is None:
+                M = [1, 4, 8, 16, 32, 64, 128, 2048, 4096, 8192, 16384]
+            else:
+                M = [int(m) for m in args.M.strip().split(",")]
+            if args.N is None:
+                N = [1280, 2304, 7168, 8192, 16384]
+            else:
+                N = [int(n) for n in args.N.strip().split(",")]
+            if args.K is None:
+                K = [1024, 3584, 8192, 16384]
+            else:
+                K = [int(k) for k in args.K.strip().split(",")]
+            # List all shapes for simplicity.
+            MNK = list(itertools.product(M, N, K))
 
     # Iterate over shapes and benchmark.
     benchmark_results = []
     for m, n, k in MNK:
         print(f"Benchmarking M={m}, N={n}, K={k}.")
-        quantize_measurements = benchmark(
+        benchmark_func = benchmark_grouped if args.grouped else benchmark
+        quantize_measurements = benchmark_func(
             quantize_ops,
-            m,
-            n,
-            k,
+            m,  # pyre-ignore[6]: Incompatible parameter type [6]
+            n,  # pyre-ignore[6]: Incompatible parameter type [6]
+            k,  # pyre-ignore[6]: Incompatible parameter type [6]
             kernels,
             args.bench_quantize,
             args.use_rotating_buffer_bench,
@@ -243,6 +345,13 @@ def invoke_main() -> None:
     )
     parser.add_argument(
         "--K", default=None, help="Comma separated list of K values to benchmark."
+    )
+    parser.add_argument(
+        "--grouped",
+        default=False,
+        action="store_true",
+        help="If set, do grouped gemm. In this mode, M, N, and K are interpreted "
+        "as the size of groups. The length of each must be the same.",
     )
     parser.add_argument(
         "--use_rotating_buffer_bench",

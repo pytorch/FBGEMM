@@ -55,16 +55,16 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def compute(self, *args):
+    def compute(self, *args, **kwargs):
         """Function which performs main compute operation."""
         pass
 
     @abc.abstractmethod
-    def quantize_and_compute(self, *args):
+    def quantize_and_compute(self, *args, **kwargs):
         """Function which quantizes inputs and performs main compute operation."""
         pass
 
-    def bench_with_rotating_buffer(self, fn, args):
+    def bench_with_rotating_buffer(self, fn, args, use_cuda_graph: bool = True):
         import copy
         import pickle
 
@@ -88,10 +88,16 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
             for i in range(copy_cnt):
                 fn(*(args_list[i]))
 
-        with torch.cuda.stream(torch.cuda.Stream()):
-            # A rotating_buffer_fn contains multiple runs of the fn to benchmark,
-            # so divide time accordingly
-            return triton.testing.do_bench_cudagraph(
+        if use_cuda_graph:
+            with torch.cuda.stream(torch.cuda.Stream()):
+                # A rotating_buffer_fn contains multiple runs of the fn to benchmark,
+                # so divide time accordingly
+                return triton.testing.do_bench_cudagraph(
+                    lambda: rotating_buffer_fn(self.compute, args_list, copy_cnt + 1),
+                    rep=200,
+                ) / (copy_cnt + 1)
+        else:
+            return triton.testing.do_bench(
                 lambda: rotating_buffer_fn(self.compute, args_list, copy_cnt + 1),
                 rep=200,
             ) / (copy_cnt + 1)
@@ -100,20 +106,27 @@ class QuantizeOpBase(metaclass=abc.ABCMeta):
         self,
         *args,
         bench_quantize: bool = False,
-        use_rotating_buffer_bench: bool = False
+        use_rotating_buffer_bench: bool = False,
+        use_cuda_graph: bool = True,
+        **kwargs,
     ) -> float:
         """Benchmark runtime of this operator."""
         if bench_quantize:
             with torch.cuda.stream(torch.cuda.Stream()):
                 t = triton.testing.do_bench_cudagraph(
-                    lambda: self.quantize_and_compute(*args)
+                    lambda: self.quantize_and_compute(*args, **kwargs)
                 )
         else:
             if use_rotating_buffer_bench:
-                t = self.bench_with_rotating_buffer(self.compute, args)
+                t = self.bench_with_rotating_buffer(self.compute, args, use_cuda_graph)
             else:
-                with torch.cuda.stream(torch.cuda.Stream()):
-                    t = triton.testing.do_bench_cudagraph(lambda: self.compute(*args))
+                if use_cuda_graph:
+                    with torch.cuda.stream(torch.cuda.Stream()):
+                        t = triton.testing.do_bench_cudagraph(
+                            lambda: self.compute(*args, **kwargs)
+                        )
+                else:
+                    t = triton.testing.do_bench(lambda: self.compute(*args, **kwargs))
         return t
 
     @abc.abstractproperty
@@ -160,9 +173,21 @@ class BF16Baseline(QuantizeOpBase):
     """
 
     def quantize(self, x, w):
-        return x.bfloat16(), w.t().bfloat16()
+        if isinstance(x, list):
+            x = [i.bfloat16() for i in x]
+            w = [i.t().bfloat16() for i in w]
+        else:
+            x = x.bfloat16()
+            w = w.t().bfloat16()
+        return x, w
 
     def compute(self, x, w):
+        # Handle both grouped and standard gemm.
+        if isinstance(x, list):
+            output = []
+            for i in range(len(x)):
+                output.append(torch.matmul(x[i], w[i]))
+            return output
         return torch.matmul(x, w)
 
     def quantize_and_compute(self, x, w):
@@ -378,11 +403,26 @@ class FP8RowwiseGemm(QuantizeOpBase):
 
     def quantize(self, x, w):
         # Quantize both input tensors.
-        xq, x_scale = quantize_fp8_row(x)
-        wq, w_scale = quantize_fp8_row(w)
+        # Handle both grouped and standard gemm.
+        if isinstance(x, (list, tuple)):
+            xq, x_scale = zip(*[quantize_fp8_row(i) for i in x])
+            wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
+        else:
+            xq, x_scale = quantize_fp8_row(x)
+            wq, w_scale = quantize_fp8_row(w)
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
+        # Handle group gemm if inputs are grouped.
+        if isinstance(xq, (list, tuple)):
+            output = []
+            for i in range(len(xq)):
+                output.append(
+                    torch.ops.fbgemm.f8f8bf16_rowwise(
+                        xq[i], wq[i], x_scale[i], w_scale[i]
+                    )
+                )
+            return output
         return torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, x_scale, w_scale)
 
     def quantize_and_compute(self, x, w):
@@ -403,6 +443,47 @@ class FP8RowwiseGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+@register_quantize_op
+class FP8RowwiseGroupedGemm(QuantizeOpBase):
+    """
+    FP8 grouped matmul with rowwise scaling.
+    """
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        # Handle both grouped and standard gemm.
+        assert isinstance(
+            x, (list, tuple)
+        ), "Inputs to group gemm must be a list of tensors."
+        xq, x_scale = zip(*[quantize_fp8_row(i) for i in x])
+        wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale, kernel_name=None):
+        return torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
+            xq, wq, x_scale, w_scale, kernel_name=kernel_name
+        )
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_rowwise_grouped"
+        else:
+            return "ck_rowwise_grouped"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return False
 
 
 @register_quantize_op
