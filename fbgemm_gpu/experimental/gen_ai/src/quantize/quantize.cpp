@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cassert>
 #include <cmath>
+#include <string>
 #include <vector>
 #include "c10/util/Exception.h"
 
@@ -70,6 +71,13 @@ at::Tensor f8f8bf16_rowwise_batched(
     std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true,
     std::optional<at::Tensor> output = std::nullopt);
+std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList x_scale,
+    at::TensorList w_scale,
+    std::optional<at::TensorList> output = std::nullopt,
+    std::optional<std::string> kernel_name = c10::nullopt);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -158,6 +166,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor");
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
 #endif
+#ifdef USE_ROCM
+  m.def(
+      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None, str? kernel_name=None) -> Tensor[]");
+#endif
   m.def(
       "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor");
   m.def(
@@ -211,6 +223,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
+#endif
+#ifdef USE_ROCM
+  m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
 #endif
 }
 
