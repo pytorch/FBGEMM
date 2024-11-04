@@ -251,7 +251,7 @@ void _bounds_check_indices_cuda_v2(
             " is not equal to indices size " + std::to_string(num_indices));
   }
 
-  constexpr size_t kNumThreads = 256;
+  constexpr size_t kNumThreads = 1024;
   const auto max_B_ = vbe ? max_B : B;
 
   const int32_t vbe_bound = max_B_ * T;
