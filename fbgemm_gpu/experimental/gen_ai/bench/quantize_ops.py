@@ -175,10 +175,10 @@ class BF16Baseline(QuantizeOpBase):
     def quantize(self, x, w):
         if isinstance(x, list):
             x = [i.bfloat16() for i in x]
-            w = [i.t().bfloat16() for i in w]
+            w = [torch.transpose(i, -2, -1).bfloat16() for i in w]
         else:
             x = x.bfloat16()
-            w = w.t().bfloat16()
+            w = torch.transpose(w, -2, -1).bfloat16()
         return x, w
 
     def compute(self, x, w):
@@ -410,6 +410,11 @@ class FP8RowwiseGemm(QuantizeOpBase):
         else:
             xq, x_scale = quantize_fp8_row(x)
             wq, w_scale = quantize_fp8_row(w)
+            # Set proper batch dimension shapes.
+            if xq.dim() == 3:
+                x_scale = x_scale.view(xq.size(0), -1)
+            if wq.dim() == 3:
+                w_scale = w_scale.view(wq.size(0), -1)
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
@@ -423,6 +428,17 @@ class FP8RowwiseGemm(QuantizeOpBase):
                     )
                 )
             return output
+        # Unroll batched gemm if needed.
+        elif xq.dim() == 3 and wq.dim() == 3:
+            B, M, _ = xq.shape
+            _, N, _ = wq.shape
+            y = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
+            for i in range(B):
+                y[i] = torch.ops.fbgemm.f8f8bf16_rowwise(
+                    xq[i], wq[i], x_scale[i], w_scale[i]
+                )
+            return y
+        # Otherwise return normal gemm result.
         return torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, x_scale, w_scale)
 
     def quantize_and_compute(self, x, w):
@@ -484,6 +500,41 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return False
+
+
+@register_quantize_op
+class FP8RowwiseBatchedGemm(QuantizeOpBase):
+    """
+    FP8 batched matmul with rowwise scaling.
+    """
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = quantize_fp8_row(x)
+        wq, w_scale = quantize_fp8_row(w)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f8f8bf16_rowwise_batched(xq, wq, x_scale, w_scale)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_rowwise_batched"
+        else:
+            return "ck_rowwise_batched"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
 
 
 @register_quantize_op
