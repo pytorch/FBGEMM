@@ -67,7 +67,7 @@ class TensorAccessorBase {
         ptr_name_(ptr_name),
         func_name_(func_name) {
     numel_ = 1;
-    for (const auto d : c10::irange(N)) {
+    for (size_t d = 0; d < N; d++) {
       numel_ += (sizes[d] - 1) * strides[d];
     }
   }
