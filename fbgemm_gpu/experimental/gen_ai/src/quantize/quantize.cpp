@@ -77,7 +77,7 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList x_scale,
     at::TensorList w_scale,
     std::optional<at::TensorList> output = std::nullopt,
-    std::optional<std::string> kernel_name = c10::nullopt);
+    std::optional<std::string> kernel_name = std::nullopt);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
