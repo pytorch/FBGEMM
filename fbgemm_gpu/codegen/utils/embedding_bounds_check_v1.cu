@@ -7,6 +7,7 @@
  */
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
 #include <c10/cuda/CUDADeviceAssertion.h>
 #include <c10/cuda/CUDAException.h>
@@ -30,14 +31,14 @@ __device__ void adjust_offset_kernel(
 
 template <typename index_t, bool vbe>
 __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         rows_per_table,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     const int32_t* const B_offsets, // Use a raw pointer to avoid creating a
                                     // dummy PackedTensorAccessor
     const int64_t bounds_check_mode_,
-    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
+    pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
     FixedDivisor fd,
     TORCH_DSA_KERNEL_ARGS) {
   int32_t T = rows_per_table.size(0);
@@ -234,7 +235,10 @@ void _bounds_check_indices_cuda_v1(
   const auto max_B_ = vbe ? max_B : B;
 
   AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "bounds_check_indices_v1", [&] {
+      indices.scalar_type(), "bounds_check_indices_cuda_v1", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name = "bounds_check_indices_cuda_v1";
+#endif
         const auto bounds_check_kernel =
             (vbe ? bounds_check_indices_kernel_v1<index_t, true>
                  : bounds_check_indices_kernel_v1<index_t, false>);
@@ -244,13 +248,12 @@ void _bounds_check_indices_cuda_v1(
             dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream(),
-            rows_per_table
-                .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-            indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-            offsets.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, rows_per_table, int64_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
             vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,
             bounds_check_mode_,
-            warning.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
+            MAKE_PTA_WITH_NAME(func_name, warning, int64_t, 1, 32),
             FixedDivisor(max_B_));
       });
 }
