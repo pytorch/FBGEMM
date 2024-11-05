@@ -65,7 +65,6 @@ void split_embedding_backward_exact_cpu_kernel(
   auto host_weights_data = host_weights.accessor<scalar_t, 1>();
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
 
-  const bool has_weights = indice_weights.defined();
   auto grad_stride = grad_output.size(1);
 
   std::vector<::internal::HyperCompressedSparseColumn> cscs(num_tables);
@@ -107,8 +106,6 @@ for (const auto t : c10::irange(num_tables)) {
     int* col_segment_ptr = cscs[t].column_segment_ptr;
     int* col_segment_indices = cscs[t].column_segment_indices;
 
-    auto hash_size = get_hash_size(feature_begin);
-
     const auto D_begin = D_offsets_data[feature_begin];
     const auto D =
         D_offsets_data[feature_begin + 1] - D_offsets_data[feature_begin];
@@ -117,6 +114,7 @@ for (const auto t : c10::irange(num_tables)) {
         table_to_feature_offset[t + 1] > table_to_feature_offset[t] + 1;
 
     {% if optimizer == "rowwise_adagrad" %}
+    const auto hash_size = get_hash_size(feature_begin);
     constexpr bool use_fbgemm = std::is_same<scalar_t, float>::value
                                 && std::is_same<scalar_t, grad_t>::value;
     // || std::is_same<scalar_t, at::Half>::value;
@@ -201,7 +199,7 @@ for (const auto c : c10::irange(num_non_zero_columns)) {
         if (c == 0 || col_segment_indices[c - 1] != idx) {
           memset(grad_buffer, 0, D * sizeof(at::acc_type<grad_t, true>));
         }
-        const int64_t embedding_begin = table_begin + idx * D;
+        [[maybe_unused]] const int64_t embedding_begin = table_begin + idx * D;
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
           int D_offset = D_begin;
           if (is_shared_table) {
