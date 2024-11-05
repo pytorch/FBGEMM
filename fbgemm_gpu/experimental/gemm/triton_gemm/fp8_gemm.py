@@ -13,13 +13,14 @@ import torch
 import triton  # @manual
 
 import triton.language as tl  # @manual
-from torch._tensor import Tensor
 
-from triton import Config  # @manual
-from triton.ops.matmul_perf_model import (  # @manual
+from fbgemm_gpu.experimental.gemm.triton_gemm.matmul_perf_model import (
     early_config_prune,
     estimate_matmul_time,
 )
+from torch._tensor import Tensor
+
+from triton import Config  # @manual
 from triton.runtime.jit import reinterpret as tl_reinterpret, TensorWrapper  # @manual
 
 logger: logging.Logger = logging.getLogger(__name__)
