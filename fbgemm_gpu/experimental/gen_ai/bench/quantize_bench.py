@@ -55,6 +55,7 @@ def get_llama_shapes() -> List[Tuple[int, int, int]]:
 
 def benchmark_grouped(
     quantize_ops: List[QuantizeOpBase],
+    b: List[int],
     m: List[int],
     n: List[int],
     k: List[int],
@@ -67,8 +68,12 @@ def benchmark_grouped(
     A = []
     B = []
     for i in range(num_groups):
-        A.append(torch.randn(m[i], k[i], device="cuda", dtype=torch.bfloat16))
-        B.append(torch.randn(n[i], k[i], device="cuda", dtype=torch.bfloat16))
+        if b[i] > 1:
+            A.append(torch.randn(b[i], m[i], k[i], device="cuda", dtype=torch.bfloat16))
+            B.append(torch.randn(b[i], n[i], k[i], device="cuda", dtype=torch.bfloat16))
+        else:
+            A.append(torch.randn(m[i], k[i], device="cuda", dtype=torch.bfloat16))
+            B.append(torch.randn(n[i], k[i], device="cuda", dtype=torch.bfloat16))
     # Compute baseline output for correctness checking.
     out_ref = []
     for i in range(num_groups):
@@ -116,7 +121,7 @@ def benchmark_grouped(
             tflops = 0
             gbps = 0
             for i in range(num_groups):
-                tflops += 2 * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
+                tflops += 2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 gbps += (
                     (
                         quantized_vals[0][i].numel()
@@ -144,6 +149,7 @@ def benchmark_grouped(
 
 def benchmark(
     quantize_ops: List[QuantizeOpBase],
+    b: int,
     m: int,
     n: int,
     k: int,
@@ -152,12 +158,17 @@ def benchmark(
     use_rotating_buffer_bench: bool = False,
 ) -> Dict[str, Any]:
     # Create input tensors.
-    A = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
-    B = torch.randn(n, k, device="cuda", dtype=torch.bfloat16)
+    if b > 1:
+        A = torch.randn(b, m, k, device="cuda", dtype=torch.bfloat16)
+        B = torch.randn(b, n, k, device="cuda", dtype=torch.bfloat16)
+    else:
+        A = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
+        B = torch.randn(n, k, device="cuda", dtype=torch.bfloat16)
+
     # Compute baseline output for correctness checking.
-    out_ref = torch.matmul(A, B.t())
+    out_ref = torch.matmul(A, torch.transpose(B, -2, -1))
     # Keep track of results.
-    results: Dict[str, Any] = {"M": m, "N": n, "K": k}
+    results: Dict[str, Any] = {"B": b, "M": m, "N": n, "K": k}
     # Benchmark each operator.
     for quantize_op in quantize_ops:
         # If kernel filter is provided, skip kernels that arent requested.
@@ -190,7 +201,7 @@ def benchmark(
                 )
 
             # Print out results for this op.
-            tflops = 2 * m * n * k / (ms_runtime / 1e3) / 1e12
+            tflops = 2 * b * m * n * k / (ms_runtime / 1e3) / 1e12
             gbps = (
                 (
                     quantized_vals[0].numel() * quantized_vals[0].element_size()
@@ -258,12 +269,21 @@ def main(args: Any):
         M = [int(m) for m in args.M.strip().split(",")]
         N = [int(n) for n in args.N.strip().split(",")]
         K = [int(k) for k in args.K.strip().split(",")]
+        if args.B is None:
+            B = [1] * len(M)
+        else:
+            B = [int(b) for b in args.B.strip().split(",")]
         assert (
-            len(M) == len(N) == len(K)
-        ), "M, N, and K must be the same length in grouped mode."
+            len(M) == len(N) == len(K) == len(B)
+        ), "B, M, N, and K must be the same length in grouped mode."
+
         # Note this is a single grouped gemm.
-        MNK = [[M, N, K]]
+        MNK = [[B, M, N, K]]
     else:
+        if args.B is None:
+            B = [1]
+        else:
+            B = [int(b) for b in args.B.strip().split(",")]
         if args.use_llama_shapes:
             MNK = get_llama_shapes()
         else:
@@ -280,15 +300,16 @@ def main(args: Any):
             else:
                 K = [int(k) for k in args.K.strip().split(",")]
             # List all shapes for simplicity.
-            MNK = list(itertools.product(M, N, K))
+            MNK = list(itertools.product(B, M, N, K))
 
     # Iterate over shapes and benchmark.
     benchmark_results = []
-    for m, n, k in MNK:
-        print(f"Benchmarking M={m}, N={n}, K={k}.")
+    for b, m, n, k in MNK:
+        print(f"Benchmarking B={b}, M={m}, N={n}, K={k}.")
         benchmark_func = benchmark_grouped if args.grouped else benchmark
         quantize_measurements = benchmark_func(
             quantize_ops,
+            b,  # pyre-ignore[6]: Incompatible parameter type [6]
             m,  # pyre-ignore[6]: Incompatible parameter type [6]
             n,  # pyre-ignore[6]: Incompatible parameter type [6]
             k,  # pyre-ignore[6]: Incompatible parameter type [6]
@@ -334,6 +355,9 @@ def invoke_main() -> None:
         "--kernels",
         default=None,
         help="Comma separated list of kernels to benchmark. Defaults to all kernels.",
+    )
+    parser.add_argument(
+        "--B", default=None, help="Comma separated list of batches to benchmark."
     )
     parser.add_argument(
         "--M", default=None, help="Comma separated list of M values to benchmark."
