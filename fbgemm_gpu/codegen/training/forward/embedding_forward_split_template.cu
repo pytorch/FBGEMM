@@ -549,6 +549,8 @@ batch_index_select_dim0_codegen_forward_cuda(
         return output;
     }
 
+
+    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "batched_embedding{{ ndesc }}_forward_kernel_1", [&] {
     DISPATCH_EMB_CACHE_OUTPUT_TYPES(
         dev_weights.scalar_type(),
         {%- if not dense %}
@@ -590,7 +592,7 @@ batch_index_select_dim0_codegen_forward_cuda(
             emb_t,
             cache_t,
             output_t,
-            int64_t,
+            index_t,
             kEmbeddingSize / 4>
             <<<
               div_round_up(total_B, kForwardMaxThreads / kWarpSize),
@@ -611,9 +613,9 @@ batch_index_select_dim0_codegen_forward_cuda(
               D,
               {%- endif %}
               FixedDivisor(B),
-              MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
               {%- if not is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
               {%- endif %}
               {%- if not dense %}
               MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
@@ -644,9 +646,9 @@ batch_index_select_dim0_codegen_forward_cuda(
 
           {{ nobag_kernel }}
             {%- if dense or is_index_select %}
-            <emb_t, cache_t, output_t, int64_t>
+            <emb_t, cache_t, output_t, index_t>
             {%- else %}
-            <emb_t, cache_t, output_t, use_cache_t, int64_t>
+            <emb_t, cache_t, output_t, use_cache_t, index_t>
             {%- endif %}
             <<<
               div_round_up(total_B, kForwardMaxThreads / kWarpSize),
@@ -667,9 +669,9 @@ batch_index_select_dim0_codegen_forward_cuda(
               D,
               {%- endif %}
               FixedDivisor(B),
-              MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
               {%- if not is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+              MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
               {%- endif %}
               {%- if not dense %}
               MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
@@ -717,7 +719,7 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- if not dense%}
                 use_cache_t,
                 {%- endif %}
-                int64_t,
+                index_t,
                 kMaxVecsPerThread,
                 kThreadGroupSize>
               <<<
@@ -742,8 +744,8 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- else %}
                 FixedDivisor(B),
                 {%- endif %}
-                MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
                 pooling_mode,
                 {%- if weighted %}
                 MAKE_PTA_ACC_WITH_NAME(func_name, indice_weights, cache_t, 1, 32),
@@ -784,9 +786,9 @@ batch_index_select_dim0_codegen_forward_cuda(
 
             const auto kernel_func =
               (use_lxu_cache ? split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
-                                  emb_t, cache_t, output_t, int64_t, true>
+                                  emb_t, cache_t, output_t, index_t, true>
                               : split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
-                                  emb_t, cache_t, output_t, int64_t, false>);
+                                  emb_t, cache_t, output_t, index_t, false>);
 
             kernel_func
               <<<
@@ -804,12 +806,12 @@ batch_index_select_dim0_codegen_forward_cuda(
                 static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
                 use_lxu_cache ? lxu_cache_weights.size(1) : 0,
                 FixedDivisor(num_warps_per_table),
-                indices.data_ptr<int64_t>(),
+                indices.data_ptr<index_t>(),
                 {%- if weighted %}
                 // TODO: update indice_weights type
                 indice_weights.data_ptr<float>(),
                 {%- endif %}
-                offsets.data_ptr<int64_t>(),
+                offsets.data_ptr<index_t>(),
                 reinterpret_cast<uint32_t*>(D_offsets.data_ptr<int32_t>()),
                 weights_offsets.data_ptr<int64_t>(),
                 lxu_cache_locations.data_ptr<int32_t>(),
@@ -819,7 +821,7 @@ batch_index_select_dim0_codegen_forward_cuda(
         }
         {%- endif %} // if has_experimental
         });
-
+      });
   return output;
 }
 

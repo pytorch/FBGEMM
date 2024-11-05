@@ -986,6 +986,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 */
 
 {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
+{%- for index_type in ['int32_t', 'int64_t'] %}
 {%- for emb_type in ['float', 'at::Half'] %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for use_cache in ['true', 'false'] %}
@@ -996,7 +997,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel
     {{ emb_type }},
     {{ cache_type }},
     {{ output_type }},
-    int64_t, // index_t
+    {{ index_type }},
     {{ use_cache }}
 > (
     const {{ emb_type }}* __restrict__ const dev_weights,
@@ -1008,16 +1009,17 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel
     const bool mean_pooling,
     const uint32_t max_D_cache,
     const FixedDivisor fd_num_warps_per_table,
-    const int64_t* __restrict__ const indices,
+    const {{ index_type }}* __restrict__ const indices,
     {%- if weighted %}
     const float* __restrict__ const index_weights,
     {%- endif %}
-    const int64_t* __restrict__ const  offsets,
+    const {{ index_type }}* __restrict__ const  offsets,
     const uint32_t* __restrict__ const D_offsets,
     const int64_t* __restrict__ const weights_offsets,
     const int32_t* __restrict__ const lxu_cache_locations,
     {{ output_type }}* __restrict__ const output);
 
+{%- endfor %}
 {%- endfor %}
 {%- endfor %}
 {%- endfor %}
