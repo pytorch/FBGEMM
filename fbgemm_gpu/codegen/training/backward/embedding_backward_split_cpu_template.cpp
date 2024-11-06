@@ -315,6 +315,11 @@ for (const auto d : c10::irange(D)) {
   int64_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK_GE(B, 0);
 
+  {%- if "learning_rate" in args.split_cpu_kernel_arg_constructors %}
+  // convert `learning rate` to float since `learning rate` is float in kernels
+  const float learning_rate = learning_rate_tensor.item<float>();
+  {%- endif %}
+
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
 

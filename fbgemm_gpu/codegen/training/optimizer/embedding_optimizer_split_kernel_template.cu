@@ -98,7 +98,7 @@ void split_{{ optimizer }}_update_kernel(
           {%- endif %}
           shfl_sync_mask,
           kMaxVecsPerThread,
-          {{ args.split_function_arg_names | join(", ") }});
+          {{ args.split_kernel_arg_names | join(", ") }});
 }
 
 {%- for use_subwarp in [True, False] %}
