@@ -10,7 +10,8 @@
 
 set(experimental_triton_python_source_files
     triton_gemm/__init__.py
-    triton_gemm/fp8_gemm.py)
+    triton_gemm/fp8_gemm.py
+    triton_gemm/matmul_perf_model.py)
 
 
 ################################################################################
