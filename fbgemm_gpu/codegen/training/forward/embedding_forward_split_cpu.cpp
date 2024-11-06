@@ -16,7 +16,6 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
-#include "folly/container/F14Map.h"
 #else
 #include <omp.h>
 #endif
@@ -29,7 +28,12 @@
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
-template <typename weights_t, typename ind_weights_t, typename output_t>
+template <
+    typename weights_t,
+    typename ind_weights_t,
+    typename index_t,
+    typename offset_t,
+    typename output_t>
 void split_embedding_forward_cpu_kernel(
     Tensor weights,
     Tensor weights_offsets,
@@ -56,8 +60,8 @@ void split_embedding_forward_cpu_kernel(
 
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
-  const auto indices_data = indices.data_ptr<int64_t>();
-  const auto offsets_data = offsets.data_ptr<int64_t>();
+  const auto indices_data = indices.data_ptr<index_t>();
+  const auto offsets_data = offsets.data_ptr<offset_t>();
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
 
   const auto weights_data = weights.data_ptr<weights_t>();
@@ -97,8 +101,8 @@ void split_embedding_forward_cpu_kernel(
             weights_t>::type;
         auto kernel = fbgemm::GenerateEmbeddingSpMDMWithStrides<
             fbgemm_weight_t,
-            /*IndexType=*/int64_t,
-            /*OffsetType=*/int64_t>(
+            /*IndexType=*/index_t,
+            /*OffsetType=*/offset_t>(
             D,
             indice_weights.defined(),
             static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
@@ -203,29 +207,44 @@ Tensor split_embedding_codegen_forward_cpu(
   // It is assumed that the indice_weights will always be float
   TORCH_CHECK(
       !indice_weights.defined() || indice_weights.scalar_type() != at::kHalf);
+
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
-      output.scalar_type(), "split_embedding_cpu_forward", [&]() {
+      output.scalar_type(), "split_embedding_cpu_forward_1", [&]() {
         using output_t = scalar_t;
+
         FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
-            weights.scalar_type(), "split_embedding_cpu_forward", [&] {
+            weights.scalar_type(), "split_embedding_cpu_forward_2", [&] {
               using ind_weights_t = std::conditional<
                   std::is_same<scalar_t, double>::value,
                   double,
                   float>::type;
-              split_embedding_forward_cpu_kernel<
-                  scalar_t,
-                  ind_weights_t,
-                  output_t>(
-                  weights,
-                  weights_offsets,
-                  D_offsets,
-                  total_D,
-                  hash_size_cumsum,
-                  indices,
-                  offsets,
-                  pooling_mode,
-                  indice_weights,
-                  output);
+
+              AT_DISPATCH_INDEX_TYPES(
+                  offsets.scalar_type(), "split_embedding_cpu_forward_3", [&] {
+                    using offset_t = index_t;
+
+                    AT_DISPATCH_INDEX_TYPES(
+                        indices.scalar_type(),
+                        "split_embedding_cpu_forward_4",
+                        [&] {
+                          split_embedding_forward_cpu_kernel<
+                              scalar_t,
+                              ind_weights_t,
+                              index_t,
+                              offset_t,
+                              output_t>(
+                              weights,
+                              weights_offsets,
+                              D_offsets,
+                              total_D,
+                              hash_size_cumsum,
+                              indices,
+                              offsets,
+                              pooling_mode,
+                              indice_weights,
+                              output);
+                        });
+                  });
             });
       });
   return output;

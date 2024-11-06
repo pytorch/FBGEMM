@@ -560,6 +560,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     emb_type,
     cache_type,
     output_type,
+    index_type,
     use_cache,
     kMaxVecsPerThread,
     kThreadGroupSize)
@@ -577,7 +578,7 @@ batch_index_select_dim0_codegen_forward_kernel
     {%- if not dense %}
     {{ use_cache }},
     {%- endif %}
-    int64_t,
+    {{ index_type }},
     {%- if not nobag %}
     {{ kMaxVecsPerThread }},
     {%- endif %}
@@ -603,9 +604,9 @@ batch_index_select_dim0_codegen_forward_kernel
     {%- else %}
     FixedDivisor fd_B,
     {%- endif %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices,
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> indices,
     {%- if not is_index_select %}
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> offsets,
     {%- endif %}
     {%- if not nobag %}
     int64_t pooling_mode,
@@ -638,14 +639,17 @@ batch_index_select_dim0_codegen_forward_kernel
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
+    {%- for index_type in ['int32_t', 'int64_t'] %}
         {{ template_instantiation(
             emb_type,
             cache_type,
             output_type,
+            index_type,
             use_cache,
             kMaxVecsPerThread,
             kThreadGroupSize)
         }}
+    {%- endfor %}
     {%- endfor %}
     {%- endfor %}
     {%- endfor %}
