@@ -55,6 +55,11 @@ at::Tensor f8f8bf16_tensorwise(
     at::Tensor WQ,
     double scale,
     bool use_fast_accum = true);
+std::vector<at::Tensor> f8f8bf16_grouped(
+    const std::vector<at::Tensor>& XQ,
+    const std::vector<at::Tensor>& WQ,
+    const std::vector<at::Tensor>& scale,
+    bool use_fast_accum = true);
 at::Tensor f8f8bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -157,6 +162,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
+      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] XQ, Tensor[] scale, bool use_fast_accum=True) -> Tensor[]");
+  m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise_batched(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
@@ -220,6 +227,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
+  m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
@@ -230,7 +238,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 }
 
 // Though it should never be used, it still seems helpful to define these
-// functions for CPU to accomodate model creation.
+// functions for CPU to accommodate model creation.
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
@@ -243,6 +251,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
+  m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
