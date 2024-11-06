@@ -4,7 +4,7 @@ var searchData=
   ['real_5fmultiplier_1',['real_multiplier',['../structfbgemm_1_1_requantization_params.html#ad0e106dd418b27919550747b4bdd2e83',1,'fbgemm::RequantizationParams']]],
   ['reduceavx2_2',['reduceAvx2',['../namespacefbgemm.html#ac2d8c325cbc2893ed9a32f71c6a3596b',1,'fbgemm']]],
   ['reluoutput_3',['ReluOutput',['../classfbgemm_1_1_relu_output.html',1,'fbgemm']]],
-  ['report_5fembedding_5ferror_4',['report_embedding_error',['../namespacefbgemm__gpu.html#a17e57fc2dca2d6df09e26f3eec69464c',1,'fbgemm_gpu']]],
+  ['report_5fembedding_5ferror_4',['report_embedding_error',['../namespacefbgemm__gpu.html#a4f4260f8147fe33d5c0c5611ae0f7e0f',1,'fbgemm_gpu']]],
   ['requantizationforfloatparams_5ft_5',['requantizationForFloatParams_t',['../structfbgemm_1_1requantization_for_float_params__t.html',1,'fbgemm']]],
   ['requantizationparams_6',['RequantizationParams',['../structfbgemm_1_1_requantization_params.html',1,'fbgemm']]],
   ['requantizationparams_5ft_7',['requantizationParams_t',['../structfbgemm_1_1requantization_params__t.html',1,'fbgemm']]],

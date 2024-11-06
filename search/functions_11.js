@@ -2,7 +2,7 @@ var searchData=
 [
   ['radix_5fsort_5fparallel_0',['radix_sort_parallel',['../namespacefbgemm.html#a3d34903420acd55fcebd0f8a19d8a84d',1,'fbgemm']]],
   ['reduceavx2_1',['reduceAvx2',['../namespacefbgemm.html#ac2d8c325cbc2893ed9a32f71c6a3596b',1,'fbgemm']]],
-  ['report_5fembedding_5ferror_2',['report_embedding_error',['../namespacefbgemm__gpu.html#a17e57fc2dca2d6df09e26f3eec69464c',1,'fbgemm_gpu']]],
+  ['report_5fembedding_5ferror_2',['report_embedding_error',['../namespacefbgemm__gpu.html#a4f4260f8147fe33d5c0c5611ae0f7e0f',1,'fbgemm_gpu']]],
   ['requantize_5fu8acc32_5fref_3',['requantize_u8acc32_ref',['../namespacefbgemm.html#ab87b23be5587e267db6ab7d2b97c6915',1,'fbgemm::requantize_u8acc32_ref(int M, int N, int ld, const std::int32_t *inp, std::uint8_t *out, std::int32_t C_multiplier, std::int32_t C_right_shift, std::int32_t C_zero_point, std::int32_t A_zero_point, std::int32_t B_zero_point, const std::int32_t *row_offsets, const std::int32_t *col_offsets, const std::int32_t *bias, bool fuse_relu=false)'],['../namespacefbgemm.html#a798fea9136d48e1cd4c8a2926fb869ed',1,'fbgemm::requantize_u8acc32_ref(int M, int N, int ld, const std::int32_t *inp, std::uint8_t *out, const float *C_multiplier, std::int32_t C_zero_point, std::int32_t A_zero_point, const std::int32_t *B_zero_point, const std::int32_t *row_offsets, const std::int32_t *col_offsets, const std::int32_t *bias, int ncols_per_quant_group, bool fuse_relu=false)']]],
   ['requantizeforfloat_4',['ReQuantizeForFloat',['../classfbgemm_1_1_re_quantize_for_float.html#a7ac7e62127705921ee912811a72697c6',1,'fbgemm::ReQuantizeForFloat']]],
   ['requantizeoutput_5',['ReQuantizeOutput',['../classfbgemm_1_1_re_quantize_output.html#ab36806f951ba9ce3733448d78633de16',1,'fbgemm::ReQuantizeOutput']]],

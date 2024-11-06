@@ -136,9 +136,9 @@ Functions</h2></td></tr>
 <tr class="separator:gab7344d63216dd37673733b26954aaec4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaef2a0a8c27e3b8b2d72be5c95ba7539e" id="r_gaef2a0a8c27e3b8b2d72be5c95ba7539e"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__sparse-data-cpu.html#gaef2a0a8c27e3b8b2d72be5c95ba7539e">generic_histogram_binning_calibration_by_feature_cpu</a> (const at::Tensor &amp;logit, const at::Tensor &amp;segment_value, const at::Tensor &amp;segment_lengths, int64_t num_segments, const at::Tensor &amp;bin_num_examples, const at::Tensor &amp;bin_num_positives, const at::Tensor &amp;bin_boundaries, double positive_weight, int64_t bin_ctr_in_use_after=0, double bin_ctr_weight_value=1.0)</td></tr>
 <tr class="separator:gaef2a0a8c27e3b8b2d72be5c95ba7539e"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a17e57fc2dca2d6df09e26f3eec69464c" id="r_a17e57fc2dca2d6df09e26f3eec69464c"><td class="memTemplParams" colspan="2">template&lt;typename IndexType &gt; </td></tr>
-<tr class="memitem:a17e57fc2dca2d6df09e26f3eec69464c"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a17e57fc2dca2d6df09e26f3eec69464c">report_embedding_error</a> (int t, int B, int b_begin, int b_end, const IndexType *offsets_data, const IndexType *indices_data, int64_t hash_size, bool allow_minus_one=false)</td></tr>
-<tr class="separator:a17e57fc2dca2d6df09e26f3eec69464c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4f4260f8147fe33d5c0c5611ae0f7e0f" id="r_a4f4260f8147fe33d5c0c5611ae0f7e0f"><td class="memTemplParams" colspan="2">template&lt;typename IndexType , typename OffsetType &gt; </td></tr>
+<tr class="memitem:a4f4260f8147fe33d5c0c5611ae0f7e0f"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a4f4260f8147fe33d5c0c5611ae0f7e0f">report_embedding_error</a> (int t, int B, int b_begin, int b_end, const OffsetType *offsets_data, const IndexType *indices_data, int64_t hash_size, bool allow_minus_one=false)</td></tr>
+<tr class="separator:a4f4260f8147fe33d5c0c5611ae0f7e0f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ae86238f4ca864fb4ea41318ece747ab4" id="r_ae86238f4ca864fb4ea41318ece747ab4"><td class="memTemplParams" colspan="2">template&lt;typename scalar_t , int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK&gt; </td></tr>
 <tr class="memitem:ae86238f4ca864fb4ea41318ece747ab4"><td class="memTemplItemLeft" align="right" valign="top">__inline__ __device__ void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ae86238f4ca864fb4ea41318ece747ab4">inclusive_sum_scan_kernel</a> (scalar_t(&amp;arr)[ITEMS_PER_THREAD], typename cub::BlockScan&lt; scalar_t, NUM_THREADS_PER_BLOCK &gt;::TempStorage &amp;temp_storage, int *block_flags, volatile scalar_t *block_sums, scalar_t *block_prev, const int num_entries_per_block, const int block_id, const bool is_multi_block, const int signal)</td></tr>
 <tr class="separator:ae86238f4ca864fb4ea41318ece747ab4"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -1271,13 +1271,13 @@ details</h1>
 
 </div>
 </div>
-<a id="a17e57fc2dca2d6df09e26f3eec69464c" name="a17e57fc2dca2d6df09e26f3eec69464c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a17e57fc2dca2d6df09e26f3eec69464c">&#9670;&#160;</a></span>report_embedding_error()</h2>
+<a id="a4f4260f8147fe33d5c0c5611ae0f7e0f" name="a4f4260f8147fe33d5c0c5611ae0f7e0f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4f4260f8147fe33d5c0c5611ae0f7e0f">&#9670;&#160;</a></span>report_embedding_error()</h2>
 
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename IndexType &gt; </div>
+template&lt;typename IndexType , typename OffsetType &gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void report_embedding_error </td>
@@ -1302,7 +1302,7 @@ template&lt;typename IndexType &gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const IndexType *</td>          <td class="paramname"><span class="paramname"><em>offsets_data</em></span>, </td>
+          <td class="paramtype">const OffsetType *</td>          <td class="paramname"><span class="paramname"><em>offsets_data</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
