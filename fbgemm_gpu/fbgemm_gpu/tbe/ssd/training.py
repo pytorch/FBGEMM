@@ -40,6 +40,9 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     UVMCacheStatsIndex,
     WeightDecayMode,
 )
+from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
+    generate_vbe_metadata,
+)
 
 from torch import distributed as dist, nn, Tensor  # usort:skip
 from dataclasses import dataclass
@@ -60,6 +63,8 @@ class IterData:
     lxu_cache_ptrs: Tensor
     actions_count_gpu: Tensor
     cache_set_inverse_indices: Tensor
+    B_offsets: Optional[Tensor] = None
+    max_B: Optional[int] = -1
 
 
 class SSDTableBatchedEmbeddingBags(nn.Module):
@@ -162,6 +167,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             table_has_feature[t] = True
         assert all(table_has_feature), "Each table must have at least one feature!"
 
+        feature_dims = [dims[t] for t in self.feature_table_map]
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(itertools.accumulate(D_offsets))
         self.total_D: int = D_offsets[-1]
@@ -209,6 +215,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.register_buffer(
             "bounds_check_warning",
             torch.tensor([0], device=self.current_device, dtype=torch.int64),
+        )
+        # Required for VBE
+        self.register_buffer(
+            "feature_dims",
+            torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
 
         assert cache_sets > 0
@@ -1000,6 +1011,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.hash_size_cumsum,
                 curr_data.indices,
                 curr_data.offsets,
+                curr_data.B_offsets,
+                curr_data.max_B,
             )
             (
                 linear_unique_indices,
@@ -1046,13 +1059,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 unique_indices_length_curr=curr_data.actions_count_gpu,
             )
 
-    def prefetch(  # noqa C901
+    def prefetch(
         self,
         indices: Tensor,
         offsets: Tensor,
         forward_stream: Optional[torch.cuda.Stream] = None,
-        prepare_inputs: bool = True,
-    ) -> Optional[Tensor]:
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+    ) -> None:
         if self.prefetch_stream is None and forward_stream is not None:
             # Set the prefetch stream to the current stream
             self.prefetch_stream = torch.cuda.current_stream()
@@ -1060,25 +1073,52 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.prefetch_stream != forward_stream
             ), "prefetch_stream and forward_stream should not be the same stream"
 
+            current_stream = torch.cuda.current_stream()
+            # Record tensors on the current stream
+            indices.record_stream(current_stream)
+            offsets.record_stream(current_stream)
+
+        indices, offsets, _, vbe_metadata = self.prepare_inputs(
+            indices,
+            offsets,
+            per_sample_weights=None,
+            batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
+        )
+
+        self._prefetch(
+            indices,
+            offsets,
+            vbe_metadata,
+            forward_stream,
+        )
+
+    def _prefetch(  # noqa C901
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        vbe_metadata: Optional[invokers.lookup_args.VBEMetadata] = None,
+        forward_stream: Optional[torch.cuda.Stream] = None,
+    ) -> None:
         # TODO: Refactor prefetch
         current_stream = torch.cuda.current_stream()
 
-        # If a prefetch stream is used, then record tensors on the stream
-        indices.record_stream(current_stream)
-        offsets.record_stream(current_stream)
+        B_offsets = None
+        max_B = -1
+        if vbe_metadata is not None:
+            B_offsets = vbe_metadata.B_offsets
+            max_B = vbe_metadata.max_B
 
         with record_function("## ssd_prefetch {} ##".format(self.timestep)):
             if self.gather_ssd_cache_stats:
                 self.local_ssd_cache_stats.zero_()
-
-            if prepare_inputs:
-                indices, offsets, _ = self.prepare_inputs(indices, offsets)
 
             # Linearize indices
             linear_cache_indices = torch.ops.fbgemm.linearize_cache_indices(
                 self.hash_size_cumsum,
                 indices,
                 offsets,
+                B_offsets,
+                max_B,
             )
 
             self.timestep += 1
@@ -1423,16 +1463,43 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # Store data for forward
             self.ssd_prefetch_data.append(prefetch_data)
 
+    @torch.jit.ignore
+    def _generate_vbe_metadata(
+        self,
+        offsets: Tensor,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]],
+    ) -> invokers.lookup_args.VBEMetadata:
+        # Blocking D2H copy, but only runs at first call
+        self.feature_dims = self.feature_dims.cpu()
+        if batch_size_per_feature_per_rank is not None:
+            assert self.optimizer in (
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.EXACT_SGD,
+            ), (
+                "Variable batch size TBE support is enabled for "
+                "OptimType.EXACT_ROWWISE_ADAGRAD and "
+                "ENSEMBLE_ROWWISE_ADAGRAD only"
+            )
+        return generate_vbe_metadata(
+            offsets,
+            batch_size_per_feature_per_rank,
+            self.optimizer,
+            self.pooling_mode,
+            self.feature_dims,
+            self.current_device,
+        )
+
     def forward(
         self,
         indices: Tensor,
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
         feature_requires_grad: Optional[Tensor] = None,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
         # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
     ) -> Tensor:
-        indices, offsets, per_sample_weights = self.prepare_inputs(
-            indices, offsets, per_sample_weights
+        indices, offsets, per_sample_weights, vbe_metadata = self.prepare_inputs(
+            indices, offsets, per_sample_weights, batch_size_per_feature_per_rank
         )
 
         if len(self.timesteps_prefetched) == 0:
@@ -1446,9 +1513,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 context=self.step,
                 stream=self.ssd_eviction_stream,
             ):
-                # Skip preparing inputs because they are already preprocessed
-                # above
-                self.prefetch(indices, offsets, prepare_inputs=False)
+                self._prefetch(indices, offsets, vbe_metadata)
 
         assert len(self.ssd_prefetch_data) > 0
 
@@ -1470,6 +1535,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             lxu_cache_ptrs,
             actions_count_gpu,
             cache_set_inverse_indices,
+            vbe_metadata.B_offsets,
+            vbe_metadata.max_B,
         )
 
         common_args = invokers.lookup_args_ssd.CommonArgs(
@@ -1493,14 +1560,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             feature_requires_grad=feature_requires_grad,
             lxu_cache_locations=lxu_cache_ptrs,
             uvm_cache_stats=None,
-            vbe_metadata=invokers.lookup_args_ssd.VBEMetadata(
-                B_offsets=None,
-                output_offsets_feature_rank=None,
-                B_offsets_rank_per_feature=None,
-                max_B=-1,
-                max_B_feature_rank=-1,
-                output_size=-1,
-            ),
             # Unused arguments
             is_experimental=False,
             use_uniq_cache_locations_bwd=False,
@@ -1513,6 +1572,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "post_bwd_evicted_indices": post_bwd_evicted_indices_cpu,
                 "actions_count": actions_count_cpu,
             },
+            # pyre-fixme[6]: Expected `lookup_args_ssd.VBEMetadata` but got `lookup_args.VBEMetadata`
+            vbe_metadata=vbe_metadata,
         )
 
         self.timesteps_prefetched.pop(0)
@@ -1691,10 +1752,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         indices: Tensor,
         offsets: Tensor,
         per_sample_weights: Optional[Tensor] = None,
-    ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+    ) -> Tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
         """
         Prepare TBE inputs
         """
+        # Generate VBE metadata
+        vbe_metadata = self._generate_vbe_metadata(
+            offsets, batch_size_per_feature_per_rank
+        )
+
         # Force casting indices and offsets to long
         (indices, offsets) = indices.long(), offsets.long()
 
@@ -1710,11 +1777,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
                 per_sample_weights,
-                B_offsets=None,
-                max_B=-1,
+                B_offsets=vbe_metadata.B_offsets,
+                max_B=vbe_metadata.max_B,
             )
 
-        return indices, offsets, per_sample_weights
+        return indices, offsets, per_sample_weights, vbe_metadata
 
     @torch.jit.ignore
     def _report_ssd_stats(self) -> None:

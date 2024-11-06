@@ -1088,11 +1088,16 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const auto is_experimental = is_tbev2_enabled || is_experimental_tbe;
     {%- endif %}
 
-    {%- if not ssd %}
+    {%- if ssd %}
+    TORCH_CHECK(
+        ssd_tensors.value().size() == {{ ssd_tensors | length }},
+        "SSD TBE expects {{ ssd_tensors | length }} in ssd_tensors");
+    {%- endif %}
+
     {%- if has_vbe_support %}
     // has vbe support
     if (B_offsets.has_value()) {
-      {%- if has_global_weight_decay_support %}
+      {%- if has_global_weight_decay_support and not ssd %}
         // vbe and has gwd support
         if (apply_global_weight_decay && weight_decay > 0) {
           {{ call_autograd(nobag=False, vbe=True, is_gwd=True) }}
@@ -1103,20 +1108,13 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     }
     {%- endif %} {#-/* if has_vbe_support */ #}
 
-    {%- if has_global_weight_decay_support %}
+    {%- if has_global_weight_decay_support and not ssd %}
     // has gwd support
     if (apply_global_weight_decay && weight_decay > 0) {
       // not vbe and gwd
       {{ call_autograd(nobag=False, vbe=False, is_gwd=True) }}
     }
     {%- endif %} {#-/* if has_global_weight_decay_support */ #}
-    {%- endif %} {#-/* if not ssd */#}
-
-    {%- if ssd %}
-    TORCH_CHECK(
-        ssd_tensors.value().size() == {{ ssd_tensors | length }},
-        "SSD TBE expects {{ ssd_tensors | length }} in ssd_tensors");
-    {%- endif %}
 
     if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
       // no bag
