@@ -1180,3 +1180,14 @@ def lengths_range_abstract(
         ctx = torch.library.get_ctx()
         output_size = ctx.new_dynamic_size()
     return lengths.new_empty([output_size], dtype=lengths.dtype)
+
+
+@torch.library.register_fake("fbgemm::all_to_one_device")
+def all_to_one_device(
+    input_tensors: List[Tensor],
+    target_device: torch.device,
+) -> List[Tensor]:
+    return [
+        torch.empty_like(input_tensor, device=torch.device("meta"))
+        for input_tensor in input_tensors
+    ]
