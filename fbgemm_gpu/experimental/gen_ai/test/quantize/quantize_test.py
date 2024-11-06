@@ -737,6 +737,56 @@ class FP8Tests(unittest.TestCase):
             y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(xq, wq, x_scale, w_scale)
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: GMM ops are not yet suported."
+    )
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 5]),
+        M=st.sampled_from([2048, 3584]),
+        N=st.sampled_from([1024, 6144]),
+        K=st.sampled_from([512, 3584]),
+    )
+    def test_fp8_grouped_gemm(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        ms = torch.randint(1, (M // 64) + 1, (G,), dtype=torch.int) * 64
+        ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
+        ks = torch.randint(1, (K // 64) + 1, (G,), dtype=torch.int) * 64
+
+        x_group = []
+        w_group = []
+        xq_group = []
+        wq_group = []
+        scale_group = []
+
+        for m, n, k in zip(ms, ns, ks):
+            x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
+            w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
+            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+            wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+            x_group.append(x)
+            w_group.append(w)
+            xq_group.append(xq)
+            wq_group.append(wq)
+            scale_group.append(x_scale * w_scale)
+
+        y_group_ref = []
+        for i in range(len(x_group)):
+            y = torch.matmul(x_group[i], w_group[i].t())
+            y_group_ref.append(y)
+
+        y_group = torch.ops.fbgemm.f8f8bf16_grouped(xq_group, wq_group, scale_group)
+
+        for i in range(len(y_group)):
+            torch.testing.assert_close(
+                y_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
+            )
+
     @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
     @settings(deadline=None)
     @given(

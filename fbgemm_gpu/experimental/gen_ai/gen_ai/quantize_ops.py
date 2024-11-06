@@ -6,7 +6,7 @@
 
 # pyre-strict
 
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 
@@ -195,6 +195,25 @@ if not torch.version.hip:
             dtype=torch.bfloat16,
             device=XQ.device,
         )
+
+    @torch.library.register_fake("fbgemm::f8f8bf16_grouped")
+    def f8f8bf16_grouped_abstract(
+        XQ: List[torch.Tensor],
+        WQ: List[torch.Tensor],
+        scale: List[torch.Tensor],
+        use_fast_accum: bool = True,
+    ) -> List[torch.Tensor]:
+        output_group = []
+        for _, (xq, wq) in enumerate(zip(XQ, WQ)):
+            M = xq.shape[0]
+            N = wq.shape[0]
+            output = torch.empty(
+                [M, N],
+                dtype=torch.bfloat16,
+                device=xq[0].device,
+            )
+            output_group.append(output)
+        return output_group
 
     @torch.library.register_fake("fbgemm::f8i4bf16_rowwise")
     def f8i4bf16_rowwise_abstract(
