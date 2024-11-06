@@ -22,13 +22,13 @@ namespace fbgemm_gpu {
  *         scale_bias_last == false that can take -1 indices (output from
  *         pruned embedding id mapping)
  */
-template <typename IndexType>
+template <typename IndexType, typename OffsetType>
 void report_embedding_error(
     int t,
     int B,
     int b_begin,
     int b_end,
-    const IndexType* offsets_data,
+    const OffsetType* offsets_data,
     const IndexType* indices_data,
     int64_t hash_size,
     bool allow_minus_one = false) {

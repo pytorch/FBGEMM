@@ -95,14 +95,14 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     indices_start = total_L_start + L_start;
     L = (total_L - L_start >= fixed_L_per_warp) ? fixed_L_per_warp : (total_L - L_start);
     {%- else %}
-    index_t indices_start = offsets[b_t];
-    int32_t L = offsets[b_t + 1] - indices_start;
+    const auto indices_start = offsets[b_t];
+    const auto L = offsets[b_t + 1] - indices_start;
     {%- endif %}
 
     {%- if is_index_select %}
-    const int32_t D_start = D_offsets[t];
-    const int32_t D_end = D_offsets[t + 1];
-    const int32_t D = D_end - D_start;
+    const auto D_start = D_offsets[t];
+    const auto D_end = D_offsets[t + 1];
+    const auto D = D_end - D_start;
 
     // Check D in the kernel to avoid iterating through the list on host
     CUDA_KERNEL_ASSERT(D % 4 == 0 && "The column size must be multiple of 4");
@@ -221,7 +221,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
 {%- for emb_type in ['float', 'at::Half'] %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for kEmbeddingSize in [4, 8, 16, 32] %}
-{%- set index_type = 'int64_t' %}
+{%- for index_type in ['int32_t', 'int64_t'] %}
 
 template __launch_bounds__(kForwardMaxThreads) __global__ void
 {%- if is_index_select %}
@@ -264,6 +264,7 @@ batch_index_select_dim0_codegen_forward_small_kernel
     {%- endif %}
     pta::PackedTensorAccessor64<{{ output_type }}, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output);
 
+{%- endfor %}
 {%- endfor %}
 {%- endfor %}
 {%- endfor %}
