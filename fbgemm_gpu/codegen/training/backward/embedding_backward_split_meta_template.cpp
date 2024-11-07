@@ -50,19 +50,8 @@ using Tensor = at::Tensor;
     ) else [False])
 %}
 
-{%- macro get_desc_suffix(gwd) %}
-{%- set gwddesc = "_gwd" if gwd else "" %}
-{{- wdesc + vdesc + gwddesc }}
-{%- endmacro %}
-
-{%- set is_gwd_kernel = is_gwd and is_valid_gwd_config(
-    dense,
-    nobag,
-    vbe,
-    is_index_select,
-    has_global_weight_decay_support,
-    ssd) %}
-{%- set desc_suffix = get_desc_suffix(is_gwd_kernel) %}
+{%- set gwddesc = "_gwd" if is_gwd else "" %}
+{%- set desc_suffix = wdesc + vdesc + gwddesc %}
 
 {%- if is_index_select %}
 Tensor batch_index_select_dim0_codegen_backward_meta(
