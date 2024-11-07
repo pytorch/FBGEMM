@@ -1964,6 +1964,7 @@ def _kernel_quantize_fp8_row(
     EPS: tl.constexpr,
     CLAMP_MAX: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
+    USE_INT64: tl.constexpr,
 ) -> None:
     """Quantize and scale each row.
 
@@ -1991,8 +1992,13 @@ def _kernel_quantize_fp8_row(
         EPS (float): Epsilon value for numerical stability.
         CLAMP_MAX (bool): Whethar to apply scale_ub.
         BLOCK_SIZE (int): Block size for reduction.
+        USE_INT64 (bool): Whether to use int64 indexing for large inputs.
     """
     pid = tl.program_id(0)
+    # Use int64 indexing for large inputs. This is slower, but
+    # needed to avoid index overflows.
+    if USE_INT64:
+        pid = pid.to(tl.int64)
     n_offset = tl.arange(0, BLOCK_SIZE)
 
     # Calculate max.
@@ -2054,6 +2060,8 @@ def triton_quantize_fp8_row(
     a_scale = torch.empty((num_rows), dtype=torch.float32, device=a.device)
     a_fp8 = torch.empty((a.shape[0], a.shape[1]), device=a.device, dtype=pt_dtype)
 
+    # If input tensor is sufficiently large, we need to use int64 indexing.
+    use_int64 = a.numel() > (2**31 - 1)
     grid = (num_rows,)
     _kernel_quantize_fp8_row[grid](
         a,
@@ -2070,6 +2078,7 @@ def triton_quantize_fp8_row(
         MAX_FP8=max_fp8,
         EPS=eps,
         CLAMP_MAX=scale_ub is not None,
+        USE_INT64=use_int64,
     )
 
     return a_fp8.view(a_shape), a_scale
