@@ -30,24 +30,46 @@ def set_amd_env_vars() -> None:
     os.environ["PYTORCH_TUNABLEOP_MAX_WARMUP_DURATION_MS"] = "30"
 
 
-def get_llama_shapes() -> List[Tuple[int, int, int]]:
+def get_moe_shapes() -> List[Tuple[int, int, int, int]]:
+    # Helper function that returns a list of shapes relevant to moe.
+
+    moe_shapes = []
+    for M in [1, 16, 32, 64, 128, 256, 512]:
+        # Add shapes for moe 70B
+        moe_shapes += [
+            (16, M, 1024, 5120),
+            (16, M, 5120, 1024),
+            (2, M, 5120, 8192),
+            (2, M, 8192, 5120),
+            (8, M, 14336, 2560),
+            (8, M, 2560, 14336),
+            (16, M, 14336, 2560),
+            (16, M, 2560, 14336),
+            (2, M, 14336, 20480),
+            (2, M, 20480, 14336),
+        ]
+
+    return moe_shapes
+
+
+def get_llama_shapes() -> List[Tuple[int, int, int, int]]:
     # Helper function that returns a list of shapes relevant to llama.
 
     llama_shapes = []
     for M in [1, 16, 32, 64, 96, 128, 16384]:
         # Add shapes for llama 70B
         llama_shapes += [
-            (M, 1280, 8192),
-            (M, 8192, 1024),
-            (M, 7168, 8192),
-            (M, 8192, 3584),
+            (1, M, 1280, 8192),
+            (1, M, 8192, 1024),
+            (1, M, 7168, 8192),
+            (1, M, 8192, 3584),
         ]
         # Add shapes for llama 405B
         llama_shapes += [
-            (M, 13312, 6656),
-            (M, 13312, 16384),
-            (M, 16384, 6656),
-            (M, 16384, 16384),
+            (1, M, 13312, 6656),
+            (1, M, 13312, 16384),
+            (1, M, 16384, 6656),
+            (1, M, 16384, 16384),
         ]
 
     return llama_shapes
@@ -286,6 +308,8 @@ def main(args: Any):
             B = [int(b) for b in args.B.strip().split(",")]
         if args.use_llama_shapes:
             MNK = get_llama_shapes()
+        elif args.use_moe_shapes:
+            MNK = get_moe_shapes()
         else:
             if args.M is None:
                 M = [1, 4, 8, 16, 32, 64, 128, 2048, 4096, 8192, 16384]
@@ -388,6 +412,12 @@ def invoke_main() -> None:
         default=False,
         action="store_true",
         help="If set, benchmark using fixed shapes relevant to llama workloads.",
+    )
+    parser.add_argument(
+        "--use_moe_shapes",
+        default=False,
+        action="store_true",
+        help="If set, benchmark using fixed shapes relevant to llama moe workloads.",
     )
 
     args = parser.parse_args()
