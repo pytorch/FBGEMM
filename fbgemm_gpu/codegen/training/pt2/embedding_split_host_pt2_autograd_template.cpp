@@ -123,7 +123,7 @@ enum SSDTensor {
                 {%- endif %}
                 {%- if is_gwd %}
                 const Tensor& /*prev_iter_dev*/,
-                const double /*learning_rate*/,
+                const Tensor& /*learning_rate_tensor*/,
                 const double /*weight_decay*/,
                 const int64_t /*iter*/,
                 const double /*gwd_lower_bound*/,
@@ -167,7 +167,7 @@ enum SSDTensor {
       {%- endif %} {# /* if vbe */ #}
       {%- if is_gwd %}
       prev_iter_dev_,
-      learning_rate,
+      learning_rate_tensor,
       weight_decay,
       iter,
       gwd_lower_bound,

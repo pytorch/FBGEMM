@@ -215,9 +215,16 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }},
+    {{ args.split_function_args_v1 }},
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
   {% if has_cpu_support %}
+  {%- if "learning_rate_tensor" in args.split_function_arg_names %}
+  // `learning rate` is changed to tensor to prevent recompilation. 
+  // This interface (V1) still accepts learning rate as float for backward compatibility, 
+  // We convert learning rate to tensor here to work with the backend
+  // The unified PT2 interface already accepts learning rate as tensor.
+  const auto learning_rate_tensor = at::tensor({learning_rate}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
+  {%- endif %}
   return SplitLookupFunction_{{ optimizer }}_Op::apply(
       host_weights,
       weights_placements,
@@ -245,7 +252,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
 
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas_v1 }}, int output_dtype=0) -> Tensor");
     m.impl(
       "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu",
       torch::dispatch(
@@ -254,7 +261,7 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
 }
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas | join(", ") }}, int output_dtype=0) -> Tensor");
+    m.def("split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, SymInt total_D, SymInt max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, Tensor? feature_requires_grad, bool gradient_clipping, float max_gradient, bool stochastic_rounding, {{ args.split_function_schemas_v1 }}, int output_dtype=0) -> Tensor");
     m.impl(
       "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu",
       torch::dispatch(
