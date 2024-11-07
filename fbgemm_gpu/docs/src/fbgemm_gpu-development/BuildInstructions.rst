@@ -470,7 +470,7 @@ Clone the repo along with its submodules, and install the
 
   # Install additional required packages for building and testing
   cd fbgemm_${FBGEMM_VERSION}/fbgemm_gpu
-  pip install requirements.txt
+  pip install -r requirements.txt
 
 The Build Process
 ~~~~~~~~~~~~~~~~~
