@@ -63,7 +63,7 @@ class BackwardSplitGenerator:
                 continue
             if kwargs.get("dense") and ssd:
                 continue
-            if ssd and (vbe or is_gwd):
+            if ssd and is_gwd:
                 continue
 
             kdesc = "".join(
