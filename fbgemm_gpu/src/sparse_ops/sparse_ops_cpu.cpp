@@ -67,6 +67,7 @@ namespace fbgemm_gpu {
 // Needed this to support backward pass.
 class PackSegments : public torch::autograd::Function<PackSegments> {
  public:
+  static constexpr bool is_traceable = true;
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
       const Tensor& t_in,
@@ -3033,13 +3034,16 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::forward(
         input_shape_group.end(), input_shape.begin(), input_shape.end());
   }
 
+  for (int i = 0; i < input_shape_group.size(); i++) {
+    ctx->saved_data["input_shape_group_" + std::to_string(i)] =
+        input_shape_group[i];
+  }
   // save indices, args_tensor, saved_data
   auto saved_tensors = std::vector<at::Tensor>(indices_group);
   saved_tensors.insert(
       saved_tensors.end(), result.cbegin() + group_size, result.cend());
   saved_tensors.push_back(input_group[0]);
   ctx->save_for_backward(saved_tensors);
-  ctx->saved_data["input_shape_group"] = input_shape_group;
 
   return result;
 }
@@ -3058,8 +3062,17 @@ torch::autograd::variable_list GroupIndexSelectDim0Op::backward(
 
   auto saved_tensors = ctx->get_saved_variables();
   TORCH_CHECK(saved_tensors.size() == group_size + 3);
-  auto output_shape_group =
-      ctx->saved_data["input_shape_group"].toSymIntVector();
+  std::vector<c10::SymInt> output_shape_group;
+  int i = 0;
+  while (true) {
+    if (ctx->saved_data.find("input_shape_group_" + std::to_string(i)) ==
+        ctx->saved_data.end()) {
+      break;
+    }
+    output_shape_group.push_back(
+        ctx->saved_data["input_shape_group_" + std::to_string(i)].toSymInt());
+    i++;
+  }
   grad_output_group.insert(
       grad_output_group.end(), saved_tensors.begin(), saved_tensors.end());
 

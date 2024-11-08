@@ -955,6 +955,7 @@ group_index_select_dim0_unpack(
 class GroupIndexSelectDim0Op
     : public torch::autograd::Function<GroupIndexSelectDim0Op> {
  public:
+  static constexpr bool is_traceable = true;
   static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
       at::TensorList all_indices_input,
