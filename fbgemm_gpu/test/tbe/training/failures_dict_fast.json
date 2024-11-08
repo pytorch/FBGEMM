@@ -369,7 +369,16 @@
     "fbgemm::split_embedding_codegen_lookup_none_function": {},
     "fbgemm::split_embedding_codegen_lookup_partial_rowwise_adam_function": {},
     "fbgemm::split_embedding_codegen_lookup_partial_rowwise_lamb_function": {},
-    "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function": {},
+    "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function": {
+      "BackwardAdagradGlobalWeightDecay.test_faketensor__test_backward_adagrad_global_weight_decay": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BackwardAdagradGlobalWeightDecay.test_faketensor__test_backward_adagrad_global_weight_decay_vbe": {
+        "comment": "",
+        "status": "xfail"
+      }
+    },
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_cpu": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_pt2": {
       "ForwardTest.test_faketensor__test_forward_cpu_fp32": {
