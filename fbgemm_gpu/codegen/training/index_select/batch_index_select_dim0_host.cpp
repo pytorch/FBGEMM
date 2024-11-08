@@ -53,6 +53,7 @@ Tensor batch_index_select_dim0_codegen_backward_cuda(
 class BatchIndexSelectDim0GPUOp
     : public torch::autograd::Function<BatchIndexSelectDim0GPUOp> {
  public:
+  static constexpr bool is_traceable = true;
   static torch::autograd::variable_list forward_impl(
       Tensor inputs,
       Tensor indices,
