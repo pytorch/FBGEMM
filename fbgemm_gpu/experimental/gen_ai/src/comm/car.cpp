@@ -289,4 +289,60 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
 }
 
+// Shape registration functions for car operators.
+void nccl_allreduce_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    std::optional<at::Tensor> /* bias */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void nccl_allgather_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void nccl_alltoall_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    int64_t /* world_size */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void nccl_reducescatter_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void one_shot_car_allreduce_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    std::optional<at::Tensor> /* bias */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void two_shot_car_allreduce_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    std::optional<at::Tensor> /* bias */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("nccl_allreduce", nccl_allreduce_meta);
+  m.impl("nccl_allgather", nccl_allgather_meta);
+  m.impl("nccl_alltoall", nccl_alltoall_meta);
+  m.impl("nccl_reducescatter", nccl_reducescatter_meta);
+  m.impl("one_shot_car_allreduce", one_shot_car_allreduce_meta);
+  m.impl("two_shot_car_allreduce", two_shot_car_allreduce_meta);
+}
+
 } // namespace fbgemm_gpu

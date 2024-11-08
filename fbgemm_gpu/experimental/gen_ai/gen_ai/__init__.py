@@ -7,11 +7,42 @@
 
 # pyre-strict
 
-# Load custom operator libraries and register shape functions.
-from . import (  # noqa: F401
-    attention_ops,
-    comm_ops,
-    gemm_ops,
-    kv_cache_ops,
-    quantize_ops,
-)
+import os
+
+import torch
+
+try:
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu import open_source
+
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu.docs.version import __version__  # noqa: F401
+except Exception:
+    open_source: bool = False
+
+# pyre-ignore[16]
+if open_source:
+    torch.ops.load_library(
+        os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_gen_ai_py.so")
+    )
+    torch.classes.load_library(
+        os.path.join(os.path.dirname(__file__), "fbgemm_gpu_experimental_gen_ai_py.so")
+    )
+else:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:attention_ops"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:comm_ops"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:gemm_ops"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:quantize_ops"
+    )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:kv_cache_ops"
+    )
