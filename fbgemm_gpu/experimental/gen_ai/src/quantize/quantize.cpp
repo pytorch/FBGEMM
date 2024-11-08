@@ -258,4 +258,196 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
 #endif
 }
 
+// Shape registration functions.
+at::Tensor i8i8bf16_meta(
+    at::Tensor XQ, // INT8
+    at::Tensor WQ, // INT8
+    double scale,
+    int64_t split_k) {
+  int M = XQ.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f8f8bf16_rowwise_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    bool /* use_fast_accum = true */,
+    std::optional<at::Tensor> /* output = c10::nullopt */) {
+  int M = XQ.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f8f8bf16_rowwise_batched_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    bool /* use_fast_accum = true */,
+    std::optional<at::Tensor> /* output = c10::nullopt */) {
+  int B = XQ.size(0);
+  int M = XQ.size(1);
+  int N = WQ.size(1);
+  auto Y = at::empty({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f8f8bf16_blockwise_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    int64_t /* block_m = 128*/,
+    int64_t /* block_n = 128*/,
+    int64_t /* block_k = 128*/) {
+  int M = XQ.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
+    at::Tensor X,
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> /*scale_ub*/,
+    const bool /*stochastic_rounding*/) {
+  auto Y = at::empty_like(X, X.options().dtype(torch_fp8_e4m3));
+  auto scale = at::empty({}, X.options().dtype(at::kBFloat16));
+  return {Y, scale};
+}
+
+at::Tensor f8f8bf16_cublas_meta(
+    at::Tensor X,
+    at::Tensor W,
+    std::optional<at::Tensor> /* x_scale = c10::nullopt */,
+    std::optional<at::Tensor> /* w_scale = c10::nullopt */,
+    bool /* use_fast_accum = true */,
+    std::optional<at::Tensor> /* output = c10::nullopt */) {
+  const at::SymInt M = X.sym_size(0);
+  const at::SymInt N = W.sym_size(0);
+  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f8f8bf16_meta(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor scale,
+    bool use_fast_accum = true) {
+  const at::SymInt M = X.sym_size(0);
+  const at::SymInt N = W.sym_size(0);
+  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f8f8bf16_tensorwise_meta(
+    at::Tensor X,
+    at::Tensor W,
+    double scale,
+    bool use_fast_accum = true) {
+  const at::SymInt M = X.sym_size(0);
+  const at::SymInt N = W.sym_size(0);
+  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f8i4bf16_rowwise_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // INT4
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor w_zp) {
+  int M = XQ.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor bf16i4bf16_rowwise_meta(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor /*  w_scale */,
+    at::Tensor /* w_zp */
+) {
+  int M = X.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor bf16i4bf16_rowwise_batched_meta(
+    at::Tensor X, // BF16
+    at::Tensor WQ, // INT4
+    at::Tensor /* w_scale */,
+    at::Tensor /* w_zp */
+) {
+  int B = X.size(0);
+  int M = X.size(1);
+  int N = WQ.size(1);
+  auto Y = at::empty({B, M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+std::vector<at::Tensor> quantize_fp8_per_row_meta(
+    at::Tensor input,
+    std::optional<at::Tensor> bs,
+    std::optional<at::Tensor> scale_ub,
+    std::optional<c10::ScalarType> /* output_dtype */,
+    bool /* stochastic_rounding */) {
+  const at::SymInt M = input.sym_size(0);
+  auto Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  auto scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  return {Y, scale};
+}
+
+std::vector<at::Tensor> quantize_fp8_per_col_meta(
+    at::Tensor input,
+    std::optional<at::Tensor> /* bs */,
+    std::optional<at::Tensor> /* scale_ub */) {
+  const at::SymInt M = input.sym_size(0);
+  auto Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  auto scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  return {Y, scale};
+}
+
+std::vector<at::Tensor> f8f8bf16_grouped_meta(
+    const std::vector<at::Tensor>& XQ,
+    const std::vector<at::Tensor>& WQ,
+    const std::vector<at::Tensor>& /* scale */,
+    bool /* use_fast_accum = true */) {
+  std::vector<at::Tensor> Y;
+  for (int i = 0; i < XQ.size(); i++) {
+    const at::SymInt M = XQ[i].sym_size(0);
+    const at::SymInt N = WQ[i].sym_size(0);
+    Y.push_back(at::empty_symint({M, N}, XQ[i].options().dtype(at::kBFloat16)));
+  }
+  return Y;
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
+  m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise_meta);
+  m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
+  m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
+  m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
+  m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
+  m.impl("quantize_fp8_per_col", quantize_fp8_per_col_meta);
+#ifndef USE_ROCM
+  m.impl("i8i8bf16", i8i8bf16_meta);
+  m.impl("f8f8bf16", f8f8bf16_meta);
+  m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
+  m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched_meta);
+  m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
+  m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
+  m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
+  m.impl("f8f8bf16_grouped", f8f8bf16_grouped_meta);
+#endif
+}
+
 } // namespace fbgemm_gpu
