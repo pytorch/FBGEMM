@@ -413,7 +413,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         # NOTE: Hash-based index remapping in general is an experimental feature
         if indices_dtype != torch.int32 and not use_array_for_index_remapping:
             self.skipTest(
-                "Hash-based index_remapping is an experimental feature and is "
+                "Hash-based index_remappings is an experimental feature and is "
                 "currently not supported for indices.dtype == torch.int64 and "
                 "indices.device != cpu"
             )
@@ -534,11 +534,11 @@ class NBitFowardTest(NBitFowardTestCommon):
             average_D = sum(Ds) // T
             for t, d in enumerate(Ds):
                 managed[t] = EmbeddingLocation.DEVICE if d < average_D else managed[t]
-        index_remapping = None
+        index_remappings = None
         pruning_hash_load_factor = 0.5
         if do_pruning:
             current_device = torch.cuda.current_device()
-            index_remapping = []
+            index_remappings = []
             for E in Es:
                 # For each table, keep the first half of rows as is, but
                 # the rest is treated as pruned (-1).
@@ -548,7 +548,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                     dtype=torch.int32,
                     device=current_device,
                 )
-                index_remapping.append(remapping_t)
+                index_remappings.append(remapping_t)
         cc_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
             [
                 (
@@ -560,7 +560,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 )
                 for (E, D) in zip(Es, Ds)
             ],
-            index_remapping=index_remapping,
+            index_remappings=index_remappings,
             use_array_for_index_remapping=use_array_for_index_remapping,
             pruning_hash_load_factor=pruning_hash_load_factor,
         )
@@ -569,7 +569,7 @@ class NBitFowardTest(NBitFowardTestCommon):
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
             cache_algorithm=cache_algorithm,
             cache_assoc=associativity,
-            index_remapping=index_remapping,
+            index_remappings=index_remappings,
             use_array_for_index_remapping=use_array_for_index_remapping,
             pruning_hash_load_factor=pruning_hash_load_factor,
         )
