@@ -258,7 +258,6 @@ void EmbeddingKVDB::set(
         << "]skip set_cuda since number evictions is " << num_evictions;
     return;
   }
-  auto start_ts = facebook::WallClockUtil::NowInUsecFast();
 
   // defer the L2 cache/rocksdb update to the background thread as it could be
   // parallelized with other cuda kernels, as long as all updates are finished
