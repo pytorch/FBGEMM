@@ -495,7 +495,7 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel_on_cluster_size_and_transpose(
         1,
         FastAccum,
         UseBias,
-        true,
+        false,
         InputDType,
         BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   }
@@ -507,7 +507,7 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel_on_cluster_size_and_transpose(
         1,
         FastAccum,
         UseBias,
-        true,
+        false,
         InputDType,
         BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   }
@@ -533,7 +533,7 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel_on_cluster_size_and_transpose(
           1,
           FastAccum,
           UseBias,
-          true,
+          false,
           InputDType,
           BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
     }
@@ -557,7 +557,7 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel_on_cluster_size_and_transpose(
           1,
           FastAccum,
           UseBias,
-          true,
+          false,
           InputDType,
           BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
     } else {
@@ -574,24 +574,24 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel_on_cluster_size_and_transpose(
   }
 
   // General case for large tensors.
-  if ((M <= N) ^ (M >= 2048 && N >= 2048)) {
+  if (M >= 1024 && N >= 1024) {
     return handle_transposition<
-        1,
         2,
+        1,
         1,
         FastAccum,
         UseBias,
-        true,
+        false,
         InputDType,
         BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   } else {
     return handle_transposition<
-        2,
         1,
+        2,
         1,
         FastAccum,
         UseBias,
-        true,
+        false,
         InputDType,
         BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   }
