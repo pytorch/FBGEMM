@@ -83,6 +83,7 @@ __configure_fbgemm_gpu_test_cpu () {
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
+    ./sll/triton_sll_test.py
   )
 }
 
@@ -125,6 +126,7 @@ __configure_fbgemm_gpu_test_rocm () {
   ignored_tests=(
     # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
+    ./sll/triton_sll_test.py
   )
 }
 
