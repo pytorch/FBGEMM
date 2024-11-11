@@ -9,9 +9,12 @@
 
 import torch
 
-from fbgemm_gpu.sll.cpu_sll import cpu_jagged_dense_bmm  # noqa F401
+from fbgemm_gpu.sll.cpu_sll import (  # noqa F401
+    cpu_jagged_dense_bmm,
+    cpu_jagged_jagged_bmm,
+)
 
-from fbgemm_gpu.sll.triton_sll import jagged_dense_bmm  # noqa F401
+from fbgemm_gpu.sll.triton_sll import jagged_dense_bmm, jagged_jagged_bmm  # noqa F401
 
 
 def op_registeration(
@@ -57,7 +60,24 @@ if "fbgemm::sll_jagged_dense_bmm" not in torch.library._defs:
         """
     )
 
+if "fbgemm::sll_jagged_jagged_bmm" not in torch.library._defs:
+    lib.define(
+        """sll_jagged_jagged_bmm(
+            Tensor x,
+            Tensor y,
+            Tensor x_offsets,
+            int N,
+            bool allow_tf32,
+            bool use_fbgemm_kernel=True
+        ) -> Tensor
+        """
+    )
+
 op_registeration(lib, "sll_jagged_dense_bmm", jagged_dense_bmm, "CUDA")
 op_registeration(lib, "sll_jagged_dense_bmm", jagged_dense_bmm, "AutogradCUDA")
 op_registeration(lib, "sll_jagged_dense_bmm", cpu_jagged_dense_bmm, "CPU")
 op_registeration(lib, "sll_jagged_dense_bmm", cpu_jagged_dense_bmm, "AutogradCPU")
+op_registeration(lib, "sll_jagged_jagged_bmm", jagged_jagged_bmm, "CUDA")
+op_registeration(lib, "sll_jagged_jagged_bmm", jagged_jagged_bmm, "AutogradCUDA")
+op_registeration(lib, "sll_jagged_jagged_bmm", cpu_jagged_jagged_bmm, "CPU")
+op_registeration(lib, "sll_jagged_jagged_bmm", cpu_jagged_jagged_bmm, "AutogradCPU")
