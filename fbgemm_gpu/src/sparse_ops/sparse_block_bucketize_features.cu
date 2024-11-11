@@ -71,6 +71,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const int32_t lengths_size,
     const int32_t B,
     const index_t* const __restrict__ block_sizes_data,
+    const index_t* const __restrict__ total_num_blocks,
     const int my_size,
     const offset_t* const __restrict__ offsets_data,
     const index_t* const __restrict__ indices_data,
@@ -85,6 +86,12 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
   for (auto b_t = bt_start; b_t < lengths_size; b_t += stride) {
     const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
     index_t blk_size = block_sizes_data[t];
+    const index_t local_num_blks =
+        total_num_blocks == nullptr ? 1 : (total_num_blocks[t] / my_size);
+    const index_t global_num_blks =
+        total_num_blocks == nullptr ? my_size : total_num_blocks[t];
+    const index_t global_idx_size = blk_size * global_num_blks;
+    const index_t local_idx_size = blk_size * local_num_blks;
     offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     offset_t rowend = offsets_data[b_t];
     const auto use_block_bucketize_pos =
@@ -98,17 +105,25 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     if (!use_block_bucketize_pos) {
       for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
         uindex_t idx = static_cast<uindex_t>(indices_data[i]);
-        uindex_t p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        uindex_t p = idx < global_idx_size
+            ? idx / local_idx_size
+            : (idx % global_num_blks) / local_num_blks;
         atomicAdd(&new_lengths_data[p * lengths_size + b_t], 1);
       }
       return;
     }
 
+    const index_t bucketize_max_idx = (t + 1) * (my_size + 1) - 1;
+    const uindex_t blk_scalar =
+        block_bucketize_pos_concat[bucketize_max_idx] / global_num_blks;
     for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
       uindex_t idx = static_cast<uindex_t>(indices_data[i]);
       uindex_t p = 0;
       index_t first = block_bucketize_pos_offsets[t];
       index_t last = block_bucketize_pos_offsets[t + 1];
+      if (blk_size == 0) {
+        idx = (idx % global_num_blks) * blk_scalar;
+      }
 
       while (first < last) {
         index_t middle = first + ((last - first) / 2);
@@ -145,6 +160,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
     int lengths_size,
     int32_t B,
     const index_t* __restrict__ block_sizes_data,
+    const index_t* __restrict__ total_num_blocks,
     int my_size,
     const offset_t* __restrict__ offsets_data,
     const index_t* __restrict__ indices_data,
@@ -180,6 +196,12 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
     }
     syncwarp();
 
+    const index_t local_num_blks =
+        total_num_blocks == nullptr ? 1 : (total_num_blocks[t] / my_size);
+    const index_t global_num_blks =
+        total_num_blocks == nullptr ? my_size : total_num_blocks[t];
+    const index_t global_idx_size = blk_size * global_num_blks;
+    const index_t local_idx_size = blk_size * local_num_blks;
     for (auto i = rowstart + threadIdx.x; i < rowend; i += blockDim.x) {
       // We have use cases using none-hashed raw indices that can be either
       // negative or larger than embedding table hash_size (blk_size *
@@ -191,19 +213,22 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
       uindex_t p = 0;
       uindex_t new_idx = 0;
       if (!use_block_bucketize_pos) { // uniform bucket sizes
-        p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        p = idx < global_idx_size ? idx / local_idx_size
+                                  : (idx % global_num_blks) / local_num_blks;
         if (keep_orig_idx) {
           new_idx = idx;
-        } else if (idx < blk_size * my_size) {
-          new_idx = idx % blk_size;
+        } else if (idx < global_idx_size) {
+          new_idx = idx % local_idx_size;
         } else {
-          new_idx = idx / my_size;
+          new_idx = idx / global_num_blks;
         }
       } else { // variable bucket sizes
         uindex_t lb = indices_to_lb[i];
         p = lb < my_size ? lb : idx % my_size;
         if (keep_orig_idx) {
           new_idx = idx;
+        } else if (blk_size == 0) {
+          new_idx = idx / global_num_blks;
         } else if (lb < my_size) {
           new_idx = idx -
               block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
@@ -249,6 +274,7 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
     int lengths_size,
     int32_t B,
     const index_t* __restrict__ block_sizes_data,
+    const index_t* __restrict__ total_num_blocks,
     int my_size,
     const offset_t* __restrict__ offsets_data,
     const index_t* __restrict__ indices_data,
@@ -269,6 +295,13 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
   CUDA_KERNEL_LOOP(b_t, lengths_size) {
     const auto t = length_to_feature_idx ? length_to_feature_idx[b_t] : b_t / B;
     index_t blk_size = block_sizes_data[t];
+    const index_t local_num_blks =
+        total_num_blocks == nullptr ? 1 : (total_num_blocks[t] / my_size);
+    const index_t global_num_blks =
+        total_num_blocks == nullptr ? my_size : total_num_blocks[t];
+    const index_t global_idx_size = blk_size * global_num_blks;
+    const index_t local_idx_size = blk_size * local_num_blks;
+
     offset_t rowstart = (b_t == 0 ? 0 : offsets_data[b_t - 1]);
     offset_t rowend = offsets_data[b_t];
     const auto use_block_bucketize_pos =
@@ -284,19 +317,22 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
       uindex_t p = 0;
       uindex_t new_idx = 0;
       if (!use_block_bucketize_pos) {
-        p = idx < blk_size * my_size ? idx / blk_size : idx % my_size;
+        p = idx < global_idx_size ? idx / local_idx_size
+                                  : (idx % global_num_blks) / local_num_blks;
         if (keep_orig_idx) {
           new_idx = idx;
-        } else if (idx < blk_size * my_size) {
-          new_idx = idx % blk_size;
+        } else if (idx < global_idx_size) {
+          new_idx = idx % local_idx_size;
         } else {
-          new_idx = idx / my_size;
+          new_idx = idx / global_num_blks;
         }
       } else {
         uindex_t lb = indices_to_lb[i];
         p = lb < my_size ? lb : idx % my_size;
         if (keep_orig_idx) {
           new_idx = idx;
+        } else if (blk_size == 0) {
+          new_idx = idx / global_num_blks;
         } else if (lb < my_size) {
           new_idx = idx -
               block_bucketize_pos_concat[lb + block_bucketize_pos_offsets[t]];
@@ -357,6 +393,7 @@ _block_bucketize_sparse_features_cuda(
     const bool bucketize_pos,
     const bool sequence,
     const Tensor& block_sizes,
+    const std::optional<Tensor>& total_num_blocks,
     const int64_t my_size,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& batch_size_per_feature,
@@ -465,6 +502,9 @@ _block_bucketize_sparse_features_cuda(
                   lengths_size,
                   B,
                   block_sizes.data_ptr<index_t>(),
+                  total_num_blocks.has_value()
+                      ? total_num_blocks.value().data_ptr<index_t>()
+                      : static_cast<index_t*>(nullptr),
                   my_size,
                   offsets_contig.data_ptr<offset_t>(),
                   indices_contig.data_ptr<index_t>(),
@@ -521,6 +561,9 @@ _block_bucketize_sparse_features_cuda(
                             lengths_size,                                        \
                             B,                                                   \
                             block_sizes.data_ptr<index_t>(),                     \
+                            total_num_blocks.has_value()                         \
+                                ? total_num_blocks.value().data_ptr<index_t>()   \
+                                : static_cast<index_t*>(nullptr),                \
                             my_size,                                             \
                             offsets_contig.data_ptr<offset_t>(),                 \
                             indices_contig.data_ptr<index_t>(),                  \
@@ -579,6 +622,9 @@ _block_bucketize_sparse_features_cuda(
                       lengths_size,                                                 \
                       B,                                                            \
                       block_sizes.data_ptr<index_t>(),                              \
+                      total_num_blocks.has_value()                                  \
+                          ? total_num_blocks.value().data_ptr<index_t>()            \
+                          : static_cast<index_t*>(nullptr),                         \
                       my_size,                                                      \
                       offsets_contig.data_ptr<offset_t>(),                          \
                       indices_contig.data_ptr<index_t>(),                           \
@@ -694,6 +740,9 @@ _block_bucketize_sparse_features_cuda(
                             lengths_size,
                             B,
                             block_sizes.data_ptr<index_t>(),
+                            total_num_blocks.has_value()
+                                ? total_num_blocks.value().data_ptr<index_t>()
+                                : static_cast<index_t*>(nullptr),
                             my_size,
                             offsets_contig.data_ptr<offset_t>(),
                             indices_contig.data_ptr<index_t>(),
@@ -757,6 +806,9 @@ _block_bucketize_sparse_features_cuda(
                             lengths_size,
                             B,
                             block_sizes.data_ptr<index_t>(),
+                            total_num_blocks.has_value()
+                                ? total_num_blocks.value().data_ptr<index_t>()
+                                : static_cast<index_t*>(nullptr),
                             my_size,
                             offsets_contig.data_ptr<offset_t>(),
                             indices_contig.data_ptr<index_t>(),
@@ -814,6 +866,9 @@ _block_bucketize_sparse_features_cuda(
                       lengths_size,
                       B,
                       block_sizes.data_ptr<index_t>(),
+                      total_num_blocks.has_value()
+                          ? total_num_blocks.value().data_ptr<index_t>()
+                          : static_cast<index_t*>(nullptr),
                       my_size,
                       offsets_contig.data_ptr<offset_t>(),
                       indices_contig.data_ptr<index_t>(),
@@ -867,6 +922,9 @@ _block_bucketize_sparse_features_cuda(
                       lengths_size,
                       B,
                       block_sizes.data_ptr<index_t>(),
+                      total_num_blocks.has_value()
+                          ? total_num_blocks.value().data_ptr<index_t>()
+                          : static_cast<index_t*>(nullptr),
                       my_size,
                       offsets_contig.data_ptr<offset_t>(),
                       indices_contig.data_ptr<index_t>(),
@@ -904,7 +962,8 @@ _block_bucketize_sparse_features_cuda(
 }
 
 // This function partitions sparse features
-// continuously along the sparse dimension into my_size blocks
+// continuously along the sparse dimension into my_size
+// blocks
 DLL_PUBLIC std::tuple<
     Tensor,
     Tensor,
@@ -922,7 +981,8 @@ block_bucketize_sparse_features_cuda(
     const std::optional<Tensor>& batch_size_per_feature,
     const int64_t max_B,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
-    const bool keep_orig_idx) {
+    const bool keep_orig_idx,
+    const std::optional<Tensor>& total_num_blocks) {
   Tensor new_lengths;
   Tensor new_indices;
   std::optional<Tensor> new_weights;
@@ -941,6 +1001,7 @@ block_bucketize_sparse_features_cuda(
           bucketize_pos,
           sequence,
           block_sizes,
+          total_num_blocks,
           my_size,
           weights,
           batch_size_per_feature,
@@ -972,13 +1033,15 @@ block_bucketize_sparse_features_inference_cuda(
     const int64_t max_B,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping,
-    const bool keep_orig_idx) {
+    const bool keep_orig_idx,
+    const std::optional<Tensor>& total_num_blocks) {
   return _block_bucketize_sparse_features_cuda(
       lengths,
       indices,
       bucketize_pos,
       sequence,
       block_sizes,
+      total_num_blocks,
       my_size,
       weights,
       batch_size_per_feature,

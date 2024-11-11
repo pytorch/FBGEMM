@@ -29,6 +29,22 @@
         "comment": "",
         "status": "xfail"
       },
+      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks_raw_ids": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks_uneven": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_total_num_blocks_uneven_raw_ids": {
+        "comment": "",
+        "status": "xfail"
+      },
       "BlockBucketizeTest.test_aot_dispatch_dynamic__test_block_bucketize_sparse_features_with_block_bucketize_pos": {
         "comment": "",
         "status": "xfail"
@@ -46,6 +62,22 @@
         "status": "xfail"
       },
       "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_long_indices": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks_raw_ids": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks_uneven": {
+        "comment": "",
+        "status": "xfail"
+      },
+      "BlockBucketizeTest.test_faketensor__test_block_bucketize_sparse_features_total_num_blocks_uneven_raw_ids": {
         "comment": "",
         "status": "xfail"
       },

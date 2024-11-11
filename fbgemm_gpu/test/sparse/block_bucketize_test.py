@@ -94,6 +94,7 @@ class BlockBucketizeTest(unittest.TestCase):
         index_type = torch.long if long_indices else torch.int
         # 3 GPUs
         my_size = 3
+        keep_orig_idx = True
         block_sizes = torch.tensor([3, 4, 5], dtype=index_type)
 
         if not long_indices:
@@ -272,6 +273,488 @@ class BlockBucketizeTest(unittest.TestCase):
             else:
                 torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_ref)
                 torch.testing.assert_close(new_indices_gpu.cpu(), new_indices_cpu)
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        long_indices=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        keep_orig_idx=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_total_num_blocks_uneven_raw_ids(
+        self,
+        long_indices: bool,
+        use_cpu: bool,
+        keep_orig_idx: bool,
+        sequence: bool,
+    ) -> None:
+        index_type = torch.long if long_indices else torch.int
+        # 3 GPUs
+        my_size = 3
+        block_sizes = torch.tensor([0, 0, 0], dtype=index_type)
+        total_num_blocks = torch.tensor([6, 6, 12], dtype=index_type)
+        lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+        indices = torch.tensor(
+            [
+                1,
+                2,
+                10,
+                4,
+                16,
+                6,
+                7,
+                18,
+                19,
+                10,
+                0,
+            ],
+            dtype=index_type,
+        )
+        block_bucketize_pos = [
+            torch.tensor([0, 2, 8, 12], dtype=index_type),
+            torch.tensor([0, 3, 12, 18], dtype=index_type),
+            torch.tensor([0, 4, 18, 24], dtype=index_type),
+        ]
+
+        new_lengths_ref = torch.tensor(
+            [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,  # GPU 0, 0's, F2=[0,1]
+                0,
+                2,
+                0,
+                0,
+                1,
+                3,  # GPU 1, [1,2,3], F2=[2:8]
+                0,
+                1,
+                2,
+                0,
+                0,
+                1,  # GPU 2, [4, 5], F2=[9:11]
+            ],
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [
+                0 if keep_orig_idx else 0 // 12,  # F2 / GPU0
+                1 if keep_orig_idx else 1 // 6,  # F0 / GPU0
+                2 if keep_orig_idx else 2 // 6,  # F0 / GPU1
+                6 if keep_orig_idx else 6 // 12,  # F2 / GPU1
+                7 if keep_orig_idx else 7 // 12,  # F2 / GPU1
+                18 if keep_orig_idx else 18 // 12,  # F2 / GPU2
+                19 if keep_orig_idx else 19 // 12,  # F2 / GPU2
+                10 if keep_orig_idx else 10 // 6,  # F1 / GPU2
+                4 if keep_orig_idx else 4 // 6,  # F1 / GPU2
+                16 if keep_orig_idx else 16 // 6,  # F1 / GPU2
+                10 if keep_orig_idx else 10 // 12,  # F0 / GPU2
+            ],
+            dtype=index_type,
+        )
+        unbucketize_permute_ref = torch.tensor(
+            [
+                1,  # F0
+                2,  # F0
+                7,  # F0
+                8,  # F1
+                9,  # F1
+                3,  # F2
+                4,  # F2
+                5,  # F2
+                6,  # F2
+                10,  # F2
+                0,  # F2
+            ],
+            dtype=index_type,
+        )
+
+        (
+            new_lengths,
+            new_indices,
+            new_weights,
+            new_pos,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda() if not use_cpu else lengths,
+            indices.cuda() if not use_cpu else indices,
+            None,
+            sequence,
+            block_sizes.cuda() if not use_cpu else block_sizes,
+            my_size,
+            block_bucketize_pos=(
+                ([t.cuda() for t in block_bucketize_pos])
+                if not use_cpu
+                else block_bucketize_pos
+            ),
+            keep_orig_idx=keep_orig_idx,
+            total_num_blocks=(
+                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+            ),
+        )
+
+        torch.testing.assert_close(
+            new_lengths.cpu(), new_lengths_ref, msg=f"{new_lengths=}"
+        )
+        torch.testing.assert_close(
+            new_indices.cpu(), new_indices_ref, msg=f"{new_indices=}"
+        )
+        if unbucketize_permute is not None:
+            torch.testing.assert_close(
+                unbucketize_permute.cpu(),
+                unbucketize_permute_ref,
+                msg=f"{unbucketize_permute=}",
+            )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        long_indices=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        keep_orig_idx=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_total_num_blocks_uneven(
+        self,
+        long_indices: bool,
+        use_cpu: bool,
+        keep_orig_idx: bool,
+        sequence: bool,
+    ) -> None:
+
+        index_type = torch.long if long_indices else torch.int
+        # 3 GPUs
+        my_size = 3
+        block_sizes = torch.tensor([2, 3, 4], dtype=index_type)
+        total_num_blocks = torch.tensor([6, 6, 6], dtype=index_type)
+        lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+        indices = torch.tensor([1, 2, 10, 4, 16, 6, 7, 18, 19, 10, 0], dtype=index_type)
+
+        block_bucketize_pos = [
+            torch.tensor([0, 2, 8, 12], dtype=index_type),
+            torch.tensor([0, 3, 12, 18], dtype=index_type),
+            torch.tensor([0, 4, 16, 24], dtype=index_type),
+        ]
+
+        new_lengths_ref = torch.tensor(
+            [
+                0,
+                1,
+                0,
+                0,
+                0,
+                1,  # GPU 0, F0 = [0-2), F1 = [0-3), F2 = [0-4)
+                0,
+                1,
+                1,
+                0,
+                1,
+                2,  # GPU 1, F0 = [2-8), F1 = [3-12), F2 = [4-16)
+                0,
+                1,
+                1,
+                0,
+                0,
+                2,  # GPU 2, F0 = [8-12), F1 = [12-18), F2 = [16-24)
+            ],
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [
+                1,  # F0 / GPU0
+                0,  # F2 / GPU0
+                2 if keep_orig_idx else 2 - 2,  # F0 / GPU1
+                4 if keep_orig_idx else 4 - 3,  # F1 / GPU1
+                6 if keep_orig_idx else 6 - 4,  # F2 / GPU1
+                7 if keep_orig_idx else 7 - 4,  # F2 / GPU1
+                10 if keep_orig_idx else 10 - 4,  # F2 / GPU1
+                10 if keep_orig_idx else 10 - 8,  # F0 / GPU2
+                16 if keep_orig_idx else 16 - 12,  # F1 / GPU2
+                18 if keep_orig_idx else 18 - 16,  # F2 / GPU2
+                19 if keep_orig_idx else 19 - 16,  # F2 / GPU2
+            ],
+            dtype=index_type,
+        )
+        unbucketize_permute_ref = torch.tensor(
+            [
+                0,  # F0
+                2,  # F0
+                7,  # F0
+                3,  # F1
+                8,  # F1
+                4,  # F2
+                5,  # F2
+                9,  # F2
+                10,  # F2
+                6,  # F2
+                1,  # F2
+            ],
+            dtype=index_type,
+        )
+
+        (
+            new_lengths,
+            new_indices,
+            new_weights,
+            new_pos,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda() if not use_cpu else lengths,
+            indices.cuda() if not use_cpu else indices,
+            None,
+            sequence,
+            block_sizes.cuda() if not use_cpu else block_sizes,
+            my_size,
+            block_bucketize_pos=(
+                ([t.cuda() for t in block_bucketize_pos])
+                if not use_cpu
+                else block_bucketize_pos
+            ),
+            keep_orig_idx=keep_orig_idx,
+            total_num_blocks=(
+                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+            ),
+        )
+
+        torch.testing.assert_close(
+            new_lengths.cpu(), new_lengths_ref, msg=f"{new_lengths=}"
+        )
+        torch.testing.assert_close(
+            new_indices.cpu(), new_indices_ref, msg=f"{new_indices=}"
+        )
+        if unbucketize_permute is not None:
+            torch.testing.assert_close(
+                unbucketize_permute.cpu(),
+                unbucketize_permute_ref,
+                msg=f"{unbucketize_permute=}",
+            )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        long_indices=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        keep_orig_idx=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_total_num_blocks(
+        self,
+        long_indices: bool,
+        use_cpu: bool,
+        keep_orig_idx: bool,
+        sequence: bool,
+    ) -> None:
+        index_type = torch.long if long_indices else torch.int
+        # 3 GPUs
+        my_size = 3
+        block_sizes = torch.tensor([2, 3, 4], dtype=index_type)
+        total_num_blocks = torch.tensor([6, 6, 6], dtype=index_type)
+
+        lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+        indices = torch.tensor([1, 2, 10, 4, 16, 6, 7, 18, 19, 10, 0], dtype=index_type)
+
+        new_lengths_ref = torch.tensor(
+            [
+                0,
+                2,
+                1,
+                0,
+                1,
+                2,  # GPU 0, F0 = [0-4), F1 = [0-6), F2 = [0-8)
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,  # GPU 1, F0 = [4-8), F1 = [6-12), F2 = [8-16)
+                0,
+                1,
+                1,
+                0,
+                0,
+                2,  # GPU 2, F0 = [8-12), F1 = [12-18), F2 = [16-24)
+            ],
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [
+                1,  # F0
+                2,  # F0
+                4,  # F1
+                6,  # F2
+                7,  # F2
+                0,  # F2
+                10 if keep_orig_idx else 10 - 1 * 8,  # F2
+                10 if keep_orig_idx else 10 - 2 * 4,  # F0
+                16 if keep_orig_idx else 16 - 2 * 6,  # F1
+                18 if keep_orig_idx else 18 - 2 * 8,  # F2
+                19 if keep_orig_idx else 19 - 2 * 8,  # F2
+            ],
+            dtype=index_type,
+        )
+        unbucketize_permute_ref = torch.tensor(
+            [
+                0,  # F0
+                1,  # F0
+                7,  # F0
+                2,  # F1
+                8,  # F1
+                3,  # F2
+                4,  # F2
+                9,  # F2
+                10,  # F2
+                6,  # F2
+                5,  # F2
+            ],
+            dtype=index_type,
+        )
+
+        (
+            new_lengths,
+            new_indices,
+            new_weights,
+            new_pos,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda() if not use_cpu else lengths,
+            indices.cuda() if not use_cpu else indices,
+            None,
+            sequence,
+            block_sizes.cuda() if not use_cpu else block_sizes,
+            my_size,
+            keep_orig_idx=keep_orig_idx,
+            total_num_blocks=(
+                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+            ),
+        )
+
+        torch.testing.assert_close(
+            new_lengths.cpu(), new_lengths_ref, msg=f"{new_lengths=}"
+        )
+        torch.testing.assert_close(
+            new_indices.cpu(), new_indices_ref, msg=f"{new_indices=}"
+        )
+        if unbucketize_permute is not None:
+            torch.testing.assert_close(
+                unbucketize_permute.cpu(),
+                unbucketize_permute_ref,
+                msg=f"{unbucketize_permute=}",
+            )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        long_indices=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        keep_orig_idx=st.booleans(),
+        sequence=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_total_num_blocks_raw_ids(
+        self,
+        long_indices: bool,
+        use_cpu: bool,
+        keep_orig_idx: bool,
+        sequence: bool,
+    ) -> None:
+        index_type = torch.long if long_indices else torch.int
+        # 3 GPUs
+        my_size = 3
+        block_sizes = torch.tensor([0, 0, 0], dtype=index_type)
+        total_num_blocks = torch.tensor([3, 6, 9], dtype=index_type)
+
+        lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+        indices = torch.tensor([1, 2, 10, 4, 16, 6, 7, 18, 19, 10, 0], dtype=index_type)
+        new_lengths_ref = torch.tensor(
+            [
+                0,
+                0,
+                0,
+                0,
+                0,
+                4,  # GPU 0, F0: 0, F1: 0,1, F2: 0,1,2
+                0,
+                2,
+                0,
+                0,
+                0,
+                0,  # GPU 1, F0: 1, F1: 2,3, F2: 3,4,5
+                0,
+                1,
+                2,
+                0,
+                1,
+                1,  # GPU 2, F0: 2, F1: 4,5, F2: 6,7,8
+            ],
+            dtype=index_type,
+        )
+        new_indices_ref = torch.tensor(
+            [
+                18 if keep_orig_idx else 18 // 9,  # F2
+                19 if keep_orig_idx else 19 // 9,  # F2
+                10 if keep_orig_idx else 10 // 9,  # F2
+                0,  # F2
+                1 if keep_orig_idx else 1 // 3,  # F0
+                10 if keep_orig_idx else 10 // 3,  # F0
+                2 if keep_orig_idx else 2 // 3,  # F0
+                4 if keep_orig_idx else 4 // 6,  # F1
+                16 if keep_orig_idx else 16 // 6,  # F1
+                6 if keep_orig_idx else 6 // 9,  # F2
+                7 if keep_orig_idx else 7 // 9,  # F2
+            ],
+            dtype=index_type,
+        )
+        unbucketize_permute_ref = torch.tensor(
+            [
+                4,  # F0
+                6,  # F0
+                5,  # F0
+                7,  # F1
+                8,  # F1
+                9,  # F2
+                10,  # F2
+                0,  # F2
+                1,  # F2
+                2,  # F2
+                3,  # F2
+            ],
+            dtype=index_type,
+        )
+
+        (
+            new_lengths,
+            new_indices,
+            new_weights,
+            new_pos,
+            unbucketize_permute,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda() if not use_cpu else lengths,
+            indices.cuda() if not use_cpu else indices,
+            None,
+            sequence,
+            block_sizes.cuda() if not use_cpu else block_sizes,
+            my_size,
+            keep_orig_idx=keep_orig_idx,
+            total_num_blocks=(
+                total_num_blocks.cuda() if not use_cpu else total_num_blocks
+            ),
+        )
+
+        torch.testing.assert_close(
+            new_lengths.cpu(), new_lengths_ref, msg=f"{new_lengths=}"
+        )
+        torch.testing.assert_close(
+            new_indices.cpu(), new_indices_ref, msg=f"{new_indices=}"
+        )
+        if unbucketize_permute is not None:
+            torch.testing.assert_close(
+                unbucketize_permute.cpu(),
+                unbucketize_permute_ref,
+                msg=f"{unbucketize_permute=}",
+            )
 
     @skipIfRocm(ROCM_FAILURE_MESSAGE)
     @given(
