@@ -459,6 +459,7 @@ def block_bucketize_sparse_features_meta(
     max_B: int = -1,
     block_bucketize_pos: Optional[torch.Tensor] = None,
     keep_orig_idx: bool = False,
+    total_num_blocks: Optional[torch.Tensor] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
