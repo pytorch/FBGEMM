@@ -888,8 +888,8 @@ class {{ autograd_func }} :
     auto max_gradient = ctx->saved_data["max_gradient"].toDouble();
     auto stochastic_rounding = ctx->saved_data["stochastic_rounding"].toBool();
     {%- endif %} {#-/* if optimizer != "none" */#}
-    const int32_t info_B_num_bits = ctx->saved_data["info_B_num_bits"].toInt();
-    const int64_t info_B_mask_int64 = ctx->saved_data["info_B_mask"].toInt();
+    [[maybe_unused]] const int32_t info_B_num_bits = ctx->saved_data["info_B_num_bits"].toInt();
+    [[maybe_unused]] const int64_t info_B_mask_int64 = ctx->saved_data["info_B_mask"].toInt();
     {%- if not dense %}
     const auto use_uniq_cache_locations_bwd =
       ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
