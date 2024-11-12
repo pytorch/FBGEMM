@@ -165,3 +165,29 @@ def cpu_jagged_jagged_bmm(
         return torch.ops.fbgemm.jagged_jagged_bmm(x, y, x_offsets, N)
     else:
         return JaggedJaggedBmm.apply(x, y, x_offsets, N)
+
+
+def cpu_dense_jagged_cat_jagged_out(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    b_offsets: torch.Tensor,
+    max_seq_len: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert a.size(0) == b_offsets.size(0) - 1
+    c = torch.empty(b.size(0) + a.size(0), dtype=a.dtype, device=a.device)
+    c_offsets = b_offsets + torch.arange(
+        b_offsets.size(0), dtype=torch.int64, device=a.device
+    )
+    lengths = torch.diff(b_offsets)
+    c = torch.cat(
+        [
+            (
+                torch.cat((a[i : i + 1], b[b_offsets[i] : b_offsets[i + 1]]), dim=-1)
+                if lengths[i] > 0
+                else a[i : i + 1]
+            )
+            for i in range(a.size(0))
+        ],
+        dim=-1,
+    )
+    return c, c_offsets
