@@ -633,8 +633,8 @@ class {{ autograd_func }} :
     int32_t info_B_num_bits = DEFAULT_INFO_B_NUM_BITS;
     uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
     if (max_B_.is_symbolic()) {
-      // int32_t info_B_num_bits = 22;
-      // uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
+      int32_t info_B_num_bits = 22;
+      uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
 
       // TODO(ivankobzarev): Guarding Dynamo that T and B fits in constanted number of bits.
       // TORCH_CHECK(max_B_ < 1u << info_B_num_bits)
@@ -848,8 +848,8 @@ static torch::autograd::variable_list backward(
     auto max_gradient = ctx->saved_data["max_gradient"].toDouble();
     auto stochastic_rounding = ctx->saved_data["stochastic_rounding"].toBool();
     {%- endif %} {#-/* if optimizer != "none" */#}
-    [[maybe_unused]] const int32_t info_B_num_bits = ctx->saved_data["info_B_num_bits"].toInt();
-    [[maybe_unused]] const int64_t info_B_mask_int64 = ctx->saved_data["info_B_mask"].toInt();
+    const int32_t info_B_num_bits = ctx->saved_data["info_B_num_bits"].toInt();
+    const int64_t info_B_mask_int64 = ctx->saved_data["info_B_mask"].toInt();
     const auto use_uniq_cache_locations_bwd = ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
     const auto use_homogeneous_placements = ctx->saved_data["use_homogeneous_placements"].toBool();
     {%- if is_gwd %}
