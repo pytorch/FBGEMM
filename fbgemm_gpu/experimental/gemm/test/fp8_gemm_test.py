@@ -156,6 +156,8 @@ class TestFp8Matmul(unittest.TestCase):
 
             expected_result = a @ b.T
             if use_bias:
+                # pyre-fixme[6]: For 1st argument expected `Union[bool, complex,
+                #  float, int, Tensor]` but got `Optional[Tensor]`.
                 expected_result += bias
             self.assertTrue(
                 torch.allclose(result, expected_result, atol=2e-1, rtol=5e-2)
