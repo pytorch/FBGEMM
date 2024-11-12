@@ -191,3 +191,36 @@ def cpu_dense_jagged_cat_jagged_out(
         dim=-1,
     )
     return c, c_offsets
+
+
+def cpu_jagged_self_substraction_jagged_out(
+    jagged_A: torch.Tensor,
+    offsets_a: torch.Tensor,
+    offsets_b: torch.Tensor,
+    max_seq_len: int,
+) -> torch.Tensor:
+    jagged_B = torch.empty(
+        (int(offsets_b[-1].item())), device=jagged_A.device, dtype=jagged_A.dtype
+    )
+    for i in range(len(offsets_a) - 1):
+        if offsets_a[i + 1] - offsets_a[i] == 1:
+            continue
+
+        a = jagged_A[offsets_a[i] : offsets_a[i + 1]]
+        jagged_B[offsets_b[i] : offsets_b[i + 1]] = (
+            a[:-1].unsqueeze(1) - a[1:].unsqueeze(0)
+        ).flatten()
+    return jagged_B
+
+
+def meta_jagged_self_substraction_jagged_out(
+    jagged_A: torch.Tensor,
+    offsets_a: torch.Tensor,
+    offsets_b: torch.Tensor,
+    max_seq_len: int,
+) -> torch.Tensor:
+    return torch.empty(
+        [torch.library.get_ctx().new_dynamic_size()],
+        dtype=jagged_A.dtype,
+        device=jagged_A.device,
+    )
