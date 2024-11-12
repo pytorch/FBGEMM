@@ -198,6 +198,9 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
         std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(max_B.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
     }
 
+    {%- else %}
+    // Cast info_B_mask from int64_t to uint32_t
+    const uint32_t info_B_mask = info_B_mask_int64;
     {%- endif %}
 
     {%- if dense %}
