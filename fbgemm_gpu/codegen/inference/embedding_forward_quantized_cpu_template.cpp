@@ -250,11 +250,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
             const auto* indices_acc = indices.data_ptr<index_t>();
             const auto* offsets_acc = offsets.data_ptr<index_t>();
             const auto* weights_offsets_acc = weights_offsets.data_ptr<int64_t>();
-            int32_t total_output_size = 0;
 
             auto* output_acc = output.data_ptr<output_t>();
-            int32_t num_indices_m_1 = indices.numel() - 1;
-            int32_t D_start_ = 0;
 
             for (const auto t : c10::irange(T)) {
                 {% if not nobag %}
