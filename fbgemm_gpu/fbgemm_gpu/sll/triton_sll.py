@@ -337,6 +337,49 @@ class JaggedDenseBmm(torch.autograd.Function):
         return grad_x, grad_y, None, None, None
 
 
+class JaggedJaggedBmm(torch.autograd.Function):
+    """
+    Compute batch matrix multiplication between JaggedTensor and Jagged Tensor
+    dense: [B, D, N] * [B, N, T] = [B, D, T]
+    jagged: [Sum_B, D].T * [Sum_B, T] = [B, D, T]
+    """
+
+    @staticmethod
+    # pyre-fixme
+    def forward(
+        ctx,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        x_offsets: torch.Tensor,
+        N: int,
+        allow_tf32,
+    ):
+        ctx.save_for_backward(x, y, x_offsets)
+        ctx.N = N
+        ctx.allow_tf32 = allow_tf32
+        return triton_jagged_jagged_bmm(x.T, y, x_offsets, N, allow_tf32=allow_tf32)
+
+    @staticmethod
+    # pyre-fixme
+    def backward(ctx, grad_output: torch.Tensor):
+        """
+        # X = [Sum_B, D]
+        # Y = [Sum_B, T]
+        # Z = XT * Y = [B, D, T]
+        # dXT = dZ * YT -> dX = Y * dZT
+        # dY = X * dZ -> X * dZ
+        """
+        (x, y, offsets) = ctx.saved_tensors
+        N = ctx.N
+        grad_x = triton_jagged_dense_bmm(
+            y, grad_output.permute(0, 2, 1), offsets, N, allow_tf32=ctx.allow_tf32
+        )
+        grad_y = triton_jagged_dense_bmm(
+            x, grad_output, offsets, N, allow_tf32=ctx.allow_tf32
+        )
+        return grad_x, grad_y, None, None, None
+
+
 def jagged_dense_bmm(
     x: torch.Tensor,
     y: torch.Tensor,
@@ -354,3 +397,22 @@ def jagged_dense_bmm(
         return torch.ops.fbgemm.jagged_dense_bmm(x, x_offsets, y, N)[0]
     else:
         return JaggedDenseBmm.apply(x, y, x_offsets, N, allow_tf32)
+
+
+def jagged_jagged_bmm(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    x_offsets: torch.Tensor,
+    N: int,
+    allow_tf32: bool,
+    use_fbgemm_kernel: bool = True,
+):
+    """
+    Compute batch matrix multiplication between JaggedTensor and Jagged Tensor
+    dense: [B, D, N] * [B, N, T] = [B, D, T]
+    jagged: [Sum_B, D].T * [Sum_B, T] = [B, D, T]
+    """
+    if use_fbgemm_kernel:
+        return torch.ops.fbgemm.jagged_jagged_bmm(x, y, x_offsets, N)
+    else:
+        return JaggedJaggedBmm.apply(x, y, x_offsets, N, allow_tf32)
