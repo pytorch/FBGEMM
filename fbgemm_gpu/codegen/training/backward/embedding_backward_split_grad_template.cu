@@ -140,14 +140,14 @@ void split_embedding_backward_count_unique_indices_kernel
 
 {% for vbe in [True, False] %}
 {% set vdesc = "_vbe" if vbe else "" %}
-template <typename grad_t>
+template <typename grad_t, typename offset_t>
 __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
     pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean,
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
@@ -175,12 +175,12 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
   fd_B.DivMod(b_t, &t, &b);
   {% endif %}
 
-  int32_t D_start = D_offsets[t];
-  int32_t D_end = D_offsets[t + 1];
-  int32_t D = D_end - D_start;
-  int64_t indices_start = offsets[b_t];
-  int64_t indices_end = offsets[b_t + 1];
-  int32_t L = indices_end - indices_start;
+  const auto D_start = D_offsets[t];
+  const auto D_end = D_offsets[t + 1];
+  const auto D = D_end - D_start;
+  const auto indices_start = offsets[b_t];
+  const auto indices_end = offsets[b_t + 1];
+  const auto L = indices_end - indices_start;
 
   {% if vbe %}
   const auto grad_offset = row_grad_offsets[b_t];
@@ -212,6 +212,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
 ////////////////////////////////////////////////////////////////////////////////
 
 {% for grad_type in ['at::Half', 'float', 'at::BFloat16'] %}
+{% for offset_type in ['int32_t', 'int64_t'] %}
 template __global__ __launch_bounds__(kMaxThreads)
 void grad_mean{{ vdesc }}_kernel
 <{{ grad_type }}> (
@@ -220,7 +221,7 @@ void grad_mean{{ vdesc }}_kernel
     const pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<{{ offset_type }}, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
@@ -230,6 +231,7 @@ void grad_mean{{ vdesc }}_kernel
     FixedDivisor fd_B
     {% endif %}
 );
+{% endfor %} // for offset_type in ['int32_t', 'int64_t']
 {% endfor %} // for grad_type in ['at::Half', 'float']
 {% endfor %} // for vbe in [True, False]
 
