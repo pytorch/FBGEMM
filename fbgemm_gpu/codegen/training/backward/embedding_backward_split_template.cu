@@ -524,6 +524,9 @@ Tensor {{ embedding_cuda_op }}(
     {%- else %}
     const c10::SymInt D_,
     {%- endif %}
+    {%- if not nobag and not is_index_select %}
+    const bool mixed_D,
+    {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -1188,8 +1191,10 @@ Tensor {{ embedding_cuda_op }}(
 
 #ifdef USE_ROCM
                     {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and 
-                        not dense and not is_gwd_kernel and not vbe and not ssd %}
-                    if(dev_weights.scalar_type() == at::ScalarType::Half || dev_weights.scalar_type() == at::ScalarType::Float)
+                        not dense and not is_gwd_kernel and not vbe and not ssd and not nobag %}
+                    const bool isSupportedWeightsType = dev_weights.scalar_type() == at::ScalarType::Half 
+                                                      || dev_weights.scalar_type() == at::ScalarType::Float;
+                    if(isSupportedWeightsType && !mixed_D)
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256] %}
@@ -1337,6 +1342,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    SymInt max_D, "
           {%- else %}
           "    SymInt D, "
+          {%- endif %}
+          {%- if not nobag and not is_index_select %}
+          "    bool mixed_D, "
           {%- endif %}
           "    Tensor hash_size_cumsum, "
           "    int total_hash_size_bits, "
