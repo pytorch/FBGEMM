@@ -64,6 +64,7 @@ template <
   typename emb_t,
   typename grad_t,
   typename cache_t,
+  typename index_t,
   int32_t kFixedMaxVecsPerThread
 >
 __global__ __launch_bounds__(kForwardMaxThreads) void
@@ -78,8 +79,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> indices, // [N = \sum_{b,t} L_{b,t} total indices, i.e. flattened [B][T][L]
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets, // [B x T + 1]
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices, // [N = \sum_{b,t} L_{b,t} total indices, i.e. flattened [B][T][L]
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets, // [B x T + 1]
     {%- if not dense %}
     const pta::PackedTensorAccessor32<{{ locs_or_addrs_type }}, 1, at::RestrictPtrTraits> {{ locs_or_addrs_tensor }},
     {%- endif %}
@@ -117,8 +118,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     int32_t D_start = D_offsets[t];
     int32_t D_end = D_offsets[t + 1];
     int32_t D = D_end - D_start;
-    int64_t indices_start = offsets[b_t];
-    int64_t indices_end = offsets[b_t + 1];
+    index_t indices_start = offsets[b_t];
+    index_t indices_end = offsets[b_t + 1];
     int32_t L = indices_end - indices_start;
     if (feature_requires_grad.size(0) > 0 && !feature_requires_grad[t]) {
         // If the table does not require gradient computation, we set the gradient to zero.
@@ -173,14 +174,14 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 
         for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
             int32_t l = l_start + threadIdx.x;
-            int64_t idx = l < L ? indices[indices_start + l] : 0;
+            auto idx = l < L ? indices[indices_start + l] : 0;
             {%- if not dense %}
             const auto {{ locs_or_addrs_idx }} =
                 (placement == PlacementType::MANAGED_CACHING && l < L)
                     ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
             {%- endif %}
             for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-                int64_t idx_j = shfl_sync(idx, j);
+                auto idx_j = shfl_sync(idx, j);
                 {%- if not dense %}
                 const auto {{ locs_or_addrs_idx }}_j = shfl_sync({{ locs_or_addrs_idx }}, j);
                 {%- endif %}
@@ -354,6 +355,7 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     const uint32_t info_B_mask = info_B_mask_int64;
     {%- endif %}
 
+    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "split_embedding_codegen_grad_indice_weights{{ vdesc }}_kernel_1", [&] {
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
         aligned_grad_output.scalar_type(),
@@ -386,6 +388,7 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                     emb_t,
                     grad_t,
                     cache_t,
+                    index_t,
                     kFixedMaxVecsPerThread><<<
                     div_round_up(total_B, kForwardMaxThreads / kWarpSize),
                     dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
@@ -400,8 +403,8 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                     {%- endif %}
                     MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
                     MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, indices, int64_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, offsets, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
                     {%- if not dense %}
                     MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
                     {%- endif %}
@@ -420,6 +423,7 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
                 return;
             });
             {%- endfor %} {# /* for use_vec_blocking */ #}
+        });
         });
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();

@@ -3083,8 +3083,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if force_cast_input_types:
-            # Force casting indices and offsets to long
-            (indices, offsets) = indices.long(), offsets.long()
+            # NOTE: Previously, both indices and offsets were casted to int64.
+            # Since we support int32 indices and offsets now, this rule is now
+            # updated to cast offsets into the same dtype as indices.
+            offsets = offsets.to(dtype=indices.dtype)
 
             # Force casting per_sample_weights to float
             if per_sample_weights is not None:

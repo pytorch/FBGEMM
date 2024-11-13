@@ -202,6 +202,22 @@
 /// These macros cover bundled dispatch cases, similar to AT_DISPATCH_*_CASE
 ////////////////////////////////////////////////////////////////////////////////
 
+#define FBGEMM_DISPATCH_EMBEDDING_GRADIENT_TYPES(              \
+    INDEX_TYPE, EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, ...)    \
+  at::ScalarType _index_t = ::detail::scalar_type(INDEX_TYPE); \
+  switch (_index_t) {                                          \
+    case at::ScalarType::Int:                                  \
+      DISPATCH_EMB_GRAD_CACHE_TYPES(                           \
+          EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, __VA_ARGS__); \
+      break;                                                   \
+    case at::ScalarType::Long:                                 \
+      DISPATCH_EMB_GRAD_CACHE_TYPES(                           \
+          EMB_TYPE, GRAD_TYPE, CACHE_TYPE, NAME, __VA_ARGS__); \
+      break;                                                   \
+    default:                                                   \
+      AT_ERROR("Unsupported index type");                      \
+  }
+
 #define FBGEMM_DISPATCH_INTEGRAL_TYPES_CASE(...)     \
   AT_DISPATCH_CASE(at::ScalarType::Int, __VA_ARGS__) \
   AT_DISPATCH_CASE(at::ScalarType::Long, __VA_ARGS__)
