@@ -107,14 +107,14 @@ def benchmark_grouped(
                     B,
                     bench_quantize=True,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=False,
+                    use_cuda_graph=True,
                 )
             else:
                 ms_runtime = quantize_op.benchmark(
                     *quantized_vals,
                     bench_quantize=False,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=False,
+                    use_cuda_graph=True,
                 )
 
             # Print out results for this op.

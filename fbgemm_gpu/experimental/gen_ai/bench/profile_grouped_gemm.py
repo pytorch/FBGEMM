@@ -13,35 +13,6 @@ import torch
 from .quantize_ops import FP8RowwiseGroupedGemm
 
 
-grouped_kernel_registry: list[str] = [
-    "fp8_rowwise_grouped_128x128x16x128_16x16_4x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_128x128x32x128_32x32_2x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2",
-    "fp8_rowwise_grouped_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2",
-    "fp8_rowwise_grouped_128x16x32x512_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_128x32x128x128_32x32_1x2_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2",
-    "fp8_rowwise_grouped_128x64x32x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2",
-    "fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1",
-    "fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3",
-    "fp8_rowwise_grouped_256x128x128x64_32x32_2x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v4",
-    "fp8_rowwise_grouped_256x128x64x128_32x32_2x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3",
-    "fp8_rowwise_grouped_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3",
-    "fp8_rowwise_grouped_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3",
-    "fp8_rowwise_grouped_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3",
-    "fp8_rowwise_grouped_256x256x256x64_16x16_8x8_4x64x1_4x64x1_1x32x1x8_8x8x1_1x2_intrawave_v3",
-    "fp8_rowwise_grouped_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v4",
-    "fp8_rowwise_grouped_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3",
-    "fp8_rowwise_grouped_64x16x16x128_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1",
-    "fp8_rowwise_grouped_64x16x16x512_16x16_1x1_32x2x1_32x2x1_1x16x1x4_4x4x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_64x16x16x512_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2",
-    "fp8_rowwise_grouped_64x16x16x64_16x16_1x1_4x16x1_4x16x1_1x16x1x4_4x4x1_1x1_interwave_v2",
-]
-
-
 def main(args: Any):
     # Extract and format shape arguments.
     M = [int(m) for m in args.M.strip().split(",")]
@@ -62,12 +33,12 @@ def main(args: Any):
     quantized_vals = group_gemm_op.quantize(A, B)
     # Iterate over kernels to find the most performant one.
     benchmark_results = []
-    for kernel_name in grouped_kernel_registry:
+    for kernel_name in torch.ops.fbgemm.get_f8f8bf16_rowwise_grouped_kernels():
         # Do a warmup run of the kernel.
         output = group_gemm_op.compute(*quantized_vals, kernel_name=kernel_name)
         # Benchmark this kernel implementation.
         ms_runtime = group_gemm_op.benchmark(
-            *quantized_vals, use_cuda_graph=False, kernel_name=kernel_name
+            *quantized_vals, use_cuda_graph=True, kernel_name=kernel_name
         )
         # Compute statistics for this kernel.
         tflops = 0
@@ -84,6 +55,7 @@ def main(args: Any):
                 / 1e9
             )
         # Record results.
+        print(f"Kernel: {kernel_name}, ms: {ms_runtime:.4f}, TFLOPS: {tflops:.2f}")
         benchmark_results.append(
             {
                 "kernel_name": kernel_name,
@@ -92,13 +64,11 @@ def main(args: Any):
                 "gbps": gbps,
             }
         )
-    # Print all results.
-    print("Benchmark results:")
-    for result in benchmark_results:
-        print(f"Kernel: {result['kernel_name']}, TFLOPS: {result['tflops']}")
     # Report best kernel.
     best_kernel = min(benchmark_results, key=lambda x: x["ms_runtime"])
-    print(f"Best kernel for this shape: {best_kernel['kernel_name']}")
+    print(
+        f"Best kernel for this shape: {best_kernel['kernel_name']}: {best_kernel['tflops']:.2f} TFLOPS"
+    )
 
     # If specified, save all results.
     if args.export_csv:

@@ -14,7 +14,8 @@ fp8_rowwise_grouped_128x128x16x128_16x16_4x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_in
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
-    std::vector<at::Tensor> Y) {
+    at::Tensor kernel_args,
+  std::vector<at::Tensor> Y) {
   // A kernel that works well on small but not super tiny shapes.
   using DeviceGemmInstance = DeviceGemmHelper<
       128,
@@ -34,5 +35,5 @@ fp8_rowwise_grouped_128x128x16x128_16x16_4x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_in
       ck::BlockGemmPipelineScheduler::Interwave,
       ck::BlockGemmPipelineVersion::v2>;
   // Run kernel instance.
-  return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
+  return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
 }
