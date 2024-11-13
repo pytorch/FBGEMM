@@ -868,7 +868,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   c10::ScalarType dtype();
 
-  c10::string_view dtype_str();
+  std::string_view dtype_str();
 
   c10::Device device();
 
