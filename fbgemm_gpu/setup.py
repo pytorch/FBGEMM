@@ -247,7 +247,7 @@ class FbgemmGpuBuild:
             _get_cxx11_abi(),
         ]
 
-        cxx_flags = ["-gsplit-dwarf"]
+        cxx_flags = ["-gsplit-dwarf", "-mcmodel=large", "-fPIC"]
 
         if self.args.verbose:
             print("[SETUP.PY] Building in VERBOSE mode ...")
