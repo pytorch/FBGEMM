@@ -433,7 +433,7 @@ c10::ScalarType KVTensorWrapper::dtype() {
   return options_.dtype().toScalarType();
 }
 
-c10::string_view KVTensorWrapper::dtype_str() {
+std::string_view KVTensorWrapper::dtype_str() {
   return scalarTypeToTypeMeta(dtype()).name();
 }
 
