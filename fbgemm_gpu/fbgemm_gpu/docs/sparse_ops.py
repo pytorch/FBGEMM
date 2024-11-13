@@ -380,6 +380,13 @@ Args:
     keep_orig_idx (bool = False): If True, return original indices instead of
         the relative indices within each bucket
 
+    total_num_blocks (Optional[torch.Tensor] = None): An optional tensor that
+        contains then number of logical buckets (aka blocks) within a given
+        feature.  This is useful for applications where the number of buckets
+        is more than the number of physical GPUs, which is common in cases
+        where we scale up/down the number of GPUs but want to maintain
+        same numerical behavior.
+
 Return:
     A tuple of tensors containing
 
