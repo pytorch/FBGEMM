@@ -6,11 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <cstdlib>
-#include <initializer_list>
-#include <iostream>
-#include <numeric>
-
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDAStream.h>
 #include <torch/torch.h>
@@ -21,13 +16,6 @@
 #include "ck/tensor_operation/gpu/element/element_wise_operation.hpp"
 #include "ck/utility/blkgemmpipe_scheduler.hpp"
 #include "ck/utility/data_type.hpp"
-
-#include "ck/library/utility/check_err.hpp"
-#include "ck/library/utility/device_memory.hpp"
-#include "ck/library/utility/fill.hpp"
-#include "ck/library/utility/host_tensor.hpp"
-#include "ck/library/utility/host_tensor_generator.hpp"
-#include "ck/library/utility/literals.hpp"
 
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
 
@@ -136,6 +124,7 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
+    at::Tensor kernel_args,
     std::vector<at::Tensor> Y) {
   // Get input information.
   int group_count = XQ.size();
@@ -144,7 +133,6 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
   using GemmDesc = ck::tensor_operation::device::GemmDesc;
   // Create gemm shape containers.
   std::vector<GemmDesc> gemm_descs;
-  std::vector<KernelArguments> ggemm_kargs;
   // Create container for input arguments.
   std::vector<const void*> A_args;
   std::vector<const void*> B_args;
@@ -152,7 +140,6 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
   std::vector<std::array<const void*, 2>> D_args = {};
   // Reserve space in argument arrays.
   gemm_descs.reserve(group_count);
-  ggemm_kargs.reserve(group_count);
   A_args.reserve(group_count);
   B_args.reserve(group_count);
   C_args.reserve(group_count);
@@ -162,25 +149,9 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
     // Set the shape arguments for this gemm.
     int M = XQ[i].size(0);
     int K = XQ[i].size(1);
-    int N = WQ[i].size(1);
+    int N = WQ[i].size(0);
     GemmDesc gemm_desc = {M, N, K, K, K, N, {0, 0}};
     gemm_descs.push_back(gemm_desc);
-    // For some reason, we also need to specify kernel args (which are quite
-    // redundant to other arguments).
-    KernelArguments kernel_args = {
-        reinterpret_cast<ADataType*>(XQ[i].data_ptr()),
-        reinterpret_cast<BDataType*>(WQ[i].data_ptr()),
-        {reinterpret_cast<D0DataType*>(w_scale[i].data_ptr()),
-         reinterpret_cast<D1DataType*>(x_scale[i].data_ptr())},
-        reinterpret_cast<EDataType*>(Y[i].data_ptr()),
-        M,
-        N,
-        K,
-        K,
-        K,
-        {0, 0},
-        N};
-    ggemm_kargs.push_back(kernel_args);
     // Set pointers to inputs and outputs.
     A_args.push_back(reinterpret_cast<ADataType*>(XQ[i].data_ptr()));
     B_args.push_back(reinterpret_cast<BDataType*>(WQ[i].data_ptr()));
@@ -207,21 +178,12 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
       a_element_op,
       b_element_op,
       cde_element_op);
+
+  // Set gemm kernel arguments.
+  gemm.SetDeviceKernelArgs(argument, kernel_args.data_ptr());
+
   // Get hip graph stream if it exists.
   auto stream = at::cuda::getCurrentHIPStream().stream();
-  // Set up kernel arguments.
-  // Allocate device memory with pytorch for simplicity.
-  at::Tensor gemm_arg_dev_mem = at::empty(
-      gemm.GetDeviceKernelArgSize(&argument), XQ[0].options().dtype(at::kByte));
-  // Copy arguments to device memory.
-  hipMemcpyAsync(
-      gemm_arg_dev_mem.data_ptr(),
-      ggemm_kargs.data(),
-      gemm.GetDeviceKernelArgSize(&argument),
-      hipMemcpyHostToDevice,
-      stream);
-  gemm.SetDeviceKernelArgs(argument, gemm_arg_dev_mem.data_ptr());
-
   invoker.Run(argument, StreamConfig{stream, false});
 
   return Y;
