@@ -67,7 +67,7 @@ for (const auto b : c10::irange(b_begin,b_end)) {
             : 1.0;
 for (const auto p : c10::irange(pool_begin,pool_end)) {
           auto idx = indices_data[p];
-          const int64_t embedding_begin = table_begin + idx * D;
+          [[maybe_unused]] const int64_t embedding_begin = table_begin + idx * D;
           scalar_t grad_buffer[D];
 for (const auto d : c10::irange(D)) {
             grad_buffer[d] = scale_factor *
