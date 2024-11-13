@@ -14,7 +14,8 @@ fp8_rowwise_grouped_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intr
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
-    std::vector<at::Tensor> Y) {
+    at::Tensor kernel_args,
+  std::vector<at::Tensor> Y) {
   // Secret kernel that seems good with small M but large N and K.
   using DeviceGemmInstance = DeviceGemmHelper<
       64,
@@ -35,5 +36,5 @@ fp8_rowwise_grouped_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intr
       ck::BlockGemmPipelineVersion::v1,
       ck::tensor_operation::device::GemmSpecialization::Default>;
   // Run kernel instance.
-  return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
+  return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
 }
