@@ -26,6 +26,7 @@ class ArgType(IntEnum):
     INT = 7
     FLOAT = 8
     SYM_INT = 9
+    BOOL = 10
 
 
 @dataclass
