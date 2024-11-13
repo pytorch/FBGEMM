@@ -94,7 +94,6 @@ class BlockBucketizeTest(unittest.TestCase):
         index_type = torch.long if long_indices else torch.int
         # 3 GPUs
         my_size = 3
-        keep_orig_idx = True
         block_sizes = torch.tensor([3, 4, 5], dtype=index_type)
 
         if not long_indices:
