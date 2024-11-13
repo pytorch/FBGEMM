@@ -137,9 +137,6 @@ Tensor
     TORCH_SYM_CHECK(vbe_row_output_offsets.sym_numel().sym_eq(total_B), "");
     TENSORS_HAVE_SAME_SYM_NUMEL(vbe_row_output_offsets, vbe_b_t_map);
     TORCH_SYM_CHECK(vbe_output_size.sym_ge(0), "");
-
-    // Cast info_B_mask from int64_t to uint32_t
-    const uint32_t info_B_mask = info_B_mask_int64;
     {%- endif %}
 
     Tensor output;
