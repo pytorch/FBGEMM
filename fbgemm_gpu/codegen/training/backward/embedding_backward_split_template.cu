@@ -26,6 +26,10 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
+{%- if is_rocm %}
+#include "fbgemm_gpu/rocm/cdna_guard.h"
+{%- endif %}
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -1194,7 +1198,7 @@ Tensor {{ embedding_cuda_op }}(
                         not dense and not is_gwd_kernel and not vbe and not ssd and not nobag %}
                     const bool isSupportedWeightsType = dev_weights.scalar_type() == at::ScalarType::Half 
                                                       || dev_weights.scalar_type() == at::ScalarType::Float;
-                    if(isSupportedWeightsType && !mixed_D)
+                    if(isSupportedWeightsType && !mixed_D && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256] %}

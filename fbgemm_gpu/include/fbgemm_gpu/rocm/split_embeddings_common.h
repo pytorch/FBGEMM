@@ -32,6 +32,7 @@ typedef float floatx2_t __attribute__((ext_vector_type(2)));
 #define THREADS_PER_ROW 64
 #define BLOCK_SIZE 256
 
+namespace fbgemm_gpu::rocm {
 template <typename T> union amdgcn_buffer_resource {
   // https://rocm-documentation.readthedocs.io/en/latest/GCN_ISA_Manuals/testdocbook.html#vector-memory-buffer-instructions
   int32x4_t content;
@@ -389,6 +390,7 @@ __device__ __forceinline__ void generic_dpp_reduction(data_t &result) {
 // of trivial operation with an option to use custom operation
 template <typename data_t, typename reduce_op_t, int wave_size = 64>
 __device__ __forceinline__ void dpp_reduction(data_t &result) {
+#if defined(__gfx942__) || defined(__gfx90a__)
   if constexpr (std::is_same_v<reduce_op_t, reduce_op::sum>) {
     DPP_REDUCE_F16_F32(add);
     return;
@@ -404,6 +406,7 @@ __device__ __forceinline__ void dpp_reduction(data_t &result) {
   } else {
     generic_dpp_reduction<data_t, reduce_op_t, wave_size>(result);
   }
+#endif
 }
 
 template <typename reduce_op_t, typename data_t, int wave_size>
@@ -459,3 +462,4 @@ magic_div_u32_run_with_mod(const magic_div_u32_t &mdiv, const uint32_t &n,
   quo = magic_div_u32_run(mdiv, n);
   rem = n - quo * d;
 }
+} // namespace fbgemm_gpu::rocm

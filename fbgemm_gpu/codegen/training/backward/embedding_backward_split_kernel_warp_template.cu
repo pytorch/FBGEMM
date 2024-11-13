@@ -623,14 +623,14 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- else %}
     constexpr bool is_weighted = false;
     {%- endif %}
-    {{optimizer}}_kernel_arg_t opt_karg;
+    rocm::{{optimizer}}_kernel_arg_t opt_karg;
     opt_karg.p_momentum = momentum1_dev.data();
     opt_karg.eps = eps;
     opt_karg.learning_rate = learning_rate;
     // weight_decay(_mode) is supplied as args.split_function_args_no_defaults
     opt_karg.weight_decay_mode = weight_decay_mode_v;
     opt_karg.weight_decay = weight_decay;
-    auto batch_mdiv = [](uint32_t d) -> magic_div_u32_t {
+    auto batch_mdiv = [](uint32_t d) -> rocm::magic_div_u32_t {
         assert(d >= 1 && d <= INT32_MAX);
         uint8_t shift;
         for(shift = 0; shift < 32; shift++)
@@ -641,14 +641,14 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
         uint64_t magic = ((one << 32) * ((one << shift) - d)) / d + 1;
         assert(magic <= 0xffffffffUL);
 
-        magic_div_u32_t result;
+        rocm::magic_div_u32_t result;
         result.magic = magic;
         result.shift = shift;
         return result;
     }(batch);
-    split_tbe_backward_hip_kernel_{{kdesc}}<
-        {{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, weight_decay_mode_v>,
-        {{optimizer}}_kernel_arg_t,
+    rocm::split_tbe_backward_hip_kernel_{{kdesc}}<
+        rocm::{{optimizer}}_optimizer_t<cache_t, emb_t, embedding_dim, weight_decay_mode_v>,
+        rocm::{{optimizer}}_kernel_arg_t,
         emb_t,
         cache_t,
         grad_t,

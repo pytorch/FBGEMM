@@ -26,6 +26,7 @@
 
 #include "fbgemm_gpu/rocm/split_embeddings_common.h"
 
+namespace fbgemm_gpu::rocm {
 template <typename cache_t, typename emb_t, int32_t embedding_dim, int32_t weight_decay_mode>
 struct rowwise_adagrad_optimizer_t
 {
@@ -457,4 +458,4 @@ L_tail_grad_acc:
 
     store_row_per_warp<emb_t, embedding_dim, emb_t>::run(&emb_data[0], p_emb_table + emb_idx * embedding_dim, lane_id);
 }
-
+} // namespace fbgemm_gpu::rocm
