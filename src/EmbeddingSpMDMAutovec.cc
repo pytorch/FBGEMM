@@ -24,6 +24,8 @@
 
 namespace fbgemm {
 
+static constexpr size_t LOCAL_STORAGE_SIZE = 512;
+
 template <typename OutType>
 static inline void fill_output(
     OutType* out,
@@ -99,10 +101,10 @@ bool EmbeddingSpMDM8Bit_autovec(
   const int64_t scale_bias_offset = scale_bias_last ? block_size : 0;
   const int64_t input_offset = scale_bias_last ? 0 : scale_bias_size;
 
-  std::array<float, 256> local_storage;
+  std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
   float* buf;
-  if (block_size <= 256) {
+  if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
     heap_storage.reset(new float[block_size]);
@@ -363,10 +365,10 @@ bool EmbeddingSpMDMNBit_autovec(
   int64_t current = 0;
   const int64_t rounded_block_size = round_up(block_size, num_elem_per_byte);
 
-  std::array<float, 256> local_storage;
+  std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
   float* buf;
-  if (rounded_block_size <= 256) {
+  if (static_cast<size_t>(rounded_block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
     heap_storage.reset(new float[rounded_block_size]);
@@ -504,10 +506,10 @@ bool EmbeddingSpMDM_autovec(
     output_stride = block_size;
   }
 
-  std::array<float, 256> local_storage;
+  std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
   float* buf;
-  if (block_size <= 256) {
+  if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
     heap_storage.reset(new float[block_size]);
@@ -862,10 +864,10 @@ bool EmbeddingSpMDMFP8_autovec(
     output_stride = block_size;
   }
 
-  std::array<float, 256> local_storage;
+  std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
   float* buf;
-  if (block_size <= 256) {
+  if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
     heap_storage.reset(new float[block_size]);
