@@ -580,7 +580,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_load_factor: float = 0.2,
         cache_sets: int = 0,
         cache_reserved_memory: float = 0.0,
-        cache_precision: SparseType = SparseType.FP32,
+        cache_precision: Optional[SparseType] = None,
         weights_precision: SparseType = SparseType.FP32,
         output_dtype: SparseType = SparseType.FP32,
         enforce_hbm: bool = False,
@@ -619,6 +619,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         uvm_host_mapped: bool = False,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
+
         self.uuid = str(uuid.uuid4())
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.pooling_mode = pooling_mode
@@ -627,6 +628,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
         )
         self.weights_precision = weights_precision
+        cache_precision = (
+            weights_precision if cache_precision is None else cache_precision
+        )
         self.output_dtype: int = output_dtype.as_int()
         assert (
             not prefetch_pipeline or cache_algorithm == CacheAlgorithm.LRU
@@ -1175,20 +1179,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ),
             )
 
-        if cache_precision == SparseType.FP32:
-            cache_embedding_dtype = torch.float32
-        elif cache_precision == SparseType.FP16:
-            cache_embedding_dtype = torch.float16
-        else:
-            raise AssertionError(f"cache_precision {cache_precision} not supported!")
-
         self._apply_cache_state(
             cache_state,
             cache_algorithm,
             cache_load_factor,
             cache_sets,
             cache_reserved_memory,
-            dtype=cache_embedding_dtype,
+            cache_precision,
         )
 
         self.log(f"Contents: {table_names}")
@@ -2643,7 +2640,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cache_load_factor: float,
         cache_sets: int,
         cache_reserved_memory: float,
-        dtype: torch.dtype,
+        cache_precision: SparseType,
     ) -> None:
         self.cache_algorithm = cache_algorithm
         self.timestep = 1
@@ -2662,6 +2659,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.prefetch_stream: Optional[torch.cuda.Stream] = None
 
         self._init_uvm_cache_stats()
+
+        if cache_precision == SparseType.FP32:
+            dtype = torch.float32
+        elif cache_precision == SparseType.FP16:
+            dtype = torch.float16
+        else:
+            dtype = torch.float32  # not relevant, but setting it to keep linter happy
+            if not self.use_cpu > 0:
+                raise AssertionError(
+                    f"cache_precision {cache_precision} not supported!"
+                )
 
         # NOTE: no cache for CPU mode!
         if cache_state.total_cache_hash_size == 0 or self.use_cpu:
@@ -2740,7 +2748,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"{cache_algorithm}, {cache_sets} sets, "
             f"load_factor: {cache_load_factor : .3f}, "
             f"cache_size: {cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
-            f"cache_precision: {dtype}"
+            f"cache_precision: {dtype}, "
+            f"weights_precision: {self.weights_precision}"
         )
 
         self.total_cache_hash_size = cache_state.total_cache_hash_size
