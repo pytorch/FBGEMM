@@ -44,7 +44,11 @@ else()
     src/quantize/cutlass_extensions/f8f8bf16_cublas.cu
     src/quantize/cutlass_extensions/f8f8bf16_grouped.cu
     src/quantize/cutlass_extensions/f8f8bf16_rowwise.cu
-    src/quantize/cutlass_extensions/f8f8bf16_rowwise_batched.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise_batched/f8f8bf16_rowwise_batched.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise_batched/f8f8bf16_rowwise_batched_impl.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise_batched/dispatch_fp8_rowwise_batched_kernel_on_tile_size.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise_batched/dispatch_fp8_rowwise_batched_kernel_on_cluster_size_and_transpose.cu
+    src/quantize/cutlass_extensions/f8f8bf16_rowwise_batched/handle_transposition.cu
     src/quantize/cutlass_extensions/f8f8bf16_tensorwise.cu
     src/quantize/cutlass_extensions/i8i8bf16.cu
     src/quantize/cutlass_extensions/f8i4bf16_rowwise.cu
