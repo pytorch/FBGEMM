@@ -14,6 +14,7 @@ from typing import List, Tuple
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import torch
+import triton  # noqa: F401
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
@@ -746,6 +747,7 @@ class FP8Tests(unittest.TestCase):
         M=st.sampled_from([2048, 3584]),
         N=st.sampled_from([1024, 6144]),
         K=st.sampled_from([512, 3584]),
+        use_cudagraph=st.sampled_from([True, False]),
     )
     def test_fp8_grouped_gemm(
         self,
@@ -753,6 +755,7 @@ class FP8Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        use_cudagraph: bool,
     ) -> None:
         ms = torch.randint(1, (M // 64) + 1, (G,), dtype=torch.int) * 64
         ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
@@ -775,12 +778,25 @@ class FP8Tests(unittest.TestCase):
             wq_group.append(wq)
             scale_group.append(x_scale * w_scale)
 
+        # FP8 grouped gemm kernel
+        if use_cudagraph:
+            # warmup
+            torch.ops.fbgemm.f8f8bf16_grouped(xq_group, wq_group, scale_group)
+            # With cudagraph
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y_group = torch.ops.fbgemm.f8f8bf16_grouped(
+                    xq_group, wq_group, scale_group
+                )
+            g.replay()
+        else:
+            y_group = torch.ops.fbgemm.f8f8bf16_grouped(xq_group, wq_group, scale_group)
+
+        # BF16 loopover gemm reference
         y_group_ref = []
         for i in range(len(x_group)):
             y = torch.matmul(x_group[i], w_group[i].t())
             y_group_ref.append(y)
-
-        y_group = torch.ops.fbgemm.f8f8bf16_grouped(xq_group, wq_group, scale_group)
 
         for i in range(len(y_group)):
             torch.testing.assert_close(
