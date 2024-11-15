@@ -190,6 +190,8 @@ def generate_cache_tbes(
 def assert_cache(
     tensor_a: torch.Tensor, tensor_b: torch.Tensor, stochastic_rounding: bool
 ) -> None:
+    print(f"\n\ntensor_a: {tensor_a.shape}")
+    print(f"\n\ntensor_b: {tensor_b.shape}")
     if stochastic_rounding:
         # Stochastic rounding randomly alters the mantissa bits during the
         # FP32->FP16 conversion in TBE backward, resulting in non-deterministic

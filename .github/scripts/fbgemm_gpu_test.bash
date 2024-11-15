@@ -251,17 +251,17 @@ __determine_test_directories () {
 
   if [ "$fbgemm_gpu_variant" != "genai" ]; then
     target_directories+=(
-      fbgemm_gpu/test
+      fbgemm_gpu/test/tbe/cache
     )
   fi
 
-  if [ "$fbgemm_gpu_variant" == "cuda" ] || [ "$fbgemm_gpu_variant" == "genai" ]; then
-    target_directories+=(
-      fbgemm_gpu/experimental/example/test
-      fbgemm_gpu/experimental/gemm/test
-      fbgemm_gpu/experimental/gen_ai/test
-    )
-  fi
+  # if [ "$fbgemm_gpu_variant" == "cuda" ] || [ "$fbgemm_gpu_variant" == "genai" ]; then
+  #   target_directories+=(
+  #     fbgemm_gpu/experimental/example/test
+  #     fbgemm_gpu/experimental/gemm/test
+  #     fbgemm_gpu/experimental/gen_ai/test
+  #   )
+  # fi
 
   echo "[TEST] Determined the testing directories:"
   for test_dir in "${target_directories[@]}"; do

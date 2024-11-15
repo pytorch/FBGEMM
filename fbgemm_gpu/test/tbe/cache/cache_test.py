@@ -77,7 +77,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*running_on_rocm)
+    # @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -443,7 +443,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*running_on_rocm)
+    # @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -471,7 +471,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*running_on_rocm)
+    # @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
@@ -500,7 +500,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
-    @unittest.skipIf(*running_on_rocm)
+    # @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
