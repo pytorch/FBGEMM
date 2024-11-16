@@ -173,6 +173,73 @@ DEVICE_INLINE void stochastic_rounding_vector(
       (value.acc.w - qparams.y) * inv_scale, random_bits.w);
 }
 
+template <typename dst_t, typename src_t>
+DEVICE_INLINE void stochastic_rounding_vector(
+    dst_t* output,
+    const Vec2T<src_t>& value,
+    StochasticRoundingRNGState& state,
+    const float2 /* not used */) {
+  value.store(output);
+}
+
+template <>
+DEVICE_INLINE void stochastic_rounding_vector(
+    at::Half* output,
+    const Vec2T<at::Half>& value,
+    StochasticRoundingRNGState& state,
+    const float2 /* not used */) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  Half2 v;
+  v.a = __halves2half2(
+      stochastic_rounding_scalar(value.acc.x, random_bits.x),
+      stochastic_rounding_scalar(value.acc.y, random_bits.y));
+
+  v.store(output);
+}
+
+template <>
+DEVICE_INLINE void stochastic_rounding_vector(
+    at::Half* output,
+    const Vec2T<float>& value,
+    StochasticRoundingRNGState& state,
+    const float2 /* not used */) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  Half2 v;
+  v.a = __halves2half2(
+      stochastic_rounding_scalar(value.acc.x, random_bits.x),
+      stochastic_rounding_scalar(value.acc.y, random_bits.y));
+
+  v.store(output);
+}
+
+template <>
+DEVICE_INLINE void stochastic_rounding_vector(
+    uint8_t* output,
+    const Vec2T<float>& value,
+    StochasticRoundingRNGState& state,
+    const float2 qparams) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = stochastic_rounding_scalar_uint8(
+      (value.acc.x - qparams.y) * inv_scale, random_bits.x);
+  output[1] = stochastic_rounding_scalar_uint8(
+      (value.acc.y - qparams.y) * inv_scale, random_bits.y);
+}
+
+template <>
+DEVICE_INLINE void stochastic_rounding_vector(
+    uint8_t* output,
+    const Vec2T<at::Half>& value,
+    StochasticRoundingRNGState& state,
+    const float2 qparams) {
+  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = stochastic_rounding_scalar_uint8(
+      (value.acc.x - qparams.y) * inv_scale, random_bits.x);
+  output[1] = stochastic_rounding_scalar_uint8(
+      (value.acc.y - qparams.y) * inv_scale, random_bits.y);
+}
+
 // begin nearest rounding and store implementations
 template <typename dst_t, typename src_t>
 DEVICE_INLINE void nearest_rounding_vector(
@@ -204,6 +271,34 @@ DEVICE_INLINE void nearest_rounding_vector(
   output[1] = lrintf((value.acc.y - qparams.y) * inv_scale);
   output[2] = lrintf((value.acc.z - qparams.y) * inv_scale);
   output[3] = lrintf((value.acc.w - qparams.y) * inv_scale);
+}
+
+template <typename dst_t, typename src_t>
+DEVICE_INLINE void nearest_rounding_vector(
+    dst_t* output,
+    const Vec2T<src_t>& value,
+    const float2 /* not used */) {
+  value.store(output);
+}
+
+template <>
+DEVICE_INLINE void nearest_rounding_vector(
+    uint8_t* output,
+    const Vec2T<float>& value,
+    const float2 qparams) {
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
+  output[1] = lrintf((value.acc.y - qparams.y) * inv_scale);
+}
+
+template <>
+DEVICE_INLINE void nearest_rounding_vector(
+    uint8_t* output,
+    const Vec2T<at::Half>& value,
+    const float2 qparams) {
+  const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
+  output[0] = lrintf((value.acc.x - qparams.y) * inv_scale);
+  output[1] = lrintf((value.acc.y - qparams.y) * inv_scale);
 }
 
 } // namespace fbgemm_gpu

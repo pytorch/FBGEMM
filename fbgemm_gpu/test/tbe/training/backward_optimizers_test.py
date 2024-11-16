@@ -1037,6 +1037,84 @@ class BackwardOptimizersTest(unittest.TestCase):
             weight_decay_mode,
         )
 
+    # This is a temporary test just to assess new kernel.
+    # Should be removed
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.sampled_from([16, 32, 40, 48, 64]),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=2, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.just(False),
+        mixed_B=st.just(False),
+        optimizer=st.sampled_from(
+            [
+                OptimType.EXACT_ROWWISE_ADAGRAD,
+            ]
+        ),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                # PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=st.just(False),
+        weight_decay_mode=st.sampled_from(
+            [
+                WeightDecayMode.NONE,
+                WeightDecayMode.L2,
+                WeightDecayMode.DECOUPLE,
+                # WeightDecayMode.COUNTER,
+                # WeightDecayMode.COWCLIP,
+            ]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    def test_new_bwd_kernel(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        use_cpu: bool,
+        weight_decay_mode: WeightDecayMode,
+    ) -> None:
+        if (
+            pooling_mode == PoolingMode.NONE
+            or optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
+        ):
+            mixed_B = False
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            weight_decay_mode,
+        )
+
     @given(
         T=st.integers(min_value=1, max_value=5),
         D=st.integers(min_value=2, max_value=256),
