@@ -725,8 +725,7 @@ endif()
 
 # Silence warnings in asmjit
 target_compile_options(fbgemm_gpu_py PRIVATE
-  -Wno-deprecated-anon-enum-enum-conversion)
-target_compile_options(fbgemm_gpu_py PRIVATE
+  -Wno-deprecated-anon-enum-enum-conversion
   -Wno-deprecated-declarations)
 
 

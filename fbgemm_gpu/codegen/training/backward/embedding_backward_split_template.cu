@@ -134,6 +134,7 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    typename index_t,
     {%- for ph_name in args.placeholder_tensor_names %}
     typename {{ ph_name + "_ph_t" }},
     {%- endfor %}
@@ -162,7 +163,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     {%- if not nobag %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -742,6 +743,7 @@ Tensor {{ embedding_cuda_op }}(
       else {
         {{ locs_or_addrs_tensor }}_sorted = at::empty_like({{ locs_or_addrs_tensor }});
         size_t temp_storage_bytes = 0;
+        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_1", [&] {
         AT_CUDA_CHECK(radix_sort_pairs(
               nullptr,
               temp_storage_bytes,
@@ -753,9 +755,11 @@ Tensor {{ embedding_cuda_op }}(
               0,
               total_hash_size_bits,
               at::cuda::getCurrentCUDAStream()));
+
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(at::kByte));
+
         AT_CUDA_CHECK(radix_sort_pairs(
               temp_storage.data_ptr(),
               temp_storage_bytes,
@@ -767,6 +771,7 @@ Tensor {{ embedding_cuda_op }}(
               0,
               total_hash_size_bits,
               at::cuda::getCurrentCUDAStream()));
+        });
       }
     }
 
@@ -775,6 +780,7 @@ Tensor {{ embedding_cuda_op }}(
     }
     {%- endif %}
 
+    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&] {
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
         aligned_grad_output.scalar_type(),
@@ -800,9 +806,11 @@ Tensor {{ embedding_cuda_op }}(
                 0,
                 total_hash_size_bits,
                 at::cuda::getCurrentCUDAStream()));
+
             auto temp_storage = at::empty(
                 {static_cast<int64_t>(temp_storage_bytes)},
                 indices.options().dtype(at::kByte));
+
             AT_CUDA_CHECK(radix_sort_pairs(
                 temp_storage.data_ptr(),
                 temp_storage_bytes,
@@ -1075,6 +1083,7 @@ Tensor {{ embedding_cuda_op }}(
                             <emb_t,
                              grad_t,
                              cache_t,
+                             index_t,
                              {%- for ph_name in args.placeholder_tensor_names %}
                              {{ ph_name + "_ph_t" }},
                              {%- endfor %}
@@ -1128,7 +1137,7 @@ Tensor {{ embedding_cuda_op }}(
                             D,
                             {%- endif %}
                             MAKE_PTA_WITH_NAME(func_name4, hash_size_cumsum, int64_t, 1, 32),
-                            MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_run, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_run, index_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
                             {%- if not nobag %}
                             MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int32_t, 1, 32),
@@ -1181,6 +1190,7 @@ Tensor {{ embedding_cuda_op }}(
 
             }); // DISPATCH_OPTIMAL_KERNEL
         }); // DISPATCH_EMB_GRAD_CACHE_TYPES
+        }); // AT_DISPATCH_INDEX_TYPES
 
     {%- if dense %}
     return grad_dev_weights;
