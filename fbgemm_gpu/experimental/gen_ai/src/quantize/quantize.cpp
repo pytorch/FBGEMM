@@ -59,6 +59,7 @@ std::vector<at::Tensor> f8f8bf16_grouped(
     const std::vector<at::Tensor>& XQ,
     const std::vector<at::Tensor>& WQ,
     const std::vector<at::Tensor>& scale,
+    std::optional<at::Tensor> zero_start_index_M,
     bool use_fast_accum = true);
 at::Tensor f8f8bf16_rowwise(
     at::Tensor XQ,
@@ -163,7 +164,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
-      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] XQ, Tensor[] scale, bool use_fast_accum=True) -> Tensor[]");
+      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] XQ, Tensor[] scale, Tensor? zero_start_index_M=None, bool use_fast_accum=True) -> Tensor[]");
   m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
@@ -429,6 +430,7 @@ std::vector<at::Tensor> f8f8bf16_grouped_meta(
     const std::vector<at::Tensor>& XQ,
     const std::vector<at::Tensor>& WQ,
     const std::vector<at::Tensor>& /* scale */,
+    std::optional<at::Tensor> /* zero_start_index_M = c10::nullopt */,
     bool /* use_fast_accum = true */) {
   std::vector<at::Tensor> Y;
   for (int i = 0; i < XQ.size(); i++) {
