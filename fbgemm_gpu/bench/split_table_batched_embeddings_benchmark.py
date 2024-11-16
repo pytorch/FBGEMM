@@ -987,7 +987,7 @@ def nbit_cpu(  # noqa C901
     reuse: float,
     row_wise: bool,
     weighted: bool,
-    index_remapping: bool,
+    index_remappings: bool,
     requests_data_file: Optional[str],
     tables: Optional[str],
     output_dtype: SparseType,
@@ -1026,7 +1026,7 @@ def nbit_cpu(  # noqa C901
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision, EmbeddingLocation.HOST) for d in Ds],
         device="cpu",
-        index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
+        index_remappings=[torch.arange(E) for _ in Ds] if index_remappings else None,
         output_dtype=output_dtype,
         pooling_mode=pooling_mode,
         fp8_exponent_bits=fp8_exponent_bits,
@@ -1172,7 +1172,7 @@ def nbit_device(  # noqa C901
     E = num_embeddings
     original_E = E
     T = num_tables
-    index_remapping = None
+    index_remappings = None
     if mixed:
         # int4 table batched emb op can only handle mixed D where D is multiple of 8
         Ds = [
@@ -1187,13 +1187,13 @@ def nbit_device(  # noqa C901
     if pruning_ratio:
         assert pruning_ratio < 1 and pruning_ratio >= 0
         E = math.ceil(E * (1.0 - pruning_ratio))
-        index_remapping = []
+        index_remappings = []
         for _ in range(T):
             mapping = torch.tensor([-1] * original_E, dtype=torch.int32)
             selected_indices = random.sample(range(original_E), E)
             for i, idx in enumerate(selected_indices):
                 mapping[idx] = i
-            index_remapping.append(mapping)
+            index_remappings.append(mapping)
             if use_array_for_index_remapping:
                 mem_for_pruning += mapping.numel() * 4
             else:
@@ -1218,7 +1218,7 @@ def nbit_device(  # noqa C901
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision, managed_option) for d in Ds],
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
-        index_remapping=index_remapping,
+        index_remappings=index_remappings,
         pruning_hash_load_factor=pruning_hash_load_factor,
         use_array_for_index_remapping=use_array_for_index_remapping,
         output_dtype=output_dtype,
@@ -1497,13 +1497,13 @@ def nbit_device_with_spec(  # noqa C901
     for i, (e, d, bag_size) in enumerate(zip(Es, Ds, Ls)):
         logging.info(f"{i}, {e}, {d}, {bag_size}")
     logging.info(f"Mean(Es) = {E}, Mean(Ds) = {D}, Mean(Ls) = {L}")
-    index_remapping = None
+    index_remappings = None
 
     mem_for_pruning = 0
     if pruning_ratio:
         original_Es = Es
         assert pruning_ratio < 1 and pruning_ratio >= 0
-        index_remapping = []
+        index_remappings = []
         new_Es = []
         for original_E in original_Es:
             E = math.ceil(original_E * (1.0 - pruning_ratio))
@@ -1511,7 +1511,7 @@ def nbit_device_with_spec(  # noqa C901
             selected_indices = random.sample(range(original_E), E)
             for i, idx in enumerate(selected_indices):
                 mapping[idx] = i
-            index_remapping.append(mapping)
+            index_remappings.append(mapping)
             if use_array_for_index_remapping:
                 mem_for_pruning += mapping.numel() * 4
             else:
@@ -1548,7 +1548,7 @@ def nbit_device_with_spec(  # noqa C901
         [("", e, d, weights_precision, managed_option) for d, e in zip(Ds, Es)],
         device="cpu" if use_cpu else None,
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
-        index_remapping=index_remapping,
+        index_remappings=index_remappings,
         pruning_hash_load_factor=pruning_hash_load_factor,
         use_array_for_index_remapping=use_array_for_index_remapping,
         output_dtype=output_dtype,
