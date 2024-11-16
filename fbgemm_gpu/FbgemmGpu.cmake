@@ -87,7 +87,8 @@ set(VBE_OPTIMIZERS
     rowwise_adagrad
     rowwise_adagrad_with_counter
     sgd
-    dense)
+    dense
+    adam)
 
 # Optimizers with the GWD support
 set(GWD_OPTIMIZERS
