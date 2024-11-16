@@ -476,12 +476,35 @@ enum SSDTensor {
 
 /* This macro generates a code blob for unpacking the tensor list
 */
-{%- macro unpack_tensor_list(tensor_list) %}
-    const Tensor {{ tensor_list }}_host = {{ tensor_list }}[0];
-    const Tensor {{ tensor_list }}_dev = {{ tensor_list }}[1];
-    const Tensor {{ tensor_list }}_uvm = {{ tensor_list }}[2];
-    const Tensor {{ tensor_list }}_placements = {{ tensor_list }}[3];
-    const Tensor {{ tensor_list }}_offsets = {{ tensor_list }}[4];
+{%- macro unpack_tensorlist(name) %}
+    const Tensor {{ name }}_host = {{ name }}[0];
+    const Tensor {{ name }}_dev = {{ name }}[1];
+    const Tensor {{ name }}_uvm = {{ name }}[2];
+    const Tensor {{ name }}_placements = {{ name }}[3];
+    const Tensor {{ name }}_offsets = {{ name }}[4];
+{%- endmacro %}
+
+{%- macro unpack_tensorlist_optional(name) %}
+    Tensor {{ name }}_host;
+    Tensor {{ name }}_dev;
+    Tensor {{ name }}_uvm;
+    Tensor {{ name }}_placements;
+    Tensor {{ name }}_offsets;
+    if ({{ name }}.has_value()) {
+      at::TensorList _{{ name }} = {{ name }}.value();
+      {{ name }}_host = _{{ name }}[0];
+      {{ name }}_dev = _{{ name }}[1];
+      {{ name }}_uvm = _{{ name }}[2];
+      {{ name }}_placements = _{{ name }}[3];
+      {{ name }}_offsets = _{{ name }}[4];
+    }
+    else{
+      {{ name }}_host = at::empty({0}, weights_host.options());
+      {{ name }}_dev = at::empty({0}, weights_dev.options());
+      {{ name }}_uvm = at::empty({0}, weights_uvm.options());
+      {{ name }}_placements = at::empty({0}, weights_placements.options());
+      {{ name }}_offsets = at::empty({0}, weights_offsets.options());
+    }
 {%- endmacro %}
 
 
@@ -582,9 +605,12 @@ class {{ autograd_func }} :
     {{ args_pt2.unified_pt2.split_function_args | join(", ") }}) {
 
     // unpack Tensor lists
-    {{ unpack_tensor_list("weights") }}
-    {%- for arg_name in args_pt2.unified_pt2.split_saved_tensor_list %}
-    {{ unpack_tensor_list(arg_name) }}
+    {{ unpack_tensorlist("weights") }}
+    {%- for arg_name in args_pt2.unified_pt2.split_saved_tensorlist %}
+    {{ unpack_tensorlist(arg_name) }}
+    {%- endfor %}
+    {%- for arg_name in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
+    {{ unpack_tensorlist_optional(arg_name) }}
     {%- endfor %}
 
     const auto T = weights_offsets.sym_numel();
