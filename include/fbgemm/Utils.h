@@ -43,7 +43,8 @@ enum class inst_set_t {
   avx512,
   avx512_ymm,
   avx512_vnni,
-  avx512_vnni_ymm
+  avx512_vnni_ymm,
+  sve
 };
 
 /**
@@ -146,6 +147,11 @@ FBGEMM_API bool fbgemmHasAvx512VnniSupport();
  * @brief Are we running on a ARM Neon supported cpu?
  */
 FBGEMM_API bool fbgemmHasArmNeonSupport();
+
+/**
+ * @brief Are we running on a ARM SVE supported cpu?
+ */
+FBGEMM_API bool fbgemmHasArmSveSupport();
 
 /**
  * @brief Are we running on a ARM SVE2 supported cpu?
