@@ -18,5 +18,5 @@ set(experimental_triton_python_source_files
 # Install Python Files
 ################################################################################
 
-install(FILES ${experimental_triton_python_source_files}
-        DESTINATION fbgemm_gpu/experimental/gemm/triton_gemm)
+add_to_package(DESTINATION fbgemm_gpu/experimental/gemm/triton_gemm
+    FILES ${experimental_triton_python_source_files})
