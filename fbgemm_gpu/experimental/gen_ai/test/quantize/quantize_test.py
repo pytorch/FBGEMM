@@ -748,6 +748,7 @@ class FP8Tests(unittest.TestCase):
         N=st.sampled_from([1024, 6144]),
         K=st.sampled_from([512, 3584]),
         use_cudagraph=st.sampled_from([True, False]),
+        use_padding_zeros=st.sampled_from([True, False]),
     )
     def test_fp8_grouped_gemm(
         self,
@@ -756,8 +757,17 @@ class FP8Tests(unittest.TestCase):
         N: int,
         K: int,
         use_cudagraph: bool,
+        use_padding_zeros: bool,
     ) -> None:
-        ms = torch.randint(1, (M // 64) + 1, (G,), dtype=torch.int) * 64
+        ms = (
+            torch.randint(
+                (258 // 64) + 1 if use_padding_zeros else 1,
+                (M // 64) + 1,
+                (G,),
+                dtype=torch.int,
+            )
+            * 64
+        )
         ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
         ks = torch.randint(1, (K // 64) + 1, (G,), dtype=torch.int) * 64
 
@@ -766,10 +776,26 @@ class FP8Tests(unittest.TestCase):
         xq_group = []
         wq_group = []
         scale_group = []
+        zero_start_index_M = None
+        zero_start_index_M_value = M
 
-        for m, n, k in zip(ms, ns, ks):
+        if use_padding_zeros:
+            zero_start_index_M_value = 256
+            zero_start_index_M = torch.full(
+                size=(G,),
+                fill_value=zero_start_index_M_value,
+                dtype=torch.int,
+                device="cuda",
+            )
+
+        for i, (m, n, k) in enumerate(zip(ms, ns, ks)):
             x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
             w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
+
+            if use_padding_zeros:
+                # Zero out dim M from index zero_start_index_M_value
+                x[zero_start_index_M_value:, :] = 0
+
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
             wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
             x_group.append(x)
@@ -781,16 +807,29 @@ class FP8Tests(unittest.TestCase):
         # FP8 grouped gemm kernel
         if use_cudagraph:
             # warmup
-            torch.ops.fbgemm.f8f8bf16_grouped(xq_group, wq_group, scale_group)
+            torch.ops.fbgemm.f8f8bf16_grouped(
+                xq_group,
+                wq_group,
+                scale_group,
+                zero_start_index_M if use_padding_zeros else None,
+            )
             # With cudagraph
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
                 y_group = torch.ops.fbgemm.f8f8bf16_grouped(
-                    xq_group, wq_group, scale_group
+                    xq_group,
+                    wq_group,
+                    scale_group,
+                    zero_start_index_M if use_padding_zeros else None,
                 )
             g.replay()
         else:
-            y_group = torch.ops.fbgemm.f8f8bf16_grouped(xq_group, wq_group, scale_group)
+            y_group = torch.ops.fbgemm.f8f8bf16_grouped(
+                xq_group,
+                wq_group,
+                scale_group,
+                zero_start_index_M if use_padding_zeros else None,
+            )
 
         # BF16 loopover gemm reference
         y_group_ref = []
