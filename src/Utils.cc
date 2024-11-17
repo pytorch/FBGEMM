@@ -309,6 +309,10 @@ inst_set_t fbgemmInstructionSet() {
   static const inst_set_t env_forced_isa = fbgemmEnvGetIsa();
   static const bool isAvx512_Ymm_enabled = fbgemmEnvAvx512_256Enabled();
 
+  if (fbgemmHasArmSveSupport()) {
+    return inst_set_t::sve;
+  }
+
   inst_set_t forced_isa =
       g_forced_isa != inst_set_t::anyarch ? g_forced_isa : env_forced_isa;
   static const inst_set_t detected_isa = ([]() {
@@ -383,6 +387,10 @@ bool fbgemmHasAvx512VnniSupport() {
 
 bool fbgemmHasArmNeonSupport() {
   return cpuinfo_has_arm_neon();
+}
+
+bool fbgemmHasArmSveSupport() {
+  return cpuinfo_has_arm_sve();
 }
 
 bool fbgemmHasArmSve2Support() {

@@ -14,6 +14,7 @@
 #include "./FbgemmFP16UKernelsAvx2.h"
 #include "./FbgemmFP16UKernelsAvx512.h"
 #include "./FbgemmFP16UKernelsAvx512_256.h"
+#include "./FbgemmFP16UKernelsSve128.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
 
@@ -32,6 +33,25 @@ constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
     gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_6x2_Avx2_fp16_fA0fB0fC0};
+
+constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
+    nullptr,
+#ifdef __aarch64__
+    gemmkernel_1x2_Sve128_fp16_fA0fB0fC0,
+    gemmkernel_2x2_Sve128_fp16_fA0fB0fC0,
+    gemmkernel_3x2_Sve128_fp16_fA0fB0fC0,
+    gemmkernel_4x2_Sve128_fp16_fA0fB0fC0,
+    gemmkernel_5x2_Sve128_fp16_fA0fB0fC0,
+    gemmkernel_6x2_Sve128_fp16_fA0fB0fC0,
+#else
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+#endif
+};
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
@@ -82,8 +102,12 @@ const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa, float16) {
       std::make_tuple(kernel_fp16_avx512, partition_avx512);
   static isa_descriptor<float16> avx512_256_descriptor =
       std::make_tuple(kernel_fp16_avx512_256, partition_avx512);
+  static isa_descriptor<float16> sve128_descriptor =
+      std::make_tuple(kernel_fp16_sve128, partition_sve128);
 
   switch (isa) {
+    case inst_set_t::sve:
+      return sve128_descriptor;
     case inst_set_t::anyarch:
     case inst_set_t::avx2:
       return avx2_descriptor;

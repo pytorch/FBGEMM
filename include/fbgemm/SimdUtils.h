@@ -30,6 +30,15 @@ struct simd_info<inst_set_t::avx2> {
 };
 
 template <>
+struct simd_info<inst_set_t::sve> {
+  // Implementation is unrolled to match params used on avx2
+  static constexpr int WIDTH_BITS = 256;
+  static constexpr int WIDTH_BYTES = 32;
+  static constexpr int WIDTH_32BIT_ELEMS = 8;
+  static constexpr int NUM_VEC_REGS = 32;
+};
+
+template <>
 struct simd_info<inst_set_t::avx512> {
   static constexpr int WIDTH_BITS = 512;
   static constexpr int WIDTH_BYTES = 64;

@@ -114,7 +114,7 @@ class FBGemmFPTest : public testing::TestWithParam<
           float actual = C[i * n + j];
           EXPECT_EQ(actual, expected)
               << "GEMM results differ at (" << i << ", " << j << "). ref "
-              << expected << " FBGemm " << actual;
+              << expected << " FBGemm " << actual << " m: " << m << " n: " << n;
         }
       }
     }
@@ -209,7 +209,7 @@ class FBGemmFPTest : public testing::TestWithParam<
           float actual = C[i * n + j];
           EXPECT_EQ(actual, expected)
               << "GEMM results differ at (" << i << ", " << j << "). ref "
-              << expected << " FBGemm " << actual;
+              << expected << " FBGemm " << actual << " m: " << m << " n: " << n;
         }
       }
     }
