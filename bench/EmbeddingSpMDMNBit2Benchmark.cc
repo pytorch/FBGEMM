@@ -298,6 +298,42 @@ int run_benchmark(
         has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0);
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int32_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/float>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/false,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
+    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int64_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/float>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/false,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
+#endif
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
@@ -359,13 +395,12 @@ int run_benchmark(
         find_benchmark_record(spec).set_ref_result(
             bytes / 1e9 / t_ref, bytes_padded / 1e9 / t_ref, t_ref);
       } else if (kern_type == AUTOVEC) {
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
         // Auto-vectorization implementation
         double t_autovec = measureWithWarmup(
             [&]() {
               if (use_32_bit_indices) {
-                success = EmbeddingSpMDMNBit_autovec(
-                    bit_rate,
-                    embedding_dim,
+                success = kernel_32_autovec(
                     batch_size,
                     lengths_sum,
                     num_rows,
@@ -373,12 +408,9 @@ int run_benchmark(
                     indices_32.data(),
                     offsets.data(),
                     has_weight ? weights.data() : nullptr,
-                    normalize_by_lengths,
                     output.data());
               } else {
-                success = EmbeddingSpMDMNBit_autovec(
-                    bit_rate,
-                    embedding_dim,
+                success = kernel_64_autovec(
                     batch_size,
                     lengths_sum,
                     num_rows,
@@ -386,7 +418,6 @@ int run_benchmark(
                     indices.data(),
                     offsets.data(),
                     has_weight ? weights.data() : nullptr,
-                    normalize_by_lengths,
                     output.data());
               }
             },
@@ -404,6 +435,7 @@ int run_benchmark(
             });
         find_benchmark_record(spec).set_autovec_result(
             bytes / 1e9 / t_autovec, bytes_padded / 1e9 / t_autovec, t_autovec);
+#endif
       } else if (kern_type == ASMJIT) {
         // Hand-written AVX2/AVX512 implementation
         double t = measureWithWarmup(
