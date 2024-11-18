@@ -11,6 +11,7 @@ import torch
 
 from fbgemm_gpu.sll.cpu_sll import (  # noqa F401
     cpu_dense_jagged_cat_jagged_out,
+    cpu_jagged2_to_padded_dense,
     cpu_jagged_dense_bmm,
     cpu_jagged_jagged_bmm,
     cpu_jagged_self_substraction_jagged_out,
@@ -19,6 +20,7 @@ from fbgemm_gpu.sll.cpu_sll import (  # noqa F401
 
 from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     dense_jagged_cat_jagged_out,
+    jagged2_to_padded_dense,
     jagged_dense_bmm,
     jagged_jagged_bmm,
     triton_jagged_self_substraction_jagged_out,
@@ -106,6 +108,18 @@ if "fbgemm::sll_jagged_self_substraction_jagged_out" not in torch.library._defs:
         """
     )
 
+if "fbgemm::sll_jagged2_to_padded_dense" not in torch.library._defs:
+    lib.define(
+        """sll_jagged2_to_padded_dense(
+            Tensor values,
+            Tensor offsets,
+            int max_length,
+            float padding_value
+        ) -> Tensor
+        """
+    )
+
+
 op_registeration(lib, "sll_jagged_dense_bmm", jagged_dense_bmm, "CUDA")
 op_registeration(lib, "sll_jagged_dense_bmm", jagged_dense_bmm, "AutogradCUDA")
 op_registeration(lib, "sll_jagged_dense_bmm", cpu_jagged_dense_bmm, "CPU")
@@ -137,4 +151,12 @@ op_registeration(
     "sll_jagged_self_substraction_jagged_out",
     meta_jagged_self_substraction_jagged_out,
     "Meta",
+)
+op_registeration(lib, "sll_jagged2_to_padded_dense", jagged2_to_padded_dense, "CUDA")
+op_registeration(
+    lib, "sll_jagged2_to_padded_dense", jagged2_to_padded_dense, "AutogradCUDA"
+)
+op_registeration(lib, "sll_jagged2_to_padded_dense", cpu_jagged2_to_padded_dense, "CPU")
+op_registeration(
+    lib, "sll_jagged2_to_padded_dense", cpu_jagged2_to_padded_dense, "AutogradCPU"
 )
