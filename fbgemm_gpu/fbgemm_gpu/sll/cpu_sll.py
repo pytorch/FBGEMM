@@ -224,3 +224,34 @@ def meta_jagged_self_substraction_jagged_out(
         dtype=jagged_A.dtype,
         device=jagged_A.device,
     )
+
+
+def cpu_jagged2_to_padded_dense(
+    values: torch.Tensor,
+    offsets: torch.Tensor,
+    max_length: int,
+    padding_value: float = 0.0,
+) -> torch.Tensor:
+    """
+    values: jagged tensor with size [sum(Ni * Ni)]
+    offsets: offsets for jagged tensor, with size [B + 1]
+    max_length: maximum sequence length in the batch
+    padding_value: value to use for padding
+    return padded dense tensor of size [B, N, N]
+    """
+    B = offsets.size(0) - 1
+    dense_output = torch.full(
+        (B, max_length, max_length),
+        padding_value,
+        dtype=values.dtype,
+        device=values.device,
+    )
+    for b in range(B):
+        begin = offsets[b]
+        end = offsets[b + 1]
+        Ni = int(torch.sqrt(end - begin))
+        if Ni == 0:
+            continue
+        dense_output[b, 0:Ni, 0:Ni] = values[begin:end].view(Ni, Ni)
+
+    return dense_output
