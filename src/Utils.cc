@@ -20,6 +20,7 @@
 #include <iostream>
 #include <limits>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -184,7 +185,7 @@ template void printMatrix<int32_t>(
 
 namespace {
 inst_set_t g_forced_isa = inst_set_t::anyarch;
-bool g_Avx512_Ymm_enabled = false;
+std::optional<bool> g_Avx512_Ymm_enabled{std::nullopt};
 
 inst_set_t fbgemmEnvGetIsa() {
   static const char* isa_env = "FBGEMM_ENABLE_INSTRUCTIONS";
@@ -320,7 +321,7 @@ inst_set_t fbgemmInstructionSet() {
     // Check environment
     if (cpuinfo_initialize()) {
       const bool isXeonD = fbgemmIsIntelXeonD() &&
-          (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
+          (g_Avx512_Ymm_enabled.value_or(isAvx512_Ymm_enabled));
       if (fbgemmHasAvx512VnniSupport()) {
         if (isXeonD) {
           isa = inst_set_t::avx512_vnni_ymm;
