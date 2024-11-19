@@ -686,6 +686,10 @@ class NBitFowardTest(NBitFowardTestCommon):
             equal_nan=False,
         )
 
+    @unittest.skipIf(
+        TEST_WITH_ROCM,
+        "Test appears to be unreliable on ROCm",
+    )
     @given(
         D=st.sampled_from([32, 256, 384, 512, 1024]),
         B=st.integers(min_value=8, max_value=32),

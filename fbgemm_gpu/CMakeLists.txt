@@ -109,6 +109,68 @@ set(fbgemm_sources_include_directories
 
 
 ################################################################################
+# TBE Code Generation
+################################################################################
+
+set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
+
+macro(RUN_GEN_SCRIPT SCRIPT)
+  if(USE_ROCM)
+    set(rocm_flag --is_rocm)
+  endif()
+
+  BLOCK_PRINT(
+    "Running code generation script ..."
+    "${PYTHON_EXECUTABLE} ${SCRIPT} --opensource ${rocm_flag}"
+  )
+
+  execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" ${SCRIPT} "--opensource" ${rocm_flag})
+endmacro()
+
+foreach(script
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_backward_split.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_embedding_optimizer.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_forward_quantized.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_forward_split.py"
+    "${CMAKE_CODEGEN_DIR}/genscript/generate_index_select.py")
+    RUN_GEN_SCRIPT(${script})
+endforeach()
+
+
+# ################################################################################
+# HIP Code Generation
+# ################################################################################
+
+if(USE_ROCM)
+  set(include_dirs_for_hipification
+    # All directories need to be included for headers to be properly HIPified
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gen_ai)
+
+  # HIPify all .CU and .CUH sources under the current directory (`/fbgemm_gpu`)
+  # .H sources are not automatically HIPified, so they need #ifdef USE_ROCM guards
+  hipify(
+    CUDA_SOURCE_DIR
+      ${PROJECT_SOURCE_DIR}
+    HEADER_INCLUDE_DIR
+      ${include_dirs_for_hipification})
+
+  BLOCK_PRINT(
+    "HIPify Sources"
+    " "
+    "CUDA_SOURCE_DIR:"
+    "${PROJECT_SOURCE_DIR}"
+    " "
+    "HEADER_INCLUDE_DIR:"
+    "${include_dirs_for_hipification}"
+  )
+endif()
+
+
+################################################################################
 # Build FBGEMM_GPU (Main) Module
 ################################################################################
 
@@ -131,6 +193,7 @@ if(NOT FBGEMM_CPU_ONLY)
 endif()
 
 if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
-  # TODO: Re-enable gen_ai for ROCm after enabling build support for ROCm 6.2
+  # TODO: Re-enable gen_ai for ROCm once ck/tensor_operation/gpu/device/impl/device_gemm_multiple_d_xdl_cshuffle_v3_ab_scale.hpp
+  # lands into latest ROCm
   add_subdirectory(experimental/gen_ai)
 endif()
