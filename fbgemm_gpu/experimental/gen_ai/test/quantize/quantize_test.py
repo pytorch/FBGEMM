@@ -816,7 +816,7 @@ class FP8Tests(unittest.TestCase):
             # With cudagraph
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
-                y_group = torch.ops.fbgemm.f8f8bf16_grouped(
+                y_fp8_group = torch.ops.fbgemm.f8f8bf16_grouped(
                     xq_group,
                     wq_group,
                     scale_group,
@@ -824,10 +824,34 @@ class FP8Tests(unittest.TestCase):
                 )
             g.replay()
         else:
-            y_group = torch.ops.fbgemm.f8f8bf16_grouped(
+            y_fp8_group = torch.ops.fbgemm.f8f8bf16_grouped(
                 xq_group,
                 wq_group,
                 scale_group,
+                zero_start_index_M if use_padding_zeros else None,
+            )
+
+        # BF16 grouped gemm kernel
+        if use_cudagraph:
+            # warmup
+            torch.ops.fbgemm.bf16bf16bf16_grouped(
+                x_group,
+                w_group,
+                zero_start_index_M if use_padding_zeros else None,
+            )
+            # With cudagraph
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
+                    x_group,
+                    w_group,
+                    zero_start_index_M if use_padding_zeros else None,
+                )
+            g.replay()
+        else:
+            y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
+                x_group,
+                w_group,
                 zero_start_index_M if use_padding_zeros else None,
             )
 
@@ -837,9 +861,30 @@ class FP8Tests(unittest.TestCase):
             y = torch.matmul(x_group[i], w_group[i].t())
             y_group_ref.append(y)
 
-        for i in range(len(y_group)):
+        # Assert FP8 outputs
+        for i in range(len(y_group_ref)):
             torch.testing.assert_close(
-                y_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
+                y_fp8_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
+            )
+
+        # Calculate output sizes
+        output_sizes = []
+        for i in range(len(x_group)):
+            output_size = x_group[i].size(0) * w_group[i].size(0)
+            output_sizes.append(output_size)
+        # Split the output_tensor into a list of tensors based on output_sizes
+        y_bf16_group = torch.split(y_bf16_group, output_sizes)
+        y_bf16_group_list = []
+        # Reshape each tensor in the output_group
+        for i in range(len(x_group)):
+            y_bf16_group_list.append(
+                y_bf16_group[i].view(x_group[i].size(0), w_group[i].size(0))
+            )
+
+        # Assert BF16 outputs
+        for i in range(len(y_group_ref)):
+            torch.testing.assert_close(
+                y_bf16_group_list[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
             )
 
     @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
