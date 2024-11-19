@@ -153,8 +153,6 @@ int run_benchmark(
     vector<OutType>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
     vector<OutType> output_autovec(output_sls_ref.size());
 
-    bool success = false, success_ref = false, success_autovec = false;
-
 #ifndef OUT_TYPE_FLOAT16
     auto kernel_32 = GenerateEmbeddingSpMDMNBit<int32_t>(
         bit_rate,
@@ -170,8 +168,46 @@ int run_benchmark(
         prefetch ? 16 : 0);
 #endif // OUT_TYPE_FLOAT16
 
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int32_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/OutType>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/is_bf16_out,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
+    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int64_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/OutType>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/is_bf16_out,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
+#endif
+
     vector<OutType>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
+      bool success_ref = false;
       // Reference implementation
       double t_ref = measureWithWarmup(
           [&]() {
@@ -228,13 +264,13 @@ int run_benchmark(
             }
           });
 
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+      bool success_autovec = false;
       // Auto-vectorization implementation
       double t_autovec = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              success_autovec = EmbeddingSpMDMNBit_autovec(
-                  bit_rate,
-                  embedding_dim,
+              success_autovec = kernel_32_autovec(
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -242,18 +278,9 @@ int run_benchmark(
                   indices_32.data(),
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output_autovec.data(),
-                  false, // is_weight_positional
-                  true, // use_offsets
-                  -1, // output_stride
-                  -1, // input_stride
-                  true, // scale_bias_last
-                  is_bf16_out);
+                  output_autovec.data());
             } else {
-              success_autovec = EmbeddingSpMDMNBit_autovec(
-                  bit_rate,
-                  embedding_dim,
+              success_autovec = kernel_64_autovec(
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -261,14 +288,7 @@ int run_benchmark(
                   indices.data(),
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
-                  output_autovec.data(),
-                  false, // is_weight_positional
-                  true, // use_offsets
-                  -1, // output_stride
-                  -1, // input_stride
-                  true, // scale_bias_last
-                  is_bf16_out);
+                  output_autovec.data());
             }
           },
           NUM_WARMUP,
@@ -283,8 +303,10 @@ int run_benchmark(
               cache_evict(output_autovec);
             }
           });
+#endif
 
 #ifndef OUT_TYPE_FLOAT16
+      bool success = false;
       // Hand-written AVX2/AVX512 implementation
       double t = measureWithWarmup(
           [&]() {
@@ -378,6 +400,7 @@ int run_benchmark(
         }
 #endif // OUT_TYPE_FLOAT16
 
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
         if (success_autovec != success_ref) {
           assert(
               false &&
@@ -411,6 +434,7 @@ int run_benchmark(
             }
           }
         }
+#endif
       }
 
       if (std::is_same<OutType, float>::value) {
@@ -444,22 +468,23 @@ int run_benchmark(
 
 #ifndef OUT_TYPE_FLOAT16
       cout << "b/w, " << bytes / 1e9 / t << ", GB/s, " << "effective b/w, "
-           << bytes_padded / 1e9 / t << ", GB/s, " << "time, " << t
-           << ", autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
+           << bytes_padded / 1e9 / t << ", GB/s, " << "time, " << t;
+#endif
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+      cout << ", autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
            << "autovec eff. b/w, " << bytes_padded / 1e9 / t_autovec
-           << ", GB/s, " << "autovec time, " << t_autovec << ", ref b/w, "
-           << bytes / 1e9 / t_ref << ", GB/s, " << "ref eff. b/w, "
-           << bytes_padded / 1e9 / t_ref << ", GB/s, " << "ref time, " << t_ref
-           << ", autovec speedup, " << t_ref / t_autovec << ", asmjit speedup, "
-           << t_ref / t << endl;
-#else
-      cout << "autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
-           << "autovec eff. b/w, " << bytes_padded / 1e9 / t_autovec
-           << ", GB/s, " << "autovec time, " << t_autovec << ", ref b/w, "
-           << bytes / 1e9 / t_ref << ", GB/s, " << "ref eff. b/w, "
-           << bytes_padded / 1e9 / t_ref << ", GB/s, " << "ref time, " << t_ref
-           << ", autovec speedup, " << t_ref / t_autovec << endl;
-#endif // OUT_TYPE_FLOAT16
+           << ", GB/s, " << "autovec time, " << t_autovec;
+#endif
+      cout << ", ref b/w, " << bytes / 1e9 / t_ref << ", GB/s, "
+           << "ref eff. b/w, " << bytes_padded / 1e9 / t_ref << ", GB/s, "
+           << "ref time, " << t_ref;
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+      cout << ", autovec speedup, " << t_ref / t_autovec;
+#endif
+#ifndef OUT_TYPE_FLOAT16
+      cout << ", asmjit speedup, " << t_ref / t;
+#endif
+      cout << std::endl;
     } // flush_cache
   } // has_weight
   return 0;
