@@ -594,7 +594,7 @@ class SplitTableBatchedEmbeddingsTest(unittest.TestCase):
         } | {"lr": 1.0, "lower_bound": 2.0}
         cc.update_hyper_parameters(updated_parameters)
         self.assertAlmostEqual(
-            cc.optimizer_args.learning_rate, updated_parameters["lr"]
+            cc.optimizer_args.learning_rate_tensor.item(), updated_parameters["lr"]
         )
         self.assertAlmostEqual(cc.optimizer_args.eps, updated_parameters["eps"])
         self.assertAlmostEqual(cc.optimizer_args.beta1, updated_parameters["beta1"])

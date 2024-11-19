@@ -960,12 +960,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # and CowClipDefinition are not used
             counter_halflife = -1
 
+        learning_rate_tensor = torch.tensor(
+            learning_rate, device=torch.device("cpu"), dtype=torch.float
+        )
+
         self.optimizer_args = invokers.lookup_args.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
             max_norm=max_norm,
-            learning_rate=learning_rate,
+            learning_rate_tensor=learning_rate_tensor,
             eps=eps,
             beta1=beta1,
             beta2=beta2,
@@ -2573,7 +2577,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Helper function to script `set_learning_rate`.
         Note that returning None does not work.
         """
-        self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
+        self.optimizer_args.learning_rate_tensor.fill_(lr)
         return 0.0
 
     @torch.jit.ignore
