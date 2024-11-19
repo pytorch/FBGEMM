@@ -14,28 +14,6 @@ set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
 
 ################################################################################
-# Source Includes
-################################################################################
-
-set(fbgemm_sources_include_directories
-  # FBGEMM
-  ${FBGEMM}/include
-  # FBGEMM_GPU
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_CURRENT_SOURCE_DIR}/include
-  ${CMAKE_CURRENT_SOURCE_DIR}/../include
-  # PyTorch
-  ${TORCH_INCLUDE_DIRS}
-  # Third-party
-  ${THIRDPARTY}/asmjit/src
-  ${THIRDPARTY}/cpuinfo/include
-  ${THIRDPARTY}/cutlass/include
-  ${THIRDPARTY}/cutlass/tools/util/include
-  ${THIRDPARTY}/json/include
-  ${NCCL_INCLUDE_DIRS})
-
-
-################################################################################
 # Third Party Sources
 ################################################################################
 
@@ -735,16 +713,30 @@ target_compile_options(fbgemm_gpu_py PRIVATE
 ################################################################################
 
 install(TARGETS fbgemm_gpu_py
-        DESTINATION fbgemm_gpu)
+  DESTINATION fbgemm_gpu)
 
 install(FILES ${gen_python_source_files}
-        DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
+  DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
 
 install(FILES ${gen_defused_optim_py_files}
-        DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
+  DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
 
 add_custom_target(fbgemm_gpu_py_clean_rpath ALL
   WORKING_DIRECTORY ${OUTPUT_DIR}
   COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
 
 add_dependencies(fbgemm_gpu_py_clean_rpath fbgemm_gpu_py)
+
+# TODO: Test target, need to properly integrate into FBGEMM_GPU main build
+gpu_cpp_library(
+  PREFIX
+    embedding_inplace_ops
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
+  GPU_SRCS
+    src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
+    src/embedding_inplace_ops/embedding_inplace_update.cu
+  GPU_FLAGS
+    ${TORCH_CUDA_OPTIONS})
