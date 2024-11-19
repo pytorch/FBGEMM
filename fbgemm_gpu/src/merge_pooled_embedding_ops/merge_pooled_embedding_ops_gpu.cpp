@@ -620,7 +620,12 @@ void init_p2p_access() {
     for (const auto i : c10::irange(at::cuda::getNumGPUs())) {
       for (const auto j : c10::irange(at::cuda::getNumGPUs())) {
         if (i != j) {
-          AT_ASSERT(at::cuda::get_p2p_access(i, j));
+          TORCH_INTERNAL_ASSERT(
+              at::cuda::get_p2p_access(i, j),
+              "Failed to init p2p access for node ",
+              i,
+              ",",
+              j);
         }
       }
     }
