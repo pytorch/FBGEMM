@@ -345,7 +345,7 @@ using namespace embedding_ops;
 #define DISPATCH_PLACEHOLDER_TYPES({{ args.placeholder_tensor_names | to_upper_placeholder_types() | join(", ") }}, NAME, ...) \
   {%- for ph_name in args.placeholder_tensor_names %}
   at::ScalarType _{{ph_name}}_t =                                       \
-    ::detail::scalar_type({{ ph_name.upper() + "_T" }});                \
+    {{ ph_name.upper() + "_T" }};                                       \
   {%- endfor %}
   {%- for ph_combo in args.placeholder_type_combos %}
   if (                                                                  \
