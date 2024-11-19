@@ -56,7 +56,7 @@ class OptimizerArgs(NamedTuple):
     gradient_clipping: bool
     max_gradient: float
     max_norm: float
-    learning_rate: float
+    learning_rate_tensor: torch.Tensor
     eps: float
     beta1: float
     beta2: float
@@ -75,6 +75,7 @@ class OptimizerArgs(NamedTuple):
     weight_norm_coefficient: float
     lower_bound: float
     regularization_mode: int
+    learning_rate: float = 0.0
 
 
 class Momentum(NamedTuple):

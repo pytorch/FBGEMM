@@ -533,12 +533,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         cowclip_regularization = CowClipDefinition()
 
+        learning_rate_tensor = torch.tensor(
+            learning_rate, device=self.current_device, dtype=torch.float
+        )
         self.optimizer_args = invokers.lookup_args_ssd.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
             max_norm=max_norm,
-            learning_rate=learning_rate,
+            learning_rate_tensor=learning_rate_tensor,
             eps=eps,
             beta1=beta1,
             beta2=beta2,
