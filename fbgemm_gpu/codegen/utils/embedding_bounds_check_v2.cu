@@ -41,7 +41,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
                                     // dummy PackedTensorAccessor
     pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
     FixedDivisor fd,
-    const int32_t vbe_bound,
+    const int32_t* const b_t_map,
+    const int32_t info_B_num_bits,
+    const int32_t info_B_mask,
     TORCH_DSA_KERNEL_ARGS) {
   int32_t T = rows_per_table.size(0);
   int32_t total_B = offsets.size(0) - 1;
@@ -80,28 +82,17 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     }
   }
 
-  for (int32_t b_t_init = blockIdx.x * blockDim.y + threadIdx.y;
-       b_t_init < (vbe ? vbe_bound : total_B);
-       b_t_init += blockDim.y * gridDim.x) {
+  for (int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B;
+       b_t += blockDim.y * gridDim.x) {
+    // Compute b and t
     int32_t b;
     int32_t t;
-    int32_t b_t = b_t_init;
-
-    fd.DivMod(b_t, &t, &b);
-
     if (vbe) {
-      // Check if t is valid
-      if (t >= T) {
-        return;
-      }
-      const auto B_start = B_offsets[t];
-      B = B_offsets[t + 1] - B_start;
-      // Check if b is valid
-      if (b >= B) {
-        continue;
-      }
-      // Update b_t value
-      b_t = B_start + b;
+      const auto info = *reinterpret_cast<const uint32_t*>(&b_t_map[b_t]);
+      *reinterpret_cast<uint32_t*>(&t) = info >> info_B_num_bits;
+      *reinterpret_cast<uint32_t*>(&b) = info & info_B_mask;
+    } else {
+      fd.DivMod(b_t, &t, &b);
     }
 
     const auto num_rows = rows_per_table[t];
@@ -208,9 +199,12 @@ void _bounds_check_indices_cuda_v2(
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t max_B) {
+    const int64_t /*max_B*/,
+    const std::optional<Tensor>& b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      rows_per_table, indices, offsets, warning, weights, B_offsets);
+      rows_per_table, indices, offsets, warning, weights, B_offsets, b_t_map);
   TENSOR_NDIM_EQUALS(rows_per_table, 1);
   TENSOR_NDIM_EQUALS(indices, 1);
   TENSOR_NDIM_EQUALS(offsets, 1);
@@ -219,6 +213,8 @@ void _bounds_check_indices_cuda_v2(
   const auto vbe = B_offsets.has_value();
   if (vbe) {
     TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
+    TORCH_CHECK(b_t_map.has_value());
+    TENSOR_NDIM_EQUALS(b_t_map.value(), 1);
   }
 
   CUDA_DEVICE_GUARD(rows_per_table);
@@ -236,9 +232,7 @@ void _bounds_check_indices_cuda_v2(
   }
   const int64_t num_indices = indices.size(0);
 
-  if (vbe) {
-    TORCH_CHECK(max_B >= 0);
-  } else {
+  if (!vbe) {
     TORCH_CHECK(
         offsets.size(0) == B * T + 1,
         "offsets size " + std::to_string(offsets.size(0)) +
@@ -253,11 +247,6 @@ void _bounds_check_indices_cuda_v2(
   }
 
   constexpr size_t kNumThreads = 1024;
-  const auto max_B_ = vbe ? max_B : B;
-
-  const int32_t vbe_bound = max_B_ * T;
-  TORCH_CHECK(
-      vbe_bound >= 0, "EmbeddingBoundsCheck: vbe_bound is out of bound");
 
 #define INVOKE_BOUNDS_CHECK_INDICES(MODE)                                      \
   if (bounds_check_mode == MODE) {                                             \
@@ -270,8 +259,7 @@ void _bounds_check_indices_cuda_v2(
                    : bounds_check_indices_kernel_v2<index_t, false, MODE>);    \
           TORCH_DSA_KERNEL_LAUNCH(                                             \
               bounds_check_kernel,                                             \
-              min(div_round_up(                                                \
-                      max_B_* T, kNumThreads / fbgemm_gpu::kWarpSize),         \
+              min(div_round_up(total_B, kNumThreads / fbgemm_gpu::kWarpSize),  \
                   get_max_thread_blocks_()),                                   \
               dim3(                                                            \
                   fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
@@ -282,8 +270,10 @@ void _bounds_check_indices_cuda_v2(
               MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),          \
               vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,           \
               MAKE_PTA_WITH_NAME(func_name, warning, int64_t, 1, 32),          \
-              FixedDivisor(max_B_),                                            \
-              vbe_bound);                                                      \
+              FixedDivisor(B),                                                 \
+              vbe ? b_t_map.value().data_ptr<int32_t>() : nullptr,             \
+              info_B_num_bits,                                                 \
+              info_B_mask);                                                    \
         });                                                                    \
   }
 
