@@ -187,7 +187,10 @@ void _bounds_check_indices_cuda_v1(
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t max_B) {
+    const int64_t max_B,
+    const std::optional<Tensor>& /*b_t_map*/,
+    const int32_t /*info_b_num_bits*/,
+    const uint32_t /*info_B_mask*/) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       rows_per_table, indices, offsets, warning, weights, B_offsets);
   TENSOR_NDIM_EQUALS(rows_per_table, 1);

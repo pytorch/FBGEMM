@@ -33,6 +33,11 @@ generate_vbe_metadata_meta(
   return {row_output_offsets, b_t_map};
 }
 
+std::tuple<int64_t, int64_t>
+get_infos_metadata_meta(Tensor /*unused*/, int64_t /*B*/, int64_t /*T*/) {
+  return {-1, -1};
+}
+
 } // namespace
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -43,4 +48,5 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("generate_vbe_metadata", &generate_vbe_metadata_meta);
+  m.impl("get_infos_metadata", &get_infos_metadata);
 }

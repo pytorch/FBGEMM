@@ -826,6 +826,9 @@ def bounds_check_indices_abstract(
     per_sample_weights: Optional[torch.Tensor] = None,
     B_offsets: Optional[torch.Tensor] = None,
     max_B: Optional[SymInt] = None,
+    b_t_map: Optional[torch.Tensor] = None,
+    info_B_num_bits: int = -1,
+    info_B_mask: int = -1,
 ) -> None:
     """
     This meta function is used to fake the bounds checking
