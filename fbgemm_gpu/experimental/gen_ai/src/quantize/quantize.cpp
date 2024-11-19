@@ -61,6 +61,10 @@ std::vector<at::Tensor> f8f8bf16_grouped(
     const std::vector<at::Tensor>& scale,
     std::optional<at::Tensor> zero_start_index_M,
     bool use_fast_accum = true);
+at::Tensor bf16bf16bf16_grouped(
+    const std::vector<at::Tensor>& X,
+    const std::vector<at::Tensor>& W,
+    std::optional<at::Tensor> zero_start_index_M);
 at::Tensor f8f8bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -164,7 +168,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
-      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] XQ, Tensor[] scale, Tensor? zero_start_index_M=None, bool use_fast_accum=True) -> Tensor[]");
+      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] scale, Tensor? zero_start_index_M=None, bool use_fast_accum=True) -> Tensor[]");
+  m.def(
+      "bf16bf16bf16_grouped(Tensor[] X, Tensor[] W, Tensor? zero_start_index_M=None) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
@@ -234,6 +240,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
+  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
@@ -258,6 +265,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
+  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
@@ -441,6 +449,25 @@ std::vector<at::Tensor> f8f8bf16_grouped_meta(
   return Y;
 }
 
+at::Tensor bf16bf16bf16_grouped_meta(
+    const std::vector<at::Tensor>& X,
+    const std::vector<at::Tensor>& W,
+    std::optional<at::Tensor> /* zero_start_index_M = c10::nullopt */
+) {
+  int problem_count = X.size();
+  int total_output_size = 0;
+  std::vector<int> output_sizes;
+  output_sizes.reserve(problem_count);
+  for (int i = 0; i < problem_count; ++i) {
+    const int output_size = X[i].size(0) * W[i].size(0);
+    total_output_size += output_size;
+    output_sizes.push_back(output_size);
+  }
+  at::Tensor Y =
+      at::empty(total_output_size, X[0].options().dtype(at::kBFloat16));
+  return Y;
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise_meta);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
@@ -457,6 +484,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
   m.impl("f8f8bf16_grouped", f8f8bf16_grouped_meta);
+  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped_meta);
 #endif
 }
 
