@@ -28,7 +28,10 @@ void _bounds_check_indices_cuda_v1(
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t max_B);
+    const int64_t max_B,
+    const std::optional<Tensor>& b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask);
 
 void _bounds_check_indices_cuda_v2(
     Tensor& rows_per_table,
@@ -38,7 +41,10 @@ void _bounds_check_indices_cuda_v2(
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t max_B);
+    const int64_t max_B,
+    const std::optional<Tensor>& b_t_map,
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask);
 
 ///@ingroup embedding-cuda
 void bounds_check_indices_cuda(
@@ -49,7 +55,10 @@ void bounds_check_indices_cuda(
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t max_B) {
+    const int64_t max_B,
+    const std::optional<Tensor>& b_t_map,
+    const int64_t info_B_num_bits,
+    const int64_t info_B_mask) {
   const static bool use_v2 = fbgemm_gpu::config::is_feature_enabled(
       fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_INDICES_V2);
   const auto bounds_check_indices_fn =
@@ -62,7 +71,10 @@ void bounds_check_indices_cuda(
       warning,
       weights,
       B_offsets,
-      max_B);
+      max_B,
+      b_t_map,
+      static_cast<int32_t>(info_B_num_bits),
+      static_cast<uint32_t>(info_B_mask));
 }
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {
