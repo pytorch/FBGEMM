@@ -82,8 +82,10 @@ common_strategy: Dict[str, Any] = {
     "use_cache": st.booleans(),
     "cache_algorithm": st.sampled_from(CacheAlgorithm),
     "use_cpu": use_cpu_strategy(),
-    "output_dtype": st.sampled_from(
-        [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+    "output_dtype": (
+        st.sampled_from([SparseType.FP32, SparseType.FP16, SparseType.BF16])
+        if gpu_available
+        else st.sampled_from([SparseType.FP32])
     ),
 }
 
@@ -124,6 +126,7 @@ def execute_backward_adagrad(  # noqa C901
     #       so we have to limit (T * B * L * D)!
     assume(not use_cpu or T * B * L * D <= 1024)
     assume(not (use_cpu and weights_precision == SparseType.FP16))
+    assume(not (use_cpu and weights_precision == SparseType.BF16))
     # max_norm is only applicable to EXACT_ROWWISE_ADAGRAD GPU version
     assume(max_norm == 0.0 or (not use_cpu and row_wise))
 
