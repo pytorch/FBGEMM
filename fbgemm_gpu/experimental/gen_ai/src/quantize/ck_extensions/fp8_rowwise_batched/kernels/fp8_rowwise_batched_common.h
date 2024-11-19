@@ -7,7 +7,11 @@
  */
 
 #include <ATen/ATen.h>
+#ifdef USE_ROCM
+#include <c10/hip/HIPStream.h>
+#else
 #include <c10/cuda/CUDAStream.h>
+#endif
 #include <torch/torch.h>
 
 #include "ck/ck.hpp"

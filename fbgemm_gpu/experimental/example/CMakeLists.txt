@@ -4,37 +4,14 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-include(${CMAKEMODULES}/Utilities.cmake)
-
 ################################################################################
 # Target Sources
 ################################################################################
-
-set(fbgemm_sources_include_directories
-  # FBGEMM
-  ${FBGEMM}/include
-  # FBGEMM_GPU
-  ${CMAKE_CURRENT_SOURCE_DIR}../..
-  ${CMAKE_CURRENT_SOURCE_DIR}../../include
-  ${CMAKE_CURRENT_SOURCE_DIR}../../../include
-  # PyTorch
-  ${TORCH_INCLUDE_DIRS}
-  # Third-party
-  ${THIRDPARTY}/asmjit/src
-  ${THIRDPARTY}/cpuinfo/include
-  ${THIRDPARTY}/cutlass/include
-  ${THIRDPARTY}/cutlass/tools/util/include
-  ${THIRDPARTY}/json/include
-  ${NCCL_INCLUDE_DIRS})
 
 set(experimental_example_cpp_source_files
     src/cutlass_sgemm_nn.cu
     src/example_ops.cpp
     src/nccl_example.cpp)
-
-set_source_files_properties(${experimental_example_cpp_source_files}
-    PROPERTIES INCLUDE_DIRECTORIES
-    "${fbgemm_sources_include_directories}")
 
 set(experimental_example_python_source_files
     example/__init__.py
@@ -45,35 +22,19 @@ set(experimental_example_python_source_files
 # Build Shared Library
 ################################################################################
 
-add_library(fbgemm_gpu_experimental_example_py MODULE
-    ${experimental_example_cpp_source_files})
-
-target_include_directories(fbgemm_gpu_experimental_example_py PRIVATE
-    ${TORCH_INCLUDE_DIRS}
-    ${NCCL_INCLUDE_DIRS})
-
-target_link_libraries(fbgemm_gpu_experimental_example_py
-    ${TORCH_LIBRARIES}
-    ${NCCL_LIBRARIES}
-    ${CUDA_DRIVER_LIBRARIES})
-
-# Remove `lib` from the output artifact name
-set_target_properties(fbgemm_gpu_experimental_example_py PROPERTIES PREFIX "")
+gpu_cpp_library(
+    PREFIX
+        fbgemm_gpu_experimental_example
+    INCLUDE_DIRS
+        ${fbgemm_sources_include_directories}
+    GPU_SRCS
+        ${experimental_example_cpp_source_files})
 
 
 ################################################################################
 # Install Shared Library and Python Files
 ################################################################################
 
-install(TARGETS fbgemm_gpu_experimental_example_py
-        DESTINATION fbgemm_gpu/experimental/example)
-
-install(FILES ${experimental_example_python_source_files}
-        DESTINATION fbgemm_gpu/experimental/example)
-
-add_custom_target(fbgemm_gpu_experimental_example_py_clean_rpath ALL
-    WORKING_DIRECTORY ${OUTPUT_DIR}
-    COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
-
-add_dependencies(fbgemm_gpu_experimental_example_py_clean_rpath
-    fbgemm_gpu_experimental_example_py)
+add_to_package(DESTINATION fbgemm_gpu/experimental/example
+    TARGETS fbgemm_gpu_experimental_example_py
+    FILES ${experimental_example_python_source_files})
