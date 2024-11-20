@@ -709,6 +709,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if not self.lxu_cache_weights.numel():
             return
 
@@ -891,6 +893,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
         CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
 
+        # pyre-fixme[6]: For 1st argument expected
+        #  `pyre_extensions.PyreReadOnly[Sized]` but got `Union[Module, Tensor]`.
         num_tables = len(self.cache_hash_size_cumsum) - 1
         num_offsets_per_table = (len(offsets) - 1) // num_tables
         cache_missed_locations = torch.where(
@@ -962,6 +966,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if self.lxu_cache_weights.numel() > 0:
             if self.timestep_prefetch_size.get() <= 0:
                 self.prefetch(indices, offsets)
@@ -1136,8 +1142,13 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.index_remappings_array_offsets = torch.empty_like(
             self.index_remappings_array_offsets, device=self.current_device
         )
+        # pyre-fixme[16]: `IntNBitTableBatchedEmbeddingBagsCodegen` has no attribute
+        #  `lxu_cache_weights`.
         self.lxu_cache_weights = torch.empty_like(
-            self.lxu_cache_weights, device=self.current_device
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Module, Tensor]`.
+            self.lxu_cache_weights,
+            device=self.current_device,
         )
         self.original_rows_per_table = torch.empty_like(
             self.original_rows_per_table, device=self.current_device
@@ -1432,6 +1443,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.reset_uvm_cache_stats()
 
     def reset_cache_states(self) -> None:
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if not self.lxu_cache_weights.numel():
             return
         self.lxu_cache_state.fill_(-1)
@@ -1842,6 +1855,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         lxu_cache_locations = None
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if self.lxu_cache_weights.numel() > 0:
             linear_cache_indices = (
                 torch.ops.fbgemm.linearize_cache_indices_from_row_idx(

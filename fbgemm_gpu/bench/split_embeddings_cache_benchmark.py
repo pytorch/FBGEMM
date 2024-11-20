@@ -421,8 +421,14 @@ def lru_cache_populate_byte(
 
     total_rows = 0
     for request in requests:
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Module, Tensor]` is not a
+        #  function.
         prev = replay_cc.lxu_cache_state.clone().detach()
         replay_populate(request)
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Module, Tensor]` is not a
+        #  function.
         after = replay_cc.lxu_cache_state.clone().detach()
 
         diff = after - prev
@@ -538,8 +544,14 @@ def lfu_cache_populate_byte(
 
     total_rows = 0
     for request in requests:
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Module, Tensor]` is not a
+        #  function.
         prev = replay_cc.lxu_cache_state.clone().detach()
         replay_populate(request)
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Module, Tensor]` is not a
+        #  function.
         after = replay_cc.lxu_cache_state.clone().detach()
 
         diff = after - prev
