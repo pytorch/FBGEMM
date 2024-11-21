@@ -332,7 +332,7 @@ test_setup_conda_environment () {
   if [ "$pytorch_variant_type" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_CHANNEL[/VERSION] PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env clang 3.12 pip test/0.8.0 cuda 12.1.0       # Setup environment with pytorch-test 0.8.0 for Clang + Python 3.12 + CUDA 12.1.0"
+    echo "    ${FUNCNAME[0]} build_env clang 3.12 pip test/0.8.0 cuda 12.4.1       # Setup environment with pytorch-test 0.8.0 for Clang + Python 3.12 + CUDA 12.4.1"
     return 1
   else
     echo "################################################################################"
@@ -494,7 +494,6 @@ test_fbgemm_gpu_setup_and_pip_install () {
   if [ "$variant_type" == "cuda" ] || [ "$variant_type" == "genai" ]; then
     local variant_versions=(
       11.8.0
-      12.1.1
       12.4.1
     )
   elif [ "$variant_type" == "rocm" ]; then

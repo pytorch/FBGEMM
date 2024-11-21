@@ -9,7 +9,7 @@ PyTorch GPU operator libraries for training and inference.  The library provides
 efficient table batched embedding bag, data layout transformation, and
 quantization supports.
 
-FBGEMM_GPU is currently tested with CUDA 12.1 and 11.8 in CI, and with PyTorch
+FBGEMM_GPU is currently tested with CUDA 12.4 and 11.8 in CI, and with PyTorch
 packages (2.1+) that are built against those CUDA versions.
 
 See the full [Documentation](https://pytorch.org/FBGEMM) for more information

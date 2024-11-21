@@ -64,9 +64,9 @@ jobs:
         host-machine: [
           { arch: x86, instance: "linux.24xlarge" },
         ]
-        container-image: [ "ubuntu:20.04" ]
+        container-image: [ "ubuntu:22.04" ]
         python-version: [ "3.9", "3.10", "3.11", "3.12" ]
-        rocm-version: [ "6.1" ]
+        rocm-version: [ "6.1", "6.2" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -129,7 +129,7 @@ jobs:
     if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
+      image: "rocm/dev-ubuntu-22.04:${{ matrix.rocm-version }}-complete"
       options: --user root --device=/dev/kfd --device=/dev/dri --ipc=host --shm-size 16G --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
     defaults:
       run:
@@ -147,7 +147,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.12" ]
-        rocm-version: [ "6.1" ]
+        rocm-version: [ "6.2" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 

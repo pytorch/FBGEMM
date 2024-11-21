@@ -41,7 +41,7 @@ __export_package_channel_info () {
 __export_package_variant_info () {
   local package_variant_type_version="$1"
 
-  local FALLBACK_VERSION_CUDA="12.1.1"
+  local FALLBACK_VERSION_CUDA="12.4.1"
   local FALLBACK_VERSION_ROCM="6.0.2"
 
   if [ "$package_variant_type_version" == "cuda" ]; then
@@ -60,7 +60,7 @@ __export_package_variant_info () {
     local variant_version=""
 
   else
-    # Split along '/', e.g. cuda/12.1.0
+    # Split along '/', e.g. cuda/12.4.0
     # shellcheck disable=SC2207
     local package_variant_type_version_arr=($(echo "${package_variant_type_version}" | tr '/' '\n'))
     local variant_type="${package_variant_type_version_arr[0]}"
@@ -71,7 +71,7 @@ __export_package_variant_info () {
       local cuda_version="${variant_version:-${FALLBACK_VERSION_CUDA}}"
       # shellcheck disable=SC2206
       local cuda_version_arr=(${cuda_version//./ })
-      # Convert, i.e. cuda 12.1.0 => cu121
+      # Convert, i.e. cuda 12.4.0 => cu124
       local variant_type="cu"
       local variant_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
 
@@ -204,7 +204,7 @@ install_from_pytorch_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Install the CPU variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.1.0      # Install the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.4.0      # Install the CUDA 12.4 variant, specific version from test channel"
     echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Install the ROCM 6.1 variant, latest version from nightly channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton 1.11.0                  # Install specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton release                 # Install latest version from release channel"
@@ -249,7 +249,7 @@ download_from_pytorch_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Download the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Download the CPU variant, latest version from release channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.1.0      # Download the CUDA 12.1 variant, specific version from test channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.4.0      # Download the CUDA 12.4 variant, specific version from test channel"
     echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Download the ROCM 6.1 variant, latest version from nightly channel"
     return 1
   else

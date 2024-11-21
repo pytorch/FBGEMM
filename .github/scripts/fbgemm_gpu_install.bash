@@ -182,7 +182,7 @@ install_fbgemm_gpu_pip () {
     echo "    ${FUNCNAME[0]} build_env 0.8.0 cpu                  # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env release cuda/12.4.1        # Install the CUDA variant, latest version from release channel"
     echo "    ${FUNCNAME[0]} build_env test/0.8.0 cuda/12.4.1     # Install the CUDA 12.4 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env nightly rocm/6.1           # Install the ROCM 6.1 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env nightly rocm/6.2           # Install the ROCM 6.2 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"

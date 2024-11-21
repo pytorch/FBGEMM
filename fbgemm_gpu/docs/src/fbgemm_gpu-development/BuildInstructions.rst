@@ -117,7 +117,7 @@ Install the full CUDA package through Conda, which includes
 .. code:: sh
 
   # See https://anaconda.org/nvidia/cuda for all available versions of CUDA
-  cuda_version=12.1.0
+  cuda_version=12.4.1
 
   # Install the full CUDA package
   conda install -n ${env_name} -y cuda -c "nvidia/label/cuda-${cuda_version}"
@@ -177,10 +177,10 @@ desired ROCm version:
 
 .. code:: sh
 
-  # Run for ROCm 6.1.2
-  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:6.1.2
+  # Run for ROCm 6.2.0
+  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:6.2.0
 
-While the `full ROCm Docker image <https://hub.docker.com/r/rocm/dev-ubuntu-20.04>`__
+While the `full ROCm Docker image <https://hub.docker.com/r/rocm/dev-ubuntu-22.04>`__
 comes with all ROCm packages pre-installed, it results in a very large Docker
 container, and so for this reason, the minimal image is recommended for building
 and running FBGEMM_GPU.

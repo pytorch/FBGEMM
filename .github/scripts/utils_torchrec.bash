@@ -26,7 +26,7 @@ install_torchrec_pip () {
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env test/2.1.0rc0 cpu                      # Install the CPU variant for a specific version"
     echo "    ${FUNCNAME[0]} build_env release cpu                            # Install the CPU variant, latest release version"
-    echo "    ${FUNCNAME[0]} build_env nightly/0.9.0.dev20240716 cuda/12.1.0  # Install the CUDA 12.1 variant, nightly version"
+    echo "    ${FUNCNAME[0]} build_env nightly/0.9.0.dev20240716 cuda/12.4.0  # Install the CUDA 12.4 variant, nightly version"
     return 1
   else
     echo "################################################################################"
