@@ -522,7 +522,7 @@ reproducible build environment.</p>
 <p>Install the full CUDA package through Conda, which includes
 <a class="reference external" href="https://developer.nvidia.com/nvidia-management-library-nvml">NVML</a>:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># See https://anaconda.org/nvidia/cuda for all available versions of CUDA</span>
-<span class="nv">cuda_version</span><span class="o">=</span><span class="m">12</span>.1.0
+<span class="nv">cuda_version</span><span class="o">=</span><span class="m">12</span>.4.1
 
 <span class="c1"># Install the full CUDA package</span>
 conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span>cuda<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;nvidia/label/cuda-</span><span class="si">${</span><span class="nv">cuda_version</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -571,11 +571,11 @@ Docker images or through bare metal.</p>
 <p>For setups through Docker, simply pull the pre-installed <a class="reference external" href="https://hub.docker.com/r/rocm/rocm-terminal">Minimal Docker
 image for ROCm</a> for the
 desired ROCm version:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run for ROCm 6.1.2</span>
-docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--entrypoint<span class="w"> </span><span class="s2">&quot;/bin/bash&quot;</span><span class="w"> </span>rocm/rocm-terminal:6.1.2
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run for ROCm 6.2.0</span>
+docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--entrypoint<span class="w"> </span><span class="s2">&quot;/bin/bash&quot;</span><span class="w"> </span>rocm/rocm-terminal:6.2.0
 </pre></div>
 </div>
-<p>While the <a class="reference external" href="https://hub.docker.com/r/rocm/dev-ubuntu-20.04">full ROCm Docker image</a>
+<p>While the <a class="reference external" href="https://hub.docker.com/r/rocm/dev-ubuntu-22.04">full ROCm Docker image</a>
 comes with all ROCm packages pre-installed, it results in a very large Docker
 container, and so for this reason, the minimal image is recommended for building
 and running FBGEMM_GPU.</p>
