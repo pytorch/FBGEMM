@@ -192,7 +192,9 @@ __configure_fbgemm_gpu_build_cuda () {
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
     echo "[BUILD] Using the default architectures for CUDA $cuda_version_nvcc ..."
 
-    if [[ $cuda_version_nvcc == *"V12.1"* ]] || [[ $cuda_version_nvcc == *"V12.4"* ]]; then
+    if  [[ $cuda_version_nvcc == *"V12.1"* ]] ||
+        [[ $cuda_version_nvcc == *"V12.4"* ]] ||
+        [[ $cuda_version_nvcc == *"V12.6"* ]]; then
       # sm_90 and sm_90a are only available for CUDA 12.1+
       # NOTE: CUTLASS kernels for Hopper require sm_90a to be enabled
       # See:

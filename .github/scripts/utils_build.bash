@@ -109,14 +109,18 @@ __conda_install_gcc () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  # NOTE: g++ 10.x is installed by default instead of 11.x+ becaue 11.x+ builds
-  # binaries that reference GLIBCXX_3.4.29, which may not be available on
-  # systems  with older versions of libstdc++.so.6 such as CentOS Stream 8 and
-  # Ubuntu 20.04.  However, if libfolly is used, GLIBCXX_3.4.30+ will be
-  # required, which will require 11.x+.
+  # NOTE: Previously, g++ 10.x is installed by default instead of 11.x+ because
+  # 11.x+ builds binaries that reference GLIBCXX_3.4.29, which may not be
+  # available on systems with older versions of libstdc++.so.6 such as CentOS
+  # Stream 8 and Ubuntu 20.04.
+  #
+  # However, since https://github.com/pytorch/pytorch/pull/141035 landed, g++
+  # 11.1+ became a requirement, since std::bit_cast is only available with
+  # libstdc++ 11.1+.  See for details:
+  # https://gcc.gnu.org/onlinedocs/libstdc++/manual/status.html#manual.intro.status.iso
   #
   # shellcheck disable=SC2155
-  local gcc_version="${GCC_VERSION:-10.4.0}"
+  local gcc_version="${GCC_VERSION:-11.4.0}"
 
   echo "[INSTALL] Installing GCC (${gcc_version}, ${archname}) through Conda ..."
   # shellcheck disable=SC2086
@@ -168,6 +172,11 @@ __conda_install_clang () {
   local cc_path=$(conda run ${env_prefix} which clang)
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} which clang++)
+
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CC="${cc_path}"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CXX="${cxx_path}"
 
   # Set the symlinks, override if needed
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"

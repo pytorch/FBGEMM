@@ -163,6 +163,7 @@ install_cudnn () {
     ["118"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-${PLATFORM_NAME_LC}-8.7.0.84_cuda11-archive.tar.xz"
     ["121"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz"
     ["124"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz"
+    ["126"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-9.5.1.17_cuda12-archive.tar.xz"
   )
 
   # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
