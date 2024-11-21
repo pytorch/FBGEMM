@@ -308,9 +308,13 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             # cache status; we use the exact same logic, but still assigning ways in a associative cache can be
             # arbitrary. We compare sum along ways in each set, instead of expecting exact tensor match.
             cache_weights_ref = torch.reshape(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 cc_ref.lxu_cache_weights,
                 [-1, associativity],
             )
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Tensor, Module]`.
             cache_weights = torch.reshape(cc.lxu_cache_weights, [-1, associativity])
             torch.testing.assert_close(
                 torch.sum(cache_weights_ref, 1),
@@ -318,16 +322,26 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 equal_nan=True,
             )
             torch.testing.assert_close(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 torch.sum(cc.lxu_cache_state, 1),
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 torch.sum(cc_ref.lxu_cache_state, 1),
                 equal_nan=True,
             )
             # lxu_state can be different as time_stamp values can be different.
             # we check the entries with max value.
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Tensor, Module]`.
             max_timestamp_ref = torch.max(cc_ref.lxu_state)
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Tensor, Module]`.
             max_timestamp_uvm_caching = torch.max(cc.lxu_state)
             x = cc_ref.lxu_state == max_timestamp_ref
             y = cc.lxu_state == max_timestamp_uvm_caching
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[bool,
+            #  Tensor]`.
             torch.testing.assert_close(torch.sum(x, 1), torch.sum(y, 1))
 
             # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM.

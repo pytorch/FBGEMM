@@ -290,6 +290,10 @@ def device(  # noqa C901
     emb = emb.to(get_device())
 
     if weights_precision == SparseType.INT8:
+        # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
+        #  min_val: float, max_val: float) -> None, (self:
+        #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
+        #  None, Tensor, Module]` is not a function.
         emb.init_embedding_weights_uniform(-0.0003, 0.0003)
 
     nparams = sum(d * E for d in Ds)
@@ -886,10 +890,16 @@ def cache(  # noqa C901
     NOT_FOUND = -1
     for req in requests:
         indices, offsets = req.unpack_2()
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
+        #  function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices.long(), offsets.long())
         exchanged_cache_lines.append(
-            (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
+            # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
+            (emb.lxu_cache_state != old_lxu_cache_state)
+            .sum()
+            .item()
         )
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
         emb.forward(indices.long(), offsets.long())
@@ -2433,10 +2443,16 @@ def nbit_cache(  # noqa C901
 
     for req in requests:
         indices, offsets = req.unpack_2()
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
+        #  function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
-            (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
+            # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
+            (emb.lxu_cache_state != old_lxu_cache_state)
+            .sum()
+            .item()
         )
         cache_misses.append(
             (emb.lxu_cache_locations_list.top() == NOT_FOUND).sum().item()
