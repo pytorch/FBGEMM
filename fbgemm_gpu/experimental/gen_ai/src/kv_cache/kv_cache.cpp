@@ -26,6 +26,31 @@ namespace fbgemm_gpu {
 #define STRING_(s) #s
 #define STRING(x) STRING_(x)
 
+at::Tensor nope_qkv_varseq_prefill(
+    at::Tensor XQ,
+    at::Tensor XK,
+    at::Tensor XV,
+    at::Tensor cache_K,
+    at::Tensor cache_V,
+    at::Tensor varseq_batch,
+    at::Tensor varseq_seqpos,
+    std::optional<at::Tensor> block_tables,
+    int64_t page_size,
+    std::optional<at::Tensor> varseq_cache_seqpos);
+
+at::Tensor nope_qkv_decoding(
+    at::Tensor XQ,
+    at::Tensor XK,
+    at::Tensor XV,
+    at::Tensor cache_K,
+    at::Tensor cache_V,
+    at::Tensor seqpos,
+    std::optional<at::Tensor> block_tables,
+    int64_t page_size,
+    std::optional<at::Tensor> actual_batch_size,
+    std::optional<at::Tensor> batch,
+    std::optional<at::Tensor> cache_seqpos);
+
 at::Tensor rope_qkv_varseq_prefill(
     at::Tensor XQ,
     at::Tensor XK,
@@ -153,6 +178,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("rope_qkv_decoding(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
       DEFAULT_PAGE_SIZE) ", Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None,  int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32, Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor");
   m.impl("rope_qkv_decoding", rope_qkv_decoding);
+  m.def(
+      "nope_qkv_varseq_prefill(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor varseq_batch, Tensor varseq_seqpos, Tensor? block_tables=None, int page_size=" STRING(
+          DEFAULT_PAGE_SIZE) ", Tensor? varseq_cache_seqpos=None) -> Tensor");
+  m.impl("nope_qkv_varseq_prefill", nope_qkv_varseq_prefill);
+  m.def("nope_qkv_decoding(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor seqpos, Tensor? block_tables=None, int page_size=" STRING(
+      DEFAULT_PAGE_SIZE) ", Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None) -> Tensor");
+  m.impl("nope_qkv_decoding", nope_qkv_decoding);
   m.def("xpos_qkv_varseq_prefill(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V, Tensor varseq_batch, Tensor varseq_seqpos, float theta, float gamma, float scale_base, float exponent_offset, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
       DEFAULT_PAGE_SIZE) ", Tensor? varseq_cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32,  Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor");
   m.impl("xpos_qkv_varseq_prefill", xpos_qkv_varseq_prefill);
