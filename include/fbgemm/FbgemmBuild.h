@@ -81,6 +81,14 @@
 #define NO_SANITIZE(what)
 #endif
 
+// Ignore __builtin_assume() when not supported by compiler.
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+#if !__has_builtin(__builtin_assume)
+#define __builtin_assume(x) (static_cast<void>(0))
+#endif
+
 // Macro for silencing warnings
 #ifdef __clang__
 // clang-format off
