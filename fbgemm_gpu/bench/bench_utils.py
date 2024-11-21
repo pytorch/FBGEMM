@@ -496,6 +496,7 @@ def fill_random_scale_bias(
     weights_precision: SparseType,
 ) -> None:
     for t in range(T):
+        # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
         (weights, scale_shift) = emb.split_embedding_weights()[t]
         if scale_shift is not None:
             (E, R) = scale_shift.shape

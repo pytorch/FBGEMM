@@ -264,6 +264,8 @@ class CacheTest(unittest.TestCase):
             .cuda()
         )
         torch.cuda.synchronize()  # make sure TBEs and inputs are ready
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[bool,
+        #  Tensor]`.
         self.assertTrue(torch.all(cc.lxu_cache_locking_counter == 0))
 
         cur_stream: torch.cuda.Stream = torch.cuda.current_stream()
@@ -335,6 +337,8 @@ class CacheTest(unittest.TestCase):
             )
 
         assert_cache(output, output_ref, stochastic_rounding)
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[bool,
+        #  Tensor]`.
         self.assertTrue(torch.all(cc.lxu_cache_locking_counter == 0))
 
         if prefetch_stream:
