@@ -1824,6 +1824,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             #  `Union[Module, Tensor]`.
             placements=self.momentum2_placements,
         )
+
+        # Although self.iter_cpu is created on CPU. It might be transferred to
+        # GPU by the user. So, we need to transfer it to CPU explicitly. This
+        # should be done only once.
+        self.iter_cpu = self.iter_cpu.cpu()
+
         # Sync with loaded state
         if (
             not is_torchdynamo_compiling()
