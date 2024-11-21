@@ -1838,6 +1838,7 @@
 <span class="sd">        Returns:</span>
 <span class="sd">            The cache miss counter</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># pyre-fixme[7]: Expected `Tensor` but got `Union[Module, Tensor]`.</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
@@ -2136,11 +2137,23 @@
         <span class="p">)</span>
         <span class="n">common_args</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">CommonArgs</span><span class="p">(</span>
             <span class="n">placeholder_autograd_tensor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">placeholder_autograd_tensor</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">dev_weights</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_dev</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">host_weights</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_host</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">uvm_weights</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">lxu_cache_weights</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 6th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">weights_placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_placements</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 7th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">weights_offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_offsets</span><span class="p">,</span>
             <span class="n">D_offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="p">,</span>
             <span class="n">total_D</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">total_D</span><span class="p">,</span>
@@ -2189,10 +2202,20 @@
             <span class="p">)</span>
 
         <span class="n">momentum1</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
+            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum1_dev</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum1_host</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum1_uvm</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum1_offsets</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum1_placements</span><span class="p">,</span>
         <span class="p">)</span>
 
@@ -2212,10 +2235,20 @@
             <span class="p">)</span>
 
         <span class="n">momentum2</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
+            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum2_dev</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum2_host</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum2_uvm</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum2_offsets</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum2_placements</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="c1"># Sync with loaded state</span>
@@ -2274,17 +2307,37 @@
             <span class="p">)</span>
 
         <span class="n">prev_iter</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
+            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_dev</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_host</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_uvm</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_offsets</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_placements</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="n">row_counter</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
+            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_dev</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_host</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_uvm</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_offsets</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_placements</span><span class="p">,</span>
         <span class="p">)</span>
 
@@ -2341,6 +2394,8 @@
                         <span class="n">momentum1</span><span class="p">,</span>
                         <span class="nb">iter</span><span class="o">=</span><span class="n">iter_int</span><span class="p">,</span>
                         <span class="n">apply_global_weight_decay</span><span class="o">=</span><span class="n">apply_global_weight_decay</span><span class="p">,</span>
+                        <span class="c1"># pyre-fixme[6]: For 6th argument expected</span>
+                        <span class="c1">#  `Optional[Tensor]` but got `Union[Module, Tensor]`.</span>
                         <span class="n">prev_iter_dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_dev</span><span class="p">,</span>
                         <span class="n">gwd_lower_bound</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">gwd_lower_bound</span><span class="p">,</span>
                     <span class="p">),</span>
@@ -2478,6 +2533,8 @@
             <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">last_reported_uvm_stats</span> <span class="o">=</span> <span class="n">uvm_cache_stats</span>
 
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="n">element_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">element_size</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">stat_index</span> <span class="ow">in</span> <span class="n">UVMCacheStatsIndex</span><span class="p">:</span>
             <span class="n">stats_reporter</span><span class="o">.</span><span class="n">report_data_amount</span><span class="p">(</span>
@@ -2535,6 +2592,8 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">timestep</span> <span class="o">+=</span> <span class="mi">1</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timestep</span><span class="p">)</span>
 
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
             <span class="k">return</span>
 
@@ -2675,8 +2734,12 @@
 
         <span class="n">miss_count</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">unique_ids_count_list</span><span class="p">)</span>
 
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[Any, A...</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[Any, A...</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+=</span> <span class="p">(</span><span class="n">miss_count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
 
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[Any, A...</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[Any, A...</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="n">miss_count</span>
 
     <span class="k">def</span> <span class="nf">_update_tablewise_cache_miss</span><span class="p">(</span>
@@ -2688,6 +2751,8 @@
         <span class="n">CACHE_MISS</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
         <span class="n">CACHE_HIT</span> <span class="o">=</span> <span class="o">-</span><span class="mi">2</span>
 
+        <span class="c1"># pyre-fixme[6]: For 1st argument expected</span>
+        <span class="c1">#  `pyre_extensions.PyreReadOnly[Sized]` but got `Union[Module, Tensor]`.</span>
         <span class="n">num_tables</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
         <span class="n">num_offsets_per_table</span> <span class="o">=</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">offsets</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">num_tables</span>
         <span class="n">cache_missed_locations</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
@@ -2735,7 +2800,9 @@
         <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">==</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">INT8</span><span class="p">:</span>
                 <span class="n">dim</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">int8_emb_row_dim_offset</span>
+            <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[An...</span>
             <span class="n">placement</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_physical_placements</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
+            <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[An...</span>
             <span class="n">offset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_physical_offsets</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
             <span class="k">if</span> <span class="n">placement</span> <span class="o">==</span> <span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">DEVICE</span><span class="o">.</span><span class="n">value</span><span class="p">:</span>
                 <span class="n">weights</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_dev</span>
@@ -2743,6 +2810,8 @@
                 <span class="n">weights</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_host</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">weights</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span>
+            <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is</span>
+            <span class="c1">#  not a function.</span>
             <span class="k">if</span> <span class="n">weights</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
                 <span class="n">weights</span> <span class="o">=</span> <span class="n">weights</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
             <span class="n">splits</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
@@ -2891,10 +2960,20 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
+                    <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum1_dev</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum1_host</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum1_uvm</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum1_physical_offsets</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum1_physical_placements</span><span class="p">,</span>
                     <span class="n">rowwise</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span>
                     <span class="ow">in</span> <span class="p">[</span>
@@ -2912,10 +2991,20 @@
         <span class="p">):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
+                    <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_dev</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_host</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_uvm</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_physical_offsets</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">momentum2_physical_placements</span><span class="p">,</span>
                     <span class="n">rowwise</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span>
                     <span class="ow">in</span> <span class="p">(</span><span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">),</span>
@@ -2927,10 +3016,20 @@
         <span class="p">):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
+                    <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_dev</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_host</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_uvm</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_physical_offsets</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_physical_placements</span><span class="p">,</span>
                     <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="p">)</span>
@@ -2938,10 +3037,20 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span><span class="p">:</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
+                    <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">row_counter_dev</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">row_counter_host</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">row_counter_uvm</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">row_counter_physical_offsets</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+                    <span class="c1">#  `Union[Module, Tensor]`.</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">row_counter_physical_placements</span><span class="p">,</span>
                     <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="p">)</span>
@@ -3020,6 +3129,8 @@
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">flush</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
             <span class="k">return</span>
         <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lxu_cache_flush</span><span class="p">(</span>
@@ -3424,6 +3535,8 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">last_uvm_cache_print_state</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">reset_cache_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
             <span class="k">return</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
@@ -3566,6 +3679,8 @@
 <span class="sd">                per_sample_weights (Optional[Tensor]): Input per</span>
 <span class="sd">                    sample weights</span>
 <span class="sd">            &quot;&quot;&quot;</span>
+            <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, other: Union[bool, complex,</span>
+            <span class="c1">#  float, int, Tensor]) -&gt; Tensor, Module, Tensor]` is not a function.</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debug_step</span> <span class="o">%</span> <span class="mi">100</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
                 <span class="c1"># Get number of features (T) and batch size (B)</span>
                 <span class="n">T</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">)</span>
@@ -3651,6 +3766,10 @@
                         <span class="n">avg_seglen_cta_per_row_mth</span><span class="p">,</span>
                     <span class="p">)</span>
                 <span class="p">)</span>
+            <span class="c1"># pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no</span>
+            <span class="c1">#  attribute `debug_step`.</span>
+            <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, other: Union[bool, complex,</span>
+            <span class="c1">#  float, int, Tensor]) -&gt; Tensor, Module, Tensor]` is not a function.</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">debug_step</span> <span class="o">+=</span> <span class="mi">1</span>
 
         <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
@@ -3662,6 +3781,8 @@
             <span class="k">pass</span>
 
         <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_DEBUG_PRINT_INPUT_STATS&quot;</span><span class="p">,</span> <span class="s2">&quot;0&quot;</span><span class="p">))</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="c1"># pyre-fixme[16]: `SplitTableBatchedEmbeddingBagsCodegen` has no</span>
+            <span class="c1">#  attribute `debug_step`.</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">debug_step</span> <span class="o">=</span> <span class="mi">0</span>
             <span class="k">return</span> <span class="n">_debug_print_input_stats_factory_impl</span>
         <span class="k">return</span> <span class="n">_debug_print_input_stats_factory_null</span></div>

@@ -1136,6 +1136,8 @@
     <span class="k">def</span> <span class="nf">prefetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep_counter</span><span class="o">.</span><span class="n">increment</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep_prefetch_size</span><span class="o">.</span><span class="n">increment</span><span class="p">()</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
             <span class="k">return</span>
 
@@ -1318,6 +1320,8 @@
         <span class="n">CACHE_MISS</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
         <span class="n">CACHE_HIT</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="o">-</span><span class="mi">2</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
 
+        <span class="c1"># pyre-fixme[6]: For 1st argument expected</span>
+        <span class="c1">#  `pyre_extensions.PyreReadOnly[Sized]` but got `Union[Module, Tensor]`.</span>
         <span class="n">num_tables</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_hash_size_cumsum</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
         <span class="n">num_offsets_per_table</span> <span class="o">=</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">offsets</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">num_tables</span>
         <span class="n">cache_missed_locations</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
@@ -1389,6 +1393,8 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array_offsets</span><span class="p">,</span>
             <span class="p">)</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">timestep_prefetch_size</span><span class="o">.</span><span class="n">get</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">prefetch</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span>
@@ -1563,8 +1569,13 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array_offsets</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array_offsets</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span>
         <span class="p">)</span>
+        <span class="c1"># pyre-fixme[16]: `IntNBitTableBatchedEmbeddingBagsCodegen` has no attribute</span>
+        <span class="c1">#  `lxu_cache_weights`.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span>
+            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">original_rows_per_table</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">original_rows_per_table</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span>
@@ -1859,6 +1870,8 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">reset_uvm_cache_stats</span><span class="p">()</span>
 
     <span class="k">def</span> <span class="nf">reset_cache_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
             <span class="k">return</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
@@ -2269,6 +2282,8 @@
             <span class="p">)</span>
 
         <span class="n">lxu_cache_locations</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
+        <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
             <span class="n">linear_cache_indices</span> <span class="o">=</span> <span class="p">(</span>
                 <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">linearize_cache_indices_from_row_idx</span><span class="p">(</span>
