@@ -370,9 +370,15 @@ class BackwardNoneTest(unittest.TestCase):
         fc2.backward(goc)
 
         if optimizer is not None:
+            # pyre-fixme[6]: For 1st argument expected `Parameter` but got
+            #  `Union[Tensor, Module]`.
             params = SplitEmbeddingOptimizerParams(weights_dev=cc.weights_dev)
             embedding_args = SplitEmbeddingArgs(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 weights_placements=cc.weights_placements,
+                # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 weights_offsets=cc.weights_offsets,
                 max_D=cc.max_D,
             )
@@ -403,6 +409,8 @@ class BackwardNoneTest(unittest.TestCase):
                 ref_grad.half() if weights_precision == SparseType.FP16 else ref_grad
             )
         else:
+            # pyre-fixme[16]: Item `None` of `None | Tensor | Module` has no
+            #  attribute `_indices`.
             indices = cc.weights_dev.grad._indices().flatten()
             # Select only the part in the table that is updated
             test_tensor = torch.index_select(cc.weights_dev.view(-1, D), 0, indices)

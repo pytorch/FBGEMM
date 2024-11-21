@@ -81,6 +81,7 @@ class CacheOverflowTest(unittest.TestCase):
         lxu_cache_locations = to_device(lxu_cache_locations, use_cpu=False)
 
         # Does prefetch into the cache
+        # pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[Any, A...
         cc.lxu_cache_weights[cache_idx] = cc_ref.weights_dev.view(-1, D)[0]
 
         # Mimic cache prefetching behavior

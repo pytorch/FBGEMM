@@ -336,6 +336,8 @@ def execute_global_weight_decay(  # noqa C901
                     T,
                     Bs,
                     tbe_ref,
+                    # pyre-fixme[6]: For 4th argument expected `Tensor` but got
+                    #  `Union[Tensor, Module]`.
                     tbe.prev_iter_dev,
                     i,
                     indices,
@@ -365,7 +367,11 @@ def execute_global_weight_decay(  # noqa C901
             # compare weights
             output_ref.backward(grad_ref)
             compare_output(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 tbe_ref.weights_dev,
+                # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 tbe.weights_dev,
                 is_fp32,
             )
