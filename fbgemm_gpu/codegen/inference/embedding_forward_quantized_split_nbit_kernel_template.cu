@@ -192,7 +192,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       {%- endif %}
       
       {%- if is_rocm %}
-      constexpr if (OutputRowsPerThread % kRowUnroll)
+      if constexpr (OutputRowsPerThread % kRowUnroll)
       {
       #pragma unroll
       for (uint32_t i = OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; i < OutputRowsPerThread; ++i) {
