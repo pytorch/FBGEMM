@@ -309,53 +309,6 @@ list(APPEND gen_defused_optim_py_files
 
 
 ################################################################################
-# FBGEMM_GPU Generated Sources
-################################################################################
-
-if(CXX_AVX2_FOUND)
-  set_source_files_properties(${gen_cpu_source_files}
-    PROPERTIES COMPILE_OPTIONS "${AVX2_FLAGS}")
-else()
-  set_source_files_properties(${gen_cpu_source_files}
-    PROPERTIES COMPILE_OPTIONS "-fopenmp")
-endif()
-
-set_source_files_properties(${gen_cpu_source_files}
-  PROPERTIES INCLUDE_DIRECTORIES
-  "${fbgemm_sources_include_directories}")
-
-set_source_files_properties(${gen_gpu_host_source_files}
-  PROPERTIES INCLUDE_DIRECTORIES
-  "${fbgemm_sources_include_directories}")
-
-set_source_files_properties(${gen_gpu_kernel_source_files}
-  PROPERTIES INCLUDE_DIRECTORIES
-  "${fbgemm_sources_include_directories}")
-
-set_source_files_properties(${gen_gpu_kernel_source_files}
-  PROPERTIES COMPILE_OPTIONS
-  "${TORCH_CUDA_OPTIONS}")
-
-set_source_files_properties(${gen_defused_optim_source_files}
-  PROPERTIES INCLUDE_DIRECTORIES
-  "${fbgemm_sources_include_directories}")
-
-if(NOT FBGEMM_CPU_ONLY)
-  set(fbgemm_gpu_sources_gen
-    ${gen_gpu_kernel_source_files}
-    ${gen_gpu_host_source_files}
-    ${gen_cpu_source_files}
-    ${gen_defused_optim_source_files})
-else()
-  set(fbgemm_gpu_sources_gen
-    ${gen_cpu_source_files}
-    # To force generate_embedding_optimizer to generate Python files
-    ${gen_defused_optim_py_files}
-  )
-endif()
-
-
-################################################################################
 # FBGEMM (not FBGEMM_GPU) Sources
 ################################################################################
 
@@ -437,7 +390,7 @@ set(fbgemm_gpu_sources_cpu_static
     src/sparse_ops/sparse_async_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
-    src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
+    # src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
     src/split_embeddings_cache/linearize_cache_indices.cpp
     src/split_embeddings_cache/lfu_cache_populate_byte.cpp
     src/split_embeddings_cache/lru_cache_populate_byte.cpp
@@ -459,7 +412,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils/split_embeddings_utils.cpp
     src/metric_ops/metric_ops_host.cpp
-    src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
+    # src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/input_combine_ops/input_combine_gpu.cpp
     codegen/training/index_select/batch_index_select_dim0_host.cpp)
 
@@ -478,7 +431,7 @@ if(NOT FBGEMM_CPU_ONLY)
       codegen/utils/embedding_bounds_check_v1.cu
       codegen/utils/embedding_bounds_check_v2.cu
       codegen/inference/embedding_forward_quantized_split_lookup.cu
-      src/embedding_inplace_ops/embedding_inplace_update.cu
+      # src/embedding_inplace_ops/embedding_inplace_update.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
       src/intraining_embedding_pruning_ops/intraining_embedding_pruning.cu
@@ -552,7 +505,7 @@ endif()
 
 
 ################################################################################
-# FBGEMM_GPU HIP Code Generation
+# FBGEMM_GPU Generated Sources Organized
 ################################################################################
 
 set(fbgemm_gpu_sources_cpu_gen
@@ -580,9 +533,27 @@ endif()
 # FBGEMM_GPU C++ Modules
 ################################################################################
 
+# Test target to demonstrate that target deps works as intended
 gpu_cpp_library(
   PREFIX
-    fbgemm_gpu
+    embedding_inplace_ops
+  TYPE
+    STATIC
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
+  GPU_SRCS
+    src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
+    src/embedding_inplace_ops/embedding_inplace_update.cu
+  GPU_FLAGS
+    ${TORCH_CUDA_OPTIONS})
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_py
+  TYPE
+    MODULE
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
   CPU_SRCS
@@ -595,21 +566,9 @@ gpu_cpp_library(
     ${asmjit_sources}
     ${fbgemm_sources}
   GPU_FLAGS
-    ${TORCH_CUDA_OPTIONS})
-
-# TODO: Test target, need to properly integrate into FBGEMM_GPU main build
-gpu_cpp_library(
-  PREFIX
-    embedding_inplace_ops
-  INCLUDE_DIRS
-    ${fbgemm_sources_include_directories}
-  CPU_SRCS
-    src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
-  GPU_SRCS
-    src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
-    src/embedding_inplace_ops/embedding_inplace_update.cu
-  GPU_FLAGS
-    ${TORCH_CUDA_OPTIONS})
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    embedding_inplace_ops)
 
 
 ################################################################################
