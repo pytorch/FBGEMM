@@ -1085,7 +1085,8 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     // This interface (V1) still accepts learning rate as float for backward compatibility, 
     // We convert learning rate to tensor here to work with the backend
     // The unified PT2 interface already accepts learning rate as tensor.
-    const auto learning_rate_tensor = at::tensor({learning_rate}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
+    auto learning_rate_tensor = at::empty({1}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
+    learning_rate_tensor.fill_(learning_rate);
     {%- endif %}
 
     {%- if not dense %}
