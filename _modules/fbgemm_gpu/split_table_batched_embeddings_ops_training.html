@@ -2251,6 +2251,12 @@
             <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">momentum2_placements</span><span class="p">,</span>
         <span class="p">)</span>
+
+        <span class="c1"># Although self.iter_cpu is created on CPU. It might be transferred to</span>
+        <span class="c1"># GPU by the user. So, we need to transfer it to CPU explicitly. This</span>
+        <span class="c1"># should be done only once.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span>
+
         <span class="c1"># Sync with loaded state</span>
         <span class="k">if</span> <span class="p">(</span>
             <span class="ow">not</span> <span class="n">is_torchdynamo_compiling</span><span class="p">()</span>
