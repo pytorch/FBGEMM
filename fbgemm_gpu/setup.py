@@ -247,7 +247,7 @@ class FbgemmGpuBuild:
             _get_cxx11_abi(),
         ]
 
-        cxx_flags = []
+        cxx_flags = ["-mcmodel=large"]
 
         if self.args.verbose:
             print("[SETUP.PY] Building in VERBOSE mode ...")
