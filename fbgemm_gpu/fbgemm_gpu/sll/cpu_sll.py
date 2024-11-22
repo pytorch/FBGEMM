@@ -255,3 +255,157 @@ def cpu_jagged2_to_padded_dense(
         dense_output[b, 0:Ni, 0:Ni] = values[begin:end].view(Ni, Ni)
 
     return dense_output
+
+
+class CPUJaggedDenseElementwiseMul(torch.autograd.Function):
+    # NOTE: CPU, GPU, CUDA versions all have their own autograd.Function implementations,
+    # ideally we should use one autograd.Function for all of them and do the dispatching
+    # inside the autograd.Function.
+    """
+    Compute elementwise multiplication between jagged tensor and dense tensor.
+    z = x * y
+    x: [sum_B(L_i)]
+    y: dense tensor
+    z: [sum_B(L_i)]
+    """
+
+    @staticmethod
+    def jagged_dense_elementwise_mul_jagged_out(
+        jagged: torch.Tensor,
+        dense: torch.Tensor,
+        seq_lengths: torch.Tensor,
+        offsets: torch.Tensor,
+        max_seq_len: int,
+    ) -> torch.Tensor:
+        out = torch.empty_like(jagged)
+        for i in range(seq_lengths.size(0)):
+            if seq_lengths[i] == 0:
+                continue
+            a = jagged[offsets[i] : offsets[i + 1]]
+            a = a.view(int(seq_lengths[i]), int(seq_lengths[i]))
+            out[offsets[i] : offsets[i + 1]] = (
+                a * dense[0 : seq_lengths[i], 0 : seq_lengths[i]]
+            ).flatten()
+        return out
+
+    @staticmethod
+    # pyre-fixme
+    def forward(
+        ctx,  # pyre-ignore [2]
+        x: torch.Tensor,
+        y: torch.Tensor,
+        x_seq_lengths: torch.Tensor,
+        x_offsets: torch.Tensor,
+        max_seq_len: int,
+    ):
+        ctx.max_seq_len = max_seq_len
+
+        ctx.save_for_backward(
+            x,
+            y,
+            x_seq_lengths,
+            x_offsets,
+        )
+
+        return CPUJaggedDenseElementwiseMul.jagged_dense_elementwise_mul_jagged_out(
+            x,
+            y,
+            x_seq_lengths,
+            x_offsets,
+            max_seq_len,
+        )
+
+    @staticmethod
+    # pyre-fixme
+    def backward(ctx, grad_output: torch.Tensor):
+        (
+            x,
+            y,
+            x_seq_lengths,
+            x_offsets,
+        ) = ctx.saved_tensors
+
+        grad_x = CPUJaggedDenseElementwiseMul.jagged_dense_elementwise_mul_jagged_out(
+            grad_output,
+            y,
+            x_seq_lengths,
+            x_offsets,
+            ctx.max_seq_len,
+        )
+
+        return grad_x, None, None, None, None
+
+
+def cpu_jagged_dense_elementwise_mul_jagged_out(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    x_seq_lengths: torch.Tensor,
+    x_offsets: torch.Tensor,
+    max_seq_len: int,
+) -> torch.Tensor:
+    return CPUJaggedDenseElementwiseMul.apply(
+        x,
+        y,
+        x_seq_lengths,
+        x_offsets,
+        max_seq_len,
+    )
+
+
+class MetaJaggedDenseElementwiseMul(torch.autograd.Function):
+    @staticmethod
+    # pyre-fixme
+    def forward(
+        ctx,  # pyre-ignore [2]
+        x: torch.Tensor,
+        y: torch.Tensor,
+        x_seq_lengths: torch.Tensor,
+        x_offsets: torch.Tensor,
+        max_seq_len: int,
+    ) -> torch.Tensor:
+        ctx.max_seq_len = max_seq_len
+
+        ctx.save_for_backward(
+            x,
+            y,
+            x_seq_lengths,
+            x_offsets,
+        )
+
+        total_L = x.size(0)
+        jagged_C = torch.zeros((total_L), device=x.device, dtype=x.dtype)
+
+        return jagged_C
+
+    @staticmethod
+    # pyre-fixme
+    def backward(ctx, grad_output: torch.Tensor):
+        (
+            x,
+            y,
+            x_seq_lengths,
+            x_offsets,
+        ) = ctx.saved_tensors
+
+        total_L = grad_output.size(0)
+        jagged_C = torch.zeros(
+            (total_L), device=grad_output.device, dtype=grad_output.dtype
+        )
+
+        return jagged_C, None, None, None, None
+
+
+def meta_jagged_dense_elementwise_mul_jagged_out(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    x_seq_lengths: torch.Tensor,
+    x_offsets: torch.Tensor,
+    max_seq_len: int,
+) -> torch.Tensor:
+    return MetaJaggedDenseElementwiseMul.apply(
+        x,
+        y,
+        x_seq_lengths,
+        x_offsets,
+        max_seq_len,
+    )

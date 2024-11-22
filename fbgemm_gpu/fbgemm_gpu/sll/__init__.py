@@ -13,8 +13,10 @@ from fbgemm_gpu.sll.cpu_sll import (  # noqa F401
     cpu_dense_jagged_cat_jagged_out,
     cpu_jagged2_to_padded_dense,
     cpu_jagged_dense_bmm,
+    cpu_jagged_dense_elementwise_mul_jagged_out,
     cpu_jagged_jagged_bmm,
     cpu_jagged_self_substraction_jagged_out,
+    meta_jagged_dense_elementwise_mul_jagged_out,
     meta_jagged_self_substraction_jagged_out,
 )
 
@@ -22,6 +24,7 @@ from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     dense_jagged_cat_jagged_out,
     jagged2_to_padded_dense,
     jagged_dense_bmm,
+    jagged_dense_elementwise_mul_jagged_out,
     jagged_jagged_bmm,
     triton_jagged_self_substraction_jagged_out,
 )
@@ -119,7 +122,21 @@ if "fbgemm::sll_jagged2_to_padded_dense" not in torch.library._defs:
         """
     )
 
+if "fbgemm::sll_jagged_dense_elementwise_mul_jagged_out" not in torch.library._defs:
+    lib.define(
+        """sll_jagged_dense_elementwise_mul_jagged_out(
+            Tensor x,
+            Tensor y,
+            Tensor x_seq_lengths,
+            Tensor x_offsets,
+            int max_seq_len
+        ) -> Tensor
+        """
+    )
 
+# NOTE: here we register the op for AutogradCUDA/CPU and CUDA/CPU with the same function
+# however, this is not ideal because in the inference case, we don't need the autograd forward
+# to save the context because we don't need to do backward.
 op_registeration(lib, "sll_jagged_dense_bmm", jagged_dense_bmm, "CUDA")
 op_registeration(lib, "sll_jagged_dense_bmm", jagged_dense_bmm, "AutogradCUDA")
 op_registeration(lib, "sll_jagged_dense_bmm", cpu_jagged_dense_bmm, "CPU")
@@ -159,4 +176,34 @@ op_registeration(
 op_registeration(lib, "sll_jagged2_to_padded_dense", cpu_jagged2_to_padded_dense, "CPU")
 op_registeration(
     lib, "sll_jagged2_to_padded_dense", cpu_jagged2_to_padded_dense, "AutogradCPU"
+)
+op_registeration(
+    lib,
+    "sll_jagged_dense_elementwise_mul_jagged_out",
+    jagged_dense_elementwise_mul_jagged_out,
+    "CUDA",
+)
+op_registeration(
+    lib,
+    "sll_jagged_dense_elementwise_mul_jagged_out",
+    jagged_dense_elementwise_mul_jagged_out,
+    "AutogradCUDA",
+)
+op_registeration(
+    lib,
+    "sll_jagged_dense_elementwise_mul_jagged_out",
+    cpu_jagged_dense_elementwise_mul_jagged_out,
+    "CPU",
+)
+op_registeration(
+    lib,
+    "sll_jagged_dense_elementwise_mul_jagged_out",
+    cpu_jagged_dense_elementwise_mul_jagged_out,
+    "AutogradCPU",
+)
+op_registeration(
+    lib,
+    "sll_jagged_dense_elementwise_mul_jagged_out",
+    meta_jagged_dense_elementwise_mul_jagged_out,
+    "Meta",
 )
