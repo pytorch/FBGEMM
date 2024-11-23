@@ -9,7 +9,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
 function(prepare_target_sources)
     # This function does the following:
     #   1. Take all the specified project sources for a target
-    #   1. Filter the files out based on CPU-only, CUDA, and HIP build modes
+    #   1. Filter files out based on CPU-only, CUDA, and HIP build modes
     #   1. Bucketize them into sets of CXX, CU, and HIP files
     #   1. Apply common source file properties for each bucket
     #   1. Merge the buckets back into a single list of sources
@@ -36,7 +36,12 @@ function(prepare_target_sources)
     ############################################################################
 
     # Add the CPU CXX sources
-    set(${args_PREFIX}_sources_cpp ${args_CPU_SRCS})
+    LIST_FILTER(
+        INPUT ${args_CPU_SRCS}
+        OUTPUT cpu_sources_cpp
+        REGEX "^.+\.cpp$"
+    )
+    set(${args_PREFIX}_sources_cpp ${cpu_sources_cpp})
 
     # For GPU mode, add the CXX sources from GPU_SRCS
     if(NOT FBGEMM_CPU_ONLY)
@@ -127,37 +132,6 @@ function(prepare_target_sources)
     set(${args_PREFIX}_sources ${${args_PREFIX}_sources_combined} PARENT_SCOPE)
 endfunction()
 
-function(prepare_hipified_target_sources)
-    # This function does the following:
-    #   1. Take all the specified target sources
-    #   1. Look up their equivalent HIPified files if applicable (presumes that hipify() already been run)
-    #   1. Apply source file properties
-    #   1. Update the HIP include directories
-
-    set(flags)
-    set(singleValueArgs PREFIX)
-    set(multiValueArgs SRCS INCLUDE_DIRS)
-
-    cmake_parse_arguments(
-        args
-        "${flags}" "${singleValueArgs}" "${multiValueArgs}"
-        ${ARGN})
-
-    get_hipified_list("${args_SRCS}" args_SRCS)
-
-    set_source_files_properties(${args_SRCS}
-                                PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
-
-    # Add include directories
-    hip_include_directories("${args_INCLUDE_DIRS}")
-
-    ############################################################################
-    # Set the Output Variable(s)
-    ############################################################################
-
-    set(${args_PREFIX}_sources_hipified ${args_SRCS} PARENT_SCOPE)
-endfunction()
-
 function(gpu_cpp_library)
     # This function does the following:
     #   1. Take all the target sources and select relevant sources based on build type (CPU-only, CUDA, HIP)
@@ -174,6 +148,7 @@ function(gpu_cpp_library)
         GPU_SRCS            # Sources common to both CUDA and HIP builds.  .CU files specified here will be HIPified when building a HIP target
         CUDA_SPECIFIC_SRCS  # Sources available only for CUDA build
         HIP_SPECIFIC_SRCS   # Sources available only for HIP build
+        OTHER_SRCS          # Sources from third-party libraries
         GPU_FLAGS           # Compile flags for GPU builds
         INCLUDE_DIRS        # Include directories for compilation
     )
@@ -204,12 +179,16 @@ function(gpu_cpp_library)
 
     set(lib_name ${args_PREFIX}_py)
     if(USE_ROCM)
-        # Fetch the HIPified sources
-        prepare_hipified_target_sources(
-            PREFIX ${args_PREFIX}
-            SRCS ${lib_sources}
-            INCLUDE_DIRS ${args_INCLUDE_DIRS})
-        set(lib_sources_hipified ${${args_PREFIX}_sources_hipified})
+        # Fetch the equivalent HIPified sources if available.
+        # This presumes that hipify() has already been run.
+        get_hipified_list("${lib_sources}" lib_sources_hipified)
+
+        # Set properties for the HIPified sources
+        set_source_files_properties(${lib_sources_hipified}
+                                    PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+
+        # Set the include directories for HIP
+        hip_include_directories("${args_INCLUDE_DIRS}")
 
         # Create the HIP library
         hip_add_library(${lib_name} SHARED
@@ -223,7 +202,8 @@ function(gpu_cpp_library)
         target_include_directories(${lib_name} PUBLIC
             ${FBGEMM_HIP_INCLUDE}
             ${ROCRAND_INCLUDE}
-            ${ROCM_SMI_INCLUDE})
+            ${ROCM_SMI_INCLUDE}
+            ${args_INCLUDE_DIRS})
 
     else()
         # Create the C++/CUDA library
@@ -295,6 +275,9 @@ function(gpu_cpp_library)
         " "
         "HIP_SPECIFIC_SRCS"
         "${args_HIP_SPECIFIC_SRCS}"
+        " "
+        "OTHER_SRCS:"
+        "${args_OTHER_SRCS}"
         " "
         "GPU_FLAGS:"
         "${args_GPU_FLAGS}"

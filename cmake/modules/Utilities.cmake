@@ -40,6 +40,26 @@ function(LIST_FILTER)
   set(${args_OUTPUT} ${${args_OUTPUT}} PARENT_SCOPE)
 endfunction()
 
+
+function(prepend_filepaths)
+  set(flags)
+  set(singleValueArgs PREFIX OUTPUT)
+  set(multiValueArgs INPUT)
+
+  cmake_parse_arguments(
+    args
+    "${flags}" "${singleValueArgs}" "${multiValueArgs}"
+    ${ARGN})
+
+  set(${args_OUTPUT})
+
+  foreach(filepath ${args_INPUT})
+    list(APPEND ${args_OUTPUT} "${args_PREFIX}/${filepath}")
+  endforeach()
+
+  set(${args_OUTPUT} ${${args_OUTPUT}} PARENT_SCOPE)
+endfunction()
+
 function(add_to_package)
   set(flags)
   set(singleValueArgs DESTINATION)

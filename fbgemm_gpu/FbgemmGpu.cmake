@@ -10,8 +10,6 @@
 
 include(${CMAKEMODULES}/Utilities.cmake)
 
-set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
-
 
 ################################################################################
 # Third Party Sources
@@ -83,35 +81,6 @@ set(WEIGHT_OPTIONS
     weighted
     unweighted_nobag
     unweighted)
-
-
-################################################################################
-# TBE Code Generation
-################################################################################
-
-macro(RUN_GEN_SCRIPT SCRIPT)
-  set(rocm_flag "")
-  if(USE_ROCM)
-    set(rocm_flag --is_rocm)
-  endif()
-
-  BLOCK_PRINT(
-    "Running code generation script ..."
-    "${PYTHON_EXECUTABLE} ${SCRIPT} --opensource ${rocm_flag}"
-  )
-
-  execute_process(
-    COMMAND "${PYTHON_EXECUTABLE}" ${SCRIPT} "--opensource" ${rocm_flag})
-endmacro()
-
-foreach(script
-    "${CMAKE_CODEGEN_DIR}/genscript/generate_backward_split.py"
-    "${CMAKE_CODEGEN_DIR}/genscript/generate_embedding_optimizer.py"
-    "${CMAKE_CODEGEN_DIR}/genscript/generate_forward_quantized.py"
-    "${CMAKE_CODEGEN_DIR}/genscript/generate_forward_split.py"
-    "${CMAKE_CODEGEN_DIR}/genscript/generate_index_select.py")
-    RUN_GEN_SCRIPT(${script})
-endforeach()
 
 
 ################################################################################
@@ -443,7 +412,7 @@ set_source_files_properties(${fbgemm_sources}
 # FBGEMM_GPU Static Sources
 ################################################################################
 
-set(fbgemm_gpu_sources_static_cpu
+set(fbgemm_gpu_sources_cpu_static
     codegen/training/forward/embedding_forward_split_cpu.cpp
     codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
@@ -479,7 +448,7 @@ set(fbgemm_gpu_sources_static_cpu
     codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
-  list(APPEND fbgemm_gpu_sources_static_cpu
+  list(APPEND fbgemm_gpu_sources_cpu_static
     codegen/inference/embedding_forward_quantized_host.cpp
     codegen/utils/embedding_bounds_check_host.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
@@ -489,7 +458,6 @@ if(NOT FBGEMM_CPU_ONLY)
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils/split_embeddings_utils.cpp
-    src/split_embeddings_cache/split_embeddings_cache_ops.cu
     src/metric_ops/metric_ops_host.cpp
     src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/input_combine_ops/input_combine_gpu.cpp
@@ -497,7 +465,7 @@ if(NOT FBGEMM_CPU_ONLY)
 
   if(NVML_LIB_PATH OR USE_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
-    list(APPEND fbgemm_gpu_sources_static_cpu
+    list(APPEND fbgemm_gpu_sources_cpu_static
       src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_gpu.cpp
       src/topology_utils.cpp)
   else()
@@ -505,18 +473,8 @@ if(NOT FBGEMM_CPU_ONLY)
   endif()
 endif()
 
-if(CXX_AVX2_FOUND)
-  set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
-    PROPERTIES COMPILE_OPTIONS
-    "${AVX2_FLAGS}")
-else()
-  set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
-    PROPERTIES COMPILE_OPTIONS
-    "-fopenmp")
-endif()
-
 if(NOT FBGEMM_CPU_ONLY)
-  set(fbgemm_gpu_sources_static_gpu
+  set(fbgemm_gpu_sources_gpu_static
       codegen/utils/embedding_bounds_check_v1.cu
       codegen/utils/embedding_bounds_check_v2.cu
       codegen/inference/embedding_forward_quantized_split_lookup.cu
@@ -585,31 +543,11 @@ if(NOT FBGEMM_CPU_ONLY)
       src/split_embeddings_cache/lxu_cache.cu
       src/split_embeddings_cache/linearize_cache_indices.cu
       src/split_embeddings_cache/reset_weight_momentum.cu
+      src/split_embeddings_cache/split_embeddings_cache_ops.cu
       src/split_embeddings_utils/generate_vbe_metadata.cu
       src/split_embeddings_utils/get_infos_metadata.cu
       src/split_embeddings_utils/radix_sort_pairs.cu
       src/split_embeddings_utils/transpose_embedding_input.cu)
-
-  set_source_files_properties(${fbgemm_gpu_sources_static_gpu}
-    PROPERTIES COMPILE_OPTIONS
-    "${TORCH_CUDA_OPTIONS}")
-
-  set_source_files_properties(${fbgemm_gpu_sources_static_gpu}
-    PROPERTIES INCLUDE_DIRECTORIES
-    "${fbgemm_sources_include_directories}")
-endif()
-
-set_source_files_properties(${fbgemm_gpu_sources_static_cpu}
-  PROPERTIES INCLUDE_DIRECTORIES
-  "${fbgemm_sources_include_directories}")
-
-if(NOT FBGEMM_CPU_ONLY)
-  set(fbgemm_gpu_sources_static
-    ${fbgemm_gpu_sources_static_gpu}
-    ${fbgemm_gpu_sources_static_cpu})
-else()
-  set(fbgemm_gpu_sources_static
-    ${fbgemm_gpu_sources_static_cpu})
 endif()
 
 
@@ -617,115 +555,47 @@ endif()
 # FBGEMM_GPU HIP Code Generation
 ################################################################################
 
-if(USE_ROCM)
-  # HIPify CUDA code
-  set(header_include_dir
-      ${CMAKE_CURRENT_SOURCE_DIR}/include
-      ${CMAKE_CURRENT_SOURCE_DIR}/src
-      ${CMAKE_CURRENT_SOURCE_DIR})
+set(fbgemm_gpu_sources_cpu_gen
+  ${gen_cpu_source_files})
 
-  hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR}
-        HEADER_INCLUDE_DIR ${header_include_dir})
-
-  # Get the absolute paths of all generated sources
-  set(fbgemm_gpu_sources_gen_abs)
-  foreach(source_gen_filename ${fbgemm_gpu_sources_gen})
-    list(APPEND fbgemm_gpu_sources_gen_abs
-      "${CMAKE_BINARY_DIR}/${source_gen_filename}")
-  endforeach()
-
-  # HIPify FBGEMM, FBGEMM_GPU static, and FBGEMM_GPU generated sources
-  get_hipified_list("${fbgemm_gpu_sources_static}" fbgemm_gpu_sources_static)
-  get_hipified_list("${fbgemm_gpu_sources_gen_abs}" fbgemm_gpu_sources_gen_abs)
-  get_hipified_list("${fbgemm_sources}" fbgemm_sources)
-
-  # Combine all HIPified sources
-  set(fbgemm_gpu_sources_hip
-    ${fbgemm_sources}
-    ${fbgemm_gpu_sources_static}
-    ${fbgemm_gpu_sources_gen_abs})
-
-  set_source_files_properties(${fbgemm_gpu_sources_hip}
-                              PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
-
-  # Add FBGEMM include/
-  hip_include_directories("${fbgemm_sources_include_directories}")
-endif()
-
-
-################################################################################
-# FBGEMM_GPU Full Python Module
-################################################################################
+set(fbgemm_gpu_sources_gpu_gen
+  ${gen_gpu_kernel_source_files}
+  ${gen_gpu_host_source_files}
+  ${gen_defused_optim_source_files})
 
 if(USE_ROCM)
-  # Create a HIP library if using ROCm
-  hip_add_library(fbgemm_gpu_py SHARED
-    ${asmjit_sources}
-    ${fbgemm_gpu_sources_hip}
-    ${FBGEMM_HIP_HCC_LIBRARIES}
-    HIPCC_OPTIONS
-    ${HIP_HCC_FLAGS})
+  prepend_filepaths(
+    PREFIX ${CMAKE_BINARY_DIR}
+    INPUT ${fbgemm_gpu_sources_cpu_gen}
+    OUTPUT fbgemm_gpu_sources_cpu_gen)
 
-  target_include_directories(fbgemm_gpu_py PUBLIC
-    ${FBGEMM_HIP_INCLUDE}
-    ${ROCRAND_INCLUDE}
-    ${ROCM_SMI_INCLUDE})
+  prepend_filepaths(
+    PREFIX ${CMAKE_BINARY_DIR}
+    INPUT ${fbgemm_gpu_sources_gpu_gen}
+    OUTPUT fbgemm_gpu_sources_gpu_gen)
+endif()
 
-  list(GET TORCH_INCLUDE_DIRS 0 TORCH_PATH)
 
-else()
-  # Else create a CUDA library
-  add_library(fbgemm_gpu_py MODULE
+################################################################################
+# FBGEMM_GPU C++ Modules
+################################################################################
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    ${fbgemm_gpu_sources_cpu_static}
+    ${fbgemm_gpu_sources_cpu_gen}
+  GPU_SRCS
+    ${fbgemm_gpu_sources_gpu_static}
+    ${fbgemm_gpu_sources_gpu_gen}
+  OTHER_SRCS
     ${asmjit_sources}
     ${fbgemm_sources}
-    ${fbgemm_gpu_sources_static}
-    ${fbgemm_gpu_sources_gen})
-endif()
-
-# Add PyTorch include/
-target_include_directories(fbgemm_gpu_py PRIVATE
-  ${TORCH_INCLUDE_DIRS}
-  ${NCCL_INCLUDE_DIRS})
-
-# Remove `lib` from the output artifact name `libfbgemm_gpu_py.so`
-set_target_properties(fbgemm_gpu_py PROPERTIES PREFIX "")
-
-# Link to PyTorch
-target_link_libraries(fbgemm_gpu_py
-  ${TORCH_LIBRARIES}
-  ${NCCL_LIBRARIES}
-  ${CUDA_DRIVER_LIBRARIES})
-
-# Link to NVML
-if(NVML_LIB_PATH)
-  target_link_libraries(fbgemm_gpu_py ${NVML_LIB_PATH})
-endif()
-
-# Silence warnings in asmjit
-target_compile_options(fbgemm_gpu_py PRIVATE
-  -Wno-deprecated-anon-enum-enum-conversion)
-target_compile_options(fbgemm_gpu_py PRIVATE
-  -Wno-deprecated-declarations)
-
-
-################################################################################
-# FBGEMM_GPU Install
-################################################################################
-
-install(TARGETS fbgemm_gpu_py
-  DESTINATION fbgemm_gpu)
-
-install(FILES ${gen_python_source_files}
-  DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
-
-install(FILES ${gen_defused_optim_py_files}
-  DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)
-
-add_custom_target(fbgemm_gpu_py_clean_rpath ALL
-  WORKING_DIRECTORY ${OUTPUT_DIR}
-  COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
-
-add_dependencies(fbgemm_gpu_py_clean_rpath fbgemm_gpu_py)
+  GPU_FLAGS
+    ${TORCH_CUDA_OPTIONS})
 
 # TODO: Test target, need to properly integrate into FBGEMM_GPU main build
 gpu_cpp_library(
@@ -740,3 +610,17 @@ gpu_cpp_library(
     src/embedding_inplace_ops/embedding_inplace_update.cu
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS})
+
+
+################################################################################
+# FBGEMM_GPU Package
+################################################################################
+
+install(TARGETS fbgemm_gpu_py
+  DESTINATION fbgemm_gpu)
+
+install(FILES ${gen_python_source_files}
+  DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
+
+install(FILES ${gen_defused_optim_py_files}
+  DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)

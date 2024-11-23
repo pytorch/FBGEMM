@@ -42,7 +42,7 @@ __export_package_variant_info () {
   local package_variant_type_version="$1"
 
   local FALLBACK_VERSION_CUDA="12.4.1"
-  local FALLBACK_VERSION_ROCM="6.0.2"
+  local FALLBACK_VERSION_ROCM="6.2.4"
 
   if [ "$package_variant_type_version" == "cuda" ]; then
     # If "cuda", default to latest CUDA
@@ -205,7 +205,7 @@ install_from_pytorch_pip () {
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Install the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Install the CPU variant, latest version from release channel"
     echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.4.0      # Install the CUDA 12.4 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Install the ROCM 6.1 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.2            # Install the ROCM 6.2 variant, latest version from nightly channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton 1.11.0                  # Install specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton release                 # Install latest version from release channel"
     echo "    ${FUNCNAME[0]} build_env pytorch_triton test/0.8.0              # Install specific version from test channel"
@@ -250,7 +250,7 @@ download_from_pytorch_pip () {
     echo "    ${FUNCNAME[0]} build_env torch 1.11.0 cpu                       # Download the CPU variant, specific version from release channel"
     echo "    ${FUNCNAME[0]} build_env torch release cpu                      # Download the CPU variant, latest version from release channel"
     echo "    ${FUNCNAME[0]} build_env fbgemm_gpu test/0.8.0 cuda/12.4.0      # Download the CUDA 12.4 variant, specific version from test channel"
-    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.1            # Download the ROCM 6.1 variant, latest version from nightly channel"
+    echo "    ${FUNCNAME[0]} build_env fbgemm_gpu nightly rocm/6.2            # Download the ROCM 6.2 variant, latest version from nightly channel"
     return 1
   else
     echo "################################################################################"

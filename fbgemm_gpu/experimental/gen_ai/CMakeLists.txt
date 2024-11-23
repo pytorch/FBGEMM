@@ -47,23 +47,6 @@ file(GLOB_RECURSE experimental_gen_ai_python_source_files
 
 
 ################################################################################
-# FBGEMM_GPU HIP Code Generation
-################################################################################
-
-if(USE_ROCM)
-  # HIPify CUDA code
-  set(header_include_dir
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../include
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../src
-      ${CMAKE_CURRENT_SOURCE_DIR}/../..
-      ${CMAKE_CURRENT_SOURCE_DIR})
-
-  hipify(CUDA_SOURCE_DIR ${PROJECT_SOURCE_DIR}
-         HEADER_INCLUDE_DIR ${header_include_dir})
-endif()
-
-
-################################################################################
 # Build Shared Library
 ################################################################################
 
