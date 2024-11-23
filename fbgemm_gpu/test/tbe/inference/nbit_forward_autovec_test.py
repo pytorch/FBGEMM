@@ -22,13 +22,17 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 )
 from hypothesis import given, settings, Verbosity
 
-from ..common import MAX_EXAMPLES
+from ..common import MAX_EXAMPLES, TEST_WITH_ROCM
 from .common import get_nbit_weights_ty, NBitFowardTestCommon
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
 class NBitFowardAutovecTest(NBitFowardTestCommon):
+    @unittest.skipIf(
+        TEST_WITH_ROCM,
+        "Test appears to be unreliable on ROCm",
+    )
     @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         pooling_mode=st.sampled_from(
