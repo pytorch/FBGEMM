@@ -65,7 +65,7 @@ void test_embedding_inplace_update() {
     }
     int n = folly::Random::rand32() % 10 + 5;
     std::set<int32_t> rows;
-    for (const auto j : c10::irange(n)) {
+    for ([[maybe_unused]] const auto j : c10::irange(n)) {
       rows.insert(folly::Random::rand32() % total_rows);
     }
     std::string update_row_idx_str = "";
