@@ -10,6 +10,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cutlass/util/device_memory.h>
 #include <cutlass/util/packed_stride.hpp>
+#include <torch/script.h>
 
 // clang-format off
 // The fixed ordering of the headers is required for CUTLASS 3.2+
@@ -330,6 +331,10 @@ at::Tensor bf16bf16bf16_grouped_impl(
   int numBlocks = 1;
   auto stream = at::cuda::getCurrentCUDAStream().stream();
   int64_t output_offset = 0;
+
+  if (zero_start_index_M.has_value() == true) {
+    TORCH_CHECK(zero_start_index_M.value().dtype() == torch::kInt32);
+  }
 
   // Set arguments
   for (int i = 0; i < problem_count; ++i) {

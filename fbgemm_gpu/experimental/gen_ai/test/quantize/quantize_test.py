@@ -887,6 +887,82 @@ class FP8Tests(unittest.TestCase):
                 y_bf16_group_list[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
             )
 
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: GMM ops are not yet suported."
+    )
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([4, 5]),
+        M=st.sampled_from([2048, 3584]),
+        N=st.sampled_from([1024, 6144]),
+        K=st.sampled_from([512, 3584]),
+        use_cudagraph=st.sampled_from([True, False]),
+        use_padding_zeros=st.sampled_from([True, False]),
+    )
+    def test_bf16_grouped_gemm(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+        use_cudagraph: bool,
+        use_padding_zeros: bool,
+    ) -> None:
+        G = 16
+        M = 64
+        N = 1024
+        K = 5120
+        xs = torch.rand(size=(G, M, K), dtype=torch.bfloat16, device="cuda")
+        ws = torch.rand(size=(G, N, K), dtype=torch.bfloat16, device="cuda")
+
+        x_group = [x.squeeze() for x in xs.split(1, dim=0)]
+        w_group = [w.squeeze() for w in ws.split(1, dim=0)]
+
+        zero_start_index_M = None
+
+        use_padding_zeros = True
+        if use_padding_zeros:
+            zero_start_index_M = torch.randint(
+                1,
+                M,
+                (G,),
+                dtype=torch.int,
+                device="cuda",
+            )
+            for i in range(len(x_group)):
+                x_group[i][zero_start_index_M[i] :, :] = 0
+
+        # BF16 grouped gemm kernel
+        if use_cudagraph:
+            # warmup
+            torch.ops.fbgemm.bf16bf16bf16_grouped(
+                x_group,
+                w_group,
+                zero_start_index_M if use_padding_zeros else None,
+            )
+            # With cudagraph
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
+                    x_group,
+                    w_group,
+                    zero_start_index_M if use_padding_zeros else None,
+                )
+            g.replay()
+        else:
+            y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
+                x_group,
+                w_group,
+                zero_start_index_M if use_padding_zeros else None,
+            )
+
+        # BF16 loopover gemm reference
+        y_group_ref = torch.bmm(xs, ws.transpose(1, 2))
+
+        torch.testing.assert_close(
+            y_group_ref, y_bf16_group.view([G, M, N]), atol=8.0e-2, rtol=8.0e-2
+        )
+
     @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
     @settings(deadline=None)
     @given(
