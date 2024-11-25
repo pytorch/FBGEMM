@@ -24,7 +24,9 @@ set(experimental_example_python_source_files
 
 gpu_cpp_library(
     PREFIX
-        fbgemm_gpu_experimental_example
+        fbgemm_gpu_experimental_example_py
+    TYPE
+        MODULE
     INCLUDE_DIRS
         ${fbgemm_sources_include_directories}
     GPU_SRCS
