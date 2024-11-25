@@ -52,7 +52,9 @@ file(GLOB_RECURSE experimental_gen_ai_python_source_files
 
 gpu_cpp_library(
   PREFIX
-    fbgemm_gpu_experimental_gen_ai
+    fbgemm_gpu_experimental_gen_ai_py
+  TYPE
+    MODULE
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize

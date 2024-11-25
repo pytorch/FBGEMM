@@ -8,6 +8,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
 
 function(prepare_target_sources)
     # This function does the following:
+    #
     #   1. Take all the specified project sources for a target
     #   1. Filter files out based on CPU-only, CUDA, and HIP build modes
     #   1. Bucketize them into sets of CXX, CU, and HIP files
@@ -134,14 +135,20 @@ endfunction()
 
 function(gpu_cpp_library)
     # This function does the following:
+    #
     #   1. Take all the target sources and select relevant sources based on build type (CPU-only, CUDA, HIP)
     #   1. Apply source file properties as needed
-    #   1. HIPify files as needed
-    #   1. Build the .SO file
+    #   1. Fetch the HIPified versions of the files as needed (presumes that `hipify()` has already been run)
+    #   1. Build the .SO file, either as STATIC or MODULE
+    #
+    # Building as STATIC allows the target to be linked to other library targets:
+    #   https://www.reddit.com/r/cpp_questions/comments/120p0ey/how_to_create_a_composite_shared_library_out_of
+    #   https://github.com/ROCm/hipDNN/blob/master/Examples/hipdnn-training/cmake/FindHIP.cmake
 
     set(flags)
     set(singleValueArgs
-        PREFIX          # Desired name prefix for the library target
+        PREFIX          # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
+        TYPE            # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
     )
     set(multiValueArgs
         CPU_SRCS            # Sources for CPU-only build
@@ -151,6 +158,7 @@ function(gpu_cpp_library)
         OTHER_SRCS          # Sources from third-party libraries
         GPU_FLAGS           # Compile flags for GPU builds
         INCLUDE_DIRS        # Include directories for compilation
+        DEPS                # Target dependencies, i.e. built STATIC targets
     )
 
     cmake_parse_arguments(
@@ -162,6 +170,8 @@ function(gpu_cpp_library)
     # Prepare CXX and CU sources
     ############################################################################
 
+    # Take all the sources, and filter them into CPU and GPU buckets depending
+    # on the source type and build mode
     prepare_target_sources(
         PREFIX ${args_PREFIX}
         CPU_SRCS ${args_CPU_SRCS}
@@ -172,15 +182,25 @@ function(gpu_cpp_library)
         INCLUDE_DIRS ${args_INCLUDE_DIRS})
     set(lib_sources ${${args_PREFIX}_sources})
 
+    ############################################################################
+    # Prepare Target Deps
+    ############################################################################
+
+    # Convert target dependency references into CMake target-dependent expressions
+    # See https://cmake.org/cmake/help/latest/manual/cmake-generator-expressions.7.html#id34
+    set(target_deps)
+    foreach(dep ${args_DEPS})
+        list(APPEND target_deps "$<TARGET_OBJECTS:${dep}>")
+    endforeach()
 
     ############################################################################
     # Build the Library
     ############################################################################
 
-    set(lib_name ${args_PREFIX}_py)
+    set(lib_name ${args_PREFIX})
     if(USE_ROCM)
         # Fetch the equivalent HIPified sources if available.
-        # This presumes that hipify() has already been run.
+        # This presumes that `hipify()` has already been run.
         get_hipified_list("${lib_sources}" lib_sources_hipified)
 
         # Set properties for the HIPified sources
@@ -191,9 +211,10 @@ function(gpu_cpp_library)
         hip_include_directories("${args_INCLUDE_DIRS}")
 
         # Create the HIP library
-        hip_add_library(${lib_name} SHARED
+        hip_add_library(${lib_name} ${args_TYPE}
             ${lib_sources_hipified}
             ${args_OTHER_SRCS}
+            ${target_deps}
             ${FBGEMM_HIP_HCC_LIBRARIES}
             HIPCC_OPTIONS
             ${HIP_HCC_FLAGS})
@@ -206,10 +227,11 @@ function(gpu_cpp_library)
             ${args_INCLUDE_DIRS})
 
     else()
-        # Create the C++/CUDA library
-        add_library(${lib_name} MODULE
+        # Create the CPU-only / CUDA library
+        add_library(${lib_name} ${args_TYPE}
             ${lib_sources}
-            ${args_OTHER_SRCS})
+            ${args_OTHER_SRCS}
+            ${target_deps})
     endif()
 
     ############################################################################
@@ -221,9 +243,14 @@ function(gpu_cpp_library)
         ${TORCH_INCLUDE_DIRS}
         ${NCCL_INCLUDE_DIRS})
 
-    # Remove `lib` from the output artifact name, i.e. `libfoo.so` -> `foo.so`
-    set_target_properties(${lib_name}
-        PROPERTIES PREFIX "")
+    # Set additional target properties
+    set_target_properties(${lib_name} PROPERTIES
+        # Remove `lib` prefix from the output artifact name, e.g. `libfoo.so` -> `foo.so`
+        PREFIX ""
+        # Enforce -fPIC for STATIC library option, since they are to be
+        # integrated into other libraries down the line
+        # https://stackoverflow.com/questions/3961446/why-does-gcc-not-implicitly-supply-the-fpic-flag-when-compiling-static-librarie
+        POSITION_INDEPENDENT_CODE ON)
 
     # Link to PyTorch
     target_link_libraries(${lib_name}
@@ -236,7 +263,7 @@ function(gpu_cpp_library)
         target_link_libraries(${lib_name} ${NVML_LIB_PATH})
     endif()
 
-    # Silence warnings (in asmjit)
+    # Silence compiler warnings (in asmjit)
     target_compile_options(${lib_name} PRIVATE
         -Wno-deprecated-anon-enum-enum-conversion
         -Wno-deprecated-declarations)
@@ -251,18 +278,17 @@ function(gpu_cpp_library)
         WORKING_DIRECTORY ${OUTPUT_DIR}
         COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
 
-    # Run the post-build steps AFTER the build itself
+    # Set the post-build steps to run AFTER the build completes
     add_dependencies(${lib_name}_postbuild ${lib_name})
 
     ############################################################################
     # Set the Output Variable(s)
     ############################################################################
 
-    # PREFIX = `foo` --> Target Library = `foo_py`
-    set(${args_PREFIX}_py ${lib_name} PARENT_SCOPE)
+    set(${args_PREFIX} ${lib_name} PARENT_SCOPE)
 
     BLOCK_PRINT(
-        "GPU CPP Library Target: ${args_PREFIX}"
+        "GPU CPP Library Target: ${args_PREFIX} (${args_TYPE})"
         " "
         "CPU_SRCS:"
         "${args_CPU_SRCS}"
@@ -290,6 +316,9 @@ function(gpu_cpp_library)
         " "
         "HIPified Source Files:"
         "${lib_sources_hipified}"
+        " "
+        "Target Dependencies:"
+        "${target_deps}"
         " "
         "Output Library:"
         "${lib_name}"
