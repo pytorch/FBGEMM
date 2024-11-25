@@ -3436,6 +3436,14 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
         assert self.D_offsets.numel() == T + 1
+
+        mixed_D = False
+        D = dims[0]
+        for d in dims:
+            if d != D:
+                mixed_D = True
+                break
+        self.mixed_D = mixed_D
         # Required for VBE
         self.register_buffer(
             "feature_dims",
