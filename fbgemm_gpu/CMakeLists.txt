@@ -151,7 +151,10 @@ if(USE_ROCM)
     ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gen_ai)
 
   # HIPify all .CU and .CUH sources under the current directory (`/fbgemm_gpu`)
-  # .H sources are not automatically HIPified, so they need #ifdef USE_ROCM guards
+  #
+  # Note that .H sources are not automatically HIPified, so if they reference
+  # CUDA-specific code, e.g. `#include <c10/cuda/CUDAStream.h>`, they will need
+  # to be updated with `#ifdef USE_ROCM` guards.
   hipify(
     CUDA_SOURCE_DIR
       ${PROJECT_SOURCE_DIR}
