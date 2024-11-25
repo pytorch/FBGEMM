@@ -195,7 +195,7 @@ if(NOT FBGEMM_CPU_ONLY)
   add_subdirectory(experimental/gemm)
 endif()
 
-if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
+if(NOT FBGEMM_CPU_ONLY)
   # TODO: Re-enable gen_ai for ROCm once ck/tensor_operation/gpu/device/impl/device_gemm_multiple_d_xdl_cshuffle_v3_ab_scale.hpp
   # lands into latest ROCm
   add_subdirectory(experimental/gen_ai)
