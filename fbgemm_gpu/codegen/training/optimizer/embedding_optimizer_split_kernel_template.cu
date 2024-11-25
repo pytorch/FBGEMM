@@ -21,21 +21,21 @@ template <
 >
 __global__ __launch_bounds__(kMaxThreads)
 void split_{{ optimizer }}_update_kernel(
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
-    at::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     // grad_dev_indices is equivalent to sorted_linear_indices_run
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_lxu_cache_locations,
     const int32_t max_D,
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
-    {{ args.split_kernel_args | join(", ") }}
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {
     const auto run_id = blockIdx.x * blockDim.y + threadIdx.y;
     if (run_id >= grad_dev_indices.size(0)) {
@@ -130,21 +130,22 @@ void split_{{ optimizer }}_update_kernel
   {{ kThreadGroupSize }},
   4 // VEC_WIDTH
 >(
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
-    at::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
-    at::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const at::PackedTensorAccessor32<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
+    pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
     // grad_dev_indices is equivalent to sorted_linear_indices_run
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         sorted_lxu_cache_locations,
     const int32_t max_D,
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args,
     {{ args.split_kernel_args_no_defaults |
+         replace_pta_namespace() |
          replace_placeholder_types(ph_type_combo) |
          join(",\n    ") |
          replace("cache_t", cache_type)
