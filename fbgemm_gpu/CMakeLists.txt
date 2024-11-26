@@ -11,12 +11,13 @@
 cmake_minimum_required(VERSION 3.25.0 FATAL_ERROR)
 
 set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules)
+set(FBGEMM_GPU ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/external)
 
 include(${CMAKEMODULES}/Utilities.cmake)
 
-set(CMAKE_VERBOSE_MAKEFILE on)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 
 ################################################################################
 # FBGEMM_GPU Build Options
@@ -106,6 +107,23 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cutlass/tools/util/include
   ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
+
+
+################################################################################
+# Target Dependencies
+################################################################################
+
+if(USE_ROCM)
+  set(GENFILE_PREFIX ${CMAKE_BINARY_DIR})
+else()
+  set(GENFILE_PREFIX ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+
+# `asmjit`
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Asmjit.cmake)
+
+# `fbgemm`
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Fbgemm.cmake)
 
 
 ################################################################################
