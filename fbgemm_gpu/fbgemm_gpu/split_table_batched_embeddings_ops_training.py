@@ -154,6 +154,13 @@ class EnsembleModeDefinition:
     step_mode: StepMode = StepMode.USE_ITER
 
 
+@dataclass(frozen=True)
+class EmainplaceModeDefinition:
+    step_ema: float = 10
+    step_start: float = 0
+    step_ema_coef: float = 0.6
+
+
 # Keep in sync with fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh
 class UVMCacheStatsIndex(enum.IntEnum):
     num_calls = 0
@@ -430,7 +437,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             (9) `ENSEMBLE_ROWWISE_ADAGRAD` = Ensemble rowwise-Adagrad
 
-            (10) `NONE` = Not applying an optimizer update in the backward pass
+            (10) `EMAINPLACE_ROWWISE_ADAGRAD` = Ema inplace rowwise-Adagrad
+
+            (11) `NONE` = Not applying an optimizer update in the backward pass
                 and outputting a sparse weight gradient
 
         record_cache_metrics (Optional[RecordCacheMetrics] = None): Record
@@ -483,6 +492,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         ensemble_mode (Optional[EnsembleModeDefinition] = None):
             Used by Ensemble Rowwise Adagrad
+
+        emainplace_mode (Optional[EmainplaceModeDefinition] = None):
+            Used by EMA in-place Rowwise Adagrad
 
         counter_based_regularization (Optional[CounterBasedRegularizationDefinition] = None):
             Used by Rowwise Adagrad
@@ -601,6 +613,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         beta1: float = 0.9,
         beta2: float = 0.999,
         ensemble_mode: Optional[EnsembleModeDefinition] = None,
+        emainplace_mode: Optional[EmainplaceModeDefinition] = None,
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
         ] = None,
@@ -863,6 +876,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EXACT_ADAGRAD,
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
+                OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
             ), f"Optimizer {optimizer} is not supported in CPU mode."
         else:
             assert optimizer in (
@@ -875,6 +889,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.PARTIAL_ROWWISE_ADAM,
                 OptimType.PARTIAL_ROWWISE_LAMB,
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 OptimType.NONE,
             ), f"Optimizer {optimizer} is not supported."
 
@@ -930,6 +945,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ensemble_mode = EnsembleModeDefinition()
         self._ensemble_mode: Dict[str, float] = {
             key: float(fval) for key, fval in ensemble_mode.__dict__.items()
+        }
+
+        if emainplace_mode is None:
+            emainplace_mode = EmainplaceModeDefinition()
+        self._emainplace_mode: Dict[str, float] = {
+            key: float(fval) for key, fval in emainplace_mode.__dict__.items()
         }
 
         if counter_based_regularization is None:
@@ -1010,6 +1031,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 rowwise = optimizer in [
                     OptimType.EXACT_ROWWISE_ADAGRAD,
                     OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                    OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 ]
                 self._apply_split(
                     construct_split_state(
@@ -1137,6 +1159,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     OptimType.PARTIAL_ROWWISE_ADAM,
                     OptimType.PARTIAL_ROWWISE_LAMB,
                     OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                    OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 )
                 or self._used_rowwise_adagrad_with_global_weight_decay
             ):
@@ -1520,12 +1543,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.EXACT_ROWWISE_ADAGRAD,
                 OptimType.EXACT_SGD,
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 OptimType.NONE,
-            ), (
-                "Variable batch size TBE support is enabled for "
-                "OptimType.EXACT_ROWWISE_ADAGRAD and "
-                "ENSEMBLE_ROWWISE_ADAGRAD only"
-            )
+            ), """
+                Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD,
+                OptimType.ENSEMBLE_ROWWISE_ADAGRAD, and OptimType.EMAINPLACE_ROWWISE_ADAGRAD only.
+                """
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
@@ -1920,6 +1943,19 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             placements=self.row_counter_placements,
         )
 
+        if self.optimizer == OptimType.EMAINPLACE_ROWWISE_ADAGRAD:
+            with torch.no_grad():
+                if self.training:
+                    self.ema_inplace(self._emainplace_mode)
+            return self._report_io_size_count(
+                "fwd_output",
+                invokers.lookup_rowwise_adagrad.invoke(
+                    common_args,
+                    self.optimizer_args,
+                    momentum1,
+                ),
+            )
+
         if self.optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
             assert self._feature_is_enabled(
                 FeatureGateName.TBE_ENSEMBLE_ROWWISE_ADAGRAD
@@ -1991,6 +2027,36 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         raise ValueError(f"Invalid OptimType: {self.optimizer}")
 
+    def ema_inplace(self, emainplace_mode: Dict[str, float]) -> None:
+        """
+        Perform ema operations on the full sparse embedding tables.
+        We organize the sparse table, in the following way.
+
+        Emb_table:
+         -------------------------------------------------
+         -                        --                     -
+         -        Fast part       --      Slow part      -
+         -    (RL) main part      --      target part    -
+         -                        --                     -
+         -------------------------------------------------
+
+         In every "step_ema" step, we perform
+            slow_part += coef_ema * (fast_part - slow_part)
+        """
+        iter_int = int(self.iter_cpu.item())
+        if iter_int % int(emainplace_mode["step_ema"]) == 0 and iter_int >= int(
+            emainplace_mode["step_start"]
+        ):
+            weights = self.split_embedding_weights()
+            for table_i, (_, dim, _, _) in enumerate(self.embedding_specs):
+                assert (
+                    dim & 1 == 0
+                ), f"table dimension {dim} is odd, not supported for ema_inplace_rowwise_adagrad"  # make sure that the dimension is even
+                weights[table_i][:, dim // 2 :].data.lerp_(
+                    weights[table_i][:, : dim // 2].data,
+                    emainplace_mode["step_ema_coef"],
+                )
+
     def ensemble_and_swap(self, ensemble_mode: Dict[str, float]) -> None:
         """
         Perform ensemble and swap operations on the full sparse embedding tables.
@@ -2024,8 +2090,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 if should_ema:
                     if int(ensemble_mode["step_mode"]) == 0:  # embedding scaling
                         states[i][1].mul_(0.0)
-                    elif int(ensemble_mode["step_mode"]) == 1:  # nesterov
-                        states[i][1].copy_(weights_cpu, non_blocking=True)
                 #  elif int(ensemble_mode["step_mode"]) == 2:  pure ema
 
     def reset_uvm_cache_stats(self) -> None:
@@ -2419,6 +2483,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if (
             self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             or self.optimizer == OptimType.EXACT_ADAGRAD
+            or self.optimizer == OptimType.EMAINPLACE_ROWWISE_ADAGRAD
         ):
             list_of_state_dict = [
                 (
@@ -2558,6 +2623,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     in [
                         OptimType.EXACT_ROWWISE_ADAGRAD,
                         OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
+                        OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                     ],
                 )
             )

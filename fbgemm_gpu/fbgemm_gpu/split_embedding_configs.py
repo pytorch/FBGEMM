@@ -34,6 +34,7 @@ class EmbOptimType(enum.Enum):
     MADGRAD = "madgrad"
     EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"  # deprecated
     ENSEMBLE_ROWWISE_ADAGRAD = "ensemble_row_wise_adagrad"
+    EMAINPLACE_ROWWISE_ADAGRAD = "ema_in_place_row_wise_adagrad"
     NONE = "none"
 
     def __str__(self) -> str:
