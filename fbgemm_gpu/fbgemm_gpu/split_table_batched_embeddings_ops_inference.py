@@ -913,7 +913,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             self.table_wise_cache_miss[i] += miss_count
 
-    def forward(
+    def _forward_impl(
         self,
         indices: Tensor,
         offsets: Tensor,
@@ -1014,6 +1014,16 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_float8_D=self.max_float8_D,
             fp8_exponent_bits=self.fp8_exponent_bits,
             fp8_exponent_bias=self.fp8_exponent_bias,
+        )
+
+    def forward(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+    ) -> Tensor:
+        return self._forward_impl(
+            indices=indices, offsets=offsets, per_sample_weights=per_sample_weights
         )
 
     def initialize_logical_weights_placements_and_offsets(
