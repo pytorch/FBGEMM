@@ -581,6 +581,13 @@
     <span class="n">step_mode</span><span class="p">:</span> <span class="n">StepMode</span> <span class="o">=</span> <span class="n">StepMode</span><span class="o">.</span><span class="n">USE_ITER</span>
 
 
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">EmainplaceModeDefinition</span><span class="p">:</span>
+    <span class="n">step_ema</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10</span>
+    <span class="n">step_start</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">step_ema_coef</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.6</span>
+
+
 <span class="c1"># Keep in sync with fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh</span>
 <span class="k">class</span> <span class="nc">UVMCacheStatsIndex</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">num_calls</span> <span class="o">=</span> <span class="mi">0</span>
@@ -857,7 +864,9 @@
 
 <span class="sd">            (9) `ENSEMBLE_ROWWISE_ADAGRAD` = Ensemble rowwise-Adagrad</span>
 
-<span class="sd">            (10) `NONE` = Not applying an optimizer update in the backward pass</span>
+<span class="sd">            (10) `EMAINPLACE_ROWWISE_ADAGRAD` = Ema inplace rowwise-Adagrad</span>
+
+<span class="sd">            (11) `NONE` = Not applying an optimizer update in the backward pass</span>
 <span class="sd">                and outputting a sparse weight gradient</span>
 
 <span class="sd">        record_cache_metrics (Optional[RecordCacheMetrics] = None): Record</span>
@@ -910,6 +919,9 @@
 
 <span class="sd">        ensemble_mode (Optional[EnsembleModeDefinition] = None):</span>
 <span class="sd">            Used by Ensemble Rowwise Adagrad</span>
+
+<span class="sd">        emainplace_mode (Optional[EmainplaceModeDefinition] = None):</span>
+<span class="sd">            Used by EMA in-place Rowwise Adagrad</span>
 
 <span class="sd">        counter_based_regularization (Optional[CounterBasedRegularizationDefinition] = None):</span>
 <span class="sd">            Used by Rowwise Adagrad</span>
@@ -1028,6 +1040,7 @@
         <span class="n">beta1</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
         <span class="n">beta2</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.999</span><span class="p">,</span>
         <span class="n">ensemble_mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EnsembleModeDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">emainplace_mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EmainplaceModeDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">counter_based_regularization</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
             <span class="n">CounterBasedRegularizationDefinition</span>
         <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1290,6 +1303,7 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
             <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Optimizer </span><span class="si">{</span><span class="n">optimizer</span><span class="si">}</span><span class="s2"> is not supported in CPU mode.&quot;</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">assert</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">(</span>
@@ -1302,6 +1316,7 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
             <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Optimizer </span><span class="si">{</span><span class="n">optimizer</span><span class="si">}</span><span class="s2"> is not supported.&quot;</span>
 
@@ -1357,6 +1372,12 @@
             <span class="n">ensemble_mode</span> <span class="o">=</span> <span class="n">EnsembleModeDefinition</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_ensemble_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">key</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">fval</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">fval</span> <span class="ow">in</span> <span class="n">ensemble_mode</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="n">emainplace_mode</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">emainplace_mode</span> <span class="o">=</span> <span class="n">EmainplaceModeDefinition</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_emainplace_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">key</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">fval</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">fval</span> <span class="ow">in</span> <span class="n">emainplace_mode</span><span class="o">.</span><span class="vm">__dict__</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
         <span class="p">}</span>
 
         <span class="k">if</span> <span class="n">counter_based_regularization</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -1437,6 +1458,7 @@
                 <span class="n">rowwise</span> <span class="o">=</span> <span class="n">optimizer</span> <span class="ow">in</span> <span class="p">[</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+                    <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="p">]</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
                     <span class="n">construct_split_state</span><span class="p">(</span>
@@ -1564,6 +1586,7 @@
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">,</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_LAMB</span><span class="p">,</span>
                     <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+                    <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span>
             <span class="p">):</span>
@@ -1947,12 +1970,12 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-            <span class="p">),</span> <span class="p">(</span>
-                <span class="s2">&quot;Variable batch size TBE support is enabled for &quot;</span>
-                <span class="s2">&quot;OptimType.EXACT_ROWWISE_ADAGRAD and &quot;</span>
-                <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD only&quot;</span>
-            <span class="p">)</span>
+            <span class="p">),</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">                Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD,</span>
+<span class="s2">                OptimType.ENSEMBLE_ROWWISE_ADAGRAD, and OptimType.EMAINPLACE_ROWWISE_ADAGRAD only.</span>
+<span class="s2">                &quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="n">generate_vbe_metadata</span><span class="p">(</span>
             <span class="n">offsets</span><span class="p">,</span>
             <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
@@ -2347,6 +2370,19 @@
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_placements</span><span class="p">,</span>
         <span class="p">)</span>
 
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">training</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">ema_inplace</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_emainplace_mode</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
+                <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
+                <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_rowwise_adagrad</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+                    <span class="n">common_args</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="p">,</span>
+                    <span class="n">momentum1</span><span class="p">,</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
+
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">:</span>
             <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span>
                 <span class="n">FeatureGateName</span><span class="o">.</span><span class="n">TBE_ENSEMBLE_ROWWISE_ADAGRAD</span>
@@ -2418,6 +2454,36 @@
 
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid OptimType: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
+    <span class="k">def</span> <span class="nf">ema_inplace</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">emainplace_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Perform ema operations on the full sparse embedding tables.</span>
+<span class="sd">        We organize the sparse table, in the following way.</span>
+
+<span class="sd">        Emb_table:</span>
+<span class="sd">         -------------------------------------------------</span>
+<span class="sd">         -                        --                     -</span>
+<span class="sd">         -        Fast part       --      Slow part      -</span>
+<span class="sd">         -    (RL) main part      --      target part    -</span>
+<span class="sd">         -                        --                     -</span>
+<span class="sd">         -------------------------------------------------</span>
+
+<span class="sd">         In every &quot;step_ema&quot; step, we perform</span>
+<span class="sd">            slow_part += coef_ema * (fast_part - slow_part)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">iter_int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">iter_int</span> <span class="o">%</span> <span class="nb">int</span><span class="p">(</span><span class="n">emainplace_mode</span><span class="p">[</span><span class="s2">&quot;step_ema&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">iter_int</span> <span class="o">&gt;=</span> <span class="nb">int</span><span class="p">(</span>
+            <span class="n">emainplace_mode</span><span class="p">[</span><span class="s2">&quot;step_start&quot;</span><span class="p">]</span>
+        <span class="p">):</span>
+            <span class="n">weights</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">split_embedding_weights</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">table_i</span><span class="p">,</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span><span class="p">):</span>
+                <span class="k">assert</span> <span class="p">(</span>
+                    <span class="n">dim</span> <span class="o">&amp;</span> <span class="mi">1</span> <span class="o">==</span> <span class="mi">0</span>
+                <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;table dimension </span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2"> is odd, not supported for ema_inplace_rowwise_adagrad&quot;</span>  <span class="c1"># make sure that the dimension is even</span>
+                <span class="n">weights</span><span class="p">[</span><span class="n">table_i</span><span class="p">][:,</span> <span class="n">dim</span> <span class="o">//</span> <span class="mi">2</span> <span class="p">:]</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">lerp_</span><span class="p">(</span>
+                    <span class="n">weights</span><span class="p">[</span><span class="n">table_i</span><span class="p">][:,</span> <span class="p">:</span> <span class="n">dim</span> <span class="o">//</span> <span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">data</span><span class="p">,</span>
+                    <span class="n">emainplace_mode</span><span class="p">[</span><span class="s2">&quot;step_ema_coef&quot;</span><span class="p">],</span>
+                <span class="p">)</span>
+
     <span class="k">def</span> <span class="nf">ensemble_and_swap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ensemble_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Perform ensemble and swap operations on the full sparse embedding tables.</span>
@@ -2451,8 +2517,6 @@
                 <span class="k">if</span> <span class="n">should_ema</span><span class="p">:</span>
                     <span class="k">if</span> <span class="nb">int</span><span class="p">(</span><span class="n">ensemble_mode</span><span class="p">[</span><span class="s2">&quot;step_mode&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># embedding scaling</span>
                         <span class="n">states</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">mul_</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
-                    <span class="k">elif</span> <span class="nb">int</span><span class="p">(</span><span class="n">ensemble_mode</span><span class="p">[</span><span class="s2">&quot;step_mode&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>  <span class="c1"># nesterov</span>
-                        <span class="n">states</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">weights_cpu</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
                 <span class="c1">#  elif int(ensemble_mode[&quot;step_mode&quot;]) == 2:  pure ema</span>
 
     <span class="k">def</span> <span class="nf">reset_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -2846,6 +2910,7 @@
         <span class="k">if</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
             <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ADAGRAD</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span>
         <span class="p">):</span>
             <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="p">(</span>
@@ -2985,6 +3050,7 @@
                     <span class="ow">in</span> <span class="p">[</span>
                         <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span><span class="p">,</span>
                         <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
+                        <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                     <span class="p">],</span>
                 <span class="p">)</span>
             <span class="p">)</span>
