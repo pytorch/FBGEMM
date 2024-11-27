@@ -1340,7 +1340,7 @@
 
             <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">miss_count</span>
 
-<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>
+    <span class="k">def</span> <span class="nf">_forward_impl</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1441,6 +1441,16 @@
             <span class="n">max_float8_D</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_float8_D</span><span class="p">,</span>
             <span class="n">fp8_exponent_bits</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fp8_exponent_bits</span><span class="p">,</span>
             <span class="n">fp8_exponent_bias</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fp8_exponent_bias</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_forward_impl</span><span class="p">(</span>
+            <span class="n">indices</span><span class="o">=</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="o">=</span><span class="n">per_sample_weights</span>
         <span class="p">)</span></div>
 
     <span class="k">def</span> <span class="nf">initialize_logical_weights_placements_and_offsets</span><span class="p">(</span>
