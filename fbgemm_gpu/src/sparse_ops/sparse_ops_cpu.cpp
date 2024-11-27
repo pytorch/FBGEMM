@@ -684,6 +684,11 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
+
+    // Ensure there is enough space.
+    TORCH_CHECK(
+        permuted_indices_size >=
+        output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD]);
   } else {
     permuted_indices_size =
         output_offsets_per_thread_cumsum[num_threads * FALSE_SHARING_PAD];
@@ -848,6 +853,11 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_1D_sparse_data_cpu(
   int64_t permuted_indices_size = 0;
   if (permuted_lengths_sum.has_value()) {
     permuted_indices_size = permuted_lengths_sum.value();
+
+    // Ensure there is enough space.
+    TORCH_CHECK(
+        permuted_indices_size >=
+        output_offsets[permuted_lengths_size].item<int64_t>());
   } else {
     permuted_indices_size =
         output_offsets[permuted_lengths_size].item<int64_t>();
