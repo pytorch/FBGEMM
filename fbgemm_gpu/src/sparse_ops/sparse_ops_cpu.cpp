@@ -641,6 +641,12 @@ std::tuple<Tensor, Tensor, std::optional<Tensor>> permute_2D_sparse_data_cpu(
   }
   TORCH_CHECK(lengths.dim() == 2);
 
+  // FIXME: Check that permute tensor is sane.
+  TORCH_CHECK(permute.dim() == 1);
+  for (auto i = 0; i < permute.sizes()[0]; i++) {
+    TORCH_CHECK(permute[i].item<int64_t>() < lengths.sizes()[0]);
+  }
+
   const auto permute_contig = permute.expect_contiguous();
   const auto lengths_contig = lengths.expect_contiguous();
   const auto indices_contig = indices.expect_contiguous();
