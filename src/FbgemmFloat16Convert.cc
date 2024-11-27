@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -39,10 +40,17 @@ void FloatToFloat16_simd(
     bool do_clip) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
+#ifdef __aarch64__
+    if (fbgemmHasArmSveSupport()) {
+      FloatToFloat16_sve(src, dst, size, do_clip);
+    } else if (fbgemmHasArmNeonSupport()) {
+      FloatToFloat16_neon(src, dst, size, do_clip);
+#else
     if (fbgemmHasAvx512Support()) {
       FloatToFloat16_avx512(src, dst, size, do_clip);
     } else if (fbgemmHasAvx2Support()) {
       FloatToFloat16_avx2(src, dst, size, do_clip);
+#endif
     } else {
       FloatToFloat16_ref(src, dst, size, do_clip);
       return;
@@ -55,10 +63,17 @@ void FloatToFloat16_simd(
 void Float16ToFloat_simd(const float16* src, float* dst, size_t size) {
   // Run time CPU detection
   if (cpuinfo_initialize()) {
+#ifdef __aarch64__
+    if (fbgemmHasArmSveSupport()) {
+      Float16ToFloat_sve(src, dst, size);
+    } else if (fbgemmHasArmNeonSupport()) {
+      Float16ToFloat_neon(src, dst, size);
+#else
     if (fbgemmHasAvx512Support()) {
       Float16ToFloat_avx512(src, dst, size);
     } else if (fbgemmHasAvx2Support()) {
       Float16ToFloat_avx2(src, dst, size);
+#endif
     } else {
       Float16ToFloat_ref(src, dst, size);
       return;

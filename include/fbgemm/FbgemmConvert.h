@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -136,6 +137,26 @@ FBGEMM_API void FloatToFloat16_avx512(
     bool do_clip = false);
 
 /**
+ * @brief SVE implementation to convert fp32 numbers to fp16 numbers.
+ *
+ */
+FBGEMM_API void FloatToFloat16_sve(
+    const float* src,
+    float16* dst,
+    size_t size,
+    bool do_clip = false);
+
+/**
+ * @brief NEON implementation to convert fp32 numbers to fp16 numbers.
+ *
+ */
+FBGEMM_API void FloatToFloat16_neon(
+    const float* src,
+    float16* dst,
+    size_t size,
+    bool do_clip = false);
+
+/**
  * @brief AVX2 implementation to convert fp16 numbers to fp32 numbers.
  *
  */
@@ -148,6 +169,20 @@ Float16ToFloat_avx2(const float16* src, float* dst, size_t size);
  */
 FBGEMM_API void
 Float16ToFloat_avx512(const float16* src, float* dst, size_t size);
+
+/**
+ * @brief SVE implementation to convert fp16 numbers to fp32 numbers.
+ *
+ */
+FBGEMM_API void
+Float16ToFloat_sve(const float16* src, float* dst, size_t size);
+
+/**
+ * @brief NEON implementation to convert fp16 numbers to fp32 numbers.
+ *
+ */
+FBGEMM_API void
+Float16ToFloat_neon(const float16* src, float* dst, size_t size);
 
 /**
  * @brief Transform all entries in a matrix from fp32 to float16 and back to
