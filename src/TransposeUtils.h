@@ -62,6 +62,22 @@ void transpose_avx512(
     T* dst,
     int64_t ld_dst);
 
+#ifdef __aarch64__
+/**
+ * @brief Transpose a matrix using Intel AVX2.
+ *
+ * This is called if the code is running on a CPU with Intel AVX2 support.
+ */
+template <typename T>
+void transpose_sve(
+    int64_t M,
+    int64_t N,
+    const T* src,
+    int64_t ld_src,
+    T* dst,
+    int64_t ld_dst);
+#endif // __aarch64__
+
 } // namespace internal
 
 } // namespace fbgemm
