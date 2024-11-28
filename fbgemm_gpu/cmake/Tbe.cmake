@@ -8,88 +8,10 @@
 # Optimizer Group Definitions
 ################################################################################
 
-# set(COMMON_OPTIMIZERS
-#     adagrad
-#     rowwise_adagrad
-#     sgd)
-
-# # To be populated in the subsequent diffs
-# set(CPU_ONLY_OPTIMIZERS "")
-
-# set(GPU_ONLY_OPTIMIZERS
-#     adam
-#     lamb
-#     partial_rowwise_adam
-#     partial_rowwise_lamb
-#     lars_sgd
-#     none
-#     rowwise_adagrad_with_counter)
-
-# set(DEPRECATED_OPTIMIZERS
-#     approx_sgd
-#     approx_rowwise_adagrad
-#     approx_rowwise_adagrad_with_counter
-#     approx_rowwise_adagrad_with_weight_decay
-#     rowwise_adagrad_with_weight_decay
-#     rowwise_weighted_adagrad)
-
-# set(ALL_OPTIMIZERS
-#     ${COMMON_OPTIMIZERS}
-#     ${CPU_ONLY_OPTIMIZERS}
-#     ${GPU_ONLY_OPTIMIZERS}
-#     ${DEPRECATED_OPTIMIZERS})
-
-# set(CPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS})
-
-# set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
-
-# # Optimizers with the VBE support
-# set(VBE_OPTIMIZERS
-#     rowwise_adagrad
-#     rowwise_adagrad_with_counter
-#     sgd
-#     dense)
-
-# # Optimizers with the GWD support
-# set(GWD_OPTIMIZERS
-#     rowwise_adagrad)
-
-# # Individual optimizers (not fused with SplitTBE backward)
-# set(DEFUSED_OPTIMIZERS
-#     rowwise_adagrad)
-
-# # Optimizers with the SSD support
-# set(SSD_OPTIMIZERS
-#     rowwise_adagrad)
-
 set(WEIGHT_OPTIONS
     weighted
     unweighted_nobag
     unweighted)
-
-
-################################################################################
-# C++ Inference Code
-################################################################################
-
-set(static_cpu_files_inference
-  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host_cpu.cpp)
-
-set(static_gpu_files_inference
-  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host.cpp
-  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_split_lookup.cu)
-
-set(gen_cpu_files_inference
-  gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp
-  gen_embedding_forward_quantized_weighted_codegen_cpu.cpp)
-
-foreach(wdesc ${WEIGHT_OPTIONS})
-  foreach(etype fp32 fp16 fp8 int8 int4 int2)
-    list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
-  endforeach()
-
-  list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu")
-endforeach()
 
 
 ################################################################################
@@ -126,10 +48,28 @@ gpu_cpp_library(
     fbgemm_gpu)
 
 
-
 ################################################################################
 # TBE Inference
 ################################################################################
+
+set(static_cpu_files_inference
+  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host_cpu.cpp)
+
+set(static_gpu_files_inference
+  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host.cpp
+  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_split_lookup.cu)
+
+set(gen_cpu_files_inference
+  gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp
+  gen_embedding_forward_quantized_weighted_codegen_cpu.cpp)
+
+foreach(wdesc ${WEIGHT_OPTIONS})
+  foreach(etype fp32 fp16 fp8 int8 int4 int2)
+    list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
+  endforeach()
+
+  list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu")
+endforeach()
 
 if(USE_ROCM)
   prepend_filepaths(

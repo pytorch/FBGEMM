@@ -149,7 +149,7 @@ function(gpu_cpp_library)
     set(singleValueArgs
         PREFIX          # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
         TYPE            # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
-        DESTINATION     # Install the target into a destination directory
+        DESTINATION     # The install destination directory to place the build target into
     )
     set(multiValueArgs
         CPU_SRCS            # Sources for CPU-only build
@@ -194,6 +194,9 @@ function(gpu_cpp_library)
         if(lib_sources)
             # Fetch the equivalent HIPified sources if available.
             # This presumes that `hipify()` has already been run.
+            #
+            # This code is placed under an if-guard so that it won't fail for
+            # targets that have nothing to do with HIP, e.g. asmjit
             get_hipified_list("${lib_sources}" lib_sources_hipified)
 
             # Set properties for the HIPified sources
@@ -254,7 +257,13 @@ function(gpu_cpp_library)
             # Set the RPATH for the library to include $ORIGIN, so it can look
             # into the same directory for dependency .SO files to load, e.g.
             # fbgemm_gpu.so -> fbgemm.so, asmjit.so
-            INSTALL_RPATH "\$ORIGIN:\$ORIGIN/fbgemm_gpu:.")
+            #
+            # More info on RPATHS:
+            #   https://amir.rachum.com/shared-libraries/#debugging-cheat-sheet
+            #   https://stackoverflow.com/questions/43330165/how-to-link-a-shared-library-with-cmake-with-relative-path
+            #   https://stackoverflow.com/questions/57915564/cmake-how-to-set-rpath-to-origin-with-cmake
+            #   https://stackoverflow.com/questions/58360502/how-to-set-rpath-origin-in-cmake
+            INSTALL_RPATH "\$ORIGIN")
     endif()
 
     # Collect external libraries for linking

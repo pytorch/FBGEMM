@@ -110,19 +110,15 @@ set(fbgemm_sources_include_directories
 
 
 ################################################################################
-# Target Dependencies
+# Build Library Dependencies
 ################################################################################
 
-if(USE_ROCM)
-  set(GENFILE_PREFIX ${CMAKE_BINARY_DIR})
-else()
-  set(GENFILE_PREFIX ${CMAKE_CURRENT_SOURCE_DIR})
-endif()
+# These dependencies should be declared and built before building FBGEMM_GPU
 
-# `asmjit`
+# Target: `asmjit`
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Asmjit.cmake)
 
-# `fbgemm`
+# Target: `fbgemm`
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Fbgemm.cmake)
 
 
@@ -156,9 +152,9 @@ foreach(script
 endforeach()
 
 
-# ################################################################################
+################################################################################
 # HIP Code Generation
-# ################################################################################
+################################################################################
 
 if(USE_ROCM)
   set(include_dirs_for_hipification

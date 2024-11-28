@@ -18,7 +18,6 @@ find . -name '*.so'
 # https://github.com/pytorch/FBGEMM/issues/3098
 # https://github.com/NixOS/patchelf/issues/453
 find . -name '*.so' -print0 | xargs -0 patchelf --remove-rpath
-# find . -name '*.so' -print0 | xargs -0 patchelf --force-rpath --set-rpath '$ORIGIN/:./'
 
 echo "[CMAKE] Removed errant RPATHs"
 echo "################################################################################"
