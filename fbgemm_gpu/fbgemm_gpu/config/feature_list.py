@@ -71,6 +71,10 @@ class FeatureGate:
         FeatureGate.is_enabled(FeatureGateName.TBE_V2)
     """
 
+    dummy_tensor = torch.empty(1)
+
     @classmethod
     def is_enabled(cls, feature: FeatureGateName) -> bool:
-        return torch.ops.fbgemm.check_feature_gate_key(feature.name)
+        return torch.ops.fbgemm.check_feature_gate_key_pt2(
+            cls.dummy_tensor, feature.name
+        )[0].item()
