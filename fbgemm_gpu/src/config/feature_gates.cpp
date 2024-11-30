@@ -65,6 +65,21 @@ DLL_PUBLIC bool check_feature_gate_key(const std::string& key) {
   }
 }
 
+DLL_PUBLIC at::Tensor check_feature_gate_key_pt2(
+    at::Tensor& tensor,
+    const std::string& key) {
+  auto output = at::empty({1}, tensor.options().dtype(at::kBool));
+  output.data_ptr<bool>()[0] = check_feature_gate_key(key);
+  return output;
+}
+
+DLL_PUBLIC at::Tensor check_feature_gate_key_pt2_meta(
+    at::Tensor& tensor,
+    const std::string& key) {
+  auto output = at::empty({1}, tensor.options().dtype(at::kBool));
+  return output;
+}
+
 DLL_PUBLIC bool is_feature_enabled(const FeatureGateName& feature) {
   return check_feature_gate_key(to_string(feature));
 }
@@ -81,4 +96,14 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "check_feature_gate_key(str key) -> bool",
       fbgemm_gpu::config::check_feature_gate_key);
+  m.def("check_feature_gate_key_pt2(Tensor tensor, str key) -> Tensor");
+  DISPATCH_TO_CPU(
+      "check_feature_gate_key_pt2",
+      fbgemm_gpu::config::check_feature_gate_key_pt2);
+  DISPATCH_TO_CUDA(
+      "check_feature_gate_key_pt2",
+      fbgemm_gpu::config::check_feature_gate_key_pt2);
+  DISPATCH_TO_META(
+      "check_feature_gate_key_pt2",
+      fbgemm_gpu::config::check_feature_gate_key_pt2_meta);
 }
