@@ -636,6 +636,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uuid = str(uuid.uuid4())
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.pooling_mode = pooling_mode
+        self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
         # If environment variable is set, it overwrites the default bounds check mode.
         self.bounds_check_mode_int: int = int(
             os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
@@ -1244,6 +1245,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Get a debug function pointer
         self._debug_print_input_stats: Callable[..., None] = (
             self._debug_print_input_stats_factory()
+        )
+
+        # Check if bounds_check_indices_v2 is enabled via the feature gate
+        self.use_bounds_check_v2: bool = self._feature_is_enabled(
+            FeatureGateName.BOUNDS_CHECK_INDICES_V2
         )
 
     @torch.jit.ignore
@@ -3285,6 +3291,41 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 per_sample_weights = per_sample_weights.float()
 
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            vbe = vbe_metadata.B_offsets is not None
+            # Compute B info and VBE metadata for bounds_check_indices only if
+            # VBE and bounds check indices v2 are used
+            if vbe and self.use_bounds_check_v2:
+                B_offsets = vbe_metadata.B_offsets
+                B_offsets_rank_per_feature = vbe_metadata.B_offsets_rank_per_feature
+                output_offsets_feature_rank = vbe_metadata.output_offsets_feature_rank
+                assert isinstance(B_offsets, Tensor), "B_offsets must be tensor"
+                assert isinstance(
+                    B_offsets_rank_per_feature, Tensor
+                ), "B_offsets_rank_per_feature must be tensor"
+                assert isinstance(
+                    output_offsets_feature_rank, Tensor
+                ), "output_offsets_feature_rank must be tensor"
+                info_B_num_bits, info_B_mask = torch.ops.fbgemm.get_infos_metadata(
+                    B_offsets,  # unused tensor
+                    vbe_metadata.max_B,
+                    B_offsets.numel() - 1,  # T
+                )
+                row_output_offsets, b_t_map = torch.ops.fbgemm.generate_vbe_metadata(
+                    B_offsets,
+                    B_offsets_rank_per_feature,
+                    output_offsets_feature_rank,
+                    self.D_offsets,
+                    self.max_D,
+                    self.is_nobag,
+                    vbe_metadata.max_B_feature_rank,
+                    info_B_num_bits,
+                    offsets.numel() - 1,  # total_B
+                )
+            else:
+                b_t_map = None
+                info_B_num_bits = -1
+                info_B_mask = -1
+
             torch.ops.fbgemm.bounds_check_indices(
                 self.rows_per_table,
                 indices,
@@ -3294,6 +3335,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 per_sample_weights,
                 B_offsets=vbe_metadata.B_offsets,
                 max_B=vbe_metadata.max_B,
+                b_t_map=b_t_map,
+                info_B_num_bits=info_B_num_bits,
+                info_B_mask=info_B_mask,
             )
 
         return indices, offsets, per_sample_weights, vbe_metadata
