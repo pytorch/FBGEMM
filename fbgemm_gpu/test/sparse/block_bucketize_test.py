@@ -1363,7 +1363,7 @@ class BlockBucketizeTest(unittest.TestCase):
         has_weight=st.booleans(),
         bucketize_pos=st.booleans(),
         sequence=st.booleans(),
-        my_size=st.sampled_from([3, 194, 256]),
+        my_size=st.sampled_from([3, 194, 256, 1024]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=32, deadline=None)
     def test_block_bucketize_sparse_features_large(
