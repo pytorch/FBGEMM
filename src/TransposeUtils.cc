@@ -46,6 +46,14 @@ void transpose_simd(
     }
     return;
   }
+
+#if HAVE_SVE
+  if constexpr (std::is_same<T, float>::value) {
+    internal::transpose_sve<T>(M, N, src, ld_src, dst, ld_dst);
+  } else {
+    transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);
+  }
+#else
   static const auto iset = fbgemmInstructionSet();
   // Run time CPU detection
   if (isZmm(iset)) {
@@ -55,6 +63,8 @@ void transpose_simd(
   } else {
     transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);
   }
+
+#endif
 }
 
 template void transpose_ref<float>(

@@ -143,10 +143,10 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
     return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
-    intrinsics_srcs = ["src/FbgemmFP16UKernelsSve128.cc"]
+    intrinsics_srcs = ["src/FbgemmFP16UKernelsSve128.cc", "src/UtilsSve.cc"]
 
     #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-    asm_srcs = ["src/FbgemmFP16UKernelsSve128.cc"]
+    asm_srcs = ["src/FbgemmFP16UKernelsSve128.cc", "src/UtilsSve.cc"]
     if buck:
         return select({
             "DEFAULT": asm_srcs,
