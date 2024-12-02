@@ -34,8 +34,14 @@ __launch_bounds__(kMaxThreads) void _populate_length_to_feature_id_inplace_kerne
   length_to_feature_idx[batch_size_offsets[t] + b] = t;
 }
 
-template <typename func_t>
-void increase_gpu_max_dynamic_shared_memory(func_t kernel, const int device) {
+void adjust_block_bucketize_sparse_features_kernel_launch_configs_based_on_smem(
+    int* smem_size,
+    dim3* block_dims,
+    dim3* grid_dims,
+    int* max_smem,
+    const int lengths_size,
+    const int my_size,
+    const int device) {
   // V100: 96 KB; A100: 160 KB; H100: 228 KB.
   int max_shared_bytes = 0;
   C10_CUDA_CHECK(cudaDeviceGetAttribute(
@@ -53,11 +59,23 @@ void increase_gpu_max_dynamic_shared_memory(func_t kernel, const int device) {
   int used_shared_kb = round_down(shared_kb * 2 / 3, 16);
   TORCH_CHECK(used_shared_kb > 0);
 
-  int used_shared_bytes = used_shared_kb << 10;
+  *max_smem = used_shared_kb << 10;
+  while (*smem_size > *max_smem && block_dims->y > 0) {
+    block_dims->y--;
+    *smem_size = my_size * block_dims->y * sizeof(uint64_t);
+  }
+  TORCH_CHECK(
+      block_dims->y > 0,
+      "block_bucketize_sparse_features does not have sufficient shared memory."
+      "Please contact the FBGEMM team.")
+  grid_dims->x = cuda_calc_xblock_count(lengths_size, block_dims->y);
+}
+
+template <typename func_t>
+void increase_gpu_max_dynamic_shared_memory(func_t kernel, const int max_smem) {
+  TORCH_CHECK(max_smem > 0);
   C10_CUDA_CHECK(cudaFuncSetAttribute(
-      (void*)kernel,
-      cudaFuncAttributeMaxDynamicSharedMemorySize,
-      used_shared_bytes));
+      (void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, max_smem));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
@@ -440,6 +458,7 @@ _block_bucketize_sparse_features_cuda(
     constexpr auto threads_per_block = 256;
     const auto num_blocks =
         cuda_calc_xblock_count(max_B * T, threads_per_block);
+
     AT_DISPATCH_INDEX_TYPES(
         offsets_contig.scalar_type(),
         "_populate_length_to_feature_id_inplace_kernel",
@@ -481,8 +500,8 @@ _block_bucketize_sparse_features_cuda(
         block_bucketize_pos_concat.device(), true);
   }
   static_assert(kMaxThreads % kWarpSize == 0);
-  const dim3 block_dims(kWarpSize, kMaxThreads / kWarpSize);
-  const dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
+  dim3 block_dims(kWarpSize, kMaxThreads / kWarpSize);
+  dim3 grid_dims(cuda_calc_xblock_count(lengths_size, block_dims.y));
   const auto smem_adjust_threshold =
       at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
   AT_DISPATCH_INDEX_TYPES(
@@ -702,7 +721,16 @@ _block_bucketize_sparse_features_cuda(
 #undef LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITHOUT_WEIGHT
 #undef LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITH_WEIGHT
   } else {
-    auto smem_size = my_size * block_dims.y * sizeof(uint64_t);
+    int smem_size = my_size * block_dims.y * sizeof(uint64_t);
+    int max_smem = 0;
+    adjust_block_bucketize_sparse_features_kernel_launch_configs_based_on_smem(
+        &smem_size,
+        &block_dims,
+        &grid_dims,
+        &max_smem,
+        lengths_size,
+        my_size,
+        lengths.get_device());
     if (weights.has_value() & bucketize_pos) {
       Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
@@ -730,7 +758,7 @@ _block_bucketize_sparse_features_cuda(
                                 scalar_t>;
                         if (smem_size > smem_adjust_threshold) {
                           increase_gpu_max_dynamic_shared_memory(
-                              block_bucketize_kernel, lengths.get_device());
+                              block_bucketize_kernel, max_smem);
                         }
                         block_bucketize_kernel<<<
                             grid_dims,
@@ -796,7 +824,7 @@ _block_bucketize_sparse_features_cuda(
                                 scalar_t>;
                         if (smem_size > smem_adjust_threshold) {
                           increase_gpu_max_dynamic_shared_memory(
-                              block_bucketize_kernel, lengths.get_device());
+                              block_bucketize_kernel, max_smem);
                         }
                         block_bucketize_kernel<<<
                             grid_dims,
@@ -856,7 +884,7 @@ _block_bucketize_sparse_features_cuda(
                           std::nullptr_t>;
                   if (smem_size > smem_adjust_threshold) {
                     increase_gpu_max_dynamic_shared_memory(
-                        block_bucketize_kernel, lengths.get_device());
+                        block_bucketize_kernel, max_smem);
                   }
                   block_bucketize_kernel<<<
                       grid_dims,
@@ -912,7 +940,7 @@ _block_bucketize_sparse_features_cuda(
                           std::nullptr_t>;
                   if (smem_size > smem_adjust_threshold) {
                     increase_gpu_max_dynamic_shared_memory(
-                        block_bucketize_kernel, lengths.get_device());
+                        block_bucketize_kernel, max_smem);
                   }
                   block_bucketize_kernel<<<
                       grid_dims,
