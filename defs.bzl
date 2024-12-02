@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -143,7 +144,11 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
     return asm_srcs if not msvc else intrinsics_srcs
 
 def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
-    intrinsics_srcs = ["src/FbgemmFP16UKernelsSve128.cc"]
+    intrinsics_srcs = [
+        "src/FbgemmFP16UKernelsSve128.cc",
+        "src/FbgemmFloat16ConvertNeon.cc",
+        "src/FbgemmFloat16ConvertSve.cc"
+    ]
 
     #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = ["src/FbgemmFP16UKernelsSve128.cc"]
