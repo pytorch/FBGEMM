@@ -130,7 +130,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t max_D,
       int64_t cache_size_gb = 0,
       int64_t unique_id = 0,
-      int64_t ele_size_bytes = 2 /*assume by default fp16*/);
+      int64_t ele_size_bytes = 2 /*assume by default fp16*/,
+      bool enable_async_update = false);
 
   virtual ~EmbeddingKVDB();
 
@@ -289,6 +290,29 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& weights,
       const std::vector<void*>& cached_addr_list);
 
+  /// update the L2 cache and backend storage with the given
+  /// indices/weights/count
+  ///
+  /// @param indices The 1D embedding index tensor, should skip on negative
+  /// value
+  /// @param weights The 2D tensor that each row(embeddings) is paired up with
+  /// relative element in <indices>
+  /// @param count A single element tensor that contains the number of indices
+  /// to be processed
+  /// @param mode is used for monitoring rocksdb write, checkout
+  /// RocksdbWriteMode for detailed explanation
+  /// @param require_locking whether function will require locking, this is
+  /// avoiding deadlock on get() since there will be a lock held on get()
+  /// stack before calling update_cache_and_storage
+  ///
+  /// @return None
+  void update_cache_and_storage(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      kv_db::RocksdbWriteMode mode,
+      bool require_locking = true);
+
   virtual void flush_or_compact(const int64_t timestep) = 0;
 
   void check_tensor_type_consistency(
@@ -302,6 +326,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   folly::Optional<at::ScalarType> index_dtype_{folly::none};
   folly::Optional<at::ScalarType> weights_dtype_{folly::none};
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_tp_;
+  bool enable_async_update_;
   std::unique_ptr<std::thread> cache_filling_thread_;
   std::atomic<bool> stop_{false};
   // buffer queue that stores all the needed indices/weights/action_count to
