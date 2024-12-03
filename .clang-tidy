@@ -4,6 +4,9 @@
 # Get options for config files in parent directories,
 # but override them if there's a conflict.
 InheritParentConfig: true
+Checks: '
+bugprone-argument-comment,
+'
 CheckOptions:
  - key: facebook-cuda-safe-api-call-check.HandlerName
    # This is PyTorch's handler; you may need to define your own
