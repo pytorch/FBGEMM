@@ -9,6 +9,7 @@
 
 # pyre-ignore-all-errors[56]
 
+import os
 import unittest
 
 import hypothesis.strategies as st
@@ -58,6 +59,10 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardDenseTest(unittest.TestCase):
+    @unittest.skipIf(
+        os.getenv("GITHUB_ENV") is not None,
+        "This test is currently running into illegal memmory access issues in OSS, and is being investigated; please see https://github.com/pytorch/pytorch/issues/141904.",
+    )
     @skipIfRocm("Currently runs into memory access issues")
     @given(
         T=st.integers(min_value=1, max_value=3),
