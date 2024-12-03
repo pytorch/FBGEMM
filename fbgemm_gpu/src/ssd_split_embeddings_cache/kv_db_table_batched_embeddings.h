@@ -185,13 +185,13 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t sleep_ms = 0);
 
   /// storage tier counterpart of function get()
-  virtual folly::coro::Task<void> get_kv_db_async(
+  virtual folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) = 0;
 
   /// storage tier counterpart of function set()
-  virtual folly::coro::Task<void> set_kv_db_async(
+  virtual folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
@@ -286,7 +286,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// @return None
   /// @note weigths will be updated on the slot that paired up with valid cache
   /// addr pointer
-  folly::coro::Task<void> cache_memcpy(
+  folly::SemiFuture<std::vector<folly::Unit>> cache_memcpy(
       const at::Tensor& weights,
       const std::vector<void*>& cached_addr_list);
 
