@@ -25,11 +25,14 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     construct_cache_state,
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
+    EmbeddingSpecInfo,
+    get_new_embedding_location,
     MAX_PREFETCH_DEPTH,
     PoolingMode,
     RecordCacheMetrics,
     round_up,
     SplitState,
+    tensor_to_device,
 )
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
@@ -392,6 +395,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
+        self.cache_load_factor: float = cache_load_factor
+        self.cache_sets: int = cache_sets
+        self.cache_reserved_memory: float = cache_reserved_memory
         rows: List[int] = [e[1] for e in embedding_specs]
         dims: List[int] = [e[2] for e in embedding_specs]
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
@@ -1460,6 +1466,116 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.lxu_cache_state.fill_(-1)
         self.lxu_state.fill_(0)
         self.timestep_counter.reset()
+
+    def move_to_device_with_cache(
+        self, device: torch.device, cache_load_factor: float
+    ) -> None:
+        """
+        Moves the TBE to the specified device, and updates the cache state accordingly.
+        """
+        if (
+            self.current_device == device
+            and self.cache_load_factor == cache_load_factor
+        ):
+            return
+
+        location = get_new_embedding_location(device, cache_load_factor)
+        if device.type != "cpu":
+            self.use_cpu = False
+
+        weights = self.split_embedding_weights()
+        is_meta = self.current_device.type == "meta"
+        index_remapping_array: torch.Tensor
+        index_remappings_array_offsets: torch.Tensor
+        original_rows_per_table: torch.Tensor
+        if not is_meta:
+            # Record weights and pruning tensors for setting
+            # weights and pruning tensors for TBE on new device
+            if device.type == "cpu":
+                for i, weight in enumerate(weights):
+                    weights[i] = (
+                        weight[0].to(device),
+                        weight[1].to(device) if weight[1] is not None else None,
+                    )
+            (
+                index_remapping_array,
+                index_remappings_array_offsets,
+                original_rows_per_table,
+            ) = (
+                self.index_remappings_array.to(device),
+                self.index_remappings_array_offsets.to(device),
+                self.original_rows_per_table.to(device),
+            )
+
+        self.reset_weights_placements_and_offsets(device, location.value)
+        self.recompute_module_buffers()
+        self.weight_initialized = False
+        self.initialize_weights()
+
+        # # Actually, we may not need to clear this... and just leave the cpu weights filled
+        if device.type != "cpu":
+            self.weights_host = torch.zeros(0, device=device, dtype=torch.uint8)
+
+        if location != EmbeddingLocation.DEVICE:
+            # Ensure all weights are on the same device
+            self.weights_dev = torch.zeros(0, device=device, dtype=torch.uint8)
+
+        for name, buf in self.named_buffers():
+            if buf.is_meta:
+                self.register_buffer(name, tensor_to_device(buf, device))
+
+        self.current_device = device
+
+        if not is_meta:
+            self.assign_embedding_weights(weights)
+            self.index_remappings_array = index_remapping_array
+            self.index_remappings_array_offsets = index_remappings_array_offsets
+            self.original_rows_per_table = original_rows_per_table
+
+        if cache_load_factor is not None:
+            self.update_cache_load_factor(cache_load_factor)
+
+    def update_cache_load_factor(self, cache_load_factor: float = 0.2) -> None:
+        """
+        Updates cache_load_factor and embedding location for weights after TBE has already been initialized
+        Assumes that the location of the weights is already set correctly
+        """
+        rows = [
+            embedding_spec[EmbeddingSpecInfo.rows]
+            for embedding_spec in self.embedding_specs
+        ]
+        locations = [
+            embedding_spec[EmbeddingSpecInfo.embedding_location]
+            for embedding_spec in self.embedding_specs
+        ]
+        # pyre-ignore[6]
+        cache_state = construct_cache_state(rows, locations, self.feature_table_map)
+
+        cached_dims = [
+            rounded_row_size_in_bytes(
+                embedding_spec[EmbeddingSpecInfo.dims],  # pyre-ignore[6]
+                embedding_spec[EmbeddingSpecInfo.sparse_type],  # pyre-ignore[6]
+                16,
+                self.scale_bias_size_in_bytes,
+            )
+            for embedding_spec in self.embedding_specs
+            if embedding_spec[EmbeddingSpecInfo.embedding_location]
+            == EmbeddingLocation.MANAGED_CACHING
+        ]
+
+        self.max_D_cache: int = max(cached_dims) if len(cached_dims) > 0 else 0
+
+        # total_cache_hash_size is sometimes a buffer, sometimes an int
+        # deleting as we may modify the value in _apply_cache_state call
+        del self.total_cache_hash_size
+
+        self._apply_cache_state(
+            cache_state,
+            self.cache_algorithm,
+            cache_load_factor,
+            self.cache_sets,
+            self.cache_reserved_memory,
+        )
 
     @torch.jit.export
     def split_embedding_weights_with_scale_bias(
