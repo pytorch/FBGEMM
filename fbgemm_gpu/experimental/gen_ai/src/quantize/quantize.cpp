@@ -295,9 +295,9 @@ at::Tensor f8f8bf16_rowwise_meta(
     std::optional<at::Tensor> /* bias = c10::nullopt */,
     bool /* use_fast_accum = true */,
     std::optional<at::Tensor> /* output = c10::nullopt */) {
-  int M = XQ.size(0);
-  int N = WQ.size(0);
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  const at::SymInt M = XQ.sym_size(0);
+  const at::SymInt N = WQ.sym_size(0);
+  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
 }
 
