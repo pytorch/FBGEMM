@@ -401,18 +401,18 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
-  folly::coro::Task<void> get_kv_db_async(
+  folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
-    co_await get_kv_db_async_impl(
+    return get_kv_db_async_impl(
         indices,
         weights,
         count,
         /*snapshot_handle=*/nullptr);
   }
 
-  folly::coro::Task<void> set_kv_db_async(
+  folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
@@ -422,16 +422,15 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 #ifdef FBGEMM_FBCODE
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
 #endif
-    std::vector<folly::coro::TaskWithExecutor<void>> tasks;
+    std::vector<folly::Future<folly::Unit>> futures;
     auto count_ = count.scalar_type() == at::ScalarType::Long
         ? *(count.data_ptr<int64_t>())
         : *(count.data_ptr<int32_t>());
 
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
-      tasks.emplace_back(
-          folly::coro::co_invoke(
-              [this, &indices, &weights, count_, shard]() mutable
-              -> folly::coro::Task<void> {
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([=, &indices, &weights](folly::Unit) {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_set", [&] {
                       using value_t = scalar_t;
@@ -472,11 +471,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             }
                           });
                     });
-                co_return;
-              })
-              .scheduleOn(executor_.get()));
+              });
+      futures.push_back(std::move(f));
     }
-    co_await folly::coro::collectAllRange(std::move(tasks));
+    // co_await folly::coro::collectAllRange(std::move(tasks));
 #ifdef FBGEMM_FBCODE
     auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
     switch (w_mode) {
@@ -494,6 +492,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         break;
     }
 #endif
+    return folly::collect(futures);
   }
 
   bool is_valid_snapshot(const SnapshotHandle* snapshot_handle) const {
@@ -531,8 +530,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
-    folly::coro::blockingWait(
-        get_kv_db_async_impl(seq_indices, weights, count, snapshot_handle));
+
+    get_kv_db_async_impl(seq_indices, weights, count, snapshot_handle).wait();
   }
 
   void set_range(
@@ -661,7 +660,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
-  folly::coro::Task<void> get_kv_db_async_impl(
+  folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async_impl(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
@@ -670,7 +669,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 #ifdef FBGEMM_FBCODE
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
 #endif
-    std::vector<folly::coro::TaskWithExecutor<void>> tasks;
+    std::vector<folly::Future<folly::Unit>> futures;
     auto count_ = count.scalar_type() == at::ScalarType::Long
         ? *(count.data_ptr<int64_t>())
         : *(count.data_ptr<int32_t>());
@@ -680,12 +679,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       snapshot_ptr_t snapshot = snapshot_handle == nullptr
           ? nullptr
           : snapshot_handle->get_snapshot_for_shard(shard);
-      auto local_ro = ro_;
-      local_ro.snapshot = snapshot;
-      tasks.emplace_back(
-          folly::coro::co_invoke(
-              [this, &indices, &weights, count_, shard, local_ro]() mutable
-              -> folly::coro::Task<void> {
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([=, &indices, &weights](folly::Unit) {
                 FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
                     weights.scalar_type(), "ssd_get", [&] {
                       using value_t = scalar_t;
@@ -749,7 +745,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             values.resize(keys.size());
                             statuses.resize(keys.size());
                             dbs_[shard]->MultiGet(
-                                local_ro,
+                                ro_,
                                 keys.size(),
                                 cfs.data(),
                                 keys.data(),
@@ -798,15 +794,14 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             }
                           });
                     });
-                co_return;
-              })
-              .scheduleOn(executor_.get()));
+              });
+      futures.push_back(std::move(f));
     }
-    co_await folly::coro::collectAllRange(std::move(tasks));
 #ifdef FBGEMM_FBCODE
     auto duration = facebook::WallClockUtil::NowInUsecFast() - start_ts;
     read_total_duration_ += duration;
 #endif
+    return folly::collect(futures);
   }
 
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
