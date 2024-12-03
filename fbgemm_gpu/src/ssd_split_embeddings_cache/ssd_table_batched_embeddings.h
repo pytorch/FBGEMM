@@ -423,7 +423,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
 #endif
     std::vector<folly::coro::TaskWithExecutor<void>> tasks;
-    auto count_ = count.item().toLong();
+    auto count_ = count.scalar_type() == at::ScalarType::Long
+        ? *(count.data_ptr<int64_t>())
+        : *(count.data_ptr<int32_t>());
 
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
       tasks.emplace_back(
@@ -669,7 +671,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
 #endif
     std::vector<folly::coro::TaskWithExecutor<void>> tasks;
-    auto count_ = count.item().toLong();
+    auto count_ = count.scalar_type() == at::ScalarType::Long
+        ? *(count.data_ptr<int64_t>())
+        : *(count.data_ptr<int32_t>());
 
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
       // Get a snapshot for the shard

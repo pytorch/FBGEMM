@@ -227,15 +227,17 @@ void CacheLibCache::init_tensor_for_l2_eviction(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
-  auto num_lookups = count.item<long>();
+  CHECK_EQ(count.numel(), 1);
+  auto num_lookups = count.scalar_type() == at::ScalarType::Long
+      ? *(count.data_ptr<int64_t>())
+      : *(count.data_ptr<int32_t>());
   evicted_indices_opt_ =
       at::ones(
-          num_lookups,
-          at::TensorOptions().device(indices.device()).dtype(indices.dtype())) *
+          num_lookups, at::TensorOptions().device(at::kCPU).dtype(at::kLong)) *
       -1;
   evicted_weights_opt_ = at::empty(
       {num_lookups, weights.size(1)},
-      at::TensorOptions().device(weights.device()).dtype(weights.dtype()));
+      at::TensorOptions().device(at::kCPU).dtype(weights.dtype()));
 }
 
 void CacheLibCache::reset_eviction_states() {
@@ -250,7 +252,7 @@ CacheLibCache::get_tensors_and_reset() {
   folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>> ret =
       folly::none;
   if (evicted_indices_opt_.has_value()) {
-    assert(evicted_weights_opt_.has_value());
+    CHECK(evicted_weights_opt_.has_value());
     if (eviction_row_id > 0) {
       ret = std::make_tuple(
           evicted_indices_opt_.value(),
