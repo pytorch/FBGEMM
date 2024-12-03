@@ -101,41 +101,116 @@ __global__ void set_kernel_args_kernel(
   }
 }
 
+__global__ void set_kernel_args_fixed_nk_kernel(
+    KernelArguments* kernel_args,
+    ADataType* XQ,
+    BDataType* WQ,
+    D0DataType* w_scale,
+    D1DataType* x_scale,
+    EDataType* output,
+    int32_t* prepad_M,
+    int M,
+    int N,
+    int K,
+    int group_count) {
+  int group_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  // Each thread is responsible for setting up the arguments for one group.
+  if (group_idx < group_count) {
+    // Compute offsets for this group.
+    int group_M = prepad_M[group_idx];
+    KernelArguments kernel_group_args = {
+        XQ + (group_idx * M * K),
+        WQ + (group_idx * N * K),
+        {w_scale + (group_idx * N), x_scale + (group_idx * M)},
+        output + (group_idx * M * N),
+        group_M,
+        N,
+        K,
+        K,
+        K,
+        {0, 0},
+        N};
+    // Write kernel args to memory.
+    kernel_args[group_idx] = kernel_group_args;
+  }
+}
+
 void set_grouped_kernel_args(
     at::TensorList XQ,
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
+    std::optional<at::Tensor> M_values,
     at::Tensor kernel_args,
     std::vector<at::Tensor> output) {
-  TORCH_CHECK(
-      XQ.size() == WQ.size() && XQ.size() == x_scale.size() &&
-          XQ.size() == w_scale.size(),
-      "All inputs must have the same number of groups.");
   int group_count = XQ.size();
-  // We use the smallest reasonable block size since we effectively need only 1 thread.
-  int blockSize = 32;
-  int numBlocks = 1;
   auto stream = at::cuda::getCurrentHIPStream().stream();
 
-  // Launch a kernel for each group to set kernel memory on device.
-  for (int i = 0; i < group_count; i++) {
-    int M = XQ[i].size(0);
-    int K = XQ[i].size(1);
-    int N = WQ[i].size(0);
-    // Launch kernel to set kernel arguments.
-    set_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
-        reinterpret_cast<KernelArguments*>(
-            reinterpret_cast<char*>(kernel_args.data_ptr()) +
-            (i * sizeof(KernelArguments))),
-        reinterpret_cast<ADataType*>(XQ[i].data_ptr()),
-        reinterpret_cast<BDataType*>(WQ[i].data_ptr()),
-        reinterpret_cast<D0DataType*>(w_scale[i].data_ptr()),
-        reinterpret_cast<D1DataType*>(x_scale[i].data_ptr()),
-        reinterpret_cast<EDataType*>(output[i].data_ptr()),
+  // There are two different modes for this kernel.
+  // When M_values is provided, we assume that data is sequential and
+  // that N and K are constants. This allows a more efficient kernel
+  // launch and is best suited to MOE use cases where M is truly dynamic.
+  // When M_values is not provided, we assume M, N, and K can all vary
+  // and set them for each group. It is important to note that this does not
+  // work well with cuda graphs and runtime dynamism so if possible we recommend
+  // using M_values.
+
+  if (M_values.has_value()) {
+    // Make sure M_values is configured properly.
+    at::Tensor prepad_M = M_values.value();
+    // Confirm M is on the proper device.
+    TORCH_CHECK(
+        XQ[0].device() == prepad_M.device(),
+        "M_values and inputs must be on the same device.");
+    TORCH_CHECK(
+        prepad_M.size(0) == group_count,
+        "M_values must have an entry for each group.");
+
+    // Launch a kernel that sets kernel argument memory.
+    int const blockSize = std::min(1024, group_count);
+    int const numBlocks = (group_count + blockSize - 1) / blockSize;
+    // We assume that M, N, and K are fixed across groups.
+    // The actual m values are sstored in the passed M tensor.
+    int M = XQ[0].size(0);
+    int K = XQ[0].size(1);
+    int N = WQ[0].size(0);
+    set_kernel_args_fixed_nk_kernel<<<numBlocks, blockSize, 0, stream>>>(
+        reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
+        reinterpret_cast<ADataType*>(XQ[0].data_ptr()),
+        reinterpret_cast<BDataType*>(WQ[0].data_ptr()),
+        reinterpret_cast<D0DataType*>(w_scale[0].data_ptr()),
+        reinterpret_cast<D1DataType*>(x_scale[0].data_ptr()),
+        reinterpret_cast<EDataType*>(output[0].data_ptr()),
+        reinterpret_cast<int32_t*>(prepad_M.data_ptr()),
         M,
         N,
-        K);
+        K,
+        group_count);
+  } else {
+    // We use the smallest reasonable block size since we effectively need only
+    // 1 thread.
+    int blockSize = 32;
+    int numBlocks = 1;
+
+    // Launch a kernel for each group to set kernel memory on device.
+    for (int i = 0; i < group_count; i++) {
+      int M = XQ[i].size(0);
+      int K = XQ[i].size(1);
+      int N = WQ[i].size(0);
+      // Launch kernel to set kernel arguments.
+      set_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
+          reinterpret_cast<KernelArguments*>(
+              reinterpret_cast<char*>(kernel_args.data_ptr()) +
+              (i * sizeof(KernelArguments))),
+          reinterpret_cast<ADataType*>(XQ[i].data_ptr()),
+          reinterpret_cast<BDataType*>(WQ[i].data_ptr()),
+          reinterpret_cast<D0DataType*>(w_scale[i].data_ptr()),
+          reinterpret_cast<D1DataType*>(x_scale[i].data_ptr()),
+          reinterpret_cast<EDataType*>(output[i].data_ptr()),
+          M,
+          N,
+          K);
+    }
   }
 }
 
@@ -145,6 +220,7 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList x_scale,
     at::TensorList w_scale,
     std::optional<std::vector<at::Tensor>> output = std::nullopt,
+    std::optional<at::Tensor> M_values = std::nullopt,
     std::optional<std::string> kernel_name = std::nullopt) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
@@ -167,6 +243,9 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     TORCH_CHECK(
         w.dtype() == at::kFloat8_e4m3fnuz,
         "Inputs must be type float8_e4m3fnuz.");
+    TORCH_CHECK(
+        w.size(0) >= 512 && w.size(1) >= 512,
+        "N and K must be at least 512 for grouped gemm. For smaller inputs, consider unrolling.");
   }
   for (at::Tensor xs : x_scale) {
     TORCH_CHECK(xs.dtype() == at::kFloat, "Scales must be float32.");
@@ -194,16 +273,29 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
           Y[i].dtype() == at::kBFloat16, "Output dtype must be bfloat16.");
     }
   } else {
-    for (int i = 0; i < group_count; i++) {
-      int M = XQ[i].size(0);
-      int N = WQ[i].size(0);
-      Y.push_back(at::empty({M, N}, XQ[i].options().dtype(at::kBFloat16)));
+    // Two modes for allocating output. When m_values is provided, we need
+    // the output tensor to be contiguous and can assume M, N, and K are the same
+    // across groups. Otherwise, we can allocate each output separately.
+    if (M_values.has_value()) {
+      int M = XQ[0].size(0);
+      int N = WQ[0].size(0);
+      at::Tensor Y_full = at::empty({group_count, M, N}, XQ[0].options().dtype(at::kBFloat16));
+      // Split the output into groups.
+      Y = at::unbind(Y_full, 0);
+    } else {
+      for (int i = 0; i < group_count; i++) {
+        int M = XQ[i].size(0);
+        int N = WQ[i].size(0);
+        Y.push_back(at::empty({M, N}, XQ[i].options().dtype(at::kBFloat16)));
+      }
     }
   }
 
   // Prepare kernel arguments by copying them to the proper device location.
-  at::Tensor kernel_args = at::empty({1000}, XQ[0].options().dtype(at::kByte));
-  set_grouped_kernel_args(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+  at::Tensor kernel_args = at::empty(
+      {static_cast<long>(group_count * sizeof(KernelArguments))},
+      XQ[0].options().dtype(at::kByte));
+  set_grouped_kernel_args(XQ, WQ, x_scale, w_scale, M_values, kernel_args, Y);
 
   // If provided a specific kernel implementation, dispatch to it.
   if (kernel_name.has_value()) {

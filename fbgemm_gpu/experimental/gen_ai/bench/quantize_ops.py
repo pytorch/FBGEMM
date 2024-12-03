@@ -9,6 +9,7 @@ import abc
 from typing import List, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
+import numpy as np
 
 import torch
 import triton  # @manual=//triton:triton
@@ -467,24 +468,65 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
     FP8 grouped matmul with rowwise scaling.
     """
 
+    def quantize_fixed_nk(self, x, w):
+        group_size = len(x)
+        m_values = [i.shape[0] for i in x]
+        # Inputs for fixed nk mode must be contiguous, however in the benchmark
+        # script they typically are not. Do a little special processing to make them
+        # work. In practice this wont be needed.
+        # Start by padding along m dimension with zeros.
+        max_m = max(m_values)
+        xq = [
+            torch.nn.functional.pad(i, (0, 0, 0, max_m - i.shape[0]), value=0)
+            for i in x
+        ]
+        # Stack inputs into groups.
+        xq = torch.stack(xq).contiguous()
+        wq = torch.stack(w).contiguous()
+        # Apply quantization.
+        xq, x_scale = quantize_fp8_row(xq)
+        wq, w_scale = quantize_fp8_row(wq)
+        # View these unified tensors as lists of tensors.
+        xq = [x.squeeze() for x in xq.split(1, dim=0)]
+        wq = [w.squeeze() for w in wq.split(1, dim=0)]
+        x_scale = [xs.squeeze() for xs in x_scale.view(group_size, -1).split(1, dim=0)]
+        w_scale = [ws.squeeze() for ws in w_scale.view(group_size, -1).split(1, dim=0)]
+
+        # Return processed tensors.
+        return (
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            torch.tensor(m_values).to(dtype=torch.int32, device=xq[0].device),
+        )
+
     def quantize(self, x, w):
-        # Quantize both input tensors.
-        # Handle both grouped and standard gemm.
         assert isinstance(
             x, (list, tuple)
         ), "Inputs to group gemm must be a list of tensors."
+
+        # First check if N and K are fixed.
+        n_values = [i.shape[0] for i in w]
+        k_values = [i.shape[1] for i in w]
+        # if so, do specialized version of initialization.
+        if len(np.unique(n_values)) == 1 and len(np.unique(k_values)) == 1:
+            return self.quantize_fixed_nk(x, w)
+
+        # Otherwise handle normally.
         xq, x_scale = zip(*[quantize_fp8_row(i) for i in x])
         wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
-        return xq, wq, x_scale, w_scale
+        m_values = None
+        return xq, wq, x_scale, w_scale, m_values
 
-    def compute(self, xq, wq, x_scale, w_scale, kernel_name=None):
+    def compute(self, xq, wq, x_scale, w_scale, m_values, kernel_name=None):
         return torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
-            xq, wq, x_scale, w_scale, kernel_name=kernel_name
+            xq, wq, x_scale, w_scale, M_values=m_values, kernel_name=kernel_name
         )
 
     def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale, w_scale)
+        xq, wq, x_scale, w_scale, m_values = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, m_values)
 
     @property
     def name(self) -> str:
