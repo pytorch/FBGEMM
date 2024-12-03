@@ -32,6 +32,11 @@ on:
   #
   workflow_dispatch:
     inputs:
+      pytorch_channel_version:
+        description: Package Channel + Version to Use for PyTorch Installation, in `<channel>[/<version>]` Format
+        type: string
+        required: false
+        default: ""
       publish_to_pypi:
         description: Publish Artifact to PyPI
         type: boolean
@@ -102,7 +107,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -193,7 +198,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
