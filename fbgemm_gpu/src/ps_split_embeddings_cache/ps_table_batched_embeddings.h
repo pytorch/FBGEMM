@@ -44,21 +44,21 @@ class EmbeddingParameterServer : public kv_db::EmbeddingKVDB {
                 num_threads,
                 maxKeysPerRequest)) {}
 
-  folly::coro::Task<void> set_kv_db_async(
+  folly::SemiFuture<std::vector<folly::Unit>> set_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
       const kv_db::RocksdbWriteMode w_mode =
           kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override {
-    RECORD_USER_SCOPE("EmbeddingParameterServer::set");
-    co_await tps_client_->set(indices, weights, count.item().toLong());
+    // RECORD_USER_SCOPE("EmbeddingParameterServer::set");
+    // co_await tps_client_->set(indices, weights, count.item().toLong());
+    return std::vector<folly::Unit>(1);
   }
-  folly::coro::Task<void> get_kv_db_async(
+  virtual folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
-    RECORD_USER_SCOPE("EmbeddingParameterServer::get");
-    co_await tps_client_->get(indices, weights, count.item().toLong());
+    return std::vector<folly::Unit>(1);
   }
   void flush() {}
   void compact() override {}
