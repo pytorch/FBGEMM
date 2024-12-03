@@ -171,12 +171,13 @@ install_cudnn () {
   local cuda_version_arr=(${cuda_version//./ })
   # Fetch the major and minor version to concat
   local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
+  echo "[INSTALL] cuda_concat_version is determined to be: ${cuda_concat_version}"
 
   # Get the URL
   local cudnn_url="${cudnn_packages[$cuda_concat_version]}"
   if [ "$cudnn_url" == "" ]; then
     # Default to cuDNN for 11.8 if no CUDA version fits
-    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.8"
+    echo "[INSTALL] Could not find cuDNN URL for the given cuda_concat_version ${cuda_concat_version}; defaulting to cuDNN for CUDA 11.8"
     cudnn_url="${cudnn_packages[118]}"
   fi
 
