@@ -1063,6 +1063,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">=</span> <span class="n">pooling_mode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_nobag</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">==</span> <span class="n">PoolingMode</span><span class="o">.</span><span class="n">NONE</span>
         <span class="c1"># If environment variable is set, it overwrites the default bounds check mode.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
             <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
@@ -1671,6 +1672,11 @@
         <span class="c1"># Get a debug function pointer</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats_factory</span><span class="p">()</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Check if bounds_check_indices_v2 is enabled via the feature gate</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_bounds_check_v2</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span>
+            <span class="n">FeatureGateName</span><span class="o">.</span><span class="n">BOUNDS_CHECK_INDICES_V2</span>
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
@@ -3712,6 +3718,41 @@
                 <span class="n">per_sample_weights</span> <span class="o">=</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span> <span class="o">!=</span> <span class="n">BoundsCheckMode</span><span class="o">.</span><span class="n">NONE</span><span class="o">.</span><span class="n">value</span><span class="p">:</span>
+            <span class="n">vbe</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="c1"># Compute B info and VBE metadata for bounds_check_indices only if</span>
+            <span class="c1"># VBE and bounds check indices v2 are used</span>
+            <span class="k">if</span> <span class="n">vbe</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_bounds_check_v2</span><span class="p">:</span>
+                <span class="n">B_offsets</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span>
+                <span class="n">B_offsets_rank_per_feature</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets_rank_per_feature</span>
+                <span class="n">output_offsets_feature_rank</span> <span class="o">=</span> <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">output_offsets_feature_rank</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">B_offsets</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">),</span> <span class="s2">&quot;B_offsets must be tensor&quot;</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
+                    <span class="n">B_offsets_rank_per_feature</span><span class="p">,</span> <span class="n">Tensor</span>
+                <span class="p">),</span> <span class="s2">&quot;B_offsets_rank_per_feature must be tensor&quot;</span>
+                <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span>
+                    <span class="n">output_offsets_feature_rank</span><span class="p">,</span> <span class="n">Tensor</span>
+                <span class="p">),</span> <span class="s2">&quot;output_offsets_feature_rank must be tensor&quot;</span>
+                <span class="n">info_B_num_bits</span><span class="p">,</span> <span class="n">info_B_mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">get_infos_metadata</span><span class="p">(</span>
+                    <span class="n">B_offsets</span><span class="p">,</span>  <span class="c1"># unused tensor</span>
+                    <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
+                    <span class="n">B_offsets</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span>  <span class="c1"># T</span>
+                <span class="p">)</span>
+                <span class="n">row_output_offsets</span><span class="p">,</span> <span class="n">b_t_map</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">generate_vbe_metadata</span><span class="p">(</span>
+                    <span class="n">B_offsets</span><span class="p">,</span>
+                    <span class="n">B_offsets_rank_per_feature</span><span class="p">,</span>
+                    <span class="n">output_offsets_feature_rank</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">max_D</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">is_nobag</span><span class="p">,</span>
+                    <span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B_feature_rank</span><span class="p">,</span>
+                    <span class="n">info_B_num_bits</span><span class="p">,</span>
+                    <span class="n">offsets</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span>  <span class="c1"># total_B</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">b_t_map</span> <span class="o">=</span> <span class="kc">None</span>
+                <span class="n">info_B_num_bits</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+                <span class="n">info_B_mask</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
             <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">bounds_check_indices</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">rows_per_table</span><span class="p">,</span>
                 <span class="n">indices</span><span class="p">,</span>
@@ -3721,6 +3762,9 @@
                 <span class="n">per_sample_weights</span><span class="p">,</span>
                 <span class="n">B_offsets</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">B_offsets</span><span class="p">,</span>
                 <span class="n">max_B</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
+                <span class="n">b_t_map</span><span class="o">=</span><span class="n">b_t_map</span><span class="p">,</span>
+                <span class="n">info_B_num_bits</span><span class="o">=</span><span class="n">info_B_num_bits</span><span class="p">,</span>
+                <span class="n">info_B_mask</span><span class="o">=</span><span class="n">info_B_mask</span><span class="p">,</span>
             <span class="p">)</span>
 
         <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="n">vbe_metadata</span>
