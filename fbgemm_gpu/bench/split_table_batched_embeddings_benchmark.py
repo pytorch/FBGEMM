@@ -44,6 +44,9 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     DenseTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
+    generate_vbe_metadata,
+)
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch import Tensor
@@ -2846,6 +2849,42 @@ def bounds_check_indices(  # noqa C901
     def context_factory(on_trace_ready: Callable[[profile], None]):
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
+    if is_vbe:
+        offsets = requests[0].offsets
+        vbe_metadata = generate_vbe_metadata(
+            offsets,
+            [[b] for b in Bs],
+            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,  # unused
+            pooling_mode=PoolingMode.SUM,
+            feature_dims_cpu=torch.tensor(
+                [-1] * T, device="cpu", dtype=torch.int64
+            ),  # unused
+            device=get_device(),
+        )
+        assert vbe_metadata.B_offsets is not None
+        info_B_num_bits, info_B_mask = torch.ops.fbgemm.get_infos_metadata(
+            vbe_metadata.B_offsets,  # unused tensor
+            vbe_metadata.max_B,
+            vbe_metadata.B_offsets.numel() - 1,  # T
+        )
+        row_output_offsets, b_t_map = torch.ops.fbgemm.generate_vbe_metadata(
+            vbe_metadata.B_offsets,
+            vbe_metadata.B_offsets_rank_per_feature,
+            vbe_metadata.output_offsets_feature_rank,
+            torch.tensor(
+                [-1] * (T + 1), device=get_device(), dtype=torch.int
+            ),  # unused D_offsets
+            -1,  # unused max_D
+            False,  # nobag
+            vbe_metadata.max_B_feature_rank,
+            info_B_num_bits,
+            offsets.numel() - 1,  # total_B
+        )
+    else:
+        b_t_map = None
+        info_B_num_bits = -1
+        info_B_mask = -1
+
     with context_factory(lambda p: _kineto_trace_handler(p)):
         # forward
         time_per_iter = benchmark_requests(
@@ -2858,6 +2897,9 @@ def bounds_check_indices(  # noqa C901
                 warning,
                 B_offsets=B_offsets,
                 max_B=max_B,
+                b_t_map=b_t_map,
+                info_B_num_bits=info_B_num_bits,
+                info_B_mask=info_B_mask,
             ),
             num_warmups=warmup_runs,
         )
