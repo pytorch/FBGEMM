@@ -8,16 +8,13 @@
 echo "################################################################################"
 echo "[CMAKE] Running post-build script ..."
 
-# Print directory
-pwd
-
-# List all generated .SO files
-find . -name '*.so'
+TARGET=$1
 
 # Remove errant RPATHs from the .SO
 # https://github.com/pytorch/FBGEMM/issues/3098
 # https://github.com/NixOS/patchelf/issues/453
-find . -name '*.so' -print0 | xargs -0 patchelf --remove-rpath
+patchelf --force-rpath --set-rpath "\$ORIGIN" "${TARGET}"
 
 echo "[CMAKE] Removed errant RPATHs"
+readelf -d "${TARGET}" | grep -i rpath
 echo "################################################################################"
