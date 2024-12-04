@@ -31,14 +31,12 @@ except Exception:
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
 import fbgemm_gpu.split_embedding_codegen_lookup_invokers as invokers
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 
 
 def generate_vbe_metadata(
     offsets: Tensor,
     batch_size_per_feature_per_rank: Optional[List[List[int]]],
-    optimizer: OptimType,
     pooling_mode: PoolingMode,
     feature_dims_cpu: Tensor,
     device: torch.device,

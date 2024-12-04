@@ -1483,7 +1483,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
-            self.optimizer,
             self.pooling_mode,
             self.feature_dims,
             self.current_device,

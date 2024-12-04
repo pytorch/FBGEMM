@@ -35,7 +35,6 @@ if open_source:
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, use_cpu_strategy
 
-from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
 )
@@ -287,7 +286,6 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             vbe_metadata = generate_vbe_metadata(
                 offsets,
                 [[b] for b in Bs],
-                optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,  # unused
                 pooling_mode=PoolingMode.SUM,
                 feature_dims_cpu=torch.tensor(
                     [-1] * T, device="cpu", dtype=torch.int64

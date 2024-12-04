@@ -2854,7 +2854,6 @@ def bounds_check_indices(  # noqa C901
         vbe_metadata = generate_vbe_metadata(
             offsets,
             [[b] for b in Bs],
-            optimizer=OptimType.EXACT_ROWWISE_ADAGRAD,  # unused
             pooling_mode=PoolingMode.SUM,
             feature_dims_cpu=torch.tensor(
                 [-1] * T, device="cpu", dtype=torch.int64
