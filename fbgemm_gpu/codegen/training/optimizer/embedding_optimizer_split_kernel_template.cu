@@ -24,9 +24,9 @@ void split_{{ optimizer }}_update_kernel(
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
     pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     // grad_dev_indices is equivalent to sorted_linear_indices_run
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
+    const pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
@@ -133,9 +133,9 @@ void split_{{ optimizer }}_update_kernel
     pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> dev_weights,
     pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> uvm_weights,
     pta::PackedTensorAccessor64<{{ cache_type }}, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
+    const pta::PackedTensorAccessor64<{{ emb_type }}, 1, at::RestrictPtrTraits> grad_dev_weights,
     // grad_dev_indices is equivalent to sorted_linear_indices_run
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
+    const pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
