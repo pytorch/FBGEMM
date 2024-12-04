@@ -92,6 +92,8 @@ def benchmark_grouped(
             quantized_vals = quantize_op.quantize(A, B)
             # Compute the output given quantized values.
             output = quantize_op.compute(*quantized_vals)
+            # Some kernels may pad output, just take the first m values of each row.
+            output = [o[: m[i]] for i, o in enumerate(output)]
             # Compare the quantize op output to reference as a sanity check.
             sim_check: float = 0
             for i in range(num_groups):
@@ -124,8 +126,8 @@ def benchmark_grouped(
                 tflops += 2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 gbps += (
                     (
-                        quantized_vals[0][i].numel()
-                        * quantized_vals[0][i].element_size()
+                        quantized_vals[0][i][: m[i]].numel()
+                        * quantized_vals[0][i][: m[i]].element_size()
                         + quantized_vals[1][i].numel()
                         * quantized_vals[1][i].element_size()
                         + output[i].numel() * output[i].element_size()
