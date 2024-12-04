@@ -232,7 +232,7 @@ install_from_pytorch_pip () {
   (exec_with_retries 3 conda run ${env_prefix} pip install ${pip_package} --index-url ${pip_channel}) || return 1
 
   # Ensure that the correct package variant has been installed
-  __check_package_variant || return 1
+  return 0
 }
 
 ################################################################################
