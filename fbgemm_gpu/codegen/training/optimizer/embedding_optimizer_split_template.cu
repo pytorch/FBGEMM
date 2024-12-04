@@ -28,9 +28,9 @@ split_{{ optimizer }}_update_kernel(
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
     pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
     pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
-    const pta::PackedTensorAccessor32<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    const pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
     // grad_dev_indices is equivalent to sorted_linear_indices_run
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
+    const pta::PackedTensorAccessor64<int64_t, 1, at::RestrictPtrTraits> grad_dev_indices,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         weights_placements,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
@@ -200,8 +200,8 @@ void split_embedding_{{ optimizer }}_update(
                             MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
                             MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
                             MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
-                            MAKE_PTA_WITH_NAME(func_name, flatten_grad_dev_weights, emb_t, 1, 32),
-                            MAKE_PTA_WITH_NAME(func_name, flatten_grad_dev_indices, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name, flatten_grad_dev_weights, emb_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(func_name, flatten_grad_dev_indices, int64_t, 1, 64),
                             MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
                             // Use weights_placements instead of
