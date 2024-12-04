@@ -268,6 +268,9 @@ at::Tensor bf16bf16bf16_grouped_impl(
     std::optional<at::Tensor> zero_start_index_M) {
   int problem_count = X.size();
   TORCH_CHECK(W.size() == problem_count);
+  TORCH_CHECK(
+      !zero_start_index_M.has_value() ||
+      zero_start_index_M->size(0) == problem_count);
   if (problem_count == 0) {
     return at::empty({});
   }
