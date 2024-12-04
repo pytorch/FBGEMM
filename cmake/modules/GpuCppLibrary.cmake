@@ -290,16 +290,21 @@ function(gpu_cpp_library)
     # Post-Build Steps
     ############################################################################
 
-    # NOTE: Fix this in future PR
+    if (args_DEPS)
+        # Only set this if the library has dependencies that we also build,
+        # otherwise we will hit the following error:
+        #   `No valid ELF RPATH or RUNPATH entry exists in the file`
+        set(set_rpath_to_origin 1)
+    endif()
 
     # Add a post-build step to remove errant RPATHs from the .SO
-    # add_custom_target(${lib_name}_postbuild ALL
-    #     DEPENDS
-    #     WORKING_DIRECTORY ${OUTPUT_DIR}
-    #     COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash)
+    add_custom_target(${lib_name}_postbuild ALL
+        DEPENDS
+        WORKING_DIRECTORY ${OUTPUT_DIR}
+        COMMAND bash ${FBGEMM}/.github/scripts/fbgemm_gpu_postbuild.bash $<TARGET_FILE:${lib_name}> ${set_rpath_to_origin})
 
-    # # Set the post-build steps to run AFTER the build completes
-    # add_dependencies(${lib_name}_postbuild ${lib_name})
+    # Set the post-build steps to run AFTER the build completes
+    add_dependencies(${lib_name}_postbuild ${lib_name})
 
     ############################################################################
     # Set the Output Variable(s)
