@@ -145,6 +145,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Set to True to alloc a UVM tensor using malloc+cudaHostRegister.
         # Set to False to use cudaMallocManaged
         uvm_host_mapped: bool = False,
+        enable_async_update: bool = True,  # whether enable L2/rocksdb write to async background thread
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -427,7 +428,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         logging.info(f"tbe_unique_id: {tbe_unique_id}")
         if not ps_hosts:
             logging.info(
-                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, "
+                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, enable_async_update:{enable_async_update}"
                 f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
                 f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
                 f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},rate_limit_mbps={ssd_rate_limit_mbps},"
@@ -459,6 +460,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 use_passed_in_path,
                 tbe_unique_id,
                 l2_cache_size,
+                enable_async_update,
             )
         else:
             # pyre-fixme[4]: Attribute must be annotated.
