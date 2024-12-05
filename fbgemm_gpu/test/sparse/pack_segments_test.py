@@ -80,9 +80,9 @@ class PackedSegmentsTest(unittest.TestCase):
         Returns:
             The packed tensor.
         """
-        lengths = lengths.numpy()
-        sections = np.split(tensor, np.cumsum(lengths))
-        max_length = np.max(lengths, initial=0) if max_length is None else max_length
+        lengths_np = lengths.numpy()
+        sections = np.split(tensor, np.cumsum(lengths_np))
+        max_length = np.max(lengths_np, initial=0) if max_length is None else max_length
         padded_arrs = []
         for arr in sections[:-1]:  # Last section is always a blank
             arr = arr[: min(max_length, len(arr)), ...]
@@ -154,18 +154,25 @@ class PackedSegmentsTest(unittest.TestCase):
             t_in=input_data, lengths=lengths, max_length=max_length
         )
 
+        packed_tensor_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            t_in=input_data, lengths=lengths, max_length=max_length
+        )
+
         packed_ref = self._pack_segments_ref(lengths, input_raw)
         packed_ref = torch.Tensor(packed_ref).to(dtype)
 
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
+        self.assertTrue(torch.equal(packed_tensor_v2, packed_ref))
 
         grad_cpu = torch.tensor(
             np.random.uniform(low=0.01, high=0.5, size=packed_ref.shape).astype(
                 np.float32
             )
         ).to(dtype)
+        grad_cpu_v2 = torch.clone(grad_cpu)
         # CPU backward
         packed_tensor.backward(grad_cpu)
+        packed_tensor_v2.backward(grad_cpu_v2)
 
         if gpu_available:
             pack_segments_fun = torch.ops.fbgemm.pack_segments
@@ -179,10 +186,25 @@ class PackedSegmentsTest(unittest.TestCase):
                 max_length=max_length,
             )
 
+            pack_segments_fun_v2 = torch.ops.fbgemm.pack_segments_v2
+
+            if torch_compile:
+                pack_segments_fun_v2 = torch_compiled(
+                    pack_segments_fun_v2, dynamic=True
+                )
+
+            packed_cuda_v2, _ = pack_segments_fun_v2(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+            self.assertTrue(torch.equal(packed_tensor_v2, packed_cuda_v2.cpu()))
 
             # GPU backward
             packed_cuda.backward(grad_cpu.cuda())
+            packed_cuda_v2.backward(grad_cpu_v2.cuda())
 
             # dynamic check
             input_raw = np.random.rand(batch_size, n + 1, k + 2)
@@ -194,19 +216,25 @@ class PackedSegmentsTest(unittest.TestCase):
             packed_tensor = torch.ops.fbgemm.pack_segments(
                 t_in=input_data, lengths=lengths, max_length=max_length
             )
+            packed_tensor_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+                t_in=input_data, lengths=lengths, max_length=max_length
+            )
 
             packed_ref = self._pack_segments_ref(lengths, input_raw)
             packed_ref = torch.Tensor(packed_ref).to(dtype)
 
             self.assertTrue(torch.equal(packed_tensor, packed_ref))
+            self.assertTrue(torch.equal(packed_tensor_v2, packed_ref))
 
             grad_cpu = torch.tensor(
                 np.random.uniform(low=0.01, high=0.5, size=packed_ref.shape).astype(
                     np.float32
                 )
             ).to(dtype)
+            grad_cpu_v2 = torch.clone(grad_cpu)
             # CPU backward
             packed_tensor.backward(grad_cpu)
+            packed_tensor_v2.backward(grad_cpu_v2)
 
             # reusing the previously compiled kernel
             packed_cuda = pack_segments_fun(
@@ -214,10 +242,17 @@ class PackedSegmentsTest(unittest.TestCase):
                 lengths=lengths.cuda(),
                 max_length=max_length,
             )
+            packed_cuda_v2, _ = pack_segments_fun_v2(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+            self.assertTrue(torch.equal(packed_tensor_v2, packed_cuda_v2.cpu()))
 
             # GPU backward
             packed_cuda.backward(grad_cpu.cuda())
+            packed_cuda_v2.backward(grad_cpu_v2.cuda())
 
     @given(
         n=st.integers(2, 10),
@@ -273,7 +308,13 @@ class PackedSegmentsTest(unittest.TestCase):
             lengths=lengths,
             max_length=max_length,
         )
+        packed_tensor_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            t_in=input_data,
+            lengths=lengths,
+            max_length=max_length,
+        )
         self.assertEqual(packed_tensor.shape, (divisions, max_length, n, k))
+        self.assertEqual(packed_tensor_v2.shape, (divisions, max_length, n, k))
 
         packed_ref = self._pack_segments_ref(
             lengths,
@@ -282,6 +323,7 @@ class PackedSegmentsTest(unittest.TestCase):
         )
         packed_ref = torch.Tensor(packed_ref).to(dtype)
         self.assertTrue(torch.equal(packed_tensor, packed_ref))
+        self.assertTrue(torch.equal(packed_tensor_v2, packed_ref))
 
         if gpu_available:
             pack_segments_fun = torch.ops.fbgemm.pack_segments
@@ -294,6 +336,16 @@ class PackedSegmentsTest(unittest.TestCase):
                 max_length=max_length,
             )
             self.assertTrue(torch.equal(packed_tensor, packed_cuda.cpu()))
+            pack_segments_fun = torch.ops.fbgemm.pack_segments_v2
+            if torch_compile:
+                pack_segments_fun = torch_compiled(pack_segments_fun)
+
+            packed_cuda_v2, _ = pack_segments_fun(
+                t_in=input_data.cuda(),
+                lengths=lengths.cuda(),
+                max_length=max_length,
+            )
+            self.assertTrue(torch.equal(packed_tensor_v2, packed_cuda_v2.cpu()))
 
     @given(
         n=st.integers(2, 10),
@@ -343,10 +395,24 @@ class PackedSegmentsTest(unittest.TestCase):
         packed_tensor = torch.ops.fbgemm.pack_segments(
             t_in=input_data, lengths=lengths, max_length=max_length
         )
+        packed_tensor_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            t_in=input_data, lengths=lengths, max_length=max_length
+        )
         packed_ref = self._pack_segments_ref(lengths, input_raw)
 
         # verify forward
         assert packed_tensor.size() == torch.Tensor(packed_ref).size()
+        assert packed_tensor_v2.size() == torch.Tensor(packed_ref).size()
+
+        packed_tensor_v2, presence_mask = torch.ops.fbgemm.pack_segments_v2(
+            t_in=input_data,
+            lengths=lengths,
+            max_length=max_length,
+            return_presence_mask=True,
+        )
+
+        # pyre-fixme[6]: In call `tuple.__new__`, for 1st positional argument, expected `Iterable[int]` but got `Iterable[Union[bool, float, int]]`.
+        assert presence_mask.size() == torch.Size([lengths.numel(), max_length])
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -394,9 +460,13 @@ class PackedSegmentsTest(unittest.TestCase):
         # create input
         input_data_ref = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
         input_data = torch.tensor(input_raw, dtype=dtype, requires_grad=True).cuda()
+        input_data_ref_v2 = torch.tensor(input_raw, dtype=dtype, requires_grad=True)
+        input_data_v2 = torch.tensor(input_raw, dtype=dtype, requires_grad=True).cuda()
         # retain grad to compare gradients of the inputs later
         input_data.retain_grad()
         input_data_ref.retain_grad()
+        input_data_v2.retain_grad()
+        input_data_ref_v2.retain_grad()
 
         # set lengths
         lengths = torch.tensor(
@@ -419,13 +489,30 @@ class PackedSegmentsTest(unittest.TestCase):
         # verify forward
         self.assertTrue(torch.equal(packed_tensor.cpu(), packed_ref))
 
+        packed_ref_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            t_in=input_data_ref_v2, lengths=lengths, max_length=max_length
+        )
+        packed_ref_v2.retain_grad()
+
+        # pack segments using fbgemm and fb
+        packed_tensor_v2, _ = torch.ops.fbgemm.pack_segments_v2(
+            t_in=input_data_v2, lengths=lengths.cuda(), max_length=max_length
+        )
+        packed_tensor_v2.retain_grad()
+
+        # verify forward
+        self.assertTrue(torch.equal(packed_tensor_v2.cpu(), packed_ref_v2))
+
         # create non-contiguous grad
         shape = tuple(x * 2 for x in packed_ref.shape)
         grads = torch.tensor(
             np.random.uniform(low=0.01, high=0.5, size=shape).astype(np.float32)
         ).to(dtype)
+        grads_v2 = torch.clone(grads)
         grad_noncontig_cpu = grads.as_strided(packed_ref.shape, grads.stride())
-        grad_noncontig_cuda = grads.cuda().as_strided(packed_ref.shape, grads.stride())
+        grad_noncontig_cuda = grads.cuda().as_strided(
+            packed_ref_v2.shape, grads_v2.stride()
+        )
 
         self.assertTrue(
             not (
@@ -433,6 +520,20 @@ class PackedSegmentsTest(unittest.TestCase):
                 and grad_noncontig_cuda.is_contiguous()
             ),
             msg="Expected grads to be non-contiguous but they are contiguous",
+        )
+
+        grad_noncontig_cpu_v2 = grads_v2.as_strided(
+            packed_ref_v2.shape, grads_v2.stride()
+        )
+        grad_noncontig_cuda_v2 = grads_v2.cuda().as_strided(
+            packed_ref_v2.shape, grads_v2.stride()
+        )
+        self.assertTrue(
+            not (
+                grad_noncontig_cpu_v2.is_contiguous()
+                and grad_noncontig_cuda_v2.is_contiguous()
+            ),
+            msg="Expected grads_v2 to be non-contiguous but they are contiguous",
         )
 
         # verify backward
@@ -446,8 +547,21 @@ class PackedSegmentsTest(unittest.TestCase):
         # verify backward input gradients
         self.assertTrue(
             # pyre-fixme[16]: Optional type has no attribute `cpu`.
-            # pyre-fixme[6]: For 2nd param expected `Tensor` but got `Optional[Tensor]`.
             torch.equal(input_data.grad.cpu(), input_data_ref.grad.cpu()),
+            msg="Expected input gradients to be equal but they are not",
+        )
+
+        # verify backward
+        packed_ref_v2.backward(grad_noncontig_cpu_v2)
+        packed_tensor_v2.backward(grad_noncontig_cuda_v2)
+        self.assertTrue(
+            torch.equal(packed_tensor_v2.cpu(), packed_ref),
+            msg="Expected packed tensors to be equal but they are not",
+        )
+
+        # verify backward input gradients
+        self.assertTrue(
+            torch.equal(input_data_v2.grad.cpu(), input_data_ref_v2.grad.cpu()),
             msg="Expected input gradients to be equal but they are not",
         )
 
