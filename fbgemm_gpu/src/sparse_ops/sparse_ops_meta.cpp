@@ -14,6 +14,7 @@
 #include "c10/core/SymIntArrayRef.h"
 #include "c10/util/DimVector.h"
 #include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -46,6 +47,39 @@ Tensor pack_segments_forward_meta(
     padded_values_shape.push_back(t_in.sym_size(i));
   }
   return at::empty_symint(padded_values_shape, t_in.options());
+}
+
+std::tuple<Tensor, std::optional<Tensor>> pack_segments_forward_meta_v2(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const at::SymInt max_length,
+    const bool pad_minf,
+    const bool return_presence_mask) {
+  TENSOR_NDIM_IS_GE(t_in, 1);
+  TENSOR_NDIM_EQUALS(lengths, 1);
+  TORCH_CHECK(
+      t_in.dtype() == at::ScalarType::Float ||
+          t_in.dtype() == at::ScalarType::Half ||
+          t_in.dtype() == at::ScalarType::BFloat16 ||
+          t_in.dtype() == at::ScalarType::Int ||
+          t_in.dtype() == at::ScalarType::Long,
+      "t_in must be of type float, half, bfloat16, int or long");
+  TORCH_CHECK_GT(max_length, 0);
+
+  at::SymDimVector padded_values_shape({lengths.sym_numel(), max_length});
+
+  for (const auto i : c10::irange(1, t_in.dim())) {
+    padded_values_shape.push_back(t_in.sym_size(i));
+  }
+  if (return_presence_mask) {
+    // Shape of presence is batch_size x max_len
+    Tensor presence_mask =
+        at::empty_symint({lengths.numel(), max_length}, at::kBool);
+    return {
+        at::empty_symint(padded_values_shape, t_in.options()), presence_mask};
+  }
+
+  return {at::empty_symint(padded_values_shape, t_in.options()), std::nullopt};
 }
 
 Tensor pack_segments_backward_meta(
@@ -86,6 +120,8 @@ Tensor asynchronous_inclusive_cumsum_meta(const Tensor& t_in) {
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("pack_segments", TORCH_FN(fbgemm_gpu::pack_segments_forward_meta));
+  m.impl(
+      "pack_segments_v2", TORCH_FN(fbgemm_gpu::pack_segments_forward_meta_v2));
   m.impl(
       "pack_segments_backward",
       TORCH_FN(fbgemm_gpu::pack_segments_backward_meta));

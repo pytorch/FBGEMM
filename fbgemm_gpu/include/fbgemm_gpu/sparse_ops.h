@@ -903,6 +903,29 @@ at::Tensor pack_segments_forward_cuda(
     const at::Tensor& lengths,
     int64_t max_length);
 
+///@ingroup sparse-data-cpu
+std::tuple<at::Tensor, std::optional<at::Tensor>> pack_segments_cpu_v2(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
+///@ingroup sparse-data-cuda
+std::tuple<at::Tensor, std::optional<at::Tensor>> pack_segments_cuda_v2(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
+std::tuple<at::Tensor, std::optional<at::Tensor>> pack_segments_forward_cuda_v2(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
 at::Tensor pack_segments_backward_cuda(
     const at::Tensor& data,
     const at::Tensor& lengths,
