@@ -543,6 +543,16 @@ Tensor pack_segments_cuda(
   return fbgemm_gpu::pack_segments_forward_cuda(t_in, lengths, max_length)[0];
 }
 
+std::tuple<Tensor, std::optional<Tensor>> pack_segments_cuda_v2(
+    const Tensor& t_in,
+    const Tensor& lengths,
+    const int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask) {
+  return fbgemm_gpu::pack_segments_forward_cuda_v2(
+      t_in, lengths, max_length, pad_minf, return_presence_mask);
+}
+
 Tensor index_select_dim0_gpu(
     const Tensor& input,
     const Tensor& indices,
@@ -583,6 +593,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "generic_histogram_binning_calibration_by_feature",
       fbgemm_gpu::generic_histogram_binning_calibration_by_feature_cuda);
   DISPATCH_TO_CUDA("pack_segments", fbgemm_gpu::pack_segments_forward_cuda);
+  DISPATCH_TO_CUDA(
+      "pack_segments_v2", fbgemm_gpu::pack_segments_forward_cuda_v2);
   DISPATCH_TO_CUDA(
       "pack_segments_backward", fbgemm_gpu::pack_segments_backward_cuda);
   DISPATCH_TO_CUDA("index_select_dim0", fbgemm_gpu::index_select_dim0_gpu);
