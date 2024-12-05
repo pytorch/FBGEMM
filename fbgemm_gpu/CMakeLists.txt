@@ -11,12 +11,13 @@
 cmake_minimum_required(VERSION 3.25.0 FATAL_ERROR)
 
 set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules)
+set(FBGEMM_GPU ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(THIRDPARTY ${FBGEMM}/external)
 
 include(${CMAKEMODULES}/Utilities.cmake)
 
-set(CMAKE_VERBOSE_MAKEFILE on)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 
 ################################################################################
 # FBGEMM_GPU Build Options
@@ -109,6 +110,19 @@ set(fbgemm_sources_include_directories
 
 
 ################################################################################
+# Build Library Dependencies
+################################################################################
+
+# These dependencies should be declared and built before building FBGEMM_GPU
+
+# Target: `asmjit`
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Asmjit.cmake)
+
+# Target: `fbgemm`
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Fbgemm.cmake)
+
+
+################################################################################
 # TBE Code Generation
 ################################################################################
 
@@ -138,9 +152,9 @@ foreach(script
 endforeach()
 
 
-# ################################################################################
+################################################################################
 # HIP Code Generation
-# ################################################################################
+################################################################################
 
 if(USE_ROCM)
   set(include_dirs_for_hipification

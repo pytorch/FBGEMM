@@ -12,14 +12,6 @@ include(${CMAKEMODULES}/Utilities.cmake)
 
 
 ################################################################################
-# Third Party Sources
-################################################################################
-
-file(GLOB_RECURSE asmjit_sources
-  "${CMAKE_CURRENT_SOURCE_DIR}/../external/asmjit/src/asmjit/*/*.cpp")
-
-
-################################################################################
 # Optimizer Group Definitions
 ################################################################################
 
@@ -139,7 +131,6 @@ endforeach()
 
 foreach(wdesc ${WEIGHT_OPTIONS})
   list(APPEND gen_gpu_kernel_source_files
-      "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu"
       "gen_embedding_forward_dense_${wdesc}_kernel.cu"
       "gen_embedding_backward_dense_split_${wdesc}_cuda.cu"
       "gen_embedding_backward_dense_split_${wdesc}_kernel_cta.cu"
@@ -147,11 +138,6 @@ foreach(wdesc ${WEIGHT_OPTIONS})
       "gen_embedding_forward_split_${wdesc}_kernel.cu"
       "gen_embedding_forward_ssd_${wdesc}_kernel.cu"
       "gen_embedding_backward_split_${wdesc}_device_kernel.cuh")
-
-  foreach(etype fp32 fp16 fp8 int8 int4 int2)
-    list(APPEND gen_gpu_kernel_source_files
-       "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
-  endforeach()
 endforeach()
 
 # Generate VBE files
@@ -172,8 +158,6 @@ foreach(wdesc weighted unweighted)
 endforeach()
 
 set(gen_cpu_source_files
-    "gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp"
-    "gen_embedding_forward_quantized_weighted_codegen_cpu.cpp"
     "gen_embedding_backward_dense_split_cpu.cpp")
 
 set(gen_python_source_files
@@ -309,65 +293,11 @@ list(APPEND gen_defused_optim_py_files
 
 
 ################################################################################
-# FBGEMM (not FBGEMM_GPU) Sources
-################################################################################
-
-set(fbgemm_sources_normal
-  "${FBGEMM}/src/EmbeddingSpMDM.cc"
-  "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
-  "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
-  "${FBGEMM}/src/QuantUtils.cc"
-  "${FBGEMM}/src/RefImplementations.cc"
-  "${FBGEMM}/src/RowWiseSparseAdagradFused.cc"
-  "${FBGEMM}/src/SparseAdagrad.cc"
-  "${FBGEMM}/src/Utils.cc")
-
-set(fbgemm_sources_avx2
-  "${FBGEMM}/src/EmbeddingSpMDMAvx2.cc"
-  "${FBGEMM}/src/QuantUtilsAvx2.cc")
-
-set(fbgemm_sources_avx512
-  "${FBGEMM}/src/EmbeddingSpMDMAvx512.cc")
-
-if(CXX_AVX2_FOUND)
-  set_source_files_properties(${fbgemm_sources_avx2}
-    PROPERTIES COMPILE_OPTIONS
-    "${AVX2_FLAGS}")
-endif()
-
-if(CXX_AVX512_FOUND)
-  set_source_files_properties(${fbgemm_sources_avx512}
-    PROPERTIES COMPILE_OPTIONS
-    "${AVX512_FLAGS}")
-endif()
-
-set(fbgemm_sources ${fbgemm_sources_normal})
-if(CXX_AVX2_FOUND)
-  set(fbgemm_sources
-    ${fbgemm_sources}
-    ${fbgemm_sources_avx2})
-endif()
-if(NOT USE_ROCM AND CXX_AVX512_FOUND)
-  set(fbgemm_sources
-    ${fbgemm_sources}
-    ${fbgemm_sources_avx2}
-    ${fbgemm_sources_avx512})
-else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNO_AVX512=1")
-endif()
-
-set_source_files_properties(${fbgemm_sources}
-  PROPERTIES INCLUDE_DIRECTORIES
-  "${fbgemm_sources_include_directories}")
-
-
-################################################################################
 # FBGEMM_GPU Static Sources
 ################################################################################
 
 set(fbgemm_gpu_sources_cpu_static
     codegen/training/forward/embedding_forward_split_cpu.cpp
-    codegen/inference/embedding_forward_quantized_host_cpu.cpp
     codegen/training/backward/embedding_backward_dense_host_cpu.cpp
     codegen/training/pt2/pt2_autograd_utils.cpp
     codegen/utils/embedding_bounds_check_host_cpu.cpp
@@ -390,19 +320,12 @@ set(fbgemm_gpu_sources_cpu_static
     src/sparse_ops/sparse_async_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
-    # src/embedding_inplace_ops/embedding_inplace_update_cpu.cpp
-    src/split_embeddings_cache/linearize_cache_indices.cpp
-    src/split_embeddings_cache/lfu_cache_populate_byte.cpp
-    src/split_embeddings_cache/lru_cache_populate_byte.cpp
-    src/split_embeddings_cache/lxu_cache.cpp
-    src/split_embeddings_cache/split_embeddings_cache_ops.cpp
     src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
     codegen/training/index_select/batch_index_select_dim0_ops.cpp
     codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_cpu_static
-    codegen/inference/embedding_forward_quantized_host.cpp
     codegen/utils/embedding_bounds_check_host.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
@@ -412,7 +335,6 @@ if(NOT FBGEMM_CPU_ONLY)
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils/split_embeddings_utils.cpp
     src/metric_ops/metric_ops_host.cpp
-    # src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/input_combine_ops/input_combine_gpu.cpp
     codegen/training/index_select/batch_index_select_dim0_host.cpp)
 
@@ -430,8 +352,6 @@ if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gpu_static
       codegen/utils/embedding_bounds_check_v1.cu
       codegen/utils/embedding_bounds_check_v2.cu
-      codegen/inference/embedding_forward_quantized_split_lookup.cu
-      # src/embedding_inplace_ops/embedding_inplace_update.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
       src/intraining_embedding_pruning_ops/intraining_embedding_pruning.cu
@@ -487,16 +407,6 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
       src/sparse_ops/sparse_zipf.cu
-      src/split_embeddings_cache/lfu_cache_find.cu
-      src/split_embeddings_cache/lfu_cache_populate.cu
-      src/split_embeddings_cache/lfu_cache_populate_byte.cu
-      src/split_embeddings_cache/lru_cache_find.cu
-      src/split_embeddings_cache/lru_cache_populate.cu
-      src/split_embeddings_cache/lru_cache_populate_byte.cu
-      src/split_embeddings_cache/lxu_cache.cu
-      src/split_embeddings_cache/linearize_cache_indices.cu
-      src/split_embeddings_cache/reset_weight_momentum.cu
-      src/split_embeddings_cache/split_embeddings_cache_ops.cu
       src/split_embeddings_utils/generate_vbe_metadata.cu
       src/split_embeddings_utils/get_infos_metadata.cu
       src/split_embeddings_utils/radix_sort_pairs.cu
@@ -533,12 +443,15 @@ endif()
 # FBGEMM_GPU C++ Modules
 ################################################################################
 
+# Build TBE targets
+include(${FBGEMM_GPU}/cmake/Tbe.cmake)
+
 # Test target to demonstrate that target deps works as intended
 gpu_cpp_library(
   PREFIX
     embedding_inplace_ops
   TYPE
-    STATIC
+    SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
   CPU_SRCS
@@ -547,7 +460,10 @@ gpu_cpp_library(
     src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/embedding_inplace_ops/embedding_inplace_update.cu
   GPU_FLAGS
-    ${TORCH_CUDA_OPTIONS})
+    ${TORCH_CUDA_OPTIONS}
+  DESTINATION
+    fbgemm_gpu)
+
 
 gpu_cpp_library(
   PREFIX
@@ -562,21 +478,20 @@ gpu_cpp_library(
   GPU_SRCS
     ${fbgemm_gpu_sources_gpu_static}
     ${fbgemm_gpu_sources_gpu_gen}
-  OTHER_SRCS
-    ${asmjit_sources}
-    ${fbgemm_sources}
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
-    embedding_inplace_ops)
+    asmjit
+    fbgemm
+    embedding_inplace_ops
+    split_embeddings_cache
+  DESTINATION
+    fbgemm_gpu)
 
 
 ################################################################################
 # FBGEMM_GPU Package
 ################################################################################
-
-install(TARGETS fbgemm_gpu_py
-  DESTINATION fbgemm_gpu)
 
 install(FILES ${gen_python_source_files}
   DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
