@@ -1091,7 +1091,6 @@ std::vector<at::Tensor> quantize_fp8_per_row(
     std::optional<at::Tensor> scale_ub, // scale upperbound
     std::optional<c10::ScalarType> output_dtype, // Quantization type
     bool stochastic_rounding) {
-  TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
@@ -1129,6 +1128,11 @@ std::vector<at::Tensor> quantize_fp8_per_row(
       torch::dtype(torch::kFloat32)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+
+  if (input.numel() == 0) {
+    return std::vector<at::Tensor>{quantized_input, scales};
+  }
+
   // Templatize implementation based on output type.
   if (quantization_type == torch_fp8_e4m3) {
     auto* const quantized_input_ptr =

@@ -1103,6 +1103,19 @@ class FP8Tests(unittest.TestCase):
                 block_scale[0],
             )
 
+    @unittest.skipIf(
+        torch.version.hip, "Skip on AMD: cuda quantize op is yet suported."
+    )
+    @given(
+        K=st.sampled_from([0, 128]),
+    )
+    def test_quantize_zero_input(self, K) -> None:
+        w = torch.randn(size=(0, K), dtype=torch.bfloat16, device="cuda")
+        w_scale_ref = torch.empty(size=(0,), dtype=torch.float32, device="cuda")
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+        torch.testing.assert_close(w.shape, wq.shape)
+        torch.testing.assert_close(w_scale.shape, w_scale_ref.shape)
+
 
 if __name__ == "__main__":
     unittest.main()
