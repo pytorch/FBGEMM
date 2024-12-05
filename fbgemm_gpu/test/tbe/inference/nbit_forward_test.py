@@ -355,23 +355,33 @@ class NBitFowardTest(NBitFowardTestCommon):
 
     @given(
         indices_dtype=st.sampled_from([torch.int32, torch.int64]),
+        weights_ty_and_D=st.sampled_from(
+            [
+                (SparseType.FP32, 1024),  # limited by SM
+                (SparseType.FP16, 2048),  # limited by SM
+                (SparseType.INT8, 4092),  # 4 bytes for scale&bias
+                (SparseType.FP8, 4096),
+                (SparseType.INT4, 4088),  # 4 bytes for scale&bias
+                (SparseType.INT2, 4080),  # 4 bytes for scale&bias
+            ]
+        ),
     )
     @settings(deadline=None)
     @unittest.skipIf(*gpu_unavailable)
-    def test_nbit_forward_gpu_no_cache_fp8_2048(
-        self, indices_dtype: torch.dtype
+    def test_nbit_forward_gpu_no_cache_max_sizes(
+        self, indices_dtype: torch.dtype, weights_ty_and_D: Tuple[SparseType, int]
     ) -> None:
-        # Test the case of FB8 table with 128B*8 < D <= 128B*16
+        weights_ty, D = weights_ty_and_D
         self.execute_nbit_forward_(
             T=1,
-            D=2048,  # 128B*8 < D <= 128B*16
+            D=D,  # 128B*8 < D <= 128B*16
             B=128,
             log_E=2,
             L=4,
             weighted=False,
             mixed=False,
             pooling_mode=PoolingMode.SUM,
-            weights_ty=SparseType.FP8,  # FP8 table
+            weights_ty=weights_ty,
             use_cache=False,
             cache_algorithm=CacheAlgorithm.LRU,
             use_cpu=False,
