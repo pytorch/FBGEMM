@@ -192,13 +192,15 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t cache_size = 0,
       bool use_passed_in_path = false,
       int64_t tbe_unqiue_id = 0,
-      int64_t l2_cache_size_gb = 0)
+      int64_t l2_cache_size_gb = 0,
+      bool enable_async_update = false)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
             l2_cache_size_gb,
             tbe_unqiue_id,
-            row_storage_bitwidth / 8),
+            row_storage_bitwidth / 8,
+            enable_async_update),
         max_D_(max_D) {
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
