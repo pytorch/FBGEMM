@@ -158,6 +158,10 @@ __configure_fbgemm_gpu_build_rocm () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
 
+  echo "[BUILD] Setting HIPCC verbose mode ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} HIPCC_VERBOSE=1
+
   echo "[BUILD] Setting ROCm build args ..."
   build_args=(
     --package_variant=rocm
@@ -221,6 +225,10 @@ __configure_fbgemm_gpu_build_cuda () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2155,SC2086
   local nccl_lib_path=$(conda run ${env_prefix} find ${conda_prefix} -name "libnccl.so*")
+
+  echo "[BUILD] Setting NVCC verbose mode ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVCC_VERBOSE=1
 
   echo "[BUILD] Setting CUDA build args ..."
   build_args=(
