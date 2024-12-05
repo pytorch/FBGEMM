@@ -409,3 +409,65 @@ def meta_jagged_dense_elementwise_mul_jagged_out(
         x_offsets,
         max_seq_len,
     )
+
+
+class JaggedSoftmaxCPU(torch.autograd.Function):
+    @staticmethod
+    # pyre-fixme
+    def forward(
+        ctx: Any,  # pyre-ignore
+        x: torch.Tensor,
+        x_offsets: torch.Tensor,
+        max_seq_len: int,
+    ) -> torch.Tensor:
+        """
+        input shpae is [SUM_B, D]
+        output shape is [SUM_B, D]
+        """
+        B = x_offsets.size(0) - 1
+        y = torch.zeros(x.size(), device=x.device, dtype=x.dtype)
+
+        for b in range(B):
+            y[x_offsets[b] : x_offsets[b + 1], :] = torch.nn.functional.softmax(
+                x[x_offsets[b] : x_offsets[b + 1], :], dim=0
+            )
+
+        ctx.save_for_backward(y, x_offsets)
+
+        return y
+
+    @staticmethod
+    # pyre-fixme
+    def backward(
+        ctx: Any, grad_output: torch.Tensor  # pyre-ignore
+    ) -> Tuple[torch.Tensor, None, None]:
+        y, x_offsets = ctx.saved_tensors
+
+        B = x_offsets.size(0) - 1
+        grad = torch.zeros(y.size(), device=y.device, dtype=y.dtype)
+
+        for b in range(B):
+            curr_y = y[x_offsets[b] : x_offsets[b + 1]]
+            curr_grad = grad_output[x_offsets[b] : x_offsets[b + 1]]
+            grad[x_offsets[b] : x_offsets[b + 1]] = curr_y * (
+                curr_grad - torch.sum(curr_grad * curr_y, dim=0, keepdim=True)
+            )
+
+        return grad, None, None
+
+
+def cpu_jagged_softmax(
+    x: torch.Tensor,
+    x_offsets: torch.Tensor,
+    max_seq_len: int,
+    use_fbgemm_kernel: bool = True,
+) -> torch.Tensor:
+    """
+    CPU version of jagged softmax: [sum(softmax([B_i, D]))]
+    """
+    # Force the CPU backend to use fbgemm kernel as it has better performance
+    use_fbgemm_kernel = True
+    if use_fbgemm_kernel:
+        return torch.ops.fbgemm.jagged_softmax(x, x_offsets, max_seq_len)[0]
+    else:
+        return JaggedSoftmaxCPU.apply(x, x_offsets, max_seq_len)
