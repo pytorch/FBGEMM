@@ -1,7 +1,7 @@
 general/ContactUs.rst:17: [redirected permanently] https://bit.ly/ptslack to https://docs.google.com/forms/d/e/1FAIpQLSeADnUNW36fjKjYzyHDOzEB_abKQE9b6gqqW9NXse6O0MWh0A/viewform
+general/documentation/Cpp.rst:6: [redirected with Found] https://breathe.readthedocs.io to https://breathe.readthedocs.io/en/latest/
 fbgemm_gpu-development/BuildInstructions.rst:114: [redirected permanently] https://developer.nvidia.com/nvidia-management-library-nvml to https://developer.nvidia.com/management-library-nvml
 fbgemm_gpu-development/InstallationInstructions.rst:72: [redirected permanently] https://docs.nvidia.com/datacenter/tesla/tesla-installation-notes/index.html to https://docs.nvidia.com/cuda/cuda-installation-guide-linux/
-general/documentation/Cpp.rst:6: [redirected with Found] https://breathe.readthedocs.io to https://breathe.readthedocs.io/en/latest/
 fbgemm_gpu-development/BuildInstructions.rst:221: [redirected permanently] https://github.com/ROCmSoftwarePlatform/MIOpen to https://github.com/ROCm/MIOpen
 index.rst:7: [redirected with Found] https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu to https://github.com/pytorch/pytorch/tree/main/aten/src/ATen/native/quantized/cpu
 general/Contributing.rst:34: [redirected permanently] https://www.facebook.com/whitehat/ to https://bugbounty.meta.com/?utm_source=facebook.com&utm_medium=redirect
