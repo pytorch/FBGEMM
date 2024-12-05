@@ -390,7 +390,7 @@ class BackwardSplitGenerator:
             BackwardSplitGenerator.generate_backward_split(
                 ssd_tensors=ssd_tensors, **optimizer
             )
-        BackwardSplitGenerator.generate_rocm_backward_split(**optimizer)
+        BackwardSplitGenerator.generate_rocm_backward_split()
 
         # Generate common device kernels for backwards
         BackwardSplitGenerator.generate_backward_device()

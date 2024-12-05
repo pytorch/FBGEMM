@@ -102,7 +102,6 @@ __configure_fbgemm_gpu_test_cuda () {
 
   ignored_tests=(
   )
-
 }
 
 __configure_fbgemm_gpu_test_rocm () {

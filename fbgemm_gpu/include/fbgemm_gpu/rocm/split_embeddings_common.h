@@ -21,6 +21,7 @@
  *
  ******************************************************************************/
 #pragma once
+#include <c10/util/Half.h>
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime.h>
 
