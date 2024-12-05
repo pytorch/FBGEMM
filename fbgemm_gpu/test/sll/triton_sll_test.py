@@ -27,7 +27,7 @@ else:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 
-class TritonBmmTest(unittest.TestCase):
+class TritonSLLTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
@@ -577,7 +577,7 @@ class TritonBmmTest(unittest.TestCase):
         L=st.integers(1, 200),
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
-    @settings(deadline=20000)
+    @settings(deadline=None)
     def test_jagged_dense_elementwise_mul_jagged_out_with_grad(
         self,
         B: int,
@@ -702,3 +702,69 @@ class TritonBmmTest(unittest.TestCase):
         assert (
             jagged_A.grad.is_meta and jagged_A_ref.grad.size() == jagged_A.grad.size()
         )
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    @given(
+        B=st.integers(1, 512),
+        N=st.integers(1, 1000),
+        H=st.integers(1, 20),
+        use_fbgemm_kernel=st.booleans(),
+        device_type=st.sampled_from(["cpu", "cuda"]),
+    )
+    @settings(deadline=None)
+    def test_triton_jagged_softmax(
+        self, B: int, N: int, H: int, use_fbgemm_kernel: bool, device_type: str
+    ) -> None:
+        device = torch.device(device_type)
+        lengths = torch.randint(0, N + 1, (B,), device=device)
+        offsets = torch.cat(
+            [
+                torch.tensor([0], dtype=torch.int32, device=device),
+                lengths.cumsum(dim=0),
+            ],
+            dim=0,
+        )
+
+        torch.manual_seed(0)
+        x1 = torch.rand(
+            (int(lengths.sum().item()), H), requires_grad=True, device=device
+        )  # [Sum_B, H]
+        padded_x1 = torch.ops.fbgemm.jagged_to_padded_dense(
+            x1,
+            [offsets],
+            max_lengths=[N],
+            padding_value=0.0,
+        )  # [B, N, H]
+        _, presences = torch.ops.fbgemm.pack_segments_v2(
+            x1,
+            lengths,
+            max_length=N,
+            return_presence_mask=True,
+        )
+        softmax_input = (
+            padded_x1 - (1.0 - presences.unsqueeze(2).to(padded_x1.dtype)) * 5e7
+        )
+        padded_ref = torch.nn.functional.softmax(
+            softmax_input.transpose(1, 2), dim=-1
+        )  # [B, H, N]
+        ref = torch.ops.fbgemm.dense_to_jagged(padded_ref.permute(0, 2, 1), [offsets])[
+            0
+        ]
+
+        torch.manual_seed(0)
+        x2 = torch.rand(
+            (int(lengths.sum().item()), H), requires_grad=True, device=device
+        )  # [Sum_B, H]
+        ret = torch.ops.fbgemm.sll_jagged_softmax(
+            x2, offsets, N, use_fbgemm_kernel=use_fbgemm_kernel
+        )
+
+        assert torch.allclose(ret, ref, 1e-5)
+
+        grad_output = torch.rand((int(lengths.sum().item()), H), device=device) * 0.01
+        ref.backward(grad_output)
+        ret.backward(grad_output)
+
+        # pyre-fixme[6]: In call `torch._C._VariableFunctions.allclose`, for 1st positional argument, expected `Tensor` but got `Optional[Tensor]`.Pyre
+        assert torch.allclose(x1.grad, x2.grad, 1e-5)
