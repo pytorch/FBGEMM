@@ -13,6 +13,7 @@ import torch
 
 from fbgemm_gpu.sll.cpu_sll import (  # noqa F401
     cpu_dense_jagged_cat_jagged_out,
+    cpu_jagged2_softmax,
     cpu_jagged2_to_padded_dense,
     cpu_jagged_dense_bmm,
     cpu_jagged_dense_elementwise_mul_jagged_out,
@@ -23,8 +24,11 @@ from fbgemm_gpu.sll.cpu_sll import (  # noqa F401
     meta_jagged_self_substraction_jagged_out,
 )
 
+from fbgemm_gpu.sll.meta_sll import meta_jagged2_softmax  # noqa F401
+
 from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     dense_jagged_cat_jagged_out,
+    jagged2_softmax,
     jagged2_to_padded_dense,
     jagged_dense_bmm,
     jagged_dense_elementwise_mul_jagged_out,
@@ -165,6 +169,12 @@ if "fbgemm::sll_jagged_softmax" not in torch.library._defs:
         """
     )
 
+if "fbgemm::sll_jagged2_softmax" not in torch.library._defs:
+    lib.define(
+        """sll_jagged2_softmax(Tensor x, Tensor offsets, Tensor offsets_total, int max_seq_len, bool transpose) -> Tensor
+        """
+    )
+
 # NOTE: here we register the op for AutogradCUDA/CPU and CUDA/CPU with the same function
 # however, this is not ideal because in the inference case, we don't need the autograd forward
 # to save the context because we don't need to do backward.
@@ -233,5 +243,16 @@ register_sll_op(
         "AutogradCUDA": jagged_softmax,
         "CPU": cpu_jagged_softmax,
         "AutogradCPU": cpu_jagged_softmax,
+    },
+)
+
+register_sll_op(
+    "sll_jagged2_softmax",
+    {
+        "CUDA": jagged2_softmax,
+        "AutogradCUDA": jagged2_softmax,
+        "CPU": cpu_jagged2_softmax,
+        "AutogradCPU": cpu_jagged2_softmax,
+        "AutogradMeta": meta_jagged2_softmax,
     },
 )
