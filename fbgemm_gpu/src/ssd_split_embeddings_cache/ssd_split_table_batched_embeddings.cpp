@@ -279,7 +279,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       int64_t cache_size = 0,
       bool use_passed_in_path = false,
       int64_t tbe_unique_id = 0,
-      int64_t l2_cache_size_gb = 0)
+      int64_t l2_cache_size_gb = 0,
+      bool enable_async_update = false)
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -299,7 +300,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             cache_size,
             use_passed_in_path,
             tbe_unique_id,
-            l2_cache_size_gb)) {}
+            l2_cache_size_gb,
+            enable_async_update)) {}
 
   void set_cuda(
       Tensor indices,
@@ -481,7 +483,8 @@ static auto embedding_rocks_db_wrapper =
                 int64_t,
                 bool,
                 int64_t,
-                int64_t>(),
+                int64_t,
+                bool>(),
             "",
             {
                 torch::arg("path"),
@@ -503,6 +506,7 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("use_passed_in_path") = true,
                 torch::arg("tbe_unique_id") = 0,
                 torch::arg("l2_cache_size_gb") = 0,
+                torch::arg("enable_async_update") = true,
             })
         .def(
             "set_cuda",
