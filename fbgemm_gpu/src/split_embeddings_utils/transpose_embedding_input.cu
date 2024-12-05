@@ -63,7 +63,7 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
 
 template <typename index_t, typename info_acc_t, bool nobag, bool vbe>
 __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
@@ -79,7 +79,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
     // Use a raw pointer to avoid creating dummy PackedTensorAccessor
     const uint32_t* const __restrict__ vbe_b_t_map,
     FixedDivisor fd) {
-  const int32_t T = hash_size_cumsum.size(0) - 1;
+  const auto T = hash_size_cumsum.size(0) - 1;
   auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
   int32_t b;
   int32_t t;
@@ -142,7 +142,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
 template <typename index_t, typename info_acc_t>
 __global__
 __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
-    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         indices,
@@ -153,7 +153,7 @@ __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
         linear_indices,
     FixedDivisor fd,
     int32_t fixed_L_per_warp) {
-  const int32_t T = hash_size_cumsum.size(0) - 1;
+  const auto T = hash_size_cumsum.size(0) - 1;
   auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
   int32_t b;
   int32_t t;
@@ -258,7 +258,7 @@ transpose_embedding_input(
         kMaxThreads,                                                       \
         0,                                                                 \
         at::cuda::getCurrentCUDAStream()>>>(                               \
-        MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, index_t, 1, 32),   \
+        MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, int64_t, 1, 32),   \
         MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),            \
         MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),            \
         MAKE_PTA_WITH_NAME(func_name, infos, INFO_ACC_T, 1, 32),           \
@@ -296,7 +296,7 @@ transpose_embedding_input(
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
                     MAKE_PTA_WITH_NAME(
-                        func_name, hash_size_cumsum, index_t, 1, 32),
+                        func_name, hash_size_cumsum, int64_t, 1, 32),
                     MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
                     MAKE_PTA_WITH_NAME(
                         func_name, total_L_offsets.value(), index_t, 1, 32),

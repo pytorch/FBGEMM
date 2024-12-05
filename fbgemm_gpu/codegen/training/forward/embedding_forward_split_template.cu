@@ -40,6 +40,8 @@
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
+#include <ATen/ATen.h>
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 

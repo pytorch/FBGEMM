@@ -990,7 +990,6 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
 {%- for emb_type in ['float', 'at::Half'] %}
 {%- for cache_type in ['float', 'at::Half'] %}
 {%- for use_cache in ['true', 'false'] %}
-
 template __launch_bounds__(kForwardMaxThreads, 2048 / kForwardMaxThreads)
 __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel
 <
