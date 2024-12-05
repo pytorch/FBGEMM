@@ -71,8 +71,15 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor x_scale,
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = std::nullopt,
-    bool use_fast_accum = true,
-    std::optional<at::Tensor> output = std::nullopt);
+    bool use_fast_accum = true);
+void f8f8bf16_rowwise_out(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> bias = std::nullopt,
+    bool use_fast_accum = true);
 at::Tensor f8f8bf16_rowwise_batched(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -190,7 +197,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor");
   m.def(
-      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
+      "f8f8bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
+  m.def(
+      "f8f8bf16_rowwise_out(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor output, Tensor? bias=None, bool use_fast_accum=True) -> ()");
   m.def(
       "f8f8bf16_rowwise_batched(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
@@ -231,6 +240,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
+  m.impl("f8f8bf16_rowwise_out", f8f8bf16_rowwise_out);
   m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
@@ -293,12 +303,22 @@ at::Tensor f8f8bf16_rowwise_meta(
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
     std::optional<at::Tensor> /* bias = c10::nullopt */,
-    bool /* use_fast_accum = true */,
-    std::optional<at::Tensor> /* output = c10::nullopt */) {
+    bool /* use_fast_accum = true */) {
   const at::SymInt M = XQ.sym_size(0);
   const at::SymInt N = WQ.sym_size(0);
   auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
+}
+
+void f8f8bf16_rowwise_out_meta(
+    at::Tensor /* XQ */,
+    at::Tensor /* WQ */, // FP8
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    at::Tensor /* output */,
+    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    bool /* use_fast_accum = true */) {
+  return;
 }
 
 at::Tensor f8f8bf16_rowwise_batched_meta(
@@ -472,6 +492,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise_meta);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise_meta);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise_meta);
+  m.impl("f8f8bf16_rowwise_out", f8f8bf16_rowwise_out_meta);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col_meta);
