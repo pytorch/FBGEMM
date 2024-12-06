@@ -58,9 +58,13 @@ void bounds_check_indices_cuda(
     const int64_t max_B,
     const std::optional<Tensor>& b_t_map,
     const int64_t info_B_num_bits,
-    const int64_t info_B_mask) {
-  const static bool use_v2 = fbgemm_gpu::config::is_feature_enabled(
-      fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_INDICES_V2);
+    const int64_t info_B_mask,
+    const int8_t bounds_check_version) {
+  TORCH_CHECK(bounds_check_version == 1 || bounds_check_version == 2);
+  const static bool use_v2 =
+      fbgemm_gpu::config::is_feature_enabled(
+          fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_INDICES_V2) ||
+      bounds_check_version == 2;
   const auto bounds_check_indices_fn =
       use_v2 ? _bounds_check_indices_cuda_v2 : _bounds_check_indices_cuda_v1;
   bounds_check_indices_fn(
