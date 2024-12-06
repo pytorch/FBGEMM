@@ -8,16 +8,20 @@
 echo "################################################################################"
 echo "[CMAKE] Running post-build script ..."
 
-# Print directory
-pwd
+TARGET=$1
+SET_RPATH_TO_ORIGIN=$2
+echo "Target file: ${TARGET}"
 
-# List all generated .SO files
-find . -name '*.so'
-
-# Remove errant RPATHs from the .SO
+# Set or remove RPATHs for the .SO
 # https://github.com/pytorch/FBGEMM/issues/3098
 # https://github.com/NixOS/patchelf/issues/453
-find . -name '*.so' -print0 | xargs -0 patchelf --remove-rpath
+if [ "${SET_RPATH_TO_ORIGIN}" != "" ]; then
+    echo "Resetting RPATH to \$ORIGIN ..."
+    patchelf --force-rpath --set-rpath "\$ORIGIN" "${TARGET}" || exit 1
+else
+    echo "Removing all RPATHs ..."
+    patchelf --remove-rpath "${TARGET}" || exit 1
+fi
 
-echo "[CMAKE] Removed errant RPATHs"
+readelf -d "${TARGET}" | grep -i rpath
 echo "################################################################################"
