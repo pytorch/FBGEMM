@@ -1,0 +1,27 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# NOTES:
+#
+# - A fixed version of mpmath is needed to work around an AttributeError; see:
+#   * https://github.com/nod-ai/SHARK/issues/2095
+#   * https://github.com/jianyicheng/mase-docker/pull/9
+
+# Requirements for GENAI build variant
+
+backports.tarfile
+build
+cmake
+hypothesis
+jinja2
+mpmath==1.3.0
+ninja
+numpy
+pyre-extensions
+scikit-build
+setuptools
+setuptools_git_versioning
+tabulate
