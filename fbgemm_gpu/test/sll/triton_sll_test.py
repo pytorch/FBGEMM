@@ -768,3 +768,121 @@ class TritonSLLTest(unittest.TestCase):
 
         # pyre-fixme[6]: In call `torch._C._VariableFunctions.allclose`, for 1st positional argument, expected `Tensor` but got `Optional[Tensor]`.Pyre
         assert torch.allclose(x1.grad, x2.grad, 1e-5)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    @given(
+        B=st.integers(1, 10),
+        N=st.integers(10, 100),
+        transpose=st.booleans(),
+        device_type=st.sampled_from(["cpu", "cuda"]),
+    )
+    @settings(deadline=None)
+    def test_triton_jagged2_softmax(
+        self,
+        B: int,
+        N: int,
+        transpose: bool,
+        device_type: str,
+    ) -> None:
+        device = torch.device(device_type)
+        lengths_n = torch.randint(1, N + 1, (B,))
+        offsets_n = torch.cat(
+            [
+                torch.tensor([0], dtype=torch.int32),
+                lengths_n.cumsum(dim=0),
+            ],
+            dim=0,
+        ).to(device_type)
+
+        lengths_total = lengths_n * lengths_n
+        offsets_total = torch.cat(
+            [
+                torch.tensor([0], dtype=torch.int32),
+                lengths_total.cumsum(dim=0),
+            ],
+            dim=0,
+        ).to(device_type)
+
+        torch.manual_seed(0)
+        x = torch.rand(
+            int(lengths_total.sum().item()), requires_grad=True, device=device
+        )
+        torch.manual_seed(0)
+        x_ref = torch.rand(
+            int(lengths_total.sum().item()), requires_grad=True, device=device
+        )
+        ref = torch.zeros((x.shape[0]), dtype=x.dtype, device=x.device)
+        for i in range(B):
+            submatrix = x_ref[offsets_total[i] : offsets_total[i + 1]]
+            Ni = int(lengths_n[i].item())
+            softmax_dim = 0 if transpose else 1
+            ref[offsets_total[i] : offsets_total[i + 1]] = torch.nn.functional.softmax(
+                submatrix.reshape((Ni, Ni)), dim=softmax_dim
+            ).view(-1)
+
+        ret = torch.ops.fbgemm.sll_jagged2_softmax(
+            x, offsets_n, offsets_total, N, transpose=transpose
+        )
+
+        assert torch.allclose(ret, ref)
+
+        grad_output = torch.rand((ref.shape), device=device) * 0.01
+        ref.backward(grad_output)
+        ret.backward(grad_output)
+
+        torch.testing.assert_close(x.grad, x_ref.grad, rtol=1e-5, atol=1e-5)
+
+    @unittest.skipIf(*gpu_unavailable)
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.integers(10, 512)` to decorator factory
+    #  `hypothesis.given`.
+    @given(
+        B=st.integers(10, 512),
+        N=st.integers(10, 1000),
+        transpose=st.booleans(),
+        device_type=st.sampled_from(["meta"]),
+    )
+    @settings(deadline=None)
+    def test_triton_jagged2_softmax_meta_backend(
+        self,
+        B: int,
+        N: int,
+        transpose: bool,
+        device_type: str,
+    ) -> None:
+        device = torch.device(device_type)
+        lengths_n = torch.randint(1, N + 1, (B,))
+        offsets_n = torch.cat(
+            [
+                torch.tensor([0], dtype=torch.int32),
+                lengths_n.cumsum(dim=0),
+            ],
+            dim=0,
+        ).to(device_type)
+        lengths_total = lengths_n * lengths_n
+        offsets_total = torch.cat(
+            [
+                torch.tensor([0], dtype=torch.int32),
+                lengths_total.cumsum(dim=0),
+            ],
+            dim=0,
+        ).to(device_type)
+
+        torch.manual_seed(0)
+        x = torch.rand(
+            int(lengths_total.sum().item()), requires_grad=True, device=device
+        )
+
+        ret = torch.ops.fbgemm.sll_jagged2_softmax(
+            x, offsets_n, offsets_total, N, transpose=transpose
+        )
+
+        assert ret.is_meta and ret.size() == x.size()
+
+        grad_output = torch.rand((ret.shape), device=device) * 0.01
+        ret.backward(grad_output)
+
+        # pyre-fixme[16]: Optional type has no attribute `is_meta`.
+        # pyre-fixme[16]: Optional type has no attribute `size`.
+        assert x.grad.is_meta and x.grad.size() == x.size()

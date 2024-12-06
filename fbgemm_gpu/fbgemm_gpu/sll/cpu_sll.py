@@ -471,3 +471,80 @@ def cpu_jagged_softmax(
         return torch.ops.fbgemm.jagged_softmax(x, x_offsets, max_seq_len)[0]
     else:
         return JaggedSoftmaxCPU.apply(x, x_offsets, max_seq_len)
+
+
+class Jagged2SoftmaxCPU(torch.autograd.Function):
+    @staticmethod
+    # pyre-fixme
+    def forward(
+        # pyre-fixme[2]: Parameter must be annotated.
+        ctx,
+        x: torch.Tensor,
+        x_offsets: torch.Tensor,
+        row_offsets: torch.Tensor,
+        head_offsets: torch.Tensor,
+        max_seq_len_row: int,
+        max_seq_len_head: int,
+        transpose: bool = True,
+    ) -> torch.Tensor:
+        B = x_offsets.size(0) - 1
+        y = torch.zeros(x.size(0), device=x.device, dtype=x.dtype)
+
+        for i in range(B):
+            submatrix = x[x_offsets[i] : x_offsets[i + 1]]
+            Ni = int(row_offsets[i + 1] - row_offsets[i])
+            softmax_dim = 0 if transpose else 1
+            y[x_offsets[i] : x_offsets[i + 1]] = torch.nn.functional.softmax(
+                submatrix.reshape((Ni, Ni)), dim=softmax_dim
+            ).view(-1)
+
+        ctx.save_for_backward(y, x_offsets, row_offsets, head_offsets)
+        ctx.max_seq_len_row = max_seq_len_row
+        ctx.max_seq_len_head = max_seq_len_head
+        ctx.transpose = transpose
+
+        return y
+
+    @staticmethod
+    # pyre-fixme
+    def backward(ctx, grad_output: torch.Tensor):
+        y, x_offsets, row_offsets, head_offsets = ctx.saved_tensors
+        B = x_offsets.size(0) - 1
+        transpose = ctx.transpose
+        softmax_dim = 0 if transpose else -1
+        grad = torch.zeros(y.size(0), device=y.device, dtype=y.dtype)
+
+        for i in range(B):
+            Ni = row_offsets[i + 1] - row_offsets[i]
+            curr_y = y[x_offsets[i] : x_offsets[i + 1]].reshape(Ni, Ni)
+            curr_grad = grad_output[x_offsets[i] : x_offsets[i + 1]].reshape(Ni, Ni)
+            grad[x_offsets[i] : x_offsets[i + 1]] = (
+                curr_y
+                * (
+                    curr_grad
+                    - torch.sum(curr_grad * curr_y, dim=softmax_dim, keepdim=True)
+                )
+            ).view(-1)
+
+        return grad, None, None, None, None, None, None
+
+
+def cpu_jagged2_softmax(
+    x: torch.Tensor,
+    offsets: torch.Tensor,
+    offsets_total: torch.Tensor,
+    max_seq_len: int,
+    transpose: bool,
+) -> torch.Tensor:
+    """
+    GPU version of jagged2 softmax: [sum(softmax([B_i, B_i]))]
+    """
+    return Jagged2SoftmaxCPU.apply(
+        x,
+        offsets_total,
+        offsets,
+        offsets,
+        max_seq_len,
+        max_seq_len,
+        transpose,
+    )
