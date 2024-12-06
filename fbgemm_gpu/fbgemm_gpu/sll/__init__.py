@@ -183,9 +183,9 @@ if "fbgemm::sll_jagged2_softmax" not in torch.library._defs:
         """
     )
 
-if "fbgemm::array_jagged_bmm_jagged_out" not in torch.library._defs:
+if "fbgemm::sll_array_jagged_bmm_jagged_out" not in torch.library._defs:
     lib.define(
-        """array_jagged_bmm_jagged_out(
+        """sll_array_jagged_bmm_jagged_out(
             Tensor x,
             Tensor y,
             Tensor x_lengths,
@@ -200,9 +200,9 @@ if "fbgemm::array_jagged_bmm_jagged_out" not in torch.library._defs:
         """
     )
 
-if "fbgemm::jagged_jagged_bmm_jagged_out" not in torch.library._defs:
+if "fbgemm::sll_jagged_jagged_bmm_jagged_out" not in torch.library._defs:
     lib.define(
-        """jagged_jagged_bmm_jagged_out(
+        """sll_jagged_jagged_bmm_jagged_out(
             Tensor x,
             Tensor y,
             Tensor x_lengths,
@@ -300,7 +300,7 @@ register_sll_op(
 )
 
 register_sll_op(
-    "array_jagged_bmm_jagged_out",
+    "sll_array_jagged_bmm_jagged_out",
     {
         "CUDA": array_jagged_bmm_jagged_out,
         "AutogradCUDA": array_jagged_bmm_jagged_out,
@@ -311,7 +311,7 @@ register_sll_op(
 )
 
 register_sll_op(
-    "jagged_jagged_bmm_jagged_out",
+    "sll_jagged_jagged_bmm_jagged_out",
     {
         "CUDA": jagged_jagged_bmm_jagged_out,
         "AutogradCUDA": jagged_jagged_bmm_jagged_out,

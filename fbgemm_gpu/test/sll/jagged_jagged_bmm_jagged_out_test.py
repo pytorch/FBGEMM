@@ -10,8 +10,6 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.cpu_sll import cpu_jagged_jagged_bmm_jagged_out  # noqa
-from fbgemm_gpu.sll.meta_sll import meta_jagged_jagged_bmm_jagged_out  # noqa
 from fbgemm_gpu.sll.triton_sll import triton_jagged_jagged_bmm_jagged_out
 from hypothesis import given, settings
 
@@ -124,7 +122,7 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
         )
 
         jagged_C_ref = torch.rand(int(lengths_mn.sum().item()), device=device)
-        jagged_C_test = torch.ops.fbgemm.jagged_jagged_bmm_jagged_out(
+        jagged_C_test = torch.ops.fbgemm.sll_jagged_jagged_bmm_jagged_out(
             jagged_A,
             jagged_B.T,
             lengths_m.to(device_type),
