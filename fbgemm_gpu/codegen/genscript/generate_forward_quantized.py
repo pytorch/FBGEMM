@@ -60,7 +60,7 @@ ELEM_TYPES = [
             TemplateParams(2, 8, 2, 4),
             TemplateParams(2, 4, 4, 8),
             TemplateParams(2, 2, 8, 16),
-            TemplateParams(2, 1, 16, 32),
+            TemplateParams(1, 2, 16, 32),
         ],
     ),
     ElemType(

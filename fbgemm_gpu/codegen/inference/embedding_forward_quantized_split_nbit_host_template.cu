@@ -367,7 +367,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
           Y(2, 2, 8, 16);
         }
         if (max_fp16_128b_rows > 16) {
-          Y(2, 1, 16, 32);
+          Y(1, 2, 16, 32);
         }
       }
     }));
