@@ -22,9 +22,8 @@ if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
-
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
 class TritonSLLTest(unittest.TestCase):
