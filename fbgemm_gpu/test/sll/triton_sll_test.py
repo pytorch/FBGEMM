@@ -15,15 +15,15 @@ import torch
 from hypothesis import given, settings, strategies as st
 from torch.testing._internal.optests import opcheck
 
-# pyre-ignore[16]: Module `fbgemm_gpu` has no attribute `open_source`
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+from .common import open_source  # noqa
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
+    from test_utils import gpu_unavailable, running_on_rocm
 else:
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
 
 
 class TritonSLLTest(unittest.TestCase):
@@ -38,6 +38,8 @@ class TritonSLLTest(unittest.TestCase):
         allow_tf32=st.booleans(),
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
+    @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     @settings(deadline=None)
     def test_triton_jagged_dense_bmm(
         self,
@@ -77,6 +79,7 @@ class TritonSLLTest(unittest.TestCase):
             assert torch.allclose(ref, ret, 1e-5)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
@@ -157,6 +160,7 @@ class TritonSLLTest(unittest.TestCase):
             assert torch.allclose(y1.grad, y2.grad, 1e-5)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
@@ -212,6 +216,7 @@ class TritonSLLTest(unittest.TestCase):
             assert torch.allclose(ref, ret, 1e-5)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
@@ -304,6 +309,7 @@ class TritonSLLTest(unittest.TestCase):
             assert torch.allclose(x1.grad, x2.grad, 1e-5)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
@@ -354,6 +360,7 @@ class TritonSLLTest(unittest.TestCase):
         assert torch.equal(c_offsets, c_offsets_computed)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 100),
@@ -428,6 +435,7 @@ class TritonSLLTest(unittest.TestCase):
             assert torch.equal(result[offsets_b[i] : offsets_b[i + 1]], ref.flatten())
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 10),
@@ -501,6 +509,7 @@ class TritonSLLTest(unittest.TestCase):
         assert torch.allclose(x.grad, x_clone.grad)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
@@ -570,6 +579,7 @@ class TritonSLLTest(unittest.TestCase):
             assert torch.equal(result[offsets_a[i] : offsets_a[i + 1]], ref.flatten())
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
@@ -635,6 +645,7 @@ class TritonSLLTest(unittest.TestCase):
         assert torch.allclose(jagged_A_ref.grad, jagged_A.grad)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(10, 512),
@@ -703,6 +714,7 @@ class TritonSLLTest(unittest.TestCase):
         )
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 512),
@@ -769,6 +781,7 @@ class TritonSLLTest(unittest.TestCase):
         assert torch.allclose(x1.grad, x2.grad, 1e-5)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
         B=st.integers(1, 10),
@@ -833,6 +846,7 @@ class TritonSLLTest(unittest.TestCase):
         torch.testing.assert_close(x.grad, x_ref.grad, rtol=1e-5, atol=1e-5)
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_rocm)
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers(10, 512)` to decorator factory
     #  `hypothesis.given`.

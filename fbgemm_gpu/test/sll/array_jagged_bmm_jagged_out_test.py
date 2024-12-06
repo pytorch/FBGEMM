@@ -10,8 +10,6 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.cpu_sll import cpu_array_jagged_bmm_jagged_out  # noqa
-from fbgemm_gpu.sll.meta_sll import meta_array_jagged_bmm_jagged_out  # noqa
 from fbgemm_gpu.sll.triton_sll import triton_array_jagged_bmm_jagged_out
 from hypothesis import given, settings
 
@@ -207,7 +205,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
             (int(lengths_y.sum().item()), D), device=device, requires_grad=True
         )
 
-        ret = torch.ops.fbgemm.array_jagged_bmm_jagged_out(
+        ret = torch.ops.fbgemm.sll_array_jagged_bmm_jagged_out(
             array_x2,
             jagged_y2,
             lengths_x,
@@ -292,7 +290,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
             (int(lengths_y.sum().item()), D), device=device, requires_grad=True
         )
 
-        ret = torch.ops.fbgemm.array_jagged_bmm_jagged_out(
+        ret = torch.ops.fbgemm.sll_array_jagged_bmm_jagged_out(
             array_x2,
             jagged_y2,
             lengths_x.to(device_type),
