@@ -85,6 +85,7 @@ __configure_fbgemm_gpu_test_cpu () {
     ./uvm/uvm_test.py
     ./sll/triton_sll_test.py
     ./sll/array_jagged_bmm_jagged_out_test.py
+    ./sll/jagged_jagged_bmm_jagged_out_test.py
   )
 }
 
@@ -103,7 +104,6 @@ __configure_fbgemm_gpu_test_cuda () {
 
   ignored_tests=(
   )
-
 }
 
 __configure_fbgemm_gpu_test_rocm () {
