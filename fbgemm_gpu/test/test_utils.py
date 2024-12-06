@@ -255,6 +255,24 @@ def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") ->
 
 
 # pyre-fixme[3]: Return annotation cannot be `Any`.
+def skipIfNotRocm(reason: str = "Test currently doesn work only on the ROCm stack") -> Any:
+    # pyre-fixme[3]: Return annotation cannot be `Any`.
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
+    def decorator(fn: Callable) -> Any:
+        @wraps(fn)
+        # pyre-fixme[3]: Return annotation cannot be `Any`.
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if TEST_WITH_ROCM:
+                fn(*args, **kwargs)
+            else:
+                raise unittest.SkipTest(reason)
+
+        return wrapper
+
+    return decorator
+
+
+# pyre-fixme[3]: Return annotation cannot be `Any`.
 def skipIfRocmLessThan(min_version: int) -> Any:
     # pyre-fixme[3]: Return annotation cannot be `Any`.
     # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
