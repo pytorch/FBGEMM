@@ -51,22 +51,6 @@ FP16_MAX_POS: float = torch.finfo(torch.float16).max
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 
-# pyre-ignore
-def patch_inductor_if_available():
-    """Helper function to disable currently buggy inductor pass."""
-
-    # pyre-ignore
-    def wrapper(func):
-        if hasattr(torch._inductor, "config"):
-            return torch._inductor.config.patch(enable_auto_functionalized_v2=False)(
-                func
-            )
-        else:
-            return func
-
-    return wrapper
-
-
 def fp8_row_quantize_ref(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     # Quantize an input tensor and return the fp8 tensor and its inverse scale.
     x_row_max = torch.max(torch.abs(x), dim=1).values
@@ -1037,8 +1021,6 @@ class FP8Tests(unittest.TestCase):
         "Skip if no GPU is present.",
     )
     @unittest.skipIf(open_source, "Temporarily disabled in OSS.")
-    # TODO We can probably turn this back on later, it seems to currently be buggy.
-    @patch_inductor_if_available()
     def test_quantize_compile(self) -> None:
         # Test that quantize operators can be torch compiled.
         # Correctness is covered in other tests, we just want to make sure
@@ -1052,6 +1034,7 @@ class FP8Tests(unittest.TestCase):
         X = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
         XQ = torch.randn(M, K, device="cuda").to(fp8_dtype)
         WQ = torch.randn(N, K, device="cuda").to(fp8_dtype)
+        output = torch.empty(M, N, device="cuda", dtype=torch.bfloat16)
         row_scale = torch.randn(M, device="cuda")
         col_scale = torch.randn(N, device="cuda")
         block_scale = torch.randn(M // 128, K // 128, device="cuda")
@@ -1069,6 +1052,9 @@ class FP8Tests(unittest.TestCase):
         )
         torch.compile(torch.ops.fbgemm.f8f8bf16_tensorwise)(XQ, WQ, 1.0)
         torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise)(XQ, WQ, row_scale, col_scale)
+        torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise_out)(
+            XQ, WQ, row_scale, col_scale, output
+        )
 
         # These ops are only supported on cuda for now.
         if torch.version.cuda:
