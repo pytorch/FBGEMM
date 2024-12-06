@@ -901,7 +901,15 @@ static torch::autograd::variable_list backward(
     weights_dev = weights_dev.flatten();
     {%- endif %}
     {%- if vbe %}
-    if (weights_host.numel() > 1){
+    // TODO: remove this once vbe_metadata for cpu is implemented
+    // MTIA kernel uses weights_host but follows CUDA implementation, 
+    // so grad_output is already in a correct shape and must not be reshaped
+    // Reshaping on weights_host here causes MTIA kernel to fail.
+    // As a hotfix to unblock MTIA, we add condition check dimension so that reshpaing would skip on MTIA
+    // CUDA and MTIA vbe_b_t_map is size of {total_B} - should be 1 dim
+    // CPU vbe_b_t_map is B_offsets_rank_per_feature, so shape should be {num_features, batch_offsets}
+    // This will be removed totally once vbe_metadata for cpu is implemented
+    if (weights_host.numel() > 1 && vbe_b_t_map.dim() > 1){
       grad_output = reshape_vbe_output(grad_output, B_offsets, vbe_b_t_map, D_offsets);
     }
     {%- endif %}
