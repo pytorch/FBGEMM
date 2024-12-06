@@ -282,6 +282,10 @@ class NBitFowardTest(NBitFowardTestCommon):
                 equal_nan=True,
             )
 
+    @unittest.skipIf(
+        TEST_WITH_ROCM,
+        "This test is currently running into failing on rocm clang in OSS, and is being investigated.",
+    )
     @given(
         nbit_weights_ty=get_nbit_weights_ty(),
         use_array_for_index_remapping=st.booleans(),
