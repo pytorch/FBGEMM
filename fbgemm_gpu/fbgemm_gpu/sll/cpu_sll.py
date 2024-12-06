@@ -764,3 +764,134 @@ def cpu_array_jagged_bmm_jagged_out(
         max_seq_len,
         allow_tf32,
     )
+
+
+class JaggedJaggedBmmNoPaddingCPU(torch.autograd.Function):
+    """
+    Compute batch matrix multiplication between JaggedTensor and JaggedTensor without padding.
+    z = x x y^T
+    x: [sum_B(M_i), D]
+    y: [sum_B(N_i), D]
+    z: [sum_B(M_i * N_i)], assuming M_i = N_i
+    """
+
+    @staticmethod
+    # pyre-fixme
+    def forward(
+        # pyre-fixme[2]: Parameter must be annotated.
+        ctx,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        x_lengths: torch.Tensor,
+        x_offsets: torch.Tensor,
+        y_lengths: torch.Tensor,
+        y_offsets: torch.Tensor,
+        z_lengths: torch.Tensor,
+        z_offsets: torch.Tensor,
+        max_seq_len: int,
+        # pyre-fixme[2]: Parameter must be annotated.
+        allow_tf32,
+    ):
+        ctx.allow_tf32 = allow_tf32
+        ctx.max_seq_len = max_seq_len
+
+        ctx.save_for_backward(
+            x,
+            y,
+            x_lengths,
+            y_lengths,
+            z_lengths,
+            x_offsets,
+            y_offsets,
+            z_offsets,
+        )
+
+        return cpu_jagged_jagged_bmm_jagged_out_kernel(
+            x,
+            y,
+            max_seq_len,
+            x_lengths,
+            y_lengths,
+            z_lengths,
+            x_offsets,
+            y_offsets,
+            z_offsets,
+            allow_tf32,
+        )
+
+    @staticmethod
+    # pyre-fixme
+    def backward(ctx, grad_output: torch.Tensor):
+        """
+        z = x x y^T
+        x: [sum_B(M_i), D]
+        y: [sum_B(N_i), D]
+        z: [sum_B(M_i * N_i)], assuming M_i = N_i
+        dx = dz x (y^T)^T = > dx = dz x y
+        d(y^T) = x^T x dz => dy = dz^T x x
+        """
+        (
+            x,
+            y,
+            x_lengths,
+            y_lengths,
+            z_lengths,
+            x_offsets,
+            y_offsets,
+            z_offsets,
+        ) = ctx.saved_tensors
+
+        grad_x = cpu_array_jagged_bmm_jagged_out_kernel(
+            grad_output,
+            y,
+            z_lengths,
+            y_lengths,
+            x_lengths,
+            z_offsets,
+            y_offsets,
+            x_offsets,
+            ctx.max_seq_len,
+            ctx.allow_tf32,
+            transpose=0,
+        )
+        grad_y = cpu_array_jagged_bmm_jagged_out_kernel(
+            grad_output,
+            x,
+            z_lengths,
+            x_lengths,
+            y_lengths,
+            z_offsets,
+            x_offsets,
+            y_offsets,
+            ctx.max_seq_len,
+            ctx.allow_tf32,
+            transpose=1,
+        )
+        return grad_x, grad_y, None, None, None, None, None, None, None, None
+
+
+# pyre-fixme[3]: Return type must be annotated.
+def cpu_jagged_jagged_bmm_jagged_out(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    x_lengths: torch.Tensor,
+    x_offsets: torch.Tensor,
+    y_lengths: torch.Tensor,
+    y_offsets: torch.Tensor,
+    z_lengths: torch.Tensor,
+    z_offsets: torch.Tensor,
+    max_seq_len: int,
+    allow_tf32: bool = True,
+):
+    return JaggedJaggedBmmNoPaddingCPU.apply(
+        x,
+        y,
+        x_lengths,
+        x_offsets,
+        y_lengths,
+        y_offsets,
+        z_lengths,
+        z_offsets,
+        max_seq_len,
+        allow_tf32,
+    )
