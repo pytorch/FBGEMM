@@ -86,6 +86,7 @@ __configure_fbgemm_gpu_test_cpu () {
     ./sll/triton_sll_test.py
     ./sll/array_jagged_bmm_jagged_out_test.py
     ./sll/jagged_jagged_bmm_jagged_out_test.py
+    ./sll/jagged_flash_attention_basic_test.py
   )
 }
 
