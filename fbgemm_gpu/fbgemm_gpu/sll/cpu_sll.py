@@ -895,3 +895,73 @@ def cpu_jagged_jagged_bmm_jagged_out(
         max_seq_len,
         allow_tf32,
     )
+
+
+def cpu_jagged_flash_attention_basic(
+    q_weights: torch.Tensor,
+    k_weights: torch.Tensor,
+    v_weights: torch.Tensor,
+    offsets: torch.Tensor,
+    max_seq_len: int,
+    use_mask: bool = False,
+    allow_tf32: bool = True,
+) -> torch.Tensor:
+    num_objects = offsets[1:] - offsets[0:-1:1]
+    attn_lengths = num_objects * num_objects
+    attn_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(attn_lengths)
+
+    s = torch.ops.fbgemm.sll_jagged_jagged_bmm_jagged_out(
+        x=q_weights,
+        y=k_weights,  # transpose is done inside the function
+        x_lengths=num_objects,
+        x_offsets=offsets,
+        y_lengths=num_objects,
+        y_offsets=offsets,
+        z_lengths=attn_lengths,
+        z_offsets=attn_offsets,
+        max_seq_len=max_seq_len,
+        allow_tf32=allow_tf32,
+    )
+
+    p = (
+        torch.ops.fbgemm.sll_jagged2_softmax(
+            x=s,
+            offsets=offsets,
+            offsets_total=attn_offsets,
+            max_seq_len=max_seq_len,
+            transpose=False,
+        )
+        / max_seq_len
+    )
+
+    if use_mask:
+        attn_mask = torch.triu(
+            torch.ones(
+                (max_seq_len, max_seq_len),
+                dtype=torch.bool,
+                device=q_weights.device,
+            ),
+        ).requires_grad_(False)
+        # p = p * attn_mask
+        p = torch.ops.fbgemm.sll_jagged_dense_elementwise_mul_jagged_out(
+            x=p,
+            y=attn_mask,
+            x_seq_lengths=num_objects,
+            x_offsets=attn_offsets,
+            max_seq_len=max_seq_len,
+        )
+
+    jagged_O = torch.ops.fbgemm.sll_array_jagged_bmm_jagged_out(
+        x=p,
+        y=v_weights,
+        x_lengths=attn_lengths,
+        x_offsets=attn_offsets,
+        y_lengths=num_objects,
+        y_offsets=offsets,
+        z_lengths=num_objects,
+        z_offsets=offsets,
+        max_seq_len=max_seq_len,
+        allow_tf32=allow_tf32,
+    )
+
+    return jagged_O
