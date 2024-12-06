@@ -806,10 +806,10 @@ _block_bucketize_sparse_features_cuda(
       if (return_bucket_mapping) {
         bucket_mapping = at::empty({lengths_sum}, indices.options());
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITH_WEIGHT(
-            true, true)
+            true, true);
       } else {
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITH_WEIGHT(
-            true, false)
+            true, false);
       }
     } else if (weights.has_value()) {
       Tensor weights_value = weights.value();
@@ -818,29 +818,29 @@ _block_bucketize_sparse_features_cuda(
       if (return_bucket_mapping) {
         bucket_mapping = at::empty({lengths_sum}, indices.options());
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITH_WEIGHT(
-            false, true)
+            false, true);
       } else {
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITH_WEIGHT(
-            false, false)
+            false, false);
       }
     } else if (bucketize_pos) {
       new_pos = at::empty_like(indices);
       if (return_bucket_mapping) {
         bucket_mapping = at::empty({lengths_sum}, indices.options());
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITHOUT_WEIGHT(
-            true, true)
+            true, true);
       } else {
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITHOUT_WEIGHT(
-            true, false)
+            true, false);
       }
     } else {
       if (return_bucket_mapping) {
         bucket_mapping = at::empty({lengths_sum}, indices.options());
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITHOUT_WEIGHT(
-            false, true)
+            false, true);
       } else {
         LAUNCH_BLOCK_BUCKETIZE_SEQUENCE_SPARSE_FEATURES_CUDA_KERNEL_WITHOUT_WEIGHT(
-            false, false)
+            false, false);
       }
     }
 
@@ -861,23 +861,23 @@ _block_bucketize_sparse_features_cuda(
       new_weights = at::empty_like(weights_value);
       new_pos = at::empty_like(indices);
       LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT(
-          true, true)
+          true, true);
 
     } else if (weights.has_value()) {
       Tensor weights_value = weights.value();
       auto weights_value_contig = weights_value.contiguous();
       new_weights = at::empty_like(weights_value);
       LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_CUDA_KERNEL_2_WITH_WEIGHT(
-          false, false)
+          false, false);
 
     } else if (bucketize_pos) {
       new_pos = at::empty_like(indices);
       LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT(
-          true, true)
+          true, true);
 
     } else {
       LAUNCH_BLOCK_BUCKETIZE_POOLED_SPARSE_FEATURES_CUDA_KERNEL_2_WITHOUT_WEIGHT(
-          false, false)
+          false, false);
     }
   }
 
