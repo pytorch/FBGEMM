@@ -15,8 +15,6 @@ import torch
 from hypothesis import given, settings, strategies as st
 from torch.testing._internal.optests import opcheck
 
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
-
 from .common import open_source  # noqa
 
 if open_source:
