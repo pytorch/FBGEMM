@@ -35,6 +35,11 @@
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 
+{%- if is_rocm %}
+#include "fbgemm_gpu/utils/rocm/weight_row.h"
+#include "fbgemm_gpu/utils/rocm/vec2.h"
+{%- endif %}
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -77,7 +82,11 @@ using namespace fbgemm_gpu;
     {%- endif %}
     {%- endif %}
     {#-/* Set the weights row */#}
+    {%- if is_rocm %}
+    const auto weights_row = rocm::WeightRowAccessorVec2
+    {%- else %}
     const auto weights_row = WeightRowAccessor
+    {%- endif %}
         <
             emb_t,
             cache_t,
@@ -192,7 +201,11 @@ using namespace fbgemm_gpu;
     {%- endif %}
     {%- endif %}
     {#-/* Set the weights row */#}
+    {%- if is_rocm %}
+    const auto weights_row = rocm::WeightRowAccessorVec2
+    {%- else %}
     const auto weights_row = WeightRowAccessor
+    {%- endif %}
         <
             emb_t,
             cache_t,
@@ -345,7 +358,7 @@ using namespace fbgemm_gpu;
 
         {%- if is_rocm %}
         {%- if not nobag %}
-        Vec4T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];        
+        rocm::Vec2T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];        
         {%- endif %}
         // Iterate over kThreadGroupSize indices
         for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength) 
@@ -658,7 +671,12 @@ batch_index_select_dim0_codegen_forward_kernel(
 #endif
 
     // Elements are processed 4 at a time through fbgemm_gpu::Vec4 (CUDA float4, 16 bytes)
+    // for CUDA devices and 2 at a time for ROCm
+    {%- if is_rocm %}
+    constexpr int VEC_WIDTH = 2;
+    {%- else %}
     constexpr int VEC_WIDTH = 4;
+    {%- endif %}
     {%- if is_rocm %}
     // Unroll factor for ROCm devices
     constexpr int kManualUnrollLength = 4;
@@ -702,7 +720,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     indices_start = total_L_start + L_start;
     L = (total_L - L_start >= fixed_L_per_warp) ? fixed_L_per_warp : (total_L - L_start);
     {%- else %}
-    // Determine the number of indices (pooling factor) to look up within the bag
+    // Determine the number of indices Vec4(pooling factor) to look up within the bag
     index_t indices_start = offsets[b_t];
     int32_t L = offsets[b_t + 1] - indices_start;
     {%- endif %}
@@ -762,7 +780,11 @@ batch_index_select_dim0_codegen_forward_kernel(
     const float inv_L = (mean_pooling && L != 0) ? static_cast<float>(1.0) / L: static_cast<float>(1.0);
 
     // Set up the accumulator buffer
+    {%- if is_rocm %}
+    rocm::Vec2T<cache_t> accumulators[kMaxVecsPerThread];
+    {%- else %}
     Vec4T<cache_t> accumulators[kMaxVecsPerThread];
+    {%- endif %}
     {%- endif %}
 
     {%- if dense %}
@@ -941,6 +963,7 @@ batch_index_select_dim0_codegen_forward_kernel
 {%- endmacro %}
 
 {%- macro bulk_template_instantiations(use_cache, kMaxVecsPerThread, kThreadGroupSize) %}
+    {%- set max_vecs_per_thread = 2 * kMaxVecsPerThread if is_rocm else kMaxVecsPerThread %}
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
     {%- for output_type in ['float', 'at::Half', 'at::BFloat16'] %}
@@ -951,7 +974,7 @@ batch_index_select_dim0_codegen_forward_kernel
             output_type,
             index_type,
             use_cache,
-            kMaxVecsPerThread,
+            max_vecs_per_thread,
             kThreadGroupSize)
         }}
     {%- endfor %}

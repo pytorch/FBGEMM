@@ -713,7 +713,12 @@ batch_index_select_dim0_codegen_forward_cuda(
             // kFixedMaxVecsPerThread instead of kMaxVecsPerThread. But
             // kMaxVecsPerThread and kFixedMaxVecsPerThread are the same
             // forward
+            {%- if is_rocm %}
+            // Account for Vec2 load for ROCm
+            constexpr auto kMaxVecsPerThread = 2 * kFixedMaxVecsPerThread;
+            {%- else %}
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
+            {%- endif %}
             {{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
                 <emb_t,
                 cache_t,
