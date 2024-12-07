@@ -1052,8 +1052,13 @@ class FP8Tests(unittest.TestCase):
         )
         torch.compile(torch.ops.fbgemm.f8f8bf16_tensorwise)(XQ, WQ, 1.0)
         torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise)(XQ, WQ, row_scale, col_scale)
+
+        # Check that preallocated output writing is correct.
         torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise_out)(
             XQ, WQ, row_scale, col_scale, output
+        )
+        torch.testing.assert_close(
+            output, torch.ops.fbgemm.f8f8bf16_rowwise(XQ, WQ, row_scale, col_scale)
         )
 
         # These ops are only supported on cuda for now.
