@@ -325,7 +325,7 @@ at::Tensor f8f8bf16_rowwise(
       XQ, WQ, x_scale, w_scale, bias, use_fast_accum);
 }
 
-at::Tensor f8f8bf16_rowwise_out(
+void f8f8bf16_rowwise_out(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -333,8 +333,8 @@ at::Tensor f8f8bf16_rowwise_out(
     at::Tensor output,
     std::optional<at::Tensor> bias,
     bool use_fast_accum) {
-  // Invoke f8f8bf16 rowwise without preallocated output.
-  return f8f8bf16_rowwise_wrapper(
+  // Invoke f8f8bf16 rowwise with preallocated output.
+  f8f8bf16_rowwise_wrapper(
       XQ,
       WQ,
       x_scale,
