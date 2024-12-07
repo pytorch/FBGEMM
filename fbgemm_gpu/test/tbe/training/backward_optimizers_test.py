@@ -30,6 +30,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     EnsembleModeDefinition,
     GradSumDecay,
     LearningRateMode,
+    SparseEMADefinition,
     SplitTableBatchedEmbeddingBagsCodegen,
     StepMode,
     TailIdThreshold,
@@ -103,6 +104,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         uvm_non_rowwise_momentum: bool = False,
         optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
+        sparse_ema_options: Optional[SparseEMADefinition] = None,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
 
@@ -272,6 +274,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["eps"] = eps
             optimizer_kwargs["weight_decay"] = weight_decay
             optimizer_kwargs["weight_decay_mode"] = weight_decay_mode
+            optimizer_kwargs["sparse_ema_options"] = sparse_ema_options
 
             if weight_decay_mode == WeightDecayMode.COUNTER:
                 counter_based_regularization = CounterBasedRegularizationDefinition(
@@ -422,13 +425,42 @@ class BackwardOptimizersTest(unittest.TestCase):
                 freq: Optional[torch.Tensor] = None
                 iter_: int = -1
 
-                if rowwise and weight_decay_mode in (
-                    WeightDecayMode.COUNTER,
-                    WeightDecayMode.COWCLIP,
-                ):
-                    (m1, prev_iter, row_counter) = split_optimizer_states[t]
+                if sparse_ema_options is None:
+                    if rowwise and weight_decay_mode in (
+                        WeightDecayMode.COUNTER,
+                        WeightDecayMode.COWCLIP,
+                    ):
+                        (m1, prev_iter, row_counter) = split_optimizer_states[t]
+                    else:
+                        (m1,) = split_optimizer_states[t]
                 else:
-                    (m1,) = split_optimizer_states[t]
+                    if rowwise and weight_decay_mode in (
+                        WeightDecayMode.COUNTER,
+                        WeightDecayMode.COWCLIP,
+                    ):
+                        (m1, m2, prev_iter, row_counter) = split_optimizer_states[t]
+                    else:
+                        (m1, m2) = split_optimizer_states[t]
+
+                    # Check that the EMA state is correct
+                    m2_ref = bs[t].weight.cpu().mul(1.0 - sparse_ema_options.ema_coef)
+                    torch.testing.assert_close(
+                        m2.float()
+                        .cpu()
+                        .index_select(dim=0, index=xs[t].view(-1).cpu()),
+                        m2_ref.float()
+                        .cpu()
+                        .index_select(dim=0, index=xs[t].view(-1).cpu()),
+                        atol=1.0e-4,
+                        rtol=1.0e-4,
+                    )
+                    # Inplace weight update during forward pass
+                    bs[t].weight.data.mul_(
+                        sparse_ema_options.swap_coef
+                        + (1.0 - sparse_ema_options.ema_coef)
+                        * (1.0 - sparse_ema_options.swap_coef)
+                    )
+
                 # to_dense in GPU is non-deterministic due to atmomics used in
                 # coalescing and floating point non-associativity.
                 # pyre-fixme[16]: `Optional` has no attribute `cpu`.
@@ -533,6 +565,8 @@ class BackwardOptimizersTest(unittest.TestCase):
                     WeightDecayMode.COWCLIP,
                 ):
                     expected_keys.update(["prev_iter", "row_counter"])
+                if sparse_ema_options is not None:
+                    expected_keys.add("sparse_ema")
                 assert set(optimizer_states_dict.keys()) == expected_keys
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
@@ -1078,6 +1112,89 @@ class BackwardOptimizersTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             weight_decay_mode,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=2, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        optimizer=st.just(OptimType.EXACT_ROWWISE_ADAGRAD),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        use_cpu=use_cpu_strategy(),
+        weight_decay_mode=st.sampled_from(
+            [
+                WeightDecayMode.NONE,
+                WeightDecayMode.L2,
+                WeightDecayMode.DECOUPLE,
+                WeightDecayMode.COUNTER,
+                WeightDecayMode.COWCLIP,
+            ]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_optimizers_adagrad_ema(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        optimizer: OptimType,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        use_cpu: bool,
+        weight_decay_mode: WeightDecayMode,
+    ) -> None:
+        if (
+            pooling_mode == PoolingMode.NONE
+            or optimizer != OptimType.EXACT_ROWWISE_ADAGRAD
+        ):
+            mixed_B = False
+        sparse_ema_options = SparseEMADefinition(
+            ema_start=0,
+            ema_end=-1,
+            ema_step=1,
+            ema_coef=0.5,
+            ema_mode=2,
+            swap_step=1,
+            swap_coef=0.8,
+        )
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            optimizer,
+            long_segments,
+            pooling_mode,
+            False,  # use_cpu
+            weight_decay_mode,
+            sparse_ema_options=sparse_ema_options,
         )
 
     @given(
