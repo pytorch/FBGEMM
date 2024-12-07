@@ -435,123 +435,13 @@
 <span id="pooled-embedding-operators-stable-api"></span><h2>Stable API<a class="headerlink" href="#stable-api" title="Permalink to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="torch.ops.fbgemm.merge_pooled_embeddings">
-<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">merge_pooled_embeddings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pooled_embeddings</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">uncat_dim_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_device</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cat_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.merge_pooled_embeddings" title="Permalink to this definition">¶</a></dt>
-<dd><p>Concatenate embedding outputs from different devices (on the same host)
-on to the target device.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>pooled_embeddings</strong> (<em>List</em><em>[</em><em>Tensor</em><em>]</em>) – A list of embedding outputs from
-different devices on the same host. Each output has 2
-dimensions.</p></li>
-<li><p><strong>uncat_dim_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The size of the dimension that is not
-concatenated, i.e., if <cite>cat_dim=0</cite>, <cite>uncat_dim_size</cite> is the size
-of dim 1 and vice versa.</p></li>
-<li><p><strong>target_device</strong> (<a class="reference external" href="https://pytorch.org/docs/main/tensor_attributes.html#torch.device" title="(in PyTorch vmain (2.6.0a0+git0052943 ))"><em>torch.device</em></a>) – The target device that aggregates all
-the embedding outputs.</p></li>
-<li><p><strong>cat_dim</strong> (<em>int = 1</em>) – The dimension that the tensors are concatenated</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The concatenated embedding output (2D) on the target device</p>
-</dd>
-</dl>
-</dd></dl>
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">merge_pooled_embeddings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.merge_pooled_embeddings" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="torch.ops.fbgemm.permute_pooled_embs">
-<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">permute_pooled_embs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pooled_embs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">offset_dim_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">permute_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_offset_dim_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_permute_list</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.permute_pooled_embs" title="Permalink to this definition">¶</a></dt>
-<dd><p>Permute embedding outputs along the feature dimension.</p>
-<p>The embedding output tensor <cite>pooled_embs</cite> contains the embedding outputs
-for all features in a batch. It is represented in a 2D format, where the
-rows are the batch size dimension and the columns are the feature *
-embedding dimension. Permuting along the feature dimension is
-essentially permuting along the second dimension (dim 1).</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>pooled_embs</strong> (<em>Tensor</em>) – The embedding outputs to permute. Shape is
-<cite>(B_local, total_global_D)</cite>, where <cite>B_local</cite> = a local batch size
-and <cite>total_global_D</cite> is the total embedding dimension across all
-features (global)</p></li>
-<li><p><strong>offset_dim_list</strong> (<em>Tensor</em>) – The complete cumulative sum of embedding
-dimensions of all features. Shape is <cite>T + 1</cite> where <cite>T</cite> is the
-total number of features</p></li>
-<li><p><strong>permute_list</strong> (<em>Tensor</em>) – A tensor that describes how each feature is
-permuted.  <cite>permute_list[i]</cite> indicates that the feature
-<cite>permute_list[i]</cite> is permuted to position <cite>i</cite></p></li>
-<li><p><strong>inv_offset_dim_list</strong> (<em>Tensor</em>) – The complete cumulative sum of inverse
-embedding dimensions, which are the permuted embedding dimensions.
-<cite>inv_offset_dim_list[i]</cite> represents the starting embedding position of
-feature <cite>permute_list[i]</cite></p></li>
-<li><p><strong>inv_permute_list</strong> (<em>Tensor</em>) – The inverse permute list, which contains the
-permuted positions of each feature. <cite>inv_permute_list[i]</cite> represents
-the permuted position of feature <cite>i</cite></p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Permuted embedding outputs (Tensor). Same shape as <cite>pooled_embs</cite></p>
-</dd>
-</dl>
-<p><strong>Example:</strong></p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span> <span class="nn">torch</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">accumulate</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Suppose batch size = 3 and there are 3 features</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">batch_size</span> <span class="o">=</span> <span class="mi">3</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Embedding dimensions for each feature</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">embs_dims</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">4</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Permute list, i.e., move feature 2 to position 0, move feature 0</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># to position 1, so on</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">permute</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Compute embedding dim offsets</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">offset_dim_list</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">accumulate</span><span class="p">(</span><span class="n">embs_dims</span><span class="p">)),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">offset_dim_list</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="go">tensor([ 0,  4,  8, 16], device=&#39;cuda:0&#39;)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Compute inverse embedding dims</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">inv_embs_dims</span> <span class="o">=</span> <span class="p">[</span><span class="n">embs_dims</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">permute</span><span class="p">]</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Compute complete cumulative sum of inverse embedding dims</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">inv_offset_dim_list</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">accumulate</span><span class="p">(</span><span class="n">inv_embs_dims</span><span class="p">)),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inv_offset_dim_list</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="go">tensor([ 0,  8, 12, 16], device=&#39;cuda:0&#39;)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Compute inverse permutes</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">inv_permute</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">permute</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">permute</span><span class="p">):</span>
-<span class="gp">&gt;&gt;&gt; </span>    <span class="n">inv_permute</span><span class="p">[</span><span class="n">p</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">inv_permute_list</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="n">inv_permute</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inv_permute_list</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="go">tensor([[1, 2, 0]], device=&#39;cuda:0&#39;)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Generate an example input</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">pooled_embs</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">embs_dims</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">*</span> <span class="n">batch_size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">batch_size</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">pooled_embs</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="go">tensor([[ 0.,  1.,  2.,  3.,  4.,  5.,  6.,  7.,  8.,  9., 10., 11., 12., 13.,</span>
-<span class="go">         14., 15.],</span>
-<span class="go">        [16., 17., 18., 19., 20., 21., 22., 23., 24., 25., 26., 27., 28., 29.,</span>
-<span class="go">         30., 31.],</span>
-<span class="go">        [32., 33., 34., 35., 36., 37., 38., 39., 40., 41., 42., 43., 44., 45.,</span>
-<span class="go">         46., 47.]], device=&#39;cuda:0&#39;)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">permute_pooled_embs_auto_grad</span><span class="p">(</span><span class="n">pooled_embs</span><span class="p">,</span> <span class="n">offset_dim_list</span><span class="p">,</span> <span class="n">permute</span><span class="p">,</span> <span class="n">inv_offset_dim_list</span><span class="p">,</span> <span class="n">inv_permute_list</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt;</span>
-<span class="go">tensor([[ 8.,  9., 10., 11., 12., 13., 14., 15.,  0.,  1.,  2.,  3.,  4.,  5.,</span>
-<span class="go">          6.,  7.],</span>
-<span class="go">        [24., 25., 26., 27., 28., 29., 30., 31., 16., 17., 18., 19., 20., 21.,</span>
-<span class="go">         22., 23.],</span>
-<span class="go">        [40., 41., 42., 43., 44., 45., 46., 47., 32., 33., 34., 35., 36., 37.,</span>
-<span class="go">         38., 39.]], device=&#39;cuda:0&#39;)</span>
-</pre></div>
-</div>
-</dd></dl>
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">permute_pooled_embs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.permute_pooled_embs" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
 
 </section>
 <section id="other-api">

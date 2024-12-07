@@ -435,35 +435,8 @@
 <span id="quantize-ops-stable-api"></span><h2>Stable API<a class="headerlink" href="#stable-api" title="Permalink to this heading">¶</a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf">
-<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">input</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bit_rate</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf" title="Permalink to this definition">¶</a></dt>
-<dd><p>Convert FP32/16 to INT8/4/2 using rowwise quantization.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>input</strong> (<em>Tensor</em>) – An input tensor. Must be either FP32 (<cite>torch.float</cite>)
-or FP16 (<cite>torch.half</cite>) and must be 2 dimensions.</p></li>
-<li><p><strong>bit_rate</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Quantized bit rate (2 for INT2, 4 for INT4, or 8 for
-INT8)</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>Quantized output (Tensor). Data type is <cite>torch.uint8</cite> (byte type)</p>
-</dd>
-</dl>
-<p><strong>Example:</strong></p>
-<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Randomize input</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
-<span class="go">tensor([[ 0.8247,  0.0031, -1.0068, -1.2081],</span>
-<span class="go">        [ 0.5427,  1.5772,  1.0291, -0.7626]], device=&#39;cuda:0&#39;)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Quantize</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">output</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">bit_rate</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
-<span class="go">tensor([[159,   1,  86,  48, 213, 188],</span>
-<span class="go">        [248,  11, 254,  48,  26, 186]], device=&#39;cuda:0&#39;, dtype=torch.uint8)</span>
-</pre></div>
-</div>
-</dd></dl>
+<span class="sig-prename descclassname"><span class="pre">torch.ops.fbgemm.</span></span><span class="sig-name descname"><span class="pre">FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
 
 </section>
 <section id="other-api">
