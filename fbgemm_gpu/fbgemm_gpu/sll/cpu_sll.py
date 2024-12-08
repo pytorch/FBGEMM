@@ -1018,3 +1018,56 @@ def cpu_jagged_dense_elementwise_add(
         )[0]
     else:
         return JaggedDenseAddCPU.apply(x, x_offsets, y, max_seq_len)
+
+
+def cpu_jagged_dense_flash_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    attn_bias: torch.Tensor,
+    offsets: torch.Tensor,
+    max_seq_len: int,
+    allow_tf32: bool = True,
+) -> torch.Tensor:
+    """
+    q: jagged tensor, [sum_B, D]
+    k: dense tensor, [B, D, T]
+    v: jagged tensor [sum_B, D]
+    attn_bias: dense tensor [B, N, T]
+    offsets: offsets for jagged tensor [B + 1]
+    """
+
+    # [sum_B, D] * [B, D, T] = [sum_B, T]
+    qk = torch.ops.fbgemm.sll_jagged_dense_bmm(
+        q,
+        k.to(q.dtype),
+        offsets,
+        max_seq_len,
+        allow_tf32=allow_tf32,
+        use_fbgemm_kernel=True,
+    )
+
+    softmax_input = torch.ops.fbgemm.sll_jagged_dense_elementwise_add(
+        qk,
+        offsets,
+        attn_bias,
+        max_seq_len,
+        use_fbgemm_kernel=True,
+    )
+
+    normed_attn_weights = torch.ops.fbgemm.sll_jagged_softmax(
+        softmax_input,
+        offsets,
+        max_seq_len,
+        use_fbgemm_kernel=True,
+    )  # [sum_B, T]
+
+    # [sum_B, T] * [sum_B, D] = [B, T, D]
+    return torch.ops.fbgemm.sll_jagged_jagged_bmm(
+        normed_attn_weights,
+        v.to(normed_attn_weights.dtype),
+        offsets,
+        max_seq_len,
+        allow_tf32=allow_tf32,
+        use_fbgemm_kernel=True,
+    )
