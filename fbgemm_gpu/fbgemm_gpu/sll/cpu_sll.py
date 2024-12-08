@@ -965,3 +965,109 @@ def cpu_jagged_flash_attention_basic(
     )
 
     return jagged_O
+
+
+class JaggedDenseAddCPU(torch.autograd.Function):
+    @staticmethod
+    # pyre-fixme
+    def forward(
+        ctx: Any,  # pyre-ignore
+        x: torch.Tensor,
+        x_offsets: torch.Tensor,
+        y: torch.Tensor,
+        max_seq_len: int,
+    ) -> torch.Tensor:
+        ctx.save_for_backward(x_offsets)
+        ctx.max_seq_len = max_seq_len
+        # TODO: what should be the correct behavior when jagged values has length > max seq len?
+        # current behavior is to not truncate jagged values
+        # similar for backward grad_output
+        padded_x = torch.ops.fbgemm.jagged_to_padded_dense(
+            x,
+            [x_offsets],
+            max_lengths=[max_seq_len],
+            padding_value=0.0,
+        )  # [B, max_seq_len, D]
+        return torch.ops.fbgemm.dense_to_jagged(padded_x + y, [x_offsets])[0]
+
+    @staticmethod
+    # pyre-fixme
+    def backward(
+        ctx,  # pyre-ignore
+        grad_output: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None, torch.Tensor, None]:
+        (offsets,) = ctx.saved_tensors
+        grad_dense = torch.ops.fbgemm.jagged_to_padded_dense(
+            grad_output, [offsets], [ctx.max_seq_len]
+        )
+        return grad_output, None, grad_dense, None
+
+
+def cpu_jagged_dense_elementwise_add(
+    x: torch.Tensor,
+    x_offsets: torch.Tensor,
+    y: torch.Tensor,
+    max_seq_len: int,
+    use_fbgemm_kernel: bool = True,
+) -> torch.Tensor:
+    # Force the CPU backend to use fbgemm kernel as it has better performance
+    use_fbgemm_kernel = True
+    if use_fbgemm_kernel:
+        return torch.ops.fbgemm.jagged_dense_elementwise_add_jagged_output(
+            x, [x_offsets], y
+        )[0]
+    else:
+        return JaggedDenseAddCPU.apply(x, x_offsets, y, max_seq_len)
+
+
+def cpu_jagged_dense_flash_attention(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    attn_bias: torch.Tensor,
+    offsets: torch.Tensor,
+    max_seq_len: int,
+    allow_tf32: bool = True,
+) -> torch.Tensor:
+    """
+    q: jagged tensor, [sum_B, D]
+    k: dense tensor, [B, D, T]
+    v: jagged tensor [sum_B, D]
+    attn_bias: dense tensor [B, N, T]
+    offsets: offsets for jagged tensor [B + 1]
+    """
+
+    # [sum_B, D] * [B, D, T] = [sum_B, T]
+    qk = torch.ops.fbgemm.sll_jagged_dense_bmm(
+        q,
+        k.to(q.dtype),
+        offsets,
+        max_seq_len,
+        allow_tf32=allow_tf32,
+        use_fbgemm_kernel=True,
+    )
+
+    softmax_input = torch.ops.fbgemm.sll_jagged_dense_elementwise_add(
+        qk,
+        offsets,
+        attn_bias,
+        max_seq_len,
+        use_fbgemm_kernel=True,
+    )
+
+    normed_attn_weights = torch.ops.fbgemm.sll_jagged_softmax(
+        softmax_input,
+        offsets,
+        max_seq_len,
+        use_fbgemm_kernel=True,
+    )  # [sum_B, T]
+
+    # [sum_B, T] * [sum_B, D] = [B, T, D]
+    return torch.ops.fbgemm.sll_jagged_jagged_bmm(
+        normed_attn_weights,
+        v.to(normed_attn_weights.dtype),
+        offsets,
+        max_seq_len,
+        allow_tf32=allow_tf32,
+        use_fbgemm_kernel=True,
+    )
