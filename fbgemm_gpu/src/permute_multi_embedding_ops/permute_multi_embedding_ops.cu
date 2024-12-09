@@ -74,14 +74,18 @@ __global__ void permute_multi_embs_kernel(
   }
 
   // locate the batch_id
-  int32_t in_length = in_lengths[in_tensor];
+  const auto in_length = in_lengths[in_tensor];
+  // Sometimes batch_id * length can go beyond 32-bit int (e.g., 3900 * 654060)
+  // so cast them to int64_t.
   const scalar_t* __restrict__ input_ptr =
       reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
-      batch_id * in_length + in_offset;
+      static_cast<int64_t>(batch_id) * static_cast<int64_t>(in_length) +
+      in_offset;
 
-  int32_t out_length = out_lengths[out_tensor];
+  const auto out_length = out_lengths[out_tensor];
   scalar_t* __restrict__ output_ptr =
-      reinterpret_cast<scalar_t*>(outputs[out_tensor]) + batch_id * out_length +
+      reinterpret_cast<scalar_t*>(outputs[out_tensor]) +
+      static_cast<int64_t>(batch_id) * static_cast<int64_t>(out_length) +
       out_offset;
 
   if (fbgemm_gpu::is_aligned<fbgemm_gpu::Vec4T<scalar_t>>(output_ptr) &&
@@ -110,10 +114,11 @@ __global__ void permute_multi_embs_kernel(
     length = pp[PermuteParam::length];
     next = -pp[PermuteParam::next];
 
-    int32_t in_length = in_lengths[in_tensor];
+    const auto in_length = in_lengths[in_tensor];
     const scalar_t* input_ptr =
         reinterpret_cast<const scalar_t*>(inputs[in_tensor]) +
-        batch_id * in_length + in_offset;
+        static_cast<int64_t>(batch_id) * static_cast<int64_t>(in_length) +
+        in_offset;
 
     for (int32_t i = worker_id; i < length; i += blockDim.x) {
       output_ptr[i] += input_ptr[i];
