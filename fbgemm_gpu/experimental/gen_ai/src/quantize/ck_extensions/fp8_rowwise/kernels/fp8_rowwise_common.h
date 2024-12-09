@@ -160,9 +160,9 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor w_scale,
     at::Tensor Y) {
   // Get input information.
-  int M = XQ.size(0);
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
-  int K = XQ.size(1);
+  int K = WQ.size(1);
 
   int StrideA = K;
   int StrideB = K;
