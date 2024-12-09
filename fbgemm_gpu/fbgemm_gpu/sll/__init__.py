@@ -19,6 +19,7 @@ from fbgemm_gpu.sll.cpu_sll import (  # noqa F401
     cpu_jagged_dense_bmm,
     cpu_jagged_dense_elementwise_add,
     cpu_jagged_dense_elementwise_mul_jagged_out,
+    cpu_jagged_dense_flash_attention,
     cpu_jagged_flash_attention_basic,
     cpu_jagged_jagged_bmm,
     cpu_jagged_jagged_bmm_jagged_out,
@@ -42,6 +43,7 @@ from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     jagged_dense_bmm,
     jagged_dense_elementwise_add,
     jagged_dense_elementwise_mul_jagged_out,
+    jagged_dense_flash_attention,
     jagged_flash_attention_basic,
     jagged_jagged_bmm,
     jagged_jagged_bmm_jagged_out,
@@ -247,6 +249,20 @@ if "fbgemm::sll_jagged_dense_elementwise_add" not in torch.library._defs:
         """
     )
 
+if "fbgemm::sll_jagged_dense_flash_attention" not in torch.library._defs:
+    lib.define(
+        """sll_jagged_dense_flash_attention(
+            Tensor q_weights,
+            Tensor k_weights,
+            Tensor v_weights,
+            Tensor attn_bias,
+            Tensor offsets,
+            int max_seq_len,
+            bool allow_tf32=True
+        ) -> Tensor
+        """
+    )
+
 # NOTE: here we register the op for AutogradCUDA/CPU and CUDA/CPU with the same function
 # however, this is not ideal because in the inference case, we don't need the autograd forward
 # to save the context because we don't need to do backward.
@@ -368,5 +384,15 @@ register_sll_op(
         "AutogradCUDA": jagged_dense_elementwise_add,
         "CPU": cpu_jagged_dense_elementwise_add,
         "AutogradCPU": cpu_jagged_dense_elementwise_add,
+    },
+)
+
+register_sll_op(
+    "sll_jagged_dense_flash_attention",
+    {
+        "CUDA": jagged_dense_flash_attention,
+        "AutogradCUDA": jagged_dense_flash_attention,
+        "CPU": cpu_jagged_dense_flash_attention,
+        "AutogradCPU": cpu_jagged_dense_flash_attention,
     },
 )
