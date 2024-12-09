@@ -17,3 +17,9 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
+
+def clone_tensor(data: torch.Tensor) -> torch.Tensor:
+    if data.requires_grad:
+        return data.detach().clone().requires_grad_()
+    return data.detach().clone()

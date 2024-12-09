@@ -12,19 +12,13 @@ import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings
 
-from .common import open_source
+from .common import clone_tensor, open_source
 
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable, running_on_rocm
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
-
-
-def clone_tensor(data: torch.Tensor) -> torch.Tensor:
-    if data.requires_grad:
-        return data.detach().clone().requires_grad_()
-    return data.detach().clone()
 
 
 class JaggedFlashAttentionBasicTest(unittest.TestCase):
