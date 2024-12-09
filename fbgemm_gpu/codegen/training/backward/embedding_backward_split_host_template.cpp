@@ -152,6 +152,7 @@ enum SSDTensor {
           {%- else %}
           D_offsets,
           max_D,
+          mixed_D,
           {%- endif %} {# /* if nobag */ #}
           hash_size_cumsum,
           total_hash_size_bits,
@@ -224,6 +225,7 @@ enum SSDTensor {
         Variable(), // D_offsets
         Variable(), // total_D
         Variable(), // max_D
+        Variable(), // mixed_D
         {%- endif %}
         Variable(), // hash_size_cumsum
         Variable(), //total_hash_size_bits
@@ -304,6 +306,7 @@ enum SSDTensor {
           D_offsets,
           total_D,
           max_D,
+          mixed_D,
           {%- endif %}
           hash_size_cumsum,
           total_hash_size_bits,
@@ -484,6 +487,7 @@ Tensor
     {%- else %}
     const Tensor& D_offsets,
     const c10::SymInt max_D,
+    const bool mixed_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -566,6 +570,7 @@ class {{ autograd_func }} :
     const Tensor& D_offsets,
     const c10::SymInt total_D,
     const c10::SymInt max_D,
+    const bool mixed_D,
     {%- else %}
     const c10::SymInt D,
     {%- endif %}
@@ -762,6 +767,7 @@ class {{ autograd_func }} :
 
     {%- if not nobag %}
     ctx->saved_data["max_D"] = max_D;
+    ctx->saved_data["mixed_D"] = mixed_D;
     ctx->saved_data["pooling_mode"] = pooling_mode;
     {%- else %}
     ctx->saved_data["D"] = D;
@@ -877,6 +883,7 @@ class {{ autograd_func }} :
 
     {%- if not nobag %}
     auto max_D = ctx->saved_data["max_D"].toSymInt();
+    const auto mixed_D = ctx->saved_data["mixed_D"].toBool();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
     {%- else %}
     auto D = ctx->saved_data["D"].toSymInt();
@@ -1072,10 +1079,11 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- if ssd %}
     const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
     {%- endif %}
-    const double gwd_lower_bound = 0
+    const double gwd_lower_bound = 0,
     {%- else %}
-    const c10::SymInt vbe_output_size = -1
+    const c10::SymInt vbe_output_size = -1,
     {%- endif %}
+    const bool mixed_D = false
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
@@ -1191,7 +1199,8 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           {%- if ssd %}
           "    Tensor[]? ssd_tensors=None,"
           {%- endif %}
-          "   float gwd_lower_bound=0 "
+          "   float gwd_lower_bound=0, "
+          "   bool mixed_D=False"
           ") -> Tensor",
           {PT2_COMPLIANT_TAG});
 
