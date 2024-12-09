@@ -15,6 +15,8 @@
 #include <c10/hip/HIPStream.h>
 #include <torch/torch.h>
 
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60300)
+
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
 #include "ck/tensor_operation/gpu/device/tensor_layout.hpp"
@@ -30,6 +32,8 @@
 #include "ck/library/utility/host_tensor_generator.hpp"
 #include "ck/library/utility/literals.hpp"
 
+// NOTE: This source is currently only available in the `develop` branch of CK
+// https://github.com/ROCm/composable_kernel
 #include "ck/tensor_operation/gpu/device/impl/device_gemm_multiple_d_xdl_cshuffle_v3_ab_scale.hpp"
 
 // Define commonly used types.
@@ -40,8 +44,11 @@ using Row = ck::tensor_layout::gemm::RowMajor;
 using Col = ck::tensor_layout::gemm::ColumnMajor;
 using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 
+#endif
+
 namespace fbgemm_gpu {
 
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60300)
 template <
     int BLOCK_SIZE,
     int MBLOCK,
@@ -268,5 +275,21 @@ at::Tensor f8f8bf16_blockwise(
     }
   }
 }
+
+#else
+
+at::Tensor f8f8bf16_blockwise(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    int64_t block_m = 128,
+    int64_t block_n = 128,
+    int64_t block_k = 128) {
+  throw std::runtime_error(
+      "ROCm version is older than 6.3"); // requires ROCm>=6.3
+}
+
+#endif
 
 } // namespace fbgemm_gpu
