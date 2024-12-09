@@ -762,6 +762,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._uvm_tensors_log: List[str] = []
 
         self.bwd_wait_prefetch_timer: Optional[AsyncSeriesTimer] = None
+        self.prefetch_duration_timer: Optional[AsyncSeriesTimer] = None
         if self.stats_reporter:
             # When stats_reporter is present, we set up async series timer to
             # measure the GPU time per tracked event accordingly. Each of them
@@ -772,6 +773,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     SplitTableBatchedEmbeddingBagsCodegen._report_wait_prefetch_time,
                     self,
                     event_name="bwd_wait_for_prefetch",
+                )
+            )
+
+            self.prefetch_duration_timer = AsyncSeriesTimer(
+                functools.partial(
+                    SplitTableBatchedEmbeddingBagsCodegen._report_prefetch_time,
+                    self,
+                    event_name="total_prefetch_duration",
                 )
             )
 
@@ -1461,6 +1470,26 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         dur_ms: float,
         event_name: str,
     ) -> None:
+        assert (
+            self.stats_reporter
+        ), "We should not be here. AsyncTimer only happens with reporter present."
+        self.stats_reporter.report_duration(
+            iteration_step=it_step,
+            event_name=event_name,
+            duration_ms=dur_ms,
+            embedding_id=self.logging_table_name,
+            tbe_id=self.uuid,
+        )
+
+    def _report_prefetch_time(
+        self,
+        it_step: int,
+        dur_ms: float,
+        event_name: str,
+    ) -> None:
+        """
+        Callback for AsyncTimer to record the total duration of prefetching.
+        """
         assert (
             self.stats_reporter
         ), "We should not be here. AsyncTimer only happens with reporter present."
@@ -2219,12 +2248,18 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             force_cast_input_types=False,
         )
 
-        self._prefetch(
-            indices,
-            offsets,
-            vbe_metadata,
-            multipass_prefetch_config=self.multipass_prefetch_config,
-        )
+        with self._recording_to_timer(
+            self.prefetch_duration_timer,
+            context=self.step,
+            stream=torch.cuda.current_stream(),
+        ):
+            self._prefetch(
+                indices,
+                offsets,
+                vbe_metadata,
+                multipass_prefetch_config=self.multipass_prefetch_config,
+            )
+
         if forward_stream is not None:
             self._prefetch_tensors_record_stream(forward_stream)
 
