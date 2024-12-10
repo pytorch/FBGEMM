@@ -71,7 +71,8 @@ at::Tensor rope_qkv_varseq_prefill(
     double lo_freq_factor,
     double hi_freq_factor,
     std::optional<at::Tensor> qparam_k,
-    std::optional<at::Tensor> qparam_v);
+    std::optional<at::Tensor> qparam_v,
+    bool write_k_back);
 
 at::Tensor rope_qkv_decoding(
     at::Tensor XQ,
@@ -172,8 +173,9 @@ at::Tensor mqa_attn(
     int64_t cache_logical_dtype_int);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-  m.def("rope_qkv_varseq_prefill(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor varseq_batch, Tensor varseq_seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
-      DEFAULT_PAGE_SIZE) ", Tensor? varseq_cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32,  Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor");
+  m.def("rope_qkv_varseq_prefill(Tensor XQ, Tensor(a!) XK, Tensor XV, Tensor(b!) cache_K, Tensor(c!) cache_V,  Tensor varseq_batch, Tensor varseq_seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
+      DEFAULT_PAGE_SIZE) ", Tensor? varseq_cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192"
+      ", float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32,  Tensor? qparam_k=None, Tensor? qparam_v=None, bool write_k_back=False) -> Tensor");
   m.def("rope_qkv_decoding(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
       DEFAULT_PAGE_SIZE) ", Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None,  int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32, Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor");
   m.def(
@@ -234,7 +236,8 @@ at::Tensor rope_qkv_varseq_prefill_meta(
     double /* lo_freq_factor */,
     double /* hi_freq_factor */,
     std::optional<at::Tensor> /* qparam_k */,
-    std::optional<at::Tensor> /* qparam_v */
+    std::optional<at::Tensor> /* qparam_v */,
+    bool /* write_k_back */
 ) {
   return at::empty_like(XQ);
 }
