@@ -389,7 +389,7 @@ def benchmark_pipelined_requests(
 
 
 @dataclass
-class VBEBenchmarkOutput:
+class EvalCompressionBenchmarkOutput:
     avg: float
     fwd: float
     bwd: float
@@ -399,14 +399,14 @@ class VBEBenchmarkOutput:
     compressed_bwd: float
 
 
-def benchmark_vbe(
+def benchmark_eval_compression(
     baseline_requests: List[Tuple[torch.Tensor, torch.Tensor]],
     compressed_requests: List[Tuple[torch.Tensor, torch.Tensor]],
     baseline_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     compressed_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
     reindex: torch.Tensor,
     embedding_dim: int,
-) -> VBEBenchmarkOutput:
+) -> EvalCompressionBenchmarkOutput:
     times = []
     fwd_times = []
     bwd_times = []
@@ -485,9 +485,63 @@ def benchmark_vbe(
     reindex = statistics.median(reindex_times)
     compressed_bwd = statistics.median(bwd_times)
 
-    return VBEBenchmarkOutput(
+    return EvalCompressionBenchmarkOutput(
         avg, fwd, bwd, compressed_avg, compressed_fwd, reindex, compressed_bwd
     )
+
+
+def benchmark_vbe(
+    requests: List[Tuple[torch.Tensor, torch.Tensor]],
+    func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+) -> Tuple[float, float]:
+    """
+    A benchmark function to return the average execution time in seconds of
+    forward and backward of VBE kernels.
+
+    Args:
+        requests (List[Tuple[torch.Tensor, torch.Tensor]]):
+            A list of requests.  Each request is a tuple
+            of indices and offsets.
+
+        func (Callable[[torch.Tensor, torch.Tensor], torch.Tensor]):
+            A function that takes in indices and offsets
+            and returns the output of the VBE kernel.
+
+    Returns:
+        Tuple[float, float]:
+            A tuple of average execution time in seconds of forward and
+            backward of VBE kernels.
+    """
+
+    fwd_times = []
+    bwd_times = []
+
+    torch.cuda.synchronize()
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+
+    for indices, offsets in requests:
+        # forward
+        start_event.record()
+        out = func(indices, offsets)
+        end_event.record()
+        torch.cuda.synchronize()
+        it_time = start_event.elapsed_time(end_event) * 1.0e-3
+        fwd_times.append(it_time)
+
+        grad = torch.rand_like(out)
+        start_event.record()
+        # backward
+        out.backward(grad)
+        end_event.record()
+        torch.cuda.synchronize()
+        it_time = start_event.elapsed_time(end_event) * 1.0e-3
+        bwd_times.append(it_time)
+
+    fwd_time_sec = statistics.median(fwd_times)
+    bwd_time_sec = statistics.median(bwd_times)
+
+    return fwd_time_sec, bwd_time_sec
 
 
 def fill_random_scale_bias(
