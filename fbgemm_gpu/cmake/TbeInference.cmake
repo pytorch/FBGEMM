@@ -52,36 +52,29 @@ gpu_cpp_library(
 # TBE Inference
 ################################################################################
 
-set(static_cpu_files_inference
-  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host_cpu.cpp)
+# set(static_cpu_files_inference
+#   ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host_cpu.cpp)
 
-set(static_gpu_files_inference
-  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host.cpp
-  ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_split_lookup.cu)
+# set(static_gpu_files_inference
+#   ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_host.cpp
+#   ${FBGEMM_GPU}/codegen/inference/embedding_forward_quantized_split_lookup.cu)
 
-set(gen_cpu_files_inference
-  gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp
-  gen_embedding_forward_quantized_weighted_codegen_cpu.cpp)
+# set(gen_cpu_files_inference
+#   gen_embedding_forward_quantized_unweighted_codegen_cpu.cpp
+#   gen_embedding_forward_quantized_weighted_codegen_cpu.cpp)
 
-foreach(wdesc ${WEIGHT_OPTIONS})
-  foreach(etype fp32 fp16 fp8 int8 int4 int2)
-    list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
-  endforeach()
+# foreach(wdesc ${WEIGHT_OPTIONS})
+#   foreach(etype fp32 fp16 fp8 int8 int4 int2)
+#     list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_kernel_${wdesc}_${etype}_codegen_cuda.cu")
+#   endforeach()
 
-  list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu")
-endforeach()
+#   list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu")
+# endforeach()
 
-# if(USE_ROCM)
-#   prepend_filepaths(
-#     PREFIX ${CMAKE_BINARY_DIR}
-#     INPUT ${gen_cpu_files_inference}
-#     OUTPUT gen_cpu_files_inference)
-
-#   prepend_filepaths(
-#     PREFIX ${CMAKE_BINARY_DIR}
-#     INPUT ${gen_gpu_files_inference}
-#     OUTPUT gen_gpu_files_inference)
-# endif()
+get_tbe_sources_list(static_cpu_files_inference)
+get_tbe_sources_list(static_gpu_files_inference)
+get_tbe_sources_list(gen_cpu_files_inference)
+get_tbe_sources_list(gen_gpu_files_inference)
 
 handle_genfiles_rocm(gen_cpu_files_inference)
 handle_genfiles_rocm(gen_gpu_files_inference)

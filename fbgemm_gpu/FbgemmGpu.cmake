@@ -429,25 +429,13 @@ set(fbgemm_gpu_sources_gpu_gen
 handle_genfiles_rocm(fbgemm_gpu_sources_cpu_gen)
 handle_genfiles_rocm(fbgemm_gpu_sources_gpu_gen)
 
-# if(USE_ROCM)
-#   prepend_filepaths(
-#     PREFIX ${CMAKE_BINARY_DIR}
-#     INPUT ${fbgemm_gpu_sources_cpu_gen}
-#     OUTPUT fbgemm_gpu_sources_cpu_gen)
-
-#   prepend_filepaths(
-#     PREFIX ${CMAKE_BINARY_DIR}
-#     INPUT ${fbgemm_gpu_sources_gpu_gen}
-#     OUTPUT fbgemm_gpu_sources_gpu_gen)
-# endif()
-
 
 ################################################################################
 # FBGEMM_GPU C++ Modules
 ################################################################################
 
 # Build TBE targets
-include(${FBGEMM_GPU}/cmake/Tbe.cmake)
+include(${FBGEMM_GPU}/cmake/TbeInference.cmake)
 
 # Test target to demonstrate that target deps works as intended
 gpu_cpp_library(
