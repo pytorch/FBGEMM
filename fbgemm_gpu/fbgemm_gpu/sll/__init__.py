@@ -48,6 +48,7 @@ from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     jagged_jagged_bmm,
     jagged_jagged_bmm_jagged_out,
     jagged_softmax,
+    multi_head_jagged_flash_attention,
     triton_jagged_self_substraction_jagged_out,
 )
 
@@ -263,6 +264,19 @@ if "fbgemm::sll_jagged_dense_flash_attention" not in torch.library._defs:
         """
     )
 
+if "fbgemm::sll_multi_head_jagged_flash_attention" not in torch.library._defs:
+    lib.define(
+        """sll_multi_head_jagged_flash_attention(
+            Tensor q_weights,
+            Tensor k_weights,
+            Tensor v_weights,
+            Tensor offsets,
+            int max_seq_len,
+            bool allow_tf32=True
+        ) -> Tensor
+        """
+    )
+
 # NOTE: here we register the op for AutogradCUDA/CPU and CUDA/CPU with the same function
 # however, this is not ideal because in the inference case, we don't need the autograd forward
 # to save the context because we don't need to do backward.
@@ -394,5 +408,13 @@ register_sll_op(
         "AutogradCUDA": jagged_dense_flash_attention,
         "CPU": cpu_jagged_dense_flash_attention,
         "AutogradCPU": cpu_jagged_dense_flash_attention,
+    },
+)
+
+register_sll_op(
+    "sll_multi_head_jagged_flash_attention",
+    {
+        "CUDA": multi_head_jagged_flash_attention,
+        "AutogradCUDA": multi_head_jagged_flash_attention,
     },
 )
