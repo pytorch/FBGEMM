@@ -71,17 +71,20 @@ foreach(wdesc ${WEIGHT_OPTIONS})
   list(APPEND gen_gpu_files_inference "gen_embedding_forward_quantized_split_nbit_host_${wdesc}_codegen_cuda.cu")
 endforeach()
 
-if(USE_ROCM)
-  prepend_filepaths(
-    PREFIX ${CMAKE_BINARY_DIR}
-    INPUT ${gen_cpu_files_inference}
-    OUTPUT gen_cpu_files_inference)
+# if(USE_ROCM)
+#   prepend_filepaths(
+#     PREFIX ${CMAKE_BINARY_DIR}
+#     INPUT ${gen_cpu_files_inference}
+#     OUTPUT gen_cpu_files_inference)
 
-  prepend_filepaths(
-    PREFIX ${CMAKE_BINARY_DIR}
-    INPUT ${gen_gpu_files_inference}
-    OUTPUT gen_gpu_files_inference)
-endif()
+#   prepend_filepaths(
+#     PREFIX ${CMAKE_BINARY_DIR}
+#     INPUT ${gen_gpu_files_inference}
+#     OUTPUT gen_gpu_files_inference)
+# endif()
+
+handle_genfiles_rocm(gen_cpu_files_inference)
+handle_genfiles_rocm(gen_gpu_files_inference)
 
 gpu_cpp_library(
   PREFIX

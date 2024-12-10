@@ -426,17 +426,20 @@ set(fbgemm_gpu_sources_gpu_gen
   ${gen_gpu_host_source_files}
   ${gen_defused_optim_source_files})
 
-if(USE_ROCM)
-  prepend_filepaths(
-    PREFIX ${CMAKE_BINARY_DIR}
-    INPUT ${fbgemm_gpu_sources_cpu_gen}
-    OUTPUT fbgemm_gpu_sources_cpu_gen)
+handle_genfiles_rocm(fbgemm_gpu_sources_cpu_gen)
+handle_genfiles_rocm(fbgemm_gpu_sources_gpu_gen)
 
-  prepend_filepaths(
-    PREFIX ${CMAKE_BINARY_DIR}
-    INPUT ${fbgemm_gpu_sources_gpu_gen}
-    OUTPUT fbgemm_gpu_sources_gpu_gen)
-endif()
+# if(USE_ROCM)
+#   prepend_filepaths(
+#     PREFIX ${CMAKE_BINARY_DIR}
+#     INPUT ${fbgemm_gpu_sources_cpu_gen}
+#     OUTPUT fbgemm_gpu_sources_cpu_gen)
+
+#   prepend_filepaths(
+#     PREFIX ${CMAKE_BINARY_DIR}
+#     INPUT ${fbgemm_gpu_sources_gpu_gen}
+#     OUTPUT fbgemm_gpu_sources_gpu_gen)
+# endif()
 
 
 ################################################################################
