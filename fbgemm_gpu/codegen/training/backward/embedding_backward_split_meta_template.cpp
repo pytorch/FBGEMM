@@ -72,6 +72,9 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     {%- else %}
     const c10::SymInt D,
     {%- endif %}
+    {%- if not nobag and not is_index_select %}
+    const bool mixed_D,
+    {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
