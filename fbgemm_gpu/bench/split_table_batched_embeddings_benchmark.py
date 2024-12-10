@@ -70,6 +70,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 if open_source:
     # pyre-ignore[21]
     from bench_utils import (
+        benchmark_eval_compression,
         benchmark_pipelined_requests,
         benchmark_requests,
         benchmark_requests_refer,
@@ -79,6 +80,7 @@ if open_source:
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
+        benchmark_eval_compression,
         benchmark_pipelined_requests,
         benchmark_requests,
         benchmark_requests_refer,
@@ -3375,7 +3377,7 @@ def _to_offsets(lengths: torch.Tensor) -> torch.Tensor:
 @click.option("--num-tables", default=20)
 @click.option("--compressed-tables", default=10)
 @click.option("--iters", default=100)
-def vbe(
+def benchmark_tbe_input_compression(
     batch_size: int,
     compressed_batch_size: int,
     embedding_dim: int,
@@ -3470,7 +3472,7 @@ def vbe(
         for _ in range(iters)
     ]
 
-    out = benchmark_vbe(
+    out = benchmark_eval_compression(
         requests,
         compressed_requests,
         baseline_func=lambda indices, offsets: emb.forward(
@@ -3490,6 +3492,147 @@ def vbe(
         f"T: {out.avg * 1.0e6:.0f}us, fwd: {out.fwd * 1.0e6:.0f}us, bwd: {out.bwd * 1.0e6:.0f}us\n"
         f"Compressed, B: {B}, cB: {cB}, T: {T - cT}, cT: {cT}, D: {D}, L: {L}, "
         f"T: {out.compressed_avg * 1.0e6:.0f}us, fwd: {out.compressed_fwd * 1.0e6:.0f}us, reindex: {out.reindex * 1.0e6:.0f}us, bwd: {out.compressed_bwd * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--batch-sizes", default="128000,1280")
+@click.option("--embedding-dims", default="1024,16")
+@click.option("--bag-sizes", default="5,2")
+@click.option("--nums-embeddings", default="10000,1000000")
+@click.option("--num-tables", default=2)
+@click.option("--iters", default=100)
+def vbe(
+    batch_sizes: str,
+    embedding_dims: str,
+    bag_sizes: str,
+    nums_embeddings: str,
+    num_tables: int,
+    iters: int,
+) -> None:
+    """
+    A benchmark function to evaluate variable batch-size table-batched
+    embedding (VBE) kernels for both forward and backward. Unlike TBE,
+    batch sizes can be specified per table for VBE.
+
+    Args:
+        batch_sizes (str):
+            A comma separated list of batch sizes for each table.
+
+        embedding_dims (str):
+            A comma separated list of embedding dimensions for each table.
+
+        bag_sizes (str):
+            A comma separated list of bag sizes for each table.
+
+        num_embeddings (str):
+            A comma separated list of number of embeddings for each table.
+
+        num_tables (int):
+            The number of tables.
+
+        iters (int):
+            The number of iterations to run the benchmark for.
+    """
+
+    torch.manual_seed(42)
+    Bs = [int(v) for v in batch_sizes.split(",")]
+    Ds = [int(v) for v in embedding_dims.split(",")]
+    Ls = [int(v) for v in bag_sizes.split(",")]
+    Es = [int(v) for v in nums_embeddings.split(",")]
+    T = num_tables
+
+    # All these variables must have the same length.
+    assert T == len(Bs)
+    assert T == len(Ds)
+    assert T == len(Ls)
+    assert T == len(Es)
+
+    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
+    managed_option = (
+        EmbeddingLocation.DEVICE
+        if torch.cuda.is_available()
+        else EmbeddingLocation.HOST
+    )
+    pooling_mode = PoolingMode.SUM
+
+    emb = SplitTableBatchedEmbeddingBagsCodegen(
+        [
+            (
+                E,
+                D,
+                managed_option,
+                ComputeDevice.CUDA,
+            )
+            for E, D in zip(Es, Ds)
+        ],
+        optimizer=optimizer,
+        learning_rate=0.1,
+        eps=0.1,
+        weights_precision=SparseType.FP32,
+        stochastic_rounding=False,
+        output_dtype=SparseType.FP32,
+        pooling_mode=pooling_mode,
+        bounds_check_mode=BoundsCheckMode(BoundsCheckMode.NONE.value),
+    ).to(get_device())
+
+    lengths_list: List[torch.Tensor] = []
+    num_values_per_table: List[int] = []
+    for t, B in enumerate(Bs):
+        L = Ls[t]
+        # Assume a uniformly distributed random number in [0, 2L)
+        # On average it should be L.
+        lengths_list.append(
+            torch.randint(
+                low=0, high=2 * L, size=(B,), dtype=torch.int64, device=get_device()
+            )
+        )
+
+        # num_values is used later.
+        # Note: sum().tolist() returns a scalar value.
+        # pyre-ignore
+        num_values: int = torch.sum(lengths_list[-1]).tolist()
+        num_values_per_table.append(num_values)
+
+    lengths = torch.cat(lengths_list, 0)
+
+    # Convert lengths into offsets.
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+    # Set up values.
+    values_list: List[torch.Tensor] = []
+    for t, E in enumerate(Es):
+        # Assuming that an index distribution is uniform [0, E)
+        values_list.append(
+            torch.randint(
+                low=0,
+                high=E,
+                size=(num_values_per_table[t],),
+                dtype=torch.int32,
+                device=get_device(),
+            )
+        )
+    values = torch.cat(values_list, 0)
+
+    requests = [
+        (
+            values,
+            offsets,
+        )
+        for _ in range(iters)
+    ]
+
+    fwd_time_sec, bwd_time_sec = benchmark_vbe(
+        requests,
+        func=lambda indices, offsets: emb.forward(
+            indices.long(),
+            offsets.long(),
+            batch_size_per_feature_per_rank=[[B] for B in Bs],
+        ),
+    )
+    logging.info(
+        f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}\n"
+        f"fwd: {fwd_time_sec * 1.0e6:.0f}us, bwd: {bwd_time_sec * 1.0e6:.0f}us"
     )
 
 
