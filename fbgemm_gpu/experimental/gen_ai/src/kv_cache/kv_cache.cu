@@ -360,7 +360,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
     int64_t old_context_len = 8192,
     double scaling_factor = 16,
     double lo_freq_factor = 1,
-    double hi_freq_factor = 32) {
+    double hi_freq_factor = 32,
+    bool write_k_back = false) {
   // Launch b_t_(sum(h)) warps.
   auto b_t_hh = blockIdx.x * blockDim.y + threadIdx.y;
   auto B_T = XQ.size(0);
@@ -516,6 +517,12 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel(
       dst_.vals[1] = __floats2bfloat162_rn(dst.z, dst.w);
       *reinterpret_cast<uint2*>(&dst_row[head_id]) =
           *reinterpret_cast<uint2*>(&dst_);
+
+      if (write_k_back && qkv == QKV::K) {
+        // Also write back to the source row
+        *reinterpret_cast<uint2*>(&src_row[head_id]) =
+            *reinterpret_cast<uint2*>(&dst_);
+      }
     }
   }
 }
@@ -1079,7 +1086,8 @@ at::Tensor rope_qkv_varseq_prefill(
     double lo_freq_factor = 1,
     double hi_freq_factor = 32,
     std::optional<at::Tensor> qparam_k = {},
-    std::optional<at::Tensor> qparam_v = {}) {
+    std::optional<at::Tensor> qparam_v = {},
+    bool write_k_back = false) {
   auto B_T = XQ.size(0);
   auto N_H = XQ.size(1);
   auto N_KVH = XK.size(1);
@@ -1134,7 +1142,8 @@ at::Tensor rope_qkv_varseq_prefill(
             old_context_len,
             scaling_factor,
             lo_freq_factor,
-            hi_freq_factor);
+            hi_freq_factor,
+            write_k_back);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
@@ -1143,6 +1152,7 @@ at::Tensor rope_qkv_varseq_prefill(
         varseq_seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>();
     int32_t* qparam_k_ptr = nullptr;
     int32_t* qparam_v_ptr = nullptr;
+    TORCH_CHECK(!write_k_back);
     if (qparam_k.has_value()) {
       qparam_k_ptr = static_cast<int32_t*>(qparam_k.value().data_ptr());
       qparam_v_ptr = static_cast<int32_t*>(qparam_v.value().data_ptr());
@@ -1283,7 +1293,8 @@ at::Tensor xpos_qkv_varseq_prefill(
             old_context_len,
             scaling_factor,
             lo_freq_factor,
-            hi_freq_factor);
+            hi_freq_factor,
+            false);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
@@ -1430,7 +1441,8 @@ at::Tensor rope_qkv_decoding(
             old_context_len,
             scaling_factor,
             lo_freq_factor,
-            hi_freq_factor);
+            hi_freq_factor,
+            false);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto seqpos_ =
@@ -1580,7 +1592,8 @@ at::Tensor xpos_qkv_decoding(
             old_context_len,
             scaling_factor,
             lo_freq_factor,
-            hi_freq_factor);
+            hi_freq_factor,
+            false);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
