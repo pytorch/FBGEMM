@@ -113,31 +113,49 @@ def check_schema_compatibility_from_op_name(
 
 
 class StableRelease(TestSuite):  # pyre-ignore[11]
-    def test_stable_schema(self) -> None:
+    def _test_stable_schema(self, version: str) -> None:
         """
         Test the schema compatibility of the operators against stable schema.
         This is to ensure that any changes to the ops' schema do not break compatibility of the stable versions.
         This test will fail if the current op schema is not forward or backward compatible with the stable schema.
         """
 
-        # Load stable ops from file into dict
-        stable_dict_file = open(
-            get_file_path_2("", os.path.dirname(__file__), "stable_ops.json")
+        majorversion = version.split(".")[0]
+        filepath = get_file_path_2(
+            "", os.path.dirname(__file__), f"stable_ops_v{majorversion}.json"
         )
-        stable_op_dict = json.load(stable_dict_file)["data"]
-        stable_dict_file.close()
-        # Get all op names
-        stable_op_names = set(stable_op_dict.keys())
 
-        # Check compatibility for all ops that are marked stable
-        for full_op_name in stable_op_names:
-            # Test the schema given the op name
-            ref_schema_str = stable_op_dict[full_op_name]
-            op_name = full_op_name.split(".")[3]
+        # Load stable ops from file into dict
+        with open(filepath) as file:
+            for release_info in [
+                info
+                for info in json.load(file)["releases"]
+                if info["version"] == version
+            ]:
+                stable_op_dict = release_info["api"]
 
-            check_schema_compatibility_from_op_name(
-                torch.ops.fbgemm, op_name, ref_schema_str
-            )
+                # Get all op names
+                stable_op_names = set(stable_op_dict.keys())
+
+                # Check compatibility for all ops that are marked stable
+                for full_op_name in stable_op_names:
+                    # Test the schema given the op name
+                    ref_schema_str = stable_op_dict[full_op_name]
+                    op_name = full_op_name.split(".")[3]
+
+                    check_schema_compatibility_from_op_name(
+                        torch.ops.fbgemm, op_name, ref_schema_str
+                    )
+
+    def test_backwards_compatibility(self) -> None:
+        """
+        Test the schema compatibility of the operators against previous versions of the API.
+        """
+        for version in ["1.0.0", "1.1.0"]:
+            try:
+                self._test_stable_schema(version)
+            except Exception as e:
+                self.fail(f"Compatibility test failed for version {version}: {e}")
 
     def test_example_ops(self) -> None:
         """
