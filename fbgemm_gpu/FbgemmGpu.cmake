@@ -476,6 +476,7 @@ gpu_cpp_library(
     # asmjit
     fbgemm
     fbgemm_gpu_embedding_inplace_ops
+    fbgemm_gpu_tbe_index_select
     fbgemm_gpu_tbe_cache
   DESTINATION
     fbgemm_gpu)
