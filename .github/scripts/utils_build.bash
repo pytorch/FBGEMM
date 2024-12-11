@@ -222,6 +222,11 @@ __compiler_post_install_checks () {
   print_exec "conda run ${env_prefix} c++ -dM -E -x c++ - < /dev/null | grep __cplusplus"
 }
 
+__remove_system_compiler() {
+  # Use the one from install_cxx_compiler instead
+  yum -y remove devtoolset-*-gcc
+}
+
 install_cxx_compiler () {
   env_name="$1"
   local compiler="$2"
@@ -241,6 +246,9 @@ install_cxx_compiler () {
   fi
 
   test_network_connection || return 1
+
+  # Remove system compiler and use the one from conda instead
+  __remove_system_compiler
 
   # Extract the archname
   __extract_archname
