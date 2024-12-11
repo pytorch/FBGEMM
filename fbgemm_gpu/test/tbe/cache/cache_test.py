@@ -349,6 +349,8 @@ class CacheTest(unittest.TestCase):
             torch.cuda.synchronize()
             assert cc.bwd_wait_prefetch_timer, "Timer must have been set"
             cc.bwd_wait_prefetch_timer._lazy_report()
+            assert cc.prefetch_duration_timer, "Timer must have been set"
+            cc.prefetch_duration_timer._lazy_report()
 
             self.assertIsInstance(cc.stats_reporter, TestingStatsReporter)
             stats_reporter: TestingStatsReporter = cast(
@@ -391,6 +393,7 @@ class CacheTest(unittest.TestCase):
             # On the other side, if a reporting event happens after forward(), it'll
             # have step timestamp 0 ~ 4, so only 1, 3 steps will be in.
             assert_event_exist("bwd_wait_for_prefetch", [1, 3, 5], [])
+            assert_event_exist("total_prefetch_duration", [1, 3], [])
             # commented out to not break AMD CI
             # assert_event_exist(
             #     "tbe.total_hbm_usage",
