@@ -1189,6 +1189,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_uvm_tensors_log</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">bwd_wait_prefetch_timer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AsyncSeriesTimer</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_duration_timer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AsyncSeriesTimer</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="p">:</span>
             <span class="c1"># When stats_reporter is present, we set up async series timer to</span>
             <span class="c1"># measure the GPU time per tracked event accordingly. Each of them</span>
@@ -1196,9 +1197,17 @@
             <span class="c1"># duration with the corresponding event name.</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">bwd_wait_prefetch_timer</span> <span class="o">=</span> <span class="n">AsyncSeriesTimer</span><span class="p">(</span>
                 <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span>
-                    <span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="o">.</span><span class="n">_report_wait_prefetch_time</span><span class="p">,</span>
+                    <span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="o">.</span><span class="n">_report_duration</span><span class="p">,</span>
                     <span class="bp">self</span><span class="p">,</span>
                     <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;bwd_wait_for_prefetch&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_duration_timer</span> <span class="o">=</span> <span class="n">AsyncSeriesTimer</span><span class="p">(</span>
+                <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span>
+                    <span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="o">.</span><span class="n">_report_duration</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="p">,</span>
+                    <span class="n">event_name</span><span class="o">=</span><span class="s2">&quot;total_prefetch_duration&quot;</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="p">)</span>
 
@@ -1882,7 +1891,7 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span>
 
     <span class="c1"># The callback function for AsyncTimer to record duration to different event</span>
-    <span class="k">def</span> <span class="nf">_report_wait_prefetch_time</span><span class="p">(</span>
+    <span class="k">def</span> <span class="nf">_report_duration</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">it_step</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">dur_ms</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
@@ -2646,12 +2655,18 @@
             <span class="n">force_cast_input_types</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span>
-            <span class="n">indices</span><span class="p">,</span>
-            <span class="n">offsets</span><span class="p">,</span>
-            <span class="n">vbe_metadata</span><span class="p">,</span>
-            <span class="n">multipass_prefetch_config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">multipass_prefetch_config</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recording_to_timer</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_duration_timer</span><span class="p">,</span>
+            <span class="n">context</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">,</span>
+            <span class="n">stream</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_stream</span><span class="p">(),</span>
+        <span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch</span><span class="p">(</span>
+                <span class="n">indices</span><span class="p">,</span>
+                <span class="n">offsets</span><span class="p">,</span>
+                <span class="n">vbe_metadata</span><span class="p">,</span>
+                <span class="n">multipass_prefetch_config</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">multipass_prefetch_config</span><span class="p">,</span>
+            <span class="p">)</span>
+
         <span class="k">if</span> <span class="n">forward_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch_tensors_record_stream</span><span class="p">(</span><span class="n">forward_stream</span><span class="p">)</span>
 
