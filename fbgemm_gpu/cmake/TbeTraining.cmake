@@ -4,175 +4,57 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-
 ################################################################################
-# Optimizer Group Definitions
+# Fetch All Sources
 ################################################################################
 
-set(COMMON_OPTIMIZERS
-    adagrad
-    rowwise_adagrad
-    sgd)
+# Optimizers
+get_tbe_sources_list(gen_defused_optim_src_files)
 
-# To be populated in the subsequent diffs
-set(CPU_ONLY_OPTIMIZERS "")
+# Forward Split
+get_tbe_sources_list(gen_cpu_files_forward_split)
+get_tbe_sources_list(gen_gpu_files_forward_split)
+handle_genfiles_rocm(gen_cpu_files_forward_split)
+handle_genfiles_rocm(gen_gpu_files_forward_split)
 
-set(GPU_ONLY_OPTIMIZERS
-    adam
-    lamb
-    partial_rowwise_adam
-    partial_rowwise_lamb
-    lars_sgd
-    none
-    rowwise_adagrad_with_counter)
+# Index Select
+get_tbe_sources_list(static_cpu_files_index_select)
+get_tbe_sources_list(static_gpu_files_index_select)
+get_tbe_sources_list(gen_gpu_files_index_select)
+handle_genfiles_rocm(gen_gpu_files_index_select)
 
-set(DEPRECATED_OPTIMIZERS
-    approx_sgd
-    approx_rowwise_adagrad
-    approx_rowwise_adagrad_with_counter
-    approx_rowwise_adagrad_with_weight_decay
-    rowwise_adagrad_with_weight_decay
-    rowwise_weighted_adagrad)
-
-set(ALL_OPTIMIZERS
-    ${COMMON_OPTIMIZERS}
-    ${CPU_ONLY_OPTIMIZERS}
-    ${GPU_ONLY_OPTIMIZERS}
-    ${DEPRECATED_OPTIMIZERS})
-
-set(CPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${CPU_ONLY_OPTIMIZERS})
-
-set(GPU_OPTIMIZERS ${COMMON_OPTIMIZERS} ${GPU_ONLY_OPTIMIZERS})
-
-# Individual optimizers (not fused with SplitTBE backward)
-set(DEFUSED_OPTIMIZERS
-    rowwise_adagrad)
-
-# Optimizers with the GWD support
-set(GWD_OPTIMIZERS
-    rowwise_adagrad)
-
-# Optimizers with the SSD support
-set(SSD_OPTIMIZERS
-    rowwise_adagrad)
-
-# Optimizers with the VBE support
-set(VBE_OPTIMIZERS
-    rowwise_adagrad
-    rowwise_adagrad_with_counter
-    sgd
-    dense)
-
-set(WEIGHT_OPTIONS
-    weighted
-    unweighted_nobag
-    unweighted)
-
-set(PARTIAL_WEIGHT_OPTIONS
-    weighted,
-    unweighted)
-
-set(DENSE_OPTIONS
-    split
-    dense
-    ssd)
+# Backward Split
+get_tbe_sources_list(static_cpu_files_training)
+get_tbe_sources_list(static_cpu_files_common)
+get_tbe_sources_list(static_gpu_files_common)
+get_tbe_sources_list(gen_cpu_files_training)
+get_tbe_sources_list(gen_gpu_files_training)
+handle_genfiles_rocm(gen_cpu_files_training)
+handle_genfiles_rocm(gen_gpu_files_training)
 
 
 ################################################################################
-# TBE Training - Optimizers
+# TBE Training Targets
 ################################################################################
 
-foreach(optimizer ${DEFUSED_OPTIMIZERS})
-  list(APPEND gen_defused_optim_src_files
-    "gen_embedding_optimizer_${optimizer}_split.cpp"
-    "gen_embedding_optimizer_${optimizer}_split_cuda.cu"
-    "gen_embedding_optimizer_${optimizer}_split_kernel.cu")
-endforeach()
-
-
-################################################################################
-# TBE Training - Forward Split
-################################################################################
-
-set(gen_cpu_files_forward_split 
-  gen_embedding_forward_split_pt2_cpu_wrapper.cpp)
-
-set(gen_gpu_files_forward_split
-  gen_embedding_forward_split_pt2_cuda_wrapper.cpp
-  gen_embedding_forward_ssd_pt2_cuda_wrapper.cpp)
-
-foreach(wdesc ${WEIGHT_OPTIONS})
-  list(APPEND gen_gpu_files_forward_split
-    "gen_embedding_forward_split_${wdesc}_kernel.cu"
-    "gen_embedding_forward_dense_${wdesc}_kernel.cu"
-    "gen_embedding_forward_ssd_${wdesc}_kernel.cu")
-endforeach()
-
-foreach(desc ${DENSE_OPTIONS})
-  foreach(wdesc ${PARTIAL_WEIGHT_OPTIONS})
-    list(APPEND gen_gpu_files_forward_split
-      "gen_embedding_forward_${desc}_${wdesc}_codegen_cuda.cu"
-      "gen_embedding_forward_${desc}_${wdesc}_codegen_meta.cpp")
-  endforeach()
-endforeach()
-
-foreach(wdesc ${PARTIAL_WEIGHT_OPTIONS})
-  list(APPEND gen_gpu_files_forward_split
-    "gen_embedding_forward_split_${wdesc}_vbe_codegen_cuda.cu"
-    "gen_embedding_forward_split_${wdesc}_vbe_codegen_meta.cpp"
-    "gen_embedding_forward_split_${wdesc}_vbe_kernel.cu"
-    "gen_embedding_forward_split_${wdesc}_v2_kernel.cu"
-    "gen_embedding_forward_split_${wdesc}_gwd_codegen_cuda.cu"
-    "gen_embedding_forward_split_${wdesc}_vbe_gwd_codegen_cuda.cu"
-    "gen_embedding_forward_split_${wdesc}_gwd_kernel.cu"
-    "gen_embedding_forward_dense_${wdesc}_vbe_codegen_cuda.cu"
-    "gen_embedding_forward_dense_${wdesc}_vbe_kernel.cu"
-    "gen_embedding_forward_split_${wdesc}_vbe_gwd_kernel.cu"
-    "gen_embedding_forward_ssd_${wdesc}_vbe_codegen_cuda.cu"
-    "gen_embedding_forward_ssd_${wdesc}_vbe_codegen_meta.cpp"
-    "gen_embedding_forward_ssd_${wdesc}_vbe_kernel.cu")
-endforeach()
-
-foreach(desc ${DENSE_OPTIONS})
-  list(APPEND gen_gpu_files_forward_split
-    "gen_embedding_forward_${desc}_unweighted_nobag_kernel_small.cu")
-endforeach()
-
-
-################################################################################
-# TBE Training - Index Select
-################################################################################
-
-set(static_index_select_src_files
-    ${FBGEMM_GPU}/codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp
-    ${FBGEMM_GPU}/codegen/training/index_select/batch_index_select_dim0_host.cpp
-    ${FBGEMM_GPU}/codegen/training/index_select/batch_index_select_dim0_ops.cpp)
-
-set(gen_index_select_src_files
-    gen_batch_index_select_dim0_forward_codegen_cuda.cu
-    gen_batch_index_select_dim0_forward_kernel.cu
-    gen_batch_index_select_dim0_forward_kernel_small.cu
-    gen_batch_index_select_dim0_backward_codegen_cuda.cu
-    gen_batch_index_select_dim0_backward_kernel_cta.cu
-    gen_batch_index_select_dim0_backward_kernel_warp.cu
-    gen_embedding_backward_split_grad_index_select.cu)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_common
+  TYPE
+    MODULE
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    ${static_cpu_files_common}
+  GPU_SRCS
+    ${static_gpu_files_common}
+  GPU_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  # DEPS
+  #   asmjit
+  #   fbgemm
+  DESTINATION
+    fbgemm_gpu)
 
 gpu_cpp_library(
   PREFIX
@@ -181,8 +63,6 @@ gpu_cpp_library(
     MODULE
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
-  CPU_SRCS
-
   GPU_SRCS
     ${gen_defused_optim_src_files}
   GPU_FLAGS
@@ -191,5 +71,48 @@ gpu_cpp_library(
     asmjit
     fbgemm
     split_embeddings_cache
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training
+  TYPE
+    MODULE
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    ${static_cpu_files_training}
+    ${gen_cpu_files_training}
+    ${gen_cpu_files_forward_split}
+  GPU_SRCS
+    ${gen_gpu_files_training}
+    ${gen_gpu_files_forward_split}
+  GPU_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    asmjit
+    fbgemm
+    split_embeddings_cache
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_index_select
+  TYPE
+    MODULE
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    ${static_cpu_files_index_select}
+  GPU_SRCS
+    ${static_gpu_files_index_select}
+    ${gen_gpu_files_index_select}
+  GPU_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    asmjit
+    fbgemm
   DESTINATION
     fbgemm_gpu)

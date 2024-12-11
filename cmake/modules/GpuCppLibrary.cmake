@@ -183,6 +183,22 @@ function(gpu_cpp_library)
         INCLUDE_DIRS ${args_INCLUDE_DIRS})
     set(lib_sources ${${args_PREFIX}_sources})
 
+    # If the overall sources list is empty (e.g. the target is GPU-only and we
+    # are currently building in CPU-only mode), create a placeholder library
+    if(NOT lib_sources AND NOT args_OTHER_SRCS)
+        # Create salt value
+        STRING(RANDOM LENGTH 6 salt)
+
+        # Generate a placeholder source file
+        file(COPY_FILE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/placeholder.cpp
+            ${CMAKE_CURRENT_BINARY_DIR}/gen_placeholder_${salt}.cpp)
+
+        # Append to lib_sources
+        list(APPEND lib_sources
+            ${CMAKE_CURRENT_BINARY_DIR}/gen_placeholder_${salt}.cpp)
+    endif()
+
     ############################################################################
     # Build the Library
     ############################################################################

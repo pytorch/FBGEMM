@@ -270,7 +270,7 @@ gen_gpu_files_forward_split = (
 # C++ Training Code - Index Select
 ################################################################################
 
-gen_index_select_src_files = [
+gen_gpu_files_index_select = [
     "gen_batch_index_select_dim0_forward_codegen_cuda.cu",
     "gen_batch_index_select_dim0_forward_kernel.cu",
     "gen_batch_index_select_dim0_forward_kernel_small.cu",
@@ -285,8 +285,11 @@ gen_index_select_header_files = [
     "gen_embedding_backward_split_batch_index_select_device_kernel.cuh",
 ]
 
-static_index_select_src_files = [
+static_cpu_files_index_select = [
     "codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp",
+]
+
+static_gpu_files_index_select = [
     "codegen/training/index_select/batch_index_select_dim0_host.cpp",
     "codegen/training/index_select/batch_index_select_dim0_ops.cpp",
 ]
