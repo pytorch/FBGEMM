@@ -37,12 +37,14 @@ except Exception:
 
 libraries_to_load = {
     "cpu": [
+        "fbgemm_gpu_config.so",
         "fbgemm_gpu_py.so",
         "fbgemm_gpu_tbe_inference.so",
         "fbgemm_gpu_tbe_training.so",
         "fbgemm_gpu_tbe_index_select.so"
     ],
     "cuda": [
+        "fbgemm_gpu_config.so",
         "fbgemm_gpu_py.so",
         "fbgemm_gpu_tbe_inference.so",
         "fbgemm_gpu_tbe_training.so",
@@ -53,6 +55,7 @@ libraries_to_load = {
         "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py.so",
     ],
     "rocm": [
+        "fbgemm_gpu_config.so",
         "fbgemm_gpu_py.so",
         "fbgemm_gpu_tbe_inference.so",
         "fbgemm_gpu_tbe_training.so",
