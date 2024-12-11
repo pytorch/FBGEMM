@@ -89,7 +89,7 @@ install_triton_pip () {
   # https://github.com/pytorch/pytorch/pull/126098
   #
   # shellcheck disable=SC2086
-  install_from_pytorch_pip "${env_name}" pytorch-triton nightly/3.2.0+35c6c7c6284582b3f41c71c150e11b517acf074a || return 1
+  install_from_pytorch_pip "${env_name}" pytorch-triton nightly/3.2.0+git35c6c7c6 || return 1
 
   # shellcheck disable=SC2086
   (test_python_import_package "${env_name}" triton) || return 1
