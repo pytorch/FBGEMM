@@ -441,7 +441,7 @@ include(${FBGEMM_GPU}/cmake/TbeTraining.cmake)
 # Test target to demonstrate that target deps works as intended
 gpu_cpp_library(
   PREFIX
-    embedding_inplace_ops
+    fbgemm_gpu_embedding_inplace_ops
   TYPE
     SHARED
   INCLUDE_DIRS
@@ -475,8 +475,8 @@ gpu_cpp_library(
   DEPS
     asmjit
     fbgemm
-    embedding_inplace_ops
-    split_embeddings_cache
+    fbgemm_gpu_embedding_inplace_ops
+    fbgemm_gpu_tbe_cache
   DESTINATION
     fbgemm_gpu)
 

@@ -11,7 +11,7 @@
 
 gpu_cpp_library(
   PREFIX
-    split_embeddings_cache
+    fbgemm_gpu_tbe_cache
   TYPE
     SHARED
   INCLUDE_DIRS
@@ -68,6 +68,6 @@ gpu_cpp_library(
   DEPS
     asmjit
     fbgemm
-    split_embeddings_cache
+    fbgemm_gpu_tbe_cache
   DESTINATION
     fbgemm_gpu)

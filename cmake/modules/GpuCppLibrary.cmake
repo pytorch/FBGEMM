@@ -186,7 +186,7 @@ function(gpu_cpp_library)
     # If the overall sources list is empty (e.g. the target is GPU-only and we
     # are currently building in CPU-only mode), create a placeholder library
     if(NOT lib_sources AND NOT args_OTHER_SRCS)
-        # Create salt value
+        # Create a salt value
         STRING(RANDOM LENGTH 6 salt)
 
         # Generate a placeholder source file
