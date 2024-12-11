@@ -297,10 +297,10 @@ list(APPEND gen_defused_optim_py_files
 ################################################################################
 
 set(fbgemm_gpu_sources_cpu_static
-    codegen/training/forward/embedding_forward_split_cpu.cpp
-    codegen/training/backward/embedding_backward_dense_host_cpu.cpp
-    codegen/training/pt2/pt2_autograd_utils.cpp
-    codegen/utils/embedding_bounds_check_host_cpu.cpp
+    # codegen/training/forward/embedding_forward_split_cpu.cpp
+    # codegen/training/backward/embedding_backward_dense_host_cpu.cpp
+    # codegen/training/pt2/pt2_autograd_utils.cpp
+    # codegen/utils/embedding_bounds_check_host_cpu.cpp
     src/config/feature_gates.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
@@ -320,13 +320,13 @@ set(fbgemm_gpu_sources_cpu_static
     src/sparse_ops/sparse_async_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
-    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
-    codegen/training/index_select/batch_index_select_dim0_ops.cpp
-    codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
+    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp)
+    # codegen/training/index_select/batch_index_select_dim0_ops.cpp
+    # codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_cpu_static
-    codegen/utils/embedding_bounds_check_host.cpp
+    # codegen/utils/embedding_bounds_check_host.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
@@ -335,8 +335,8 @@ if(NOT FBGEMM_CPU_ONLY)
     src/sparse_ops/sparse_ops_gpu.cpp
     src/split_embeddings_utils/split_embeddings_utils.cpp
     src/metric_ops/metric_ops_host.cpp
-    src/input_combine_ops/input_combine_gpu.cpp
-    codegen/training/index_select/batch_index_select_dim0_host.cpp)
+    src/input_combine_ops/input_combine_gpu.cpp)
+    # codegen/training/index_select/batch_index_select_dim0_host.cpp)
 
   if(NVML_LIB_PATH OR USE_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
@@ -350,8 +350,8 @@ endif()
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gpu_static
-      codegen/utils/embedding_bounds_check_v1.cu
-      codegen/utils/embedding_bounds_check_v2.cu
+      # codegen/utils/embedding_bounds_check_v1.cu
+      # codegen/utils/embedding_bounds_check_v2.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
       src/intraining_embedding_pruning_ops/intraining_embedding_pruning.cu
@@ -466,14 +466,14 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
   CPU_SRCS
     ${fbgemm_gpu_sources_cpu_static}
-    ${fbgemm_gpu_sources_cpu_gen}
+    # ${fbgemm_gpu_sources_cpu_gen}
   GPU_SRCS
     ${fbgemm_gpu_sources_gpu_static}
-    ${fbgemm_gpu_sources_gpu_gen}
+    # ${fbgemm_gpu_sources_gpu_gen}
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
-    asmjit
+    # asmjit
     fbgemm
     fbgemm_gpu_embedding_inplace_ops
     fbgemm_gpu_tbe_cache

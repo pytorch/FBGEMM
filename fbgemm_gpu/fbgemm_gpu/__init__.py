@@ -39,10 +39,14 @@ libraries_to_load = {
     "cpu": [
         "fbgemm_gpu_py.so",
         "fbgemm_gpu_tbe_inference.so",
+        "fbgemm_gpu_tbe_training.so",
+        "fbgemm_gpu_tbe_index_select.so"
     ],
     "cuda": [
         "fbgemm_gpu_py.so",
         "fbgemm_gpu_tbe_inference.so",
+        "fbgemm_gpu_tbe_training.so",
+        "fbgemm_gpu_tbe_index_select.so"
         "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py.so",
     ],
     "genai": [
@@ -51,6 +55,8 @@ libraries_to_load = {
     "rocm": [
         "fbgemm_gpu_py.so",
         "fbgemm_gpu_tbe_inference.so",
+        "fbgemm_gpu_tbe_training.so",
+        "fbgemm_gpu_tbe_index_select.so"
     ],
 }
 
