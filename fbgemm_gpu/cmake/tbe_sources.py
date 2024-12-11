@@ -287,11 +287,11 @@ gen_index_select_header_files = [
 
 static_cpu_files_index_select = [
     "codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp",
+    "codegen/training/index_select/batch_index_select_dim0_ops.cpp",
 ]
 
 static_gpu_files_index_select = [
     "codegen/training/index_select/batch_index_select_dim0_host.cpp",
-    "codegen/training/index_select/batch_index_select_dim0_ops.cpp",
 ]
 
 ################################################################################
