@@ -224,6 +224,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         stochastic_rounding: bool = True,
         share_table: bool = False,
         prefetch_pipeline: bool = False,
+        bulk_init_chunk_size: int = 0,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -300,6 +301,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             prefetch_pipeline=prefetch_pipeline,
             bounds_check_mode=BoundsCheckMode.WARNING,
             l2_cache_size=8,
+            bulk_init_chunk_size=bulk_init_chunk_size,
         ).cuda()
 
         # A list to keep the CPU tensor alive until `set` (called inside
@@ -688,7 +690,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
 
-    def test_ssd_emb_state_dict(self) -> None:
+    @given(
+        bulk_init_chunk_size=st.sampled_from([0, 100]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_ssd_emb_state_dict(self, bulk_init_chunk_size: int) -> None:
         # Constants
         lr = 0.5
         eps = 0.2
@@ -721,6 +727,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             output_dtype=output_dtype,
             share_table=True,
+            bulk_init_chunk_size=bulk_init_chunk_size,
         )
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
