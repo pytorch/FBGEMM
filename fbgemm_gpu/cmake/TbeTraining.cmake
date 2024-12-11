@@ -40,6 +40,18 @@ handle_genfiles_rocm(gen_gpu_files_training)
 
 gpu_cpp_library(
   PREFIX
+    fbgemm_gpu_config
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    src/config/feature_gates.cpp
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
     fbgemm_gpu_tbe_common
   TYPE
     SHARED
@@ -88,6 +100,7 @@ gpu_cpp_library(
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm
+    fbgemm_gpu_config
     fbgemm_gpu_tbe_cache
     fbgemm_gpu_tbe_common
   DESTINATION

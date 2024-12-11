@@ -301,7 +301,7 @@ set(fbgemm_gpu_sources_cpu_static
     # codegen/training/backward/embedding_backward_dense_host_cpu.cpp
     # codegen/training/pt2/pt2_autograd_utils.cpp
     # codegen/utils/embedding_bounds_check_host_cpu.cpp
-    src/config/feature_gates.cpp
+    # src/config/feature_gates.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp

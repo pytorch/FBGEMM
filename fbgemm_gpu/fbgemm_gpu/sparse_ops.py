@@ -11,6 +11,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 import torch
 
+from fbgemm_gpu import __variant__
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import PoolingMode
 from fbgemm_gpu.utils.loader import load_torch_module
@@ -1092,18 +1093,21 @@ def _setup() -> None:
             "fbgemm::batch_index_select_dim0_tensor",
             batch_index_select_dim0_tensor_abstract,
         )
-        impl_abstract(
-            "fbgemm::batch_index_select_dim0_forward_cuda_impl",
-            batch_index_select_dim0_forward_cuda_impl_abstract,
-        )
-        impl_abstract(
-            "fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl",
-            batch_index_select_dim0_tensor_forward_cuda_impl_abstract,
-        )
-        impl_abstract(
-            "fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl",
-            batch_index_select_dim0_tensor_backward_cuda_impl_abstract,
-        )
+
+        if __variant__ in ["cuda", "rocm", "INTERNAL"]:
+            impl_abstract(
+                "fbgemm::batch_index_select_dim0_forward_cuda_impl",
+                batch_index_select_dim0_forward_cuda_impl_abstract,
+            )
+            impl_abstract(
+                "fbgemm::batch_index_select_dim0_tensor_forward_cuda_impl",
+                batch_index_select_dim0_tensor_forward_cuda_impl_abstract,
+            )
+            impl_abstract(
+                "fbgemm::batch_index_select_dim0_tensor_backward_cuda_impl",
+                batch_index_select_dim0_tensor_backward_cuda_impl_abstract,
+            )
+
         impl_abstract(
             "fbgemm::keyed_jagged_index_select_dim1",
             keyed_jagged_index_select_dim1_abstract,
