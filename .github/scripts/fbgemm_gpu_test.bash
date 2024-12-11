@@ -95,7 +95,7 @@ __configure_fbgemm_gpu_test_cpu () {
 __configure_fbgemm_gpu_test_cuda () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
-  echo "[TEST] Set environment variables for CPU-only testing ..."
+  echo "[TEST] Set environment variables for CUDA testing ..."
 
   # Disabled by default; enable for debugging
   # shellcheck disable=SC2086

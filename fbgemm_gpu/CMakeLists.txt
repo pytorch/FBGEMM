@@ -186,6 +186,41 @@ if(USE_ROCM)
   )
 endif()
 
+function(get_tbe_sources_list variable_name)
+  # Set the genfiles script path
+  set(genfiles_script ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tbe_sources.py)
+
+  # Execute the script to load the generated files list to memory,
+  # and print the desired variable to stdout
+  execute_process(
+    COMMAND
+      "${PYTHON_EXECUTABLE}"
+      -c
+      "exec(open('${genfiles_script}').read()); print(';'.join(${variable_name}))"
+    WORKING_DIRECTORY
+      "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE
+      tempvar
+    RESULT_VARIABLE
+      resvar
+    ERROR_VARIABLE
+      errvar)
+
+  # Exit if executing the script fails
+  if(NOT "${resvar}" EQUAL "0")
+    message(ERROR
+      "Failed to execute Python (${PYTHON_EXECUTABLE})\n"
+      "Result: ${resvar}\n"
+      "Error: ${errvar}\n")
+  endif()
+
+  # Clean out the string
+  string(REPLACE "\n" "" tempvar "${tempvar}")
+
+  # Set the output variable
+  set(${variable_name} ${tempvar} PARENT_SCOPE)
+endfunction()
+
 
 ################################################################################
 # Build FBGEMM_GPU (Main) Module
