@@ -52,6 +52,24 @@ gpu_cpp_library(
 
 gpu_cpp_library(
   PREFIX
+    fbgemm_gpu_tbe_utils
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
+  GPU_SRCS
+    src/split_embeddings_utils/split_embeddings_utils.cpp
+    src/split_embeddings_utils/generate_vbe_metadata.cu
+    src/split_embeddings_utils/get_infos_metadata.cu
+    src/split_embeddings_utils/radix_sort_pairs.cu
+    src/split_embeddings_utils/transpose_embedding_input.cu
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
     fbgemm_gpu_tbe_common
   TYPE
     SHARED
@@ -120,5 +138,7 @@ gpu_cpp_library(
     ${gen_gpu_files_index_select}
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_utils
   DESTINATION
     fbgemm_gpu)

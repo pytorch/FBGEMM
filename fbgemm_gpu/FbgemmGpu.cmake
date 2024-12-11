@@ -319,8 +319,8 @@ set(fbgemm_gpu_sources_cpu_static
     src/quantize_ops/quantize_ops_meta.cpp
     src/sparse_ops/sparse_async_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
-    src/sparse_ops/sparse_ops_meta.cpp
-    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp)
+    src/sparse_ops/sparse_ops_meta.cpp)
+    # src/split_embeddings_utils/split_embeddings_utils_cpu.cpp)
     # codegen/training/index_select/batch_index_select_dim0_ops.cpp
     # codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
 
@@ -333,7 +333,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
-    src/split_embeddings_utils/split_embeddings_utils.cpp
+    # src/split_embeddings_utils/split_embeddings_utils.cpp
     src/metric_ops/metric_ops_host.cpp
     src/input_combine_ops/input_combine_gpu.cpp)
     # codegen/training/index_select/batch_index_select_dim0_host.cpp)
@@ -406,11 +406,11 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_range.cu
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
-      src/sparse_ops/sparse_zipf.cu
-      src/split_embeddings_utils/generate_vbe_metadata.cu
-      src/split_embeddings_utils/get_infos_metadata.cu
-      src/split_embeddings_utils/radix_sort_pairs.cu
-      src/split_embeddings_utils/transpose_embedding_input.cu)
+      src/sparse_ops/sparse_zipf.cu)
+      # src/split_embeddings_utils/generate_vbe_metadata.cu
+      # src/split_embeddings_utils/get_infos_metadata.cu
+      # src/split_embeddings_utils/radix_sort_pairs.cu
+      # src/split_embeddings_utils/transpose_embedding_input.cu)
 endif()
 
 
