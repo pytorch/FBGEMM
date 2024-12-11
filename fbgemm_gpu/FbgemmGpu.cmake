@@ -279,18 +279,27 @@ foreach(optimizer ${SSD_OPTIMIZERS})
       "gen_embedding_backward_${optimizer}_ssd_${wdesc}_kernel_cta.cu"
       "gen_embedding_backward_${optimizer}_ssd_${wdesc}_kernel_warp.cu")
   endforeach()
+
   foreach(wdesc weighted unweighted)
     list(APPEND gen_gpu_kernel_source_files
       "gen_embedding_backward_${optimizer}_ssd_${wdesc}_vbe_cuda.cu"
       "gen_embedding_backward_${optimizer}_ssd_${wdesc}_vbe_kernel_cta.cu"
       "gen_embedding_backward_${optimizer}_ssd_${wdesc}_vbe_kernel_warp.cu")
   endforeach()
-
 endforeach()
 
 list(APPEND gen_defused_optim_py_files
     ${CMAKE_BINARY_DIR}/optimizer_args.py)
 
+################################################################################
+# FBGEMM_GPU Generated HIP-Specific Sources
+################################################################################
+
+set(gen_hip_kernel_source_files)
+foreach(wdesc weighted unweighted unweighted_nobag)
+  list(APPEND gen_hip_kernel_source_files
+    "gen_embedding_backward_split_${wdesc}_device_kernel_hip.hip")
+endforeach()
 
 ################################################################################
 # FBGEMM_GPU Static Sources
@@ -426,6 +435,9 @@ set(fbgemm_gpu_sources_gpu_gen
   ${gen_gpu_host_source_files}
   ${gen_defused_optim_source_files})
 
+set(fbgemm_gpu_sources_hip_gen
+  ${gen_hip_kernel_source_files})
+
 if(USE_ROCM)
   prepend_filepaths(
     PREFIX ${CMAKE_BINARY_DIR}
@@ -436,6 +448,11 @@ if(USE_ROCM)
     PREFIX ${CMAKE_BINARY_DIR}
     INPUT ${fbgemm_gpu_sources_gpu_gen}
     OUTPUT fbgemm_gpu_sources_gpu_gen)
+
+  prepend_filepaths(
+    PREFIX ${CMAKE_BINARY_DIR}
+    INPUT ${fbgemm_gpu_sources_hip_gen}
+    OUTPUT fbgemm_gpu_sources_hip_gen)
 endif()
 
 
@@ -478,6 +495,8 @@ gpu_cpp_library(
   GPU_SRCS
     ${fbgemm_gpu_sources_gpu_static}
     ${fbgemm_gpu_sources_gpu_gen}
+  HIP_SPECIFIC_SRCS
+    ${fbgemm_gpu_sources_hip_gen}
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
