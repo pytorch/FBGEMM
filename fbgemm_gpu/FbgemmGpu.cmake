@@ -297,11 +297,6 @@ list(APPEND gen_defused_optim_py_files
 ################################################################################
 
 set(fbgemm_gpu_sources_cpu_static
-    codegen/training/forward/embedding_forward_split_cpu.cpp
-    codegen/training/backward/embedding_backward_dense_host_cpu.cpp
-    codegen/training/pt2/pt2_autograd_utils.cpp
-    codegen/utils/embedding_bounds_check_host_cpu.cpp
-    src/config/feature_gates.cpp
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
     src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_cpu.cpp
@@ -317,26 +312,19 @@ set(fbgemm_gpu_sources_cpu_static
     src/layout_transform_ops/layout_transform_ops_cpu.cpp
     src/quantize_ops/quantize_ops_cpu.cpp
     src/quantize_ops/quantize_ops_meta.cpp
-    src/sparse_ops/sparse_async_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
-    src/sparse_ops/sparse_ops_meta.cpp
-    src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
-    codegen/training/index_select/batch_index_select_dim0_ops.cpp
-    codegen/training/index_select/batch_index_select_dim0_cpu_host.cpp)
+    src/sparse_ops/sparse_ops_meta.cpp)
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_cpu_static
-    codegen/utils/embedding_bounds_check_host.cpp
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_gpu.cpp
     src/permute_pooled_embedding_ops/permute_pooled_embedding_ops_split_gpu.cpp
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
-    src/split_embeddings_utils/split_embeddings_utils.cpp
     src/metric_ops/metric_ops_host.cpp
-    src/input_combine_ops/input_combine_gpu.cpp
-    codegen/training/index_select/batch_index_select_dim0_host.cpp)
+    src/input_combine_ops/input_combine_gpu.cpp)
 
   if(NVML_LIB_PATH OR USE_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
@@ -350,8 +338,6 @@ endif()
 
 if(NOT FBGEMM_CPU_ONLY)
   set(fbgemm_gpu_sources_gpu_static
-      codegen/utils/embedding_bounds_check_v1.cu
-      codegen/utils/embedding_bounds_check_v2.cu
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
       src/intraining_embedding_pruning_ops/intraining_embedding_pruning.cu
@@ -387,7 +373,6 @@ if(NOT FBGEMM_CPU_ONLY)
       src/quantize_ops/quantize_msfp.cu
       src/quantize_ops/quantize_padded_fp8_rowwise.cu
       src/quantize_ops/quantize_mx.cu
-      src/sparse_ops/sparse_async_cumsum.cu
       src/sparse_ops/sparse_block_bucketize_features.cu
       src/sparse_ops/sparse_bucketize_features.cu
       src/sparse_ops/sparse_batched_unary_embeddings.cu
@@ -406,11 +391,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_range.cu
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
-      src/sparse_ops/sparse_zipf.cu
-      src/split_embeddings_utils/generate_vbe_metadata.cu
-      src/split_embeddings_utils/get_infos_metadata.cu
-      src/split_embeddings_utils/radix_sort_pairs.cu
-      src/split_embeddings_utils/transpose_embedding_input.cu)
+      src/sparse_ops/sparse_zipf.cu)
 endif()
 
 
@@ -426,17 +407,8 @@ set(fbgemm_gpu_sources_gpu_gen
   ${gen_gpu_host_source_files}
   ${gen_defused_optim_source_files})
 
-if(USE_ROCM)
-  prepend_filepaths(
-    PREFIX ${CMAKE_BINARY_DIR}
-    INPUT ${fbgemm_gpu_sources_cpu_gen}
-    OUTPUT fbgemm_gpu_sources_cpu_gen)
-
-  prepend_filepaths(
-    PREFIX ${CMAKE_BINARY_DIR}
-    INPUT ${fbgemm_gpu_sources_gpu_gen}
-    OUTPUT fbgemm_gpu_sources_gpu_gen)
-endif()
+handle_genfiles_rocm(fbgemm_gpu_sources_cpu_gen)
+handle_genfiles_rocm(fbgemm_gpu_sources_gpu_gen)
 
 
 ################################################################################
@@ -444,12 +416,13 @@ endif()
 ################################################################################
 
 # Build TBE targets
-include(${FBGEMM_GPU}/cmake/Tbe.cmake)
+include(${FBGEMM_GPU}/cmake/TbeInference.cmake)
+include(${FBGEMM_GPU}/cmake/TbeTraining.cmake)
 
 # Test target to demonstrate that target deps works as intended
 gpu_cpp_library(
   PREFIX
-    embedding_inplace_ops
+    fbgemm_gpu_embedding_inplace_ops
   TYPE
     SHARED
   INCLUDE_DIRS
@@ -474,17 +447,18 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
   CPU_SRCS
     ${fbgemm_gpu_sources_cpu_static}
-    ${fbgemm_gpu_sources_cpu_gen}
   GPU_SRCS
     ${fbgemm_gpu_sources_gpu_static}
-    ${fbgemm_gpu_sources_gpu_gen}
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
-    asmjit
     fbgemm
-    embedding_inplace_ops
-    split_embeddings_cache
+    fbgemm_gpu_sparse_async_cumsum
+    fbgemm_gpu_embedding_inplace_ops
+    fbgemm_gpu_tbe_index_select
+    fbgemm_gpu_tbe_cache
+    fbgemm_gpu_tbe_optimizers
+    fbgemm_gpu_tbe_utils
   DESTINATION
     fbgemm_gpu)
 
