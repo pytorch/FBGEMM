@@ -366,7 +366,15 @@ class KVCacheTests(unittest.TestCase):
             device="cuda",
         )
         xq = xqkv[:, :N_H_L, :]
-        xk = xqkv[:, N_H_L : N_H_L + N_KVH_L, :]
+        # This clone is to avoid a weirdness in torch.compile:
+        # because as far as the signature of rope_qkv_varseq_prefill
+        # goes, xk could be modified (but in fact isn't because we
+        # aren't using write_k_back=True) and torch.compile takes
+        # action to be careful when a function has aliased parameters
+        # one of which is modified. The function merge_view_inputs in
+        # runtime_wrappers.py inside torch compile has an IndexError
+        # without this clone.
+        xk = xqkv[:, N_H_L : N_H_L + N_KVH_L, :].clone()
         xv = xqkv[:, N_H_L + N_KVH_L :, :]
 
         xpos_gamma: float = 0.8
@@ -519,7 +527,7 @@ class KVCacheTests(unittest.TestCase):
             device="cuda",
         )
         xq = xqkv[:, :N_H_L, :]
-        xk = xqkv[:, N_H_L : N_H_L + N_KVH_L, :]
+        xk = xqkv[:, N_H_L : N_H_L + N_KVH_L, :].clone()
         xv = xqkv[:, N_H_L + N_KVH_L :, :]
 
         assert cache_k.is_contiguous()
