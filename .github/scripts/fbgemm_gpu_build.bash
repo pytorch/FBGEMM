@@ -411,18 +411,22 @@ __print_library_infos () {
     echo "[CHECK] Listing out library size:"
     print_exec "du -h --block-size=1M ${library}"
 
-    echo "[CHECK] Listing out the GLIBCXX versions referenced:"
     print_glibc_info "${library}"
 
-    echo "[CHECK] Checking symbols: "
-    print_exec "nm -gDC ${library} > symbols"
-    echo "[CHECK] Number of symbols in ${library}: $(wc -l < symbols)"
-    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm symbols)"
+    # shellcheck disable=SC2155
+    local symbols_file=$(mktemp --suffix ".symbols.txt")
+    print_exec "nm -gDC ${library} > ${symbols_file}"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Total Number of symbols: $(wc -l ${symbols_file} | awk '{print $1}')"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm ${symbols_file})"
 
-    print_exec "nm -gDCu ${library} > usymbols"
-    echo "[CHECK] Number of undefined symbols: $(wc -l < usymbols)"
-    echo "[CHECK] Listing out undefined symbols:"
-    print_exec "sort usymbols"
+    # shellcheck disable=SC2155
+    local usymbols_file=$(mktemp --suffix ".usymbols.txt")
+    print_exec "nm -gDCu ${library} > ${usymbols_file}"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Listing out undefined symbols ($(wc -l ${usymbols_file} | awk '{print $1}') total):"
+    cat "${usymbols_file}" | sort
 
     echo "[CHECK] Listing out external shared libraries linked:"
     print_exec ldd "${library}"
