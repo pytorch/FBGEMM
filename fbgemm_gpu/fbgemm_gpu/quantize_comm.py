@@ -223,7 +223,7 @@ class QuantizedCommCodec:
             ctx = none_throws(ctx)
             torch._check(
                 input_len % ctx.row_dim == 0,
-                lambda: "input_len  {input_len} is not a multiple of row dim {ctx.row_dim}",
+                lambda: f"input_len  {input_len} is not a multiple of row dim {ctx.row_dim}",
             )
             assert input_len % ctx.row_dim == 0, (
                 f"input_len {input_len} is not a multiple of row dim {ctx.row_dim} "
