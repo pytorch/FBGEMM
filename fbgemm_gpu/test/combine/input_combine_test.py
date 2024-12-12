@@ -10,6 +10,8 @@ import unittest
 
 from typing import List, Tuple
 
+import fbgemm_gpu  # noqa: F401
+
 import torch
 from fbgemm_gpu import sparse_ops  # noqa: F401
 from hypothesis import given, settings

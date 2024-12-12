@@ -16,6 +16,8 @@ import unittest
 from itertools import accumulate
 from typing import List, Tuple
 
+import fbgemm_gpu  # noqa E402
+
 import hypothesis.strategies as st
 import numpy as np
 import torch
