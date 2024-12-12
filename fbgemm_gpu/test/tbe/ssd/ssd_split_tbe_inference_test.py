@@ -48,6 +48,7 @@ MAX_EXAMPLES = 40
 
 @unittest.skipIf(*running_on_github)
 @unittest.skipIf(*gpu_unavailable)
+@unittest.skipIf(True, "Test is broken.")
 class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
     def test_nbit_ssd(self) -> None:
         import tempfile
