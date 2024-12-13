@@ -318,7 +318,8 @@ publish_to_pypi () {
 
   echo "[INSTALL] Installing twine ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -y twine) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    twine) || return 1
   (test_python_import_package "${env_name}" twine) || return 1
   (test_python_import_package "${env_name}" OpenSSL) || return 1
 

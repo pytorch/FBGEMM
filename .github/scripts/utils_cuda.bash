@@ -13,6 +13,105 @@
 # CUDA Setup Functions
 ################################################################################
 
+__set_cuda_symlinks_envvars () {
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+
+  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+    # CUDA 12.6 installation has a very different package layout than previous
+    # CUDA versions - notably, NVTX has been moved elsewhere, which causes
+    # PyTorch CMake scripts to complain.
+    echo "[INSTALL] Fixing file placements for CUDA 12.6+ ..."
+    local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
+
+    echo "[INSTALL] Creating symlinks: libnvToolsExt.so"
+    print_exec ln -sf "${conda_prefix}/lib/libnvToolsExt.so.1" "${conda_prefix}/lib/libnvToolsExt.so"
+    print_exec ln -sf "${new_cuda_home}/lib/libnvToolsExt.so.1" "${new_cuda_home}/lib/libnvToolsExt.so"
+
+    echo "[INSTALL] Copying nvtx3 headers ..."
+    # shellcheck disable=SC2086
+    print_exec cp -r ${conda_prefix}/nsight-compute*/host/*/nvtx/include/nvtx3/* ${conda_prefix}/include/
+    # shellcheck disable=SC2086
+    print_exec cp -r ${conda_prefix}/nsight-compute*/host/*/nvtx/include/nvtx3/* ${new_cuda_home}/include/
+  fi
+
+  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
+  # shellcheck disable=SC2155
+  local libcuda_path=$(find "${conda_prefix}" -type f -name libcuda.so)
+  append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
+
+  # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
+  # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
+  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+    echo "[INSTALL] Setting up symlink to libcuda.so.1"
+    print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+  fi
+
+  echo "[INSTALL] Setting environment variable NVML_LIB_PATH ..."
+  # shellcheck disable=SC2155
+  local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so | head -n1)
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
+
+  echo "[INSTALL] Setting environment variable CUDA_INCLUDE_DIRS ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CUDA_INCLUDE_DIRS=\""${conda_prefix}/include/:${conda_prefix}/targets/${MACHINE_NAME_LC}-linux/include/"\"
+}
+
+__set_nvcc_prepend_flags () {
+  local nvcc_prepend_flags=(
+    # Allow for the use of newer compilers than what the current CUDA SDK supports
+    -allow-unsupported-compiler
+  )
+
+  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
+    # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
+    # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the
+    # standard library.
+    #
+    # NOTE: NVCC_PREPEND_FLAGS is set here to allow the nvcc install check to
+    # pass.  It will be overridden to include more compilation flags during the
+    # FBGEMM_GPU build stage.
+    #
+    # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
+    #   https://github.com/ROCm/HIP/issues/931
+    #
+    echo "[BUILD] Setting Clang as the NVCC host compiler: ${cxx_path}"
+
+    # shellcheck disable=SC2155,SC2086
+    local cxx_path=$(conda run ${env_prefix} which c++)
+
+    nvcc_prepend_flags+=(
+      -Xcompiler -stdlib=libstdc++
+      -ccbin "${cxx_path}"
+    )
+  fi
+
+  echo "[BUILD] Setting prepend flags for NVCC ..."
+  # shellcheck disable=SC2086,SC2145
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\""${nvcc_prepend_flags[@]}"\"
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} printenv NVCC_PREPEND_FLAGS
+}
+
+__print_cuda_info () {
+  # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
+  echo "[INFO] Printing out all preprocessor defines in nvcc ..."
+  # shellcheck disable=SC2086
+  print_exec "conda run ${env_prefix} nvcc --compiler-options -dM -E -x cu - < /dev/null"
+
+  # Print nvcc version
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} nvcc --version
+
+  if which nvidia-smi; then
+    # If nvidia-smi is installed on a machine without GPUs, this will return error
+    (print_exec nvidia-smi) || true
+  else
+    echo "[CHECK] nvidia-smi not found"
+  fi
+}
+
 install_cuda () {
   local env_name="$1"
   local cuda_version="$2"
@@ -49,87 +148,26 @@ install_cuda () {
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -y cuda -c "nvidia/label/cuda-${cuda_version}") || return 1
+  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c "nvidia/label/cuda-${cuda_version}" -y \
+    cuda) || return 1
+
+  # Set the symlinks and environment variables not covered by conda install
+  __set_cuda_symlinks_envvars
 
   # Ensure that nvcc is properly installed
   (test_binpath "${env_name}" nvcc) || return 1
-
   # Ensure that the CUDA headers are properly installed
   (test_filepath "${env_name}" cuda_runtime.h) || return 1
-
   # Ensure that the libraries are properly installed
   (test_filepath "${env_name}" libcuda.so) || return 1
   (test_filepath "${env_name}" libnvToolsExt.so) || return 1
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
 
-  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
-  # shellcheck disable=SC2155,SC2086
-  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-  # shellcheck disable=SC2155
-  local libcuda_path=$(find "${conda_prefix}" -type f -name libcuda.so)
-  nm -gDC "${libcuda_path}"
-  append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
+  # Set the NVCC prepend flags depending on gcc or clang
+  __set_nvcc_prepend_flags
 
-  # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
-  # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
-    print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
-  fi
-
-  echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
-  # shellcheck disable=SC2155,SC2086
-  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-  # shellcheck disable=SC2155
-  local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
-
-  local nvcc_prepend_flags=(
-    -allow-unsupported-compiler
-  )
-
-  if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
-    # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
-    # compiler, but set GNU libstdc++ (as opposed to Clang libc++) as the
-    # standard library.
-    #
-    # NOTE: NVCC_PREPEND_FLAGS is set here to allow the nvcc install check to
-    # pass.  It will be overridden to include more compilation flags during the
-    # FBGEMM_GPU build stage.
-    #
-    # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
-    #   https://github.com/ROCm/HIP/issues/931
-    #
-    echo "[BUILD] Setting Clang as the NVCC host compiler: ${cxx_path}"
-
-    # shellcheck disable=SC2155,SC2086
-    local cxx_path=$(conda run ${env_prefix} which c++)
-
-    nvcc_prepend_flags+=(
-      -Xcompiler -stdlib=libstdc++
-      -ccbin "${cxx_path}"
-    )
-  fi
-
-  echo "[BUILD] Setting prepend flags for NVCC ..."
-  # shellcheck disable=SC2086,SC2145
-  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\""${nvcc_prepend_flags[@]}"\"
-
-  # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
-  echo "[INFO] Printing out all preprocessor defines in nvcc ..."
-  # shellcheck disable=SC2086
-  print_exec "conda run ${env_prefix} nvcc --compiler-options -dM -E -x cu - < /dev/null"
-
-  # Print nvcc version
-  # shellcheck disable=SC2086
-  print_exec conda run ${env_prefix} nvcc --version
-
-  if which nvidia-smi; then
-    # If nvidia-smi is installed on a machine without GPUs, this will return error
-    (print_exec nvidia-smi) || true
-  else
-    echo "[CHECK] nvidia-smi not found"
-  fi
+  # Print debug info
+  __print_cuda_info
 
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
 }
