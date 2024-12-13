@@ -74,7 +74,6 @@ install_triton_pip () {
     echo ""
   fi
 
-  echo "[BUILD] Installing Triton from PIP ..."
   # NOTE: Install pytorch-triton from nightly with commit SHA that follows the
   # version tracked in FB internal (/third-party/tp2/triton/2.0.x/METADATA.bzl)
   # as close as possible.
@@ -87,12 +86,31 @@ install_triton_pip () {
   #
   # https://github.com/pytorch/pytorch/blob/main/.ci/docker/ci_commit_pins/triton.txt
   # https://github.com/pytorch/pytorch/pull/126098
-  #
-  # shellcheck disable=SC2086
-  install_from_pytorch_pip "${env_name}" pytorch-triton nightly/3.2.0+git35c6c7c6 || return 1
+  local triton_version="nightly/3.2.0+git35c6c7c6"
+
+  # BUILD_VARIANT is provided by the github workflow file
+  if [ "$BUILD_VARIANT" == "cuda" ] || [ "$BUILD_VARIANT" == "genai" ]; then
+    echo "[BUILD] Installing pytorch-triton ${triton_version} from PIP ..."
+    # shellcheck disable=SC2086
+    install_from_pytorch_pip "${env_name}" pytorch-triton "${triton_version}" || return 1
+
+  elif [ "$BUILD_VARIANT" == "rocm" ]; then
+    echo "[BUILD] Installing pytorch-triton-rocm ${triton_version} from PIP ..."
+    # shellcheck disable=SC2086
+    install_from_pytorch_pip "${env_name}" pytorch-triton-rocm "${triton_version}" || return 1
+
+  else
+    return 0
+  fi
 
   # shellcheck disable=SC2086
   (test_python_import_package "${env_name}" triton) || return 1
 
-  echo "[INSTALL] Successfully installed PyTorch through PyTorch PIP"
+  echo "[CHECK] Printing out the pytorch-triton version ..."
+  # shellcheck disable=SC2086,SC2155
+  installed_pytorch_triton_version=$(conda run ${env_prefix} python -c "import triton; print(triton.__version__)")
+  echo "################################################################################"
+  echo "[CHECK] The installed VERSION of pytorch-triton is: ${installed_pytorch_triton_version}"
+  echo "################################################################################"
+  echo ""
 }

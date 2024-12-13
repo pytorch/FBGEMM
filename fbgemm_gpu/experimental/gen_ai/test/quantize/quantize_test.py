@@ -16,12 +16,13 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
 import triton  # noqa: F401
 
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
-    matmul_fp8_block,
-    matmul_fp8_row,
-    quantize_fp8_block,
-    quantize_fp8_row,
-)
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        matmul_fp8_block,
+        matmul_fp8_row,
+        quantize_fp8_block,
+        quantize_fp8_row,
+    )
 
 from hypothesis import given, settings, strategies as st
 

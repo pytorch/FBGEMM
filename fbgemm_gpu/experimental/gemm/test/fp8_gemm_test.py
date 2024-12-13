@@ -12,13 +12,14 @@ from typing import Optional, Tuple
 
 import torch
 
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
-    matmul_fp8_block,
-    matmul_fp8_row,
-    quantize_fp8_block,
-    quantize_fp8_row,
-    scale_fp8_row,
-)
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        matmul_fp8_block,
+        matmul_fp8_row,
+        quantize_fp8_block,
+        quantize_fp8_row,
+        scale_fp8_row,
+    )
 
 
 @unittest.skipIf(
