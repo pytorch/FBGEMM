@@ -175,19 +175,19 @@ static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTup
      fp8_rowwise_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
     // EMU 1.7 shapes.
     {{1536, 4096, 4096},
-      fp8_rowwise_256x192x128x128_16x16_6x4_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
+     fp8_rowwise_256x192x128x128_16x16_6x4_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
     {{3600, 4096, 4096},
-      fp8_rowwise_256x192x256x128_16x16_6x8_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
+     fp8_rowwise_256x192x256x128_16x16_6x8_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
     {{3600, 11008, 4096},
-      fp8_rowwise_256x192x256x128_16x16_6x8_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
+     fp8_rowwise_256x192x256x128_16x16_6x8_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
     {{3600, 4096, 11008},
-      fp8_rowwise_256x192x256x128_16x16_6x8_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
+     fp8_rowwise_256x192x256x128_16x16_6x8_8x32x1_8x32x1_1x32x1x8_8x8x1_2x2_intrawave_v3},
     {{4096, 4096, 4096},
-      fp8_rowwise_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+     fp8_rowwise_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
     {{4096, 11008, 4096},
-      fp8_rowwise_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+     fp8_rowwise_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
     {{4096, 4096, 11008},
-      fp8_rowwise_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+     fp8_rowwise_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
     // Pro Shapes.
     {{32768, 128, 8192},
      fp8_rowwise_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
@@ -202,6 +202,10 @@ static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTup
 
 RowwiseKernel rowwise_heuristic_dispatch(int M, int N, int K) {
   // Apply shape heuristics to find a suitable kernel implementation.
+
+  //Fallback of irregular data types
+  if(!((N % 8 == 0) && (K % 16 == 0)))
+      return fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1;
 
   if (M < 64 && N < 2048 && K < 2048) {
     // Kernel that generally works well on small shapes.
@@ -335,13 +339,7 @@ void f8f8bf16_rowwise_out(
     bool use_fast_accum) {
   // Invoke f8f8bf16 rowwise with preallocated output.
   f8f8bf16_rowwise_wrapper(
-      XQ,
-      WQ,
-      x_scale,
-      w_scale,
-      bias,
-      use_fast_accum,
-      output);
+      XQ, WQ, x_scale, w_scale, bias, use_fast_accum, output);
 }
 
 } // namespace fbgemm_gpu
