@@ -312,6 +312,7 @@ def check_diff_quantize(
     # Convert to numpy
     # pyre-fixme[9]: x has type `Tensor`; used as `Union[ndarray, Tensor]`.
     x = np.array(x) if type(x) is list else x
+    # pyre-fixme[9]: x has type `Tensor`; used as `Union[ndarray[Any, Any], Tensor]`.
     x = x.cpu().numpy() if type(x) is torch.Tensor else x
     y1 = y1.detach().cpu().numpy()
     y2 = y2.detach().cpu().numpy()
@@ -334,11 +335,13 @@ def check_diff_quantize(
         where_diff = (diff != 0) | (torch_infs != cuda_infs)
         print("%d/%d mismatches" % (np.count_nonzero(where_diff), where_diff.size))
         print("First and last mismatch:")
+        # pyre-fixme[6]: For 1st argument expected `float` but got `Tensor`.
         print("Orig:", x[where_diff][0], get_s_e_m(x[where_diff][0]))
         print("y1:  ", y1[where_diff][0], get_s_e_m(y1[where_diff][0]))
         print("y2:  ", y2[where_diff][0], get_s_e_m(y2[where_diff][0]))
         if np.count_nonzero(where_diff) > 1:
             print("--------------------")
+            # pyre-fixme[6]: For 1st argument expected `float` but got `Tensor`.
             print("Orig:", x[where_diff][-1], get_s_e_m(x[where_diff][-1]))
             print("y1:  ", y1[where_diff][-1], get_s_e_m(y1[where_diff][-1]))
             print("y2:  ", y2[where_diff][-1], get_s_e_m(y2[where_diff][-1]))

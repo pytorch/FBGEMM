@@ -171,6 +171,7 @@ class LXUCacheTest(unittest.TestCase):
             use_cpu=False,
         ).long()
 
+        # pyre-fixme[53]: Captured variable `lxu_cache_state` is not annotated.
         def unique_lookup(
             indices: Tensor,
             offsets: Tensor,
@@ -197,6 +198,7 @@ class LXUCacheTest(unittest.TestCase):
 
             return uniq_lxu_cache_locations, uniq_indices_length
 
+        # pyre-fixme[53]: Captured variable `lxu_cache_state` is not annotated.
         def duplicate_lookup(
             indices: Tensor,
             offsets: Tensor,
