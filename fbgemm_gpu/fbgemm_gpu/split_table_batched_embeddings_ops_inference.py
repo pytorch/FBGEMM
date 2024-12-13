@@ -1274,11 +1274,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(1, dtype=torch.int64, device=self.current_device),
                 persistent=False,
             )
-            self.register_buffer(
-                "total_cache_hash_size",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
-                persistent=False,
-            )
+            self.total_cache_hash_size = 0
             self.register_buffer(
                 "cache_index_table_map",
                 torch.zeros(1, dtype=torch.int64, device=self.current_device),
@@ -1563,10 +1559,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ]
 
         self.max_D_cache: int = max(cached_dims) if len(cached_dims) > 0 else 0
-
-        # total_cache_hash_size is sometimes a buffer, sometimes an int
-        # deleting as we may modify the value in _apply_cache_state call
-        del self.total_cache_hash_size
 
         self._apply_cache_state(
             cache_state,
