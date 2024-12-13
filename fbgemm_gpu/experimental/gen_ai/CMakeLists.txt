@@ -54,7 +54,7 @@ gpu_cpp_library(
   PREFIX
     fbgemm_gpu_experimental_gen_ai_py
   TYPE
-    MODULE
+    SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize

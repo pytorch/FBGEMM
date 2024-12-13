@@ -216,7 +216,7 @@ gen_defused_optim_src_files = [
     for optimizer in DEFUSED_OPTIMIZERS
 ]
 
-gen_defused_optim_py_files = [
+gen_py_files_defused_optim = [
     "split_embedding_optimizer_{}.py".format(optimizer)
     for optimizer in DEFUSED_OPTIMIZERS
 ] + ["optimizer_args.py"]
@@ -469,5 +469,33 @@ gen_gpu_files_training = (
     ]
     + [
         "gen_embedding_backward_split_dense.cpp",
+    ]
+)
+
+################################################################################
+# Python Training Code
+################################################################################
+
+gen_py_files_training = (
+    [
+        fstring.format(optimizer)
+        for optimizer in COMMON_OPTIMIZERS + CPU_ONLY_OPTIMIZERS + GPU_ONLY_OPTIMIZERS
+        for fstring in [
+            "lookup_{}.py",
+            "lookup_{}_pt2.py",
+        ]
+    ]
+    + [
+        fstring.format(optimizer)
+        for optimizer in SSD_OPTIMIZERS
+        for fstring in [
+            "lookup_{}_ssd.py",
+            "lookup_{}_ssd_pt2.py",
+        ]
+    ]
+    + [
+        "__init__.py",
+        "lookup_args.py",
+        "lookup_args_ssd.py",
     ]
 )

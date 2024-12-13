@@ -54,7 +54,7 @@ gpu_cpp_library(
   PREFIX
     fbgemm_gpu_tbe_inference
   TYPE
-    MODULE
+    SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
   CPU_SRCS
