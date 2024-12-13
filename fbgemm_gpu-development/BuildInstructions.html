@@ -479,7 +479,7 @@ inside a Conda environment.</p>
 <h3>Set Up the Conda Environment<a class="headerlink" href="#set-up-the-conda-environment" title="Permalink to this heading">¶</a></h3>
 <p>Create a Conda environment with the specified Python version:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">env_name</span><span class="o">=</span>&lt;ENV<span class="w"> </span>NAME&gt;
-<span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.12
+<span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.13
 
 <span class="c1"># Create the environment</span>
 conda<span class="w"> </span>create<span class="w"> </span>-y<span class="w"> </span>--name<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_version</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -839,8 +839,8 @@ Python platform name must first be properly set:</p>
 <span class="nb">export</span><span class="w"> </span><span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_<span class="o">{</span>cpu,<span class="w"> </span>cuda,<span class="w"> </span>rocm<span class="o">}</span>
 
 <span class="c1"># Set the Python version tag.  It should follow the convention `py&lt;major&gt;&lt;minor&gt;`,</span>
-<span class="c1"># e.g. Python 3.12 --&gt; py312</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">python_tag</span><span class="o">=</span>py312
+<span class="c1"># e.g. Python 3.13 --&gt; py313</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_tag</span><span class="o">=</span>py313
 
 <span class="c1"># Determine the processor architecture</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
