@@ -16,6 +16,7 @@ import numpy.typing as npt
 import torch
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+# pyre-fixme[35]: Target cannot be annotated.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 try:

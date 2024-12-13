@@ -22,6 +22,7 @@ from . import common  # noqa E402
 #  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 
+# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable, optests, symint_vector_unsupported
