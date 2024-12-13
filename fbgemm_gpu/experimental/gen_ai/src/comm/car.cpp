@@ -101,24 +101,47 @@ void nccl_comm_init_rank(
       "ncclCommInitRank");
 }
 
+ncclDataType_t to_nccl_data_type(c10::ScalarType type) {
+  switch (type) {
+    case at::kFloat:
+      return ncclDataType_t::ncclFloat;
+    case at::kHalf:
+      return ncclDataType_t::ncclHalf;
+    case at::kDouble:
+      return ncclDataType_t::ncclDouble;
+    case at::kLong:
+      return ncclDataType_t::ncclInt64;
+    case at::kInt:
+      return ncclDataType_t::ncclInt;
+    case at::kChar:
+      return ncclDataType_t::ncclChar;
+    case at::kByte:
+      return ncclDataType_t::ncclUint8;
+    case at::kBool:
+      return ncclDataType_t::ncclUint8;
+#if defined(USE_ROCM)
+    case at::kFloat8_e4m3fnuz:
+      return ncclDataType_t::ncclUint8;
+    case at::kFloat8_e5m2fnuz:
+      return ncclDataType_t::ncclUint8;
+#else
+    case at::kFloat8_e4m3fn:
+      return ncclDataType_t::ncclUint8;
+    case at::kFloat8_e5m2:
+      return ncclDataType_t::ncclUint8;
+#endif
+    case at::kBFloat16:
+      return ncclDataType_t::ncclBfloat16;
+    default:
+      TORCH_CHECK(false, "Unconvertible NCCL type ", type);
+  }
+}
+
 void nccl_allgather(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
   TORCH_CHECK(src.is_contiguous());
   TORCH_CHECK(dst.is_contiguous());
-  ncclDataType_t type;
-  switch (src.scalar_type()) {
-    case at::kFloat:
-      type = ncclDataType_t::ncclFloat;
-      break;
-    case at::kHalf:
-      type = ncclDataType_t::ncclHalf;
-      break;
-    case at::kBFloat16:
-      type = ncclDataType_t::ncclBfloat16;
-      break;
-    default:
-      TORCH_CHECK(false, "unsupported type: ", src.scalar_type());
-  }
+  ncclDataType_t type = to_nccl_data_type(src.scalar_type());
   C10D_NCCL_CHECK(
       ncclAllGather(
           src.data_ptr(),
