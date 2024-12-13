@@ -73,7 +73,7 @@ jobs:
           { arch: x86, instance: "linux.4xlarge" },
           { arch: arm, instance: "linux.arm64.2xlarge" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -143,7 +143,7 @@ jobs:
           { arch: x86, instance: "linux.4xlarge", timeout: 20 },
           { arch: arm, instance: "linux.arm64.2xlarge", timeout: 30 },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 

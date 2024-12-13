@@ -64,7 +64,7 @@ jobs:
           { arch: x86, instance: "linux.4xlarge", timeout: 20 },
           { arch: arm, instance: "linux.arm64.2xlarge", timeout: 30 },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
 
     steps:
     - name: Setup Build Container
@@ -120,7 +120,7 @@ jobs:
         host-machine: [
           { instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1" ]
 
     steps:
@@ -185,7 +185,7 @@ jobs:
           { arch: x86, instance: "rocm" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
-        python-version: [ "3.11", "3.12" ]
+        python-version: [ "3.11", "3.12", "3.13" ]
         rocm-version: [ "6.1.2", "6.2.4" ]
 
     steps:

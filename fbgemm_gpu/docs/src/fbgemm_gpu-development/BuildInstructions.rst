@@ -61,7 +61,7 @@ Create a Conda environment with the specified Python version:
 .. code:: sh
 
   env_name=<ENV NAME>
-  python_version=3.12
+  python_version=3.13
 
   # Create the environment
   conda create -y --name ${env_name} python="${python_version}"
@@ -499,8 +499,8 @@ Python platform name must first be properly set:
   export package_name=fbgemm_gpu_{cpu, cuda, rocm}
 
   # Set the Python version tag.  It should follow the convention `py<major><minor>`,
-  # e.g. Python 3.12 --> py312
-  export python_tag=py312
+  # e.g. Python 3.13 --> py313
+  export python_tag=py313
 
   # Determine the processor architecture
   export ARCH=$(uname -m)

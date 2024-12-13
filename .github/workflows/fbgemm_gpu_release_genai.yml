@@ -70,7 +70,7 @@ jobs:
         host-machine: [
           { arch: x86, instance: "linux.24xlarge" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1" ]
 
     steps:
@@ -143,7 +143,7 @@ jobs:
         host-machine: [
           { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1" ]
     needs: build_artifact
 
