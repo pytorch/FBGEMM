@@ -8,6 +8,10 @@
 # Fetch All Sources
 ################################################################################
 
+# Common
+get_tbe_sources_list(static_cpu_files_common)
+get_tbe_sources_list(static_gpu_files_common)
+
 # Optimizers
 get_tbe_sources_list(gen_defused_optim_src_files)
 handle_genfiles_rocm(gen_defused_optim_src_files)
@@ -18,24 +22,28 @@ get_tbe_sources_list(gen_gpu_files_forward_split)
 handle_genfiles_rocm(gen_cpu_files_forward_split)
 handle_genfiles_rocm(gen_gpu_files_forward_split)
 
+# Backward Split
+get_tbe_sources_list(static_cpu_files_training)
+get_tbe_sources_list(gen_cpu_files_training)
+get_tbe_sources_list(gen_gpu_files_training)
+handle_genfiles_rocm(gen_cpu_files_training)
+handle_genfiles_rocm(gen_gpu_files_training)
+
 # Index Select
 get_tbe_sources_list(static_cpu_files_index_select)
 get_tbe_sources_list(static_gpu_files_index_select)
 get_tbe_sources_list(gen_gpu_files_index_select)
 handle_genfiles_rocm(gen_gpu_files_index_select)
 
-# Backward Split
-get_tbe_sources_list(static_cpu_files_training)
-get_tbe_sources_list(static_cpu_files_common)
-get_tbe_sources_list(static_gpu_files_common)
-get_tbe_sources_list(gen_cpu_files_training)
-get_tbe_sources_list(gen_gpu_files_training)
-handle_genfiles_rocm(gen_cpu_files_training)
-handle_genfiles_rocm(gen_gpu_files_training)
+# Generated Python sources
+get_tbe_sources_list(gen_py_files_training)
+get_tbe_sources_list(gen_py_files_defused_optim)
+handle_genfiles(gen_py_files_training)
+handle_genfiles(gen_py_files_defused_optim)
 
 
 ################################################################################
-# TBE Training Targets
+# TBE C++ Training Targets
 ################################################################################
 
 gpu_cpp_library(
@@ -118,18 +126,32 @@ gpu_cpp_library(
 
 gpu_cpp_library(
   PREFIX
-    fbgemm_gpu_tbe_training
+    fbgemm_gpu_tbe_training_forward
   TYPE
-    MODULE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    ${gen_cpu_files_forward_split}
+  GPU_SRCS
+    ${gen_gpu_files_forward_split}
+  GPU_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward
+  TYPE
+    SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
   CPU_SRCS
     ${static_cpu_files_training}
     ${gen_cpu_files_training}
-    ${gen_cpu_files_forward_split}
   GPU_SRCS
     ${gen_gpu_files_training}
-    ${gen_gpu_files_forward_split}
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
@@ -161,3 +183,14 @@ gpu_cpp_library(
     fbgemm_gpu_tbe_utils
   DESTINATION
     fbgemm_gpu)
+
+
+################################################################################
+# TBE Python Targets
+################################################################################
+
+install(FILES ${gen_py_files_training}
+  DESTINATION fbgemm_gpu/split_embedding_codegen_lookup_invokers)
+
+install(FILES ${gen_py_files_defused_optim}
+  DESTINATION fbgemm_gpu/split_embedding_optimizer_codegen)

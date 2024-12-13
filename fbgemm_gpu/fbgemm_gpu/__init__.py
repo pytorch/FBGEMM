@@ -35,38 +35,27 @@ except Exception:
     __variant__: str = "INTERNAL"
     __version__: str = "INTERNAL"
 
+fbgemm_gpu_libraries = [
+    "fbgemm_gpu_config",
+    "fbgemm_gpu_tbe_utils",
+    "fbgemm_gpu_tbe_index_select",
+    "fbgemm_gpu_tbe_optimizers",
+    "fbgemm_gpu_tbe_inference",
+    "fbgemm_gpu_tbe_training_forward",
+    "fbgemm_gpu_tbe_training_backward",
+    "fbgemm_gpu_py",
+]
+
 libraries_to_load = {
-    "cpu": [
-        "fbgemm_gpu_config",
-        "fbgemm_gpu_tbe_utils",
-        "fbgemm_gpu_tbe_index_select",
-        "fbgemm_gpu_tbe_optimizers",
-        "fbgemm_gpu_tbe_inference",
-        "fbgemm_gpu_tbe_training",
-        "fbgemm_gpu_py",
-    ],
-    "cuda": [
-        "fbgemm_gpu_config",
-        "fbgemm_gpu_tbe_utils",
-        "fbgemm_gpu_tbe_index_select",
-        "fbgemm_gpu_tbe_optimizers",
-        "fbgemm_gpu_tbe_inference",
-        "fbgemm_gpu_tbe_training",
-        "fbgemm_gpu_py",
+    "cpu": fbgemm_gpu_libraries,
+    "cuda": fbgemm_gpu_libraries
+    + [
         "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py",
     ],
     "genai": [
         "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py",
     ],
-    "rocm": [
-        "fbgemm_gpu_config",
-        "fbgemm_gpu_tbe_utils",
-        "fbgemm_gpu_tbe_index_select",
-        "fbgemm_gpu_tbe_optimizers",
-        "fbgemm_gpu_tbe_inference",
-        "fbgemm_gpu_tbe_training",
-        "fbgemm_gpu_py",
-    ],
+    "rocm": fbgemm_gpu_libraries,
 }
 
 for library in libraries_to_load.get(__variant__, []):
