@@ -103,7 +103,9 @@ template <
     ck::BlockGemmPipelineScheduler LOOP_SCHED,
     ck::BlockGemmPipelineVersion PIPELINE_VERSION,
     ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
-        ck::tensor_operation::device::GemmSpecialization::MNPadding>
+        ck::tensor_operation::device::GemmSpecialization::MNPadding,
+    ck::index_t AReadVecLength = 16,
+    ck::index_t BReadVecLength = 16>
 using DeviceGemmHelper =
     ck::tensor_operation::device::DeviceGemmMultiD_Xdl_CShuffle_V3<
         ALayout,
@@ -134,14 +136,14 @@ using DeviceGemmHelper =
         S<1, 0, 2>,
         S<1, 0, 2>,
         2,
-        16,
+        AReadVecLength,
         16,
         0,
         BBLOCK_TRANSFER,
         S<1, 0, 2>,
         S<1, 0, 2>,
         2,
-        16,
+        BReadVecLength,
         16,
         0,
         CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
