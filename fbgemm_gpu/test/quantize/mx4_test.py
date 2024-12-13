@@ -34,6 +34,7 @@ from .mx.common import (
     check_diff_quantize,
 )
 
+# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable

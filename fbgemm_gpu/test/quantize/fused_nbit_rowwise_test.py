@@ -25,6 +25,7 @@ from .common import (
     open_source,
 )
 
+# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available, optests
