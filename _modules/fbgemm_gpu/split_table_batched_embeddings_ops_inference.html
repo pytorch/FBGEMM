@@ -452,11 +452,14 @@
     <span class="n">construct_cache_state</span><span class="p">,</span>
     <span class="n">DEFAULT_SCALE_BIAS_SIZE_IN_BYTES</span><span class="p">,</span>
     <span class="n">EmbeddingLocation</span><span class="p">,</span>
+    <span class="n">EmbeddingSpecInfo</span><span class="p">,</span>
+    <span class="n">get_new_embedding_location</span><span class="p">,</span>
     <span class="n">MAX_PREFETCH_DEPTH</span><span class="p">,</span>
     <span class="n">PoolingMode</span><span class="p">,</span>
     <span class="n">RecordCacheMetrics</span><span class="p">,</span>
     <span class="n">round_up</span><span class="p">,</span>
     <span class="n">SplitState</span><span class="p">,</span>
+    <span class="n">tensor_to_device</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">fbgemm_gpu.utils.loader</span> <span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
 
@@ -819,6 +822,9 @@
         <span class="c1"># (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)</span>
         <span class="c1"># Pyre workaround</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">feature_names</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">embedding_specs</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache_load_factor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">cache_load_factor</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache_sets</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">cache_sets</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cache_reserved_memory</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">cache_reserved_memory</span>
         <span class="n">rows</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">embedding_specs</span><span class="p">]</span>
         <span class="n">dims</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">embedding_specs</span><span class="p">]</span>
         <span class="n">weights_tys</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">SparseType</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">embedding_specs</span><span class="p">]</span>
@@ -1695,11 +1701,7 @@
                 <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                 <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
             <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
-                <span class="s2">&quot;total_cache_hash_size&quot;</span><span class="p">,</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
-                <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">total_cache_hash_size</span> <span class="o">=</span> <span class="mi">0</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
                 <span class="s2">&quot;cache_index_table_map&quot;</span><span class="p">,</span>
                 <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
@@ -1887,6 +1889,111 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_state</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_state</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep_counter</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">move_to_device_with_cache</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">cache_load_factor</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Moves the TBE to the specified device, and updates the cache state accordingly.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span> <span class="o">==</span> <span class="n">device</span>
+            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_load_factor</span> <span class="o">==</span> <span class="n">cache_load_factor</span>
+        <span class="p">):</span>
+            <span class="k">return</span>
+
+        <span class="n">location</span> <span class="o">=</span> <span class="n">get_new_embedding_location</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">cache_load_factor</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">!=</span> <span class="s2">&quot;cpu&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">use_cpu</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="n">weights</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">split_embedding_weights</span><span class="p">()</span>
+        <span class="n">is_meta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;meta&quot;</span>
+        <span class="n">index_remapping_array</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+        <span class="n">index_remappings_array_offsets</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+        <span class="n">original_rows_per_table</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_meta</span><span class="p">:</span>
+            <span class="c1"># Record weights and pruning tensors for setting</span>
+            <span class="c1"># weights and pruning tensors for TBE on new device</span>
+            <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">weight</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">weights</span><span class="p">):</span>
+                    <span class="n">weights</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">weight</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+                        <span class="n">weight</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">)</span> <span class="k">if</span> <span class="n">weight</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="p">)</span>
+            <span class="p">(</span>
+                <span class="n">index_remapping_array</span><span class="p">,</span>
+                <span class="n">index_remappings_array_offsets</span><span class="p">,</span>
+                <span class="n">original_rows_per_table</span><span class="p">,</span>
+            <span class="p">)</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array_offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">original_rows_per_table</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+            <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset_weights_placements_and_offsets</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">location</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">recompute_module_buffers</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weight_initialized</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialize_weights</span><span class="p">()</span>
+
+        <span class="c1"># Ensure all weights are on the same device</span>
+        <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">!=</span> <span class="s2">&quot;cpu&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weights_host</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">location</span> <span class="o">!=</span> <span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">DEVICE</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">weights_dev</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">buf</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">named_buffers</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">buf</span><span class="o">.</span><span class="n">is_meta</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">tensor_to_device</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="n">device</span><span class="p">))</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span> <span class="o">=</span> <span class="n">device</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">is_meta</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assign_embedding_weights</span><span class="p">(</span><span class="n">weights</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array</span> <span class="o">=</span> <span class="n">index_remapping_array</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">index_remappings_array_offsets</span> <span class="o">=</span> <span class="n">index_remappings_array_offsets</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">original_rows_per_table</span> <span class="o">=</span> <span class="n">original_rows_per_table</span>
+
+        <span class="k">if</span> <span class="n">cache_load_factor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">update_cache_load_factor</span><span class="p">(</span><span class="n">cache_load_factor</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">update_cache_load_factor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache_load_factor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Updates cache_load_factor and embedding location for weights after TBE has already been initialized</span>
+<span class="sd">        Assumes that the location of the weights is already set correctly</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">embedding_spec</span><span class="p">[</span><span class="n">EmbeddingSpecInfo</span><span class="o">.</span><span class="n">rows</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">embedding_spec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span>
+        <span class="p">]</span>
+        <span class="n">locations</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">embedding_spec</span><span class="p">[</span><span class="n">EmbeddingSpecInfo</span><span class="o">.</span><span class="n">embedding_location</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">embedding_spec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span>
+        <span class="p">]</span>
+        <span class="c1"># pyre-ignore[6]</span>
+        <span class="n">cache_state</span> <span class="o">=</span> <span class="n">construct_cache_state</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">locations</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">)</span>
+
+        <span class="n">cached_dims</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">rounded_row_size_in_bytes</span><span class="p">(</span>
+                <span class="n">embedding_spec</span><span class="p">[</span><span class="n">EmbeddingSpecInfo</span><span class="o">.</span><span class="n">dims</span><span class="p">],</span>  <span class="c1"># pyre-ignore[6]</span>
+                <span class="n">embedding_spec</span><span class="p">[</span><span class="n">EmbeddingSpecInfo</span><span class="o">.</span><span class="n">sparse_type</span><span class="p">],</span>  <span class="c1"># pyre-ignore[6]</span>
+                <span class="mi">16</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">scale_bias_size_in_bytes</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">embedding_spec</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span>
+            <span class="k">if</span> <span class="n">embedding_spec</span><span class="p">[</span><span class="n">EmbeddingSpecInfo</span><span class="o">.</span><span class="n">embedding_location</span><span class="p">]</span>
+            <span class="o">==</span> <span class="n">EmbeddingLocation</span><span class="o">.</span><span class="n">MANAGED_CACHING</span>
+        <span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_D_cache</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">cached_dims</span><span class="p">)</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cached_dims</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_apply_cache_state</span><span class="p">(</span>
+            <span class="n">cache_state</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cache_algorithm</span><span class="p">,</span>
+            <span class="n">cache_load_factor</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cache_sets</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cache_reserved_memory</span><span class="p">,</span>
+        <span class="p">)</span>
 
 <div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.split_embedding_weights_with_scale_bias"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.split_embedding_weights_with_scale_bias">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
     <span class="k">def</span> <span class="nf">split_embedding_weights_with_scale_bias</span><span class="p">(</span>
