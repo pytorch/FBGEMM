@@ -59,12 +59,16 @@ function(prepend_filepaths)
   set(${args_OUTPUT} ${${args_OUTPUT}} PARENT_SCOPE)
 endfunction()
 
+macro(handle_genfiles variable)
+  prepend_filepaths(
+    PREFIX ${CMAKE_BINARY_DIR}
+    INPUT ${${variable}}
+    OUTPUT ${variable})
+endmacro()
+
 macro(handle_genfiles_rocm variable)
   if(USE_ROCM)
-    prepend_filepaths(
-      PREFIX ${CMAKE_BINARY_DIR}
-      INPUT ${${variable}}
-      OUTPUT ${variable})
+    handle_genfiles(${variable})
   endif()
 endmacro()
 
