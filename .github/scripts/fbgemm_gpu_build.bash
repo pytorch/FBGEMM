@@ -311,7 +311,7 @@ __build_fbgemm_gpu_set_python_tag () {
   # shellcheck disable=SC2206
   local python_version_arr=(${python_version[1]//./ })
 
-  # Set the python tag (e.g. Python 3.12 --> py312)
+  # Set the python tag (e.g. Python 3.13 --> py313)
   export python_tag="py${python_version_arr[0]}${python_version_arr[1]}"
   echo "[BUILD] Extracted and set Python tag: ${python_tag}"
 }

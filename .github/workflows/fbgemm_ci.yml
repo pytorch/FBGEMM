@@ -57,7 +57,7 @@ jobs:
       run: . $PRELUDE; setup_miniconda $HOME/miniconda
 
     - name: Create Conda Environment
-      run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.12
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.13
 
     - name: Install C/C++ Compilers
       run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
@@ -141,7 +141,7 @@ jobs:
       run: . $PRELUDE; setup_miniconda $HOME/miniconda
 
     - name: Create Conda Environment
-      run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.12
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.13
 
     - name: Install C/C++ Compilers
       run: . $PRELUDE; GCC_VERSION=10.4.0 install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
