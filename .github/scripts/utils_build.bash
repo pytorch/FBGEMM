@@ -147,6 +147,51 @@ __conda_install_gcc () {
   fi
 }
 
+__remove_gcc_activation_scripts () {
+  # NOTE: The following hack describes a peculiar issue that exists with
+  # building FBGEMM with a combination of CUDA + Clang.
+  #
+  # When installing Clang, we also install libstdc++ - this is because NVCC does
+  # not work at all with libc++.  The most reliable way to install libstdc++
+  # using Conda is through installing the whole gcc package.
+  #
+  # Herein lies the problem.  It turns out that environment variables can be
+  # sticky" i.e. they are reset with each invocation of Conda through activation
+  # scripts in ${CONDA_PREFIX}/etc/conda/activate.d/.  This happens to be the
+  # case with CC and CXX after gcc is installed.  See
+  #   https://github.com/conda-forge/ctng-compiler-activation-feedstock/blob/main/recipe/activate-gcc.sh
+  #   https://github.com/conda-forge/ctng-compiler-activation-feedstock/blob/main/recipe/activate-g%2B%2B.sh
+  #
+  # When we build under CUDA + Clang, we have to set NVCC_PREPEND_FLAGS to point
+  # out Clang as the host compiler.  But CUDA, as of 12.6+, also comes with its
+  # own activation scripts, where NVCC_PREPEND_FLAGS is set to point out CXX as
+  # the host compiler.  See
+  #   https://github.com/conda-forge/cuda-nvcc-feedstock/issues/20
+  #   https://github.com/conda-forge/cuda-nvcc-feedstock/blob/main/recipe/activate.sh
+  #
+  # Combining these two phenomenon, it becomes impossible to actually set Clang
+  # as the host compiler in CUDA 12.6+.
+  #
+  # And so the workaround is to delete the activation scripts for gcc, since we
+  # only need gcc for the presence of libstdc++ when we build using Clang.
+  #   https://stackoverflow.com/questions/64289376/how-to-circumvent-anaconda-gcc-compiler
+  #
+  # But deleting the activation scripts messes up the runtime for tests, since
+  # torch dynamo relies on the presence of gcc for compiling kernels on the fly.
+  # Hence, the removal of the scripts is done only when the setup is for
+  # building using CUDA + Clang.
+  #
+  # shellcheck disable=SC2155,SC2086
+  if [ "$BUILD_WORKFLOW_STAGE" == "build" ]; then
+    if [ "$BUILD_VARIANT" == "cuda" ] || [ "$BUILD_VARIANT" == "genai" ]; then
+      echo "[INSTALL] Removing GCC package activation scripts ..."
+      local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+      print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gcc_linux-${archname}.sh
+      print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gxx_linux-${archname}.sh
+    fi
+  fi
+}
+
 __conda_install_clang () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
@@ -173,16 +218,22 @@ __conda_install_clang () {
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} which clang++)
 
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} CC="${cc_path}"
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} CXX="${cxx_path}"
-
   # Set the symlinks, override if needed
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
+
+  # Remove the Conda activations scripts for gcc; see comments in the method for details
+  __remove_gcc_activation_scripts
+
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CC="${cc_path}"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CXX="${cxx_path}"
+
+  print_exec conda run ${env_prefix} printenv CC
+  print_exec conda run ${env_prefix} printenv CXX
 
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
@@ -316,6 +367,7 @@ install_build_tools () {
   # LibMambaUnsatisfiableError: Encountered problems while solving:
   #   - package build-0.10.0-py310h06a4308_0 requires python >=3.10,<3.11.0a0, but none of the providers can be installed
   #
+  # shellcheck disable=SC2086
   (exec_with_retries 3 conda run ${env_prefix} pip install \
     build) || return 1
 

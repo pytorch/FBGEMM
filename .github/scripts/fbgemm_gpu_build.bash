@@ -92,7 +92,7 @@ __configure_fbgemm_gpu_build_nvcc () {
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
   else
-    # `-stdlib=libstdc++` doesn't exist for GCC
+    # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
     local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
   fi
 

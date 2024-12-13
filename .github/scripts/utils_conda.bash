@@ -102,7 +102,6 @@ __handle_pyopenssl_version_issue () {
   # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
   echo "[SETUP] Testing pyOpenSSL import ..."
   (test_python_import_package "${env_name}" OpenSSL) || return 1
-
 }
 
 __handle_libcrypt_header_issue () {
