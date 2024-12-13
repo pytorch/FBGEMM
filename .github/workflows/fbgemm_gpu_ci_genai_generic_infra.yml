@@ -59,7 +59,7 @@ jobs:
         host-machine: [
           { arch: x86, instance: "ubuntu-latest" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1" ]
         compiler: [ "gcc", "clang" ]
 
@@ -146,7 +146,7 @@ jobs:
         host-machine: [
           { arch: x86, instance: "ubuntu-latest" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1" ]
         # Specify exactly ONE CUDA version for artifact publish
         cuda-version-publish: [ "12.4.1" ]
