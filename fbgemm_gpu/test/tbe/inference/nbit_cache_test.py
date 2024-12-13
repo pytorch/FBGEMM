@@ -18,7 +18,10 @@ import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     EmbeddingLocation,
+    EmbeddingSpecInfo,
+    get_new_embedding_location,
     RecordCacheMetrics,
+    tensor_to_device,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
@@ -418,6 +421,74 @@ class NBitCacheTest(unittest.TestCase):
                 self.assertEqual(num_conflict_unique_miss, e[0])
                 accum_num_conflict_miss += e[1]
                 self.assertEqual(num_conflict_miss, accum_num_conflict_miss)
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        device_to_str=st.sampled_from(["cuda", "cpu"]),
+        cache_load_factor=st.floats(min_value=0.0, max_value=1.0),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=1, deadline=None)
+    def test_nbit_move_to_device_with_cache(
+        self,
+        device_to_str: str,
+        cache_load_factor: float,
+    ) -> None:
+        # Create an abstract split table
+        D = 8
+        T = 2
+        E = 10**3
+        Ds = [D] * T
+        Es = [E] * T
+        cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    SparseType.INT8,
+                    EmbeddingLocation.MANAGED_CACHING,
+                )
+                for (E, D) in zip(Es, Ds)
+            ],
+            device=torch.cuda.current_device(),
+            gather_uvm_cache_stats=True,
+            cache_assoc=1,  # Direct Mapped
+        )
+        cc.fill_random_weights()
+
+        default_uvm_tensor = cc.weights_uvm.clone()
+
+        emb_location = get_new_embedding_location(
+            torch.device(device_to_str), cache_load_factor
+        )
+
+        cc.move_to_device_with_cache(
+            torch.device(device_to_str), cache_load_factor=cache_load_factor
+        )
+
+        all_emb_locations = [
+            es[EmbeddingSpecInfo.embedding_location] for es in cc.embedding_specs
+        ]
+        self.assertTrue(all(emb_location == loc for loc in all_emb_locations))
+
+        self.assertTrue(cc.current_device == torch.device(device_to_str))
+        other_tensor: torch.Tensor
+        if emb_location == EmbeddingLocation.DEVICE:
+            other_tensor = cc.weights_dev.clone()
+        elif (
+            emb_location == EmbeddingLocation.MANAGED
+            or emb_location == EmbeddingLocation.MANAGED_CACHING
+        ):
+            other_tensor = cc.weights_uvm.clone()
+        else:  # emb_location == EmbeddingLocation.HOST
+            other_tensor = cc.weights_host.clone()
+
+        self.assertEqual(len(default_uvm_tensor), len(other_tensor))
+
+        # Move tensor for comparison
+        tensor_to_device(other_tensor, torch.device(device_to_str))
+        for i in range(len(default_uvm_tensor)):
+            self.assertTrue(torch.equal(default_uvm_tensor[i], other_tensor[i]))
 
 
 if __name__ == "__main__":
