@@ -26,7 +26,7 @@ gpu_cpp_library(
     PREFIX
         fbgemm_gpu_experimental_example_py
     TYPE
-        MODULE
+        SHARED
     INCLUDE_DIRS
         ${fbgemm_sources_include_directories}
     GPU_SRCS
