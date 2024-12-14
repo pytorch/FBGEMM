@@ -46,9 +46,6 @@ install_cuda () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  # Reset CC and CXX to bc $CONDA_PREFIX/bin/cc and $CONDA_PREFIX/bin/c++, respectively
-  # reset_cxx_symlinks "${env_name}"
-
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
   # shellcheck disable=SC2086
@@ -92,9 +89,6 @@ install_cuda () {
   local nvcc_prepend_flags=(
     -allow-unsupported-compiler
   )
-
-  # Reset CC and CXX to bc $CONDA_PREFIX/bin/cc and $CONDA_PREFIX/bin/c++, respectively
-  # reset_cxx_symlinks "${env_name}"
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
