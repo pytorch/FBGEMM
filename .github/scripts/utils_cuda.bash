@@ -49,10 +49,8 @@ install_cuda () {
   # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c "nvidia/label/cuda-${cuda_version}" -y \
-    cuda \
-    cuda-libraries-dev\
-    cuda-toolkit) || return 1
+  # (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c "nvidia/label/cuda-${cuda_version}" -y cuda) || return 1
+  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge -y "cuda=${cuda_version}") || return 1
 
   # Ensure that nvcc is properly installed
   (test_binpath "${env_name}" nvcc) || return 1
