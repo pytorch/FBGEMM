@@ -14,6 +14,7 @@ import itertools
 import logging
 import os
 import tempfile
+import time
 from math import log2
 from typing import Any, Callable, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
@@ -146,6 +147,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Set to False to use cudaMallocManaged
         uvm_host_mapped: bool = False,
         enable_async_update: bool = True,  # whether enable L2/rocksdb write to async background thread
+        # if > 0, insert all kv pairs to rocksdb at init time, in chunks of *bulk_init_chunk_size* rows
+        bulk_init_chunk_size: int = 0,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -203,6 +206,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         logging.info(
             f"TBE will allocate a UVM buffer with is_host_mapped={uvm_host_mapped}"
         )
+        self.bulk_init_chunk_size = bulk_init_chunk_size
 
         # Buffers for bounds check
         self.register_buffer(
@@ -238,7 +242,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"Desired L0 files per compaction: {ssd_l0_files_per_compact}, "
             f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
             f"weights precision: {weights_precision}, "
-            f"output dtype: {output_dtype}"
+            f"output dtype: {output_dtype}, "
+            f"chunk size in bulk init: {bulk_init_chunk_size} rows"
         )
         self.register_buffer(
             "lxu_cache_state",
@@ -462,6 +467,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 l2_cache_size,
                 enable_async_update,
             )
+            if self.bulk_init_chunk_size > 0:
+                self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
+                self.ssd_uniform_init_upper: float = ssd_uniform_init_upper
+                self._insert_all_kv()
         else:
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
@@ -698,6 +707,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.l2_num_cache_evictions_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_free_mem_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_capacity_stats_name)
+
+    @torch.jit.ignore
+    def _insert_all_kv(self) -> None:
+        """
+        Populate all rows in the ssd TBE with random weights. Existing keys will
+        be effectively overwritten. This function should only be called once at
+        initailization time.
+        """
+        row_offset = 0
+        chunk_size = self.bulk_init_chunk_size
+        total_dim0 = 0
+        for dim0, _ in self.embedding_specs:
+            total_dim0 += dim0
+        start_ts = time.time()
+        chunk_tensor = torch.empty(
+            chunk_size,
+            self.max_D,
+            dtype=self.weights_precision.as_dtype(),
+            device="cuda",
+        )
+        cpu_tensor = torch.empty_like(chunk_tensor, device="cpu")
+        for row_offset in range(0, total_dim0, chunk_size):
+            actual_dim0 = min(total_dim0 - row_offset, chunk_size)
+            chunk_tensor.uniform_(
+                self.ssd_uniform_init_lower, self.ssd_uniform_init_upper
+            )
+            cpu_tensor.copy_(chunk_tensor, non_blocking=False)
+            rand_val = cpu_tensor[:actual_dim0, :]
+            self.ssd_db.set_range_to_storage(rand_val, row_offset, actual_dim0)
+        end_ts = time.time()
+        elapsed = int((end_ts - start_ts) * 1e6)
+        logging.info(f"TBE bulk initialization took {elapsed:_} us")
 
     @torch.jit.ignore
     def _report_duration(
@@ -1666,7 +1707,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     @torch.jit.export
     def split_embedding_weights(
-        self, no_snapshot: bool = True
+        self,
+        no_snapshot: bool = True,
+        should_flush: bool = False,
     ) -> List[PartiallyMaterializedTensor]:
         """
         This method is intended to be used by the checkpointing engine
@@ -1676,18 +1719,22 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         we would create a KVTensorWrapper (ssd_split_table_batched_embeddings.cpp)
         for each table (shard), which allows caller to read the weights
         using `narrow()` in a rolling-window manner.
+        Args:
+            should_flush (bool): Flush caches if True. Note: this is an expensive
+                                 operation, only set to True when necessary.
 
         Returns:
             a list of partially materialized tensors, each representing a table
         """
         # Force device synchronize for now
         torch.cuda.synchronize()
-        # Flush L1 and L2 caches
-        self.flush()
         # Create a snapshot
         if no_snapshot:
             snapshot_handle = None
         else:
+            if should_flush:
+                # Flush L1 and L2 caches
+                self.flush()
             snapshot_handle = self.ssd_db.create_snapshot()
 
         dtype = self.weights_precision.as_dtype()

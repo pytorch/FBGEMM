@@ -320,6 +320,13 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->set(indices, weights, count);
   }
 
+  void set_range_to_storage(
+      const Tensor& weights,
+      const int64_t start,
+      const int64_t length) {
+    return impl_->set_range_to_storage(weights, start, length);
+  }
+
   void get(Tensor indices, Tensor weights, Tensor count, int64_t sleep_ms) {
     return impl_->get(indices, weights, count, sleep_ms);
   }
@@ -418,12 +425,12 @@ void KVTensorWrapper::set_range(
   CHECK_GE(db_->get_max_D(), shape_[1]);
   int pad_right = db_->get_max_D() - weights.size(1);
   if (pad_right == 0) {
-    db_->set_range(weights, start + row_offset_, length);
+    db_->set_range_to_storage(weights, start + row_offset_, length);
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
     CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
-    db_->set_range(padded_weights, start + row_offset_, length);
+    db_->set_range_to_storage(padded_weights, start + row_offset_, length);
   }
 }
 
@@ -528,6 +535,9 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::get_rocksdb_io_duration)
         .def("get_l2cache_perf", &EmbeddingRocksDBWrapper::get_l2cache_perf)
         .def("set", &EmbeddingRocksDBWrapper::set)
+        .def(
+            "set_range_to_storage",
+            &EmbeddingRocksDBWrapper::set_range_to_storage)
         .def(
             "get",
             &EmbeddingRocksDBWrapper::get,
