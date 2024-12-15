@@ -80,7 +80,7 @@ install_cuda () {
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2155
-  local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
+  local nvml_lib_path=$(find "${conda_prefix}/lib" -name libnvidia-ml.so)
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
 
