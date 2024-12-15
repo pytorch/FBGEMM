@@ -201,9 +201,35 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             tbe_unqiue_id,
             row_storage_bitwidth / 8,
             enable_async_update),
-        max_D_(max_D) {
+        max_D_(max_D),
+        elem_size_(row_storage_bitwidth / 8) {
+    class Int64Comparator : public rocksdb::Comparator {
+     public:
+      const char* Name() const override {
+        return "Int64Comparator";
+      }
+
+      int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b)
+          const override {
+        int64_t key_a = *reinterpret_cast<const int64_t*>(a.data());
+        int64_t key_b = *reinterpret_cast<const int64_t*>(b.data());
+        if (key_a < key_b) {
+          return -1;
+        }
+        if (key_a > key_b) {
+          return 1;
+        }
+        return 0;
+      }
+
+      void FindShortestSeparator(std::string*, const rocksdb::Slice&)
+          const override {}
+      void FindShortSuccessor(std::string*) const override {}
+    };
+
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
+    options.comparator = new Int64Comparator();
     options.create_if_missing = true;
 
     // TODO: probably not very compressible.
@@ -407,7 +433,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
-    return get_kv_db_async_impl(
+    return get_kv_db_async_impl</*use_iterator=*/false>(
         indices,
         weights,
         count,
@@ -533,10 +559,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
 
-    get_kv_db_async_impl(seq_indices, weights, count, snapshot_handle).wait();
+    get_kv_db_async_impl</*use_iterator=*/true>(
+        seq_indices, weights, count, snapshot_handle)
+        .wait();
   }
 
-  void set_range(
+  void set_range_to_storage(
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) {
@@ -662,6 +690,127 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
+  void fill_from_row_storage(
+      int shard_id,
+      unsigned char* weights_data_ptr,
+      int64_t weights_row_index,
+      unsigned char* row_storage_data_ptr) {
+    int64_t row_width = elem_size_ * max_D_;
+    int64_t row_index;
+    initializers_[shard_id]->producer_queue_.dequeue(row_index);
+    std::copy(
+        &(row_storage_data_ptr[row_index * row_width]),
+        &(row_storage_data_ptr[row_index * row_width + row_width]),
+        &(weights_data_ptr[weights_row_index * row_width]));
+    initializers_[shard_id]->consumer_queue_.enqueue(row_index);
+  }
+
+  // use this iterator approach only when the keys in indices are contiguous and
+  // matches the key order as defined by the comparator. i.e. the values
+  // returned by the itertor are not thrown away. in other cases using an
+  // iterator doesn't provide performance benefits.
+  template <typename VALUE_T>
+  void ssd_get_weights_iterator(
+      const std::vector<rocksdb::Slice>& keys,
+      const std::vector<int32_t>& key_indices,
+      VALUE_T* weights_data_ptr,
+      std::vector<rocksdb::ColumnFamilyHandle*>& cfs,
+      int shard_id,
+      rocksdb::ReadOptions local_ro,
+      VALUE_T* row_storage_data_ptr) {
+    auto iterator_ro = local_ro;
+    iterator_ro.total_order_seek = true; // disable prefix filter
+    auto it = dbs_[shard_id]->NewIterator(iterator_ro, cfs[0]);
+
+    it->Seek(keys[0]);
+    for (auto j = 0; j < keys.size(); ++j) {
+      int64_t i = key_indices[j];
+      if (!it->Valid()) {
+        CHECK(it->status().ok());
+        // the iterator reaches the end of the data,
+        // generate a new row on the fly
+        fill_from_row_storage(
+            shard_id,
+            reinterpret_cast<unsigned char*>(weights_data_ptr),
+            i,
+            reinterpret_cast<unsigned char*>(row_storage_data_ptr));
+        continue;
+      }
+
+      const rocksdb::Slice& expected_key = keys[j];
+      if (it->key().compare(expected_key) != 0) {
+        // the row being looked up doesn't exist in
+        // RocksDB, generate a new row on the fly
+        fill_from_row_storage(
+            shard_id,
+            reinterpret_cast<unsigned char*>(weights_data_ptr),
+            i,
+            reinterpret_cast<unsigned char*>(row_storage_data_ptr));
+      } else {
+        const auto value = it->value();
+        if (!std::is_same<VALUE_T, uint8_t>::value) {
+          CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
+        }
+        std::copy(
+            reinterpret_cast<const VALUE_T*>(value.data()),
+            reinterpret_cast<const VALUE_T*>(value.data() + value.size()),
+            &(weights_data_ptr[i * max_D_]));
+
+        it->Next();
+      }
+    }
+
+    delete it;
+  }
+
+  template <typename VALUE_T>
+  void ssd_get_weights_multi_get(
+      const std::vector<rocksdb::Slice>& keys,
+      const std::vector<int32_t>& key_indices,
+      VALUE_T* weights_data_ptr,
+      std::vector<rocksdb::ColumnFamilyHandle*>& cfs,
+      int shard_id,
+      rocksdb::ReadOptions local_ro,
+      VALUE_T* row_storage_data_ptr) {
+    FOLLY_DECLARE_REUSED(values, std::vector<rocksdb::PinnableSlice>);
+    FOLLY_DECLARE_REUSED(statuses, std::vector<rocksdb::Status>);
+    values.resize(keys.size());
+    statuses.resize(keys.size());
+    dbs_[shard_id]->MultiGet(
+        local_ro,
+        keys.size(),
+        cfs.data(),
+        keys.data(),
+        values.data(),
+        statuses.data(),
+        /*sorted_input=*/true);
+    for (auto j = 0; j < keys.size(); ++j) {
+      const auto& s = statuses[j];
+      int64_t i = key_indices[j];
+      const auto& value = values[j];
+      if (s.ok()) {
+        if (!std::is_same<VALUE_T, uint8_t>::value) {
+          CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
+        }
+        std::copy(
+            reinterpret_cast<const VALUE_T*>(value.data()),
+            reinterpret_cast<const VALUE_T*>(value.data() + value.size()),
+            &(weights_data_ptr[i * max_D_]));
+      } else {
+        CHECK(s.IsNotFound());
+        fill_from_row_storage(
+            shard_id,
+            reinterpret_cast<unsigned char*>(weights_data_ptr),
+            i,
+            reinterpret_cast<unsigned char*>(row_storage_data_ptr));
+      }
+    }
+  }
+
+  // use_iterator=true is only efficient when the key sequence being looked up
+  // matches the key sequence matches the key sequence obtained through the
+  // iterator. see the comment for ssd_get_weights_iterator.
+  template <bool use_iterator>
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async_impl(
       const at::Tensor& indices,
       const at::Tensor& weights,
@@ -681,6 +830,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       snapshot_ptr_t snapshot = snapshot_handle == nullptr
           ? nullptr
           : snapshot_handle->get_snapshot_for_shard(shard);
+      auto local_ro = ro_;
+      local_ro.snapshot = snapshot;
       auto f =
           folly::via(executor_.get())
               .thenValue([=, &indices, &weights](folly::Unit) {
@@ -695,11 +846,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             auto indices_data_ptr = indices.data_ptr<index_t>();
                             auto D = weights.size(1);
                             CHECK_EQ(indices.size(0), weights.size(0));
+                            CHECK_EQ(D, max_D_);
                             auto weights_data_ptr = weights.data_ptr<value_t>();
                             FOLLY_DECLARE_REUSED(
                                 keys, std::vector<rocksdb::Slice>);
                             FOLLY_DECLARE_REUSED(
-                                shard_ids, std::vector<int32_t>);
+                                key_indices, std::vector<int32_t>);
                             FOLLY_DECLARE_REUSED(
                                 cfs, std::vector<rocksdb::ColumnFamilyHandle*>);
                             FOLLY_DECLARE_REUSED(
@@ -717,23 +869,17 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                                   shard) {
                                 continue;
                               }
-                              shard_ids.push_back(i);
+                              key_indices.push_back(i);
                             }
                             std::sort(
-                                shard_ids.begin(),
-                                shard_ids.end(),
+                                key_indices.begin(),
+                                key_indices.end(),
                                 [&](int32_t lhs, int32_t rhs) {
-                                  const auto lhs_key = rocksdb::Slice(
-                                      reinterpret_cast<const char*>(
-                                          &(indices_data_ptr[lhs])),
-                                      sizeof(index_t));
-                                  const auto rhs_key = rocksdb::Slice(
-                                      reinterpret_cast<const char*>(
-                                          &(indices_data_ptr[rhs])),
-                                      sizeof(index_t));
-                                  return lhs_key.compare(rhs_key) < 0;
+                                  auto lhs_key = indices_data_ptr[lhs];
+                                  auto rhs_key = indices_data_ptr[rhs];
+                                  return lhs_key < rhs_key;
                                 });
-                            for (const auto& i : shard_ids) {
+                            for (const auto& i : key_indices) {
                               const auto key = rocksdb::Slice(
                                   reinterpret_cast<const char*>(
                                       &(indices_data_ptr[i])),
@@ -741,19 +887,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                               keys.push_back(key);
                               cfs.push_back(dcf);
                             }
-                            CHECK_EQ(shard_ids.size(), keys.size());
-                            CHECK_EQ(shard_ids.size(), cfs.size());
+                            CHECK_EQ(key_indices.size(), keys.size());
+                            CHECK_EQ(key_indices.size(), cfs.size());
 
-                            values.resize(keys.size());
-                            statuses.resize(keys.size());
-                            dbs_[shard]->MultiGet(
-                                ro_,
-                                keys.size(),
-                                cfs.data(),
-                                keys.data(),
-                                values.data(),
-                                statuses.data(),
-                                /*sorted_input=*/true);
                             const auto& init_storage =
                                 initializers_[shard]->row_storage_;
                             // Sanity check
@@ -767,32 +903,24 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                                 ") types mismatch");
                             auto row_storage_data_ptr =
                                 init_storage.data_ptr<value_t>();
-                            for (auto j = 0; j < keys.size(); ++j) {
-                              const auto& s = statuses[j];
-                              int64_t i = shard_ids[j];
-                              const auto& value = values[j];
-                              if (s.ok()) {
-                                if (!std::is_same<value_t, uint8_t>::value) {
-                                  CHECK_EQ(value.size(), D * sizeof(value_t));
-                                }
-                                std::copy(
-                                    reinterpret_cast<const value_t*>(
-                                        value.data()),
-                                    reinterpret_cast<const value_t*>(
-                                        value.data() + value.size()),
-                                    &(weights_data_ptr[i * D]));
-                              } else {
-                                CHECK(s.IsNotFound());
-                                int64_t row_index;
-                                initializers_[shard]->producer_queue_.dequeue(
-                                    row_index);
-                                std::copy(
-                                    &(row_storage_data_ptr[row_index * D]),
-                                    &(row_storage_data_ptr[row_index * D + D]),
-                                    &(weights_data_ptr[i * D]));
-                                initializers_[shard]->consumer_queue_.enqueue(
-                                    row_index);
-                              }
+                            if (use_iterator) {
+                              ssd_get_weights_iterator(
+                                  keys,
+                                  key_indices,
+                                  weights_data_ptr,
+                                  cfs,
+                                  shard,
+                                  local_ro,
+                                  row_storage_data_ptr);
+                            } else {
+                              ssd_get_weights_multi_get(
+                                  keys,
+                                  key_indices,
+                                  weights_data_ptr,
+                                  cfs,
+                                  shard,
+                                  local_ro,
+                                  row_storage_data_ptr);
                             }
                           });
                     });
@@ -829,6 +957,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::unordered_map<const SnapshotHandle*, std::unique_ptr<SnapshotHandle>>
       snapshots_;
   int64_t max_D_;
+  int64_t elem_size_;
 }; // class EmbeddingRocksDB
 
 class EmbeddingRocksDBWrapper;
