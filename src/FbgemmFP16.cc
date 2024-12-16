@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -15,6 +16,9 @@
 #include "./FbgemmFP16UKernelsAvx512.h"
 #include "./FbgemmFP16UKernelsAvx512_256.h"
 #include "./FbgemmFP16UKernelsSve128.h"
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+#include "./KleidiAIFP16UKernelsNeon.h"
+#endif
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
 
@@ -27,12 +31,15 @@ namespace {
 // the restrictions of ymm register numbers (16).
 constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
     nullptr,
+#ifndef __aarch64__
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_4x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_5x2_Avx2_fp16_fA0fB0fC0,
-    gemmkernel_6x2_Avx2_fp16_fA0fB0fC0};
+    gemmkernel_6x2_Avx2_fp16_fA0fB0fC0
+#endif
+};
 
 constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
     nullptr,
@@ -53,8 +60,23 @@ constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
 #endif
 };
 
+constexpr kernel_array_t<float16> kernel_fp16_neon = {
+  nullptr,
+#if defined(__aarch64__) && defined(FBGEMM_ENABLE_KLEIDIAI)
+    kleidiai::gemmkernel_1x1_Neon_fp16_fA0fB0fC0,
+    kleidiai::gemmkernel_2x1_Neon_fp16_fA0fB0fC0,
+    kleidiai::gemmkernel_3x1_Neon_fp16_fA0fB0fC0,
+    kleidiai::gemmkernel_4x1_Neon_fp16_fA0fB0fC0,
+    kleidiai::gemmkernel_5x1_Neon_fp16_fA0fB0fC0,
+    kleidiai::gemmkernel_6x1_Neon_fp16_fA0fB0fC0,
+    kleidiai::gemmkernel_7x1_Neon_fp16_fA0fB0fC0,
+    kleidiai::gemmkernel_8x1_Neon_fp16_fA0fB0fC0,
+#endif
+};
+
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
+#ifndef __aarch64__
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
@@ -68,7 +90,9 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     gemmkernel_11x2_Avx512_256_fp16_fA0fB0fC0,
     gemmkernel_12x2_Avx512_256_fp16_fA0fB0fC0,
     gemmkernel_13x2_Avx512_256_fp16_fA0fB0fC0,
-    gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0};
+    gemmkernel_14x2_Avx512_256_fp16_fA0fB0fC0
+#endif
+};
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
 #ifndef __aarch64__
@@ -104,10 +128,18 @@ const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa, float16) {
       std::make_tuple(kernel_fp16_avx512_256, partition_avx512);
   static isa_descriptor<float16> sve128_descriptor =
       std::make_tuple(kernel_fp16_sve128, partition_sve128);
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+  static isa_descriptor<float16> neon_descriptor =
+      std::make_tuple(kernel_fp16_neon, partition_neon);
+#endif
 
   switch (isa) {
     case inst_set_t::sve:
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+      return neon_descriptor;
+#else
       return sve128_descriptor;
+#endif
     case inst_set_t::anyarch:
     case inst_set_t::avx2:
       return avx2_descriptor;
