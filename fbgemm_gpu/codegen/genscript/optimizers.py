@@ -194,8 +194,12 @@ def rowwise_adagrad() -> Dict[str, Any]:
     at::acc_type<cache_t, true> correction = 0.0;
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
-        momentum1[idx] = new_sum_square_grads;
-        multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        if (!use_delayed_momentum) {
+            momentum1[idx] = new_sum_square_grads;
+            multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+        } else {
+            multiplier = momentum1[idx] > 1e-32 ? learning_rate / (sqrtf(momentum1[idx]) + eps) : learning_rate;
+        }
         if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
@@ -205,6 +209,9 @@ def rowwise_adagrad() -> Dict[str, Any]:
         } else {
             // default value
             correction = 1.0;
+        }
+        if (use_delayed_momentum) {
+            momentum1[idx] = new_sum_square_grads;
         }
     }
     multiplier = SHFL_SYNC(multiplier, 0);
@@ -251,9 +258,10 @@ def rowwise_adagrad() -> Dict[str, Any]:
                 OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
                 OptimItem(ArgType.INT, "weight_decay_mode", 0),
                 OptimItem(ArgType.FLOAT, "max_norm", 0.0),
+                OptimItem(ArgType.INT, "use_delayed_momentum", 0),
             ],
             {
-                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0, float max_norm = 0.0"
+                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0, float max_norm = 0.0, int use_delayed_momentum = 0",
             },
         ),
         "split_precomputation": split_precomputation,
