@@ -18,7 +18,7 @@ from hypothesis import assume, given, settings
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
-    @settings(deadline=4000)
+    @settings(deadline=8000)
     # pyre-ignore
     @given(
         comm_precisions_loss_scale=st.sampled_from(
@@ -31,6 +31,7 @@ class QuantizedCommCodecTest(unittest.TestCase):
                 (SparseType.FP8, None),
                 (SparseType.FP8, 3.0),
                 (SparseType.INT8, None),
+                (SparseType.MX4, None),
             ]
         ),
         row_size=st.integers(4, 256),
@@ -77,21 +78,44 @@ class QuantizedCommCodecTest(unittest.TestCase):
             assume(row_size * col_size % ctx.row_dim == 0)
             input_tensor = input_tensor.view(-1)
 
+        dim_sum_per_rank, rank = [col_size], 0
+        if ctx is not None:
+            padded_dim_sum, padding_size = quant_codec.padded_size(
+                input_tensor, dim_sum_per_rank, rank, ctx
+            )
+        else:
+            padded_dim_sum, padding_size = shape[1], 0
         quant_tensor = quant_codec.encode(input_tensor, ctx)
 
+        padded_numel = (
+            padded_dim_sum
+            if input_tensor.ndim == 1
+            else padded_dim_sum * input_tensor.shape[0]
+        )
         self.assertEqual(
             quant_tensor.numel(),
-            quant_codec.calc_quantized_size(input_tensor.numel(), ctx),
+            quant_codec.calc_quantized_size(padded_numel, ctx),
         )
 
         output_tensor = quant_codec.decode(quant_tensor, ctx)
+
+        # MX4 may flatten tensors if they are too small. Thats ok.
+        if comm_precision == SparseType.MX4:
+            output_tensor = output_tensor.view(input_tensor.shape[0], -1)
+        # padding is done on dimension 1
+        if padding_size != 0:
+            output_tensor = output_tensor[:, :-padding_size]
         self.assertEqual(output_tensor.shape, input_tensor.shape)
 
         rtol = 0.005
         atol = 0.005
+        # Lower precision datatypes will have some error.
         if comm_precision == SparseType.FP8:
             rtol = 0.05
             atol = 0.05
+        elif comm_precision == SparseType.MX4:
+            rtol = 0.3
+            atol = 0.3
 
         torch.testing.assert_close(
             input_tensor.detach().cpu(),

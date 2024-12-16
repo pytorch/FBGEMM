@@ -1,15 +1,18 @@
-[submodule "third_party/asmjit"]
-	path = third_party/asmjit
+[submodule "external/asmjit"]
+	path = external/asmjit
 	url = https://github.com/asmjit/asmjit.git
-[submodule "third_party/cpuinfo"]
-	path = third_party/cpuinfo
+[submodule "external/cpuinfo"]
+	path = external/cpuinfo
 	url = https://github.com/pytorch/cpuinfo
-[submodule "third_party/googletest"]
-	path = third_party/googletest
+[submodule "external/googletest"]
+	path = external/googletest
 	url = https://github.com/google/googletest
-[submodule "third_party/hipify_torch"]
-	path = third_party/hipify_torch
+[submodule "external/hipify_torch"]
+	path = external/hipify_torch
 	url = https://github.com/ROCmSoftwarePlatform/hipify_torch.git
-[submodule "third_party/cutlass"]
-	path = third_party/cutlass
+[submodule "external/cutlass"]
+	path = external/cutlass
 	url = https://github.com/NVIDIA/cutlass.git
+[submodule "external/json"]
+	path = external/json
+	url = https://github.com/nlohmann/json.git

@@ -240,12 +240,11 @@ DLL_PUBLIC void lfu_cache_populate_byte_cuda(
   }
 
   // get unqiue indices
-  Tensor unique_indices;
-  Tensor unique_indices_length;
-  c10::optional<Tensor> unique_indices_count;
-  std::tie(unique_indices, unique_indices_length, unique_indices_count) =
+  auto [unique_indices, unique_indices_length, unique_indices_count] =
       get_unique_indices_cuda(
-          linear_cache_indices, total_cache_hash_size, true);
+          linear_cache_indices,
+          total_cache_hash_size,
+          /*compute_count=*/true);
 
   // update lfu counts
   lfu_update_counts_cuda(

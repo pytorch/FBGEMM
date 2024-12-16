@@ -13,9 +13,12 @@
 #include <torch/library.h>
 #include "ATen/Parallel.h"
 
-#include "fbgemm_gpu/dispatch_macros.h"
+#include "common.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/binary_search_range.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 namespace fbgemm_gpu {
 
@@ -454,7 +457,7 @@ at::Tensor jagged_to_padded_dense_backward(
 Tensor dense_to_jagged_forward(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    c10::optional<at::SymInt> total_L) {
+    std::optional<at::SymInt> total_L) {
   // D is the embedding dimension
   auto D = dense.size(-1);
 
@@ -488,9 +491,9 @@ at::Tensor jagged_dense_dense_elementwise_add_jagged_output_forward(
     const at::Tensor& y_1) {
   // Convert to jagged
   auto jagged_values_0 =
-      dense_to_jagged_forward(y_0, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y_0, x_offsets, std::optional<at::SymInt>());
   auto jagged_values_1 =
-      dense_to_jagged_forward(y_1, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y_1, x_offsets, std::optional<at::SymInt>());
 
   // Add jagged_values + x_values -> sum_values
   auto sum_values = x_values + jagged_values_0 + jagged_values_1;
@@ -635,7 +638,7 @@ Tensor jagged_dense_elementwise_mul_forward(
     const Tensor& y) {
   // Convert to jagged
   auto jagged_values =
-      dense_to_jagged_forward(y, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y, x_offsets, std::optional<at::SymInt>());
 
   // Multiply x_values * jagged_values -> prod_values
   auto prod_values = x_values * jagged_values;
@@ -677,7 +680,7 @@ jagged_dense_elementwise_add_jagged_output_cpu(
     const Tensor& y) {
   // Convert to jagged
   auto jagged_values =
-      dense_to_jagged_forward(y, x_offsets, c10::optional<at::SymInt>());
+      dense_to_jagged_forward(y, x_offsets, std::optional<at::SymInt>());
 
   auto sum_values = x_values + jagged_values;
 
@@ -1131,7 +1134,7 @@ Tensor jagged_index_select_2d_forward_v2_impl(
     const Tensor& indices,
     const Tensor& input_offsets,
     const Tensor& output_offsets,
-    const c10::optional<int64_t> optional_num_dense_output_rows) {
+    const std::optional<int64_t> optional_num_dense_output_rows) {
   // Intentionally not using optional::value_or here to avoid materializing
   // .item() call when possible.
   const auto num_dense_output_rows = optional_num_dense_output_rows.has_value()
@@ -1161,13 +1164,7 @@ Tensor jagged_index_add_2d_forward_v2_impl(
     const Tensor& input_offsets,
     const Tensor& output_offsets,
     const int64_t num_output_rows,
-    const c10::optional<int64_t> optional_num_dense_input_rows) {
-  // Intentionally not using optional::value_or here to avoid materializing
-  // .item() call when possible.
-  int64_t num_dense_input_rows = optional_num_dense_input_rows.has_value()
-      ? optional_num_dense_input_rows.value()
-      : input_offsets[input_offsets.numel() - 1].item<int64_t>();
-
+    const int64_t num_dense_input_rows) {
   static auto v1_op =
       c10::Dispatcher::singleton()
           .findSchemaOrThrow("fbgemm::jagged_index_add_2d_forward", "")
@@ -1603,6 +1600,27 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "fbgemm_gpu.sparse_ops",
       "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
 #endif
+
+  m.set_python_module("fbgemm_gpu.sparse_ops");
+
+  m.def(
+      "keyed_jagged_index_select_dim1_forward("
+      "   Tensor values,"
+      "   Tensor lengths,"
+      "   Tensor offsets,"
+      "   Tensor indices,"
+      "   SymInt batch_size,"
+      "   Tensor? weights,"
+      "   SymInt? selected_lengths_sum) -> Tensor[]");
+
+  m.def(
+      "keyed_jagged_index_select_dim1_backward("
+      "   Tensor grad,"
+      "   Tensor indices,"
+      "   Tensor grad_offsets,"
+      "   Tensor output_offsets,"
+      "   Tensor saved_tensor) -> Tensor");
+
   // (dense, offsets) -> jagged. Offsets output is same as input.
   // SymInt is a new PyTorch 2.0 feature to support dynamic shape. See more
   // details at https://pytorch.org/get-started/pytorch-2.0/#dynamic-shapes. If
@@ -1681,7 +1699,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "jagged_index_add_2d_forward(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, int num_dense_input_rows, int num_output_rows) -> Tensor");
   m.def(
-      "jagged_index_add_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, SymInt num_output_rows, int? num_dense_input_rows) -> Tensor",
+      "jagged_index_add_2d_forward_v2(Tensor values, Tensor indices, Tensor input_offsets, Tensor output_offsets, SymInt num_output_rows, SymInt num_dense_input_rows) -> Tensor",
       {PT2_COMPLIANT_TAG});
   m.def(
       "jagged_1d_to_truncated_values(Tensor values, Tensor lengths, int max_truncated_length) -> Tensor");

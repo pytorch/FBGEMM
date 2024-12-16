@@ -65,21 +65,67 @@ __conda_install_glibc () {
   echo "[INSTALL] Installing GLIBC (architecture = ${archname}) ..."
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y "sysroot_linux-${archname}"=2.17) || return 1
+
+  echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
+  # Ensure libstdc++.so.6 is found
+  # shellcheck disable=SC2153
+  if [ "${CONDA_PREFIX}" == '' ]; then
+    echo "[CHECK] CONDA_PREFIX is not set."
+    (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
+  else
+    (test_filepath "${CONDA_PREFIX}" 'libstdc++.so.6') || return 1
+  fi
+
+}
+
+__set_glibcxx_preload () {
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+
+  echo "[TEST] Enumerating libstdc++.so files ..."
+  # shellcheck disable=SC2155
+  local all_libcxx_libs=$(find "${conda_prefix}/lib" -type f -name 'libstdc++.so*' -print | sort)
+  for f in $all_libcxx_libs; do
+    echo "$f";
+    objdump -TC "$f" | grep GLIBCXX_ | sed 's/.*GLIBCXX_\([.0-9]*\).*/GLIBCXX_\1/g' | sort -Vu | cat
+    echo ""
+  done
+
+  # NOTE: This is needed to force FBGEMM_GPU from defaulting on loading the
+  # system-provided libstdc++, which may be older than the Conda-installed
+  # libstdc++ and thus might not support the GLIBCXX version required by
+  # FBGEMM_GPU.  This phenomenon is known to at least occur in the Netlify docs
+  # builds!
+  echo "[TEST] Appending the Conda-installed libstdc++ to LD_PRELOAD ..."
+  append_to_envvar "${env_name}" LD_PRELOAD "${all_libcxx_libs[0]}"
 }
 
 __conda_install_gcc () {
   # Install gxx_linux-<arch> from conda-forge instead of from anaconda channel.
-  #
-  # NOTE: We install g++ 10.x instead of 11.x becaue 11.x builds binaries that
-  # reference GLIBCXX_3.4.29, which may not be available on systems with older
-  # versions of libstdc++.so.6 such as CentOS Stream 8 and Ubuntu 20.04
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Installing GCC through Conda (architecture = ${archname}) ..."
+  # NOTE: Previously, g++ 10.x is installed by default instead of 11.x+ because
+  # 11.x+ builds binaries that reference GLIBCXX_3.4.29, which may not be
+  # available on systems with older versions of libstdc++.so.6 such as CentOS
+  # Stream 8 and Ubuntu 20.04.
+  #
+  # However, since https://github.com/pytorch/pytorch/pull/141035 landed, g++
+  # 11.1+ became a requirement, since std::bit_cast is only available with
+  # libstdc++ 11.1+.  See for details:
+  # https://gcc.gnu.org/onlinedocs/libstdc++/manual/status.html#manual.intro.status.iso
+  #
+  # shellcheck disable=SC2155
+  local gcc_version="${GCC_VERSION:-11.4.0}"
+
+  echo "[INSTALL] Installing GCC (${gcc_version}, ${archname}) through Conda ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y "gxx_linux-${archname}"=10.4.0 ) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+    "gxx_linux-${archname}"=${gcc_version}) || return 1
 
   # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
   # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
@@ -94,6 +140,11 @@ __conda_install_gcc () {
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
+
+  if [ "$SET_GLIBCXX_PRELOAD" == "1" ]; then
+    # Set libstdc++ preload options
+    __set_glibcxx_preload
+  fi
 }
 
 __conda_install_clang () {
@@ -101,9 +152,9 @@ __conda_install_clang () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # shellcheck disable=SC2155
-  local llvm_version=15.0.7
+  local llvm_version="${LLVM_VERSION:-16.0.6}"
 
-  echo "[INSTALL] Installing Clang and relevant libraries through Conda ..."
+  echo "[INSTALL] Installing Clang (${llvm_version}, ${archname}) and relevant libraries through Conda ..."
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number
   #
@@ -122,19 +173,20 @@ __conda_install_clang () {
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} which clang++)
 
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CC="${cc_path}"
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CXX="${cxx_path}"
+
   # Set the symlinks, override if needed
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
   print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
   print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
 
-  echo "[INSTALL] Updating LD_LIBRARY_PATH ..."
-  # shellcheck disable=SC2155,SC2086
-  local ld_library_path=$(conda run ${env_prefix} printenv LD_LIBRARY_PATH)
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-  # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="${ld_library_path:+${ld_library_path}:}${conda_prefix}/lib"
+  append_to_library_path "${env_name}" "${conda_prefix}/lib"
 }
 
 __compiler_post_install_checks () {
@@ -203,7 +255,7 @@ install_cxx_compiler () {
   #   https://forums.developer.nvidia.com/t/cuda-issues-with-clang-compiler/177589/8
   __conda_install_gcc
 
-  # Install the C/C++ compiler
+  # Install Clang if needed
   if [ "$compiler" == "clang" ]; then
     # Existing symlinks to cc / c++ / gcc / g++ will be overridden
     __conda_install_clang
@@ -253,10 +305,19 @@ install_build_tools () {
     make \
     ncurses \
     ninja \
-    numpy \
     openblas \
+    patchelf \
     scikit-build \
     wheel) || return 1
+
+  # For some reason, the build package for Python 3.12 is missing from Conda, so
+  # we have to install through PyPI instead.
+  #
+  # LibMambaUnsatisfiableError: Encountered problems while solving:
+  #   - package build-0.10.0-py310h06a4308_0 requires python >=3.10,<3.11.0a0, but none of the providers can be installed
+  #
+  (exec_with_retries 3 conda run ${env_prefix} pip install \
+    build) || return 1
 
   # Check binaries are visible in the PAATH
   (test_binpath "${env_name}" make) || return 1
@@ -264,7 +325,7 @@ install_build_tools () {
   (test_binpath "${env_name}" ninja) || return 1
 
   # Check Python packages are importable
-  local import_tests=( click hypothesis jinja2 numpy skbuild wheel )
+  local import_tests=( click hypothesis jinja2 skbuild wheel )
   for p in "${import_tests[@]}"; do
     (test_python_import_package "${env_name}" "${p}") || return 1
   done

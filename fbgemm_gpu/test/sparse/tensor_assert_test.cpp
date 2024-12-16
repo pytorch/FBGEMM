@@ -10,7 +10,7 @@
 
 #include <ATen/ATen.h>
 #include <gtest/gtest.h>
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 TEST(TensorAssertTest, gpu_asserts) {
   at::Tensor on_cpu_empty;

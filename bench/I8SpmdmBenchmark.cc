@@ -54,26 +54,12 @@ int main() {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
        << endl;
-  cout << "M, "
-       << "N, "
-       << "K, "
-       << "Density, "
-       << "Accumulation, "
-       << "Initialize (ms), "
-       << "Transpose uint8 (ms), "
-       << "Transpose 32xN (ms), "
-       << "Compute (ms), "
-       << "Transpose 32xN (ms), "
-       << "Total (ms), "
-       << "GB/s, "
-       << "GOPs" << endl;
+  cout << "M, " << "N, " << "K, " << "Density, " << "Accumulation, "
+       << "Initialize (ms), " << "Transpose uint8 (ms), "
+       << "Transpose 32xN (ms), " << "Compute (ms), " << "Transpose 32xN (ms), "
+       << "Total (ms), " << "GB/s, " << "GOPs" << endl;
 #else
-  cout << "M, "
-       << "N, "
-       << "K, "
-       << "Density, "
-       << "Accumulation, "
-       << "GB/s, "
+  cout << "M, " << "N, " << "K, " << "Density, " << "Accumulation, " << "GB/s, "
        << "GOPs" << endl;
 #endif
 

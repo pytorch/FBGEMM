@@ -17,8 +17,17 @@ from hypothesis import settings, Verbosity
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
-if not open_source:
+if open_source:
+    # pyre-ignore[21]
+    from test_utils import gpu_unavailable, running_on_github, TEST_WITH_ROCM
+else:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
+    from fbgemm_gpu.test.test_utils import (  # noqa F401
+        gpu_unavailable,
+        running_on_github,
+        TEST_WITH_ROCM,
+    )
+
 
 torch.ops.import_module("fbgemm_gpu.sparse_ops")
 settings.register_profile("derandomize", derandomize=True)

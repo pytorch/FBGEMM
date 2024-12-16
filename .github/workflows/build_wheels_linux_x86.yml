@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   generate-matrix:
+    if: ${{ github.repository_owner == 'pytorch' }}
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
     with:
       package-type: wheel
@@ -34,6 +35,7 @@ jobs:
       with-rocm: enable
       with-cpu: enable
   build:
+    if: ${{ github.repository_owner == 'pytorch' }}
     needs: generate-matrix
     name: pytorch/FBGEMM
     uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
@@ -49,3 +51,4 @@ jobs:
       test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       trigger-event: ${{ github.event_name }}
+      timeout: 180

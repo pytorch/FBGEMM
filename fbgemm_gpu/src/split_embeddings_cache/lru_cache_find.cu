@@ -124,8 +124,11 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
     const bool found = ::__ldg((&lxu_cache_state[cache_set][0]) + slot) == idx;
     if (found) {
       // mark it as recently accessed so we don't evict.
+      const bool already_locked = lru_state[cache_set][slot] == time_stamp;
       lru_state[cache_set][slot] = time_stamp;
-      if (lock_cache_line) {
+      // Don't lock the line one more time if we have locked it in the same
+      // batch (timestamp)
+      if (lock_cache_line && !already_locked) {
         lxu_cache_locking_counter[cache_set][slot] += 1;
       }
     }
@@ -150,7 +153,8 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_find_uncached_kernel(
 
 } // namespace
 
-DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
+DLL_PUBLIC std::tuple<Tensor, Tensor, std::optional<Tensor>>
+lru_cache_find_uncached_cuda(
     Tensor unique_indices,
     Tensor unique_indices_length,
     int64_t max_indices,
@@ -160,7 +164,8 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
     bool gather_cache_stats,
     Tensor uvm_cache_stats,
     bool lock_cache_line,
-    Tensor lxu_cache_locking_counter) {
+    Tensor lxu_cache_locking_counter,
+    const bool compute_inverse_indices) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       unique_indices,
       unique_indices_length,
@@ -180,16 +185,51 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
+  Tensor cache_sets_positions;
+  std::optional<Tensor> cache_set_inverse_indices = std::nullopt;
+  if (compute_inverse_indices) {
+    TORCH_CHECK(
+        cache_sets.numel() <=
+            static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
+        "Number of elements in cache_sets is larger than int32_t max");
+    cache_sets_positions =
+        at::arange({cache_sets.numel()}, cache_sets.options().dtype(at::kInt));
+    cache_set_inverse_indices = empty_like(cache_sets_positions);
+  }
+
+#define INVOKE_CUB_SORT_PAIRS(                                            \
+    TEMP_STORAGE_PTR, VALUE_TENSOR, SORTED_VALUE_TENSOR)                  \
+  AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs( \
+      TEMP_STORAGE_PTR,                                                   \
+      temp_storage_bytes,                                                 \
+      cache_sets.data_ptr<int32_t>(),                                     \
+      sorted_cache_sets.data_ptr<int32_t>(),                              \
+      VALUE_TENSOR,                                                       \
+      SORTED_VALUE_TENSOR,                                                \
+      N,                                                                  \
+      0,                                                                  \
+      int(log2(float(lxu_cache_state.size(0) + 1)) + 1),                  \
+      at::cuda::getCurrentCUDAStream(),                                   \
+      false))
+
   AT_DISPATCH_INDEX_TYPES(
       unique_indices.scalar_type(), "lru_cache_find_uncached_cuda", [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
         const char* func_name = "lru_cache_find_uncached_kernel";
 #endif
+        // During concurrent prefetch, cache lines are locked and we use less
+        // SMs for some of the prefetch kernels to leave SMs for main stream to
+        // overlap
+        constexpr int PREFETCH_KERNEL_MAX_BLOCKS = 8;
+
+        auto grid_size = std::min(
+            div_round_up(N, kMaxThreads / kWarpSize),
+            lock_cache_line ? PREFETCH_KERNEL_MAX_BLOCKS
+                            : get_max_thread_blocks_for_cache_kernels_());
+
         // Find uncached indices
         lru_cache_find_uncached_kernel<<<
-            std::min(
-                div_round_up(N, kMaxThreads / kWarpSize),
-                get_max_thread_blocks_for_cache_kernels_()),
+            grid_size,
             dim3(kWarpSize, kMaxThreads / kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream()>>>(
@@ -208,33 +248,37 @@ DLL_PUBLIC std::pair<Tensor, Tensor> lru_cache_find_uncached_cuda(
         C10_CUDA_KERNEL_LAUNCH_CHECK();
         // Sort the cache sets and ids
         size_t temp_storage_bytes = 0;
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+        INVOKE_CUB_SORT_PAIRS(
             nullptr,
-            temp_storage_bytes,
-            cache_sets.data_ptr<int32_t>(),
-            sorted_cache_sets.data_ptr<int32_t>(),
             unique_indices.data_ptr<index_t>(),
-            cache_set_sorted_unique_indices.data_ptr<index_t>(),
-            N,
-            0,
-            int(log2(float(lxu_cache_state.size(0) + 1)) + 1),
-            at::cuda::getCurrentCUDAStream(),
-            false));
+            cache_set_sorted_unique_indices.data_ptr<index_t>());
         auto temp_storage = at::empty(
             {static_cast<index_t>(temp_storage_bytes)},
             unique_indices.options().dtype(at::kByte));
-        AT_CUDA_CHECK(FBGEMM_GPU_CUB_NS_PREFIX cub::DeviceRadixSort::SortPairs(
+        INVOKE_CUB_SORT_PAIRS(
             temp_storage.data_ptr(),
-            temp_storage_bytes,
-            cache_sets.data_ptr<int32_t>(),
-            sorted_cache_sets.data_ptr<int32_t>(),
             unique_indices.data_ptr<index_t>(),
-            cache_set_sorted_unique_indices.data_ptr<index_t>(),
-            N,
-            0,
-            int(log2(float(lxu_cache_state.size(0) + 1)) + 1),
-            at::cuda::getCurrentCUDAStream(),
-            false));
+            cache_set_sorted_unique_indices.data_ptr<index_t>());
+
+        if (compute_inverse_indices) {
+          INVOKE_CUB_SORT_PAIRS(
+              nullptr,
+              cache_sets_positions.data_ptr<int32_t>(),
+              cache_set_inverse_indices->data_ptr<int32_t>());
+          auto temp_storage = at::empty(
+              {static_cast<index_t>(temp_storage_bytes)},
+              unique_indices.options().dtype(at::kByte));
+          INVOKE_CUB_SORT_PAIRS(
+              temp_storage.data_ptr(),
+              cache_sets_positions.data_ptr<int32_t>(),
+              cache_set_inverse_indices->data_ptr<int32_t>());
+        }
       });
-  return {sorted_cache_sets, cache_set_sorted_unique_indices};
+
+  return {
+      sorted_cache_sets,
+      cache_set_sorted_unique_indices,
+      cache_set_inverse_indices};
+
+#undef INVOKE_CUB_SORT_PAIRS
 }

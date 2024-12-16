@@ -6,9 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/ops_utils.h"
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 /*
   NOTE: Some operators are dispatched here in a .cpp file because the PyTorch
@@ -33,3 +32,5 @@ FBGEMM_OP_DISPATCH(
     CUDA,
     "PaddedFP8RowwiseQuantizedToFloat",
     fbgemm_gpu::_paddedFP8rowwise_to_float_gpu);
+FBGEMM_OP_DISPATCH(CUDA, "quantize_mx_cuda", fbgemm_gpu::quantize_mx_cuda);
+FBGEMM_OP_DISPATCH(CUDA, "dequantize_mx_cuda", fbgemm_gpu::dequantize_mx_cuda);

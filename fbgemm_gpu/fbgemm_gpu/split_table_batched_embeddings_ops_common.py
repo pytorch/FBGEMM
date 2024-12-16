@@ -13,6 +13,9 @@ import enum
 from dataclasses import dataclass
 from typing import List, NamedTuple
 
+import torch
+from torch import Tensor
+
 
 # Maximum number of times prefetch() can be called without
 # a corresponding forward() call
@@ -36,6 +39,19 @@ class CacheAlgorithm(enum.Enum):
     LFU = 1
 
 
+class MultiPassPrefetchConfig(NamedTuple):
+    # Number of passes to split indices tensor into. Actual number of passes may
+    # be less if indices tensor is too small to split.
+    num_passes: int = 12
+
+    # The minimal number of element in indices tensor to be able to split into
+    # two passes. This is useful to prevent too many prefetch kernels spamming
+    # the CUDA launch queue.
+    # The default 6M indices means 6M * 8 * 6 = approx. 300MB of memory overhead
+    # per pass.
+    min_splitable_pass_size: int = 6 * 1024 * 1024
+
+
 class PoolingMode(enum.IntEnum):
     SUM = 0
     MEAN = 1
@@ -51,6 +67,14 @@ class BoundsCheckMode(enum.IntEnum):
     IGNORE = 2
     # No bounds checks.
     NONE = 3
+
+
+class EmbeddingSpecInfo(enum.IntEnum):
+    feature_names = 0
+    rows = 1
+    dims = 2
+    sparse_type = 3
+    embedding_location = 4
 
 
 RecordCacheMetrics: NamedTuple = NamedTuple(
@@ -116,8 +140,41 @@ def construct_cache_state(
     return s
 
 
-# NOTE: This is also defined in fbgemm_gpu.split_embedding_utils, but declaring
+# NOTE: This is also defined in fbgemm_gpu.tbe.utils, but declaring
 # target dependency on :split_embedding_utils will result in compatibility
 # breakage with Caffe2 module_factory because it will pull in numpy
 def round_up(a: int, b: int) -> int:
     return int((a + b - 1) // b) * b
+
+
+def tensor_to_device(tensor: torch.Tensor, device: torch.device) -> Tensor:
+    if tensor.device == torch.device("meta"):
+        return torch.empty_like(tensor, device=device)
+    return tensor.to(device)
+
+
+def get_new_embedding_location(
+    device: torch.device, cache_load_factor: float
+) -> EmbeddingLocation:
+    """
+    Based on the cache_load_factor and device, return the embedding location intended
+    for the TBE weights.
+    """
+    # Only support CPU and GPU device
+    assert device.type == "cpu" or device.type == "cuda"
+    if cache_load_factor < 0 or cache_load_factor > 1:
+        raise ValueError(
+            f"cache_load_factor must be between 0.0 and 1.0, got {cache_load_factor}"
+        )
+
+    if device.type == "cpu":
+        return EmbeddingLocation.HOST
+    # UVM only
+    elif cache_load_factor == 0:
+        return EmbeddingLocation.MANAGED
+    # HBM only
+    elif cache_load_factor == 1.0:
+        return EmbeddingLocation.DEVICE
+    # UVM caching
+    else:
+        return EmbeddingLocation.MANAGED_CACHING

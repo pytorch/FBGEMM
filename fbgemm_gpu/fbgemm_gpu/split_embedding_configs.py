@@ -30,8 +30,11 @@ class EmbOptimType(enum.Enum):
     PARTIAL_ROWWISE_LAMB = "partial_row_wise_lamb"
     ROWWISE_ADAGRAD = "row_wise_adagrad"
     SHAMPOO = "shampoo"  # not currently supported for sparse embedding tables
+    SHAMPOO_V2 = "shampoo_v2"  # not currently supported for sparse embedding tables
     MADGRAD = "madgrad"
     EXACT_ROWWISE_WEIGHTED_ADAGRAD = "exact_row_wise_weighted_adagrad"  # deprecated
+    ENSEMBLE_ROWWISE_ADAGRAD = "ensemble_row_wise_adagrad"
+    EMAINPLACE_ROWWISE_ADAGRAD = "ema_in_place_row_wise_adagrad"
     NONE = "none"
 
     def __str__(self) -> str:
@@ -66,6 +69,19 @@ class FP8QuantizationConfig(QuantizationConfig):
         return self.config[name]
 
 
+def sparse_type_to_int(sparse_type: "SparseType") -> int:
+    return {
+        SparseType.FP32.value: 0,
+        SparseType.FP16.value: 1,
+        SparseType.INT8.value: 2,
+        SparseType.INT4.value: 3,
+        SparseType.INT2.value: 4,
+        SparseType.BF16.value: 5,
+        SparseType.FP8.value: 6,
+        SparseType.MX4.value: 7,
+    }[sparse_type.value]
+
+
 @enum.unique
 class SparseType(enum.Enum):
     FP32 = "fp32"
@@ -75,6 +91,7 @@ class SparseType(enum.Enum):
     INT4 = "int4"
     INT2 = "int2"
     BF16 = "bf16"
+    MX4 = "mx4"
 
     def __str__(self) -> str:
         return self.value
@@ -95,27 +112,21 @@ class SparseType(enum.Enum):
             return SparseType("bf16")
         elif ty == 6:
             return SparseType("fp8")
+        elif ty == 7:
+            return SparseType("mx4")
         else:
             raise ValueError(f"Unsupported sparse type: {ty}")
 
     def as_int(self) -> int:
-        return {
-            SparseType.FP32.value: 0,
-            SparseType.FP16.value: 1,
-            SparseType.INT8.value: 2,
-            SparseType.INT4.value: 3,
-            SparseType.INT2.value: 4,
-            SparseType.BF16.value: 5,
-            SparseType.FP8.value: 6,
-        }[self.value]
+        return sparse_type_to_int(self)
 
     @staticmethod
-    def from_dtype(dtype: torch.dtype) -> "SparseType":
+    def from_dtype(dtype: torch.dtype, is_mx: bool = False) -> "SparseType":
         if dtype == torch.float32:
             return SparseType("fp32")
         elif dtype == torch.float16:
             return SparseType("fp16")
-        elif dtype == torch.int8 or dtype == torch.uint8:
+        elif (dtype == torch.int8 or dtype == torch.uint8) and not is_mx:
             return SparseType("int8")
         elif dtype == torch.quint4x2:
             return SparseType("int4")
@@ -123,6 +134,8 @@ class SparseType(enum.Enum):
             return SparseType("int2")
         elif dtype == torch.bfloat16:
             return SparseType("bf16")
+        elif dtype == torch.uint8:
+            return SparseType("mx4")
         else:
             raise ValueError(f"Unsupported sparse dtype: {dtype}")
 
@@ -135,6 +148,7 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: torch.quint4x2,
             SparseType.INT2.value: torch.quint2x4,
             SparseType.BF16.value: torch.bfloat16,
+            SparseType.MX4.value: torch.uint8,
         }[self.value]
 
     def bit_rate(self) -> int:
@@ -146,6 +160,7 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: 4,
             SparseType.INT2.value: 2,
             SparseType.BF16.value: 16,
+            SparseType.MX4.value: 4,
         }[self.value]
 
     def align_size(self) -> int:
@@ -157,6 +172,7 @@ class SparseType(enum.Enum):
             SparseType.INT4.value: 8,
             SparseType.INT2.value: 16,
             SparseType.BF16.value: 2,
+            SparseType.MX4.value: 8,
         }[self.value]
 
     def is_float(self) -> bool:

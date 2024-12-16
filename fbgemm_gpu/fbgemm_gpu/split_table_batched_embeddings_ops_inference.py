@@ -13,10 +13,11 @@ import logging
 from itertools import accumulate
 from typing import List, Optional, Tuple, Union
 
+import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
-from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_embedding_configs import sparse_type_to_int, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
@@ -24,27 +25,35 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     construct_cache_state,
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
+    EmbeddingSpecInfo,
+    get_new_embedding_location,
     MAX_PREFETCH_DEPTH,
     PoolingMode,
     RecordCacheMetrics,
     round_up,
     SplitState,
+    tensor_to_device,
 )
+from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
 try:
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference"
-        )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference"
+    load_torch_module(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_gpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cuda_inference",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_hip_inference",
     )
 except Exception:
     pass
+
+try:
+    load_torch_module_bc(
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_inference_cpu",
+        "//deeplearning/fbgemm/fbgemm_gpu/codegen:embedding_ops_cpu_inference",
+    )
+except Exception:
+    pass
+
+import fbgemm_gpu  # noqa
 
 
 def rounded_row_size_in_bytes(
@@ -123,29 +132,208 @@ def nbit_construct_split_state(
     )
 
 
-def random_quant_scaled_tensor(shape: torch.Size, device: torch.device) -> torch.Tensor:
-    return torch.randint(
-        0,
-        255,
-        size=shape,
-        dtype=torch.uint8,
-        device=device,
-    )
+def random_quant_scaled_tensor(
+    shape: torch.Size,
+    device: torch.device,
+    output_tensor: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    if output_tensor is not None:
+        return torch.randint(
+            0,
+            255,
+            size=shape,
+            out=output_tensor,
+            dtype=torch.uint8,
+            device=device,
+        )
+    else:
+        return torch.randint(
+            0,
+            255,
+            size=shape,
+            dtype=torch.uint8,
+            device=device,
+        )
+
+
+@torch.fx.wrap
+def inputs_to_device(
+    indices: torch.Tensor,
+    offsets: torch.Tensor,
+    per_sample_weights: Optional[torch.Tensor],
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    if device.type == "meta":
+        return indices, offsets, per_sample_weights
+
+    non_blocking = device.type != "cpu"
+    if indices.device != device:
+        indices = indices.to(device, non_blocking=non_blocking)
+    if offsets.device != device:
+        offsets = offsets.to(device, non_blocking=non_blocking)
+    if per_sample_weights is not None and per_sample_weights.device != device:
+        per_sample_weights = per_sample_weights.to(device, non_blocking=non_blocking)
+    return indices, offsets, per_sample_weights
 
 
 # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
 class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
     Table-batched version of nn.EmbeddingBag(sparse=False)
-    Inference version, with FP32/FP16/FP8/INT8/INT4/INT2 supports
+    Inference version, with support for FP32/FP16/FP8/INT8/INT4/INT2 weights
+
+    Args:
+        embedding_specs (List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]):
+            A list of embedding specifications. Each spec describes a
+            specification of a physical embedding table. Each one is a tuple of
+            number of embedding rows, embedding dimension (must be a multiple of
+            4), table placement (`EmbeddingLocation`), and compute device
+            (`ComputeDevice`).
+
+            Available `EmbeddingLocation` options are
+
+            (1) `DEVICE` = placing an embedding table in the GPU global memory
+                (HBM)
+
+            (2) `MANAGED` = placing an embedding in the unified virtual memory
+                (accessible from both GPU and CPU)
+
+            (3) `MANAGED_CACHING` = placing an embedding table in the unified
+                virtual memory and using the GPU global memory (HBM) as a cache
+
+            (4) `HOST` = placing an embedding table in the CPU memory (DRAM)
+
+            (5) `MTIA` = placing an embedding table in the MTIA memory
+
+            Available `ComputeDevice` options are
+
+            (1) `CPU` = performing table lookup on CPU
+
+            (2) `CUDA` = performing table lookup on GPU
+
+            (3) `MTIA` = performing table lookup on MTIA
+
+        feature_table_map (Optional[List[int]] = None): An optional list that
+            specifies feature-table mapping. feature_table_map[i] indicates the
+            physical embedding table that feature i maps to.
+
+        index_remapping (Optional[List[Tensor]] = None): Index remapping for pruning
+
+        pooling_mode (PoolingMode = PoolingMode.SUM): Pooling mode. Available
+            `PoolingMode` options are
+
+            (1) `SUM` = Sum pooling
+
+            (2) `MEAN` = Mean pooling
+
+            (3) `NONE` = No pooling (sequence embedding)
+
+        device (Optional[Union[str, int, torch.device]] = None): The current
+            device to place tensors on
+
+        bounds_check_mode (BoundsCheckMode = BoundsCheckMode.WARNING): Input
+            checking mode. Available `BoundsCheckMode` options are
+
+            (1) `NONE` = skip bounds check
+
+            (2) `FATAL` = throw an error when encountering an invalid
+                index/offset
+
+            (3) `WARNING` = print a warning message when encountering an
+                invalid index/offset and fix it (setting an invalid index to
+                zero and adjusting an invalid offset to be within the bound)
+
+            (4) `IGNORE` = silently fix an invalid index/offset (setting an
+                invalid index to zero and adjusting an invalid offset to be
+                within the bound)
+
+        weight_lists (Optional[List[Tuple[Tensor, Optional[Tensor]]]] = None):
+            [T]
+
+        pruning_hash_load_factor (float = 0.5):
+            Load factor for pruning hash
+
+        use_array_for_index_remapping (bool = True):
+            If True, use array for index remapping. Otherwise, use hash map.
+
+        output_dtype (SparseType = SparseType.FP16): The data type of an output
+            tensor.
+
+        cache_algorithm (CacheAlgorithm = CacheAlgorithm.LRU): The cache
+            algorithm (used when `EmbeddingLocation` is set to
+            `MANAGED_CACHING`).  Options are
+
+            (1) `LRU` = least recently used
+
+            (2) `LFU` = least frequently used
+
+        cache_load_factor (float = 0.2): A factor used for determining the
+            cache capacity when `EmbeddingLocation.MANAGED_CACHING` is used.
+            The cache capacity is `cache_load_factor` * the total number of
+            rows in all embedding tables
+
+        cache_sets (int = 0): The number of cache sets (used when
+            `EmbeddingLocation` is set to `MANAGED_CACHING`)
+
+        cache_reserved_memory (float = 0.0): The amount of memory reserved in
+            HBM for non-cache purpose (used when `EmbeddingLocation` is set to
+            `MANAGED_CACHING`).
+
+        enforce_hbm (bool = False): If True, place all weights/momentums in HBM
+            when using `EmbeddingLocation.MANAGED_CACHING`
+
+        record_cache_metrics (Optional[RecordCacheMetrics] = None): Record
+            a number of hits, a number of requests, etc if
+            `RecordCacheMetrics.record_cache_miss_counter` is True and record
+            the similar metrics table-wise if
+            `RecordCacheMetrics.record_tablewise_cache_miss is True`
+
+        gather_uvm_cache_stats (Optional[bool] = False): If True, collect the
+            cache statistics when `EmbeddingLocation` is set to
+            `MANAGED_CACHING`
+
+        row_alignment (Optional[int] = None): Row alignment
+
+        fp8_exponent_bits (Optional[int] = None): Exponent bits when using FP8
+
+        fp8_exponent_bias (Optional[int] = None): Exponent bias when using FP8
+
+        cache_assoc (int = 32): Number of ways for cache
+
+        scale_bias_size_in_bytes (int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES): Size
+            of scale and bias in bytes
+
+        cacheline_alignment (bool = True): If True, align each table to 128b
+            cache line boundary
+
+        uvm_host_mapped (bool = False): If True, allocate every UVM tensor
+            using `malloc` + `cudaHostRegister`. Otherwise use
+            `cudaMallocManaged`
+
+        reverse_qparam (bool = False): If True, load `qparams` at end of each
+            row.  Otherwise, load `qparams` at begnning of each row.
+
+        feature_names_per_table (Optional[List[List[str]]] = None): An optional
+            list that specifies feature names per table. `feature_names_per_table[t]`
+            indicates the feature names of table `t`.
+
+        indices_dtype (torch.dtype = torch.int32): The expected dtype of the
+            indices tensor that will be passed to the `forward()` call.  This
+            information will be used to construct the remap_indices array/hash.
+            Options are `torch.int32` and `torch.int64`.
     """
 
     embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
     record_cache_metrics: RecordCacheMetrics
+    # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
     cache_miss_counter: torch.Tensor
+    # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
     uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
     local_uvm_cache_stats: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_offsets` is never initialized.
     weights_offsets: torch.Tensor
+    # pyre-fixme[13]: Attribute `weights_placements` is never initialized.
     weights_placements: torch.Tensor
 
     def __init__(  # noqa C901
@@ -177,6 +365,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         cacheline_alignment: bool = True,
         uvm_host_mapped: bool = False,  # True to use cudaHostAlloc; False to use cudaMallocManaged.
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
+        feature_names_per_table: Optional[List[List[str]]] = None,
+        indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -200,9 +390,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.embedding_specs = embedding_specs
         self.output_dtype: int = output_dtype.as_int()
         self.uvm_host_mapped = uvm_host_mapped
+        self.feature_names_per_table = feature_names_per_table
+        self.indices_dtype = indices_dtype
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
+        self.cache_load_factor: float = cache_load_factor
+        self.cache_sets: int = cache_sets
+        self.cache_reserved_memory: float = cache_reserved_memory
         rows: List[int] = [e[1] for e in embedding_specs]
         dims: List[int] = [e[2] for e in embedding_specs]
         weights_tys: List[SparseType] = [e[3] for e in embedding_specs]
@@ -350,13 +545,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.assign_embedding_weights(weight_lists)
 
         # Handle index remapping for embedding pruning.
+        # All buffers are int64 in order to support both int32 and int64 indices.
         self.register_buffer(
             "index_remappings_array_offsets",
             torch.empty(0, device=self.current_device, dtype=torch.int64),
         )
         self.register_buffer(
             "index_remappings_array",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.current_device, dtype=self.indices_dtype),
         )
         self.register_buffer(
             "index_remapping_hash_table_offsets",
@@ -364,7 +560,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.register_buffer(
             "index_remapping_hash_table",
-            torch.empty(0, device=self.current_device, dtype=torch.int32),
+            torch.empty(0, device=self.current_device, dtype=self.indices_dtype),
         )
         self.register_buffer(
             "original_rows_per_table",
@@ -451,6 +647,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # table_wise_cache_miss contains all the cache miss count for each table in this embedding table object:
         return self.table_wise_cache_miss
 
+    @torch.jit.export
+    def get_feature_num_per_table(self) -> List[int]:
+        if self.feature_names_per_table is None:
+            return []
+        return [len(feature_names) for feature_names in self.feature_names_per_table]
+
     def reset_cache_miss_counter(self) -> None:
         assert (
             self.record_cache_metrics.record_cache_miss_counter
@@ -478,10 +680,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"Miss counter value [3] - # of total requested indices : {self.cache_miss_counter[3]}, "
         )
         logging.info(
-            f"unique_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[2]}, \n"
+            f"unique_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[2]}, \n"
         )
         logging.info(
-            f"total_miss_rate using counter : {self.cache_miss_counter[1]/self.cache_miss_counter[3]}, \n"
+            f"total_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[3]}, \n"
         )
 
     def get_uvm_cache_stats(self) -> Tensor:
@@ -505,14 +707,16 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         if uvm_cache_stats[1]:
             logging.info(
-                f"unique indices / requested indices: {uvm_cache_stats[2]/uvm_cache_stats[1]}\n"
-                f"unique misses / requested indices: {uvm_cache_stats[3]/uvm_cache_stats[1]}\n"
+                f"unique indices / requested indices: {uvm_cache_stats[2] / uvm_cache_stats[1]}\n"
+                f"unique misses / requested indices: {uvm_cache_stats[3] / uvm_cache_stats[1]}\n"
             )
 
     @torch.jit.export
     def prefetch(self, indices: Tensor, offsets: Tensor) -> None:
         self.timestep_counter.increment()
         self.timestep_prefetch_size.increment()
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if not self.lxu_cache_weights.numel():
             return
 
@@ -695,6 +899,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         CACHE_MISS = torch.tensor([-1], device=self.current_device, dtype=torch.int32)
         CACHE_HIT = torch.tensor([-2], device=self.current_device, dtype=torch.int32)
 
+        # pyre-fixme[6]: For 1st argument expected
+        #  `pyre_extensions.PyreReadOnly[Sized]` but got `Union[Module, Tensor]`.
         num_tables = len(self.cache_hash_size_cumsum) - 1
         num_offsets_per_table = (len(offsets) - 1) // num_tables
         cache_missed_locations = torch.where(
@@ -713,7 +919,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
             self.table_wise_cache_miss[i] += miss_count
 
-    def forward(
+    def _forward_impl(
         self,
         indices: Tensor,
         offsets: Tensor,
@@ -722,6 +928,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.weight_initialized
         ), "weight needs to be initialized before forward function"
+
+        indices, offsets, per_sample_weights = inputs_to_device(
+            indices, offsets, per_sample_weights, self.bounds_check_warning.device
+        )
 
         # First bound check: check if the indices/offsets are within the boundary
         # of the original embedding rows before pruning.
@@ -762,6 +972,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.index_remappings_array,
                 self.index_remappings_array_offsets,
             )
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if self.lxu_cache_weights.numel() > 0:
             if self.timestep_prefetch_size.get() <= 0:
                 self.prefetch(indices, offsets)
@@ -808,6 +1020,16 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_float8_D=self.max_float8_D,
             fp8_exponent_bits=self.fp8_exponent_bits,
             fp8_exponent_bias=self.fp8_exponent_bias,
+        )
+
+    def forward(
+        self,
+        indices: Tensor,
+        offsets: Tensor,
+        per_sample_weights: Optional[Tensor] = None,
+    ) -> Tensor:
+        return self._forward_impl(
+            indices=indices, offsets=offsets, per_sample_weights=per_sample_weights
         )
 
     def initialize_logical_weights_placements_and_offsets(
@@ -886,10 +1108,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             for spec in self.embedding_specs
         ]
 
+    @torch.jit.export
     def recompute_module_buffers(self) -> None:
         """
-        Compute module buffers that're on meta device and are not materialized in reset_weights_placements_and_offsets().
-        Currently those buffers are `weights_tys`, `rows_per_table`, `D_offsets` and `bounds_check_warning`.
+        Compute module buffers that're on meta device and are not materialized
+        in reset_weights_placements_and_offsets().  Currently those buffers are
+        `weights_tys`, `rows_per_table`, `D_offsets` and `bounds_check_warning`.
         Pruning related or uvm related buffers are not computed right now.
         """
         if (
@@ -898,7 +1122,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             return
 
-        weights_tys_int = [e[3].as_int() for e in self.embedding_specs]
+        weights_tys_int = [sparse_type_to_int(e[3]) for e in self.embedding_specs]
         self.weights_tys = torch.tensor(
             [weights_tys_int[t] for t in self.feature_table_map],
             device=self.current_device,
@@ -911,8 +1135,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dtype=torch.int64,
         )
         dims = [e[2] for e in self.embedding_specs]
-        D_offsets_list = [dims[t] for t in self.feature_table_map]
-        D_offsets_list = [0] + list(accumulate(D_offsets_list))
+        D_offsets_list = [0]
+        for t in self.feature_table_map:
+            D_offsets_list.append(dims[t] + D_offsets_list[-1])
         self.D_offsets = torch.tensor(
             D_offsets_list, device=self.current_device, dtype=torch.int32
         )
@@ -933,14 +1158,22 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.index_remappings_array_offsets = torch.empty_like(
             self.index_remappings_array_offsets, device=self.current_device
         )
+        # pyre-fixme[16]: `IntNBitTableBatchedEmbeddingBagsCodegen` has no attribute
+        #  `lxu_cache_weights`.
         self.lxu_cache_weights = torch.empty_like(
-            self.lxu_cache_weights, device=self.current_device
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Module, Tensor]`.
+            self.lxu_cache_weights,
+            device=self.current_device,
         )
         self.original_rows_per_table = torch.empty_like(
             self.original_rows_per_table, device=self.current_device
         )
         self.table_wise_cache_miss = torch.empty_like(
             self.table_wise_cache_miss, device=self.current_device
+        )
+        self.weights_uvm = torch.empty_like(
+            self.weights_uvm, device=self.current_device
         )
 
     def _apply_split(
@@ -1041,11 +1274,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 torch.zeros(1, dtype=torch.int64, device=self.current_device),
                 persistent=False,
             )
-            self.register_buffer(
-                "total_cache_hash_size",
-                torch.zeros(1, dtype=torch.int64, device=self.current_device),
-                persistent=False,
-            )
+            self.total_cache_hash_size = 0
             self.register_buffer(
                 "cache_index_table_map",
                 torch.zeros(1, dtype=torch.int64, device=self.current_device),
@@ -1068,7 +1297,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
             self.register_buffer(
                 "cache_miss_counter",
-                torch.tensor([0, 0, 0, 0], dtype=torch.int64),
+                torch.tensor(
+                    [0, 0, 0, 0], dtype=torch.int64, device=self.current_device
+                ),
                 persistent=False,
             )
             self.register_buffer(
@@ -1224,11 +1455,118 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.reset_uvm_cache_stats()
 
     def reset_cache_states(self) -> None:
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if not self.lxu_cache_weights.numel():
             return
         self.lxu_cache_state.fill_(-1)
         self.lxu_state.fill_(0)
         self.timestep_counter.reset()
+
+    def move_to_device_with_cache(
+        self, device: torch.device, cache_load_factor: float
+    ) -> None:
+        """
+        Moves the TBE to the specified device, and updates the cache state accordingly.
+        """
+        if (
+            self.current_device == device
+            and self.cache_load_factor == cache_load_factor
+        ):
+            return
+
+        location = get_new_embedding_location(device, cache_load_factor)
+        if device.type != "cpu":
+            self.use_cpu = False
+
+        weights = self.split_embedding_weights()
+        is_meta = self.current_device.type == "meta"
+        index_remapping_array: torch.Tensor
+        index_remappings_array_offsets: torch.Tensor
+        original_rows_per_table: torch.Tensor
+        if not is_meta:
+            # Record weights and pruning tensors for setting
+            # weights and pruning tensors for TBE on new device
+            if device.type == "cpu":
+                for i, weight in enumerate(weights):
+                    weights[i] = (
+                        weight[0].to(device),
+                        weight[1].to(device) if weight[1] is not None else None,
+                    )
+            (
+                index_remapping_array,
+                index_remappings_array_offsets,
+                original_rows_per_table,
+            ) = (
+                self.index_remappings_array.to(device),
+                self.index_remappings_array_offsets.to(device),
+                self.original_rows_per_table.to(device),
+            )
+
+        self.reset_weights_placements_and_offsets(device, location.value)
+        self.recompute_module_buffers()
+        self.weight_initialized = False
+        self.initialize_weights()
+
+        # Ensure all weights are on the same device
+        if device.type != "cpu":
+            self.weights_host = torch.zeros(0, device=device, dtype=torch.uint8)
+
+        if location != EmbeddingLocation.DEVICE:
+            self.weights_dev = torch.zeros(0, device=device, dtype=torch.uint8)
+
+        for name, buf in self.named_buffers():
+            if buf.is_meta:
+                self.register_buffer(name, tensor_to_device(buf, device))
+
+        self.current_device = device
+
+        if not is_meta:
+            self.assign_embedding_weights(weights)
+            self.index_remappings_array = index_remapping_array
+            self.index_remappings_array_offsets = index_remappings_array_offsets
+            self.original_rows_per_table = original_rows_per_table
+
+        if cache_load_factor is not None:
+            self.update_cache_load_factor(cache_load_factor)
+
+    def update_cache_load_factor(self, cache_load_factor: float = 0.2) -> None:
+        """
+        Updates cache_load_factor and embedding location for weights after TBE has already been initialized
+        Assumes that the location of the weights is already set correctly
+        """
+        rows = [
+            embedding_spec[EmbeddingSpecInfo.rows]
+            for embedding_spec in self.embedding_specs
+        ]
+        locations = [
+            embedding_spec[EmbeddingSpecInfo.embedding_location]
+            for embedding_spec in self.embedding_specs
+        ]
+        # pyre-ignore[6]
+        cache_state = construct_cache_state(rows, locations, self.feature_table_map)
+
+        cached_dims = [
+            rounded_row_size_in_bytes(
+                embedding_spec[EmbeddingSpecInfo.dims],  # pyre-ignore[6]
+                embedding_spec[EmbeddingSpecInfo.sparse_type],  # pyre-ignore[6]
+                16,
+                self.scale_bias_size_in_bytes,
+            )
+            for embedding_spec in self.embedding_specs
+            if embedding_spec[EmbeddingSpecInfo.embedding_location]
+            == EmbeddingLocation.MANAGED_CACHING
+        ]
+
+        self.max_D_cache: int = max(cached_dims) if len(cached_dims) > 0 else 0
+
+        self._apply_cache_state(
+            cache_state,
+            self.cache_algorithm,
+            cache_load_factor,
+            self.cache_sets,
+            self.cache_reserved_memory,
+        )
 
     @torch.jit.export
     def split_embedding_weights_with_scale_bias(
@@ -1399,15 +1737,14 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     def fill_random_weights(self) -> None:
         """
         Fill the buffer with random weights, table by table
-        FIXME: make it in-place fill.
         """
         self.initialize_weights()
         weights = self.split_embedding_weights()
         for dest_weight in weights:
-            dest_weight[0].copy_(
-                random_quant_scaled_tensor(
-                    shape=dest_weight[0].shape, device=self.current_device
-                )
+            random_quant_scaled_tensor(
+                shape=dest_weight[0].shape,
+                device=self.current_device,
+                output_tensor=dest_weight[0],
             )
 
     def assign_embedding_weights(
@@ -1464,11 +1801,11 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 index_remappings_filter_nones.append(mapping)
         if len(index_remappings_filter_nones) == 0:
             self.index_remappings_array = torch.empty(
-                0, dtype=torch.int32, device=self.current_device
+                0, dtype=self.indices_dtype, device=self.current_device
             )
         else:
             self.index_remappings_array = torch.cat(index_remappings_filter_nones).to(
-                self.current_device
+                dtype=self.indices_dtype, device=self.current_device
             )
 
     def set_index_remappings(
@@ -1491,7 +1828,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             ]
             hash_table = torch.empty(
                 (sum(capacities), 2),
-                dtype=torch.int32,
+                dtype=self.indices_dtype,
             )
             hash_table[:, :] = -1
             hash_table_offsets = torch.tensor([0] + list(accumulate(capacities))).long()
@@ -1533,7 +1870,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     hash_table,
                     hash_table_offsets,
                 )
-                self.index_remapping_hash_table = hash_table.to(self.current_device)
+                self.index_remapping_hash_table = hash_table.to(
+                    dtype=self.indices_dtype, device=self.current_device
+                )
                 self.index_remapping_hash_table_offsets = hash_table_offsets.to(
                     self.current_device
                 )
@@ -1633,6 +1972,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
 
         lxu_cache_locations = None
+        # pyre-fixme[29]: `Union[(self: TensorBase) -> int, Module, Tensor]` is not
+        #  a function.
         if self.lxu_cache_weights.numel() > 0:
             linear_cache_indices = (
                 torch.ops.fbgemm.linearize_cache_indices_from_row_idx(

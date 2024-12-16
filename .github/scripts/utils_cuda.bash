@@ -58,8 +58,23 @@ install_cuda () {
   (test_filepath "${env_name}" cuda_runtime.h) || return 1
 
   # Ensure that the libraries are properly installed
+  (test_filepath "${env_name}" libcuda.so) || return 1
   (test_filepath "${env_name}" libnvToolsExt.so) || return 1
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
+
+  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155
+  local libcuda_path=$(find "${conda_prefix}" -type f -name libcuda.so)
+  nm -gDC "${libcuda_path}"
+  append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
+
+  # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
+  # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
+  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+    print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+  fi
 
   echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
   # shellcheck disable=SC2155,SC2086
@@ -68,6 +83,10 @@ install_cuda () {
   local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so)
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
+
+  local nvcc_prepend_flags=(
+    -allow-unsupported-compiler
+  )
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
@@ -81,13 +100,20 @@ install_cuda () {
     # NOTE: There appears to be no ROCm equivalent for NVCC_PREPEND_FLAGS:
     #   https://github.com/ROCm/HIP/issues/931
     #
-    echo "[BUILD] Explicitly setting Clang as the host compiler for NVCC: ${cxx_path}"
+    echo "[BUILD] Setting Clang as the NVCC host compiler: ${cxx_path}"
 
     # shellcheck disable=SC2155,SC2086
     local cxx_path=$(conda run ${env_prefix} which c++)
-    # shellcheck disable=SC2086
-    print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"-Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler\"
+
+    nvcc_prepend_flags+=(
+      -Xcompiler -stdlib=libstdc++
+      -ccbin "${cxx_path}"
+    )
   fi
+
+  echo "[BUILD] Setting prepend flags for NVCC ..."
+  # shellcheck disable=SC2086,SC2145
+  print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\""${nvcc_prepend_flags[@]}"\"
 
   # https://stackoverflow.com/questions/27686382/how-can-i-dump-all-nvcc-preprocessor-defines
   echo "[INFO] Printing out all preprocessor defines in nvcc ..."
@@ -135,7 +161,9 @@ install_cudnn () {
     ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["117"]="https://ossci-linux.s3.amazonaws.com/cudnn-${PLATFORM_NAME_LC}-8.5.0.96_cuda11-archive.tar.xz"
     ["118"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.7.0/local_installers/11.8/cudnn-${PLATFORM_NAME_LC}-8.7.0.84_cuda11-archive.tar.xz"
-    ["121"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-8.8.1.3_cuda12-archive.tar.xz"
+    ["121"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz"
+    ["124"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz"
+    ["126"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-9.5.1.17_cuda12-archive.tar.xz"
   )
 
   # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
@@ -143,12 +171,13 @@ install_cudnn () {
   local cuda_version_arr=(${cuda_version//./ })
   # Fetch the major and minor version to concat
   local cuda_concat_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
+  echo "[INSTALL] cuda_concat_version is determined to be: ${cuda_concat_version}"
 
   # Get the URL
   local cudnn_url="${cudnn_packages[$cuda_concat_version]}"
   if [ "$cudnn_url" == "" ]; then
     # Default to cuDNN for 11.8 if no CUDA version fits
-    echo "[INSTALL] Defaulting to cuDNN for CUDA 11.8"
+    echo "[INSTALL] Could not find cuDNN URL for the given cuda_concat_version ${cuda_concat_version}; defaulting to cuDNN for CUDA 11.8"
     cudnn_url="${cudnn_packages[118]}"
   fi
 

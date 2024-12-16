@@ -11,7 +11,7 @@
 
 import random
 import unittest
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -22,12 +22,6 @@ from fbgemm_gpu.split_embedding_optimizer_ops import (
     SplitEmbeddingOptimizerParams,
     SplitEmbeddingRowwiseAdagrad,
 )
-from fbgemm_gpu.split_embedding_utils import (
-    b_indices,
-    get_table_batched_offsets_from_dense,
-    round_up,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     EmbeddingLocation,
     PoolingMode,
@@ -35,6 +29,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.tbe.utils import (
+    b_indices,
+    get_table_batched_offsets_from_dense,
+    round_up,
+    to_device,
 )
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from torch import Tensor
@@ -44,23 +44,41 @@ from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 VERBOSITY: Verbosity = Verbosity.verbose
 
 # pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
-    "test_schema__test_backward_none_with_rowwise_adagrad": [
-        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    ],
-    "test_faketensor__test_backward_none_with_rowwise_adagrad": [
-        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    ],
-    "test_autograd_registration__test_backward_none_with_rowwise_adagrad": [
-        unittest.skip("Cannot access data pointer of Tensor that doesn't have storage")
-    ],
-}
+additional_decorators.update(
+    {
+        "test_schema__test_backward_none_with_rowwise_adagrad": [
+            unittest.skip(
+                "Cannot access data pointer of Tensor that doesn't have storage"
+            )
+        ],
+        "test_faketensor__test_backward_none_with_rowwise_adagrad": [
+            unittest.skip(
+                "Cannot access data pointer of Tensor that doesn't have storage"
+            )
+        ],
+        "test_autograd_registration__test_backward_none_with_rowwise_adagrad": [
+            unittest.skip(
+                "Cannot access data pointer of Tensor that doesn't have storage"
+            )
+        ],
+    }
+)
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
@@ -352,9 +370,15 @@ class BackwardNoneTest(unittest.TestCase):
         fc2.backward(goc)
 
         if optimizer is not None:
+            # pyre-fixme[6]: For 1st argument expected `Parameter` but got
+            #  `Union[Tensor, Module]`.
             params = SplitEmbeddingOptimizerParams(weights_dev=cc.weights_dev)
             embedding_args = SplitEmbeddingArgs(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 weights_placements=cc.weights_placements,
+                # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 weights_offsets=cc.weights_offsets,
                 max_D=cc.max_D,
             )
@@ -385,6 +409,8 @@ class BackwardNoneTest(unittest.TestCase):
                 ref_grad.half() if weights_precision == SparseType.FP16 else ref_grad
             )
         else:
+            # pyre-fixme[16]: Item `None` of `None | Tensor | Module` has no
+            #  attribute `_indices`.
             indices = cc.weights_dev.grad._indices().flatten()
             # Select only the part in the table that is updated
             test_tensor = torch.index_select(cc.weights_dev.view(-1, D), 0, indices)

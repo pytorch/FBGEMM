@@ -11,8 +11,6 @@
 #include <type_traits>
 #define FBGEMM_EXPORTS
 
-#include "fbgemm/FbgemmEmbedding.h"
-
 #include <asmjit/asmjit.h>
 #include <cpuinfo.h>
 #include <cassert>
@@ -23,10 +21,12 @@
 #include <string>
 #include <tuple>
 #include "./CodeCache.h"
+#include "./EmbeddingSpMDMAutovec.h"
 #include "./MaskAvx2.h"
 #include "./RefImplementations.h"
-#include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/FbgemmEmbedding.h"
 #include "fbgemm/SimdUtils.h"
+#include "fbgemm/Utils.h"
 
 namespace fbgemm {
 
@@ -1032,9 +1032,6 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool no_bag /*=false*/,
         bool is_bf16_out /*=false*/,
         bool is_bf16_in /*=false*/) {
-  if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
 #if defined(__APPLE__) || defined(_WIN32)
   if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
       std::is_same<outType, float>::value) {
@@ -1054,186 +1051,183 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       input_stride = block_size;
     }
   }
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-  const inst_set_t isa = fbgemmInstructionSet();
-#endif
-  if (no_bag == true) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const inType* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDM_ref(
-          block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets,
-          output_stride,
-          input_stride,
-          scale_bias_last,
-          no_bag,
-          is_bf16_out,
-          is_bf16_in);
-    };
-  }
 
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-  if ((std::is_same<inType, float>::value ||
-       std::is_same<inType, uint16_t>::value) &&
-      block_size == 1 && isYmm(isa) && output_stride == block_size &&
-      input_stride == block_size && std::is_same<outType, float>::value) {
-    return
-        [=](int64_t output_size,
-            int64_t index_size,
-            int64_t data_size,
-            const inType* input,
-            const indxType* indices,
-            const offsetType* offsets_or_lengths,
-            const float* weights, // optional, can be null for non-weighted sum
-            outType* out) {
-          return internal::EmbeddingSpMDMBlockSize1_(
-              output_size,
-              index_size,
-              data_size,
-              input,
-              indices,
-              offsets_or_lengths,
-              weights,
-              normalize_by_lengths,
-              reinterpret_cast<float*>(out),
-              is_weight_positional,
-              use_offsets,
-              is_bf16_out);
-        };
-  } else if (isZmm(isa)) {
-    static GenEmbeddingSpMDMLookup<
-        inType,
-        indxType,
-        offsetType,
-        outType,
-        inst_set_t::avx512,
-        /*ROWWISE_SPARSE=*/false,
-        THREAD_LOCAL>
-        kernel_generator;
-    const auto original_func = kernel_generator.getOrCreate(
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        is_bf16_out,
-        is_bf16_in);
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const inType* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return original_func(
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          out,
-          nullptr /* mask not used in avx512 */);
-    };
-  } else if (isYmm(isa)) {
-    static GenEmbeddingSpMDMLookup<
-        inType,
-        indxType,
-        offsetType,
-        outType,
-        inst_set_t::avx2,
-        /*ROWWISE_SPARSE=*/false,
-        THREAD_LOCAL>
-        kernel_generator;
-    const auto original_func = kernel_generator.getOrCreate(
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        is_bf16_out,
-        is_bf16_in);
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const inType* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return original_func(
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          out,
-          internal::avx2_ps_or_epi32_combined_mask);
-    };
-  } else {
-#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const inType* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDM_ref(
+  if (!no_bag) {
+    if (!cpuinfo_initialize()) {
+      throw std::runtime_error("Failed to initialize cpuinfo!");
+    }
+    const inst_set_t isa = fbgemmInstructionSet();
+    if ((std::is_same<inType, float>::value ||
+         std::is_same<inType, uint16_t>::value) &&
+        block_size == 1 && isYmm(isa) && output_stride == block_size &&
+        input_stride == block_size && std::is_same<outType, float>::value &&
+        !is_asmjit_disabled()) {
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const inType* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float*
+                     weights, // optional, can be null for non-weighted sum
+                 outType* out) {
+        return internal::EmbeddingSpMDMBlockSize1_(
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            normalize_by_lengths,
+            reinterpret_cast<float*>(out),
+            is_weight_positional,
+            use_offsets,
+            is_bf16_out);
+      };
+    }
+    if (isZmm(isa) && !is_asmjit_disabled()) {
+      static GenEmbeddingSpMDMLookup<
+          inType,
+          indxType,
+          offsetType,
+          outType,
+          inst_set_t::avx512,
+          /*ROWWISE_SPARSE=*/false,
+          THREAD_LOCAL>
+          kernel_generator;
+      const auto original_func = kernel_generator.getOrCreate(
           block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
+          has_weight,
           is_weight_positional,
+          normalize_by_lengths,
+          prefetch,
           use_offsets,
           output_stride,
           input_stride,
           scale_bias_last,
-          no_bag,
           is_bf16_out,
           is_bf16_in);
-    };
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const inType* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return original_func(
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            out,
+            nullptr /* mask not used in avx512 */);
+      };
+    }
+    if (isYmm(isa) && !is_asmjit_disabled()) {
+      static GenEmbeddingSpMDMLookup<
+          inType,
+          indxType,
+          offsetType,
+          outType,
+          inst_set_t::avx2,
+          /*ROWWISE_SPARSE=*/false,
+          THREAD_LOCAL>
+          kernel_generator;
+      const auto original_func = kernel_generator.getOrCreate(
+          block_size,
+          has_weight,
+          is_weight_positional,
+          normalize_by_lengths,
+          prefetch,
+          use_offsets,
+          output_stride,
+          input_stride,
+          scale_bias_last,
+          is_bf16_out,
+          is_bf16_in);
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const inType* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return original_func(
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            out,
+            internal::avx2_ps_or_epi32_combined_mask);
+      };
+    }
+  }
+#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if ((is_autovec_forced() || fbgemmHasArmSve2Support()) &&
+      !is_autovec_disabled()) {
+    return GenerateEmbeddingSpMDMWithStrides_autovec<
+        /*InType=*/inType,
+        /*IndexType=*/indxType,
+        /*OffsetType=*/offsetType,
+        /*OutType=*/outType>(
+        /*block_size=*/block_size,
+        /*has_weight=*/has_weight,
+        /*normalize_by_lengths=*/normalize_by_lengths,
+        /*prefetch=*/prefetch,
+        /*is_weight_positional=*/is_weight_positional,
+        /*use_offsets=*/use_offsets,
+        /*output_stride=*/output_stride,
+        /*input_stride=*/input_stride,
+        /*scale_bias_last=*/scale_bias_last,
+        /*no_bag=*/no_bag,
+        /*is_bf16_out=*/is_bf16_out,
+        /*is_bf16_in=*/is_bf16_in);
   }
 #endif
+
+#ifdef VLOG
+  VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const inType* input,
+             const indxType* indices,
+             const offsetType* offsets_or_lengths,
+             const float* weights,
+             outType* out) {
+    return EmbeddingSpMDM_ref(
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        no_bag,
+        is_bf16_out,
+        is_bf16_in);
+  };
 }
 
 template <
@@ -1292,6 +1286,26 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
   if (input_stride == -1) {
     input_stride = block_size;
   }
+
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if (!is_autovec_disabled()) {
+    // There is only the reference implementation for FP8 embedding
+    return GenerateEmbeddingSpMDMFP8WithStrides_autovec<
+        /*IndexType=*/indxType,
+        /*OffsetType=*/offsetType,
+        /*OutType=*/outType>(
+        /*block_size=*/block_size,
+        /*normalize_by_lengths=*/normalize_by_lengths,
+        /*is_weight_positional=*/is_weight_positional,
+        /*use_offsets=*/use_offsets,
+        /*output_stride=*/output_stride,
+        /*input_stride=*/input_stride,
+        /*exponent_bits=*/exponent_bits,
+        /*exponent_bias=*/exponent_bias,
+        /*is_bf16_out=*/is_bf16_out);
+  }
+#endif
+
   // There is only the reference implementation for FP8 embedding
   return [=](int64_t output_size,
              int64_t index_size,
@@ -1301,7 +1315,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
              const offsetType* offsets_or_lengths,
              const float* weights,
              outType* out) {
-    return EmbeddingSpMDMFP8_ref(
+    return EmbeddingSpMDMFP8_ref( // changed this from ref -> autovec.
         block_size,
         output_size,
         index_size,
@@ -1334,13 +1348,14 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     int prefetch,
     bool is_weight_positional,
     bool use_offsets) {
-  if (!cpuinfo_initialize()) {
-    throw std::runtime_error("Failed to initialize cpuinfo!");
-  }
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   int64_t input_stride = block_size;
   if (std::is_same<inType, uint8_t>::value) {
     const auto scale_bias_offset = 2 * sizeof(float);
     input_stride = block_size + scale_bias_offset;
+  }
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
   }
   inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {
@@ -1385,7 +1400,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
           compressed_indices_table,
           nullptr /* mask not used in avx512 */);
     };
-  } else if (isYmm(isa)) {
+  }
+  if (isYmm(isa)) {
     static GenEmbeddingSpMDMLookup<
         inType,
         indxType,
@@ -1427,37 +1443,53 @@ GenerateEmbeddingSpMDMRowWiseSparse(
           compressed_indices_table,
           internal::avx2_ps_or_epi32_combined_mask);
     };
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    return
-        [=](int64_t output_size,
-            int64_t index_size,
-            int64_t uncompressed_data_size,
-            const inType* input,
-            const indxType* indices,
-            const offsetType* offsets_or_lengths,
-            const float* weights, // optional, can be null for non-weighted sum
-            float* out,
-            const int32_t* compressed_indices_table) {
-          return EmbeddingSpMDMRowWiseSparse_ref(
-              block_size,
-              output_size,
-              index_size,
-              uncompressed_data_size,
-              // compressed_data_size,
-              input,
-              indices,
-              compressed_indices_table,
-              offsets_or_lengths,
-              weights,
-              normalize_by_lengths,
-              out,
-              is_weight_positional,
-              use_offsets);
-        };
   }
+#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+
+#ifdef VLOG
+  VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if (is_autovec_forced()) {
+    return GenerateEmbeddingSpMDMRowWiseSparse_autovec<
+        /*InType=*/inType,
+        /*IndexType=*/indxType,
+        /*OffsetType=*/offsetType>(
+        /*block_size=*/block_size,
+        /*has_weight=*/has_weight,
+        /*normalize_by_lengths=*/normalize_by_lengths,
+        /*prefetch=*/prefetch,
+        /*is_weight_positional=*/is_weight_positional,
+        /*use_offsets=*/use_offsets);
+  }
+#endif
+
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t uncompressed_data_size,
+             const inType* input,
+             const indxType* indices,
+             const offsetType* offsets_or_lengths,
+             const float* weights, // optional, can be null for non-weighted sum
+             float* out,
+             const int32_t* compressed_indices_table) {
+    return EmbeddingSpMDMRowWiseSparse_ref(
+        block_size,
+        output_size,
+        index_size,
+        uncompressed_data_size,
+        // compressed_data_size,
+        input,
+        indices,
+        compressed_indices_table,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets);
+  };
 }
 
 #define INSTANTIATE_SPMDM_BASE(                               \
@@ -1599,11 +1631,10 @@ void compressed_indices_remap(
     IndexType* out_indices,
     IndexType* out_offsets,
     float* out_weights) {
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   if (!cpuinfo_initialize()) {
     throw std::runtime_error("Failed to initialize cpuinfo!");
   }
-
-#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 #ifndef NO_AVX512
   const inst_set_t isa = fbgemmInstructionSet();
   if (isZmm(isa)) {

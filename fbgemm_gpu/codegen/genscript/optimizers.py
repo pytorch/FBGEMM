@@ -12,31 +12,41 @@ from typing import Any, Dict
 
 try:
     from .jinja_environment import generate_optimized_grad_sum_loop_access
-    from .optimizer_args import (
-        FLOAT,
-        INT,
-        INT_TENSOR,
-        LONG_TENSOR,
-        OptimizerArgsSet,
-        TENSOR,
-    )
+    from .optimizer_args import OptimizerArgsSet, OptimizerArgsSetItem as OptimItem
+    from .torch_type_utils import ArgType
 except:
     # pyre-ignore[21]
     from jinja_environment import generate_optimized_grad_sum_loop_access
 
     # pyre-ignore[21]
-    from optimizer_args import (
-        FLOAT,
-        INT,
-        INT_TENSOR,
-        LONG_TENSOR,
-        OptimizerArgsSet,
-        TENSOR,
-    )
+    from optimizer_args import OptimizerArgsSet, OptimizerArgsSetItem as OptimItem
+
+    # pyre-ignore[21]
+    from torch_type_utils import ArgType
 
 ######################################################################
 ## Optimizer templates                                              ##
 ######################################################################
+
+
+def dense() -> Dict[str, Any]:
+    return {
+        "optimizer": "dense",
+        "dense": True,
+        "args": OptimizerArgsSet.create(
+            [
+                OptimItem(ArgType.FLOAT, "unused"),
+            ],
+            {
+                "v1": "float unused = 0",
+            },
+        ),
+        "has_cpu_support": True,
+        "has_gpu_support": True,
+        "has_vbe_support": True,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
+    }
 
 
 def adagrad() -> Dict[str, Any]:
@@ -66,7 +76,12 @@ def adagrad() -> Dict[str, Any]:
     return {
         "optimizer": "adagrad",
         "args": OptimizerArgsSet.create(
-            [(TENSOR, "momentum1"), (FLOAT, "eps"), (FLOAT, "learning_rate")]
+            [
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+            ],
+            {"v1": "Tensor momentum1, float eps = 0, float learning_rate = 0"},
         ),
         "split_precomputation": "",
         "split_weight_update": split_weight_update,
@@ -75,6 +90,8 @@ def adagrad() -> Dict[str, Any]:
         "has_cpu_support": True,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -125,7 +142,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
                 + weight_new.acc.w * weight_new.acc.w;
         }
         const at::acc_type<cache_t, true> weight_norm =
-            sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_square, shfl_sync_mask));
+            sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_square, at::acc_type<cache_t, true>));
 
         // scale by max_norm if weight_norm exceeds max_norm
         if (threadIdx.x == 0) {
@@ -171,12 +188,10 @@ def rowwise_adagrad() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
-    at::acc_type<cache_t, true> multiplier;
-    at::acc_type<cache_t, true> correction;
-    multiplier = 0.0;
-    correction = 0.0;
+    at::acc_type<cache_t, true> multiplier = 0.0;
+    at::acc_type<cache_t, true> correction = 0.0;
     if (threadIdx.x == 0) {
         at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
         momentum1[idx] = new_sum_square_grads;
@@ -184,7 +199,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 2) {
+        } else if (weight_decay_mode == 2 || weight_decay_mode == 5) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         } else {
@@ -214,7 +229,7 @@ def rowwise_adagrad() -> Dict[str, Any]:
         if (weight_decay_mode == 1) {
             // L2 regularization
             correction = 1.0 - multiplier * weight_decay;
-        } else if (weight_decay_mode == 2) {
+        } else if (weight_decay_mode == 2 || weight_decay_mode == 5) {
             // Decoupled weight decay
             correction = 1.0 - learning_rate * weight_decay;
         } else {
@@ -230,13 +245,16 @@ def rowwise_adagrad() -> Dict[str, Any]:
         "optimizer": "rowwise_adagrad",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 0),
-                (FLOAT, "max_norm", 0.0),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
+                OptimItem(ArgType.INT, "weight_decay_mode", 0),
+                OptimItem(ArgType.FLOAT, "max_norm", 0.0),
+            ],
+            {
+                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0, float max_norm = 0.0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -245,6 +263,8 @@ def rowwise_adagrad() -> Dict[str, Any]:
         "has_cpu_support": True,
         "has_gpu_support": True,
         "has_vbe_support": True,
+        "has_global_weight_decay_support": True,
+        "has_ssd_support": True,
     }
 
 
@@ -261,12 +281,15 @@ def approx_rowwise_adagrad() -> Dict[str, Any]:
         "optimizer": "approx_rowwise_adagrad",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 0),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
+                OptimItem(ArgType.INT, "weight_decay_mode", 0),
+            ],
+            {
+                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0",
+            },
         ),
         "split_precomputation": rowwise_adagrad_args["split_precomputation"],
         "split_weight_update": approx_split_weight_update,
@@ -275,6 +298,8 @@ def approx_rowwise_adagrad() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -309,7 +334,7 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -366,12 +391,15 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "optimizer": "rowwise_adagrad_with_weight_decay",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 0),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
+                OptimItem(ArgType.INT, "weight_decay_mode", 0),
+            ],
+            {
+                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -380,6 +408,8 @@ def rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -397,12 +427,15 @@ def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "optimizer": "approx_rowwise_adagrad_with_weight_decay",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "weight_decay_mode", 0),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
+                OptimItem(ArgType.INT, "weight_decay_mode", 0),
+            ],
+            {
+                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int weight_decay_mode = 0.0"
+            },
         ),
         "split_precomputation": rowwise_adagrad_with_weight_decay_args[
             "split_precomputation"
@@ -415,6 +448,8 @@ def approx_rowwise_adagrad_with_weight_decay() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -480,10 +515,10 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_sum_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask);
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>);
     const at::acc_type<cache_t, true> g_avg_square = g_sum_square / D;
     const at::acc_type<cache_t, true> w_sum_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(w_local_sum_square, shfl_sync_mask);
+        GROUP_REDUCE_ALL_SUM(w_local_sum_square, at::acc_type<cache_t, true>);
 
     at::acc_type<cache_t, true> adjusted_multiplier;
     at::acc_type<cache_t, true> exp_reg_correction;
@@ -559,26 +594,29 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         "optimizer": "rowwise_adagrad_with_counter",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (TENSOR, "prev_iter"),
-                (TENSOR, "row_counter"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "iter"),
-                (INT, "counter_halflife", -1),
-                (INT, "adjustment_iter", -1),
-                (FLOAT, "adjustment_ub", 1.0),
-                (INT, "learning_rate_mode", -1),
-                (INT, "weight_decay_mode", 1),
-                (INT, "grad_sum_decay", -1),
-                (FLOAT, "max_counter"),
-                (FLOAT, "tail_id_threshold", 0.0),
-                (INT, "is_tail_id_thresh_ratio", 0),
-                (INT, "regularization_mode", 0),
-                (FLOAT, "weight_norm_coefficient", 0.0),
-                (FLOAT, "lower_bound", 0.0),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "prev_iter"),
+                OptimItem(ArgType.TENSOR, "row_counter"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
+                OptimItem(ArgType.INT, "iter"),
+                OptimItem(ArgType.INT, "counter_halflife", -1),
+                OptimItem(ArgType.INT, "adjustment_iter", -1),
+                OptimItem(ArgType.FLOAT, "adjustment_ub", 1.0),
+                OptimItem(ArgType.INT, "learning_rate_mode", -1),
+                OptimItem(ArgType.INT, "weight_decay_mode", 1),
+                OptimItem(ArgType.INT, "grad_sum_decay", -1),
+                OptimItem(ArgType.FLOAT, "max_counter"),
+                OptimItem(ArgType.FLOAT, "tail_id_threshold", 0.0),
+                OptimItem(ArgType.INT, "is_tail_id_thresh_ratio", 0),
+                OptimItem(ArgType.INT, "regularization_mode", 0),
+                OptimItem(ArgType.FLOAT, "weight_norm_coefficient", 0.0),
+                OptimItem(ArgType.FLOAT, "lower_bound", 0.0),
+            ],
+            {
+                "v1": "Tensor momentum1, Tensor prev_iter, Tensor row_counter, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int iter = 0, int counter_halflife = -1, int adjustment_iter = -1, float adjustment_ub = 1.0, int learning_rate_mode = -1, int weight_decay_mode = 1, int grad_sum_decay = -1, float max_counter = 0, float tail_id_threshold = 0.0, int is_tail_id_thresh_ratio = 0, int regularization_mode = 0, float weight_norm_coefficient = 0.0, float lower_bound = 0.0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -587,6 +625,8 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": True,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -603,26 +643,29 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
         "optimizer": "approx_rowwise_adagrad_with_counter",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (TENSOR, "prev_iter"),
-                (TENSOR, "row_counter"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay", 0.0),
-                (INT, "iter"),
-                (INT, "counter_halflife", -1),
-                (INT, "adjustment_iter", -1),
-                (FLOAT, "adjustment_ub", 1.0),
-                (INT, "learning_rate_mode", -1),
-                (INT, "weight_decay_mode", 1),
-                (INT, "grad_sum_decay", -1),
-                (FLOAT, "max_counter"),
-                (FLOAT, "tail_id_threshold", 0.0),
-                (INT, "is_tail_id_thresh_ratio", 0),
-                (INT, "regularization_mode", 0),
-                (FLOAT, "weight_norm_coefficient", 0.0),
-                (FLOAT, "lower_bound", 0.0),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "prev_iter"),
+                OptimItem(ArgType.TENSOR, "row_counter"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "weight_decay", 0.0),
+                OptimItem(ArgType.INT, "iter"),
+                OptimItem(ArgType.INT, "counter_halflife", -1),
+                OptimItem(ArgType.INT, "adjustment_iter", -1),
+                OptimItem(ArgType.FLOAT, "adjustment_ub", 1.0),
+                OptimItem(ArgType.INT, "learning_rate_mode", -1),
+                OptimItem(ArgType.INT, "weight_decay_mode", 1),
+                OptimItem(ArgType.INT, "grad_sum_decay", -1),
+                OptimItem(ArgType.FLOAT, "max_counter"),
+                OptimItem(ArgType.FLOAT, "tail_id_threshold", 0.0),
+                OptimItem(ArgType.INT, "is_tail_id_thresh_ratio", 0),
+                OptimItem(ArgType.INT, "regularization_mode", 0),
+                OptimItem(ArgType.FLOAT, "weight_norm_coefficient", 0.0),
+                OptimItem(ArgType.FLOAT, "lower_bound", 0.0),
+            ],
+            {
+                "v1": "Tensor momentum1, Tensor prev_iter, Tensor row_counter, float eps = 0, float learning_rate = 0, float weight_decay = 0.0, int iter = 0, int counter_halflife = -1, int adjustment_iter = -1, float adjustment_ub = 1.0, int learning_rate_mode = -1, int weight_decay_mode = 1, int grad_sum_decay = -1, float max_counter = 0, float tail_id_threshold = 0.0, int is_tail_id_thresh_ratio = 0, int regularization_mode = 0, float weight_norm_coefficient = 0.0, float lower_bound = 0.0"
+            },
         ),
         "split_precomputation": rowwise_adagrad_with_counter_args[
             "split_precomputation"
@@ -635,6 +678,8 @@ def approx_rowwise_adagrad_with_counter() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -662,7 +707,7 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> multiplier;
     at::acc_type<cache_t, true> correction;
@@ -698,12 +743,15 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
         "is_experimental_optimizer": True,
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (FLOAT, "eps"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "weight_decay"),
-                (INT, "iter"),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "weight_decay"),
+                OptimItem(ArgType.INT, "iter"),
+            ],
+            {
+                "v1": "Tensor momentum1, float eps = 0, float learning_rate = 0, float weight_decay = 0, int iter = 0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -712,6 +760,8 @@ def rowwise_weighted_adagrad() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -727,7 +777,10 @@ def sgd() -> Dict[str, Any]:
 
     return {
         "optimizer": "sgd",
-        "args": OptimizerArgsSet.create([(FLOAT, "learning_rate")]),
+        "args": OptimizerArgsSet.create(
+            [OptimItem(ArgType.TENSOR, "learning_rate_tensor")],
+            {"v1": "float learning_rate = 0"},
+        ),
         "split_precomputation": "",
         "split_weight_update": split_weight_update,
         "split_post_update": "",
@@ -735,6 +788,8 @@ def sgd() -> Dict[str, Any]:
         "has_cpu_support": True,
         "has_gpu_support": True,
         "has_vbe_support": True,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -750,7 +805,10 @@ def approx_sgd() -> Dict[str, Any]:
 
     return {
         "optimizer": "approx_sgd",
-        "args": OptimizerArgsSet.create([(FLOAT, "learning_rate")]),
+        "args": OptimizerArgsSet.create(
+            [OptimItem(ArgType.TENSOR, "learning_rate_tensor")],
+            {"v1": "float learning_rate = 0"},
+        ),
         "split_precomputation": "",
         "split_weight_update": approx_split_weight_update,
         "split_post_update": "",
@@ -758,6 +816,8 @@ def approx_sgd() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": False,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -803,9 +863,9 @@ def lamb() -> Dict[str, Any]:
     )
     split_precomputation += """
     const auto weight_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq, shfl_sync_mask));
+        sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_sq, at::acc_type<cache_t, true>));
     const auto rtw_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq, shfl_sync_mask));
+        sqrtf(GROUP_REDUCE_ALL_SUM(rtw_sum_sq, at::acc_type<cache_t, true>));
      const auto true_ratio = weight_norm / rtw_norm;
   """
     split_weight_update = """
@@ -818,15 +878,18 @@ def lamb() -> Dict[str, Any]:
         "is_experimental_optimizer": True,
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (TENSOR, "momentum2"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "eps"),
-                (FLOAT, "beta1"),
-                (FLOAT, "beta2"),
-                (FLOAT, "weight_decay"),
-                (INT, "iter"),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "momentum2"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "beta1"),
+                OptimItem(ArgType.FLOAT, "beta2"),
+                OptimItem(ArgType.FLOAT, "weight_decay"),
+                OptimItem(ArgType.INT, "iter"),
+            ],
+            {
+                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -835,6 +898,8 @@ def lamb() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -853,7 +918,7 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square, shfl_sync_mask) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> m2;
     m2  = 0.0;
@@ -895,9 +960,9 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
     )
     split_precomputation += """
     const auto weight_norm =
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq));
+      sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_sq, at::acc_type<cache_t, true>));
     const auto rtw_norm =
-      sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(rtw_sum_sq));
+      sqrtf(GROUP_REDUCE_ALL_SUM(rtw_sum_sq, at::acc_type<cache_t, true>));
     const auto true_ratio = weight_norm / rtw_norm;
     """
 
@@ -910,15 +975,18 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         "optimizer": "partial_rowwise_lamb",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (TENSOR, "momentum2"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "eps"),
-                (FLOAT, "beta1"),
-                (FLOAT, "beta2"),
-                (FLOAT, "weight_decay"),
-                (INT, "iter"),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "momentum2"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "beta1"),
+                OptimItem(ArgType.FLOAT, "beta2"),
+                OptimItem(ArgType.FLOAT, "weight_decay"),
+                OptimItem(ArgType.INT, "iter"),
+            ],
+            {
+                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -927,6 +995,8 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -965,15 +1035,18 @@ def adam() -> Dict[str, Any]:
         "is_experimental_optimizer": True,
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (TENSOR, "momentum2"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "eps"),
-                (FLOAT, "beta1"),
-                (FLOAT, "beta2"),
-                (FLOAT, "weight_decay"),
-                (INT, "iter"),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "momentum2"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "beta1"),
+                OptimItem(ArgType.FLOAT, "beta2"),
+                OptimItem(ArgType.FLOAT, "weight_decay"),
+                OptimItem(ArgType.INT, "iter"),
+            ],
+            {
+                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
+            },
         ),
         "split_precomputation": "",
         "split_weight_update": split_weight_update,
@@ -982,6 +1055,8 @@ def adam() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -1000,7 +1075,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     )
     split_precomputation += """
     const at::acc_type<cache_t, true> g_avg_square =
-        warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(g_local_sum_square) / D;
+        GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> v_hat_t;
     v_hat_t = 0.0;
@@ -1013,7 +1088,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
     """
 
     split_weight_update = """
-      Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
+      Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
       m_t.acc.x *= beta1;
       m_t.acc.y *= beta1;
       m_t.acc.z *= beta1;
@@ -1032,15 +1107,26 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         "optimizer": "partial_rowwise_adam",
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (TENSOR, "momentum2"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "eps"),
-                (FLOAT, "beta1"),
-                (FLOAT, "beta2"),
-                (FLOAT, "weight_decay"),
-                (INT, "iter"),
-            ]
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum1",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(
+                    ArgType.PLACEHOLDER_TENSOR,
+                    "momentum2",
+                    ph_tys=[ArgType.FLOAT_TENSOR, ArgType.BFLOAT16_TENSOR],
+                ),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eps"),
+                OptimItem(ArgType.FLOAT, "beta1"),
+                OptimItem(ArgType.FLOAT, "beta2"),
+                OptimItem(ArgType.FLOAT, "weight_decay"),
+                OptimItem(ArgType.INT, "iter"),
+            ],
+            {
+                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -1049,6 +1135,8 @@ def partial_rowwise_adam() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -1073,9 +1161,9 @@ def lars_sgd() -> Dict[str, Any]:
     )
     split_precomputation += """
     const auto weight_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(weight_sum_sq));
+        sqrtf(GROUP_REDUCE_ALL_SUM(weight_sum_sq, at::acc_type<cache_t, true>));
     const auto grad_norm =
-        sqrtf(warpReduceAllSum<at::acc_type<cache_t, true>, kThreadGroupSize>(grad_sum_sq));
+        sqrtf(GROUP_REDUCE_ALL_SUM(grad_sum_sq, at::acc_type<cache_t, true>));
      const at::acc_type<cache_t, true> adjusted_lr = learning_rate * eta * weight_norm / (grad_norm + weight_decay * weight_norm);
     """
 
@@ -1099,12 +1187,15 @@ def lars_sgd() -> Dict[str, Any]:
         "is_experimental_optimizer": True,
         "args": OptimizerArgsSet.create(
             [
-                (TENSOR, "momentum1"),
-                (FLOAT, "learning_rate"),
-                (FLOAT, "eta"),
-                (FLOAT, "momentum"),
-                (FLOAT, "weight_decay"),
-            ]
+                OptimItem(ArgType.TENSOR, "momentum1"),
+                OptimItem(ArgType.TENSOR, "learning_rate_tensor"),
+                OptimItem(ArgType.FLOAT, "eta"),
+                OptimItem(ArgType.FLOAT, "momentum"),
+                OptimItem(ArgType.FLOAT, "weight_decay"),
+            ],
+            {
+                "v1": "Tensor momentum1, float learning_rate = 0, float eta = 0, float momentum = 0, float weight_decay = 0"
+            },
         ),
         "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
@@ -1113,6 +1204,8 @@ def lars_sgd() -> Dict[str, Any]:
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }
 
 
@@ -1122,12 +1215,17 @@ def none_optimizer() -> Dict[str, Any]:
         "dense": False,
         "args": OptimizerArgsSet.create(
             [
-                (INT, "total_hash_size"),
-                (INT, "total_unique_indices"),
-            ]
+                OptimItem(ArgType.INT, "total_hash_size"),
+                OptimItem(ArgType.SYM_INT, "total_unique_indices"),
+            ],
+            {
+                "v1": "int total_hash_size = 0, SymInt total_unique_indices = 0",
+            },
         ),
         # Generate only GPU code
         "has_cpu_support": False,
         "has_gpu_support": True,
         "has_vbe_support": False,
+        "has_global_weight_decay_support": False,
+        "has_ssd_support": False,
     }

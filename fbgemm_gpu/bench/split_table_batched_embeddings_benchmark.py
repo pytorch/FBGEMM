@@ -14,6 +14,9 @@ import math
 import os
 import random
 import statistics
+import tempfile
+from contextlib import nullcontext
+from itertools import accumulate
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -24,12 +27,6 @@ import numpy as np
 import torch
 
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    generate_requests,
-    get_device,
-    round_up,
-    TBERequest,
-)
 
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -47,7 +44,16 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     DenseTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
+    generate_vbe_metadata,
+)
+from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
+from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch import Tensor
+from torch.profiler import profile
+
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 haveAIBench = False
 try:
@@ -64,6 +70,7 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 if open_source:
     # pyre-ignore[21]
     from bench_utils import (
+        benchmark_eval_compression,
         benchmark_pipelined_requests,
         benchmark_requests,
         benchmark_requests_refer,
@@ -73,6 +80,7 @@ if open_source:
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
+        benchmark_eval_compression,
         benchmark_pipelined_requests,
         benchmark_requests,
         benchmark_requests_refer,
@@ -100,7 +108,11 @@ def cli() -> None:
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--warmup-runs", default=0)
-@click.option("--managed", default="device")
+@click.option(
+    "--managed",
+    default="device",
+    type=click.Choice(["device", "managed", "managed_caching"], case_sensitive=False),
+)
 @click.option("--mixed", is_flag=True, default=False)
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=32)
@@ -115,6 +127,23 @@ def cli() -> None:
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
+@click.option(
+    "--uvm-host-mapped",
+    is_flag=True,
+    default=False,
+    help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
+)
+@click.option("--ssd", is_flag=True, default=False)
+@click.option(
+    "--ssd-prefix", type=str, default="/tmp/ssd_benchmark", help="SSD directory prefix"
+)
+@click.option("--cache-load-factor", default=0.2)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -124,7 +153,7 @@ def device(  # noqa C901
     stoc: bool,
     iters: int,
     warmup_runs: int,
-    managed: str,
+    managed: click.Choice,
     mixed: bool,
     num_embeddings: int,
     num_tables: int,
@@ -139,7 +168,14 @@ def device(  # noqa C901
     output_dtype: SparseType,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    export_trace: bool,
+    trace_url: str,
+    uvm_host_mapped: bool,
+    ssd: bool,
+    ssd_prefix: str,
+    cache_load_factor: float,
 ) -> None:
+    assert not ssd or not dense, "--ssd cannot be used together with --dense"
     np.random.seed(42)
     torch.manual_seed(42)
     B = batch_size
@@ -177,8 +213,12 @@ def device(  # noqa C901
             if torch.cuda.is_available()
             else EmbeddingLocation.HOST
         )
-    else:
+    elif managed == "managed":
         managed_option = EmbeddingLocation.MANAGED
+    elif managed == "managed_caching":
+        managed_option = EmbeddingLocation.MANAGED_CACHING
+    else:
+        raise ValueError(f"Unknown --managed-option {managed}")
 
     if pooling is None or pooling == "sum":
         pooling = "sum"
@@ -191,7 +231,21 @@ def device(  # noqa C901
         pooling_mode = PoolingMode.NONE
         do_pooling = False
 
+    common_split_args: Dict[str, Any] = {
+        "weights_precision": weights_precision,
+        "stochastic_rounding": stoc,
+        "output_dtype": output_dtype,
+        "pooling_mode": pooling_mode,
+        "bounds_check_mode": BoundsCheckMode(bounds_check_mode),
+        "uvm_host_mapped": uvm_host_mapped,
+        "optimizer": optimizer,
+        "learning_rate": 0.1,
+        "eps": 0.1,
+        "feature_table_map": list(range(T)),
+    }
+
     if dense:
+        tbe_type: str = "dense"
         emb = DenseTableBatchedEmbeddingBagsCodegen(
             [
                 (
@@ -203,7 +257,22 @@ def device(  # noqa C901
             pooling_mode=pooling_mode,
             use_cpu=not torch.cuda.is_available(),
         )
+    elif ssd:
+        assert (
+            torch.cuda.is_available()
+        ), "SSDTableBatchedEmbeddingBags only supports GPU execution"
+        cache_set = max(T * B, 1)
+        tempdir = tempfile.mkdtemp(prefix=ssd_prefix)
+        emb = SSDTableBatchedEmbeddingBags(
+            embedding_specs=[(E, d) for d in Ds],
+            cache_sets=cache_set,
+            ssd_storage_directory=tempdir,
+            ssd_cache_location=EmbeddingLocation.DEVICE,
+            ssd_rocksdb_shards=8,
+            **common_split_args,
+        )
     else:
+        tbe_type: str = "split"
         emb = SplitTableBatchedEmbeddingBagsCodegen(
             [
                 (
@@ -218,21 +287,21 @@ def device(  # noqa C901
                 )
                 for d in Ds
             ],
-            optimizer=optimizer,
-            learning_rate=0.1,
-            eps=0.1,
-            weights_precision=weights_precision,
-            stochastic_rounding=stoc,
-            output_dtype=output_dtype,
-            pooling_mode=pooling_mode,
-            bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+            cache_precision=weights_precision,
+            cache_algorithm=CacheAlgorithm.LRU,
+            cache_load_factor=cache_load_factor,
+            **common_split_args,
         )
     emb = emb.to(get_device())
 
     if weights_precision == SparseType.INT8:
+        # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
+        #  min_val: float, max_val: float) -> None, (self:
+        #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
+        #  None, Tensor, Module]` is not a function.
         emb.init_embedding_weights_uniform(-0.0003, 0.0003)
 
-    nparams = sum(w.numel() for w in emb.split_embedding_weights())
+    nparams = sum(d * E for d in Ds)
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
     if do_pooling:
@@ -246,6 +315,7 @@ def device(  # noqa C901
             + param_size_multiplier * B * sum(Ds) * L
         )
 
+    logging.info(f"Managed option: {managed}")
     logging.info(
         f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
         f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
@@ -268,18 +338,29 @@ def device(  # noqa C901
         use_cpu=not torch.cuda.is_available(),
     )
 
-    # forward
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb.forward(
-            indices.long(),
-            offsets.long(),
-            per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
-        ),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        num_warmups=warmup_runs,
-    )
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
+        )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        # forward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.long(),
+                offsets.long(),
+                per_sample_weights,
+                feature_requires_grad=feature_requires_grad,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            num_warmups=warmup_runs,
+        )
+
     logging.info(
         f"Forward, B: {B}, "
         f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
@@ -294,21 +375,26 @@ def device(  # noqa C901
     if do_pooling:
         grad_output = torch.randn(B, sum(Ds)).to(get_device())
     else:
+        # pyre-fixme[6]: For 2nd argument expected `Union[int, SymInt]` but got
+        #  `Union[floating[typing.Any], int]`.
         grad_output = torch.randn(B * T * L, D).to(get_device())
-    # backward
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb(
-            indices.long(),
-            offsets.long(),
-            per_sample_weights,
-            feature_requires_grad=feature_requires_grad,
-        ),
-        flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
-        bwd_only=True,
-        grad=grad_output,
-        num_warmups=warmup_runs,
-    )
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd_bwd")):
+        # backward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb(
+                indices.long(),
+                offsets.long(),
+                per_sample_weights,
+                feature_requires_grad=feature_requires_grad,
+            ),
+            flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
+            bwd_only=True,
+            grad=grad_output,
+            num_warmups=warmup_runs,
+        )
+
     logging.info(
         f"Backward, B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
@@ -342,6 +428,12 @@ def device(  # noqa C901
 @click.option("--enforce-hbm", is_flag=True, default=False)
 @click.option("--no-conflict-misses", is_flag=True, default=False)
 @click.option("--all-conflict-misses", is_flag=True, default=False)
+@click.option(
+    "--uvm-host-mapped",
+    is_flag=True,
+    default=False,
+    help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
+)
 def uvm(
     alpha: bool,
     bag_size: int,
@@ -370,6 +462,7 @@ def uvm(
     no_conflict_misses: bool,
     # Simulate a UVM cache with a cache conflict miss rate of 100%
     all_conflict_misses: bool,
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -417,6 +510,7 @@ def uvm(
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
         enforce_hbm=enforce_hbm,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
 
     if weights_precision == SparseType.INT8:
@@ -459,6 +553,7 @@ def uvm(
             cache_load_factor=cache_load_factor,
             cache_algorithm=cache_alg,
             enforce_hbm=enforce_hbm,
+            uvm_host_mapped=uvm_host_mapped,
         ).cuda()
 
         if weights_precision == SparseType.INT8:
@@ -566,6 +661,9 @@ def uvm(
 
     time_per_iter = benchmark_requests(
         requests_uvm,
+        # pyre-fixme[6]: For 2nd argument expected `(Tensor, Tensor,
+        #  Optional[Tensor]) -> Tensor` but got `(indices: Tensor, offsets: Tensor,
+        #  per_sample_weights: Tensor) -> None`.
         run_bench,
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         num_warmups=warmup_runs,
@@ -659,6 +757,12 @@ def uvm(
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option(
+    "--uvm-host-mapped",
+    is_flag=True,
+    default=False,
+    help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
+)
 def cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -679,6 +783,7 @@ def cache(  # noqa C901
     flush_gpu_cache_size_mb: int,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -711,6 +816,7 @@ def cache(  # noqa C901
         optimizer=optimizer,
         weights_precision=weights_precision,
         stochastic_rounding=stoc,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
 
     if weights_precision == SparseType.INT8:
@@ -731,6 +837,7 @@ def cache(  # noqa C901
         stochastic_rounding=stoc,
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
 
     if weights_precision == SparseType.INT8:
@@ -740,10 +847,12 @@ def cache(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     logging.info(
         f"Embedding tables: {E * T} rows, {nparams / 1.0e9: .2f} GParam, "
-        f"{nparams * param_size_multiplier  / 1.0e9: .2f} GB"
+        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -786,19 +895,25 @@ def cache(  # noqa C901
     NOT_FOUND = -1
     for req in requests:
         indices, offsets = req.unpack_2()
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
+        #  function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices.long(), offsets.long())
         exchanged_cache_lines.append(
-            (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
+            # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
+            (emb.lxu_cache_state != old_lxu_cache_state)
+            .sum()
+            .item()
         )
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
         emb.forward(indices.long(), offsets.long())
     logging.info(
-        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
+        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines) / len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
     )
     logging.info(
-        f"Cache miss -- mean: {sum(cache_misses)/len(requests)}, "
+        f"Cache miss -- mean: {sum(cache_misses) / len(requests)}, "
         f"max: {max(cache_misses)}, min: {min(cache_misses)}"
     )
 
@@ -954,6 +1069,8 @@ def nbit_cpu(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -1025,6 +1142,12 @@ def nbit_cpu(  # noqa C901
 @click.option("--tables", type=str, default=None)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1053,6 +1176,8 @@ def nbit_device(  # noqa C901
     tables: Optional[str],
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1137,6 +1262,8 @@ def nbit_device(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -1197,6 +1324,49 @@ def nbit_device(  # noqa C901
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
 
+    # Get trace for one run of iter
+    tbe_type: str = "split"
+
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
+        )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    requests = generate_requests(
+        iters,
+        B,
+        T,
+        L,
+        E,
+        reuse=reuse,
+        alpha=alpha,
+        weighted=weighted,
+        requests_data_file=requests_data_file,
+        tables=tables,
+    )
+    requests = [
+        TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+        for req in requests
+    ]
+
+    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        # forward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.int(),
+                offsets.int(),
+                per_sample_weights,
+            ),
+            check_median=check_median,
+        )
+    # free up GPU memory
+    del requests
+
     if report_aibench and haveAIBench:
         print(
             emitMetric(
@@ -1242,6 +1412,8 @@ def nbit_device(  # noqa C901
                 B,
                 L,
                 E,
+                # pyre-fixme[6]: For 6th argument expected `int` but got
+                #  `Union[floating[typing.Any], int]`.
                 D,
                 pooling,
                 weighted,
@@ -1583,6 +1755,7 @@ def nbit_device_with_spec(  # noqa C901
 @click.option("--enforce-hbm", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--uvm-host-mapped", is_flag=True, default=False)
 def nbit_uvm(
     alpha: bool,
     bag_size: int,
@@ -1607,6 +1780,7 @@ def nbit_uvm(
     enforce_hbm: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1655,6 +1829,7 @@ def nbit_uvm(
         enforce_hbm=enforce_hbm,
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
     emb_uvm.fill_random_weights()
 
@@ -1673,6 +1848,7 @@ def nbit_uvm(
             output_dtype=output_dtype,
             fp8_exponent_bits=fp8_exponent_bits,
             fp8_exponent_bias=fp8_exponent_bias,
+            uvm_host_mapped=uvm_host_mapped,
         ).cuda()
         emb_gpu.fill_random_weights()
 
@@ -1697,6 +1873,7 @@ def nbit_uvm(
             enforce_hbm=enforce_hbm,
             fp8_exponent_bits=fp8_exponent_bits,
             fp8_exponent_bias=fp8_exponent_bias,
+            uvm_host_mapped=uvm_host_mapped,
         ).cuda()
         emb_mixed.fill_random_weights()
 
@@ -1840,6 +2017,9 @@ def nbit_uvm(
                 indices,
                 offsets,
             ),
+            # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
+            #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+            #  indices_weights: Any) -> Tensor`.
             lambda indices, offsets, indices_weights: emb_mixed.forward(
                 indices,
                 offsets,
@@ -1934,6 +2114,7 @@ def nbit_uvm_compare_direct_mapped(
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
             for _ in range(T)
         ]
+        # pyre-fixme[9]: D has type `int`; used as `floating[typing.Any]`.
         D = np.average(Ds)
     else:
         Ds: List[int] = [D] * T
@@ -2113,6 +2294,7 @@ def nbit_uvm_compare_direct_mapped(
 @click.option("--gather-uvm-cache-stats", is_flag=True, default=False)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
+@click.option("--uvm-host-mapped", is_flag=True, default=False)
 def nbit_cache(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -2137,6 +2319,7 @@ def nbit_cache(  # noqa C901
     gather_uvm_cache_stats: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
+    uvm_host_mapped: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -2171,6 +2354,7 @@ def nbit_cache(  # noqa C901
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
         cache_assoc=cache_assoc,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
     emb_nc.fill_random_weights()
     fill_random_scale_bias(emb_nc, T, weights_precision)
@@ -2197,6 +2381,7 @@ def nbit_cache(  # noqa C901
         fp8_exponent_bits=fp8_exponent_bits,
         fp8_exponent_bias=fp8_exponent_bias,
         cache_assoc=cache_assoc,
+        uvm_host_mapped=uvm_host_mapped,
     ).cuda()
     emb.fill_random_weights()
     fill_random_scale_bias(emb, T, weights_precision)
@@ -2205,9 +2390,10 @@ def nbit_cache(  # noqa C901
     param_size_multiplier = weights_precision.bit_rate() / 8.0
     output_size_multiplier = output_dtype.bit_rate() / 8.0
     read_write_bytes = (
+        # read L rows per batch per table.
         param_size_multiplier * B * sum(Ds) * L
+        # write 1 row (assuming pooling) per batch per table.
         + output_size_multiplier * B * sum(Ds)
-        + param_size_multiplier * B * sum(Ds) * L
     )
     logging.info(
         f"{weights_precision} Embedding tables: {E * T} rows, {nparams_byte / param_size_multiplier / 1.0e9: .2f} GParam, "
@@ -2215,6 +2401,8 @@ def nbit_cache(  # noqa C901
     )
     logging.info(
         f"Accessed weights per batch: {B * T * L} rows, "
+        # pyre-fixme[58]: `*` is not supported for operand types `int` and
+        #  `Union[np.floating[typing.Any], int]`.
         f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
@@ -2260,10 +2448,16 @@ def nbit_cache(  # noqa C901
 
     for req in requests:
         indices, offsets = req.unpack_2()
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
+        #  function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
         emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
-            (emb.lxu_cache_state != old_lxu_cache_state).sum().item()
+            # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
+            (emb.lxu_cache_state != old_lxu_cache_state)
+            .sum()
+            .item()
         )
         cache_misses.append(
             (emb.lxu_cache_locations_list.top() == NOT_FOUND).sum().item()
@@ -2278,24 +2472,24 @@ def nbit_cache(  # noqa C901
         input_indices.append(len(indices))
 
     logging.info(
-        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines)/len(requests): .2f}, "
+        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines) / len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
     )
     logging.info(
-        f"Cache miss -- mean: {sum(cache_misses)/len(requests)}, "
+        f"Cache miss -- mean: {sum(cache_misses) / len(requests)}, "
         f"max: {max(cache_misses)}, min: {min(cache_misses)}"
     )
     logging.info(
-        f"input_indices -- mean: {sum(input_indices)/len(requests)}, "
+        f"input_indices -- mean: {sum(input_indices) / len(requests)}, "
         f"max: {max(input_indices)}, min: {min(input_indices)}"
     )
     logging.info(
-        f"unique_indices -- mean: {sum(unique_indices)/len(requests)}, "
+        f"unique_indices -- mean: {sum(unique_indices) / len(requests)}, "
         f"max: {max(unique_indices)}, min: {min(unique_indices)}"
     )
     unique_miss_rate = [a / b for (a, b) in zip(exchanged_cache_lines, unique_indices)]
     logging.info(
-        f"unique_miss_rate -- mean: {sum(unique_miss_rate)/len(requests)}, "
+        f"unique_miss_rate -- mean: {sum(unique_miss_rate) / len(requests)}, "
         f"max: {max(unique_miss_rate)}, min: {min(unique_miss_rate)}"
     )
     if record_cache_miss_counter or record_tablewise_cache_miss:
@@ -2322,6 +2516,9 @@ def nbit_cache(  # noqa C901
             indices,
             offsets,
         ),
+        # pyre-fixme[6]: For 3rd argument expected `(Tensor, Tensor,
+        #  Optional[Tensor]) -> None` but got `(indices: Any, offsets: Any,
+        #  indices_weights: Any) -> Tensor`.
         lambda indices, offsets, indices_weights: emb.forward(
             indices,
             offsets,
@@ -2338,6 +2535,7 @@ def nbit_cache(  # noqa C901
         f"Te2e: {e2e_time * 1.0e6:.0f}us, "
         f"e2e BW: {read_write_bytes / e2e_time / 1.0e9: .2f} GB/s, "
         f"Tprefetch: {prefetch_time * 1.0e6:.0f}us, "
+        # 2x for reading exchanged_cache_lines from CPU memory through UVM and writing them to GPU HBM.
         f"{2 * sum(exchanged_cache_lines) * param_size_multiplier * D / prefetch_time / len(requests) / 1.0e9: .2f} GB/s, "
         f"TfwdTime: {forward_time * 1.0e6:.0f}us, "
         f"{read_write_bytes / forward_time / 1.0e9: .2f} GB/s"
@@ -2564,9 +2762,30 @@ def pruned_array(  # noqa C901
 @click.option("--warmup-runs", default=0)
 @click.option("--num-embeddings", default=int(1e5))
 @click.option("--num-tables", default=32)
-@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.WARNING.value)
+@click.option(
+    "--bounds-check-mode",
+    type=int,
+    default=BoundsCheckMode.WARNING.value,
+    help=f"Available modes: FATAL={BoundsCheckMode.FATAL.value}, "
+    f"WARNING={BoundsCheckMode.WARNING.value}, "
+    f"IGNORE={BoundsCheckMode.IGNORE.value}, "
+    f"NONE={BoundsCheckMode.NONE.value}",
+)
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
+@click.option(
+    "--batch-sizes",
+    type=str,
+    default="",
+    help="A list of batch sizes for the variable batch size case (VBE). "
+    "The list is comma separated, i.e., 512,128,4",
+)
+@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="bounds_check_indices_trace_{ospid}.json",
+)
 def bounds_check_indices(  # noqa C901
     bag_size: int,
     batch_size: int,
@@ -2577,43 +2796,119 @@ def bounds_check_indices(  # noqa C901
     bounds_check_mode: int,
     requests_data_file: Optional[str],
     tables: Optional[str],
+    batch_sizes: str,
+    export_trace: bool,
+    trace_url: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
-    B = batch_size
     L = bag_size
     E = num_embeddings
     T = num_tables
 
-    requests = generate_requests(
-        iters,
-        B,
-        T,
-        L,
-        E,
-        requests_data_file=requests_data_file,
-        tables=tables,
-    )
+    is_vbe = len(batch_sizes) > 0
+    if is_vbe:
+        Bs = [int(B) for B in batch_sizes.split(",")]
+        assert (
+            len(Bs) == T
+        ), "The number of batch sizes must be the same as the number of tables"
+        B_offsets = torch.tensor([0] + list(accumulate(Bs)))
+        max_B = max(Bs)
+        total_B = int(B_offsets[-1].item())
+        requests = generate_requests(
+            iters,
+            total_B,
+            1,
+            L,
+            E,
+            requests_data_file=requests_data_file,
+            tables=tables,
+        )
+        B_offsets = B_offsets.to(get_device()).to(torch.int)
+    else:
+        B = batch_size
+        Bs = [B] * T
+        B_offsets = None
+        max_B = -1
+        total_B = B * T
+        requests = generate_requests(
+            iters,
+            B,
+            T,
+            L,
+            E,
+            requests_data_file=requests_data_file,
+            tables=tables,
+        )
 
     warning = torch.tensor([0]).long().to(get_device())
     rows_per_table = torch.tensor([E for _ in range(T)]).long().to(get_device())
-    # forward
-    time_per_iter = benchmark_requests(
-        requests,
-        lambda indices, offsets, _: torch.ops.fbgemm.bounds_check_indices(
-            rows_per_table,
-            indices.long(),
-            offsets.long(),
-            BoundsCheckMode(bounds_check_mode),
-            warning,
-        ),
-        num_warmups=warmup_runs,
-    )
+
+    def _kineto_trace_handler(p: profile) -> None:
+        p.export_chrome_trace(trace_url.format(ospid=os.getpid()))
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    if is_vbe:
+        offsets = requests[0].offsets
+        vbe_metadata = generate_vbe_metadata(
+            offsets,
+            [[b] for b in Bs],
+            pooling_mode=PoolingMode.SUM,
+            feature_dims_cpu=torch.tensor(
+                [-1] * T, device="cpu", dtype=torch.int64
+            ),  # unused
+            device=get_device(),
+        )
+        assert vbe_metadata.B_offsets is not None
+        info_B_num_bits, info_B_mask = torch.ops.fbgemm.get_infos_metadata(
+            vbe_metadata.B_offsets,  # unused tensor
+            vbe_metadata.max_B,
+            vbe_metadata.B_offsets.numel() - 1,  # T
+        )
+        row_output_offsets, b_t_map = torch.ops.fbgemm.generate_vbe_metadata(
+            vbe_metadata.B_offsets,
+            vbe_metadata.B_offsets_rank_per_feature,
+            vbe_metadata.output_offsets_feature_rank,
+            torch.tensor(
+                [-1] * (T + 1), device=get_device(), dtype=torch.int
+            ),  # unused D_offsets
+            -1,  # unused max_D
+            False,  # nobag
+            vbe_metadata.max_B_feature_rank,
+            info_B_num_bits,
+            offsets.numel() - 1,  # total_B
+        )
+    else:
+        b_t_map = None
+        info_B_num_bits = -1
+        info_B_mask = -1
+
+    with context_factory(lambda p: _kineto_trace_handler(p)):
+        # forward
+        time_per_iter = benchmark_requests(
+            requests,
+            lambda indices, offsets, _: torch.ops.fbgemm.bounds_check_indices(
+                rows_per_table,
+                indices.long(),
+                offsets.long(),
+                BoundsCheckMode(bounds_check_mode),
+                warning,
+                B_offsets=B_offsets,
+                max_B=max_B,
+                b_t_map=b_t_map,
+                info_B_num_bits=info_B_num_bits,
+                info_B_mask=info_B_mask,
+            ),
+            num_warmups=warmup_runs,
+        )
 
     logging.info(
-        f"Bounds Check Indices:  B: {B}, "
+        f"Bounds Check Indices:  Bs: {Bs}, "
         f"E: {E}, T: {T}, L: {L}, "
-        f"BW: {(8 * B * T * L + 8 * (B * T + 1)) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"BW: {(8 * total_B * L + 8 * (total_B + 1)) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
@@ -2961,6 +3256,7 @@ def device_with_spec(  # noqa C901
             reuse=reuse,
             alpha=alpha,
             weighted=weighted,
+            # pyre-fixme[61]: `sigma_Ls` is undefined, or not always defined.
             sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
             zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
         )
@@ -3081,7 +3377,7 @@ def _to_offsets(lengths: torch.Tensor) -> torch.Tensor:
 @click.option("--num-tables", default=20)
 @click.option("--compressed-tables", default=10)
 @click.option("--iters", default=100)
-def vbe(
+def benchmark_tbe_input_compression(
     batch_size: int,
     compressed_batch_size: int,
     embedding_dim: int,
@@ -3176,7 +3472,7 @@ def vbe(
         for _ in range(iters)
     ]
 
-    out = benchmark_vbe(
+    out = benchmark_eval_compression(
         requests,
         compressed_requests,
         baseline_func=lambda indices, offsets: emb.forward(
@@ -3196,6 +3492,147 @@ def vbe(
         f"T: {out.avg * 1.0e6:.0f}us, fwd: {out.fwd * 1.0e6:.0f}us, bwd: {out.bwd * 1.0e6:.0f}us\n"
         f"Compressed, B: {B}, cB: {cB}, T: {T - cT}, cT: {cT}, D: {D}, L: {L}, "
         f"T: {out.compressed_avg * 1.0e6:.0f}us, fwd: {out.compressed_fwd * 1.0e6:.0f}us, reindex: {out.reindex * 1.0e6:.0f}us, bwd: {out.compressed_bwd * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--batch-sizes", default="128000,1280")
+@click.option("--embedding-dims", default="1024,16")
+@click.option("--bag-sizes", default="5,2")
+@click.option("--nums-embeddings", default="10000,1000000")
+@click.option("--num-tables", default=2)
+@click.option("--iters", default=100)
+def vbe(
+    batch_sizes: str,
+    embedding_dims: str,
+    bag_sizes: str,
+    nums_embeddings: str,
+    num_tables: int,
+    iters: int,
+) -> None:
+    """
+    A benchmark function to evaluate variable batch-size table-batched
+    embedding (VBE) kernels for both forward and backward. Unlike TBE,
+    batch sizes can be specified per table for VBE.
+
+    Args:
+        batch_sizes (str):
+            A comma separated list of batch sizes for each table.
+
+        embedding_dims (str):
+            A comma separated list of embedding dimensions for each table.
+
+        bag_sizes (str):
+            A comma separated list of bag sizes for each table.
+
+        num_embeddings (str):
+            A comma separated list of number of embeddings for each table.
+
+        num_tables (int):
+            The number of tables.
+
+        iters (int):
+            The number of iterations to run the benchmark for.
+    """
+
+    torch.manual_seed(42)
+    Bs = [int(v) for v in batch_sizes.split(",")]
+    Ds = [int(v) for v in embedding_dims.split(",")]
+    Ls = [int(v) for v in bag_sizes.split(",")]
+    Es = [int(v) for v in nums_embeddings.split(",")]
+    T = num_tables
+
+    # All these variables must have the same length.
+    assert T == len(Bs)
+    assert T == len(Ds)
+    assert T == len(Ls)
+    assert T == len(Es)
+
+    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
+    managed_option = (
+        EmbeddingLocation.DEVICE
+        if torch.cuda.is_available()
+        else EmbeddingLocation.HOST
+    )
+    pooling_mode = PoolingMode.SUM
+
+    emb = SplitTableBatchedEmbeddingBagsCodegen(
+        [
+            (
+                E,
+                D,
+                managed_option,
+                ComputeDevice.CUDA,
+            )
+            for E, D in zip(Es, Ds)
+        ],
+        optimizer=optimizer,
+        learning_rate=0.1,
+        eps=0.1,
+        weights_precision=SparseType.FP32,
+        stochastic_rounding=False,
+        output_dtype=SparseType.FP32,
+        pooling_mode=pooling_mode,
+        bounds_check_mode=BoundsCheckMode(BoundsCheckMode.NONE.value),
+    ).to(get_device())
+
+    lengths_list: List[torch.Tensor] = []
+    num_values_per_table: List[int] = []
+    for t, B in enumerate(Bs):
+        L = Ls[t]
+        # Assume a uniformly distributed random number in [0, 2L)
+        # On average it should be L.
+        lengths_list.append(
+            torch.randint(
+                low=0, high=2 * L, size=(B,), dtype=torch.int64, device=get_device()
+            )
+        )
+
+        # num_values is used later.
+        # Note: sum().tolist() returns a scalar value.
+        # pyre-ignore
+        num_values: int = torch.sum(lengths_list[-1]).tolist()
+        num_values_per_table.append(num_values)
+
+    lengths = torch.cat(lengths_list, 0)
+
+    # Convert lengths into offsets.
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+
+    # Set up values.
+    values_list: List[torch.Tensor] = []
+    for t, E in enumerate(Es):
+        # Assuming that an index distribution is uniform [0, E)
+        values_list.append(
+            torch.randint(
+                low=0,
+                high=E,
+                size=(num_values_per_table[t],),
+                dtype=torch.int32,
+                device=get_device(),
+            )
+        )
+    values = torch.cat(values_list, 0)
+
+    requests = [
+        (
+            values,
+            offsets,
+        )
+        for _ in range(iters)
+    ]
+
+    fwd_time_sec, bwd_time_sec = benchmark_vbe(
+        requests,
+        func=lambda indices, offsets: emb.forward(
+            indices.long(),
+            offsets.long(),
+            batch_size_per_feature_per_rank=[[B] for B in Bs],
+        ),
+    )
+    logging.info(
+        f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}\n"
+        f"fwd: {fwd_time_sec * 1.0e6:.0f}us, bwd: {bwd_time_sec * 1.0e6:.0f}us"
     )
 
 

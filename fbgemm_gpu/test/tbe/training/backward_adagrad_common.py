@@ -5,6 +5,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-strict
+
 import sys
 
 from typing import Any, Dict
@@ -14,12 +16,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    b_indices,
-    get_table_batched_offsets_from_dense,
-    round_up,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -29,6 +25,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
     WeightDecayMode,
+)
+from fbgemm_gpu.tbe.utils import (
+    b_indices,
+    get_table_batched_offsets_from_dense,
+    round_up,
+    to_device,
 )
 from hypothesis import assume, HealthCheck, Verbosity
 
@@ -43,6 +45,7 @@ from ..common import (  # noqa E402
 if open_source:
     # pyre-ignore[21]
     from test_utils import (
+        additional_decorators,
         gpu_available,
         gpu_unavailable,
         gradcheck,
@@ -53,6 +56,7 @@ if open_source:
     )
 else:
     from fbgemm_gpu.test.test_utils import (  # noqa F401
+        additional_decorators,
         gpu_available,
         gpu_unavailable,
         gradcheck,
@@ -135,7 +139,6 @@ def execute_backward_adagrad(  # noqa C901
         or (
             weights_precision != SparseType.INT8
             and output_dtype != SparseType.INT8
-            and not use_cpu
             and pooling_mode != PoolingMode.NONE
         )
     )

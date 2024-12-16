@@ -60,7 +60,8 @@ ELEM_TYPES = [
             TemplateParams(2, 8, 2, 4),
             TemplateParams(2, 4, 4, 8),
             TemplateParams(2, 2, 8, 16),
-            TemplateParams(2, 1, 16, 32),
+            TemplateParams(1, 2, 16, 32),
+            TemplateParams(1, 1, 32, 64),
         ],
     ),
     ElemType(
@@ -73,6 +74,7 @@ ELEM_TYPES = [
             TemplateParams(2, 4, 2, 4),
             TemplateParams(2, 4, 4, 8),
             TemplateParams(2, 2, 8, 16),
+            TemplateParams(1, 2, 16, 32),
         ],
     ),
     ElemType(
@@ -85,6 +87,7 @@ ELEM_TYPES = [
             TemplateParams(2, 4, 2, 4),
             TemplateParams(2, 4, 4, 8),
             TemplateParams(2, 2, 8, 16),
+            TemplateParams(1, 2, 16, 32),
         ],
     ),
     ElemType(
@@ -96,6 +99,7 @@ ELEM_TYPES = [
             TemplateParams(2, 8, 1, 2),
             TemplateParams(1, 4, 2, 4),
             TemplateParams(1, 4, 4, 8),
+            TemplateParams(1, 4, 8, 16),
         ],
     ),
     ElemType(
@@ -106,6 +110,7 @@ ELEM_TYPES = [
             TemplateParams(2, 16, 0, 1),
             TemplateParams(2, 8, 1, 2),
             TemplateParams(2, 8, 2, 4),
+            TemplateParams(2, 4, 4, 8),
         ],
     ),
 ]
@@ -174,5 +179,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print(f"[GENERATE FORWARD QUANTIZED] {sys.argv}")
+    print(f"[GENERATE FORWARD QUANTIZED]: {sys.argv}")
     main()

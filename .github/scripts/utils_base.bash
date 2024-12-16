@@ -71,6 +71,15 @@ exec_with_retries () {
 }
 
 
+display_time() {
+  local seconds="$1"
+  ((h=seconds/3600))
+  ((m=(seconds%3600)/60))
+  ((s=seconds%60))
+  printf "%02d:%02d:%02d\n" $h $m $s
+}
+
+
 ################################################################################
 # Assert Functions
 ################################################################################
@@ -87,8 +96,29 @@ env_name_or_prefix () {
   fi
 }
 
+append_to_envvar () {
+  local env_name="$1"
+  local key="$2"
+  local value="$3"
+
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  echo "[ENV] Appending to ${key}: ${value} ..."
+  # shellcheck disable=SC2155,SC2086
+  local current_value=$(conda run ${env_prefix} printenv ${key})
+  # shellcheck disable=SC2086
+  (print_exec conda env config vars set ${env_prefix} "${key}"="${current_value:+${current_value}:}${value}") || return 1
+}
+
+append_to_library_path () {
+  local env_name="$1"
+  local value="$2"
+
+  (append_to_envvar "${env_name}" LD_LIBRARY_PATH "${value}") || return 1
+}
+
 test_network_connection () {
-  wget -q --timeout 1 pypi.org -O /dev/null
+  exec_with_retries 3 wget -q --timeout 1 pypi.org -O /dev/null
   local exit_status=$?
 
   # https://man7.org/linux/man-pages/man1/wget.1.html
@@ -96,7 +126,8 @@ test_network_connection () {
     echo "[CHECK] Network does not appear to be blocked."
   else
     echo "[CHECK] Network check exit status: ${exit_status}"
-    echo "[CHECK] Network appears to be blocked; please proxy the network connetions, i.e. re-run the command prefixed with 'with-proxy'."
+    echo "[CHECK] Network appears to be blocked or suffering from poor connection."
+    echo "[CHECK] Please remember to proxy the network connections if needed, i.e. re-run the command prefixed with 'with-proxy'."
     return 1
   fi
 }
@@ -137,9 +168,9 @@ test_python_import_package () {
 
   # shellcheck disable=SC2086
   if conda run ${env_prefix} python -c "import ${python_import}"; then
-    echo "[CHECK] Python package '${python_import}' found."
+    echo "[CHECK] Python (sub-)package '${python_import}' found ..."
   else
-    echo "[CHECK] Python package '${python_import}' was not found, or the package is broken!"
+    echo "[CHECK] Python (sub-)package '${python_import}' was not found!  Please check if the Python sources have been packaged correctly."
     return 1
   fi
 }

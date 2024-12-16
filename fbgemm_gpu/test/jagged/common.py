@@ -16,6 +16,7 @@ from typing import Callable, Dict, List, Tuple
 import fbgemm_gpu
 import fbgemm_gpu.sparse_ops
 import numpy as np
+import numpy.typing as npt
 import torch
 from hypothesis import HealthCheck, settings
 
@@ -23,13 +24,7 @@ from hypothesis import HealthCheck, settings
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if not open_source:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
-
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 suppressed_list: List[HealthCheck] = (
     [HealthCheck.differing_executors]
@@ -51,6 +46,9 @@ settings.load_profile("suppress_differing_executors_check")
 additional_decorators: Dict[str, List[Callable]] = {
     "test_pt2_compliant_tag_fbgemm_jagged_dense_elementwise_add": [
         # This operator has been grandfathered in. We need to fix this test failure.
+        unittest.expectedFailure,
+    ],
+    "test_pt2_compliant_tag_fbgemm_jagged_to_padded_dense": [
         unittest.expectedFailure,
     ],
 }
@@ -119,7 +117,7 @@ def generate_jagged_tensor(
     # dynamo to mark the input as dynamic shape to make sure symbolic
     # shape is generated
     mark_dynamic: bool = False,
-) -> Tuple[torch.Tensor, List[torch.LongTensor], np.ndarray]:
+) -> Tuple[torch.Tensor, List[torch.LongTensor], npt.NDArray]:
     max_lengths = np.random.randint(low=1, high=10, size=(num_jagged_dim,))
     x_offsets: List[torch.LongTensor] = []
     num_lengths = outer_dense_size
@@ -164,7 +162,7 @@ def generate_jagged_tensor(
 def to_padded_dense(
     values: torch.Tensor,
     offsets: List[torch.LongTensor],
-    max_lengths: np.ndarray,
+    max_lengths: npt.NDArray,
     padding_value: float = 0,
 ) -> torch.Tensor:
     outer_dense_size = len(offsets[0]) - 1

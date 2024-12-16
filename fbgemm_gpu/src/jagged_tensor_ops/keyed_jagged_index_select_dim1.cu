@@ -19,10 +19,11 @@ template <
     int NUM_THREADS_PER_BLOCK,
     int MAX_ENTRIES_PER_BLOCK>
 __global__ void index_select_scalar_cumsum_kernel(
-    at::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
-    at::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
-    const at::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
+    pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor32<acc_t, 1, at::RestrictPtrTraits> output_cumsum,
+    const pta::PackedTensorAccessor32<scalar_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
     const int num_batches,
     const int input_batch_size,
     const int last_block_num_entries,
@@ -73,16 +74,17 @@ template <
     typename weight_t,
     bool has_weights>
 __global__ void keyed_jagged_index_select_dim1_kernel(
-    at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
-    at::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
+    pta::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
         output_weights,
-    const at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor64<weight_t, 1, at::RestrictPtrTraits>
         weights,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         input_offsets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         output_offsets,
     const int num_batches,
     const int input_batch_size) {
@@ -121,12 +123,13 @@ __global__ void keyed_jagged_index_select_dim1_kernel(
 
 template <typename scalar_t, typename index_t, typename offset_t>
 __global__ void keyed_jagged_index_add_dim1_kernel(
-    at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
-    const at::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> output,
+    const pta::PackedTensorAccessor64<scalar_t, 1, at::RestrictPtrTraits> input,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         input_offsets,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits>
         output_offsets,
     const int num_batches,
     const int output_batch_size) {
@@ -165,38 +168,18 @@ namespace {
 class KeyedJaggedIndexSelectDim1GPUOp
     : public torch::autograd::Function<KeyedJaggedIndexSelectDim1GPUOp> {
  public:
-  static torch::autograd::variable_list forward(
-      torch::autograd::AutogradContext* ctx,
+  static torch::autograd::variable_list forward_impl(
       const Tensor& values,
       const Tensor& lengths,
       const Tensor& offsets,
-      const Tensor& indices, // select same indices for all batches
-      const int batch_size,
-      const c10::optional<Tensor>& weights,
-      const c10::optional<int64_t> selected_lengths_sum) {
-    // TODO: Add weights support
-    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, offsets, values, indices);
-    TORCH_CHECK(values.dim() == 1, "values must be a 1D tensor");
-    TORCH_CHECK(lengths.dim() == 1, "lengths must be a 1D tensor");
-    TORCH_CHECK(offsets.dim() == 1, "offsets must be a 1D tensor");
-    TORCH_CHECK(indices.dim() == 1, "indices must be a 1D tensor");
-    TORCH_CHECK(
-        lengths.numel() + 1 == offsets.numel(),
-        "offsets size must be lengths size + 1");
-    TORCH_CHECK(lengths.numel() % batch_size == 0, "lengths");
+      const Tensor& indices,
+      const c10::SymInt _batch_size,
+      const std::optional<Tensor>& weights,
+      const std::optional<c10::SymInt> selected_lengths_sum) {
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(values.get_device());
 
-    if (weights.has_value()) {
-      const Tensor& pos_weights = weights.value();
-      TENSOR_ON_CUDA_GPU(pos_weights);
-      TENSORS_ON_SAME_DEVICE(pos_weights, indices);
-      TORCH_CHECK(pos_weights.dim() == 1, "weights must be a 1D tensor");
-      TORCH_CHECK(
-          pos_weights.numel() == values.numel(),
-          "weights size and values size must be the same");
-    }
-
-    CUDA_DEVICE_GUARD(values);
-
+    const auto batch_size = _batch_size.guard_int(__FILE__, __LINE__);
     const int num_batches = lengths.numel() / batch_size;
     const int num_output_lengths = num_batches * indices.numel();
     const int MAX_CUMSUM_ENTRIES_PER_BLOCK = 256;
@@ -213,6 +196,11 @@ class KeyedJaggedIndexSelectDim1GPUOp
       block_flags = at::zeros({grid_size}, lengths.options().dtype(at::kInt));
       block_sums = at::empty({grid_size}, output_offsets.options());
     }
+
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name = "index_select_scalar_cumsum_wrapper";
+#endif
+
     // Do index select and cumsum
     AT_DISPATCH_INDEX_TYPES(
         lengths.scalar_type(), "index_select_scalar_cumsum_wrapper_1", [&] {
@@ -236,22 +224,14 @@ class KeyedJaggedIndexSelectDim1GPUOp
                              MAX_CUMSUM_ENTRIES_PER_BLOCK,
                              0,
                              at::cuda::getCurrentCUDAStream()>>>(
-                              output_lengths.packed_accessor32<
-                                  length_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
-                              output_offsets.packed_accessor32<
-                                  offset_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
-                              lengths.packed_accessor32<
-                                  length_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
-                              indices.packed_accessor32<
-                                  index_t,
-                                  1,
-                                  at::RestrictPtrTraits>(),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, output_lengths, length_t, 1, 32),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, output_offsets, offset_t, 1, 32),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, lengths, length_t, 1, 32),
+                              MAKE_PTA_WITH_NAME(
+                                  func_name, indices, index_t, 1, 32),
                               num_batches,
                               batch_size,
                               num_output_lengths -
@@ -266,9 +246,8 @@ class KeyedJaggedIndexSelectDim1GPUOp
               });
         });
 
-    // D->H transfer if selected_lengths_sum not provided
     const int64_t num_outputs = (selected_lengths_sum.has_value())
-        ? *selected_lengths_sum
+        ? selected_lengths_sum.value().guard_int(__FILE__, __LINE__)
         : output_offsets[output_offsets.numel() - 1].item<int64_t>();
     Tensor output = at::empty({num_outputs}, values.options());
     Tensor output_weights;
@@ -282,29 +261,33 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const auto output_offsets_contig = output_offsets.expect_contiguous();
 
     if (grid_size != 0) {
-#define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS)        \
-  {                                                                          \
-    keyed_jagged_index_select_dim1_kernel<                                   \
-        value_t,                                                             \
-        index_t,                                                             \
-        offset_t,                                                            \
-        WEIGHT_TYPE,                                                         \
-        WEIGHTED>                                                            \
-        <<<grid_size, kMaxThreads, 0, at::cuda::getCurrentCUDAStream()>>>(   \
-            output.packed_accessor64<value_t, 1, at::RestrictPtrTraits>(),   \
-            OUTPUT_WEIGHTS                                                   \
-                .packed_accessor64<WEIGHT_TYPE, 1, at::RestrictPtrTraits>(), \
-            values.packed_accessor64<value_t, 1, at::RestrictPtrTraits>(),   \
-            WEIGHTS                                                          \
-                .packed_accessor64<WEIGHT_TYPE, 1, at::RestrictPtrTraits>(), \
-            offsets.packed_accessor32<offset_t, 1, at::RestrictPtrTraits>(), \
-            indices.packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),  \
-            output_offsets_contig                                            \
-                ->packed_accessor32<offset_t, 1, at::RestrictPtrTraits>(),   \
-            num_batches,                                                     \
-            batch_size);                                                     \
+#define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS)          \
+  {                                                                            \
+    keyed_jagged_index_select_dim1_kernel<                                     \
+        value_t,                                                               \
+        index_t,                                                               \
+        offset_t,                                                              \
+        WEIGHT_TYPE,                                                           \
+        WEIGHTED>                                                              \
+        <<<grid_size, kMaxThreads, 0, at::cuda::getCurrentCUDAStream()>>>(     \
+            MAKE_PTA_WITH_NAME(func_name, output, value_t, 1, 64),             \
+            MAKE_PTA_WITH_NAME(func_name, OUTPUT_WEIGHTS, WEIGHT_TYPE, 1, 64), \
+            MAKE_PTA_WITH_NAME(func_name, values, value_t, 1, 64),             \
+            MAKE_PTA_WITH_NAME(func_name, WEIGHTS, WEIGHT_TYPE, 1, 64),        \
+            MAKE_PTA_WITH_NAME(func_name, offsets, offset_t, 1, 32),           \
+            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),            \
+            MAKE_PTA_WITH_NAME(                                                \
+                func_name, *output_offsets_contig, offset_t, 1, 32),           \
+            num_batches,                                                       \
+            batch_size);                                                       \
   }
-      FBGEMM_DISPATCH_ALL_TYPES(
+
+#ifdef FBGEMM_GPU_MEMCHECK
+      const auto func_name = "keyed_jagged_index_select_dim1";
+#endif
+      AT_DISPATCH_ALL_TYPES_AND2(
+          at::ScalarType::Half,
+          at::ScalarType::BFloat16,
           values.scalar_type(),
           "keyed_jagged_index_select_dim1_warpper_1",
           [&] {
@@ -344,42 +327,97 @@ class KeyedJaggedIndexSelectDim1GPUOp
 
 #undef LAUNCH_KERNEL
 
-    ctx->save_for_backward({indices, output_offsets, offsets});
-    ctx->saved_data["num_outputs"] = num_outputs;
-    ctx->saved_data["num_inputs"] = values.numel();
-    ctx->saved_data["batch_size"] = batch_size;
-    ctx->saved_data["num_batches"] = num_batches;
-    ctx->saved_data["has_weights"] = weights.has_value();
+    int64_t saved_data[] = {
+        num_outputs,
+        values.numel(),
+        batch_size,
+        num_batches,
+    };
+
+    auto saved_data_t = at::empty(
+        {sizeof(saved_data) / sizeof(int64_t)},
+        at::TensorOptions().dtype(at::kLong));
+    TORCH_CHECK(saved_data_t.is_contiguous());
+    memcpy(saved_data_t.data_ptr<int64_t>(), saved_data, sizeof(saved_data));
 
     if (weights.has_value()) {
-      return {output, output_lengths, output_weights};
+      return {
+          output, output_lengths, output_weights, output_offsets, saved_data_t};
     }
-    return {output, output_lengths};
+    return {output, output_lengths, output_offsets, saved_data_t};
   }
 
-  static torch::autograd::variable_list backward(
+  static torch::autograd::variable_list forward(
       torch::autograd::AutogradContext* ctx,
-      torch::autograd::variable_list grad_outputs) {
-    bool has_weights = ctx->saved_data["has_weights"].toBool();
-    TORCH_CHECK(
-        (has_weights && grad_outputs.size() == 3) || grad_outputs.size() == 2);
+      const Tensor& values,
+      const Tensor& lengths,
+      const Tensor& offsets,
+      const Tensor& indices, // select same indices for all batches
+      const c10::SymInt batch_size,
+      const std::optional<Tensor>& weights,
+      const std::optional<c10::SymInt> selected_lengths_sum) {
+    at::AutoDispatchBelowADInplaceOrView guard;
+    // TODO: Add weights support
+    TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(lengths, offsets, values, indices);
+    TORCH_CHECK(values.dim() == 1, "values must be a 1D tensor");
+    TORCH_CHECK(lengths.dim() == 1, "lengths must be a 1D tensor");
+    TORCH_CHECK(offsets.dim() == 1, "offsets must be a 1D tensor");
+    TORCH_CHECK(indices.dim() == 1, "indices must be a 1D tensor");
+    TORCH_SYM_CHECK(
+        offsets.sym_size(0).sym_eq(lengths.sym_size(0) + 1),
+        "offsets size must be lengths size + 1");
+    // TORCH_SYM_CHECK(lengths.sym_numel() % batch_size == 0, "lengths");
 
-    const Tensor& grad = grad_outputs[0];
-    TENSOR_ON_CUDA_GPU(grad_outputs[0]);
+    if (weights.has_value()) {
+      const Tensor& pos_weights = weights.value();
+      TENSOR_ON_CUDA_GPU(pos_weights);
+      TENSORS_ON_SAME_DEVICE(pos_weights, indices);
+      TORCH_CHECK(pos_weights.dim() == 1, "weights must be a 1D tensor");
+      TENSORS_HAVE_SAME_SYM_NUMEL(pos_weights, values);
+    }
 
-    const auto saved = ctx->get_saved_variables();
-    auto savedItr = std::begin(saved);
-    const Tensor& indices = *savedItr++;
-    const Tensor& grad_offsets = *savedItr++;
-    const Tensor& output_offsets = *savedItr++;
+    static auto forward_op_impl =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::keyed_jagged_index_select_dim1_forward", "")
+            .typed<decltype(forward_impl)>();
 
-    TENSORS_ON_SAME_DEVICE(grad, indices);
+    auto res = forward_op_impl.call(
+        values,
+        lengths,
+        offsets,
+        indices,
+        batch_size,
+        weights,
+        selected_lengths_sum);
 
-    int64_t num_outputs = ctx->saved_data["num_inputs"].toInt();
-    int64_t output_batch_size = ctx->saved_data["batch_size"].toInt();
-    int64_t num_batches = ctx->saved_data["num_batches"].toInt();
+    const bool has_weights = weights.has_value();
+    const size_t res_size = has_weights ? 3u : 2u;
+    ctx->saved_data["has_weights"] = has_weights;
+    ctx->save_for_backward(std::vector<Tensor>{
+        offsets,
+        indices,
+        res[res_size + 0], // output_offsets
+        res[res_size + 1], // saved_data_tensor
+    });
 
-    CUDA_DEVICE_GUARD(grad);
+    res.resize(res_size);
+    return res;
+  }
+
+  static Tensor backward_impl(
+      const Tensor& grad,
+      const Tensor& indices,
+      const Tensor& grad_offsets,
+      const Tensor& output_offsets,
+      const Tensor& saved_tensor) {
+    const auto num_outputs =
+        saved_tensor[1].item<int64_t>(); // saved forward num_inputs
+    const auto output_batch_size = saved_tensor[2].item<int64_t>();
+    const auto num_batches = saved_tensor[3].item<int64_t>();
+
+    at::cuda::OptionalCUDAGuard device_guard;
+    device_guard.set_index(grad.get_device());
 
     Tensor grad_input = at::zeros({num_outputs}, grad.options());
     auto grid_size = cuda_calc_xblock_count(grad.numel(), kMaxThreads);
@@ -387,9 +425,17 @@ class KeyedJaggedIndexSelectDim1GPUOp
     // binary_search_range which takes raw pointers as arguments
     const auto grad_offsets_contig = grad_offsets.expect_contiguous();
 
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name = "keyed_jagged_index_add_dim1";
+#endif
+
     if (grid_size != 0) {
-      FBGEMM_DISPATCH_ALL_TYPES(
-          grad.scalar_type(), "keyed_jagged_index_add_dim1_wrapper_1", [&] {
+      AT_DISPATCH_ALL_TYPES_AND2(
+          at::ScalarType::Half,
+          at::ScalarType::BFloat16,
+          grad.scalar_type(),
+          "keyed_jagged_index_add_dim1_wrapper_1",
+          [&] {
             AT_DISPATCH_INDEX_TYPES(
                 grad_offsets.scalar_type(),
                 "keyed_jagged_index_add_dim1_wrapper_2",
@@ -404,26 +450,20 @@ class KeyedJaggedIndexSelectDim1GPUOp
                             kMaxThreads,
                             0,
                             at::cuda::getCurrentCUDAStream()>>>(
-                            grad_input.packed_accessor64<
-                                scalar_t,
-                                1,
-                                at::RestrictPtrTraits>(),
-                            grad.packed_accessor64<
-                                scalar_t,
-                                1,
-                                at::RestrictPtrTraits>(),
-                            grad_offsets_contig->packed_accessor32<
+                            MAKE_PTA_WITH_NAME(
+                                func_name, grad_input, scalar_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(
+                                func_name, grad, scalar_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(
+                                func_name,
+                                *grad_offsets_contig,
                                 offset_t,
                                 1,
-                                at::RestrictPtrTraits>(),
-                            indices.packed_accessor32<
-                                index_t,
-                                1,
-                                at::RestrictPtrTraits>(),
-                            output_offsets.packed_accessor32<
-                                offset_t,
-                                1,
-                                at::RestrictPtrTraits>(),
+                                32),
+                            MAKE_PTA_WITH_NAME(
+                                func_name, indices, index_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(
+                                func_name, output_offsets, offset_t, 1, 32),
                             num_batches,
                             output_batch_size);
                         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -431,6 +471,38 @@ class KeyedJaggedIndexSelectDim1GPUOp
                 });
           });
     }
+    return grad_input;
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    bool has_weights = ctx->saved_data["has_weights"].toBool();
+    TORCH_CHECK(
+        (has_weights && grad_outputs.size() == 3) || grad_outputs.size() == 2);
+
+    const Tensor& grad = grad_outputs[0];
+    TENSOR_ON_CUDA_GPU(grad_outputs[0]);
+
+    const auto saved = ctx->get_saved_variables();
+    auto savedItr = std::begin(saved);
+
+    const Tensor& output_offsets = *savedItr++; // saved forward offsets
+    const Tensor& indices = *savedItr++; // saved forward indices
+
+    const Tensor& grad_offsets = *savedItr++; // saved forward output_offsets
+    const Tensor& saved_tensor = *savedItr++;
+
+    TENSORS_ON_SAME_DEVICE(grad, indices);
+
+    static auto backward_op =
+        c10::Dispatcher::singleton()
+            .findSchemaOrThrow(
+                "fbgemm::keyed_jagged_index_select_dim1_backward", "")
+            .typed<decltype(backward_impl)>();
+
+    auto grad_input = backward_op.call(
+        grad, indices, grad_offsets, output_offsets, saved_tensor);
 
     return {
         grad_input,
@@ -439,7 +511,7 @@ class KeyedJaggedIndexSelectDim1GPUOp
         torch::autograd::Variable(), // indices
         torch::autograd::Variable(), // batch_size
         torch::autograd::Variable(), // weights
-        torch::autograd::Variable() // selected_lengths_sum
+        torch::autograd::Variable(), // selected_lengths_sum
     };
   }
 };
@@ -450,9 +522,9 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
     const Tensor& lengths,
     const Tensor& offsets,
     const Tensor& indices,
-    const int64_t batch_size,
-    const c10::optional<Tensor>& weights,
-    const c10::optional<int64_t> selected_lengths_sum) {
+    const c10::SymInt batch_size,
+    const std::optional<Tensor>& weights,
+    const std::optional<c10::SymInt> selected_lengths_sum) {
   return KeyedJaggedIndexSelectDim1GPUOp::apply(
       values,
       lengths,
@@ -465,7 +537,18 @@ std::vector<Tensor> keyed_jagged_index_select_dim_1_gpu(
 
 } // namespace fbgemm_gpu
 
-FBGEMM_OP_DISPATCH(
-    CUDA,
-    "keyed_jagged_index_select_dim1",
-    fbgemm_gpu::keyed_jagged_index_select_dim_1_gpu);
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.set_python_module("fbgemm_gpu.sparse_ops");
+
+  DISPATCH_TO_CUDA(
+      "keyed_jagged_index_select_dim1_forward",
+      fbgemm_gpu::KeyedJaggedIndexSelectDim1GPUOp::forward_impl);
+
+  DISPATCH_TO_CUDA(
+      "keyed_jagged_index_select_dim1_backward",
+      fbgemm_gpu::KeyedJaggedIndexSelectDim1GPUOp::backward_impl);
+
+  DISPATCH_TO_AUTOGRAD_CUDA(
+      "keyed_jagged_index_select_dim1",
+      fbgemm_gpu::keyed_jagged_index_select_dim_1_gpu);
+}

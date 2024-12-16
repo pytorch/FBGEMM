@@ -6,13 +6,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <ATen/ATen.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
-#include <ATen/ATen.h>
 #include <torch/torch.h>
 
-#include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using namespace testing;
 
@@ -57,7 +56,7 @@ TEST(SparseOpsUtilsTest, gpu_tensors_pass) {
 
 TEST(SparseOpsUtilsTest, optional_tensor_passes) {
   const auto ten1 = get_valid_cpu_tensor().cuda();
-  const c10::optional<at::Tensor> ten2;
+  const std::optional<at::Tensor> ten2;
   const auto func = [&]() {
     TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(ten1, ten2);
   };

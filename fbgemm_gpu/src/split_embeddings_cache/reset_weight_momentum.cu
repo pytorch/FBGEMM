@@ -276,8 +276,8 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
         total_cache_hash_size,
         false, // gather_cache_stats
         uvm_cache_stats,
-        c10::optional<Tensor>(), // num_uniq_cache_indices
-        c10::optional<Tensor>() // lxu_cache_locations_output
+        std::optional<Tensor>(), // num_uniq_cache_indices
+        std::optional<Tensor>() // lxu_cache_locations_output
     );
   }
 

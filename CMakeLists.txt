@@ -112,7 +112,7 @@ endif()
 
 set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/third_party)
+set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/external)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Add address sanitizer
@@ -139,7 +139,7 @@ endif()
 # Check if compiler supports OpenMP
 find_package(OpenMP)
 if (OpenMP_FOUND)
-  message(WARNING "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
+  message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
   include_directories(${OpenMP_C_INCLUDE_DIRS})
   set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
   set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
@@ -201,7 +201,9 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wextra")
   string(APPEND CMAKE_CXX_FLAGS " -Werror")
   string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
+  string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
+  string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
@@ -239,16 +241,16 @@ if(USE_SANITIZER)
     "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
 endif()
 
-message(WARNING "==========")
-message(WARNING "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
-message(WARNING "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
-message(WARNING "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
-message(WARNING "==========")
+message(STATUS "==========")
+message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
+message(STATUS "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
+message(STATUS "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
+message(STATUS "==========")
 
 if(NOT TARGET asmjit)
   # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
   if(NOT DEFINED ASMJIT_SRC_DIR)
-    set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/third_party/asmjit"
+    set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/external/asmjit"
       CACHE STRING "asmjit source directory from submodules")
   endif()
 
@@ -267,9 +269,9 @@ if(NOT TARGET asmjit)
     target_compile_options(asmjit PRIVATE "-Wno-sign-conversion")
   endif()
 
+  target_compile_options_if_supported(asmjit -Wno-deprecated-enum-enum-conversion)
   target_compile_options_if_supported(asmjit -Wno-deprecated-anon-enum-enum-conversion)
   target_compile_options_if_supported(asmjit -Wno-error=deprecated-enum-enum-conversion)
-  target_compile_options_if_supported(asmjit -Wno-deprecated-enum-enum-conversion)
 
   if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
     # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
@@ -281,7 +283,7 @@ endif()
 if(NOT TARGET cpuinfo)
   #Download cpuinfo from github if CPUINFO_SOURCE_DIR is not specified.
   if(NOT DEFINED CPUINFO_SOURCE_DIR)
-    set(CPUINFO_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/third_party/cpuinfo"
+    set(CPUINFO_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/cpuinfo"
       CACHE STRING "cpuinfo source directory from submodules")
   endif()
 

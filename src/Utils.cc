@@ -20,6 +20,7 @@
 #include <iostream>
 #include <limits>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -102,8 +103,7 @@ void printMatrix(
   // R: number of rows in op(inp)
   // C: number of cols in op(inp)
   // ld: leading dimension in inp
-  std::cout << name << ":"
-            << "[" << R << ", " << C << "]" << std::endl;
+  std::cout << name << ":" << "[" << R << ", " << C << "]" << std::endl;
   bool tr = (op == matrix_op_t::Transpose);
   for (size_t r = 0; r < R; ++r) {
     for (size_t c = 0; c < C; ++c) {
@@ -185,7 +185,7 @@ template void printMatrix<int32_t>(
 
 namespace {
 inst_set_t g_forced_isa = inst_set_t::anyarch;
-bool g_Avx512_Ymm_enabled = false;
+std::optional<bool> g_Avx512_Ymm_enabled{std::nullopt};
 
 inst_set_t fbgemmEnvGetIsa() {
   static const char* isa_env = "FBGEMM_ENABLE_INSTRUCTIONS";
@@ -310,6 +310,10 @@ inst_set_t fbgemmInstructionSet() {
   static const inst_set_t env_forced_isa = fbgemmEnvGetIsa();
   static const bool isAvx512_Ymm_enabled = fbgemmEnvAvx512_256Enabled();
 
+  if (fbgemmHasArmSveSupport()) {
+    return inst_set_t::sve;
+  }
+
   inst_set_t forced_isa =
       g_forced_isa != inst_set_t::anyarch ? g_forced_isa : env_forced_isa;
   static const inst_set_t detected_isa = ([]() {
@@ -317,7 +321,7 @@ inst_set_t fbgemmInstructionSet() {
     // Check environment
     if (cpuinfo_initialize()) {
       const bool isXeonD = fbgemmIsIntelXeonD() &&
-          (g_Avx512_Ymm_enabled || isAvx512_Ymm_enabled);
+          (g_Avx512_Ymm_enabled.value_or(isAvx512_Ymm_enabled));
       if (fbgemmHasAvx512VnniSupport()) {
         if (isXeonD) {
           isa = inst_set_t::avx512_vnni_ymm;
@@ -384,6 +388,10 @@ bool fbgemmHasAvx512VnniSupport() {
 
 bool fbgemmHasArmNeonSupport() {
   return cpuinfo_has_arm_neon();
+}
+
+bool fbgemmHasArmSveSupport() {
+  return cpuinfo_has_arm_sve();
 }
 
 bool fbgemmHasArmSve2Support() {
@@ -802,6 +810,7 @@ std::pair<K*, V*> radix_sort_parallel(
       std::swap(input_keys, output_keys);
       std::swap(input_values, output_values);
 #pragma omp barrier
+      {}
     }
   }
 #ifdef _MSC_VER
@@ -847,6 +856,42 @@ bool is_radix_sort_accelerated_with_openmp() {
 #else
   return false;
 #endif
+}
+
+bool is_autovec_disabled() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_NO_AUTOVEC");
+  res = (env_val != nullptr);
+  return res;
+}
+
+bool is_autovec_forced() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
+  res = (env_val != nullptr);
+  return res;
+}
+
+bool is_asmjit_disabled() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_NO_ASMJIT");
+  res = (env_val != nullptr);
+  return res;
 }
 
 } // namespace fbgemm

@@ -16,8 +16,8 @@ import hypothesis.strategies as st
 
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_embedding_utils import to_device
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
+from fbgemm_gpu.tbe.utils import to_device
 from hypothesis import given, settings
 
 from ..common import assert_torch_equal, MAX_EXAMPLES
@@ -81,6 +81,7 @@ class CacheOverflowTest(unittest.TestCase):
         lxu_cache_locations = to_device(lxu_cache_locations, use_cpu=False)
 
         # Does prefetch into the cache
+        # pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[Any, A...
         cc.lxu_cache_weights[cache_idx] = cc_ref.weights_dev.view(-1, D)[0]
 
         # Mimic cache prefetching behavior

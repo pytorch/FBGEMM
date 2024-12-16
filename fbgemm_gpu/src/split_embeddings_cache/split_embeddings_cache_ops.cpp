@@ -12,7 +12,7 @@ namespace {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
-      "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets, Tensor? B_offsets=None, int max_B=-1) -> Tensor");
+      "linearize_cache_indices(Tensor cache_hash_size_cumsum, Tensor indices, Tensor offsets, Tensor? B_offsets=None, int max_B=-1, int indices_base_offset=0) -> Tensor");
   m.def(
       "linearize_cache_indices_from_row_idx(Tensor cache_hash_size_cumsum, Tensor update_table_indices, Tensor update_row_indices) -> Tensor");
   m.def(
@@ -39,7 +39,18 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "lxu_cache_locations_update(Tensor(a!) lxu_cache_locations, Tensor lxu_cache_locations_new, Tensor? num_uniq_cache_indices=None) -> ()");
   m.def(
-      "get_unique_indices(Tensor linear_indices, int max_indices, bool compute_count) -> (Tensor, Tensor, Tensor?)");
+      "get_unique_indices("
+      "    Tensor linear_indices, "
+      "    int max_indices, "
+      "    bool compute_count"
+      ") -> (Tensor, Tensor, Tensor?)");
+  m.def(
+      "get_unique_indices_with_inverse("
+      "    Tensor linear_indices, "
+      "    int max_indices, "
+      "    bool compute_count, "
+      "    bool compute_inverse_indices=False"
+      ") -> (Tensor, Tensor, Tensor?, Tensor?)");
 }
 
 using namespace fbgemm_gpu;

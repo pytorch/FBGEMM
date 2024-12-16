@@ -13,9 +13,19 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <string>
 #include <type_traits>
+
+#ifndef HAVE_SVE
+#if defined(__aarch64__) && (__GNUC__ >= 8 || __clang_major__ >= 5) && \
+    __ARM_FEATURE_SVE
+#define HAVE_SVE 1
+#else
+#define HAVE_SVE 0
+#endif
+#endif
 
 namespace fbgemm {
 
@@ -42,7 +52,8 @@ enum class inst_set_t {
   avx512,
   avx512_ymm,
   avx512_vnni,
-  avx512_vnni_ymm
+  avx512_vnni_ymm,
+  sve
 };
 
 /**
@@ -145,6 +156,11 @@ FBGEMM_API bool fbgemmHasAvx512VnniSupport();
  * @brief Are we running on a ARM Neon supported cpu?
  */
 FBGEMM_API bool fbgemmHasArmNeonSupport();
+
+/**
+ * @brief Are we running on a ARM SVE supported cpu?
+ */
+FBGEMM_API bool fbgemmHasArmSveSupport();
 
 /**
  * @brief Are we running on a ARM SVE2 supported cpu?
@@ -381,5 +397,73 @@ FBGEMM_API std::pair<K*, V*> radix_sort_parallel(
  * accelerated with OpenMP or not.
  */
 FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
+
+/**
+ * Choosing which kernel (autovec/asmjit/ref) to use for nbit-CPU-TBE
+ * Available kernels:
+ *   * ref: non-optimized, reference implementation that focuses on
+ *      correctness, not performance
+ *   * asmjit: hand-optimized kernel by having asmjit emit SIMD
+ *      instructions during runtime. Only supports x86_64 CPUs with
+ *      AVX2/AVX512 instruction sets
+ *   * autovec: the kernel written in regular C++ code but in a
+ *      way that makes compilers easier to generate vectorized SIMD
+ *      instructions out of it. Supports both x86_64 and aarch64 CPUs.
+ *      Currently only available on Linux.
+ * How to set environment variables:
+ *   * No environment variables: on x86_64 we will default to asmjit
+ *      kernel, and on aarch64 and linux we will default to autovec.
+ *      On non-linux aarch64 we will fall back to ref.
+ *   * Set FBGEMM_NO_AUTOVEC: on aarch64 linux we will use ref. On other
+ *      platforms this will have no effect.
+ *   * Set FBGEMM_NO_ASMJIT: on x86_64 we will use ref. On other
+ *      platforms this will have no effect.
+ *   * Set FBGEMM_NO_ASMJIT AND FBGEMM_FORCE_AUTOVEC: on x86_64 we will
+ *      use autovec if these two variables are set at the same time.
+ *      No effect on other platforms.
+ *   * FBGEMM_FORCE_AUTOVEC will override FBGEMM_NO_AUTOVEC if they
+ *      are set at the same time.
+ *   * These variables are considered set as long as they exist regardless
+ *      of content. That means assigning values like "1", "true", "y", "0",
+ *      "false" or "no" has the same effect. The easiest way of setting a
+ *      variable is to prepend `<VARIABLE>=1` before the benchmarking command.
+ */
+FBGEMM_API bool is_autovec_disabled();
+FBGEMM_API bool is_autovec_forced();
+FBGEMM_API bool is_asmjit_disabled();
+
+/**
+ * @brief A function to check if the input parameter in the nbit CPU TBE kernel
+ * is valid.
+ */
+template <typename OutType>
+void nbit_embedding_sanity_check(
+    // assertions are ignored in release mode, in which case these parameters
+    // will be unused
+    [[maybe_unused]] const int input_bit_rate,
+    [[maybe_unused]] const int output_bit_rate,
+    [[maybe_unused]] const bool no_bag) {
+  assert(
+      (input_bit_rate == 2 || input_bit_rate == 4) &&
+      "input_bit_rate must be 2 or 4");
+  if (std::is_same<OutType, uint8_t>::value) {
+    assert(
+        (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
+        "we currently only support int4 to int4 for sequential TBE");
+  } else {
+    assert(
+        (output_bit_rate == 8 * sizeof(OutType)) &&
+        "output_bit_rate should be equal to 8 * sizeof(OutType)");
+  }
+}
+
+#define WARN_ONCE(...)              \
+  do {                              \
+    static bool _warned = false;    \
+    if (!_warned) {                 \
+      _warned = true;               \
+      fprintf(stderr, __VA_ARGS__); \
+    }                               \
+  } while (0)
 
 } // namespace fbgemm

@@ -12,9 +12,13 @@
     export BUILD_ENV=build_docs
     . ../../.github/scripts/setup_env.bash
 
+    # Print system info
+    print_exec uname -a
+    print_exec ldd --version
+
     # Set up Conda environment
     setup_miniconda             $HOME/miniconda
-    create_conda_environment    $BUILD_ENV 3.12
+    create_conda_environment    $BUILD_ENV 3.13
 
     # Install tools
     install_cxx_compiler        $BUILD_ENV

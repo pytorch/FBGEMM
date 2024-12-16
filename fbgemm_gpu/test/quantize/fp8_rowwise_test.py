@@ -17,8 +17,12 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import given, settings, Verbosity
 
 from . import common  # noqa E402
+
+# pyre-fixme[21]: Could not find name `open_source` in
+#  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import open_source
 
+# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_unavailable, optests, symint_vector_unsupported
@@ -222,9 +226,9 @@ class TestFP8RowwiseQuantizationConversion(unittest.TestCase):
             logging.info(f"qref {torch.gather(qref, dim=1, index=idx)}")
             logging.info(f"dqcat {torch.gather(dqcat, dim=1, index=idx)}")
             logging.info(
-                f"relative error: max: {errors.abs().max()*100:.1f}%, "
-                f"median: {errors.abs().median()*100:.1f}%, "
-                f"mean: {errors.abs().mean()*100:.1f}%"
+                f"relative error: max: {errors.abs().max() * 100:.1f}%, "
+                f"median: {errors.abs().median() * 100:.1f}%, "
+                f"mean: {errors.abs().mean() * 100:.1f}%"
             )
 
         torch.testing.assert_allclose(dqcat, qref, rtol=0.1, atol=0.05)

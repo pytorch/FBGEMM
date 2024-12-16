@@ -15,6 +15,9 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, HealthCheck, settings
 
 from . import common  # noqa E402
+
+# pyre-fixme[21]: Could not find name `open_source` in
+#  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import (
     bytes_to_half_floats,
     fused_rowwise_nbit_quantize_dequantize_reference,
@@ -22,16 +25,21 @@ from .common import (
     open_source,
 )
 
+# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, optests
 
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
+torch.ops.import_module("fbgemm_gpu.sparse_ops")
 
 no_long_tests: bool = False
 
 
+@optests.generate_opcheck_tests(fast=True)
 class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
     @given(
@@ -140,6 +148,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
             [SparseType.FP16, SparseType.FP32, SparseType.BF16]
         ),
         test_generic_op=st.booleans(),
+        test_meta=st.booleans(),
         test_cuda=st.booleans(),
     )
     @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
@@ -150,6 +159,7 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
         bit_rate: int,
         output_dtype: SparseType,
         test_generic_op: bool,
+        test_meta: bool,
         test_cuda: bool,
     ) -> None:
         assert 8 % bit_rate == 0
@@ -179,6 +189,16 @@ class TestFusedNBitRowwiseQuantizationConversion(unittest.TestCase):
                         output_dtype.as_int(),
                     )
                 )
+                if test_meta:
+                    dequantized_data_meta = (
+                        torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                            quantized_data.to(torch.device("meta")),
+                            bit_rate,
+                            output_dtype.as_int(),
+                        )
+                    )
+                    assert dequantized_data_meta.device == torch.device("meta")
+                    assert dequantized_data_meta.shape == dequantized_data.shape
             else:
                 if output_dtype == SparseType.FP32:
                     quantized_data = (

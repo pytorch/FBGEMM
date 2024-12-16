@@ -8,13 +8,6 @@ workspace(name = "fbgemm")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
-    name = "bazel_skylib",
-    urls = [
-        "https://github.com/bazelbuild/bazel-skylib/releases/download/1.5.0/bazel-skylib-1.5.0.tar.gz",
-    ],
-)
-
-http_archive(
     name = "com_google_googletest",
     strip_prefix = "googletest-1.14.0",
     urls = [
@@ -22,14 +15,17 @@ http_archive(
     ],
 )
 
+# NOTE: Starting with Bazel 7, third-party libraries need to be in external/
+# https://github.com/bazelbuild/bazel/issues/19963
+
 new_local_repository(
     name = "cpuinfo",
-    build_file = "third_party/cpuinfo.BUILD",
-    path = "third_party/cpuinfo",
+    build_file = "@//external:cpuinfo.BUILD",
+    path = "external/cpuinfo",
 )
 
 new_local_repository(
     name = "asmjit",
-    build_file = "third_party/asmjit.BUILD",
-    path = "third_party/asmjit",
+    build_file = "@//external:asmjit.BUILD",
+    path = "external/asmjit",
 )

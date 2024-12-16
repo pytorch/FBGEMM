@@ -16,8 +16,8 @@ from typing import Optional
 import torch
 from hypothesis import Verbosity
 
-from .. import common  # noqa E402
 from ..common import open_source
+
 
 if open_source:
     # pyre-ignore[21]
@@ -84,6 +84,7 @@ class LinearizeCacheIndicesTest(unittest.TestCase):
             dtype=torch.int,
             device="cuda",
         )
+        N = indices.numel()
         pruned_indices = torch.tensor(
             [10, -1, 3, 7, 1, 4, -1, 9, 2, -1, 6, 8, 5, 1, -1, 4],
             dtype=torch.int,
@@ -140,6 +141,28 @@ class LinearizeCacheIndicesTest(unittest.TestCase):
                 output_test = torch.ops.fbgemm.linearize_cache_indices(*args)
                 output_ref = self.execute_linearize_cache_indices_ref(*args)
                 self.assertTrue(torch.equal(output_test, output_ref))
+
+                for partial_start, partial_end in [
+                    (0, N),
+                    (2, 2),
+                    (3, N),
+                    (N - 2, N),
+                    (1, N - 1),
+                ]:
+                    args = (
+                        hash_size_cumsum,
+                        indices[partial_start:partial_end],
+                        offsets,
+                        B_offsets,
+                        max_B,
+                        partial_start,
+                    )
+                    partial_output = torch.ops.fbgemm.linearize_cache_indices(*args)
+                    self.assertTrue(
+                        torch.equal(
+                            partial_output, output_ref[partial_start:partial_end]
+                        )
+                    )
 
     @unittest.skipIf(*gpu_unavailable)
     def test_linearize_cache_indices_from_row_idx(self) -> None:

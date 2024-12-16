@@ -16,16 +16,16 @@ import numpy as np
 import torch
 from fbgemm_gpu.runtime_monitor import TBEStatsReporter, TBEStatsReporterConfig
 from fbgemm_gpu.split_embedding_configs import SparseType
-
-from fbgemm_gpu.split_embedding_utils import round_up
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
+    MultiPassPrefetchConfig,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.utils import round_up
 
 from hypothesis import Verbosity
 
@@ -33,9 +33,13 @@ from ..common import assert_torch_equal, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests
+    from test_utils import gpu_unavailable, optests, running_on_rocm
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests  # noqa: F401
+    from fbgemm_gpu.test.test_utils import (  # noqa: F401
+        gpu_unavailable,  # noqa: F401
+        optests,  # noqa: F401
+        running_on_rocm,  # noqa: F401
+    )
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -50,6 +54,9 @@ class TestingStatsReporter(TBEStatsReporter):
     def should_report(self, iteration_step: int) -> bool:
         return (iteration_step - 1) % self.reporting_interval == 0
 
+    def register_stats(self, stats_name: str, amplifier: int = 1) -> None:
+        return
+
     def report_duration(
         self,
         iteration_step: int,
@@ -57,6 +64,7 @@ class TestingStatsReporter(TBEStatsReporter):
         duration_ms: float,
         embedding_id: str = "",
         tbe_id: str = "",
+        time_unit: str = "ms",
     ) -> None:
         self.reported_data.setdefault(event_name, [])
         self.reported_data[event_name].append(
@@ -96,6 +104,7 @@ def generate_cache_tbes(
     stochastic_rounding: bool = False,
     gather_uvm_cache_stats: bool = False,
     reporter_config: Optional[TestingStatsReporterConfig] = None,
+    multipass_prefetch_config: Optional[MultiPassPrefetchConfig] = None,
 ) -> Tuple[
     SplitTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
@@ -153,6 +162,7 @@ def generate_cache_tbes(
         cache_precision=weights_cache_precision,
         gather_uvm_cache_stats=gather_uvm_cache_stats,
         stats_reporter_config=reporter_config,
+        multipass_prefetch_config=multipass_prefetch_config,
     )
 
     if use_int_weight:

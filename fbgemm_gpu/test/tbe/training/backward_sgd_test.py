@@ -15,12 +15,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    b_indices,
-    get_table_batched_offsets_from_dense,
-    round_up,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -30,7 +24,13 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-from hypothesis import assume, given, HealthCheck, settings, Verbosity
+from fbgemm_gpu.tbe.utils import (
+    b_indices,
+    get_table_batched_offsets_from_dense,
+    round_up,
+    to_device,
+)
+from hypothesis import given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
 from ..common import (
@@ -43,9 +43,16 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM, use_cpu_strategy
+    from test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+        use_cpu_strategy,
+    )
 else:
     from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
         gpu_unavailable,
         optests,
         TEST_WITH_ROCM,
@@ -56,7 +63,7 @@ else:
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
-@optests.generate_opcheck_tests(fast=True)
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardSGDTest(unittest.TestCase):
     def execute_backward_sgd_(  # noqa C901
         self,
@@ -77,26 +84,30 @@ class BackwardSGDTest(unittest.TestCase):
         output_dtype: SparseType,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
-        assume(not use_cpu or not use_cache)
+        if use_cpu and use_cache:
+            return
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
-        assume(not use_cpu or T * B * L * D <= 2048)
-        assume(not (use_cpu and weights_precision == SparseType.FP16))
+        if use_cpu and T * B * L * D > 2048:
+            return
+        if use_cpu and weights_precision == SparseType.FP16:
+            return
         # No bag ops only work on GPUs, no mixed, no weighted
-        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
-        assume(not mixed or pooling_mode != PoolingMode.NONE)
-        assume(not weighted or pooling_mode != PoolingMode.NONE)
-
-        assume(pooling_mode == PoolingMode.SUM or not weighted)
+        if use_cpu and pooling_mode == PoolingMode.NONE:
+            return
+        if mixed and pooling_mode == PoolingMode.NONE:
+            return
+        if weighted and pooling_mode == PoolingMode.NONE:
+            return
+        if pooling_mode != PoolingMode.SUM and weighted:
+            return
         # TODO: Support these cases
-        assume(
-            not mixed_B
-            or (
-                weights_precision != SparseType.INT8
-                and output_dtype != SparseType.INT8
-                and not use_cpu
-                and pooling_mode != PoolingMode.NONE
-            )
-        )
+        if mixed_B and (
+            weights_precision == SparseType.INT8
+            or output_dtype == SparseType.INT8
+            or use_cpu
+            or pooling_mode == PoolingMode.NONE
+        ):
+            return
 
         emb_op = SplitTableBatchedEmbeddingBagsCodegen
         if pooling_mode == PoolingMode.SUM:

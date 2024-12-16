@@ -27,6 +27,7 @@ class PermutePooledEmbsFunctionSplit
     : public torch::autograd::Function<
           PermutePooledEmbsFunctionSplit<permute_pooled_embs_op>> {
  public:
+  static constexpr bool is_traceable = true;
   static Variable forward(
       AutogradContext* ctx,
       const at::Tensor& pooled_embs, // [B_local][Sum_T_global(D)]
@@ -34,6 +35,7 @@ class PermutePooledEmbsFunctionSplit
       const at::Tensor& permute_list,
       const at::Tensor& inv_offset_dim_list,
       const at::Tensor& inv_permute_list) {
+    at::AutoDispatchBelowADInplaceOrView guard;
     ctx->saved_data["offset_dim_list"] = offset_dim_list;
     ctx->saved_data["permute_list"] = permute_list;
     ctx->saved_data["inv_offset_dim_list"] = inv_offset_dim_list;

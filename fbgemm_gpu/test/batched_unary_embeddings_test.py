@@ -26,13 +26,9 @@ try:
     from test_utils import gpu_unavailable
 
 except Exception:
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
     from fbgemm_gpu.test.test_utils import gpu_unavailable
+
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 
 # Relative tolerances
@@ -110,6 +106,8 @@ class TableBatchedEmbeddingsTest(unittest.TestCase):
         offset = 0
         for _ in range(batch_size):
             n_indices = 1
+            # pyre-fixme[6]: For 1st argument expected `Iterable[typing.Any]` but
+            #  got `float`.
             indices += np.round(
                 np.random.random(n_indices) * (num_embeddings - 1)
             ).tolist()

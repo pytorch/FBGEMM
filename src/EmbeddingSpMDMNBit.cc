@@ -249,7 +249,7 @@ GenEmbeddingSpMDMNBitLookup<
           filename += "_rowwise_sparse";
         }
         if (!scale_bias_last) {
-          filename += "_scale_bias_first"
+          filename += "_scale_bias_first";
         }
         filename += ".txt";
         FILE* codeLogFile = fopen(filename.c_str(), "w");
@@ -1014,75 +1014,6 @@ GenEmbeddingSpMDMNBitLookup<
 
 } // namespace
 
-/**
- * Choosing which kernel (autovec/asmjit/ref) to use for nbit-CPU-TBE
- * Available kernels:
- *   * ref: non-optimized, reference implementation that focuses on
- *      correctness, not performance
- *   * asmjit: hand-optimized kernel by having asmjit emit SIMD
- *      instructions during runtime. Only supports x86_64 CPUs with
- *      AVX2/AVX512 instruction sets
- *   * autovec: the kernel written in regular C++ code but in a
- *      way that makes compilers easier to generate vectorized SIMD
- *      instructions out of it. Supports both x86_64 and aarch64 CPUs.
- *      Currently only available on Linux.
- * How to set environment variables:
- *   * No environment variables: on x86_64 we will default to asmjit
- *      kernel, and on aarch64 and linux we will default to autovec.
- *      On non-linux aarch64 we will fall back to ref.
- *   * Set FBGEMM_NO_AUTOVEC: on aarch64 linux we will use ref. On other
- *      platforms this will have no effect.
- *   * Set FBGEMM_NO_ASMJIT: on x86_64 we will use ref. On other
- *      platforms this will have no effect.
- *   * Set FBGEMM_NO_ASMJIT AND FBGEMM_FORCE_AUTOVEC: on x86_64 we will
- *      use autovec if these two variables are set at the same time.
- *      No effect on other platforms.
- *   * FBGEMM_FORCE_AUTOVEC will override FBGEMM_NO_AUTOVEC if they
- *      are set at the same time.
- *   * These variables are considered set as long as they exist regardless
- *      of content. That means assigning values like "1", "true", "y", "0",
- *      "false" or "no" has the same effect. The easiest way of setting a
- *      variable is to prepend `<VARIABLE>=1` before the benchmarking command.
- */
-
-#ifdef __linux__
-static inline bool is_autovec_disabled() {
-  static bool res;
-  static bool called_once = false;
-  if (called_once) {
-    return res;
-  }
-  called_once = true;
-  char* env_val = std::getenv("FBGEMM_NO_AUTOVEC");
-  res = (env_val != nullptr);
-  return res;
-}
-
-static inline bool is_autovec_forced() {
-  static bool res;
-  static bool called_once = false;
-  if (called_once) {
-    return res;
-  }
-  called_once = true;
-  char* env_val = std::getenv("FBGEMM_FORCE_AUTOVEC");
-  res = (env_val != nullptr);
-  return res;
-}
-#endif // #ifdef __linux__
-
-static inline bool is_asmjit_disabled() {
-  static bool res;
-  static bool called_once = false;
-  if (called_once) {
-    return res;
-  }
-  called_once = true;
-  char* env_val = std::getenv("FBGEMM_NO_ASMJIT");
-  res = (env_val != nullptr);
-  return res;
-}
-
 template <
     typename indxType,
     typename offsetType,
@@ -1091,7 +1022,7 @@ template <
 typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
     Type
     GenerateEmbeddingSpMDMNBitWithStrides(
-        int bit_rate,
+        const int input_bit_rate,
         const int64_t block_size,
         bool has_weight,
         bool normalize_by_lengths,
@@ -1101,164 +1032,176 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         int64_t output_stride /*=-1*/,
         int64_t input_stride /*=-1*/,
         bool scale_bias_last /*=true*/,
-        bool is_bf16_out) {
-  assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
-
-  if (!cpuinfo_initialize()) {
-    throw runtime_error("Failed to initialize cpuinfo!");
+        const bool is_bf16_out /*=false*/,
+        const bool no_bag /*=false*/,
+        int output_bit_rate /*=-1*/) {
+  if (output_bit_rate == -1) {
+    output_bit_rate = input_bit_rate;
   }
+  assert(
+      (input_bit_rate == 2 || input_bit_rate == 4) &&
+      "input_bit_rate must be 2 or 4");
+  if (std::is_same<outType, uint8_t>::value) {
+    assert(
+        (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
+        "we currently only support int4 to int4 when using sequential TBE");
+  }
+
   if (output_stride == -1) {
     output_stride = block_size;
   }
   if (input_stride == -1) {
-    int64_t num_elem_per_byte = 8 / bit_rate;
+    int64_t num_elem_per_byte = 8 / input_bit_rate;
     input_stride =
         ceil_div(block_size, num_elem_per_byte) + 2 * sizeof(uint16_t);
   }
-  if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
-    static GenEmbeddingSpMDMNBitLookup<
-        indxType,
-        offsetType,
-        outType,
-        inst_set_t::avx512,
-        /*ROWWISE_SPARSE=*/false,
-        THREAD_LOCAL>
-        kernel_generator;
-    const auto original_func = kernel_generator.getOrCreate(
-        bit_rate,
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        is_bf16_out);
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return original_func(
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          out,
-          nullptr /* mask not used in avx512 */);
-    };
-  } else if (fbgemmHasAvx2Support() && !is_asmjit_disabled()) {
-    static GenEmbeddingSpMDMNBitLookup<
-        indxType,
-        offsetType,
-        outType,
-        inst_set_t::avx2,
-        /*ROWWISE_SPARSE=*/false,
-        THREAD_LOCAL>
-        kernel_generator;
-    const auto original_func = kernel_generator.getOrCreate(
-        bit_rate,
-        block_size,
-        has_weight,
-        is_weight_positional,
-        normalize_by_lengths,
-        prefetch,
-        use_offsets,
-        output_stride,
-        input_stride,
-        scale_bias_last,
-        is_bf16_out);
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return original_func(
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          out,
-          internal::avx2_ps_or_epi32_combined_mask);
-    };
-#ifdef __linux__
-  } else if (
-      (fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
-      is_autovec_forced()) {
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDMNBit_autovec(
-          bit_rate,
+
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  if (!no_bag) {
+    if (!cpuinfo_initialize()) {
+      throw runtime_error("Failed to initialize cpuinfo!");
+    }
+    if (fbgemmHasAvx512Support() && !is_asmjit_disabled()) {
+      static GenEmbeddingSpMDMNBitLookup<
+          indxType,
+          offsetType,
+          outType,
+          inst_set_t::avx512,
+          /*ROWWISE_SPARSE=*/false,
+          THREAD_LOCAL>
+          kernel_generator;
+      const auto original_func = kernel_generator.getOrCreate(
+          input_bit_rate,
           block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
+          has_weight,
           is_weight_positional,
+          normalize_by_lengths,
+          prefetch,
           use_offsets,
           output_stride,
           input_stride,
           scale_bias_last,
           is_bf16_out);
-    };
-#endif // #ifdef __linux__
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               outType* out) {
-      return EmbeddingSpMDMNBit_ref(
-          bit_rate,
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const uint8_t* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return original_func(
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            out,
+            nullptr /* mask not used in avx512 */);
+      };
+    }
+    if (fbgemmHasAvx2Support() && !is_asmjit_disabled()) {
+      static GenEmbeddingSpMDMNBitLookup<
+          indxType,
+          offsetType,
+          outType,
+          inst_set_t::avx2,
+          /*ROWWISE_SPARSE=*/false,
+          THREAD_LOCAL>
+          kernel_generator;
+      const auto original_func = kernel_generator.getOrCreate(
+          input_bit_rate,
           block_size,
-          output_size,
-          index_size,
-          data_size,
-          input,
-          indices,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
+          has_weight,
           is_weight_positional,
+          normalize_by_lengths,
+          prefetch,
           use_offsets,
           output_stride,
           input_stride,
           scale_bias_last,
           is_bf16_out);
-    };
+      return [=](int64_t output_size,
+                 int64_t index_size,
+                 int64_t data_size,
+                 const uint8_t* input,
+                 const indxType* indices,
+                 const offsetType* offsets_or_lengths,
+                 const float* weights,
+                 outType* out) {
+        return original_func(
+            output_size,
+            index_size,
+            data_size,
+            input,
+            indices,
+            offsets_or_lengths,
+            weights,
+            out,
+            internal::avx2_ps_or_epi32_combined_mask);
+      };
+    }
   }
+#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
+      is_autovec_forced()) {
+    return GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/indxType,
+        /*OffsetType=*/offsetType,
+        /*OutType=*/outType>(
+        /*input_bit_rate=*/input_bit_rate,
+        /*block_size=*/block_size,
+        /*has_weight=*/has_weight,
+        /*normalize_by_lengths=*/normalize_by_lengths,
+        /*prefetch=*/prefetch,
+        /*is_weight_positional=*/is_weight_positional,
+        /*use_offsets=*/use_offsets,
+        /*output_stride=*/output_stride,
+        /*input_stride=*/input_stride,
+        /*scale_bias_last=*/scale_bias_last,
+        /*is_bf16_out=*/is_bf16_out,
+        /*no_bag=*/no_bag,
+        /*output_bit_rate=*/output_bit_rate);
+  }
+#endif
+
+#ifdef VLOG
+  VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t data_size,
+             const uint8_t* input,
+             const indxType* indices,
+             const offsetType* offsets_or_lengths,
+             const float* weights,
+             outType* out) {
+    return EmbeddingSpMDMNBit_ref(
+        input_bit_rate,
+        block_size,
+        output_size,
+        index_size,
+        data_size,
+        input,
+        indices,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets,
+        output_stride,
+        input_stride,
+        scale_bias_last,
+        is_bf16_out,
+        no_bag,
+        output_bit_rate);
+  };
 }
 
 template <typename IndexType, typename OffsetType, typename OutType>
@@ -1300,6 +1243,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
     bool use_offsets) {
   assert((bit_rate == 2 || bit_rate == 4) && "bit_rate must be 2 or 4");
 
+#if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   if (!cpuinfo_initialize()) {
     throw runtime_error("Failed to initialize cpuinfo!");
   }
@@ -1347,7 +1291,8 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
           compressed_indices_table,
           nullptr /* mask not used in avx512 */);
     };
-  } else if (fbgemmHasAvx2Support()) {
+  }
+  if (fbgemmHasAvx2Support()) {
     static GenEmbeddingSpMDMNBitLookup<
         indxType,
         offsetType,
@@ -1388,37 +1333,38 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
           compressed_indices_table,
           internal::avx2_ps_or_epi32_combined_mask);
     };
-  } else {
-#ifdef VLOG
-    VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
-#endif
-    return [=](int64_t output_size,
-               int64_t index_size,
-               int64_t uncompressed_data_size,
-               const uint8_t* input,
-               const indxType* indices,
-               const offsetType* offsets_or_lengths,
-               const float* weights,
-               float* out,
-               const int32_t* compressed_indices_table) {
-      return EmbeddingSpMDMNBitRowWiseSparse_ref(
-          bit_rate,
-          block_size,
-          output_size,
-          index_size,
-          uncompressed_data_size,
-          // compressed_data_size,
-          input,
-          indices,
-          compressed_indices_table,
-          offsets_or_lengths,
-          weights,
-          normalize_by_lengths,
-          out,
-          is_weight_positional,
-          use_offsets);
-    };
   }
+#endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+
+#ifdef VLOG
+  VLOG(0) << "AVX2 or AVX512 not found, taking the slow path";
+#endif
+  return [=](int64_t output_size,
+             int64_t index_size,
+             int64_t uncompressed_data_size,
+             const uint8_t* input,
+             const indxType* indices,
+             const offsetType* offsets_or_lengths,
+             const float* weights,
+             float* out,
+             const int32_t* compressed_indices_table) {
+    return EmbeddingSpMDMNBitRowWiseSparse_ref(
+        bit_rate,
+        block_size,
+        output_size,
+        index_size,
+        uncompressed_data_size,
+        // compressed_data_size,
+        input,
+        indices,
+        compressed_indices_table,
+        offsets_or_lengths,
+        weights,
+        normalize_by_lengths,
+        out,
+        is_weight_positional,
+        use_offsets);
+  };
 }
 
 #define INSTANTIATE_SPMDM_BASE(                               \
@@ -1433,7 +1379,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       OFFSET_TYPE,                                            \
       OUT_TYPE,                                               \
       THREAD_LOCAL>(                                          \
-      int bit_rate,                                           \
+      const int input_bit_rate,                               \
       const int64_t block_size,                               \
       bool has_weight,                                        \
       bool normalize_by_lengths,                              \
@@ -1443,7 +1389,9 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       int64_t output_stride,                                  \
       int64_t input_stride,                                   \
       bool scale_bias_last,                                   \
-      bool is_bf16_out);
+      const bool is_bf16_out,                                 \
+      const bool no_bag,                                      \
+      int output_bit_rate);
 
 #define INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
   INSTANTIATE_SPMDM_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, false)        \
@@ -1465,6 +1413,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)                   \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, float)           \
   INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint16_t)        \
+  INSTANTIATE_SPMDM_THREAD_LOCAL(INDEX_TYPE, OFFSET_TYPE, uint8_t)         \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \
       uint8_t,                                                             \
       INDEX_TYPE,                                                          \
