@@ -15,6 +15,9 @@ from fbgemm_gpu.split_embedding_configs import SparseType
 from hypothesis import assume, given, HealthCheck, settings
 
 from . import common  # noqa E402
+
+# pyre-fixme[21]: Could not find name `open_source` in
+#  `deeplearning.fbgemm.fbgemm_gpu.test.quantize.common`.
 from .common import (
     fused_rowwise_8bit_dequantize_2bytes_padding_scale_bias_first_reference,
     fused_rowwise_8bit_dequantize_reference,
@@ -22,6 +25,7 @@ from .common import (
     open_source,
 )
 
+# pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
     from test_utils import gpu_available
@@ -254,6 +258,8 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                         )
                     )
 
+            # pyre-fixme[61]: `dequantized_data_gpu` is undefined, or not always
+            #  defined.
             dequantized_data_trimmed = dequantized_data_gpu[:, :ncols].cpu()
             quantize_data_numpy = quantized_data_gpu.cpu().numpy()
             if quant_padding_float_type:

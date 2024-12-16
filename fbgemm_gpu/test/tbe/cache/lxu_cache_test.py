@@ -17,12 +17,11 @@ from typing import Tuple
 import hypothesis.strategies as st
 import numpy as np
 import torch
-from fbgemm_gpu.split_embedding_utils import to_device
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
+from fbgemm_gpu.tbe.utils import to_device
 from hypothesis import given, settings, Verbosity
 from torch import Tensor
 
-from .. import common  # noqa E402
 from ..common import MAX_EXAMPLES, open_source
 
 if open_source:
@@ -172,6 +171,7 @@ class LXUCacheTest(unittest.TestCase):
             use_cpu=False,
         ).long()
 
+        # pyre-fixme[53]: Captured variable `lxu_cache_state` is not annotated.
         def unique_lookup(
             indices: Tensor,
             offsets: Tensor,
@@ -198,6 +198,7 @@ class LXUCacheTest(unittest.TestCase):
 
             return uniq_lxu_cache_locations, uniq_indices_length
 
+        # pyre-fixme[53]: Captured variable `lxu_cache_state` is not annotated.
         def duplicate_lookup(
             indices: Tensor,
             offsets: Tensor,

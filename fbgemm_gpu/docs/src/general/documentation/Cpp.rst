@@ -4,9 +4,9 @@ Adding Documentation to C++ Code
 --------------------------------
 
 Documentation for C++ is provided through
-`Javadoc-style comments <https://www.oracle.com/technical-resources/articles/java/javadoc-tool.html>`__
+`Javadoc-style comments <https://www.oracle.com/java/technologies/javase/javadoc-tool.html>`__
 and generated using Sphinx, `Doxygen <https://www.doxygen.nl/>`__, and
-`Breathe <https://www.breathe-doc.org/>`__.
+`Breathe <https://breathe.readthedocs.io>`__.
 
 Documentation is kept in header files with the ``.h`` extension as well as in
 ``.cpp``, ``cu``, and ``cuh`` files.  In these files, everything between

@@ -28,7 +28,7 @@ except ImportError:
 
 class EmbeddingOptimizerGenerator:
     @staticmethod
-    def generate(**kwargs: Any) -> None:
+    def generate_embedding_optimizer(**kwargs: Any) -> None:
         """
         Generate embedding optimizer code blocks (host, CUDA host, CUDA kernel,
         and header files) given the optimizer's parameters.
@@ -40,41 +40,48 @@ class EmbeddingOptimizerGenerator:
         )
         kwargs["args"] = kwargs["args"].cuda
 
-        # Generate CUDA host code
-        CodeTemplate.load("embedding_optimizer_split_template.cu").write(
-            f"gen_embedding_optimizer_{optimizer}_split_cuda.cu", **kwargs
-        )
+        PREFIX = "training/optimizer"
 
-        # Generate CUDA kernel code
-        CodeTemplate.load("embedding_optimizer_split_kernel_template.cu").write(
-            f"gen_embedding_optimizer_{optimizer}_split_kernel.cu", **kwargs
-        )
+        for template_filepath, filename in [
+            (  # CUDA host code
+                f"{PREFIX}/embedding_optimizer_split_template.cu",
+                f"gen_embedding_optimizer_{optimizer}_split_cuda.cu",
+            ),
+            (  # CUDA kernel code
+                f"{PREFIX}/embedding_optimizer_split_kernel_template.cu",
+                f"gen_embedding_optimizer_{optimizer}_split_kernel.cu",
+            ),
+            (  # CPU code
+                f"{PREFIX}/embedding_optimizer_split_host_template.cpp",
+                f"gen_embedding_optimizer_{optimizer}_split.cpp",
+            ),
+            (  # Optimizer kernel headers
+                f"{PREFIX}/embedding_optimizer_split_device_kernel_template.cuh",
+                f"gen_embedding_optimizer_{optimizer}_split_device_kernel.cuh",
+            ),
+            (  # Python kernel invokers
+                "training/python/split_embedding_optimizer_codegen.template",
+                f"split_embedding_optimizer_{optimizer}.py",
+            ),
+        ]:
+            CodeTemplate.load(template_filepath).write(
+                filename, is_fbcode=args.is_fbcode, **kwargs
+            )
 
-        # Generate host code
-        CodeTemplate.load("embedding_optimizer_split_host_template.cpp").write(
-            f"gen_embedding_optimizer_{optimizer}_split.cpp", **kwargs
-        )
+    @staticmethod
+    def generate() -> None:
+        optimizers = [rowwise_adagrad()]
 
-        # Generates Python invoker for CUDA
-        CodeTemplate.load("split_embedding_optimizer_codegen.template").write(
-            f"split_embedding_optimizer_{optimizer}.py",
-            is_fbcode=args.is_fbcode,
-            **kwargs,
-        )
+        for optimizer in optimizers:
+            EmbeddingOptimizerGenerator.generate_embedding_optimizer(**optimizer)
 
-        # Generate optimizer kernel headers
-        CodeTemplate.load("embedding_optimizer_split_device_kernel_template.cuh").write(
-            f"gen_embedding_optimizer_{optimizer}_split_device_kernel.cuh", **kwargs
-        )
+        CodeTemplate.copy_to_root("training/python/optimizer_args.py")
 
 
 def main() -> None:
-    optimizers = [rowwise_adagrad()]
-
-    for optimizer in optimizers:
-        EmbeddingOptimizerGenerator.generate(**optimizer)
+    EmbeddingOptimizerGenerator.generate()
 
 
 if __name__ == "__main__":
-    print(f"[GENERATE OPTIMIZERS] {sys.argv}")
+    print(f"[GENERATE OPTIMIZERS]: {sys.argv}")
     main()

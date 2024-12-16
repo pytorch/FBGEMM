@@ -7,17 +7,18 @@
  */
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh" // @manual
-#include "fbgemm_gpu/ops_utils.h" // @manual
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
+#include "fbgemm_gpu/utils/ops_utils.h" // @manual
+#include "fbgemm_gpu/utils/tensor_accessor.h" // @manual
 #ifdef USE_ROCM
 #include <rocprim/device/device_radix_sort.hpp>
 #endif
 // clang-format off
-#include "fbgemm_gpu/cub_namespace_prefix.cuh" // @manual
+#include "fbgemm_gpu/utils/cub_namespace_prefix.cuh" // @manual
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_scan.cuh>
-#include "fbgemm_gpu/cub_namespace_postfix.cuh" // @manual
+#include "fbgemm_gpu/utils/cub_namespace_postfix.cuh" // @manual
 // clang-format on
 
 using Tensor = at::Tensor;
@@ -62,12 +63,14 @@ inline at::Tensor asynchronous_complete_cumsum(at::Tensor t_in) {
 
 template <typename index_t, typename info_acc_t, bool nobag, bool vbe>
 __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
-    at::PackedTensorAccessor32<info_acc_t, 1, at::RestrictPtrTraits> infos,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        offsets,
+    pta::PackedTensorAccessor32<info_acc_t, 1, at::RestrictPtrTraits> infos,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask,
@@ -139,13 +142,14 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
 template <typename index_t, typename info_acc_t>
 __global__
 __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         hash_size_cumsum,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         total_L_offsets,
-    at::PackedTensorAccessor32<info_acc_t, 1, at::RestrictPtrTraits> infos,
-    at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<info_acc_t, 1, at::RestrictPtrTraits> infos,
+    pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices,
     FixedDivisor fd,
     int32_t fixed_L_per_warp) {
@@ -206,12 +210,12 @@ transpose_embedding_input(
     Tensor indices,
     Tensor offsets,
     bool nobag,
-    const c10::optional<Tensor>& vbe_b_t_map,
+    const std::optional<Tensor>& vbe_b_t_map,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask,
     const int64_t total_unique_indices,
     const bool is_index_select,
-    const c10::optional<Tensor>& total_L_offsets,
+    const std::optional<Tensor>& total_L_offsets,
     const int64_t fixed_L_per_warp,
     const int64_t num_warps_per_feature) {
   const bool vbe = vbe_b_t_map.has_value();
@@ -244,33 +248,36 @@ transpose_embedding_input(
   using at::RestrictPtrTraits;
 
 #define INVOKE_LINEARIZE_INDEX_KERNEL(INFO_ACC_T, NOBAG)                   \
-  const auto linearize_index_kernel_ =                                     \
-      (vbe ? linearize_index_kernel<index_t, INFO_ACC_T, NOBAG, true>      \
-           : linearize_index_kernel<index_t, INFO_ACC_T, NOBAG, false>);   \
-  linearize_index_kernel_<<<                                               \
-      div_round_up(total_B, kMaxThreads),                                  \
-      kMaxThreads,                                                         \
-      0,                                                                   \
-      at::cuda::getCurrentCUDAStream()>>>(                                 \
-      hash_size_cumsum.packed_accessor32<index_t, 1, RestrictPtrTraits>(), \
-      indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),          \
-      offsets.packed_accessor32<index_t, 1, RestrictPtrTraits>(),          \
-      infos.packed_accessor32<INFO_ACC_T, 1, RestrictPtrTraits>(),         \
-      linear_indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),   \
-      info_B_num_bits,                                                     \
-      info_B_mask,                                                         \
-      (1u << (DEFAULT_INFO_NUM_BITS - info_B_num_bits)) - 1,               \
-      (1u << info_B_num_bits) - 1,                                         \
-      vbe ? reinterpret_cast<uint32_t*>(vbe_b_t_map.value().data_ptr())    \
-          : nullptr,                                                       \
-      FixedDivisor(total_B / T));                                          \
-  C10_CUDA_KERNEL_LAUNCH_CHECK()
+  {                                                                        \
+    const auto linearize_index_kernel_ =                                   \
+        (vbe ? linearize_index_kernel<index_t, INFO_ACC_T, NOBAG, true>    \
+             : linearize_index_kernel<index_t, INFO_ACC_T, NOBAG, false>); \
+    [[maybe_unused]] const auto func_name = "linearize_index_kernel_";     \
+    linearize_index_kernel_<<<                                             \
+        div_round_up(total_B, kMaxThreads),                                \
+        kMaxThreads,                                                       \
+        0,                                                                 \
+        at::cuda::getCurrentCUDAStream()>>>(                               \
+        MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, index_t, 1, 32),   \
+        MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),            \
+        MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),            \
+        MAKE_PTA_WITH_NAME(func_name, infos, INFO_ACC_T, 1, 32),           \
+        MAKE_PTA_WITH_NAME(func_name, linear_indices, index_t, 1, 32),     \
+        info_B_num_bits,                                                   \
+        info_B_mask,                                                       \
+        (1u << (DEFAULT_INFO_NUM_BITS - info_B_num_bits)) - 1,             \
+        (1u << info_B_num_bits) - 1,                                       \
+        vbe ? reinterpret_cast<uint32_t*>(vbe_b_t_map.value().data_ptr())  \
+            : nullptr,                                                     \
+        FixedDivisor(total_B / T));                                        \
+    C10_CUDA_KERNEL_LAUNCH_CHECK();                                        \
+  }
 
   AT_DISPATCH_INDEX_TYPES(
-      infos.scalar_type(), "transpose_embedding_input1", [&] {
+      infos.scalar_type(), "transpose_embedding_input_1", [&] {
         using info_t = index_t;
         AT_DISPATCH_INDEX_TYPES(
-            indices.scalar_type(), "transpose_embedding_input2", [&] {
+            indices.scalar_type(), "transpose_embedding_input_2", [&] {
               if (!is_index_select) {
                 if (!nobag) {
                   INVOKE_LINEARIZE_INDEX_KERNEL(int32_t, false);
@@ -278,21 +285,24 @@ transpose_embedding_input(
                   INVOKE_LINEARIZE_INDEX_KERNEL(int64_t, true);
                 }
               } else {
-                // index_select is a special case of TBE (dense, nobag, with
-                // fixed_L_per_warp)
+        // index_select is a special case of TBE (dense, nobag, with
+        // fixed_L_per_warp)
+#ifdef FBGEMM_GPU_MEMCHECK
+                const auto func_name = "linearize_index_index_select_kernel";
+#endif
                 linearize_index_index_select_kernel<<<
                     div_round_up(total_B, kMaxThreads),
                     kMaxThreads,
                     0,
                     at::cuda::getCurrentCUDAStream()>>>(
-                    hash_size_cumsum
-                        .packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-                    indices.packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-                    total_L_offsets.value()
-                        .packed_accessor32<index_t, 1, RestrictPtrTraits>(),
-                    infos.packed_accessor32<int64_t, 1, RestrictPtrTraits>(),
-                    linear_indices
-                        .packed_accessor32<index_t, 1, RestrictPtrTraits>(),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, hash_size_cumsum, index_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, total_L_offsets.value(), index_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(func_name, infos, int64_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, linear_indices, index_t, 1, 32),
                     FixedDivisor(total_B / T),
                     fixed_L_per_warp);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -334,9 +344,9 @@ transpose_embedding_input(
                 rocprim::default_config,
                 rocprim::default_config,
                 rocprim::default_config,
-                400000>;		    
+                400000>;
 	        rocprim::radix_sort_pairs<config>(
-  	            nullptr,
+                    nullptr,
                     temp_storage_bytes,
                     linear_indices.data_ptr<index_t>(),
                     linear_indices_sorted.data_ptr<index_t>(),
@@ -349,7 +359,7 @@ transpose_embedding_input(
                     false);
                 auto temp_storage = at::empty(
                     {static_cast<int64_t>(temp_storage_bytes)},
-                    indices.options().dtype(at::kByte));			    
+                    indices.options().dtype(at::kByte));
                 rocprim::radix_sort_pairs<config>(
                     temp_storage.data_ptr(),
                     temp_storage_bytes,
@@ -362,8 +372,8 @@ transpose_embedding_input(
                     total_hash_size_bits,
                     at::cuda::getCurrentCUDAStream(),
                     false);
-#endif	      
-	      }
+#endif
+              }
               if (total_unique_indices != -1) {
                 TORCH_CHECK(total_unique_indices >= 0);
                 sorted_linear_indices_run =

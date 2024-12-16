@@ -15,11 +15,11 @@
 #include <limits>
 #include <mutex>
 
-#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/fbgemm_tensor_accessor.h"
-#include "fbgemm_gpu/ops_utils.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -29,8 +29,9 @@ Tensor linearize_cache_indices_cpu(
     const Tensor& cache_hash_size_cumsum,
     const Tensor& indices,
     const Tensor& offsets,
-    const c10::optional<Tensor>& B_offsets,
-    const int64_t max_B);
+    const std::optional<Tensor>& B_offsets,
+    const int64_t max_B,
+    const int64_t indices_base_offset);
 
 Tensor linearize_cache_indices_from_row_idx_cpu(
     Tensor cache_hash_size_cumsum,
@@ -52,7 +53,7 @@ void lru_cache_populate_byte_cpu(
     Tensor lru_state,
     int64_t row_alignment,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats);
+    std::optional<Tensor> uvm_cache_stats);
 
 void direct_mapped_lru_cache_populate_byte_cpu(
     Tensor weights,
@@ -70,7 +71,7 @@ void direct_mapped_lru_cache_populate_byte_cpu(
     Tensor lxu_cache_miss_timestamp,
     int64_t row_alignment,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats);
+    std::optional<Tensor> uvm_cache_stats);
 
 void lfu_cache_populate_byte_cpu(
     Tensor weights,
@@ -91,15 +92,15 @@ Tensor lxu_cache_lookup_cpu(
     Tensor lxu_cache_state,
     int64_t invalid_index,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats,
-    c10::optional<Tensor> num_uniq_cache_indices,
-    c10::optional<Tensor> lxu_cache_locations_output);
+    std::optional<Tensor> uvm_cache_stats,
+    std::optional<Tensor> num_uniq_cache_indices,
+    std::optional<Tensor> lxu_cache_locations_output);
 
 Tensor direct_mapped_lxu_cache_lookup_cpu(
     Tensor linear_cache_indices,
     Tensor lxu_cache_state,
     int64_t invalid_index,
     bool gather_cache_stats,
-    c10::optional<Tensor> uvm_cache_stats);
+    std::optional<Tensor> uvm_cache_stats);
 
 } // namespace fbgemm_gpu

@@ -17,9 +17,13 @@ import jinja2
 
 try:
     from .scripts_argsparse import args
+    from .torch_type_utils import TensorType
 except:
     # pyre-ignore[21]
     from scripts_argsparse import args
+
+    # pyre-ignore[21]
+    from torch_type_utils import TensorType
 
 
 ################################################################################
@@ -285,13 +289,56 @@ def is_valid_forward_config(
 
 
 def has_experimental_support(
-    dense: bool, nobag: bool, vbe: bool, is_index_select: bool, is_rocm: bool
+    dense: bool, nobag: bool, vbe: bool, is_index_select: bool, ssd: bool
 ) -> bool:
     """
     Check if the given combination of configs has TBE v2 support
-    - TBE v2 does not support dense, nobag, vbe, is_index_select, and is_rocm
+    - TBE v2 does not support dense, nobag, vbe, is_index_select, is_rocm, and ssd
     """
-    return not dense and not nobag and not vbe and not is_index_select and not is_rocm
+    return not dense and not nobag and not vbe and not is_index_select and not ssd
+
+
+def is_valid_gwd_config(
+    dense: bool,
+    nobag: bool,
+    vbe: bool,
+    is_index_select: bool,
+    has_global_weight_decay_support: bool,
+    ssd: bool,
+) -> bool:
+    """
+    Check if the given combination of configs is valid for global weight decay support
+    - `has_global_weight_decay_support` is whether global weight decay is available for
+    an optimizer, but not all configs of such optimizer offer global weight decay support
+    - any updates to the configs need to be reflected in embedding_backward_split_host_template.cpp
+    - global weight decay does not support dense, nobag, vbe, index_select
+    """
+    return (
+        not dense
+        and not nobag
+        and not is_index_select
+        and has_global_weight_decay_support
+        and not ssd
+    )
+
+
+def compute_global_weight_decay(is_global_weight_decay_kernel: bool) -> str:
+    """
+    For global weight decay kernel, compute the global weight decay value
+    and update prev_iter to be current iteration
+    This is to used in both warp and cta kernels.
+    """
+    if is_global_weight_decay_kernel:
+        return """
+        const auto prev_iter = prev_iter_dev[linear_index];
+        CUDA_KERNEL_ASSERT(prev_iter < iter);
+        const auto global_weight_decay = prev_iter == 0 ? 1 : max(gwd_lower_bound, powf(weight_decay_base, iter - prev_iter - 1));
+        if (threadIdx.x == 0) {
+            prev_iter_dev[linear_index] = iter;
+        }
+        """
+    else:
+        return ""
 
 
 ################################################################################
@@ -307,7 +354,8 @@ env.globals["dispatch_non_vec_blocking_kernel"] = dispatch_non_vec_blocking_kern
 env.globals["dispatch_vec_blocking_kernel"] = dispatch_vec_blocking_kernel
 env.globals["is_valid_forward_config"] = is_valid_forward_config
 env.globals["has_experimental_support"] = has_experimental_support
-
+env.globals["is_valid_gwd_config"] = is_valid_gwd_config
+env.globals["compute_global_weight_decay"] = compute_global_weight_decay
 
 ################################################################################
 # Filter functions in Jinja Environment
@@ -325,7 +373,7 @@ def make_pta_acc_format(pta_str_list: List[str], func_name: str) -> List[str]:
             assert match is not None and len(match.groups()) == 3
             tensor, acc_nbits, args = match.groups()
             if "acc_type" in args:
-                match = re.search("at::acc_type<([a-zA-Z_]*), true>", args)
+                match = re.search("at::acc_type<([a-zA-Z_0-9]*), true>", args)
                 assert match is not None and len(match.groups()) == 1
                 new_type = match.group(1)
                 args = re.sub("at::acc_type<[a-zA-Z_]*, true>", new_type, args)
@@ -348,9 +396,42 @@ def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
     ]
 
 
+def replace_placeholder_types(
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
+    arg_str_list: List[str],
+    # pyre-fixme[11]: Annotation `TensorType` is not defined as a type.
+    type_combo: Optional[Dict[str, TensorType]],
+) -> List[str]:
+    """
+    Replace the placeholder types with the primitive types
+    """
+    new_str_list = []
+    for arg_str in arg_str_list:
+        if type_combo is not None:
+            for ph_name, ph_ty in type_combo.items():
+                str_ty = ph_name + "_ph_t"
+                if str_ty in arg_str:
+                    arg_str = arg_str.replace(str_ty, ph_ty.primitive_type)
+                    break
+        new_str_list.append(arg_str)
+    return new_str_list
+
+
+def to_upper_placeholder_types(arg_str_list: List[str]) -> List[str]:
+    """
+    Make the placeholder type names upper cases
+    """
+    new_str_list = []
+    for arg_str in arg_str_list:
+        new_str_list.append(arg_str.upper() + "_T")
+    return new_str_list
+
+
 ################################################################################
 # Register Filter Functions in Jinja Environment
 ################################################################################
 
 env.filters["make_pta_acc_format"] = make_pta_acc_format
 env.filters["replace_pta_namespace"] = replace_pta_namespace
+env.filters["replace_placeholder_types"] = replace_placeholder_types
+env.filters["to_upper_placeholder_types"] = to_upper_placeholder_types

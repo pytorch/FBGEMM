@@ -25,11 +25,7 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-    if torch.version.hip:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_hip")
-    else:
-        torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
 
 
 def generate_unary_feature(
@@ -98,7 +94,7 @@ class MyModule(torch.nn.Module):
 @click.option("--num-tasks", default=3)
 @click.option("--repeats", default=100)
 # pyre-fixme[2]: Parameter must be annotated.
-def main(batch_size, num_tables, num_tasks, repeats) -> None:
+def cli(batch_size, num_tables, num_tasks, repeats) -> None:
     device = torch.device("cuda", 0)
     torch.cuda.set_device(device)
     hash_sizes = list(np.random.choice(range(50, 250), size=(num_tables)))
@@ -173,4 +169,4 @@ def main(batch_size, num_tables, num_tasks, repeats) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    cli()

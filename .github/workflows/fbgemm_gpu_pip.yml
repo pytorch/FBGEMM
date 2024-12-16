@@ -31,7 +31,7 @@ on:
         required: true
         default: "nightly"
       fbgemm_gpu_channel_version:
-        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.6.0r0')
+        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.8.0r0')
         type: string
         required: true
         default: "nightly"
@@ -45,7 +45,7 @@ on:
 
 jobs:
   test_pypi_install_cpu:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cpu') }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cpu')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
@@ -56,6 +56,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
+      BUILD_VARIANT: cpu
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +64,7 @@ jobs:
           { arch: x86, instance: "linux.4xlarge", timeout: 20 },
           { arch: arm, instance: "linux.arm64.2xlarge", timeout: 30 },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
 
     steps:
     - name: Setup Build Container
@@ -99,11 +100,11 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: ${{ matrix.host-machine.timeout }}
-      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cpu
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
 
   test_pypi_install_cuda:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cuda') }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'cuda')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     defaults:
       run:
@@ -111,6 +112,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
+      BUILD_VARIANT: cuda
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -118,8 +120,8 @@ jobs:
         host-machine: [
           { instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
-        cuda-version: [ "11.8.0", "12.1.1" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        cuda-version: [ "11.8.0", "12.4.1" ]
 
     steps:
     # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
@@ -158,15 +160,15 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 20
-      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cuda
+      timeout-minutes: 40
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
 
   test_pypi_install_rocm:
-    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'rocm') }}
+    if: ${{ github.repository_owner == 'pytorch' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.fbgemm_gpu_variant_type == 'rocm')) }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: "rocm/dev-ubuntu-20.04:${{ matrix.rocm-version }}-complete"
+      image: "rocm/dev-ubuntu-22.04:${{ matrix.rocm-version }}-complete"
       options: --user root --device=/dev/kfd --device=/dev/dri --ipc=host --shm-size 16G --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
     defaults:
       run:
@@ -174,6 +176,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
+      BUILD_VARIANT: rocm
       ENFORCE_ROCM_DEVICE: 1
     strategy:
       fail-fast: false
@@ -182,8 +185,8 @@ jobs:
           { arch: x86, instance: "rocm" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
-        python-version: [ "3.11", "3.12" ]
-        rocm-version: [ "5.7" ]
+        python-version: [ "3.11", "3.12", "3.13" ]
+        rocm-version: [ "6.1.2", "6.2.4" ]
 
     steps:
     - name: Setup Build Container
@@ -225,4 +228,4 @@ jobs:
 
     - name: Test with PyTest
       timeout-minutes: 20
-      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV rocm
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV

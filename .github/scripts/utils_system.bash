@@ -73,6 +73,57 @@ free_disk_space () {
   echo "[CLEANUP] Freed up some disk space"
 }
 
+free_disk_space_on_host () {
+  echo "################################################################################"
+  echo "# Free Disk Space On CI Host"
+  echo "################################################################################"
+
+  # NOTE: This is meant to be run from ** inside ** containers hosted on
+  # non-PyTorch-infra GitHub runners, where the hosts might be close to full
+  # disk from serving many CI jobs.  When the container is set up properly, we
+  # can escape the container using nsenter to run commands on the host.
+  #
+  # On average, we see roughly 3GB of disk freed when running this cleanup,
+  # which appears to be sufficient to avoid the somewhat-frequent out-of-disk
+  # errors that we were previously running into.
+  #
+  # Frees up disk space on the ubuntu-latest host machine based on recommendations:
+  # https://github.com/orgs/community/discussions/25678
+  # https://github.com/apache/flink/blob/02d30ace69dc18555a5085eccf70ee884e73a16e/tools/azure-pipelines/free_disk_space.sh
+  #
+  # Escape the docker container to run the free disk operation on the host:
+  # https://stackoverflow.com/questions/66160057/how-to-run-a-command-in-host-before-entering-docker-container-in-github-ci
+  # https://stackoverflow.com/questions/32163955/how-to-run-shell-script-on-host-from-docker-container/63140387#63140387
+
+  nsenter -t 1 -m -u -n -i bash -c "
+    echo 'Listing 100 largest packages';
+    dpkg-query -Wf '\${Installed-Size}\t\${Package}\n' | sort -n | tail -n 100;
+    df -h;
+
+    echo 'Removing large packages';
+    sudo apt-get remove -y '^ghc-8.*';
+    sudo apt-get remove -y '^dotnet-.*';
+    sudo apt-get remove -y '^llvm-.*';
+    sudo apt-get remove -y 'php.*';
+    sudo apt-get remove -y azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel;
+    sudo apt-get autoremove -y;
+    sudo apt-get clean;
+    df -h;
+
+    echo 'Removing large directories';
+    rm -rf /usr/local/android;
+    rm -rf /usr/share/dotnet;
+    rm -rf /usr/local/share/boost;
+    rm -rf /opt/ghc;
+    rm -rf /usr/local/share/chrom*;
+    rm -rf /usr/share/swift;
+    rm -rf /usr/local/julia*;
+    rm -rf /usr/local/lib/android;
+    rm -rf /opt/hostedtoolcache;
+    df -h;
+  "
+}
+
 
 ################################################################################
 # Info Functions
@@ -91,7 +142,7 @@ print_gpu_info () {
 
   (lspci -v | grep -e 'controller.*NVIDIA') || true
 
-  if [[ "${ENFORCE_CUDA_DEVICE}" ]]; then
+  if [[ "${ENFORCE_CUDA_DEVICE}" == '1' ]]; then
     # Ensure that nvidia-smi is available and returns GPU entries
     if ! nvidia-smi; then
       echo "[CHECK] NVIDIA drivers and CUDA device are required for this workflow, but does not appear to be installed or available!"
@@ -201,7 +252,7 @@ print_ec2_info () {
     # Pulled from instance metadata endpoint for EC2
     # see https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
     local category=$1
-    curl -fsSL "http://169.254.169.254/latest/meta-data/${category}"
+    curl -H "X-aws-ec2-metadata-token: $(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 30")" -fsSL "http://169.254.169.254/latest/meta-data/${category}"
   }
 
   echo "ami-id: $(get_ec2_metadata ami-id)"

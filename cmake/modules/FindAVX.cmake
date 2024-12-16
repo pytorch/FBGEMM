@@ -82,7 +82,6 @@ MACRO(CHECK_SSE lang type flags)
   ENDIF()
 
   MARK_AS_ADVANCED(${lang}_${type}_FOUND ${lang}_${type}_FLAGS)
-
 ENDMACRO()
 
 CHECK_SSE(C "AVX" " ;-mavx;/arch:AVX")

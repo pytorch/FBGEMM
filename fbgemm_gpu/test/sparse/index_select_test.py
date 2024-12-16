@@ -247,6 +247,12 @@ class IndexSelectTest(unittest.TestCase):
         permute_output_dim_0_1=st.booleans(),
         dtype=st.sampled_from([torch.float, torch.half]),
         use_cpu=st.booleans() if gpu_available else st.just(True),
+        op=st.sampled_from(
+            [
+                torch.ops.fbgemm.batch_index_select_dim0,
+                torch.ops.fbgemm.batch_index_select_dim0_tensor,
+            ]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_batch_index_select_dim0(  # noqa: C901
@@ -258,6 +264,8 @@ class IndexSelectTest(unittest.TestCase):
         permute_output_dim_0_1: bool,
         dtype: torch.dtype,
         use_cpu: bool,
+        # pyre-ignore
+        op,
     ) -> None:
         device = "cpu" if use_cpu else "cuda"
         input_rows = torch.randint(
@@ -331,14 +339,24 @@ class IndexSelectTest(unittest.TestCase):
 
         concat_inputs.requires_grad = True
 
-        output_test = torch.ops.fbgemm.batch_index_select_dim0(
-            concat_inputs,
-            concat_indices,
-            input_num_indices,
-            input_rows,
-            input_columns,
-            permute_output_dim_0_1,
-        )
+        if op == torch.ops.fbgemm.batch_index_select_dim0_tensor:
+            output_test = op(
+                concat_inputs,
+                concat_indices,
+                torch.tensor(input_num_indices, dtype=torch.int64, device="cpu"),
+                torch.tensor(input_rows, dtype=torch.int64, device="cpu"),
+                torch.tensor(input_columns, dtype=torch.int64, device="cpu"),
+                permute_output_dim_0_1,
+            )
+        else:
+            output_test = op(
+                concat_inputs,
+                concat_indices,
+                input_num_indices,
+                input_rows,
+                input_columns,
+                permute_output_dim_0_1,
+            )
 
         if permute_output_dim_0_1 and num_inputs > 0:
             output_list = output_test.view(input_num_indices[0], -1).split(
@@ -401,6 +419,7 @@ additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_index_select_dim0": [unittest.skip("hangs")],
     "test_autograd_registration__test_index_select_dim0": [unittest.skip("hangs")],
     "test_schema__test_index_select_dim0": [unittest.skip("hangs")],
+    "test_faketensor__test_group_index_select_dim0": [unittest.skip("hangs")],
 }
 
 extend_test_class(IndexSelectTest, additional_decorators)

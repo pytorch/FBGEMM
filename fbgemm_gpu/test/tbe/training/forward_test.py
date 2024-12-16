@@ -11,19 +11,11 @@
 
 import random
 import unittest
-from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
-from fbgemm_gpu.split_embedding_utils import (
-    b_indices,
-    generate_requests,
-    get_table_batched_offsets_from_dense,
-    round_up,
-    to_device,
-)
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -32,6 +24,13 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.tbe.utils import (
+    b_indices,
+    generate_requests,
+    get_table_batched_offsets_from_dense,
+    round_up,
+    to_device,
 )
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
@@ -45,28 +44,40 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from fbgemm_gpu.test.test_utils import (
+        additional_decorators,
+        gpu_unavailable,
+        optests,
+        TEST_WITH_ROCM,
+    )
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
 # pyre-ignore
-additional_decorators: Dict[str, List[Callable]] = {
-    # TODO: Implement the operator registrations later
-    "test_faketensor__test_forward_cpu_int8": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_forward_fused_pooled_emb_quant": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_forward_gpu_no_cache_int8": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-    "test_faketensor__test_forward_gpu_uvm_cache_int8": [
-        unittest.skip("Operator not implemented for Meta tensors"),
-    ],
-}
+additional_decorators.update(
+    {
+        # TODO: Implement the operator registrations later
+        "test_faketensor__test_forward_cpu_int8": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+        "test_faketensor__test_forward_fused_pooled_emb_quant": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+        "test_faketensor__test_forward_gpu_no_cache_int8": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+        "test_faketensor__test_forward_gpu_uvm_cache_int8": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
+    }
+)
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
@@ -107,7 +118,6 @@ class ForwardTest(unittest.TestCase):
             or (
                 weights_precision != SparseType.INT8
                 and output_dtype != SparseType.INT8
-                and not use_cpu
                 and pooling_mode != PoolingMode.NONE
             )
         )
@@ -257,8 +267,16 @@ class ForwardTest(unittest.TestCase):
         )
 
         if not use_cpu and torch.cuda.is_available():
-            # NOTE: test TorchScript-compatible!
-            cc = torch.jit.script(cc)
+            # NOTE: Test TorchScript-compatible!
+            try:
+                # Occasionally, we run into the following error when running
+                # against PyTorch nightly:
+                #
+                # RuntimeError: Can't redefine method:
+                # forward on class: __torch__.fbgemm_gpu.split_table_batched_embeddings_ops_training.___torch_mangle_0.SplitTableBatchedEmbeddingBagsCodegen (of Python compilation unit at: 0x5e74890)
+                cc = torch.jit.script(cc)
+            except Exception as e:
+                print(f"Torch JIT compilation failed: {e}")
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(
@@ -369,7 +387,7 @@ class ForwardTest(unittest.TestCase):
             ]
         )
         mixed = False
-        mixed_B = False
+        mixed_B = random.choice([False, True])
         if pooling_mode == PoolingMode.SUM:
             weighted = random.choice([True, False])
         else:

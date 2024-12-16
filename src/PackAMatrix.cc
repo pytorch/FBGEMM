@@ -189,8 +189,7 @@ int32_t PackAMatrix<T, accT>::addr(int32_t r, int32_t c) const {
 
 template <typename T, typename accT>
 void PackAMatrix<T, accT>::printPackedMatrix(std::string name) {
-  std::cout << name << ":"
-            << "[" << BaseType::numPackedRows() << ", "
+  std::cout << name << ":" << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
 
   T* out = BaseType::getBuf();

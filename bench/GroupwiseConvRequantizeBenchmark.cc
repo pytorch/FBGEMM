@@ -90,44 +90,15 @@ void performance_test() {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
   cout << "WARNING: the timer may be inaccurate when used by multiple threads."
        << endl;
-  cout << "MB, "
-       << "IC, "
-       << "OC, "
-       << "IH, "
-       << "IW, "
-       << "KH, "
-       << "KW, "
-       << "stride_h, "
-       << "stride_w, "
-       << "pad_h, "
-       << "pad_w, "
-       << "Type, "
-       << "M, "
-       << "N, "
-       << "K, "
-       << "Im2Col (ms), "
-       << "Packing (ms), "
-       << "Kernel (ms), "
-       << "Postprocessing (ms), "
-       << "fbgemmPacked (ms), "
-       << "Total (ms), "
-       << "GOPS" << endl;
+  cout << "MB, " << "IC, " << "OC, " << "IH, " << "IW, " << "KH, " << "KW, "
+       << "stride_h, " << "stride_w, " << "pad_h, " << "pad_w, " << "Type, "
+       << "M, " << "N, " << "K, " << "Im2Col (ms), " << "Packing (ms), "
+       << "Kernel (ms), " << "Postprocessing (ms), " << "fbgemmPacked (ms), "
+       << "Total (ms), " << "GOPS" << endl;
 #else
-  cout << setw(8) << "MB, "
-       << "IC, "
-       << "OC, "
-       << "IH, "
-       << "IW, "
-       << "KH, "
-       << "KW, "
-       << "stride_h, "
-       << "stride_w, "
-       << "pad_h, "
-       << "pad_w, "
-       << "Type, "
-       << "M, "
-       << "N, "
-       << "K, " << setw(5) << "GOPS" << endl;
+  cout << setw(8) << "MB, " << "IC, " << "OC, " << "IH, " << "IW, " << "KH, "
+       << "KW, " << "stride_h, " << "stride_w, " << "pad_h, " << "pad_w, "
+       << "Type, " << "M, " << "N, " << "K, " << setw(5) << "GOPS" << endl;
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
@@ -369,8 +340,8 @@ void performance_test() {
                  k];
             if (expected != actual) {
               cout << "Im2Col fused results differ at (" << n << ", " << h
-                   << ", " << w << ", " << k << ")."
-                   << " expected:" << expected << " actual:" << actual << endl;
+                   << ", " << w << ", " << k << ")." << " expected:" << expected
+                   << " actual:" << actual << endl;
             }
           }
         }
@@ -527,8 +498,8 @@ void performance_test() {
                  k];
             if (expected != actual) {
               cout << "direct conv results differ at (" << n << ", " << h
-                   << ", " << w << ", " << k << ")."
-                   << " expected:" << expected << " actual:" << actual << endl;
+                   << ", " << w << ", " << k << ")." << " expected:" << expected
+                   << " actual:" << actual << endl;
             }
           }
         }

@@ -22,6 +22,10 @@
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_pytorch.bash"
 # shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_triton.bash"
+# shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_torchrec.bash"
+# shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/fbgemm_build.bash"
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_build.bash"

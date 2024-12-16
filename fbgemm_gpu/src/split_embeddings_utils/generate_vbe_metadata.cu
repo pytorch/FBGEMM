@@ -6,10 +6,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/fbgemm_cuda_utils.cuh" // @manual
-#include "fbgemm_gpu/ops_utils.h" // @manual
-#include "fbgemm_gpu/sparse_ops_utils.h" // @manual
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
+#include "fbgemm_gpu/utils/cuda_prelude.cuh"
+#include "fbgemm_gpu/utils/fixed_divisor.cuh"
+#include "fbgemm_gpu/utils/ops_utils.h" // @manual
+#include "fbgemm_gpu/utils/tensor_accessor.h" // @manual
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -18,16 +20,16 @@ namespace {
 
 __global__
 __launch_bounds__(kMaxThreads) void generate_vbe_metadata_foreach_sample_kernel(
-    at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         row_output_offsets,
-    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         B_offsets,
-    const at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits>
         B_offsets_rank_per_feature,
-    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         output_offsets_feature_rank,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         D_offsets,
     const int32_t D,
     const bool nobag,
@@ -136,20 +138,23 @@ generate_vbe_metadata(
       at::empty({total_B}, output_offsets_feature_rank.options());
   Tensor b_t_map = at::empty({total_B}, B_offsets.options());
 
+#ifdef FBGEMM_GPU_MEMCHECK
+  const auto func_name = "generate_vbe_metadata_foreach_sample_kernel";
+#endif
+
   // Over allocate total number of threads to avoid using binary search
   generate_vbe_metadata_foreach_sample_kernel<<<
       div_round_up(max_B_feature_rank * T * num_ranks, kMaxThreads),
       kMaxThreads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      row_output_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      b_t_map.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      B_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-      B_offsets_rank_per_feature
-          .packed_accessor32<int32_t, 2, at::RestrictPtrTraits>(),
-      output_offsets_feature_rank
-          .packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
-      D_offsets.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      MAKE_PTA_WITH_NAME(func_name, row_output_offsets, int64_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, b_t_map, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, B_offsets, int32_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, B_offsets_rank_per_feature, int32_t, 2, 32),
+      MAKE_PTA_WITH_NAME(
+          func_name, output_offsets_feature_rank, int64_t, 1, 32),
+      MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
       D,
       nobag,
       FixedDivisor(max_B_feature_rank),

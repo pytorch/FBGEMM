@@ -56,17 +56,14 @@ setup_miniconda () {
   print_exec "${miniconda_prefix}/bin/conda" init bash
   print_exec . ~/.bashrc
 
-  echo "[SETUP] Updating Miniconda base packages ..."
-  (exec_with_retries 3 conda update -n base -c defaults --update-deps -y conda) || return 1
-
   # https://medium.com/data-tyro/resolving-the-conda-libmamba-issue-and-environment-activation-trouble-9f911a6106a4
   # https://www.reddit.com/r/learnpython/comments/160kjz9/how_do_i_get_anaconda_to_work_the_way_i_want_it_to/
-  echo "[SETUP] Installing libmamba-solver (required since Anaconda 2024.02-1) ..."
-  (exec_with_retries 3 conda install -n base conda-libmamba-solver --solver classic) || return 1
-
   # https://stackoverflow.com/questions/77617946/solve-conda-libmamba-solver-libarchive-so-19-error-after-updating-conda-to-23
-  echo "[SETUP] Installing libarchive ..."
-  (exec_with_retries 3 conda install -n base -c main libarchive --force-reinstall) || return 1
+  echo "[SETUP] Installing libmamba-solver (required since Anaconda 2024.02-1) and libarchive ..."
+  conda install --solver=classic -c conda-forge -y conda-libmamba-solver libmamba libmambapy libarchive
+
+  echo "[SETUP] Updating Miniconda base packages ..."
+  (exec_with_retries 3 conda update -n base -c defaults --update-deps -y conda) || return 1
 
   # Clean up packages
   conda_cleanup

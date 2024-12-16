@@ -9,12 +9,13 @@
 #include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <fbgemm_gpu/sparse_ops.h>
-#include <fbgemm_gpu/sparse_ops_utils.h>
 #include <torch/library.h>
 #include "fbgemm/QuantUtils.h"
-#include "fbgemm_gpu/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/quantize_ops_utils.h"
+#include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -43,7 +44,7 @@ Tensor& _float_to_fused8bitrowwise_cpu_out_t(
 
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
-  at::native::resize_(output, output_dims, c10::nullopt);
+  at::native::resize_(output, output_dims, std::nullopt);
 
   const auto input_data = static_cast<input_t*>(
       input.data_ptr()); // input.data_ptr<input_t>(); -> Yields
@@ -72,7 +73,7 @@ Tensor& _fused8bitrowwise_to_float_cpu_out_t(
 
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
-  at::native::resize_(output, output_dims, c10::nullopt);
+  at::native::resize_(output, output_dims, std::nullopt);
 
   auto output_data = static_cast<output_t*>(
       output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
@@ -122,7 +123,8 @@ Tensor _fusednbitrowwise_to_float_cpu(
 
   const auto input_sizes = input.sizes();
   const int64_t nrows = input_sizes[0];
-  const int32_t ncols = input_sizes[1];
+  // Here we want the number of bytes in a row
+  const int32_t ncols = nbit_elems_to_bytes(input);
   const int32_t num_elem_per_byte = 8 / bit_rate;
   const int32_t output_columns =
       (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
@@ -144,6 +146,40 @@ Tensor _fusednbitrowwise_to_float_cpu(
 
   fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf<output_t>(
       bit_rate, input.data_ptr<uint8_t>(), nrows, ncols, output_data);
+
+  return output;
+}
+
+Tensor _fusednbitrowwise_sbfront_to_float_cpu(
+    const Tensor& input,
+    const int64_t bit_rate) {
+  TENSOR_ON_CPU(input);
+  TENSOR_NDIM_EQUALS(input, 2);
+
+  const auto input_sizes = input.sizes();
+  const int64_t nrows = input_sizes[0];
+  // Here we want the number of bytes in a row
+  const int32_t ncols = nbit_elems_to_bytes(input);
+  const int32_t num_elem_per_byte = 8 / bit_rate;
+  const int32_t output_columns =
+      (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
+
+  Tensor output;
+  output = at::empty(
+      {nrows, output_columns}, // 4 = sizeof(float)
+      input.options().dtype(at::kFloat));
+
+  float* output_data = static_cast<float*>(
+      output.data_ptr()); // output.data_ptr<output_t>(); -> Yields
+                          // unresolved data_ptr symbol.
+
+  fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef<float>(
+      bit_rate,
+      input.data_ptr<uint8_t>(),
+      nrows,
+      ncols,
+      output_data,
+      /*scale_bias_last=*/false);
 
   return output;
 }
@@ -271,6 +307,24 @@ Tensor fusednbitrowwise_to_float_cpu(
     const Tensor& input,
     const int64_t bit_rate) {
   return _fusednbitrowwise_to_float_cpu<float>(input, bit_rate);
+}
+
+/// @ingroup quantize-data-cpu
+/// @brief Dequantize int4/int2 rows with scale and bias stored in the front
+/// into float32.
+/// @param input Tensor of int4/int2 rows with scale and bias stored in the
+/// front.
+/// @param bit_rate Bit rate of each element. Should be 4 or 2.
+/// @return Tensor of float32, holding dequantized numbers.
+///
+/// Dequantize int4/int2 rows with scale and bias stored in the front into
+/// float32. The input tensor should have torch.quint4x2 or torch.quint2x4 dtype
+/// and QuantizedCPU backend. This operator is only recommended for testing
+/// purpose because its kernel is reference implementation and not optimized.
+Tensor fusednbitrowwise_sbfront_to_float_cpu(
+    const Tensor& input,
+    const int64_t bit_rate) {
+  return _fusednbitrowwise_sbfront_to_float_cpu(input, bit_rate);
 }
 
 /// @ingroup quantize-data-cpu
@@ -428,6 +482,14 @@ at::Tensor _hfp8_to_float_cpu(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+#ifdef HAS_IMPL_ABSTRACT_PYSTUB
+  m.impl_abstract_pystub(
+      "fbgemm_gpu.sparse_ops",
+      "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
+#endif
+
+  m.set_python_module("fbgemm_gpu.sparse_ops");
+
   m.def("FloatToFused8BitRowwiseQuantized(Tensor t) -> Tensor");
   m.def(
       "FloatToFP8RowwiseQuantized(Tensor t, bool forward) -> Tensor",
@@ -458,6 +520,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloat(Tensor input, int bit_rate) -> Tensor");
   m.def(
+      "FusedNBitRowwiseQuantizedSBHalfFrontToFloat(Tensor input, int bit_rate) -> Tensor");
+  m.def(
       "FusedNBitRowwiseQuantizedSBHalfToHalf(Tensor input, int bit_rate) -> Tensor");
   m.def(
       "FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(Tensor input, int bit_rate, int output_dtype=0) -> Tensor");
@@ -471,6 +535,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "MSFPQuantizedToFloat(Tensor input, int ebits, int mbits, int bias) -> Tensor");
   m.def(
       "PaddedFP8RowwiseQuantizedToFloat(Tensor input, bool forward, int row_dim, int output_last_dim=-1, int output_dtype=0) -> Tensor");
+  m.def(
+      "quantize_mx_cuda(Tensor input, int scale_bits, int elem_ebits, int elem_mbits, float elem_max_norm, int mx_group_size, bool flush_fp32_subnorms=False, int rounding_mode=0) -> Tensor");
+  m.def("dequantize_mx_cuda(Tensor input, int mx_group_size) -> Tensor");
+}
+
+TORCH_LIBRARY_IMPL(fbgemm, QuantizedCPU, m) {
+  DISPATCH_TO_QUANTIZED_CPU(
+      "FusedNBitRowwiseQuantizedSBHalfFrontToFloat",
+      fbgemm_gpu::fusednbitrowwise_sbfront_to_float_cpu);
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {

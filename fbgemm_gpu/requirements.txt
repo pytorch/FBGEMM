@@ -10,12 +10,16 @@
 #   * https://github.com/nod-ai/SHARK/issues/2095
 #   * https://github.com/jianyicheng/mase-docker/pull/9
 
+backports.tarfile
+build
 cmake
 hypothesis
 jinja2
 mpmath==1.3.0
 ninja
-numpy
+numpy>=2.0.2
+pyre-extensions
 scikit-build
+setuptools
 setuptools_git_versioning
 tabulate

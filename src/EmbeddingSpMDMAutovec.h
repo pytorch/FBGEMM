@@ -10,60 +10,85 @@
 
 #ifdef __linux__
 
-#include <algorithm>
 #include <cstdint>
 
-#include "fbgemm/ConvUtils.h"
-#include "fbgemm/FbgemmI8Spmdm.h"
-#include "fbgemm/Types.h"
+#include "fbgemm/FbgemmEmbedding.h"
 
-#ifdef _WIN32
-#define do_prefetch(...)
-#else
-#define do_prefetch(...) __builtin_prefetch(__VA_ARGS__)
-#endif
+#define FBGEMM_AUTOVEC_AVAILABLE
 
 namespace fbgemm {
 
 template <
-    typename IndexType = std::int64_t,
-    typename OffsetType = std::int32_t,
-    typename OutType = float>
-FBGEMM_API bool EmbeddingSpMDMNBit_autovec(
-    const int bit_rate,
-    const std::int64_t block_size,
-    const std::int64_t output_size,
-    const std::int64_t index_size,
-    const std::int64_t data_size,
-    const std::uint8_t* input,
-    const IndexType* indices,
-    const OffsetType* offsets_or_lengths,
-    const float* weights, // optional, can be null for non-weighted sum
-    const bool normalize_by_lengths,
-    OutType* out,
-    const bool is_weight_positional = false,
-    const bool use_offsets = true,
-    std::int64_t output_stride = -1,
-    std::int64_t input_stride = -1,
-    const bool scale_bias_last = true,
-    const bool is_bf16_out = false);
+    typename InType,
+    typename IndexType,
+    typename OffsetType,
+    typename OutType>
+typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
+    Type
+    GenerateEmbeddingSpMDMWithStrides_autovec(
+        int64_t block_size,
+        bool has_weight,
+        bool normalize_by_lengths,
+        int prefetch,
+        bool is_weight_positional,
+        bool use_offsets,
+        int64_t output_stride,
+        int64_t input_stride,
+        bool scale_bias_last,
+        bool no_bag,
+        bool is_bf16_out,
+        bool is_bf16_in);
 
-} // namespace fbgemm
+template <typename IndexType, typename OffsetType, typename OutType>
+typename EmbeddingSpMDMKernelSignature<
+    uint8_t,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMNBitWithStrides_autovec(
+    int input_bit_rate,
+    int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    bool scale_bias_last,
+    bool is_bf16_out,
+    bool no_bag,
+    int output_bit_rate);
 
-#else // #ifdef __linux__
+template <typename IndexType, typename OffsetType, typename OutType>
+typename EmbeddingSpMDMKernelSignature<
+    uint8_t,
+    IndexType,
+    OffsetType,
+    OutType>::Type
+GenerateEmbeddingSpMDMFP8WithStrides_autovec(
+    int64_t block_size,
+    bool normalize_by_lengths,
+    bool is_weight_positional,
+    bool use_offsets,
+    int64_t output_stride,
+    int64_t input_stride,
+    int exponent_bits,
+    int exponent_bias,
+    bool is_bf16_out);
 
-#include "RefImplementations.h"
-
-#define ALIAS_TEMPLATE_FUNCTION(highLevelF, lowLevelF)     \
-  template <typename... Args>                              \
-  inline auto highLevelF(Args&&... args)                   \
-      ->decltype(lowLevelF(std::forward<Args>(args)...)) { \
-    return lowLevelF(std::forward<Args>(args)...);         \
-  }
-
-namespace fbgemm {
-
-ALIAS_TEMPLATE_FUNCTION(EmbeddingSpMDMNBit_autovec, EmbeddingSpMDMNBit_ref)
+template <typename InType, typename IndexType, typename OffsetType>
+typename EmbeddingSpMDMRowWiseSparseKernelSignature<
+    InType,
+    IndexType,
+    OffsetType>::Type
+GenerateEmbeddingSpMDMRowWiseSparse_autovec(
+    int64_t block_size,
+    bool has_weight,
+    bool normalize_by_lengths,
+    int prefetch,
+    bool is_weight_positional,
+    bool use_offsets);
 
 } // namespace fbgemm
 

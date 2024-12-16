@@ -32,6 +32,11 @@ on:
   #
   workflow_dispatch:
     inputs:
+      pytorch_channel_version:
+        description: Package Channel + Version to Use for PyTorch Installation, in `<channel>[/<version>]` Format
+        type: string
+        required: false
+        default: ""
       publish_to_pypi:
         description: Publish Artifact to PyPI
         type: boolean
@@ -46,6 +51,7 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
+    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: amazonlinux:2023
@@ -56,6 +62,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+      BUILD_VARIANT: cuda
     continue-on-error: true
     strategy:
       # Don't fast-fail all the other builds if one of the them fails
@@ -64,8 +71,8 @@ jobs:
         host-machine: [
           { arch: x86, instance: "linux.24xlarge" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
-        cuda-version: [ "11.8.0", "12.1.1" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        cuda-version: [ "11.8.0", "12.4.1" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -100,7 +107,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -120,11 +127,13 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
-        path: fbgemm_gpu/dist/fbgemm_gpu_nightly-*.whl
+        path: fbgemm_gpu/dist/*.whl
+        if-no-files-found: error
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
   test_and_publish_artifact:
+    if: ${{ github.repository_owner == 'pytorch' }}
     # runs-on: linux.4xlarge.nvidia.gpu
     # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
     runs-on: ${{ matrix.host-machine.instance }}
@@ -134,6 +143,7 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+      BUILD_VARIANT: cuda
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -144,10 +154,10 @@ jobs:
           # https://hud.pytorch.org/metrics
           # { arch: x86, instance: "linux.gcp.a100" },
         ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
-        cuda-version: [ "11.8.0", "12.1.1" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        cuda-version: [ "11.8.0", "12.4.1" ]
         # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "12.1.1" ]
+        cuda-version-publish: [ "12.4.1" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
@@ -181,14 +191,15 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install C/C++ Compilers for Updated LIBGCC
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+      # Install clang libraries to enable building and install triton
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV clang
 
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV nightly cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -201,11 +212,11 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 20
-      run: . $PRELUDE; cd fbgemm_gpu/test; run_fbgemm_gpu_tests $BUILD_ENV cuda
+      timeout-minutes: 40
+      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Push Wheel to PyPI
       if: ${{ (github.event_name == 'schedule' && matrix.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == matrix.cuda-version-publish) }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV fbgemm_gpu_nightly-*.whl "$PYPI_TOKEN"
+      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl

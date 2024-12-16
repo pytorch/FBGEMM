@@ -11,12 +11,12 @@
 
 import random
 import unittest
+from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.split_embedding_utils import generate_requests, round_up
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
     EmbeddingLocation,
@@ -24,6 +24,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.utils import generate_requests, round_up
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
@@ -38,8 +39,22 @@ else:
 
 VERBOSITY: Verbosity = Verbosity.verbose
 
+# pyre-ignore
+additional_decorators: Dict[str, List[Callable]] = {
+    "test_faketensor__test_nbit_forward_cpu_seq_int4": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+    "test_pt2_compliant_tag_fbgemm_int_nbit_split_embedding_codegen_lookup_function": {
+        unittest.skip(
+            "Operator outputs int4 tensors which do not support opcheck tests"
+        ),
+    },
+}
 
-@optests.generate_opcheck_tests(fast=True)
+
+@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class NBitSplitEmbeddingsTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -176,12 +191,14 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             ]
         ),
         emulate_pruning=st.booleans(),
+        indices_dtype=st.sampled_from([torch.int, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         self,
         weights_ty: SparseType,
         emulate_pruning: bool,
+        indices_dtype: torch.dtype,
     ) -> None:
         # TODO: support direct-mapped in int_nbit_split_embedding_uvm_caching_codegen_lookup_function
         # This test is for int_nbit_split_embedding_uvm_caching_codegen_lookup_function.
@@ -218,6 +235,7 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         cc_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed_caching)],
             cache_algorithm=cache_algorithm,
+            indices_dtype=indices_dtype,
         )
         cc_ref.fill_random_weights()
 
@@ -226,6 +244,7 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed_caching)],
             cache_algorithm=cache_algorithm,
+            indices_dtype=indices_dtype,
         )
         cc.fill_random_weights()
 
@@ -245,8 +264,8 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         )
         for req in requests:
             indices, offsets = req.unpack_2()
-            indices = indices.int()
-            offsets = offsets.int()
+            indices = indices.to(dtype=indices_dtype)
+            offsets = offsets.to(dtype=indices_dtype)
             output_ref = cc_ref(indices, offsets)
 
             # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM_CACHING.
@@ -289,9 +308,13 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
             # cache status; we use the exact same logic, but still assigning ways in a associative cache can be
             # arbitrary. We compare sum along ways in each set, instead of expecting exact tensor match.
             cache_weights_ref = torch.reshape(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 cc_ref.lxu_cache_weights,
                 [-1, associativity],
             )
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Tensor, Module]`.
             cache_weights = torch.reshape(cc.lxu_cache_weights, [-1, associativity])
             torch.testing.assert_close(
                 torch.sum(cache_weights_ref, 1),
@@ -299,16 +322,26 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 equal_nan=True,
             )
             torch.testing.assert_close(
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 torch.sum(cc.lxu_cache_state, 1),
+                # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+                #  `Union[Tensor, Module]`.
                 torch.sum(cc_ref.lxu_cache_state, 1),
                 equal_nan=True,
             )
             # lxu_state can be different as time_stamp values can be different.
             # we check the entries with max value.
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Tensor, Module]`.
             max_timestamp_ref = torch.max(cc_ref.lxu_state)
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got
+            #  `Union[Tensor, Module]`.
             max_timestamp_uvm_caching = torch.max(cc.lxu_state)
             x = cc_ref.lxu_state == max_timestamp_ref
             y = cc.lxu_state == max_timestamp_uvm_caching
+            # pyre-fixme[6]: For 1st argument expected `Tensor` but got `Union[bool,
+            #  Tensor]`.
             torch.testing.assert_close(torch.sum(x, 1), torch.sum(y, 1))
 
             # int_nbit_split_embedding_uvm_caching_codegen_lookup_function for UVM.
@@ -346,6 +379,64 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 lxu_state=None,
             )
             torch.testing.assert_close(output_uvm, output_ref, equal_nan=True)
+
+    @given(
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+                SparseType.FP16,
+                SparseType.INT8,
+                SparseType.INT4,
+                SparseType.INT2,
+            ]
+        ),
+    )
+    @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    def test_int_nbit_split_embedding_cpu_mixed_indices_offsets_dtypes(
+        self,
+        weights_ty: SparseType,
+    ) -> None:
+        T = random.randint(1, 5)
+        B = random.randint(1, 128)
+        L = random.randint(1, 20)
+        D = random.randint(2, 256)
+        log_E = random.randint(3, 5)
+
+        iters = 4
+        E = int(10**log_E)
+
+        D_alignment = (
+            1 if weights_ty.bit_rate() % 8 == 0 else int(8 / weights_ty.bit_rate())
+        )
+        D = round_up(D, D_alignment)
+
+        Ds = [D] * T
+        Es = [E] * T
+        cpu_locations = [EmbeddingLocation.HOST] * T
+
+        requests = generate_requests(
+            iters, B, T, L, min(Es), reuse=0.1, emulate_pruning=False, use_cpu=True
+        )
+        dtypes_combo = [
+            (torch.int64, torch.int64),
+            (torch.int32, torch.int32),
+            (torch.int32, torch.int64),
+            (torch.int64, torch.int32),
+        ]
+        for i, req in enumerate(requests):
+            indices, offsets = req.unpack_2()
+            indices_dtype, offsets_dtype = dtypes_combo[i]
+
+            cc = IntNBitTableBatchedEmbeddingBagsCodegen(
+                [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, cpu_locations)],
+                device=torch.device("cpu"),
+                indices_dtype=indices_dtype,
+            )
+            cc.fill_random_weights()
+
+            indices = indices.to(indices_dtype)
+            offsets = offsets.to(offsets_dtype)
+            _ = cc(indices, offsets)
 
 
 if __name__ == "__main__":

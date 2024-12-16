@@ -24,6 +24,7 @@ namespace fbgemm {
 using partition_array_t = std::array<std::array<std::array<int, 2>, 2>, 121>;
 extern partition_array_t partition_avx2;
 extern partition_array_t partition_avx512;
+extern partition_array_t partition_sve128;
 
 template <typename T>
 struct GemmParams {
@@ -118,7 +119,7 @@ void cblas_gemm_compute(
       ? simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS
       : simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
 #else
-      simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS;
+      simd_info<inst_set_t::sve>::WIDTH_32BIT_ELEMS;
   (void)kernel_ncol_blocks;
   (void)kernels;
 #endif
@@ -182,7 +183,11 @@ void cblas_gemm_compute(
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-              ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
+              if constexpr (std::is_same<T, float16>::value) {
+                kernels[kernel_nrows](&gp);
+              } else {
+                ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
+              }
 #else
               kernels[kernel_nrows](&gp);
 #endif
@@ -198,7 +203,11 @@ void cblas_gemm_compute(
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-                ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
+                if constexpr (std::is_same<T, float16>::value) {
+                  kernels[kernel_nrows](&gp);
+                } else {
+                  ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
+                }
 #else
                 kernels[kernel_nrows](&gp);
 #endif
@@ -225,8 +234,12 @@ void cblas_gemm_compute(
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_USE_REF_KERNEL
-              ref_kernel<T>(
-                  kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
+              if constexpr (std::is_same<T, float16>::value) {
+                kernels[kernel_nrows](&gp);
+              } else {
+                ref_kernel<T>(
+                    kernel_nrows, &gp, c_tmp.data(), 14, 32, simd_width);
+              }
 #else
               kernels[kernel_nrows](&gp);
 #endif

@@ -1,0 +1,40 @@
+{
+  "_description":"This is a dict containing schema of FBGEMM_GPU ops that are marked as stable. The schema of future releases need to be backward and forward compatible. For more details, please see https://docs.google.com/document/d/18I0lSkyHHqJ5BY30bx8YhpQHAMOg25nAFV2zeO8PIGk/edit#heading=h.y00l3f1ht5u1",
+  "_majorversion":1,
+  "releases":[
+    {
+      "version":"1.0.0",
+      "api":{
+        "torch.ops.fbgemm.jagged_to_padded_dense":"fbgemm::jagged_to_padded_dense(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor",
+        "torch.ops.fbgemm.merge_pooled_embeddings":"fbgemm::merge_pooled_embeddings(Tensor[] pooled_embeddings, SymInt uncat_dim_size, Device target_device, SymInt cat_dim=1) -> Tensor",
+        "torch.ops.fbgemm.permute_pooled_embs_auto_grad":"fbgemm::permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor",
+        "torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf":"fbgemm::FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor",
+        "torch.ops.fbgemm.permute_2D_sparse_data":"fbgemm::permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+        "torch.ops.fbgemm.permute_1D_sparse_data":"fbgemm::permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+        "torch.ops.fbgemm.expand_into_jagged_permute":"fbgemm::expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, SymInt output_size) -> Tensor",
+        "torch.ops.fbgemm.block_bucketize_sparse_features":"fbgemm::block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool keep_orig_idx=False) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)",
+        "torch.ops.fbgemm.asynchronous_complete_cumsum":"fbgemm::asynchronous_complete_cumsum(Tensor t_in) -> Tensor",
+        "torch.ops.fbgemm.offsets_range":"fbgemm::offsets_range(Tensor offsets, SymInt range_size) -> Tensor",
+        "torch.ops.fbgemm.segment_sum_csr":"fbgemm::segment_sum_csr(SymInt batch_size, Tensor csr_seg, Tensor values) -> Tensor",
+        "torch.ops.fbgemm.keyed_jagged_index_select_dim1":"fbgemm::keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, SymInt batch_size, Tensor? weights=None, SymInt? selected_lengths_sum=None) -> Tensor[]"
+      }
+    },
+    {
+      "version":"1.1.0",
+      "api":{
+        "torch.ops.fbgemm.jagged_to_padded_dense":"fbgemm::jagged_to_padded_dense(Tensor values, Tensor[] offsets, SymInt[] max_lengths, float padding_value = 0) -> Tensor",
+        "torch.ops.fbgemm.merge_pooled_embeddings":"fbgemm::merge_pooled_embeddings(Tensor[] pooled_embeddings, SymInt uncat_dim_size, Device target_device, SymInt cat_dim=1) -> Tensor",
+        "torch.ops.fbgemm.permute_pooled_embs_auto_grad":"fbgemm::permute_pooled_embs_auto_grad(Tensor pooled_embs, Tensor offset_dim_list, Tensor permute_list, Tensor inv_offset_dim_list, Tensor inv_permute_list) -> Tensor",
+        "torch.ops.fbgemm.FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf":"fbgemm::FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf(Tensor input, int bit_rate) -> Tensor",
+        "torch.ops.fbgemm.permute_2D_sparse_data":"fbgemm::permute_2D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+        "torch.ops.fbgemm.permute_1D_sparse_data":"fbgemm::permute_1D_sparse_data(Tensor permute, Tensor lengths, Tensor values, Tensor? weights=None, SymInt? permuted_lengths_sum=None) -> (Tensor, Tensor, Tensor?)",
+        "torch.ops.fbgemm.expand_into_jagged_permute":"fbgemm::expand_into_jagged_permute(Tensor permute, Tensor input_offset, Tensor output_offset, SymInt output_size) -> Tensor",
+        "torch.ops.fbgemm.block_bucketize_sparse_features":"fbgemm::block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool keep_orig_idx=False, Tensor? total_num_blocks=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)",
+        "torch.ops.fbgemm.asynchronous_complete_cumsum":"fbgemm::asynchronous_complete_cumsum(Tensor t_in) -> Tensor",
+        "torch.ops.fbgemm.offsets_range":"fbgemm::offsets_range(Tensor offsets, SymInt range_size) -> Tensor",
+        "torch.ops.fbgemm.segment_sum_csr":"fbgemm::segment_sum_csr(SymInt batch_size, Tensor csr_seg, Tensor values) -> Tensor",
+        "torch.ops.fbgemm.keyed_jagged_index_select_dim1":"fbgemm::keyed_jagged_index_select_dim1(Tensor values, Tensor lengths, Tensor offsets, Tensor indices, SymInt batch_size, Tensor? weights=None, SymInt? selected_lengths_sum=None) -> Tensor[]"
+      }
+    }
+  ]
+}

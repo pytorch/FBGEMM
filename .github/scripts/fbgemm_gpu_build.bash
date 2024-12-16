@@ -47,6 +47,8 @@ prepare_fbgemm_gpu_build () {
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda run --no-capture-output ${env_prefix} python -m pip install -r requirements.txt) || return 1
 
+  (install_triton_pip "${env_name}") || return 1
+
   # shellcheck disable=SC2086
   (test_python_import_package "${env_name}" numpy) || return 1
   # shellcheck disable=SC2086
@@ -64,7 +66,7 @@ __configure_fbgemm_gpu_build_clang () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2206
   build_args+=(
-    --cxxprefix ${conda_prefix}
+    --cxxprefix=${conda_prefix}
   )
 }
 
@@ -72,6 +74,7 @@ __configure_fbgemm_gpu_build_nvcc () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
+  echo "[BUILD] Looking up CUDA version ..."
   # shellcheck disable=SC2155,SC2086
   local cxx_path=$(conda run ${env_prefix} which c++)
   # shellcheck disable=SC2155,SC2086
@@ -104,11 +107,11 @@ __configure_fbgemm_gpu_build_nvcc () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags}\"
 
+  echo "[BUILD] Setting CUDA build args ..."
   # shellcheck disable=SC2206
   build_args+=(
     # Override CMake configuration
     -DCMAKE_CXX_STANDARD="${cppstd_ver}"
-    -DHIP_STANDARD="${cppstd_ver}"
   )
 }
 
@@ -152,15 +155,15 @@ __configure_fbgemm_gpu_build_rocm () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} PYTORCH_ROCM_ARCH="${arch_list}"
 
+  echo "[BUILD] Setting HIPCC verbose mode ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} HIPCC_VERBOSE=1
+
   echo "[BUILD] Setting ROCm build args ..."
   build_args=(
     --package_variant=rocm
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
     -DHIP_ROOT_DIR=/opt/rocm
-    # Enable device-side assertions in HIP
-    # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
-    -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA"
-    -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
   )
 }
 
@@ -184,30 +187,51 @@ __configure_fbgemm_gpu_build_cuda () {
     local arch_list="${TORCH_CUDA_ARCH_LIST}"
 
   else
-    echo "[BUILD] Using the default CUDA targets ..."
-    # For cuda version 12.1, enable sm 9.0
+    # To keep binary sizes to minimum, build only against the CUDA architectures
+    # that the latest PyTorch supports:
+    #   7.0 (V100), 8.0 (A100), and 9.0,9.0a (H100)
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
-    echo "$cuda_version_nvcc"
-    if [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="7.0;8.0;9.0"
+    echo "[BUILD] Using the default architectures for CUDA $cuda_version_nvcc ..."
+
+    if  [[ $cuda_version_nvcc == *"V12.1"* ]] ||
+        [[ $cuda_version_nvcc == *"V12.4"* ]] ||
+        [[ $cuda_version_nvcc == *"V12.6"* ]]; then
+      # sm_90 and sm_90a are only available for CUDA 12.1+
+      # NOTE: CUTLASS kernels for Hopper require sm_90a to be enabled
+      # See:
+      #   https://github.com/NVIDIA/nvbench/discussions/129
+      #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
+      #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
+      local arch_list="7.0;8.0;9.0;9.0a"
     else
       local arch_list="7.0;8.0"
     fi
   fi
+  echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
 
   # Unset the environment-supplied TORCH_CUDA_ARCH_LIST because it will take
   # precedence over cmake -DTORCH_CUDA_ARCH_LIST
   unset TORCH_CUDA_ARCH_LIST
 
-  echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
-
-  # Build only CUDA 7.0 and 8.0 (i.e. V100 and A100) because of 100 MB binary size limits from PyPI.
-  echo "[BUILD] Setting CUDA build args ..."
+  echo "[BUILD] Looking up NVML filepath ..."
   # shellcheck disable=SC2155,SC2086
   local nvml_lib_path=$(conda run --no-capture-output ${env_prefix} printenv NVML_LIB_PATH)
+
+  echo "[BUILD] Looking up NCCL filepath ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  # shellcheck disable=SC2155,SC2086
+  local nccl_lib_path=$(conda run ${env_prefix} find ${conda_prefix} -name "libnccl.so*")
+
+  echo "[BUILD] Setting NVCC verbose mode ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} NVCC_VERBOSE=1
+
+  echo "[BUILD] Setting CUDA build args ..."
   build_args=(
     --package_variant=cuda
     --nvml_lib_path="${nvml_lib_path}"
+    --nccl_lib_path="${nccl_lib_path}"
     # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
@@ -216,26 +240,25 @@ __configure_fbgemm_gpu_build_cuda () {
   __configure_fbgemm_gpu_build_nvcc
 }
 
+__configure_fbgemm_gpu_build_genai () {
+  local fbgemm_variant_targets="$1"
+
+  __configure_fbgemm_gpu_build_cuda "$fbgemm_variant_targets" || return 1
+
+  # Replace the package_variant flag, since GenAI is also a CUDA-type build
+  for i in "${!build_args[@]}"; do
+    build_args[i]="${build_args[i]/--package_variant=cuda/--package_variant=genai}"
+  done
+}
+
+# shellcheck disable=SC2120
 __configure_fbgemm_gpu_build () {
-  local fbgemm_variant="$1"
-  local fbgemm_variant_targets="$2"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} cpu                          # CPU-only variant using Clang"
-    echo "    ${FUNCNAME[0]} cuda                         # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} cuda '7.0;8.0'               # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} rocm                         # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
-    return 1
-  else
-    echo "################################################################################"
-    echo "# Configure FBGEMM-GPU Build"
-    echo "#"
-    echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
-    echo "################################################################################"
-    echo ""
-  fi
+  echo "################################################################################"
+  echo "# Configure FBGEMM-GPU Build"
+  echo "#"
+  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
+  echo "################################################################################"
+  echo ""
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
@@ -248,6 +271,10 @@ __configure_fbgemm_gpu_build () {
     echo "[BUILD] Configuring build as ROCm variant ..."
     __configure_fbgemm_gpu_build_rocm "${fbgemm_variant_targets}"
 
+  elif [ "$fbgemm_variant" == "genai" ]; then
+    echo "[BUILD] Configuring build as GenAI variant ..."
+    __configure_fbgemm_gpu_build_genai "${fbgemm_variant_targets}"
+
   else
     echo "[BUILD] Configuring build as CUDA variant (this is the default behavior) ..."
     __configure_fbgemm_gpu_build_cuda "${fbgemm_variant_targets}"
@@ -256,6 +283,18 @@ __configure_fbgemm_gpu_build () {
   # Set other compiler flags as needed
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     __configure_fbgemm_gpu_build_clang
+  fi
+
+  # Set verbosity
+  build_args+=(
+    --verbose
+  )
+
+  # Set debugging options
+  if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
+    build_args+=(
+      --debug
+    )
   fi
 
   # shellcheck disable=SC2145
@@ -269,7 +308,7 @@ __build_fbgemm_gpu_set_python_tag () {
   # shellcheck disable=SC2206
   local python_version_arr=(${python_version[1]//./ })
 
-  # Set the python tag (e.g. Python 3.12 -> py312)
+  # Set the python tag (e.g. Python 3.13 --> py313)
   export python_tag="py${python_version_arr[0]}${python_version_arr[1]}"
   echo "[BUILD] Extracted and set Python tag: ${python_tag}"
 }
@@ -307,7 +346,7 @@ __build_fbgemm_gpu_set_run_multicore () {
   export run_multicore=""
   if [[ $core =~ $re && $sockets =~ $re ]] ; then
     local n_core=$((core * sockets))
-    export run_multicore=" -j ${n_core}"
+    export run_multicore="-j ${n_core}"
   fi
 
   echo "[BUILD] Set multicore run option for setup.py: ${run_multicore}"
@@ -323,7 +362,13 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" g++) || return 1
 
   # Set the default the FBGEMM_GPU variant to be CUDA
-  if [ "$fbgemm_variant" != "cpu" ] && [ "$fbgemm_variant" != "rocm" ]; then
+  if [ "$fbgemm_variant" != "cpu" ] &&
+     [ "$fbgemm_variant" != "rocm" ] &&
+     [ "$fbgemm_variant" != "genai" ]; then
+    echo "################################################################################"
+    echo "[BUILD] Unknown FBGEMM_GPU variant: $fbgemm_variant"
+    echo "[BUILD] Defaulting to CUDA"
+    echo "################################################################################"
     export fbgemm_variant="cuda"
   fi
 
@@ -337,8 +382,12 @@ __build_fbgemm_gpu_common_pre_steps () {
   # permit for this
   __build_fbgemm_gpu_set_run_multicore
 
+  # Check LD_LIBRARY_PATH for numpy
+  echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
+
   echo "[BUILD] Running pre-build cleanups ..."
   print_exec rm -rf dist
+
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} python setup.py clean
 
@@ -347,66 +396,127 @@ __build_fbgemm_gpu_common_pre_steps () {
   print_exec git diff
 }
 
+__print_library_infos () {
+  # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
+  local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
+  readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
+
+  for library in "${fbgemm_gpu_so_files[@]}"; do
+    echo "################################################################################"
+    echo "[CHECK] BUILT LIBRARY: ${library}"
+
+    echo "[CHECK] Listing out library size:"
+    print_exec "du -h --block-size=1M ${library}"
+
+    print_glibc_info "${library}"
+
+    # shellcheck disable=SC2155
+    local symbols_file=$(mktemp --suffix ".symbols.txt")
+    print_exec "nm -gDC ${library} > ${symbols_file}"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Total Number of symbols: $(wc -l ${symbols_file} | awk '{print $1}')"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Number of fbgemm symbols: $(grep -c fbgemm ${symbols_file})"
+
+    # shellcheck disable=SC2155
+    local usymbols_file=$(mktemp --suffix ".usymbols.txt")
+    print_exec "nm -gDCu ${library} > ${usymbols_file}"
+    # shellcheck disable=SC2086
+    echo "[CHECK] Listing out undefined symbols ($(wc -l ${usymbols_file} | awk '{print $1}') total):"
+    cat "${usymbols_file}" | sort
+
+    echo "[CHECK] Listing out external shared libraries linked:"
+    print_exec ldd "${library}"
+
+    echo "[CHECK] Displaying ELF information:"
+    print_exec readelf -d "${library}"
+    echo "################################################################################"
+    echo ""
+    echo ""
+  done
+}
+
+__verify_library_symbols () {
+  __test_one_symbol () {
+    local symbol="$1"
+    if [ "$symbol" == "" ]; then
+      echo "Usage: ${FUNCNAME[0]} SYMBOL"
+      echo "Example(s):"
+      echo "    ${FUNCNAME[0]} fbgemm_gpu::asynchronous_inclusive_cumsum_cpu"
+      return 1
+    fi
+
+    # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
+    local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
+    readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
+
+    # Iterate through the built .SO files to check for the symbol's existence
+    for library in "${fbgemm_gpu_so_files[@]}"; do
+      if test_library_symbol "${library}" "${symbol}"; then
+        return 0
+      fi
+    done
+
+    return 1
+  }
+
+  # Prepare a sample set of symbols whose existence in the built library should be checked
+  # This is by no means an exhaustive set, and should be updated accordingly
+  if [ "${fbgemm_variant}" == "cpu" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+      fbgemm_gpu::jagged_2d_to_dense
+    )
+  elif [ "${fbgemm_variant}" == "cuda" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+      fbgemm_gpu::jagged_2d_to_dense
+      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
+      fbgemm_gpu::merge_pooled_embeddings
+    )
+  elif [ "${fbgemm_variant}" == "rocm" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+      fbgemm_gpu::jagged_2d_to_dense
+      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
+      fbgemm_gpu::merge_pooled_embeddings
+    )
+  elif [ "${fbgemm_variant}" == "genai" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::car_init
+      fbgemm_gpu::per_tensor_quantize_i8
+    )
+  fi
+
+  echo "[CHECK] Verifying sample subset of symbols in the built libraries ..."
+  for symbol in "${lib_symbols_to_check[@]}"; do
+    (__test_one_symbol "${symbol}") || return 1
+  done
+}
+
 run_fbgemm_gpu_postbuild_checks () {
-  local fbgemm_variant="$1"
+  fbgemm_variant="$1"
   if [ "$fbgemm_variant" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} cpu"
     echo "    ${FUNCNAME[0]} cuda"
     echo "    ${FUNCNAME[0]} rocm"
+    echo "    ${FUNCNAME[0]} genai"
     return 1
   fi
 
   # Find the .SO file
-  # shellcheck disable=SC2155
-  local fbgemm_gpu_so_files=$(find . -name fbgemm_gpu_py.so)
+  # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
+  local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
   readarray -t fbgemm_gpu_so_files <<<"$fbgemm_gpu_so_files"
   if [ "${#fbgemm_gpu_so_files[@]}" -le 0 ]; then
-    echo "[CHECK] .SO library fbgemm_gpu_py.so is missing from the build path!"
+    echo "[CHECK] .SO library is missing from the build path!"
     return 1
   fi
 
-  # Prepare a sample set of symbols whose existence in the built library should be checked
-  # This is by no means an exhaustive set, and should be updated accordingly
-  local lib_symbols_to_check=(
-    fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
-    fbgemm_gpu::jagged_2d_to_dense
-  )
-
-  # Add more symbols to check for if it's a non-CPU variant
-  if [ "${fbgemm_variant}" == "cuda" ]; then
-    lib_symbols_to_check+=(
-      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
-      fbgemm_gpu::merge_pooled_embeddings
-    )
-  elif [ "${fbgemm_variant}" == "rocm" ]; then
-    # merge_pooled_embeddings is missing in ROCm builds bc it requires NVML
-    lib_symbols_to_check+=(
-      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
-      fbgemm_gpu::merge_pooled_embeddings
-    )
-  fi
-
-  # Print info for only the first instance of the .SO file, since the build makes multiple copies
-  local library="${fbgemm_gpu_so_files[0]}"
-
-  echo "[CHECK] Listing out library size: ${library}"
-  print_exec "du -h --block-size=1M ${library}"
-
-  echo "[CHECK] Listing out the GLIBCXX versions referenced by the library: ${library}"
-  print_glibc_info "${library}"
-
-  echo "[CHECK] Listing out undefined symbols in the library: ${library}"
-  print_exec "nm -gDCu ${library} | sort"
-
-  echo "[CHECK] Listing out external shared libraries required by the library: ${library}"
-  print_exec ldd "${library}"
-
-  echo "[CHECK] Verifying sample subset of symbols in the library ..."
-  for symbol in "${lib_symbols_to_check[@]}"; do
-    (test_library_symbol "${library}" "${symbol}") || return 1
-  done
+  __print_library_infos     || return 1
+  __verify_library_symbols  || return 1
 }
 
 ################################################################################
@@ -434,7 +544,7 @@ build_fbgemm_gpu_package () {
 
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
-  __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
+  __configure_fbgemm_gpu_build        || return 1
 
   echo "################################################################################"
   echo "# Build FBGEMM-GPU Package (Wheel)"
@@ -443,27 +553,38 @@ build_fbgemm_gpu_package () {
   echo "################################################################################"
   echo ""
 
-  # Distribute Python extensions as wheels on Linux
+  # Set packaging options
+  build_args+=(
+    --package_channel="${fbgemm_release_channel}"
+    --python-tag="${python_tag}"
+    --plat-name="${python_plat_name}"
+  )
+
+  # Prepend build options correctly for `python -m build`
+  # https://build.pypa.io/en/stable/index.html
+  # https://gregoryszorc.com/blog/2023/10/30/my-user-experience-porting-off-setup.py/
+  for i in "${!build_args[@]}"; do
+    build_args[i]="--config-setting=--build-option=${build_args[i]}"
+  done
+
+  # Build the wheel.  Invoke using `python -m build`
+  #   https://blog.ganssle.io/articles/2021/10/setup-py-deprecated.html
   echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
-    python setup.py "${run_multicore}" bdist_wheel \
-      --package_channel="${fbgemm_release_channel}" \
-      --python-tag="${python_tag}" \
-      --plat-name="${python_plat_name}" \
-      --verbose \
-      "${build_args[@]}"
+    python -m build --wheel --no-isolation \
+      "${build_args[@]}" || return 1
 
   # Run checks on the built libraries
   (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
 
   echo "[BUILD] Enumerating the built wheels ..."
-  print_exec ls -lth dist/*.whl
+  print_exec ls -lth dist/*.whl || return 1
 
   echo "[BUILD] Enumerating the wheel SHAs ..."
-  print_exec sha1sum dist/*.whl
-  print_exec sha256sum dist/*.whl
-  print_exec md5sum dist/*.whl
+  print_exec sha1sum dist/*.whl || return 1
+  print_exec sha256sum dist/*.whl || return 1
+  print_exec md5sum dist/*.whl || return 1
 
   echo "[BUILD] FBGEMM-GPU build + package completed"
 }
@@ -488,7 +609,7 @@ build_fbgemm_gpu_install () {
 
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
-  __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
+  __configure_fbgemm_gpu_build        || return 1
 
   echo "################################################################################"
   echo "# Build + Install FBGEMM-GPU Package"
@@ -503,8 +624,7 @@ build_fbgemm_gpu_install () {
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py "${run_multicore}" install \
-      --verbose \
-      "${build_args[@]}"
+      "${build_args[@]}" || return 1
 
   # Run checks on the built libraries
   (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
@@ -518,48 +638,4 @@ build_fbgemm_gpu_install () {
   cd - || return 1
 
   echo "[BUILD] FBGEMM-GPU build + install completed"
-}
-
-build_fbgemm_gpu_develop () {
-  env_name="$1"
-  fbgemm_variant="$2"
-  fbgemm_variant_targets="$3"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME VARIANT [TARGETS]"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
-    return 1
-  fi
-
-  # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  # Set up and configure the build
-  __build_fbgemm_gpu_common_pre_steps || return 1
-  __configure_fbgemm_gpu_build "${fbgemm_variant}" "${fbgemm_variant_targets}" || return 1
-
-  echo "################################################################################"
-  echo "# Build + Install FBGEMM-GPU Package (Develop)"
-  echo "#"
-  echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
-  echo "################################################################################"
-  echo ""
-
-  # Parallelism may need to be limited to prevent the build from being
-  # canceled for going over ulimits
-  echo "[BUILD] Building (develop) FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
-  # shellcheck disable=SC2086
-  print_exec conda run --no-capture-output ${env_prefix} \
-    python setup.py "${run_multicore}" build develop \
-      --verbose \
-      "${build_args[@]}"
-
-  # Run checks on the built libraries
-  (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
-
-  echo "[BUILD] FBGEMM-GPU build + develop completed"
 }

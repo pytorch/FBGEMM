@@ -14,6 +14,38 @@ The general steps for installing FBGEMM_GPU are as follows:
 #. Run post-installation checks.
 
 
+FBGEMM Releases Compatibility Table
+-----------------------------------
+
+FBGEMM is released in accordance to the PyTorch release schedule, and is each
+release has no guarantee to work in conjunction with PyTorch releases that are
+older than the one that the FBGEMM release corresponds to.
+
++-----------------+------------------+------------------+----------------+---------------------------+
+| FBGEMM Release  | Corresponding    | Supported        | Supported      | (Experimental) Supported  |
+|                 | PyTorch Release  | Python Versions  | CUDA Versions  | ROCm Versions             |
++=================+==================+==================+================+===========================+
+| 1.0.0           | 2.5.x            | 3.9, 3.10, 3.11, | 11.8, 12.1,    | 6.0, 6.1                  |
+|                 |                  | 3.12             | 12.4           |                           |
++-----------------+------------------+------------------+----------------+---------------------------+
+| 0.8.0           | 2.4.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1,    | 6.0, 6.1                  |
+|                 |                  | 3.11, 3.12       | 12.4           |                           |
++-----------------+------------------+------------------+----------------+---------------------------+
+| 0.7.0           | 2.3.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 6.0                       |
+|                 |                  | 3.11, 3.12       |                |                           |
++-----------------+------------------+------------------+----------------+---------------------------+
+| 0.6.0           | 2.2.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 5.7                       |
+|                 |                  | 3.11, 3.12       |                |                           |
++-----------------+------------------+------------------+----------------+---------------------------+
+| 0.5.0           | 2.1.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 5.5, 5.6                  |
+|                 |                  | 3.11             |                |                           |
++-----------------+------------------+------------------+----------------+---------------------------+
+| 0.4.0           | 2.0.x            | 3.8, 3.9, 3.10   | 11.7, 11.8     | 5.3, 5.4                  |
++-----------------+------------------+------------------+----------------+---------------------------+
+
+For more information, please visit the `FBGEMM Releases Page <https://github.com/pytorch/FBGEMM/releases>`__.
+
+
 Set Up CPU-Only Environment
 ---------------------------
 
@@ -161,6 +193,32 @@ Install PyTorch
 
 Follow the instructions in :ref:`fbgemm-gpu.build.setup.pytorch.install`
 for installing PyTorch inside a Conda environment.
+
+
+Install Triton
+--------------
+
+This section is only applicable to working the experimental FBGEMM_GPU GenAI
+module.  Triton should already come packaged with the PyTOrch installation.
+This can be verified with:
+
+.. code:: sh
+
+  conda run -n ${env_name} python -c "import triton"
+
+If Triton is not available, it can be installed through PyTorch PIP:
+
+.. code:: sh
+
+  # Most recent version used can be found in the build scripts
+  TRITON_VERSION=3.0.0+45fff310c8
+
+  conda run -n ${env_name} pip install \
+    --pre pytorch-triton==${TRITON_VERSION} \
+    --index-url https://download.pytorch.org/whl/nightly/
+
+Information about PyTorch-Triton release can be found
+`here <https://github.com/pytorch/pytorch/blob/main/RELEASE.md>`__.
 
 
 Install the FBGEMM_GPU Package

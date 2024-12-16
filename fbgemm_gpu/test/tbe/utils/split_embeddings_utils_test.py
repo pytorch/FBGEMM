@@ -16,11 +16,16 @@ import unittest
 from itertools import accumulate
 from typing import List, Tuple
 
+import fbgemm_gpu  # noqa E402
+
 import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu import sparse_ops  # noqa: F401
-from fbgemm_gpu.split_table_batched_embeddings_ops_common import BoundsCheckMode
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    BoundsCheckMode,
+    PoolingMode,
+)
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
@@ -31,6 +36,10 @@ if open_source:
     from test_utils import gpu_unavailable, use_cpu_strategy
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, use_cpu_strategy
+
+from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
+    generate_vbe_metadata,
+)
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
@@ -240,9 +249,6 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         dtype: torch.dtype,
         mixed_B: bool,
     ) -> None:
-        # use_cpu does not support mixed_B
-        if use_cpu and mixed_B:
-            mixed_B = False
         rows_per_table = torch.tensor(
             np.random.randint(low=1, high=1000, size=(T,))
         ).long()
@@ -275,11 +281,50 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         warning = torch.tensor([0]).long()
 
         if mixed_B:
-            B_offsets = torch.tensor(B_offsets, device="cuda", dtype=torch.int32)
+            B_offsets = torch.tensor(
+                B_offsets, device="cpu" if use_cpu else "cuda", dtype=torch.int32
+            )
             max_B = max(Bs)
+            vbe_metadata = generate_vbe_metadata(
+                offsets,
+                [[b] for b in Bs],
+                pooling_mode=PoolingMode.SUM,
+                feature_dims_cpu=torch.tensor(
+                    [-1] * T, device="cpu", dtype=torch.int64
+                ),  # unused
+                device=torch.device("cuda") if not use_cpu else torch.device("cpu"),
+            )
+            B_offsets = vbe_metadata.B_offsets
+            assert isinstance(B_offsets, torch.Tensor), "B_offsets must be tensor"
+            info_B_num_bits, info_B_mask = torch.ops.fbgemm.get_infos_metadata(
+                vbe_metadata.B_offsets,  # unused tensor
+                vbe_metadata.max_B,
+                B_offsets.numel() - 1,  # T
+            )
+            row_output_offsets, b_t_map = torch.ops.fbgemm.generate_vbe_metadata(
+                B_offsets,
+                vbe_metadata.B_offsets_rank_per_feature,
+                vbe_metadata.output_offsets_feature_rank,
+                torch.tensor(
+                    [-1] * (T + 1),
+                    device=torch.device("cuda") if not use_cpu else torch.device("cpu"),
+                    dtype=torch.int,
+                ),  # unused D_offsets
+                -1,  # unused max_D
+                False,  # nobag
+                vbe_metadata.max_B_feature_rank,
+                info_B_num_bits,
+                offsets.numel() - 1,  # total_B
+            )
+            vbe_args = {
+                "B_offsets": B_offsets,
+                "max_B": max_B,
+                "b_t_map": b_t_map,
+                "info_B_num_bits": info_B_num_bits,
+                "info_B_mask": info_B_mask,
+            }
         else:
-            B_offsets = None
-            max_B = -1
+            vbe_args = {}
 
         self.assertEqual(indices.numel(), np.sum(Ls).item())
         self.assertEqual(offsets[-1], np.sum(Ls).item())
@@ -302,8 +347,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             bounds_check_mode,
             warning,
             weights,
-            B_offsets=B_offsets,
-            max_B=max_B,
+            **vbe_args,
         )
         # we don't modify when we are in-bounds.
         torch.testing.assert_close(indices_copy, indices)
@@ -316,8 +360,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 bounds_check_mode,
                 warning,
                 weights,
-                B_offsets=B_offsets,
-                max_B=max_B,
+                **vbe_args,
             )
             torch.testing.assert_close(indices, torch.zeros_like(indices))
             if bounds_check_mode == BoundsCheckMode.WARNING:
@@ -332,8 +375,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                         bounds_check_mode,
                         warning,
                         weights,
-                        B_offsets=B_offsets,
-                        max_B=max_B,
+                        **vbe_args,
                     )
             # It would be nice to test the CUDA implementation of BoundsCheckMode==FATAL,
             # but the device assert kills the CUDA context and requires a process restart,
@@ -354,8 +396,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 bounds_check_mode,
                 warning,
                 weights,
-                B_offsets=B_offsets,
-                max_B=max_B,
+                **vbe_args,
             )
             if offsets.numel() > 0:
                 self.assertEqual(offsets[0].item(), 0)
@@ -416,8 +457,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 bounds_check_mode,
                 warning,
                 weights,
-                B_offsets=B_offsets,
-                max_B=max_B,
+                **vbe_args,
             )
 
     @given(
@@ -470,7 +510,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         # Initialize and insert Hashmap index remapping based data structure
         hash_table = torch.empty(
             (sum(capacities), 2),
-            dtype=torch.int32,
+            dtype=torch.int64,
         )
         hash_table[:, :] = -1
         hash_table_offsets = torch.tensor([0] + np.cumsum(capacities).tolist()).long()
@@ -487,7 +527,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         # Initialize and insert Array index remapping based data structure
         index_remappings_array = torch.tensor(
             [-1] * original_E * T,
-            dtype=torch.int32,
+            dtype=torch.int64,
             device=current_device,
         )
         index_remappings_array_offsets = torch.empty(
@@ -499,7 +539,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         for t in range(T):
             indice_t = (indices.view(T, B, L))[t].long().view(-1).to(current_device)
             dense_indice_t = (
-                (dense_indices.view(T, B, L))[t].view(-1).to(current_device)
+                (dense_indices.view(T, B, L))[t].long().view(-1).to(current_device)
             )
             selected_indices = torch.add(indice_t, t * original_E)[:E]
             index_remappings_array[selected_indices] = dense_indice_t

@@ -7,7 +7,6 @@ libraries!
 **FBGEMM** (Facebook GEneral Matrix Multiplication) is a low-precision,
 high-performance matrix-matrix multiplications and convolution library for
 server-side inference.  This library is used as a backend of
-`Caffe2 <https://github.com/pytorch/pytorch/tree/master/caffe2/quantization/server>`__ and
 `PyTorch <https://github.com/pytorch/pytorch/tree/master/aten/src/ATen/native/quantized/cpu>`__
 quantized operators on x86 machines.
 
@@ -57,6 +56,14 @@ Table of Contents
 
    fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.rst
 
+.. _fbgemm.toc.api.stable:
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM Stable API
+
+   fbgemm_gpu-stable-api/python_api.rst
+
 .. _fbgemm.toc.api.cpp:
 
 .. toctree::
@@ -64,6 +71,7 @@ Table of Contents
    :caption: FBGEMM C++ API
 
    fbgemm-cpp-api/QuantUtils.rst
+   fbgemm-cpp-api/tbe_cpu_autovec.rst
 
 .. _fbgemm-gpu.toc.api.cpp:
 
@@ -80,12 +88,26 @@ Table of Contents
    fbgemm_gpu-cpp-api/input_combine.rst
    fbgemm_gpu-cpp-api/layout_transform_ops.rst
    fbgemm_gpu-cpp-api/embedding_ops.rst
+   fbgemm_gpu-cpp-api/ssd_embedding_ops.rst
+   fbgemm_gpu-cpp-api/experimental_ops.rst
 
-.. _fbgemm-gpu.toc.api.python:
+.. _fbgemm-gpu.toc.api.python.ops:
 
 .. toctree::
    :maxdepth: 1
-   :caption: FBGEMM_GPU Python API
+   :caption: FBGEMM_GPU Python Operators API
 
-   fbgemm_gpu-python-api/table_batched_embedding_ops.rst
+   fbgemm_gpu-python-api/sparse_ops.rst
+   fbgemm_gpu-python-api/pooled_embedding_ops.rst
+   fbgemm_gpu-python-api/quantize_ops.rst
    fbgemm_gpu-python-api/jagged_tensor_ops.rst
+
+.. _fbgemm-gpu.toc.api.python.modules:
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM_GPU Python Modules API
+
+   fbgemm_gpu-python-api/tbe_ops_training.rst
+   fbgemm_gpu-python-api/tbe_ops_inference.rst
+   fbgemm_gpu-python-api/pooled_embedding_modules.rst

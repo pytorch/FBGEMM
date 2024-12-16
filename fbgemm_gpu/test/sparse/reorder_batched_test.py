@@ -224,6 +224,7 @@ class ReorderBatchedTest(unittest.TestCase):
         Dtype=st.sampled_from([torch.int32, torch.float, torch.int64]),
         Itype=st.sampled_from([torch.int32, torch.int64]),
         broadcast_indices=st.booleans(),
+        max_batch_size=st.integers(min_value=-2, max_value=5),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=20, deadline=None)
     def test_cat_reorder_batched_ad_indices_cpu(
@@ -235,7 +236,14 @@ class ReorderBatchedTest(unittest.TestCase):
         Dtype: torch.dtype,
         Itype: torch.dtype,
         broadcast_indices: bool,
+        max_batch_size: int,
     ) -> None:
+        num_ads_in_batch = B * A
+        max_batch_size = (
+            (max_batch_size + num_ads_in_batch)
+            if max_batch_size > 0 and not broadcast_indices
+            else 0
+        )
         if broadcast_indices:
             ad_indices = [
                 (
@@ -254,6 +262,7 @@ class ReorderBatchedTest(unittest.TestCase):
                 0,
             ).int()
             cat_ad_lengths_broadcasted = cat_ad_lengths.tile([A])
+            expected_reordered_ad_lengths = cat_ad_lengths_broadcasted
             cat_ad_indices = torch.cat(ad_indices, 0)
         else:
             ad_indices = [
@@ -273,13 +282,32 @@ class ReorderBatchedTest(unittest.TestCase):
                 0,
             ).int()
             cat_ad_lengths_broadcasted = cat_ad_lengths
+            expected_reordered_ad_lengths = torch.cat(
+                [
+                    torch.tensor(
+                        [L for _ in range(num_ads_in_batch)]
+                        + (
+                            [0 for _ in range(max_batch_size - num_ads_in_batch)]
+                            if max_batch_size > 0
+                            else []
+                        )
+                    )
+                    for _ in range(T)
+                ],
+                0,
+            ).int()
             cat_ad_indices = torch.cat(ad_indices, 0)
         batch_offsets = torch.tensor([A * b for b in range(B + 1)]).int()
-        num_ads_in_batch = B * A
         reordered_cat_ad_lengths = torch.ops.fbgemm.reorder_batched_ad_lengths(
-            cat_ad_lengths, batch_offsets, num_ads_in_batch, broadcast_indices
+            cat_ad_lengths,
+            batch_offsets,
+            num_ads_in_batch,
+            broadcast_indices,
+            max_batch_size,
         )
-        torch.testing.assert_close(cat_ad_lengths_broadcasted, reordered_cat_ad_lengths)
+        torch.testing.assert_close(
+            expected_reordered_ad_lengths, reordered_cat_ad_lengths
+        )
 
         cat_ad_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
             cat_ad_lengths
@@ -295,6 +323,7 @@ class ReorderBatchedTest(unittest.TestCase):
             num_ads_in_batch,
             broadcast_indices,
             B * T * A * L,
+            max_batch_size=max_batch_size,
         )
         torch.testing.assert_close(
             reordered_cat_ad_indices.view(T, B, A, L).permute(1, 0, 2, 3),
@@ -477,6 +506,9 @@ class ReorderBatchedTest(unittest.TestCase):
         T=st.integers(min_value=1, max_value=20),
         L=st.integers(min_value=2, max_value=20),
         index_dtype=st.sampled_from([torch.int32, torch.int64]),
+        emb_dtype=st.sampled_from(
+            [torch.float32, torch.uint8, torch.bfloat16, torch.float16]
+        ),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
     def test_reorder_batched_sequence_embeddings(
@@ -486,11 +518,12 @@ class ReorderBatchedTest(unittest.TestCase):
         T: int,
         L: int,
         index_dtype: torch.dtype,
+        emb_dtype: torch.dtype,
     ) -> None:
         MAX_H = 1000
         DIM = 32
         device = torch.device("cuda")
-        ref_embeddings = torch.rand(MAX_H, DIM, dtype=torch.float, device=device)
+        ref_embeddings = torch.rand(MAX_H, DIM, dtype=emb_dtype, device=device)
         feature_lengths = [
             torch.randint(
                 1, L, (T, random.randint(1, B + 1)), dtype=index_dtype, device=device

@@ -11,12 +11,13 @@
 #include <ATen/TensorUtils.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 #include <c10/core/SymIntArrayRef.h>
+#include <c10/util/irange.h>
 #include <torch/csrc/autograd/custom_function.h>
 #include <torch/library.h>
 #include <torch/torch.h>
 
 #include "fbgemm_gpu/sparse_ops.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 namespace fbgemm_gpu {
 
@@ -179,7 +180,7 @@ class JaggedDenseMulOp : public torch::autograd::Function<JaggedDenseMulOp> {
       torch::autograd::variable_list grad_outputs) {
     const Tensor x_values = ctx->get_saved_variables().front();
     std::vector<Tensor> x_offsets;
-    for (size_t i = 1; i < ctx->get_saved_variables().size() - 1; ++i) {
+    for (const auto i : c10::irange(1, ctx->get_saved_variables().size() - 1)) {
       x_offsets.push_back(ctx->get_saved_variables()[i]);
     }
     Tensor y = ctx->get_saved_variables().back();
@@ -264,7 +265,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
       torch::autograd::AutogradContext* ctx,
       const Tensor& dense,
       const std::vector<Tensor>& offsets,
-      const c10::optional<at::SymInt>& total_L) {
+      const std::optional<at::SymInt>& total_L) {
     ctx->save_for_backward(offsets);
 
     // dims of dense tensor: <batch, [maxlen0, maxlen1, ...], embedding_dim>
@@ -284,7 +285,7 @@ class DenseToJaggedOp : public torch::autograd::Function<DenseToJaggedOp> {
             .typed<Tensor(
                 const Tensor& dense,
                 const std::vector<Tensor>& offsets,
-                c10::optional<at::SymInt> total_L)>();
+                std::optional<at::SymInt> total_L)>();
     auto output = op.call(dense, offsets, total_L);
 
     return {output};
@@ -604,7 +605,7 @@ class JaggedIndexSelect2dOp
       const Tensor& values,
       const Tensor& lengths,
       const Tensor& indices,
-      const c10::optional<int64_t> num_dense_output_rows) {
+      const std::optional<int64_t> optional_num_dense_output_rows) {
     TORCH_CHECK(
         values.dim() == 2, "jagged_index_select supports only 2D inputs")
     TENSORS_ON_SAME_DEVICE(lengths, indices);
@@ -616,7 +617,6 @@ class JaggedIndexSelect2dOp
 
     ctx->save_for_backward({indices, output_offsets, input_offsets});
     ctx->saved_data["num_input_rows"] = values.sym_size(0);
-    ctx->saved_data["num_dense_output_rows"] = num_dense_output_rows;
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -626,16 +626,19 @@ class JaggedIndexSelect2dOp
                 const Tensor& indices,
                 const Tensor& input_offsets,
                 const Tensor& output_offsets,
-                const c10::optional<int64_t>)>();
+                const std::optional<int64_t>)>();
 
-    return {
-        op.call(
-            values,
-            indices,
-            input_offsets,
-            output_offsets,
-            num_dense_output_rows),
-        output_lengths};
+    auto out = op.call(
+        values,
+        indices,
+        input_offsets,
+        output_offsets,
+        optional_num_dense_output_rows);
+
+    // Always save output size to avoid triggering D2H sync in backward
+    ctx->saved_data["num_dense_output_rows"] = out.sym_size(0);
+
+    return {out, output_lengths};
   }
 
   static torch::autograd::variable_list backward(
@@ -654,7 +657,7 @@ class JaggedIndexSelect2dOp
 
     auto num_output_rows = ctx->saved_data["num_input_rows"].toSymInt();
     auto num_dense_input_rows =
-        ctx->saved_data["num_dense_output_rows"].toOptional<int64_t>();
+        ctx->saved_data["num_dense_output_rows"].toSymInt();
 
     static auto op =
         c10::Dispatcher::singleton()
@@ -665,7 +668,7 @@ class JaggedIndexSelect2dOp
                 const Tensor& input_offsets,
                 const Tensor& output_offsets,
                 c10::SymInt num_output_rows,
-                const c10::optional<int64_t> optional_num_dense_input_rows)>();
+                c10::SymInt num_dense_input_rows)>();
 
     return {
         op.call(
@@ -800,7 +803,7 @@ Tensor jagged_dense_elementwise_add(
   // Construct max_lengths from y
   std::vector<c10::SymInt> max_lengths;
   max_lengths.reserve(x_offsets.size());
-  for (int d = 1; d < y.dim() - 1; d++) {
+  for (const auto d : c10::irange(1, y.dim() - 1)) {
     max_lengths.push_back(y.sym_size(d));
   }
   TORCH_CHECK(max_lengths.size() == x_offsets.size());
@@ -851,7 +854,7 @@ Tensor batched_dense_vec_jagged_2d_mul(
 std::tuple<Tensor, std::vector<Tensor>> dense_to_jagged(
     const Tensor& dense,
     const std::vector<Tensor>& offsets,
-    c10::optional<at::SymInt> total_L) {
+    std::optional<at::SymInt> total_L) {
   return {DenseToJaggedOp::apply(dense, offsets, total_L)[0], offsets};
 }
 
@@ -934,7 +937,7 @@ std::vector<Tensor> jagged_index_select_2d(
     const Tensor& values,
     const Tensor& lengths,
     const Tensor& indices,
-    const c10::optional<int64_t> num_dense_output_rows) {
+    const std::optional<int64_t> num_dense_output_rows) {
   return JaggedIndexSelect2dOp::apply(
       values, lengths, indices, num_dense_output_rows);
 }
@@ -952,8 +955,6 @@ std::tuple<Tensor, Tensor> jagged_slice(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
-  m.impl(
-      "jagged_to_padded_dense", TORCH_FN(fbgemm_gpu::jagged_to_padded_dense));
   m.impl("jagged_2d_to_dense", TORCH_FN(fbgemm_gpu::jagged_2d_to_dense));
   m.impl("jagged_1d_to_dense", TORCH_FN(fbgemm_gpu::jagged_1d_to_dense));
   m.impl(
@@ -968,7 +969,6 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
   m.impl(
       "batched_dense_vec_jagged_2d_mul",
       TORCH_FN(fbgemm_gpu::batched_dense_vec_jagged_2d_mul));
-  m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
   m.impl("jagged_softmax", TORCH_FN(fbgemm_gpu::jagged_softmax));
   m.impl("jagged_jagged_bmm", TORCH_FN(fbgemm_gpu::jagged_jagged_bmm));
   m.impl("jagged_dense_bmm", TORCH_FN(fbgemm_gpu::jagged_dense_bmm));
@@ -977,4 +977,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Autograd, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, CompositeImplicitAutograd, m) {
   m.impl("jagged_index_select", TORCH_FN(fbgemm_gpu::jagged_index_select_2d));
+  m.impl("dense_to_jagged", TORCH_FN(fbgemm_gpu::dense_to_jagged));
+  m.impl(
+      "jagged_to_padded_dense", TORCH_FN(fbgemm_gpu::jagged_to_padded_dense));
 }

@@ -34,6 +34,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CUDA(
       "lxu_cache_locations_update", lxu_cache_locations_update_cuda);
   DISPATCH_TO_CUDA("get_unique_indices", get_unique_indices_cuda);
+  DISPATCH_TO_CUDA(
+      "get_unique_indices_with_inverse", get_unique_indices_with_inverse_cuda);
 }
 
 } // namespace

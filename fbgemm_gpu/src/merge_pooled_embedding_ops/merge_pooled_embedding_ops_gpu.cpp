@@ -21,8 +21,9 @@
 #include <tuple>
 #include "fbgemm_gpu/merge_pooled_embeddings.h"
 
-#include "fbgemm_gpu/sparse_ops_utils.h"
-#include "fbgemm_gpu/topology_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
+#include "fbgemm_gpu/utils/topology_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -124,6 +125,20 @@ AdjacencyMatrix<Node> get_intermediate_node(
   }
 }
 
+void all_to_one_target_cpu(
+    const std::vector<Tensor>& input_tensors,
+    std::vector<Tensor>& output_tensors) {
+  TORCH_CHECK(input_tensors.size() == output_tensors.size());
+  for (size_t i = 0; i < input_tensors.size(); i++) {
+    const auto& src = input_tensors.at(i);
+    auto& dst = output_tensors.at(i);
+    dst.copy_(src, /*non_blocking=*/true);
+  }
+  for (const auto& t : input_tensors) {
+    at::cuda::getCurrentCUDAStream(t.device().index()).synchronize();
+  }
+}
+
 // Tensors in `output_tensors` should all be on target_device. We copy the
 // tensor in the same index from `input_tensors` to `output_tensors`. If the
 // tensor in `input_tensors` is already in the `target_device`, we will skip
@@ -133,6 +148,11 @@ void all_to_one(
     std::vector<Tensor>& output_tensors,
     at::Device target_device,
     bool skip_if_same_device) {
+  if (target_device.is_cpu()) {
+    all_to_one_target_cpu(input_tensors, output_tensors);
+    return;
+  }
+
   auto num_gpus = at::cuda::getNumGPUs();
   // Create static thread local CUDAEvent as creating/destroying CUDAEvents
   // can be expensive. In one call to this function, we use events created on
@@ -349,7 +369,12 @@ Tensor sum_reduce_to_one(
   });
 
   auto target_device_index = target_device.index();
-  TORCH_CHECK(target_device_index < num_gpus && target_device_index >= 0);
+  TORCH_CHECK(
+      target_device_index < num_gpus && target_device_index >= 0,
+      "target_device_index=",
+      target_device_index,
+      ", num_gpus=",
+      num_gpus);
 
   // Local reduction for tensors residing the same GPU.
   // And if there's a tensor already in target device, use it for output tensor.
@@ -532,7 +557,17 @@ cat_dim_2d_output_shape(
   for (const auto& t : tensors) {
     TORCH_CHECK(t.dim() == 2);
     // only support two-dimension tensors.
-    TORCH_CHECK(t.size(1 - cat_dim) == uncat_dim_size);
+    TORCH_CHECK(
+        t.size(1 - cat_dim) == uncat_dim_size,
+        "cat dim does not match, ",
+        "compare tensor dim = ",
+        1 - cat_dim,
+        ", expect size = ",
+        uncat_dim_size,
+        ", but got size = ",
+        t.size(1 - cat_dim),
+        " on device ",
+        t.get_device());
     total_cat_dim += t.size(cat_dim);
     cumulative_dims.push_back(total_cat_dim);
   }
@@ -585,7 +620,12 @@ void init_p2p_access() {
     for (const auto i : c10::irange(at::cuda::getNumGPUs())) {
       for (const auto j : c10::irange(at::cuda::getNumGPUs())) {
         if (i != j) {
-          AT_ASSERT(at::cuda::get_p2p_access(i, j));
+          TORCH_INTERNAL_ASSERT(
+              at::cuda::get_p2p_access(i, j),
+              "Failed to init p2p access for node ",
+              i,
+              ",",
+              j);
         }
       }
     }
@@ -601,8 +641,11 @@ Tensor merge_pooled_embeddings(
     int64_t uncat_dim_size,
     at::Device target_device,
     int64_t cat_dim = 1) {
-  init_p2p_access();
-  at::cuda::CUDAGuard g(target_device);
+  at::cuda::OptionalCUDAGuard g;
+  if (target_device.is_cuda()) {
+    init_p2p_access();
+    g.set_device(target_device);
+  }
 
   TORCH_CHECK(!pooled_embeddings.empty());
   return cat_dim_2d(pooled_embeddings, uncat_dim_size, target_device, cat_dim);

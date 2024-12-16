@@ -10,17 +10,6 @@
 
 using Tensor = at::Tensor;
 
-#define DISPATCH_SINGLE_HALF_FP_INT32_64_CASE(...)        \
-  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__)    \
-  AT_DISPATCH_CASE(at::ScalarType::Half, __VA_ARGS__)     \
-  AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__) \
-  AT_DISPATCH_CASE(at::ScalarType::Int, __VA_ARGS__)      \
-  AT_DISPATCH_CASE(at::ScalarType::Long, __VA_ARGS__)
-
-#define DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(TYPE, NAME, ...) \
-  AT_DISPATCH_SWITCH(                                           \
-      TYPE, NAME, DISPATCH_SINGLE_HALF_FP_INT32_64_CASE(__VA_ARGS__))
-
 namespace fbgemm_gpu {
 
 template <typename Dtype>
@@ -28,11 +17,11 @@ __global__
 __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
     // reorder lengths from (ragged) [B  x T x #num_ads_b)] to
     // [T][B][#num_ads_b], i.e. [T][sum(#num_ads_b)].
-    const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         cat_ad_lengths,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         batch_offsets,
-    at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_lengths,
     const int32_t T,
     const bool broadcast_lengths) {
@@ -63,7 +52,9 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
     const Tensor& cat_ad_lengths,
     const Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const bool broadcast_lengths) {
+    const bool broadcast_lengths,
+    const int64_t max_batch_size) {
+  TORCH_CHECK_LE(max_batch_size, 0);
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(cat_ad_lengths, batch_offsets);
 
   CUDA_DEVICE_GUARD(cat_ad_lengths);
@@ -77,21 +68,32 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
       ? at::empty({T * num_ads_in_batch}, cat_ad_lengths.options())
       : at::empty_like(cat_ad_lengths);
 
+  const int64_t grid_size = (B * T + 32 - 1) / 32;
+  TORCH_CHECK(
+      grid_size >= 0,
+      "grid_size must be positive, got ",
+      grid_size,
+      " where B =",
+      B,
+      " and T =",
+      T);
+
   const dim3 threads(32, 32);
-  const dim3 blocks((B * T + 32 - 1) / 32);
+  const dim3 blocks(grid_size);
 
   FBGEMM_DISPATCH_ALL_TYPES(
       cat_ad_lengths.scalar_type(),
       "reorder_batched_ad_lengths_gpu_kernel",
       [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+        const auto func_name = "reorder_batched_ad_lengths_kernel";
+#endif
         reorder_batched_ad_lengths_kernel<scalar_t>
             <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                cat_ad_lengths
-                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-                batch_offsets
-                    .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                reordered_cat_ad_lengths
-                    .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
+                MAKE_PTA_WITH_NAME(func_name, cat_ad_lengths, scalar_t, 1, 32),
+                MAKE_PTA_WITH_NAME(func_name, batch_offsets, int32_t, 1, 32),
+                MAKE_PTA_WITH_NAME(
+                    func_name, reordered_cat_ad_lengths, scalar_t, 1, 32),
                 T,
                 broadcast_lengths);
         C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -101,11 +103,11 @@ DLL_PUBLIC Tensor reorder_batched_ad_lengths_gpu(
 
 template <typename Dtype, typename index_t = int32_t>
 __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_ad_offsets,
-    const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         cat_ad_indices,
-    at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_indices,
     const int num_ads_in_batch,
     const int reordered_cat_ad_batches) {
@@ -128,15 +130,15 @@ __global__ __launch_bounds__(kMaxThreads) void narrow_broadcast_indices_kernel(
 template <typename Dtype, typename index_t = int32_t>
 __global__
 __launch_bounds__(kMaxThreads) void narrow_batched_broadcast_indices_kernel(
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_ad_offsets,
-    const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         cat_ad_indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_offsets,
-    at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         batch_offsets,
     const int32_t T) {
   const auto B = batch_offsets.size(0) - 1;
@@ -185,15 +187,15 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
     // if broadcast_indices is enabled, all the indices will be copies of the
     // first batch of the cat_ad_indices, this is useful for request-only
     // broadcast
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_ad_offsets,
-    const at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         cat_ad_indices,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         reordered_cat_ad_offsets,
-    at::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
         reordered_cat_ad_indices,
-    const at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         batch_offsets,
     const int32_t T,
     const bool broadcast_indices) {
@@ -272,7 +274,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
       const dim3 blocks(cuda_calc_xblock_count(
           reordered_cat_ad_offsets.numel() - 1,
           NUM_WARPS)); // one warp per sample
-      DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(
+      FBGEMM_DISPATCH_ALL_TYPES(
           cat_ad_indices.scalar_type(),
           "narrow_broadcast_indices_kernel_1",
           [&] {
@@ -280,23 +282,24 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
                 cat_ad_offsets.scalar_type(),
                 "narrow_broadcast_indices_kernel_2",
                 [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+                  const auto func_name = "narrow_broadcast_indices_kernel";
+#endif
                   narrow_broadcast_indices_kernel<scalar_t, index_t>
                       <<<blocks,
                          threads,
                          0,
                          at::cuda::getCurrentCUDAStream()>>>(
-                          cat_ad_offsets.packed_accessor32<
-                              index_t,
-                              1,
-                              at::RestrictPtrTraits>(),
-                          cat_ad_indices.packed_accessor32<
+                          MAKE_PTA_WITH_NAME(
+                              func_name, cat_ad_offsets, index_t, 1, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name, cat_ad_indices, scalar_t, 1, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name,
+                              reordered_cat_ad_indices,
                               scalar_t,
                               1,
-                              at::RestrictPtrTraits>(),
-                          reordered_cat_ad_indices.packed_accessor32<
-                              scalar_t,
-                              1,
-                              at::RestrictPtrTraits>(),
+                              32),
                           num_ads_in_batch,
                           reordered_cat_ad_offsets.numel() - 1);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -310,7 +313,7 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
       const dim3 blocks(cuda_calc_xblock_count(
           T * num_ads_in_batch,
           NUM_WARPS)); // num_ads_in_batch warps for all Bs
-      DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(
+      FBGEMM_DISPATCH_ALL_TYPES(
           cat_ad_indices.scalar_type(),
           "narrow_batched_broadcast_indices_kernel_1",
           [&] {
@@ -318,31 +321,33 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
                 cat_ad_offsets.scalar_type(),
                 "narrow_batched_broadcast_indices_kernel_2",
                 [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+                  const auto func_name =
+                      "narrow_batched_broadcast_indices_kernel";
+#endif
                   narrow_batched_broadcast_indices_kernel<scalar_t, index_t>
                       <<<blocks,
                          threads,
                          0,
                          at::cuda::getCurrentCUDAStream()>>>(
-                          cat_ad_offsets.packed_accessor32<
+                          MAKE_PTA_WITH_NAME(
+                              func_name, cat_ad_offsets, index_t, 1, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name, cat_ad_indices, scalar_t, 1, 32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name,
+                              reordered_cat_ad_offsets,
                               index_t,
                               1,
-                              at::RestrictPtrTraits>(),
-                          cat_ad_indices.packed_accessor32<
+                              32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name,
+                              reordered_cat_ad_indices,
                               scalar_t,
                               1,
-                              at::RestrictPtrTraits>(),
-                          reordered_cat_ad_offsets.packed_accessor32<
-                              index_t,
-                              1,
-                              at::RestrictPtrTraits>(),
-                          reordered_cat_ad_indices.packed_accessor32<
-                              scalar_t,
-                              1,
-                              at::RestrictPtrTraits>(),
-                          batch_offsets.packed_accessor32<
-                              int32_t,
-                              1,
-                              at::RestrictPtrTraits>(),
+                              32),
+                          MAKE_PTA_WITH_NAME(
+                              func_name, batch_offsets, int32_t, 1, 32),
                           T);
                   C10_CUDA_KERNEL_LAUNCH_CHECK();
                 });
@@ -351,10 +356,11 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     }
   }
   constexpr auto NUM_WARPS = 32;
-  const dim3 threads(NUM_WARPS, kWarpSize); // 32 x 32
+  auto maxWarpSize = kMaxThreads / NUM_WARPS;
+  const dim3 threads(
+      NUM_WARPS, maxWarpSize < kWarpSize ? maxWarpSize : kWarpSize); // 32 x 32
   const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
-
-  DISPATCH_SINGLE_HALF_FP_INT32_64_TYPES(
+  FBGEMM_DISPATCH_ALL_TYPES(
       cat_ad_indices.scalar_type(),
       "reorder_batched_ad_indices_gpu_kernel_1",
       [&] {
@@ -362,23 +368,23 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
             cat_ad_offsets.scalar_type(),
             "reorder_batched_ad_indices_gpu_kernel_2",
             [&] {
-              reorder_batched_ad_indices_kernel<scalar_t, index_t><<<
-                  blocks,
-                  threads,
-                  0,
-                  at::cuda::getCurrentCUDAStream()>>>(
-                  cat_ad_offsets
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  cat_ad_indices
-                      .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-                  reordered_cat_ad_offsets
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  reordered_cat_ad_indices
-                      .packed_accessor32<scalar_t, 1, at::RestrictPtrTraits>(),
-                  batch_offsets
-                      .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-                  T,
-                  broadcast_indices);
+#ifdef FBGEMM_GPU_MEMCHECK
+              const auto func_name = "reorder_batched_ad_indices_kernel";
+#endif
+              reorder_batched_ad_indices_kernel<scalar_t, index_t>
+                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                      MAKE_PTA_WITH_NAME(
+                          func_name, cat_ad_offsets, index_t, 1, 32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name, cat_ad_indices, scalar_t, 1, 32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name, reordered_cat_ad_offsets, index_t, 1, 32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name, reordered_cat_ad_indices, scalar_t, 1, 32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name, batch_offsets, int32_t, 1, 32),
+                      T,
+                      broadcast_indices);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
@@ -391,15 +397,15 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
     // reorder embeddings from (ragged) [B x T x #num_ads_B_{i} x length_{B_{i},
     // t, a})x D] to [T][B][#num_ads_b][length_{b, t, a}][D], i.e.
     // [sum(length_{B_{i}, t, a}), D]
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         cat_sequence_embeddings_offsets,
-    const at::PackedTensorAccessor32<Dtype, 2, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<Dtype, 2, at::RestrictPtrTraits>
         cat_sequence_embeddings,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         reordered_cat_sequence_embeddings_offsets,
-    at::PackedTensorAccessor32<Dtype, 2, at::RestrictPtrTraits>
+    pta::PackedTensorAccessor32<Dtype, 2, at::RestrictPtrTraits>
         reordered_cat_sequence_embeddings,
-    const at::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
         batch_offsets,
     const int32_t T,
     const int32_t D) {
@@ -465,7 +471,8 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
   const dim3 threads(32, 32);
   const dim3 blocks((B * T + 32 - 1) / 32);
 
-  FBGEMM_DISPATCH_FLOATING_TYPES(
+  FBGEMM_DISPATCH_FLOATING_TYPES_AND(
+      at::ScalarType::Byte,
       cat_sequence_embeddings.scalar_type(),
       "reorder_batched_sequence_embeddings_gpu_kernel_1",
       [&] {
@@ -473,23 +480,40 @@ DLL_PUBLIC Tensor reorder_batched_sequence_embeddings_gpu(
             cat_sequence_embeddings_offsets.scalar_type(),
             "reorder_batched_sequence_embeddings_gpu_kernel_2",
             [&] {
-              reorder_batched_sequence_embeddings_kernel<scalar_t, index_t><<<
-                  blocks,
-                  threads,
-                  0,
-                  at::cuda::getCurrentCUDAStream()>>>(
-                  cat_sequence_embeddings_offsets
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  cat_sequence_embeddings_contig
-                      ->packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
-                  reordered_cat_sequence_embeddings_offsets
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  reordered_cat_sequence_embeddings
-                      .packed_accessor32<scalar_t, 2, at::RestrictPtrTraits>(),
-                  batch_offsets
-                      .packed_accessor32<index_t, 1, at::RestrictPtrTraits>(),
-                  T,
-                  D);
+#ifdef FBGEMM_GPU_MEMCHECK
+              const auto func_name =
+                  "reorder_batched_sequence_embeddings_kernel";
+#endif
+              reorder_batched_sequence_embeddings_kernel<scalar_t, index_t>
+                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                      MAKE_PTA_WITH_NAME(
+                          func_name,
+                          cat_sequence_embeddings_offsets,
+                          index_t,
+                          1,
+                          32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name,
+                          (*cat_sequence_embeddings_contig),
+                          scalar_t,
+                          2,
+                          32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name,
+                          reordered_cat_sequence_embeddings_offsets,
+                          index_t,
+                          1,
+                          32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name,
+                          reordered_cat_sequence_embeddings,
+                          scalar_t,
+                          2,
+                          32),
+                      MAKE_PTA_WITH_NAME(
+                          func_name, batch_offsets, int32_t, 1, 32),
+                      T,
+                      D);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });

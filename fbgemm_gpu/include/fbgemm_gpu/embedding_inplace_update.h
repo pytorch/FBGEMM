@@ -13,7 +13,6 @@
 #include <torch/torch.h>
 
 #include "fbgemm_gpu/embedding_common.h"
-#include "fbgemm_gpu/sparse_ops_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -55,8 +54,23 @@ void embedding_inplace_update_cuda(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights = c10::nullopt,
-    c10::optional<Tensor> lxu_cache_locations = c10::nullopt);
+    std::optional<Tensor> lxu_cache_weights = std::nullopt,
+    std::optional<Tensor> lxu_cache_locations = std::nullopt);
+
+void embedding_inplace_update_single_placement_cuda(
+    Tensor& dev_weights,
+    Tensor& uvm_weights,
+    const PlacementType& weights_placement,
+    const Tensor& weights_offsets,
+    const Tensor& weights_tys,
+    const Tensor& D_offsets,
+    const Tensor& update_weights,
+    const Tensor& update_table_idx,
+    const Tensor& update_row_idx,
+    const Tensor& update_offsets,
+    const int64_t row_alignment,
+    std::optional<Tensor> lxu_cache_weights = std::nullopt,
+    std::optional<Tensor> lxu_cache_locations = std::nullopt);
 
 void embedding_inplace_update_cpu(
     Tensor dev_weights,
@@ -70,10 +84,10 @@ void embedding_inplace_update_cpu(
     Tensor update_row_idx,
     Tensor update_offsets,
     const int64_t row_alignment,
-    c10::optional<Tensor> lxu_cache_weights =
-        c10::nullopt, // Not used, to match cache interface for CUDA op
-    c10::optional<Tensor> lxu_cache_locations =
-        c10::nullopt // Not used, to match cache interface for CUDA op
+    std::optional<Tensor> lxu_cache_weights =
+        std::nullopt, // Not used, to match cache interface for CUDA op
+    std::optional<Tensor> lxu_cache_locations =
+        std::nullopt // Not used, to match cache interface for CUDA op
 );
 
 /**

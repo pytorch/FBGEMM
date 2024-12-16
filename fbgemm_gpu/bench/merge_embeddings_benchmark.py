@@ -28,7 +28,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 )
 
 from torch import Tensor
+
+# pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.
 from torch.profiler import profile, ProfilerActivity
+
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
 open_source: bool = getattr(fbgemm_gpu, "open_source", False)
@@ -39,17 +44,7 @@ if open_source:
 else:
     from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
-    if torch.version.hip:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_hip"
-        )
-    else:
-        torch.ops.load_library(
-            "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings"
-        )
-    torch.ops.load_library(
-        "//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings_cpu"
-    )
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:merge_pooled_embeddings")
 
 
 # pyre-fixme[2]: Parameter must be annotated.
@@ -426,6 +421,7 @@ def benchmark(  # noqa C901
             flush_gpu_cache_size_mb=0,
             iters=iters,
         )
+        # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
         with profile(activities=[ProfilerActivity.CUDA]) as prof:
             pool_func_with_quantization(
                 batch_indices,
@@ -490,7 +486,7 @@ def benchmark(  # noqa C901
 @click.option("--num_of_embeddings", default=100000, type=int)
 @click.option("--pooling_factor", default=25, type=int)
 @click.option("--sweep", is_flag=True, default=False)
-def main(
+def cli(
     all_to_one_only: bool,
     sum_reduce_to_one_only: bool,
     num_ads: int,
@@ -577,4 +573,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    cli()

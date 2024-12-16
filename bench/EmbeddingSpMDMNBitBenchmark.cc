@@ -61,6 +61,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
+template <typename OutType>
 int run_benchmark(
     int bit_rate,
     int batch_size,
@@ -69,7 +70,8 @@ int run_benchmark(
     int average_len,
     bool normalize_by_lengths,
     bool use_32_bit_indices = false,
-    bool prefetch = false) {
+    bool prefetch = false,
+    bool is_bf16_out = false) {
   // Create embedding table
   int num_elem_per_byte = 8 / bit_rate;
   int fused_embedding_dim =
@@ -133,8 +135,8 @@ int run_benchmark(
     weights[i] = embedding_distribution(generator);
   }
 
-  vector<float> output_sls_ref(batch_size * embedding_dim);
-  vector<float> output_slws_ref(output_sls_ref.size()),
+  vector<OutType> output_sls_ref(batch_size * embedding_dim);
+  vector<OutType> output_slws_ref(output_sls_ref.size()),
       output_sls(output_sls_ref.size()), output_slws(output_sls_ref.size());
 
   constexpr int NUM_WARMUP = 10;
@@ -148,11 +150,10 @@ int run_benchmark(
                        CACHE_LINE_LEN);
 
   for (bool has_weight : {false, true}) {
-    vector<float>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
-    vector<float> output_autovec(output_sls_ref.size());
+    vector<OutType>& output_ref = has_weight ? output_slws_ref : output_sls_ref;
+    vector<OutType> output_autovec(output_sls_ref.size());
 
-    bool success = false, success_ref = false, success_autovec = false;
-
+#ifndef OUT_TYPE_FLOAT16
     auto kernel_32 = GenerateEmbeddingSpMDMNBit<int32_t>(
         bit_rate,
         embedding_dim,
@@ -165,9 +166,48 @@ int run_benchmark(
         has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0);
+#endif // OUT_TYPE_FLOAT16
 
-    vector<float>& output = has_weight ? output_slws : output_sls;
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+    auto kernel_32_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int32_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/OutType>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/is_bf16_out,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
+    auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
+        /*IndexType=*/int64_t,
+        /*OffsetType=*/int32_t,
+        /*OutType=*/OutType>(
+        bit_rate,
+        embedding_dim,
+        has_weight,
+        normalize_by_lengths,
+        prefetch ? 16 : 0,
+        /*is_weight_positional=*/false,
+        /*use_offsets=*/true,
+        /*output_stride=*/-1,
+        /*input_stride=*/-1,
+        /*scale_bias_last=*/true,
+        /*is_bf16_out=*/is_bf16_out,
+        /*no_bag=*/false,
+        /*output_bit_rate=*/-1);
+#endif
+
+    vector<OutType>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
+      bool success_ref = false;
       // Reference implementation
       double t_ref = measureWithWarmup(
           [&]() {
@@ -183,7 +223,13 @@ int run_benchmark(
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
                   normalize_by_lengths,
-                  output_ref.data());
+                  output_ref.data(),
+                  false, // is_weight_positional
+                  true, // use_offsets
+                  -1, // output_stride
+                  -1, // input_stride
+                  true, // scale_bias_last
+                  is_bf16_out);
             } else {
               success_ref = EmbeddingSpMDMNBit_ref(
                   bit_rate,
@@ -196,7 +242,13 @@ int run_benchmark(
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
                   normalize_by_lengths,
-                  output_ref.data());
+                  output_ref.data(),
+                  false, // is_weight_positional
+                  true, // use_offsets
+                  -1, // output_stride
+                  -1, // input_stride
+                  true, // scale_bias_last
+                  is_bf16_out);
             }
           },
           NUM_WARMUP,
@@ -208,17 +260,17 @@ int run_benchmark(
               cache_evict(indices_32);
               cache_evict(offsets);
               cache_evict(weights);
-              cache_evict(output);
+              cache_evict(output_ref);
             }
           });
 
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+      bool success_autovec = false;
       // Auto-vectorization implementation
       double t_autovec = measureWithWarmup(
           [&]() {
             if (use_32_bit_indices) {
-              success_autovec = EmbeddingSpMDMNBit_autovec(
-                  bit_rate,
-                  embedding_dim,
+              success_autovec = kernel_32_autovec(
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -226,12 +278,9 @@ int run_benchmark(
                   indices_32.data(),
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
                   output_autovec.data());
             } else {
-              success_autovec = EmbeddingSpMDMNBit_autovec(
-                  bit_rate,
-                  embedding_dim,
+              success_autovec = kernel_64_autovec(
                   batch_size,
                   lengths_sum,
                   num_rows,
@@ -239,7 +288,6 @@ int run_benchmark(
                   indices.data(),
                   offsets.data(),
                   has_weight ? weights.data() : nullptr,
-                  normalize_by_lengths,
                   output_autovec.data());
             }
           },
@@ -252,10 +300,13 @@ int run_benchmark(
               cache_evict(indices_32);
               cache_evict(offsets);
               cache_evict(weights);
-              cache_evict(output);
+              cache_evict(output_autovec);
             }
           });
+#endif
 
+#ifndef OUT_TYPE_FLOAT16
+      bool success = false;
       // Hand-written AVX2/AVX512 implementation
       double t = measureWithWarmup(
           [&]() {
@@ -293,6 +344,7 @@ int run_benchmark(
               cache_evict(output);
             }
           });
+#endif // OUT_TYPE_FLOAT16
 
       // printMatrix(
       //     matrix_op_t::NoTranspose,
@@ -312,28 +364,90 @@ int run_benchmark(
       if (!flush_cache) {
         // vector<float>& output_ref =
         //     has_weight ? output_slws_ref : output_sls_ref;
+#ifndef OUT_TYPE_FLOAT16
         if (success != success_ref) {
           assert(
               false &&
               "ERROR: reference impl and JIT impl did not both succeed");
-        } else if (success != success_autovec) {
-          assert(
-              false &&
-              "ERROR: reference impl and auto-vec impl did not both succeed");
-        } else if (success) {
+          cout << "asmjit return " << success << " ref return " << success_ref
+               << endl;
+        } else {
           for (size_t i = 0; i < output.size(); ++i) {
-            assert(fabs(output[i] - output_ref[i]) < 1e-3);
-            assert(fabs(output_autovec[i] - output_ref[i]) < 1e-3);
-            if (fabs(output[i] - output_ref[i]) >= 1e-3) {
-              cout << "asmjit vs ref  : " << i << " " << output[i] << " "
-                   << output_ref[i] << endl;
+            float tmp1 = 0;
+            float tmp2 = 0;
+            if (std::is_same<OutType, float>::value) {
+              tmp1 = output[i];
+              tmp2 = output_ref[i];
+            } else if (std::is_same<OutType, uint16_t>::value) {
+              if (is_bf16_out) {
+                tmp1 = cpu_bf162float(output[i]);
+                tmp2 = cpu_bf162float(output_ref[i]);
+              } else {
+                tmp1 = cpu_half2float(output[i]);
+                tmp2 = cpu_half2float(output_ref[i]);
+              }
+            } else {
+              assert(false && "ERROR: unsupported output type");
+              cout << "ERROR: unsupported output type" << endl;
             }
-            if (fabs(output_autovec[i] - output_ref[i]) >= 1e-3) {
-              cout << "autovec vec ref: " << i << " " << output_autovec[i]
-                   << " " << output_ref[i] << endl;
+
+            assert(fabs(tmp1 - tmp2) < 1e-3);
+            if (fabs(tmp1 - tmp2) >= 1e-3) {
+              cout << "asmjit vs ref  : " << i << " " << tmp1 << " " << tmp2
+                   << endl;
             }
           }
         }
+#endif // OUT_TYPE_FLOAT16
+
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+        if (success_autovec != success_ref) {
+          assert(
+              false &&
+              "ERROR: reference impl and autovec impl did not both succeed");
+          cout << "autovec return " << success_autovec << " ref return "
+               << success_ref << endl;
+        } else {
+          for (size_t i = 0; i < output_autovec.size(); ++i) {
+            float tmp1 = 0;
+            float tmp2 = 0;
+            if (std::is_same<OutType, float>::value) {
+              tmp1 = output_autovec[i];
+              tmp2 = output_ref[i];
+            } else if (std::is_same<OutType, uint16_t>::value) {
+              if (is_bf16_out) {
+                tmp1 = cpu_bf162float(output_autovec[i]);
+                tmp2 = cpu_bf162float(output_ref[i]);
+              } else {
+                tmp1 = cpu_half2float(output_autovec[i]);
+                tmp2 = cpu_half2float(output_ref[i]);
+              }
+            } else {
+              assert(false && "ERROR: unsupported output type");
+              cout << "ERROR: unsupported output type" << endl;
+            }
+
+            assert(fabs(tmp1 - tmp2) < 1e-3);
+            if (fabs(tmp1 - tmp2) >= 1e-3) {
+              cout << "autovec vs ref: " << i << " " << tmp1 << " " << tmp2
+                   << endl;
+            }
+          }
+        }
+#endif
+      }
+
+      if (std::is_same<OutType, float>::value) {
+        cout << "out type fp32, ";
+      } else if (std::is_same<OutType, uint16_t>::value) {
+        if (is_bf16_out) {
+          cout << "out type bf16, ";
+        } else {
+          cout << "out type fp16, ";
+        }
+      } else {
+        assert(false && "ERROR: unsupported output type");
+        cout << "ERROR: unsupported output type" << endl;
       }
 
       if (has_weight) {
@@ -352,17 +466,25 @@ int run_benchmark(
         cout << "prefetch off, ";
       }
 
-      cout << "b/w, " << bytes / 1e9 / t << ", GB/s, "
-           << "effective b/w, " << bytes_padded / 1e9 / t << ", GB/s, "
-           << "time, " << t << ", autovec b/w, " << bytes / 1e9 / t_autovec
-           << ", GB/s, "
+#ifndef OUT_TYPE_FLOAT16
+      cout << "b/w, " << bytes / 1e9 / t << ", GB/s, " << "effective b/w, "
+           << bytes_padded / 1e9 / t << ", GB/s, " << "time, " << t;
+#endif
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+      cout << ", autovec b/w, " << bytes / 1e9 / t_autovec << ", GB/s, "
            << "autovec eff. b/w, " << bytes_padded / 1e9 / t_autovec
-           << ", GB/s, "
-           << "autovec time, " << t_autovec << ", ref b/w, "
-           << bytes / 1e9 / t_ref << ", GB/s, "
+           << ", GB/s, " << "autovec time, " << t_autovec;
+#endif
+      cout << ", ref b/w, " << bytes / 1e9 / t_ref << ", GB/s, "
            << "ref eff. b/w, " << bytes_padded / 1e9 / t_ref << ", GB/s, "
-           << "ref time, " << t_ref << ", autovec speedup, "
-           << t_ref / t_autovec << ", asmjit speedup, " << t_ref / t << endl;
+           << "ref time, " << t_ref;
+#ifdef FBGEMM_AUTOVEC_AVAILABLE
+      cout << ", autovec speedup, " << t_ref / t_autovec;
+#endif
+#ifndef OUT_TYPE_FLOAT16
+      cout << ", asmjit speedup, " << t_ref / t;
+#endif
+      cout << std::endl;
     } // flush_cache
   } // has_weight
   return 0;
@@ -390,16 +512,41 @@ int main() {
       // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
       // prefetch
       cout << "64 bit indices, ";
-      run_benchmark(
+#ifndef OUT_TYPE_FLOAT16
+      run_benchmark<float>(
           bit_rate,
           batch_size,
           num_rows,
           embedding_dim,
           average_len,
           false); // normalize_by_lengths
+#else
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          false, // use_32_bit_indices
+          false, // prefetch
+          false); // is_bf16_out
+
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          false, // use_32_bit_indices
+          false, // prefetch
+          true); // is_bf16_out
+#endif // OUT_TYPE_FLOAT16
 
       cout << "64 bit indices with prefetching, ";
-      run_benchmark(
+#ifndef OUT_TYPE_FLOAT16
+      run_benchmark<float>(
           bit_rate,
           batch_size,
           num_rows,
@@ -408,9 +555,33 @@ int main() {
           false, // normalize_by_lengths
           false, // use_32_bit_indices
           true); // prefetch
+#else
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          false, // use_32_bit_indices
+          true, // prefetch
+          false); // is_bf16_out
+
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          false, // use_32_bit_indices
+          true, // prefetch
+          true); // is_bf16_out
+#endif // OUT_TYPE_FLOAT16
 
       cout << "32 bit indices, ";
-      run_benchmark(
+#ifndef OUT_TYPE_FLOAT16
+      run_benchmark<float>(
           bit_rate,
           batch_size,
           num_rows,
@@ -418,9 +589,33 @@ int main() {
           average_len,
           false, // normalize_by_lengths
           true); // use_32_bit_indices
+#else
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          true, // use_32_bit_indices
+          false, // prefetch
+          false); // is_bf16_out
+
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          true, // use_32_bit_indices
+          false, // prefetch
+          true); // is_bf16_out
+#endif // OUT_TYPE_FLOAT16
 
       cout << "32 bit indices with prefetching, ";
-      run_benchmark(
+#ifndef OUT_TYPE_FLOAT16
+      run_benchmark<float>(
           bit_rate,
           batch_size,
           num_rows,
@@ -429,6 +624,29 @@ int main() {
           false, // normalize_by_lengths
           true, // use_32_bit_indices
           true); // prefetch
+#else
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          true, // use_32_bit_indices
+          true, // prefetch
+          false); // is_bf16_out
+
+      run_benchmark<float16>(
+          bit_rate,
+          batch_size,
+          num_rows,
+          embedding_dim,
+          average_len,
+          false, // normalize_by_lengths
+          true, // use_32_bit_indices
+          true, // prefetch
+          true); // is_bf16_out
+#endif // OUT_TYPE_FLOAT16
 
       // running with normalize by lengths
       // run_benchmark(batch_size, num_rows, embedding_dim, average_len,

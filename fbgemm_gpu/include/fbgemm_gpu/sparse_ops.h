@@ -9,6 +9,11 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <ATen/core/dispatch/Dispatcher.h>
+#include <c10/core/SymInt.h>
+#include <c10/core/SymIntArrayRef.h>
+#include <torch/csrc/autograd/custom_function.h>
+
 #include <cstdint>
 
 namespace fbgemm_gpu {
@@ -37,7 +42,17 @@ at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in);
 at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
+void asynchronous_exclusive_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const at::Tensor& t_in);
+
+///@ingroup sparse-data-cpu
 at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
+
+///@ingroup sparse-data-cpu
+at::Tensor asynchronous_complete_cumsum_cpu_out(
+    at::Tensor& t_out,
+    const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
 at::Tensor asynchronous_inclusive_cumsum_cpu(const at::Tensor& t_in);
@@ -83,21 +98,39 @@ at::Tensor segment_sum_csr_cpu(
 ///@see You can find more info <a
 /// href="https://www.doxygen.nl/manual/commands.html#cmdlink">here</a>
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_data_input1D_cpu(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const int64_t& stride,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
+permute_2D_sparse_data_input1D_cuda(
+    const at::Tensor& permute,
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const int64_t& stride,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
+
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_2D_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights,
-    const c10::optional<int64_t>& permuted_lengths_sum);
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
 
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_1D_sparse_data_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights,
-    const c10::optional<int64_t>& permuted_lengths_sum);
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
 
 at::Tensor invert_permute_cuda(const at::Tensor& permute);
 #endif
@@ -136,9 +169,9 @@ at::Tensor expand_into_jagged_permute_cpu(
 std::tuple<
     at::Tensor,
     at::Tensor,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>>
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
 
 ///@ingroup sparse-data-cuda
 block_bucketize_sparse_features_cuda(
@@ -148,17 +181,19 @@ block_bucketize_sparse_features_cuda(
     const bool sequence,
     const at::Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<at::Tensor>& weights,
-    const c10::optional<at::Tensor>& batch_size_per_feature,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos);
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx,
+    const std::optional<at::Tensor>& total_num_blocks);
 
 std::tuple<
     at::Tensor,
     at::Tensor,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>>
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
 
 ///@ingroup sparse-data-cpu
 block_bucketize_sparse_features_cpu(
@@ -168,16 +203,77 @@ block_bucketize_sparse_features_cpu(
     const bool sequence,
     const at::Tensor& block_sizes,
     const int64_t my_size,
-    const c10::optional<at::Tensor>& weights,
-    const c10::optional<at::Tensor>& batch_size_per_feature,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<at::Tensor>& batch_size_per_feature,
     const int64_t max_batch_size,
-    const c10::optional<std::vector<at::Tensor>>& block_bucketize_pos);
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool keep_orig_idx,
+    const std::optional<at::Tensor>& total_num_blocks);
 
 std::tuple<
     at::Tensor,
     at::Tensor,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>>
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
+///@ingroup sparse-data-cuda
+block_bucketize_sparse_features_inference_cuda(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx,
+    const std::optional<at::Tensor>& total_num_blocks);
+
+///@ingroup sparse-data-cuda
+at::Tensor populate_bucketized_permute_cuda(
+    const at::Tensor& length,
+    const at::Tensor& bucketized_length,
+    const at::Tensor& bucket_mapping);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
+
+///@ingroup sparse-data-cpu
+block_bucketize_sparse_features_inference_cpu(
+    const at::Tensor& lengths,
+    const at::Tensor& indices,
+    const bool bucketize_pos,
+    const bool sequence,
+    const at::Tensor& block_sizes,
+    const int64_t my_size,
+    const std::optional<at::Tensor>& weights,
+    const std::optional<at::Tensor>& batch_size_per_feature,
+    const int64_t max_batch_size,
+    const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
+    const bool return_bucket_mapping,
+    const bool keep_orig_idx,
+    const std::optional<at::Tensor>& total_num_blocks);
+
+///@ingroup sparse-data-cpu
+at::Tensor populate_bucketized_permute_cpu(
+    const at::Tensor& length,
+    const at::Tensor& bucketized_length,
+    const at::Tensor& bucket_mapping);
+
+std::tuple<
+    at::Tensor,
+    at::Tensor,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
 
 ///@ingroup sparse-data-cuda
 bucketize_sparse_features_cuda(
@@ -185,38 +281,38 @@ bucketize_sparse_features_cuda(
     const at::Tensor& indices,
     const bool bucketize_pos,
     const int64_t my_size,
-    const c10::optional<at::Tensor>& weights);
+    const std::optional<at::Tensor>& weights);
 
 std::tuple<
     at::Tensor,
     at::Tensor,
-    c10::optional<at::Tensor>,
-    c10::optional<at::Tensor>>
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>>
 ///@ingroup sparse-data-cpu
 bucketize_sparse_features_cpu(
     const at::Tensor& lengths,
     const at::Tensor& indices,
     const bool bucketize_pos,
     const int64_t my_size,
-    const c10::optional<at::Tensor>& weights);
+    const std::optional<at::Tensor>& weights);
 
 ///@ingroup sparse-data-cpu
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_2D_sparse_data_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights,
-    const c10::optional<int64_t>& permuted_lengths_sum);
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
 
 ///@ingroup sparse-data-cpu
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_1D_sparse_data_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights,
-    const c10::optional<int64_t>& permuted_lengths_sum);
+    const std::optional<at::Tensor>& weights,
+    const std::optional<int64_t>& permuted_lengths_sum);
 
 at::Tensor _float_to_fused8bitrowwise_gpu(const at::Tensor& input);
 at::Tensor _float_to_paddedFP8rowwise_gpu(
@@ -338,12 +434,27 @@ at::Tensor fusednbitrowwise_to_float_or_half_cpu(
     const int64_t bit_rate,
     const int64_t output_dtype);
 
+at::Tensor quantize_mx_cuda(
+    const at::Tensor& input,
+    const int64_t scale_bits,
+    const int64_t elem_ebits,
+    const int64_t elem_mbits,
+    const double elem_max_norm,
+    const int64_t mx_group_size,
+    const bool flush_fp32_subnorms = false,
+    const int64_t rounding_mode = 0);
+
+at::Tensor dequantize_mx_cuda(
+    const at::Tensor& input,
+    const int64_t mx_group_size);
+
 ///@ingroup sparse-data-cuda
 at::Tensor reorder_batched_ad_lengths_gpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const bool broadcast_lengths = false);
+    const bool broadcast_lengths = false,
+    const int64_t max_batch_size = 0);
 
 ///@ingroup sparse-data-cuda
 at::Tensor reorder_batched_ad_indices_gpu(
@@ -364,11 +475,21 @@ at::Tensor reorder_batched_sequence_embeddings_gpu(
     const int64_t num_items_in_batch);
 
 ///@ingroup sparse-data-cpu
+at::Tensor reorder_batched_ad_lengths_cpu_out(
+    at::Tensor& out,
+    const at::Tensor& cat_ad_lengths,
+    const at::Tensor& batch_offsets,
+    const int64_t num_ads_in_batch,
+    const bool broadcast_lengths = false,
+    const int64_t max_batch_size = 0);
+
+///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_lengths_cpu(
     const at::Tensor& cat_ad_lengths,
     const at::Tensor& batch_offsets,
     const int64_t num_ads_in_batch,
-    const bool broadcast_lengths = false);
+    const bool broadcast_lengths = false,
+    const int64_t max_batch_size = 0);
 ///@ingroup sparse-data-cpu
 at::Tensor reorder_batched_ad_indices_cpu(
     const at::Tensor& cat_ad_offsets,
@@ -386,6 +507,16 @@ at::Tensor reorder_batched_sequence_embeddings_cpu(
     const at::Tensor& batch_offsets,
     const int64_t num_items_in_batch);
 ///@ingroup sparse-data-cpu
+at::Tensor cat_reorder_batched_ad_indices_cpu_out(
+    at::Tensor& out,
+    const at::Tensor& cat_ad_offsets,
+    const std::vector<at::Tensor>& ad_indices,
+    const at::Tensor& reordered_cat_ad_offsets,
+    const at::Tensor& batch_offsets,
+    const int64_t num_ads_in_batch,
+    const bool broadcast_indices = false,
+    const int64_t max_batch_size = 0);
+///@ingroup sparse-data-cpu
 at::Tensor cat_reorder_batched_ad_indices_cpu(
     const at::Tensor& cat_ad_offsets,
     const std::vector<at::Tensor>& cat_ad_indices,
@@ -394,7 +525,8 @@ at::Tensor cat_reorder_batched_ad_indices_cpu(
     const int64_t num_ads_in_batch,
     const bool broadcast_indices,
     const int64_t num_indices_after_broadcast,
-    const bool pinned_memory = false);
+    const bool pinned_memory = false,
+    const int64_t max_batch_size = 0);
 at::Tensor recat_embedding_grad_output_cuda(
     at::Tensor grad_output, // [B_local][T_global][D]
     const std::vector<int64_t>& num_features_per_rank);
@@ -488,7 +620,7 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> jagged_dense_elementwise_mul(
 std::tuple<at::Tensor, std::vector<at::Tensor>> dense_to_jagged(
     const at::Tensor& dense,
     const std::vector<at::Tensor>& offsets,
-    c10::optional<at::SymInt> total_L);
+    std::optional<at::SymInt> total_L);
 
 std::tuple<at::Tensor, std::vector<at::Tensor>>
 jagged_dense_elementwise_add_jagged_output(
@@ -702,39 +834,39 @@ std::tuple<at::Tensor, at::Tensor> embedding_bag_rowwise_prune(
     at::ScalarType compressed_indices_dtype,
     const bool abs,
     const int64_t min_non_pruned_rows,
-    const c10::optional<double>& min_save_ratio);
+    const std::optional<double>& min_save_ratio);
 
 ///@ingroup sparse-data-cpu
 at::Tensor lengths_range(
     const at::Tensor& t_in,
-    const c10::optional<std::vector<int64_t>>& shape);
+    const std::optional<std::vector<int64_t>>& shape);
 
 ///@ingroup sparse-data-cpu
 at::Tensor& lengths_range_out(
     at::Tensor& output,
     const at::Tensor& t_in,
-    const c10::optional<std::vector<int64_t>>& shape);
+    const std::optional<std::vector<int64_t>>& shape);
 
 ///@ingroup sparse-data-cuda
 at::Tensor lengths_range_cuda(
     const at::Tensor& t_in,
-    const c10::optional<std::vector<int64_t>>& shape);
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+    const std::optional<std::vector<int64_t>>& shape);
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 
 ///@ingroup sparse-data-cpu
 permute_sparse_features_cpu(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights);
+    const std::optional<at::Tensor>& weights);
 
 ///@ingroup sparse-data-cuda
-std::tuple<at::Tensor, at::Tensor, c10::optional<at::Tensor>>
+std::tuple<at::Tensor, at::Tensor, std::optional<at::Tensor>>
 permute_sparse_features_cuda(
     const at::Tensor& permute,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<at::Tensor>& weights);
+    const std::optional<at::Tensor>& weights);
 
 ///@ingroup sparse-data-cuda
 at::Tensor permute102_baddbmm_permute102_cuda(
@@ -771,6 +903,29 @@ at::Tensor pack_segments_forward_cuda(
     const at::Tensor& lengths,
     int64_t max_length);
 
+///@ingroup sparse-data-cpu
+std::tuple<at::Tensor, std::optional<at::Tensor>> pack_segments_cpu_v2(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
+///@ingroup sparse-data-cuda
+std::tuple<at::Tensor, std::optional<at::Tensor>> pack_segments_cuda_v2(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
+std::tuple<at::Tensor, std::optional<at::Tensor>> pack_segments_forward_cuda_v2(
+    const at::Tensor& t_in,
+    const at::Tensor& lengths,
+    int64_t max_length,
+    const bool pad_minf,
+    const bool return_presence_mask);
+
 at::Tensor pack_segments_backward_cuda(
     const at::Tensor& data,
     const at::Tensor& lengths,
@@ -799,6 +954,45 @@ at::Tensor index_add_with_unique_indices_cuda(
     const int consecutive_range_start,
     const int consecutive_range_length);
 
+torch::autograd::variable_list group_index_select_dim0_decomposed(
+    at::TensorList input_group,
+    at::TensorList indices_group);
+
+torch::autograd::variable_list group_index_select_dim0_autograd_impl(
+    at::TensorList all_indices_input,
+    const int64_t group_size);
+
+torch::autograd::variable_list group_index_select_dim0(
+    at::TensorList input_group,
+    at::TensorList indices_group);
+
+torch::autograd::variable_list group_index_select_dim0_forward_impl_cpu(
+    at::TensorList all_indices_input,
+    const int64_t group_size);
+
+torch::autograd::variable_list group_index_select_dim0_backward_impl_cpu(
+    at::TensorList all_inputs,
+    c10::SymIntArrayRef output_shape_group_ref);
+
+std::pair<std::vector<at::Tensor>, std::vector<at::Tensor>>
+group_index_select_dim0_unpack(
+    at::TensorList all_indices_input,
+    const int64_t group_size);
+
+class GroupIndexSelectDim0Op
+    : public torch::autograd::Function<GroupIndexSelectDim0Op> {
+ public:
+  static constexpr bool is_traceable = true;
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      at::TensorList all_indices_input,
+      const int64_t group_size);
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_output_group);
+};
+
 ///@ingroup sparse-data-cuda
 void group_index_select_or_add_cuda(
     const int64_t* input_ptrs,
@@ -821,7 +1015,7 @@ std::vector<at::Tensor> jagged_index_select_2d(
     const at::Tensor& values,
     const at::Tensor& lengths,
     const at::Tensor& indices,
-    const c10::optional<int64_t> num_dense_output_rows = c10::nullopt);
+    const std::optional<int64_t> num_dense_output_rows = std::nullopt);
 
 at::Tensor jagged_index_select_2d_forward_cpu(
     const at::Tensor& values,
