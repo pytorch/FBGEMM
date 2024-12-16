@@ -49,6 +49,8 @@ using __nv_fp8_e4m3 = __hip_fp8_e4m3_fnuz;
 
 namespace fbgemm_gpu {
 
+#define DEVICE_INLINE __device__ inline __attribute__((always_inline))
+
 #ifndef __HIP_PLATFORM_AMD__
 struct __align__(16) bfx8 {
   __nv_bfloat162 vals[4];
@@ -56,12 +58,10 @@ struct __align__(16) bfx8 {
 struct __align__(8) bfx4 {
   __nv_bfloat162 vals[2];
 };
-
-#define DEVICE_INLINE __device__ inline __attribute__((always_inline))
-
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 DEVICE_INLINE bfx4 dequantize_packed_fp8(uint32_t vs, __half2 shift_scale_0);
+#endif
 #endif
 
 #define CEILDIV(x, y) (((x) + (y) - 1) / (y))
@@ -215,6 +215,20 @@ void moe_align_block_size(
       });
 }
 
+#ifndef USE_ROCM
+#define SHFL_XOR_SYNC(var, lane_mask) \
+  __shfl_xor_sync(uint32_t(-1), var, lane_mask)
+#define SHFL_XOR_SYNC_WIDTH(var, lane_mask, width) \
+  __shfl_xor_sync(uint32_t(-1), var, lane_mask, width)
+#else
+#define SHFL_XOR_SYNC(var, lane_mask) __shfl_xor(var, lane_mask)
+#define SHFL_XOR_SYNC_WIDTH(var, lane_mask, width) \
+  __shfl_xor(var, lane_mask, width)
+#endif
+
+#define WARP_SIZE 32
+
+#ifndef __HIP_PLATFORM_AMD__
 /**
  * scaled_fp8_quant
  **/
@@ -407,25 +421,12 @@ __inline__ __device__ T _max(T a, T b) {
 template <typename T>
 using ReduceFnType = T (*)(T, T);
 
-#define WARP_SIZE 32
-
 // Helper function to return the next largest power of 2
 static constexpr int _nextPow2(unsigned int num) {
   if (num <= 1)
     return num;
   return 1 << (CHAR_BIT * sizeof(num) - __builtin_clz(num - 1));
 }
-
-#ifndef USE_ROCM
-#define SHFL_XOR_SYNC(var, lane_mask) \
-  __shfl_xor_sync(uint32_t(-1), var, lane_mask)
-#define SHFL_XOR_SYNC_WIDTH(var, lane_mask, width) \
-  __shfl_xor_sync(uint32_t(-1), var, lane_mask, width)
-#else
-#define SHFL_XOR_SYNC(var, lane_mask) __shfl_xor(var, lane_mask)
-#define SHFL_XOR_SYNC_WIDTH(var, lane_mask, width) \
-  __shfl_xor(var, lane_mask, width)
-#endif
 
 template <typename T, int numLanes = WARP_SIZE>
 __inline__ __device__ T warpReduce(T val, ReduceFnType<T> fn) {
@@ -595,6 +596,7 @@ void dynamic_per_token_scaled_fp8_quant(
                 hidden_size);
       });
 }
+#endif
 
 /**
  * topk_softmax
@@ -1167,5 +1169,4 @@ void silu_and_mul(
 {
   LAUNCH_ACTIVATION_GATE_KERNEL(silu_kernel);
 }
-#endif
 } // namespace fbgemm_gpu

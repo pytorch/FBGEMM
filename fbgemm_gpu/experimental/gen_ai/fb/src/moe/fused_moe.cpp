@@ -46,31 +46,30 @@ void silu_and_mul(
     at::Tensor& input); // [..., 2 * d]
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
-#ifndef USE_ROCM
+  m.def("silu_and_mul(Tensor(a!) out, Tensor input) -> ()");
+  m.def(
+      "topk_softmax(Tensor(a!) topk_weights, Tensor(b!) topk_indices, Tensor token_expert_indices, Tensor gating_output) -> ()");
   m.def(
       "moe_align_block_size(Tensor topk_ids, int num_experts, int block_size, Tensor sorted_token_ids, Tensor experts_ids, Tensor num_tokens_post_pad) -> ()");
+#ifndef USE_ROCM
   m.def(
       "dynamic_scaled_fp8_quant(Tensor(a!) out, Tensor input, Tensor(b!) scales) -> ()");
   m.def(
       "dynamic_per_token_scaled_fp8_quant(Tensor(a!) out, Tensor input, Tensor(b!) scales, Tensor? scale_ub=None) -> ()");
   m.def(
       "static_scaled_fp8_quant(Tensor(a!) out, Tensor input, Tensor scales) -> ()");
-
-  m.def(
-      "topk_softmax(Tensor(a!) topk_weights, Tensor(b!) topk_indices, Tensor token_expert_indices, Tensor gating_output) -> ()");
-  m.def("silu_and_mul(Tensor(a!) out, Tensor input) -> ()");
 #endif
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
-#ifndef USE_ROCM
+  m.impl("topk_softmax", topk_softmax);
+  m.impl("silu_and_mul", silu_and_mul);
   m.impl("moe_align_block_size", moe_align_block_size);
+#ifndef USE_ROCM
   m.impl("dynamic_scaled_fp8_quant", dynamic_scaled_fp8_quant);
   m.impl(
       "dynamic_per_token_scaled_fp8_quant", dynamic_per_token_scaled_fp8_quant);
   m.impl("static_scaled_fp8_quant", static_scaled_fp8_quant);
-  m.impl("topk_softmax", topk_softmax);
-  m.impl("silu_and_mul", silu_and_mul);
 #endif
 }
 } // namespace fbgemm_gpu

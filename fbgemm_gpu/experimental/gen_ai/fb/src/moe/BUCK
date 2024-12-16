@@ -1,6 +1,6 @@
-load("@fbcode_macros//build_defs:cpp_library.bzl", "cpp_library")
+load("@fbcode_macros//build_defs:gpu_cpp_library.bzl", "gpu_cpp_library")
 load("@fbcode_macros//build_defs:python_library.bzl", "python_library")
-load("//caffe2/caffe2/fb:defs_gpu.bzl", "is_nvidia_build")
+load("//caffe2/caffe2/fb:defs_gpu.bzl", "gpu_library_selector")
 load("//tools/build/buck:nvcc_flags.bzl", "get_nvcc_arch_args")
 
 oncall("fbgemm_dev")
@@ -18,13 +18,20 @@ python_library(
     ],
 )
 
-cpp_library(
-    # @autodeps-skip
+gpu_library_selector(
     name = "fused_moe_ops",
+    deps_gpu = [":fused_moe_ops_gpu"],
+    exclude_hip_target = False,
+    supports_python_dlopen = True,
+)
+
+gpu_cpp_library(
+    # @autodeps-skip
+    name = "fused_moe_ops_gpu",
     srcs = [
         "fused_moe.cpp",
         "fused_moe.cu",
-    ] if is_nvidia_build() else [],
+    ],
     compiler_flags = ["-Wno-strict-aliasing"],
     link_whole = True,
     nvcc_flags = (
