@@ -70,7 +70,9 @@ NOINLINE float cache_evict(const T& vec) {
   float dummy = 0.0f;
   for (std::size_t i = 0; i < dataSize; i += CACHE_LINE_SIZE) {
     dummy += data[i] * 1.0f;
+#ifndef __aarch64__
     _mm_mfence();
+#endif
 #ifndef _MSC_VER
     asm volatile("" ::: "memory");
 #endif
