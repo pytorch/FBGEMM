@@ -352,8 +352,8 @@ def device(  # noqa C901
         time_per_iter = benchmark_requests(
             requests,
             lambda indices, offsets, per_sample_weights: emb.forward(
-                indices.long(),
-                offsets.long(),
+                indices.int(),
+                offsets.int(),
                 per_sample_weights,
                 feature_requires_grad=feature_requires_grad,
             ),
@@ -384,8 +384,8 @@ def device(  # noqa C901
         time_per_iter = benchmark_requests(
             requests,
             lambda indices, offsets, per_sample_weights: emb(
-                indices.long(),
-                offsets.long(),
+                indices.int(),
+                offsets.int(),
                 per_sample_weights,
                 feature_requires_grad=feature_requires_grad,
             ),
