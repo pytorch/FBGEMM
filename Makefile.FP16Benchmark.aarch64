@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Copyright 2024 Arm Limited and/or its affiliate <open-source-office@arm.com>
+# SPDX-License-Identifier: BSD-3-Clause
+
+CC           := g++
+SRCEXT       := cc
+OBJEXT       := o
+BUILD_DIR    := obj
+KLEIDIAI_DIR := external/kleidiai/kai/ukernels/matmul/matmul_f32_f32_f16p
+
+CFLAGS    := -O3 -mcpu=native -std=c++20 -fvisibility=hidden -fopenmp
+CDEFINES  := -DFBGEMM_ENABLE_KLEIDIAI=1 -DCPUINFO_SUPPORTED_PLATFORM=1 -DFBGEMM_FP16_FALLBACK_TO_REF_KERNEL=1
+INCLUDES  := -I./include -I./ -I./external/cpuinfo/include -I./external/asmjit/src -I./external/googletest/googletest/include -I./src
+
+SRC_DIR  := src
+BENCH_DIR := bench
+TEST_DIR := test
+SOURCES := src/FbgemmFP16.cc src/FbgemmFPCommon.cc src/Utils.cc src/RefImplementations.cc src/TransposeUtils.cc src/FbgemmFP16UKernelsSve128.cc
+SRC_OBJECTS := $(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(SOURCES:.$(SRCEXT)=.$(OBJEXT)))
+KLEIDIAI_OBJECTS := $(BUILD_DIR)/KleidiAIFP16UKernelsNeon.$(OBJEXT)
+
+LIB := -lcpuinfo -fopenmp
+LIBDIR := -L/usr/lib/aarch64-linux-gnu
+
+BENCH_TARGET := FP16Benchmark
+TEST_TARGET := FP16Test
+
+all: $(BENCH_TARGET) $(TEST_TARGET)
+
+$(TEST_TARGET): $(SRC_OBJECTS) $(KLEIDIAI_OBJECTS) $(BUILD_DIR)/BenchUtils.$(OBJEXT) $(BUILD_DIR)/FP16Test.$(OBJEXT)
+	   $(CC) -o $(TEST_TARGET) $^ $(LIBDIR) $(LIB) -lgtest
+
+$(BENCH_TARGET): $(SRC_OBJECTS) $(KLEIDIAI_OBJECTS) $(BUILD_DIR)/BenchUtils.$(OBJEXT) $(BUILD_DIR)/FP16Benchmark.$(OBJEXT)
+	   $(CC) -o $(BENCH_TARGET) $^ $(LIBDIR) $(LIB)
+
+$(BUILD_DIR)/%.$(OBJEXT): $(SRC_DIR)/%.$(SRCEXT)
+			  @mkdir -p $(dir $@)
+			  $(CC) $(CDEFINES) $(CFLAGS) $(INCLUDES) -c -o $@ $<
+
+$(BUILD_DIR)/%.$(OBJEXT): $(BENCH_DIR)/%.$(SRCEXT)
+			  $(CC) $(CDEFINES) $(CFLAGS) $(INCLUDES) -c -o $@ $<
+
+$(BUILD_DIR)/%.$(OBJEXT): $(KLEIDIAI_DIR)/%.$(SRCEXT)
+			  $(CC) $(CDEFINES) $(CFLAGS) $(INCLUDES) -c -o $@ $<
+
+$(BUILD_DIR)/%.$(OBJEXT): $(TEST_DIR)/%.$(SRCEXT)
+			  $(CC) $(CDEFINES) $(CFLAGS) $(INCLUDES) -c -o $@ $<
