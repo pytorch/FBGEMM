@@ -1135,6 +1135,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--iters", default=100)
 @click.option("--runs-of-iters", default=5)
 @click.option("--warmup-runs", default=2)
+@click.option("--warmup-ms", type=int, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--report-aibench", is_flag=True)
 @click.option("--run-reference", is_flag=True, default=False)
@@ -1169,6 +1170,7 @@ def nbit_device(  # noqa C901
     iters: int,
     runs_of_iters: int,
     warmup_runs: int,
+    warmup_ms: Optional[int],
     output_dtype: SparseType,
     report_aibench: bool,
     run_reference: bool,
@@ -1295,6 +1297,7 @@ def nbit_device(  # noqa C901
                 per_sample_weights,
             ),
             check_median=check_median,
+            warmup_ms=warmup_ms,
         )
 
         # free up GPU memory

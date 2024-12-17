@@ -159,12 +159,22 @@ def benchmark_requests(
     # Can be used to clear model's stats after warmup for example.
     callback_after_warmup: Optional[Callable[[], None]] = None,
     periodic_logs: bool = False,
+    warmup_ms: Optional[int] = None,
 ) -> float:
     times = []
 
     # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
     # for the first kernel
     num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
+
+    if warmup_ms:
+        indices, offsets, weights = requests[0].unpack_3()
+        start_time_ms = time.time() * 1000
+        while time.time() * 1000 - start_time_ms < warmup_ms:
+            out = func(indices, offsets, weights)
+            if bwd_only:
+                out.backward(grad)
+
 
     if num_warmups > 0:
         indices, offsets, weights = requests[0].unpack_3()
