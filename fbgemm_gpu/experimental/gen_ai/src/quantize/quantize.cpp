@@ -302,7 +302,7 @@ at::Tensor f8f8bf16_rowwise_meta(
     at::Tensor WQ, // FP8
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
-    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    std::optional<at::Tensor> /* bias = std::nullopt */,
     bool /* use_fast_accum = true */) {
   const at::SymInt M = XQ.sym_size(0);
   const at::SymInt N = WQ.sym_size(0);
@@ -316,7 +316,7 @@ void f8f8bf16_rowwise_out_meta(
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
     at::Tensor /* output */,
-    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    std::optional<at::Tensor> /* bias = std::nullopt */,
     bool /* use_fast_accum = true */) {
   return;
 }
@@ -326,9 +326,9 @@ at::Tensor f8f8bf16_rowwise_batched_meta(
     at::Tensor WQ, // FP8
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
-    std::optional<at::Tensor> /* bias = c10::nullopt */,
+    std::optional<at::Tensor> /* bias = std::nullopt */,
     bool /* use_fast_accum = true */,
-    std::optional<at::Tensor> /* output = c10::nullopt */) {
+    std::optional<at::Tensor> /* output = std::nullopt */) {
   int B = XQ.size(0);
   int M = XQ.size(1);
   int N = WQ.size(1);
@@ -363,10 +363,10 @@ std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
 at::Tensor f8f8bf16_cublas_meta(
     at::Tensor X,
     at::Tensor W,
-    std::optional<at::Tensor> /* x_scale = c10::nullopt */,
-    std::optional<at::Tensor> /* w_scale = c10::nullopt */,
+    std::optional<at::Tensor> /* x_scale = std::nullopt */,
+    std::optional<at::Tensor> /* w_scale = std::nullopt */,
     bool /* use_fast_accum = true */,
-    std::optional<at::Tensor> /* output = c10::nullopt */) {
+    std::optional<at::Tensor> /* output = std::nullopt */) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
@@ -458,7 +458,7 @@ std::vector<at::Tensor> f8f8bf16_grouped_meta(
     const std::vector<at::Tensor>& XQ,
     const std::vector<at::Tensor>& WQ,
     const std::vector<at::Tensor>& /* scale */,
-    std::optional<at::Tensor> /* zero_start_index_M = c10::nullopt */,
+    std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */,
     bool /* use_fast_accum = true */) {
   std::vector<at::Tensor> Y;
   for (int i = 0; i < XQ.size(); i++) {
@@ -472,7 +472,7 @@ std::vector<at::Tensor> f8f8bf16_grouped_meta(
 at::Tensor bf16bf16bf16_grouped_meta(
     const std::vector<at::Tensor>& X,
     const std::vector<at::Tensor>& W,
-    std::optional<at::Tensor> /* zero_start_index_M = c10::nullopt */
+    std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */
 ) {
   int problem_count = X.size();
   int total_output_size = 0;
