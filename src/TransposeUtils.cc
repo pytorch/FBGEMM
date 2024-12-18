@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -47,9 +48,9 @@ void transpose_simd(
     return;
   }
 
-#if HAVE_SVE
+#ifdef __aarch64__
   if constexpr (std::is_same<T, float>::value) {
-    internal::transpose_sve<T>(M, N, src, ld_src, dst, ld_dst);
+    internal::transpose_neon<T>(M, N, src, ld_src, dst, ld_dst);
   } else {
     transpose_ref<T>(M, N, src, ld_src, dst, ld_dst);
   }
