@@ -67,6 +67,12 @@ class BoundsCheckMode(enum.IntEnum):
     IGNORE = 2
     # No bounds checks.
     NONE = 3
+    # IGNORE with V2 enabled
+    V2_IGNORE = 4
+    # WARNING with V2 enabled
+    V2_WARNING = 5
+    # FATAL with V2 enabled
+    V2_FATAL = 6
 
 
 class EmbeddingSpecInfo(enum.IntEnum):
