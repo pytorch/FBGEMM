@@ -174,7 +174,7 @@ create_conda_environment () {
 
   echo "[SETUP] Upgrading PIP to latest ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} pip install -c conda-forge --upgrade pip) || return 1
+  (exec_with_retries 3 conda run ${env_prefix} pip install --upgrade pip) || return 1
 
   # Handle pyOpenSSL version issue
   __handle_pyopenssl_version_issue "${env_name}"
