@@ -350,7 +350,7 @@ install_build_tools () {
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     bazel \
     click \
-    cmake \
+    cmake>=3.31 \
     hypothesis \
     jinja2 \
     make \

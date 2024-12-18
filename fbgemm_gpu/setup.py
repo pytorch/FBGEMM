@@ -245,8 +245,8 @@ class FbgemmGpuBuild:
         cmake_args = [
             f"-DCMAKE_PREFIX_PATH={torch_root}",
             _get_cxx11_abi(),
-            "-DCUDAToolkit_ROOT=/github/home/miniconda/envs/build_binary",
-            "-DCUDA_TOOLKIT_ROOT_DIR=/github/home/miniconda/envs/build_binary",
+            # "-DCUDAToolkit_ROOT=/github/home/miniconda/envs/build_binary",
+            # "-DCUDA_TOOLKIT_ROOT_DIR=/github/home/miniconda/envs/build_binary",
         ]
 
         cxx_flags = []
