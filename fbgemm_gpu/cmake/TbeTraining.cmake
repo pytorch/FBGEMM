@@ -43,6 +43,14 @@ handle_genfiles(gen_py_files_defused_optim)
 
 
 ################################################################################
+# FBGEMM_GPU Generated HIP-Specific Sources
+################################################################################
+
+get_tbe_sources_list(gen_hip_files_training)
+handle_genfiles_rocm(gen_hip_files_training)
+
+
+################################################################################
 # TBE C++ Training Targets
 ################################################################################
 
@@ -152,6 +160,8 @@ gpu_cpp_library(
     ${gen_cpu_files_training}
   GPU_SRCS
     ${gen_gpu_files_training}
+  HIP_SPECIFIC_SRCS
+    ${gen_hip_files_training}
   GPU_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS

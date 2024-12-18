@@ -43,6 +43,7 @@ from .cache_common import (
     generate_cache_tbes,
     gpu_unavailable,
     optests,
+    running_on_github,
     running_on_rocm,
     TestingStatsReporter,
     TestingStatsReporterConfig,
@@ -77,6 +78,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_github)
     @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -450,6 +452,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_github)
     @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -478,6 +481,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_github)
     @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -507,6 +511,7 @@ class CacheTest(unittest.TestCase):
 
     @optests.dontGenerateOpCheckTests("Serial OOM")
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_github)
     @unittest.skipIf(*running_on_rocm)
     @given(
         T=st.integers(min_value=1, max_value=5),
@@ -588,6 +593,7 @@ class CacheTest(unittest.TestCase):
         self.assertTrue(torch.equal(torch.full_like(output_tensor, 1), output_tensor))
 
     @unittest.skipIf(*gpu_unavailable)
+    @unittest.skipIf(*running_on_github)
     @given(
         L=st.integers(min_value=0, max_value=16),
         H=st.integers(min_value=512, max_value=1024),
