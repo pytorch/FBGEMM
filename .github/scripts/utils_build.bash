@@ -368,7 +368,7 @@ install_build_tools () {
   #   - package build-0.10.0-py310h06a4308_0 requires python >=3.10,<3.11.0a0, but none of the providers can be installed
   #
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} pip install -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     build) || return 1
 
   # Check binaries are visible in the PAATH
