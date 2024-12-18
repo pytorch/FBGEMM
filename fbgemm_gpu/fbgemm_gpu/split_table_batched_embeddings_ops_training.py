@@ -638,6 +638,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
         # If environment variable is set, it overwrites the default bounds check mode.
+        self.bounds_check_version: int = 1
+        if bounds_check_mode.name.startswith("V2_"):
+            self.bounds_check_version = 2
+            if bounds_check_mode == BoundsCheckMode.V2_IGNORE:
+                bounds_check_mode = BoundsCheckMode.IGNORE
+            elif bounds_check_mode == BoundsCheckMode.V2_WARNING:
+                bounds_check_mode = BoundsCheckMode.WARNING
+            elif bounds_check_mode == BoundsCheckMode.V2_FATAL:
+                bounds_check_mode = BoundsCheckMode.FATAL
+            else:
+                raise NotImplementedError(
+                    f"Did not recognize V2 bounds check mode: {bounds_check_mode}"
+                )
+
         self.bounds_check_mode_int: int = int(
             os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
         )
@@ -3352,6 +3366,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 b_t_map=b_t_map,
                 info_B_num_bits=info_B_num_bits,
                 info_B_mask=info_B_mask,
+                bounds_check_version=self.bounds_check_version,
             )
 
         return indices, offsets, per_sample_weights, vbe_metadata
