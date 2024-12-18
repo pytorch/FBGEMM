@@ -33,11 +33,12 @@ from ..common import assert_torch_equal, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, running_on_rocm
+    from test_utils import gpu_unavailable, optests, running_on_github, running_on_rocm
 else:
     from fbgemm_gpu.test.test_utils import (  # noqa: F401
         gpu_unavailable,  # noqa: F401
         optests,  # noqa: F401
+        running_on_github,  # noqa: F401
         running_on_rocm,  # noqa: F401
     )
 

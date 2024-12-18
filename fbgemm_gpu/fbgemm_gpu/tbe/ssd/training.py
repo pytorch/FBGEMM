@@ -180,7 +180,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             "D_offsets",
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
-
         assert self.D_offsets.numel() == T + 1
         hash_size_cumsum = [0] + list(itertools.accumulate(rows))
         if hash_size_cumsum[-1] == 0:
