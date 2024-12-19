@@ -134,7 +134,9 @@ class FP8TorchExportTests(unittest.TestCase):
 
         model = TestModule().cuda()
         # bf16 required here
-        _ = torch.export.export(model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),))
+        _ = torch.export.export(
+            model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),), strict=True
+        )
 
     def test_f8f8bf16_export(self) -> None:
         class TestModule(torch.nn.Module):
@@ -161,7 +163,7 @@ class FP8TorchExportTests(unittest.TestCase):
             fp8_dtype = torch.float8_e4m3fnuz
         xq = torch.randn(M, K).to(fp8_dtype).cuda()
         wq = torch.randn(N, K).to(fp8_dtype).cuda()
-        _ = torch.export.export(model, (xq, wq))
+        _ = torch.export.export(model, (xq, wq), strict=True)
 
 
 @unittest.skipIf(
