@@ -62,6 +62,7 @@ def benchmark_grouped(
     kernels: Optional[List[str]] = None,
     bench_quantize: bool = False,
     use_rotating_buffer_bench: bool = False,
+    use_cuda_graph: bool = True,
 ) -> Dict[str, Any]:
     num_groups = len(m)
     # Create input tensors.
@@ -92,6 +93,8 @@ def benchmark_grouped(
             quantized_vals = quantize_op.quantize(A, B)
             # Compute the output given quantized values.
             output = quantize_op.compute(*quantized_vals)
+            # Some kernels may pad output, just take the first m values of each row.
+            output = [o[: m[i]] for i, o in enumerate(output)]
             # Compare the quantize op output to reference as a sanity check.
             sim_check: float = 0
             for i in range(num_groups):
@@ -107,14 +110,14 @@ def benchmark_grouped(
                     B,
                     bench_quantize=True,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=True,
+                    use_cuda_graph=use_cuda_graph,
                 )
             else:
                 ms_runtime = quantize_op.benchmark(
                     *quantized_vals,
                     bench_quantize=False,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=True,
+                    use_cuda_graph=use_cuda_graph,
                 )
 
             # Print out results for this op.
@@ -124,8 +127,8 @@ def benchmark_grouped(
                 tflops += 2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 gbps += (
                     (
-                        quantized_vals[0][i].numel()
-                        * quantized_vals[0][i].element_size()
+                        quantized_vals[0][i][: m[i]].numel()
+                        * quantized_vals[0][i][: m[i]].element_size()
                         + quantized_vals[1][i].numel()
                         * quantized_vals[1][i].element_size()
                         + output[i].numel() * output[i].element_size()
@@ -156,6 +159,7 @@ def benchmark(
     kernels: Optional[List[str]] = None,
     bench_quantize: bool = False,
     use_rotating_buffer_bench: bool = False,
+    use_cuda_graph: bool = True,
 ) -> Dict[str, Any]:
     # Create input tensors.
     if b > 1:
@@ -192,12 +196,14 @@ def benchmark(
                     B,
                     bench_quantize=True,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
+                    use_cuda_graph=use_cuda_graph,
                 )
             else:
                 ms_runtime = quantize_op.benchmark(
                     *quantized_vals,
                     bench_quantize=False,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
+                    use_cuda_graph=use_cuda_graph,
                 )
 
             # Print out results for this op.
@@ -316,6 +322,7 @@ def main(args: Any):
             kernels,
             args.bench_quantize,
             args.use_rotating_buffer_bench,
+            not args.no_cuda_graph,
         )
         benchmark_results.append(quantize_measurements)
     if args.export_csv:
@@ -376,6 +383,12 @@ def invoke_main() -> None:
         action="store_true",
         help="If set, do grouped gemm. In this mode, M, N, and K are interpreted "
         "as the size of groups. The length of each must be the same.",
+    )
+    parser.add_argument(
+        "--no_cuda_graph",
+        default=False,
+        action="store_true",
+        help="If set, do not use cuda graph for benchmarking.",
     )
     parser.add_argument(
         "--use_rotating_buffer_bench",
