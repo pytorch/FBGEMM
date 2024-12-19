@@ -11,6 +11,7 @@ import logging
 from typing import Optional, Union
 
 import torch
+from fbgemm_gpu import envs
 
 from fbgemm_gpu.triton import dequantize_mx4, quantize_mx4, RoundingMode
 from fbgemm_gpu.triton.quantize_ref import py_dequantize_mx4, py_quantize_mx4
@@ -30,13 +31,16 @@ TORCH_HALF_MAX: float = torch.finfo(torch.float16).max
 TORCH_BFLOAT16_MIN: float = torch.finfo(torch.bfloat16).min
 TORCH_BFLOAT16_MAX: float = torch.finfo(torch.bfloat16).max
 
+# pyre-ignore[5]
+MX4_QUANT_ROUNDING_MODE = envs.MX4_QUANT_ROUNDING_MODE
+
 
 def fp32_to_mx4(
     tensor: torch.Tensor,
     group_size: int = 32,
     ebits: int = 2,
     mbits: int = 1,
-    rounding_mode: Optional[Union[RoundingMode, int]] = RoundingMode.even,
+    rounding_mode: Optional[Union[RoundingMode, int]] = None,
     stochastic_casting: bool = False,
     use_triton: bool = True,
 ) -> torch.Tensor:
@@ -57,8 +61,11 @@ def fp32_to_mx4(
     """
     # Accelerated MX4 is only available on cuda, if input is on cpu, use python.
     # Operate on flattened input.
-    if rounding_mode is None:
-        rounding_mode = RoundingMode.even
+    rounding_mode = (
+        RoundingMode.__members__.get(MX4_QUANT_ROUNDING_MODE, RoundingMode.even)
+        if rounding_mode is None
+        else rounding_mode
+    )
 
     if not tensor.is_cuda:
         return py_quantize_mx4(

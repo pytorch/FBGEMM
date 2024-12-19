@@ -83,7 +83,7 @@ def py_quantize_mx4(
         eg.
         Input with shape [1, 8192] will be quantized to [1, 4096 + 256] as
         each value contain two elements packed into an int8 and
-        there are 32 groups in each row.
+        there are 256 (8192 / group_size) groups in each row.
     """
     # Define helpful constants.
     FP32_MIN_NORMAL = 2 ** (-126)
@@ -150,15 +150,14 @@ def py_quantize_mx4(
     biased_exp = torch.bitwise_and(a, FP32_EXP_MASK)
     # Shift exponent over to least significant bits.
     biased_exp = torch.bitwise_right_shift(biased_exp, FP32_EXP_OFFSET).to(torch.int8)
-
-    # Finally extract the mantissa.
-    trailing_mantissa = torch.bitwise_and(a, FP32_MANTISSA_MASK)
     new_biased_exp = biased_exp - FP32_EXP_BIAS + FP4_EXP_BIAS
-
     # Compute difference between ideal exponent and what can be represented.
     exp_diff = torch.where(new_biased_exp <= 0, 1 - new_biased_exp, 0)
     # Clip this difference to the maximum number of fp32 mantissa bits (23 + implicit).
     exp_diff = torch.clamp(exp_diff, max=MAX_FP32_MANTISSA_BITS)
+
+    # Finally extract the mantissa.
+    trailing_mantissa = torch.bitwise_and(a, FP32_MANTISSA_MASK)
 
     # Now perform mantissa rounding down to fp4.
     is_subnorm = biased_exp == 0
