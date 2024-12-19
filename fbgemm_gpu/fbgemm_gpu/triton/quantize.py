@@ -183,6 +183,7 @@ def _kernel_quantize_mx4(
         # When theres no padding we can simplify indexing.
         else:
             padded_input_offset = input_offset
+
         # Load a block of values.
         a = tl.load(
             A + padded_input_offset,
@@ -434,7 +435,8 @@ def triton_quantize_mx4(
         rand_bits = None
 
     # Check if we need to use int64 for indexing.
-    use_int64 = a.numel() > 2**31 - 1
+    use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
+
     # Invoke triton quantization kernel over rows.
     grid = (num_threads,)
     _kernel_quantize_mx4[grid](
