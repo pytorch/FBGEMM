@@ -14,7 +14,7 @@
 ################################################################################
 
 setup_bazel () {
-  local bazel_version="${1:-6.1.1}"
+  local bazel_version="${1:-8.0.0}"
   echo "################################################################################"
   echo "# Setup Bazel"
   echo "#"
@@ -294,12 +294,13 @@ install_build_tools () {
   #   $CONDA_PREFIX/include directory, which is required for FBGEMM tests
   #
   # - ncurses is needed to silence libtinfo6.so errors for ROCm+Clang builds
+  # - rhash is needed bc newer versions of GXX package don't come packaged with this library anymore
   #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
     bazel \
     click \
-    cmake \
+    'cmake>=3.30' \
     hypothesis \
     jinja2 \
     make \
@@ -307,8 +308,14 @@ install_build_tools () {
     ninja \
     openblas \
     patchelf \
+    rhash \
     scikit-build \
     wheel) || return 1
+
+  echo "[INSTALL] Adding symlink librhash.so.0, which is needed by Cmake ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  (print_exec ln -s "${conda_prefix}/lib/librhash.so" "${conda_prefix}/lib/librhash.so.0") || return 1
 
   # For some reason, the build package for Python 3.12 is missing from Conda, so
   # we have to install through PyPI instead.
