@@ -304,6 +304,21 @@ class TestMXQuantizationConversion(unittest.TestCase):
         # We just need to check that everything ran without an illegal memory access.
         assert mx_dequantized[0] == 0
 
+    # pyre-fixme[56]:
+    @unittest.skipIf(
+        not (
+            torch.cuda.is_available() and torch.cuda.mem_get_info()[0] / (1024**3) >= 32
+        ),
+        "Test requires a gpu with at least 32GB of memory.",
+    )
+    def test_mx4_index_overflow_large_input(self) -> None:
+        """Tests that mx4 quantization kernels can handle inputs that would overflow int32 indices."""
+        large_input = torch.zeros((1, 2**31 - 2**3), dtype=torch.float32).to("cuda")
+        mx_quantized = fp32_to_mx4(large_input, 32)
+        mx_dequantized = mx4_to_fp32(mx_quantized, 32)
+        # We just need to check that everything ran without an illegal memory access.
+        assert mx_dequantized[0][0] == 0
+
 
 if __name__ == "__main__":
     unittest.main()
