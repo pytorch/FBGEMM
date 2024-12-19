@@ -461,7 +461,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
 
     local env_name="test_py${py_version}_pytorch_${pytorch_channel_version}_fbgemm_${fbgemm_gpu_channel_version}_${variant_type}/${variant_version}"
     local env_name="${env_name//\//_}"
-    test_setup_conda_environment  "${env_name}" 'no-compiler' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"   || return 1
+    test_setup_conda_environment  "${env_name}" gcc "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"   || return 1
     install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                                    || return 1
     cd "${repo}"                                                                                                                                        || return 1
 

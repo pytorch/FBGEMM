@@ -128,8 +128,14 @@ install_pytorch_pip () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # Install the main dependencies
+  #
+  # NOTE: Since CUDA 12.6, the conda channels information after CUDA installation
+  # gets messed up, and adding the --override-channels flag is needed to get
+  # packages to be installed correctly.  See:
+  #   https://github.com/conda/conda/issues/14063#issuecomment-2244508044
+  #
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     numpy) || return 1
 
   # Install the torch package from PyTorch PIP (not PyPI)

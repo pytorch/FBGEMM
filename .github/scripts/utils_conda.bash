@@ -97,12 +97,12 @@ __handle_pyopenssl_version_issue () {
   # https://stackoverflow.com/questions/74981558/error-updating-python3-pip-attributeerror-module-lib-has-no-attribute-openss
   echo "[SETUP] Upgrading pyOpenSSL ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} python -m pip install "pyOpenSSL>22.1.0") || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+    "pyOpenSSL>22.1.0") || return 1
 
   # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
   echo "[SETUP] Testing pyOpenSSL import ..."
   (test_python_import_package "${env_name}" OpenSSL) || return 1
-
 }
 
 __handle_libcrypt_header_issue () {
