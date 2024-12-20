@@ -298,6 +298,7 @@ install_build_tools () {
   #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+    auditwheel \
     bazel \
     click \
     'cmake>=3.30' \
