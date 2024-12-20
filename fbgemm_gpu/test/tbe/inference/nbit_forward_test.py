@@ -29,7 +29,7 @@ from fbgemm_gpu.tbe.utils import generate_requests, quantize_embs, round_up
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
-from .common import get_nbit_weights_ty, NBitFowardTestCommon
+from .common import get_nbit_weights_ty, NBitFowardTestCommon, SSDPrefetcherTestSetting
 
 if open_source:
     # pyre-ignore[21]
@@ -372,10 +372,12 @@ class NBitFowardTest(NBitFowardTestCommon):
         output_dtype=st.sampled_from(
             [SparseType.FP32, SparseType.FP16, SparseType.BF16]
         ),
+        register_prefetcher_at_tbe_init=st.booleans(),
+        add_ssd_placement_at_tbe_init=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
-        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        max_examples=MAX_EXAMPLES,
         deadline=None,
     )
     def test_nbit_forward_cpu_fake_ssd(
@@ -386,6 +388,8 @@ class NBitFowardTest(NBitFowardTestCommon):
         pooling_mode: PoolingMode,
         indices_dtype: torch.dtype,
         output_dtype: SparseType,
+        register_prefetcher_at_tbe_init: bool,
+        add_ssd_placement_at_tbe_init: bool,
     ) -> None:
         use_cpu = True
         T = random.randint(1, 50)
@@ -412,6 +416,10 @@ class NBitFowardTest(NBitFowardTestCommon):
             weights_ty: SparseType = nbit_weights_ty
             mixed_weights_ty = False
 
+        settings = SSDPrefetcherTestSetting()
+        settings.register_prefetcher_at_tbe_init = register_prefetcher_at_tbe_init
+        settings.add_ssd_placement_at_tbe_init = add_ssd_placement_at_tbe_init
+
         self.execute_nbit_forward_(
             T,
             D,
@@ -431,6 +439,7 @@ class NBitFowardTest(NBitFowardTestCommon):
             indices_dtype,
             output_dtype,
             test_ssd_prefetcher=True,
+            ssd_prefetcher_test_setting=settings,
         )
 
     @given(

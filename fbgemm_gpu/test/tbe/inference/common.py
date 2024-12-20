@@ -66,6 +66,13 @@ def get_nbit_weights_ty(draw) -> Optional[SparseType]:
     )
 
 
+class SSDPrefetcherTestSetting:
+
+    def __init__(self):
+        self.register_prefetcher_at_tbe_init: bool = True
+        self.add_ssd_placement_at_tbe_init: bool = True
+
+
 class NBitFowardTestCommon(unittest.TestCase):
     def execute_nbit_forward_(  # noqa C901
         self,
@@ -87,6 +94,7 @@ class NBitFowardTestCommon(unittest.TestCase):
         indices_dtype: torch.dtype,
         output_dtype: SparseType,
         test_ssd_prefetcher: bool = False,
+        ssd_prefetcher_test_setting: Optional[SSDPrefetcherTestSetting] = None,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
@@ -257,6 +265,9 @@ class NBitFowardTestCommon(unittest.TestCase):
             ssd_prefetcher = None
             ssd_table_placements = None
 
+        if ssd_prefetcher_test_setting is None:
+            ssd_prefetcher_test_setting = SSDPrefetcherTestSetting()
+
         cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             embedding_specs=embedding_specs,
             pooling_mode=pooling_mode,
@@ -272,12 +283,40 @@ class NBitFowardTestCommon(unittest.TestCase):
                 fp8_config.get("exponent_bias") if has_fp8_weight else None
             ),
             indices_dtype=indices_dtype,
-            ssd_prefetcher=ssd_prefetcher,
-            ssd_placements=ssd_table_placements,
+            ssd_prefetcher=(
+                ssd_prefetcher
+                if ssd_prefetcher_test_setting.register_prefetcher_at_tbe_init
+                else None
+            ),
+            ssd_placements=(
+                ssd_table_placements
+                if ssd_prefetcher_test_setting.add_ssd_placement_at_tbe_init
+                and ssd_prefetcher_test_setting.register_prefetcher_at_tbe_init
+                else None
+            ),
         )
         # Initialize the random weights for int nbit table split embedding bag
         if not test_ssd_prefetcher:
             cc.fill_random_weights()
+
+        # Testing SSD prefetcher: register the SSD prefetcher after TBE module init
+        if (
+            test_ssd_prefetcher
+            and ssd_prefetcher is not None
+            and not ssd_prefetcher_test_setting.register_prefetcher_at_tbe_init
+        ):
+            cc.register_ssd_prefetcher(ssd_prefetcher)
+
+        # Testing SSD prefetcher: add SSD table placements after TBE module init
+        if (
+            test_ssd_prefetcher
+            and ssd_table_placements is not None
+            and (
+                not ssd_prefetcher_test_setting.add_ssd_placement_at_tbe_init
+                or not ssd_prefetcher_test_setting.register_prefetcher_at_tbe_init
+            )
+        ):
+            cc.set_ssd_placements(ssd_table_placements)
 
         if not use_cpu:
             # NOTE: test TorchScript-compatible!
