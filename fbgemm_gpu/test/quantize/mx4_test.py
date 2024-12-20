@@ -319,6 +319,63 @@ class TestMXQuantizationConversion(unittest.TestCase):
         # We just need to check that everything ran without an illegal memory access.
         assert mx_dequantized[0][0] == 0
 
+    @unittest.skipIf(
+        not (
+            torch.cuda.is_available() and torch.cuda.mem_get_info()[0] / (1024**3) >= 32
+        ),
+        "Test requires a gpu with at least 32GB of memory.",
+    )
+    # pyre-ignore[56]
+    @given(
+        shape=st.sampled_from(
+            [
+                [2 ^ 31 - 1],  # Small shape with group_size = num_elements.
+                [1024 * 1024, 1024],  # Multi dimensional shape that is padded.
+                [16, 1028],  # Large shape with multiple padded rows.
+                [4, 30],  # Multiple small rows with padding.
+            ]
+        ),
+        group_size=st.sampled_from([32, 64]),
+        magnitude=st.sampled_from([1.0, 1e3, 1e-3]),
+        mx4_format=st.sampled_from([(2, 1)]),
+        device=st.sampled_from(["cuda"]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=50, deadline=None)
+    def test_mx4_large_cases(
+        self,
+        shape: List[int],
+        group_size: int,
+        magnitude: int,
+        mx4_format: Tuple[int, int],
+        device: str,
+    ) -> None:
+        """Test correctness of mx4 routines with random inputs and unusual shapes."""
+        # We only want to consider total sizes that are divisible by group_size.
+        ebits, mbits = mx4_format
+
+        # Generate a random input with the specified magnitude.
+        input = torch.randn(shape, device=device, dtype=torch.float32) * magnitude
+
+        # Perform quant then dequant to check that proper shape is maintained and
+        # outputs are reasonably correct.
+        mx_quantized = fp32_to_mx4(input, group_size, ebits=ebits, mbits=mbits)
+        mx_dequantized = mx4_to_fp32(mx_quantized, group_size, ebits=ebits, mbits=mbits)
+
+        # If the rows of input are not divisible by group_size, we expect the output
+        # to be padded.
+        if input.shape[-1] % group_size != 0:
+            pad = group_size - (input.shape[-1] % group_size)
+            input = torch.nn.functional.pad(input, (0, pad))
+
+        # Check that output shape matches input shape.
+        assert mx_dequantized.shape == input.shape
+
+        # Check that values are reasonably close, based on expected variance.
+        # I give quite a bit of wiggle room to make sure this isnt flaky.
+        torch.testing.assert_close(input, mx_dequantized, rtol=1.0, atol=magnitude / 2)
+        assert not torch.isnan(mx_dequantized).any()
+        assert not torch.isinf(mx_dequantized).any()
+
 
 if __name__ == "__main__":
     unittest.main()
