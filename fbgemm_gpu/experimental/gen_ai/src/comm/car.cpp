@@ -141,6 +141,9 @@ void nccl_allgather(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
   TORCH_CHECK(src.is_contiguous());
   TORCH_CHECK(dst.is_contiguous());
+  TORCH_CHECK(
+      src.dtype() == dst.dtype(),
+      "dst and src tensors must have the same dtype.");
   ncclDataType_t type = to_nccl_data_type(src.scalar_type());
   C10D_NCCL_CHECK(
       ncclAllGather(
