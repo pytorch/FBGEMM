@@ -10,7 +10,7 @@
 
 import random
 import unittest
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import hypothesis.strategies as st
 import numpy as np
@@ -18,12 +18,19 @@ import torch
 from fbgemm_gpu.split_embedding_configs import FP8QuantizationConfig, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
+    DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
     PoolingMode,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.split_table_batched_embeddings_ops_utils import (
+    random_quant_scaled_tensor,
+    rounded_row_size_in_bytes,
+    unpadded_row_size_in_bytes,
+)
+from fbgemm_gpu.ssd_prefetcher import SSDPrefetcher
 from fbgemm_gpu.tbe.utils import (
     b_indices,
     fake_quantize_embs,
@@ -33,6 +40,7 @@ from fbgemm_gpu.tbe.utils import (
 )
 from hypothesis import assume
 from hypothesis.strategies import composite
+from torch import Tensor
 
 
 @composite
@@ -78,6 +86,7 @@ class NBitFowardTestCommon(unittest.TestCase):
         mixed_weights_ty: bool,
         indices_dtype: torch.dtype,
         output_dtype: SparseType,
+        test_ssd_prefetcher: bool = False,
     ) -> None:
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
@@ -229,17 +238,27 @@ class NBitFowardTestCommon(unittest.TestCase):
                 x, use_cpu=use_cpu
             )
 
+        embedding_specs = [
+            (
+                "",
+                E,
+                D,
+                W_TY,
+                EmbeddingLocation(M),
+            )
+            for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+        ]
+        if test_ssd_prefetcher:
+            ssd_prefetcher = DummyPrefetcher(embedding_specs)
+            ssd_table_placements = []
+            for t in range(T):
+                ssd_table_placements.extend([t] * B * L)
+        else:
+            ssd_prefetcher = None
+            ssd_table_placements = None
+
         cc = IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    "",
-                    E,
-                    D,
-                    W_TY,
-                    EmbeddingLocation(M),
-                )
-                for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
-            ],
+            embedding_specs=embedding_specs,
             pooling_mode=pooling_mode,
             index_remapping=index_remappings_array if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
@@ -253,16 +272,22 @@ class NBitFowardTestCommon(unittest.TestCase):
                 fp8_config.get("exponent_bias") if has_fp8_weight else None
             ),
             indices_dtype=indices_dtype,
+            ssd_prefetcher=ssd_prefetcher,
+            ssd_placements=ssd_table_placements,
         )
         # Initialize the random weights for int nbit table split embedding bag
-        cc.fill_random_weights()
+        if not test_ssd_prefetcher:
+            cc.fill_random_weights()
 
         if not use_cpu:
             # NOTE: test TorchScript-compatible!
             cc = torch.jit.script(cc)
 
         for t in range(T):
-            (weights, scale_shift) = cc.split_embedding_weights()[t]
+            if ssd_prefetcher is None:
+                (weights, scale_shift) = cc.split_embedding_weights()[t]
+            else:
+                (weights, scale_shift) = ssd_prefetcher.split_embedding_weights()[t]
             if scale_shift is not None:
                 (E, R) = scale_shift.shape
                 self.assertEqual(R, 4)
@@ -362,4 +387,122 @@ class NBitFowardTestCommon(unittest.TestCase):
             f.float().cpu(),
             atol=1.0e-2,
             rtol=1.0e-2,
+        )
+
+
+class DummyPrefetcher(SSDPrefetcher):
+    """
+    A dummy fake SSD prefetcher intended to test if the TBE module can work with
+    the SSD prefetcher interface. It simply takes a range of embedding table shapes
+    and generate random weights based on the shapes during initialization, and
+    returns the picked rows when the prefetch() function is called.
+    """
+
+    def _generate_weights(
+        self, embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]]
+    ) -> None:
+        for _, rows, dim, weight_ty, _ in embedding_specs:
+            weights = random_quant_scaled_tensor(
+                torch.Size(
+                    (
+                        rows,
+                        rounded_row_size_in_bytes(
+                            dim,
+                            weight_ty,
+                            self.row_alignment,
+                            self.scale_bias_size_in_bytes,
+                        ),
+                    ),
+                ),
+                device=torch.device("cpu"),
+            )
+            self.weights.append(weights)
+            self.nrows.append(self.nrows[-1] + rows)
+
+    def split_embedding_weights(
+        self, split_scale_shifts: bool = True
+    ) -> List[Tuple[Tensor, Optional[Tensor]]]:
+        splits: List[Tuple[Tensor, Optional[Tensor]]] = []
+        for i, (_, _, dim, weight_ty, _) in enumerate(self.embedding_specs):
+            weights_shifts = self.weights[i].detach()
+            if split_scale_shifts:
+                # remove the padding at the end of each row.
+                weights_shifts = weights_shifts[
+                    :,
+                    : unpadded_row_size_in_bytes(
+                        dim, weight_ty, self.scale_bias_size_in_bytes
+                    ),
+                ]
+                if (
+                    weight_ty == SparseType.INT8
+                    or weight_ty == SparseType.INT4
+                    or weight_ty == SparseType.INT2
+                ):
+                    splits.append(
+                        (
+                            weights_shifts[:, self.scale_bias_size_in_bytes :],
+                            weights_shifts[:, : self.scale_bias_size_in_bytes],
+                        )
+                    )
+                else:
+                    assert (
+                        weight_ty == SparseType.FP8
+                        or weight_ty == SparseType.FP16
+                        or weight_ty == SparseType.FP32
+                    )
+                    splits.append(
+                        (
+                            weights_shifts,
+                            None,
+                        )
+                    )
+            else:
+                splits.append((weights_shifts, None))
+
+        return splits
+
+    def __init__(
+        self,
+        embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
+        row_alignment: int = 1,
+        scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
+    ) -> None:
+        self.embedding_specs = embedding_specs
+        self.row_alignment = row_alignment
+        self.scale_bias_size_in_bytes = scale_bias_size_in_bytes
+        self.weights: List[torch.Tensor] = []
+        self.nrows: List[int] = [0]
+        self._generate_weights(embedding_specs)
+
+    def prefetch(
+        self,
+        indices: torch.Tensor,
+        offsets: torch.Tensor,
+        table_placement: torch.Tensor,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        if indices.numel() == 0:
+            return (torch.tensor([], dtype=torch.uint8, device="cpu"), None, None)
+        assert indices.numel() == table_placement.numel()
+        fetched_rows = []
+        new_indices = []
+        weights_offsets = [0]
+        prev_table_id = None
+        idx = 0
+        bytes_added = 0
+        for i, tbl in enumerate(table_placement):
+            if prev_table_id is None:
+                prev_table_id = tbl
+            if prev_table_id != tbl:
+                idx = 0
+                prev_table_id = tbl
+                weights_offsets.append(bytes_added)
+            fetched_rows.append(self.weights[tbl][indices[i]])
+            new_indices.append(idx)
+            idx += 1
+            bytes_added += self.weights[tbl][indices[i]].numel()
+
+        return (
+            torch.cat(fetched_rows),
+            torch.tensor(new_indices, dtype=indices.dtype, device="cpu"),
+            torch.tensor(weights_offsets, dtype=torch.int64, device="cpu"),
         )
