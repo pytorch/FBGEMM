@@ -304,6 +304,17 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             bulk_init_chunk_size=bulk_init_chunk_size,
         ).cuda()
 
+        if bulk_init_chunk_size > 0:
+            self.assertIsNotNone(
+                emb.lazy_init_thread,
+                "if bulk_init_chunk_size > 0, lazy_init_thread must be set and it should not be force-synchronized yet",
+            )
+
+        # By doing the check for ssd_db being None below, we also access the getter property of ssd_db, which will
+        # force the synchronization of lazy_init_thread, and then reset it to None.
+        if emb.ssd_db is not None:
+            self.assertIsNone(emb.lazy_init_thread)
+
         # A list to keep the CPU tensor alive until `set` (called inside
         # `set_cuda`) is complete. Note that `set_cuda` is non-blocking
         # asynchronous
