@@ -304,20 +304,57 @@ class TestMXQuantizationConversion(unittest.TestCase):
         # We just need to check that everything ran without an illegal memory access.
         assert mx_dequantized[0] == 0
 
-    # pyre-fixme[56]:
     @unittest.skipIf(
         not (
-            torch.cuda.is_available() and torch.cuda.mem_get_info()[0] / (1024**3) >= 32
+            torch.cuda.is_available() and torch.cuda.mem_get_info()[0] / (1024**3) >= 64
         ),
-        "Test requires a gpu with at least 32GB of memory.",
+        "Test requires a gpu with at least 64GB of memory.",
     )
-    def test_mx4_index_overflow_large_input(self) -> None:
-        """Tests that mx4 quantization kernels can handle inputs that would overflow int32 indices."""
-        large_input = torch.zeros((1, 2**31 - 2**3), dtype=torch.float32).to("cuda")
-        mx_quantized = fp32_to_mx4(large_input, 32)
-        mx_dequantized = mx4_to_fp32(mx_quantized, 32)
-        # We just need to check that everything ran without an illegal memory access.
-        assert mx_dequantized[0][0] == 0
+    # pyre-fixme[56]:
+    @given(
+        shape=st.sampled_from([[1024 * 1024, 2020]]),
+        group_size=st.sampled_from([32]),
+        rounding_mode=st.sampled_from([RoundingMode.even]),
+        magnitude=st.sampled_from([1e6]),
+        mx4_format=st.sampled_from([(2, 1)]),
+        device=st.sampled_from(["cuda"]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=2, deadline=None)
+    def test_mx4_large_cases(
+        self,
+        shape: List[int],
+        group_size: int,
+        rounding_mode: RoundingMode,
+        magnitude: int,
+        mx4_format: Tuple[int, int],
+        device: str,
+    ) -> None:
+        """Test correctness of mx4 routines with random inputs and shapes that overflow int32."""
+        # We only want to consider total sizes that are divisible by group_size.
+        ebits, mbits = mx4_format
+
+        # Generate a random input with the specified magnitude.
+        input = torch.randn(shape, device=device, dtype=torch.float32) * magnitude
+
+        # Perform quant then dequant to check that proper shape is maintained and
+        # outputs are reasonably correct.
+        mx_quantized = fp32_to_mx4(
+            input, group_size, rounding_mode=rounding_mode, ebits=ebits, mbits=mbits
+        )
+        mx_dequantized = mx4_to_fp32(mx_quantized, group_size, ebits=ebits, mbits=mbits)
+
+        # If the rows of input are not divisible by group_size, we expect the output
+        # to be padded.
+        if input.shape[-1] % group_size != 0:
+            pad = group_size - (input.shape[-1] % group_size)
+            input = torch.nn.functional.pad(input, (0, pad))
+
+        # Check that output shape matches input shape.
+        assert mx_dequantized.shape == input.shape
+
+        # Check that values are reasonably close, based on expected variance.
+        # I give quite a bit of wiggle room to make sure this isnt flaky.
+        torch.testing.assert_close(input, mx_dequantized, rtol=1.0, atol=magnitude / 2)
 
 
 if __name__ == "__main__":
