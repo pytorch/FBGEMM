@@ -363,7 +363,7 @@ enum SSDTensor {
           {%- if ssd %}
           ssd_tensors.value(),
           {%- endif  %}
-          {{ args.split_function_arg_names | join(", ") }}
+          {{ args.split_function_arg_names_autograd | join(", ") }}
           {%- endif %}
           )[0];
 {%- endmacro %}
@@ -623,7 +623,7 @@ class {{ autograd_func }} :
     {%- if ssd %}
     const at::TensorList& ssd_tensors,
     {%- endif %}
-    {{ args.split_function_args | join(", ") }}
+    {{ args.split_function_args_autograd | join(", ") }}
     {%- else %}
     {%- if vbe %}
     const std::optional<Tensor>& B_offsets,
@@ -762,7 +762,7 @@ class {{ autograd_func }} :
         ssd_tensors[SSDTensor::{{ tensor | upper }}],
         {%- endfor %}
         {%- endif %}
-        {{ args.split_saved_tensors | join(", ") }}
+        {{ args.split_saved_tensors_optional | join(", ") }}
     });
 
     {%- if not nobag %}
