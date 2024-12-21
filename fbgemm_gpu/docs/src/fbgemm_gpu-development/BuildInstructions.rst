@@ -506,7 +506,7 @@ Python platform name must first be properly set:
   export ARCH=$(uname -m)
 
   # Set the Python platform name for the Linux case
-  export python_plat_name="manylinux2014_${ARCH}"
+  export python_plat_name="manylinux_2_28_${ARCH}"
   # For the macOS (x86_64) case
   export python_plat_name="macosx_10_9_${ARCH}"
   # For the macOS (arm64) case
