@@ -143,6 +143,10 @@ install_pytorch_pip () {
   local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
 
+  echo "[CHECK] NOTE: Checking _GLIBCXX_USE_CXX11_ABI ..."
+  # shellcheck disable=SC2086,SC2155
+  conda run ${env_prefix} python -c 'import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI); print(torch.compiled_with_cxx11_abi())'
+
   if [ "$pytorch_variant_type" == "cuda" ]; then
     # Ensure that the PyTorch-CUDA headers are properly installed
     (test_filepath "${env_name}" cuda_cmake_macros.h) || return 1
