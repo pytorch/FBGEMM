@@ -354,7 +354,7 @@ function(gpu_cpp_library)
         "CUDA_SPECIFIC_SRCS:"
         "${args_CUDA_SPECIFIC_SRCS}"
         " "
-        "HIP_SPECIFIC_SRCS"
+        "HIP_SPECIFIC_SRCS:"
         "${args_HIP_SPECIFIC_SRCS}"
         " "
         "OTHER_SRCS:"
