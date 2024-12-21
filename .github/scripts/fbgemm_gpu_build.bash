@@ -324,9 +324,13 @@ __build_fbgemm_gpu_set_python_plat_name () {
     fi
 
   elif [[ $KERN_NAME == 'Linux' ]]; then
-    # manylinux2014 is specified, bc manylinux1 does not support aarch64
-    # See https://github.com/pypa/manylinux
-    export python_plat_name="manylinux2014_${MACHINE_NAME}"
+    # NOTE: manylinux2014 is the minimum platform tag specified, bc
+    # manylinux1 does not support aarch64; see https://github.com/pypa/manylinux
+    #
+    # As of 2024-12, upstream torch has switched to manylinux_2_28:
+    #   https://dev-discuss.pytorch.org/t/pytorch-linux-wheels-switching-to-new-wheel-build-platform-manylinux-2-28-on-november-12-2024/2581
+    #   https://github.com/pytorch/pytorch/pull/143423
+    export python_plat_name="manylinux_2_28_${MACHINE_NAME}"
 
   else
     echo "[BUILD] Unsupported OS platform: ${KERN_NAME}"
@@ -519,6 +523,24 @@ run_fbgemm_gpu_postbuild_checks () {
   __verify_library_symbols  || return 1
 }
 
+run_fbgemm_gpu_audit_wheel () {
+  fbgemm_wheel="$1"
+  if [ "$fbgemm_wheel" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} FBGEMM_WHEEL_PATH"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} dist/fbgemm_gpu_nightly_cpu-2024.12.20-cp39-cp39-manylinux_2_28_x86_64.whl"
+    return 1
+  fi
+
+  echo "################################################################################"
+  echo "[BUILD] Wheel Audit: ${fbgemm_wheel}"
+  echo ""
+
+  print_exec conda run --no-capture-output ${env_prefix} auditwheel show "${fbgemm_wheel}"
+  echo ""
+  echo "################################################################################"
+}
+
 ################################################################################
 # FBGEMM_GPU Build Functions
 ################################################################################
@@ -577,6 +599,10 @@ build_fbgemm_gpu_package () {
 
   # Run checks on the built libraries
   (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
+
+  for wheelfile in dist/*.whl; do
+    run_fbgemm_gpu_audit_wheel "${wheelfile}"
+  done
 
   echo "[BUILD] Enumerating the built wheels ..."
   print_exec ls -lth dist/*.whl || return 1
