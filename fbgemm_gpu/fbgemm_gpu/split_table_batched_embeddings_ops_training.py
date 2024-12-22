@@ -155,6 +155,17 @@ class EnsembleModeDefinition:
 
 
 @dataclass(frozen=True)
+class SparseEMADefinition:
+    ema_start: int = 10000
+    ema_end: int = -1
+    ema_step: int = 10000
+    ema_coef: float = 0.9
+    ema_mode: int = 2
+    swap_step: int = 10000
+    swap_coef: float = 0.9
+
+
+@dataclass(frozen=True)
 class EmainplaceModeDefinition:
     step_ema: float = 10
     step_start: float = 0
@@ -613,6 +624,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         beta1: float = 0.9,
         beta2: float = 0.999,
         ensemble_mode: Optional[EnsembleModeDefinition] = None,
+        sparse_ema_options: Optional[SparseEMADefinition] = None,
         emainplace_mode: Optional[EmainplaceModeDefinition] = None,
         counter_based_regularization: Optional[
             CounterBasedRegularizationDefinition
@@ -941,6 +953,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         )
 
+        self._used_rowwise_adagrad_with_ema: int = -1
+        self._sparse_ema_options: SparseEMADefinition = SparseEMADefinition()
+        if optimizer == OptimType.EXACT_ROWWISE_ADAGRAD and (
+            sparse_ema_options is not None
+        ):
+            self._used_rowwise_adagrad_with_ema = sparse_ema_options.ema_mode
+            self._sparse_ema_options = sparse_ema_options
+
         if weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL and (
             not optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             or global_weight_decay is None
@@ -1081,7 +1101,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.LAMB,
                 OptimType.PARTIAL_ROWWISE_LAMB,
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
-            ):
+            ) or self._used_rowwise_adagrad_with_ema in [2, 3]:
                 rowwise = optimizer in (
                     OptimType.PARTIAL_ROWWISE_ADAM,
                     OptimType.PARTIAL_ROWWISE_LAMB,
@@ -1102,6 +1122,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         placement=(
                             EmbeddingLocation.MANAGED
                             if ((not rowwise) and uvm_non_rowwise_momentum)
+                            or self._used_rowwise_adagrad_with_ema in [2, 3]
                             else None
                         ),
                     ),
@@ -1186,6 +1207,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 )
                 or self._used_rowwise_adagrad_with_global_weight_decay
+                or self._used_rowwise_adagrad_with_ema != -1
             ):
                 self.register_buffer(
                     "iter",
@@ -2012,6 +2034,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.max_counter[0] = 1
 
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+            if self._used_rowwise_adagrad_with_ema != -1:
+                with torch.no_grad():
+                    if self.training:
+                        self.ema_and_swap()
+
             if self._used_rowwise_adagrad_with_counter:
                 return self._report_io_size_count(
                     "fwd_output",
@@ -2119,6 +2146,51 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     if int(ensemble_mode["step_mode"]) == 0:  # embedding scaling
                         states[i][1].mul_(0.0)
                 #  elif int(ensemble_mode["step_mode"]) == 2:  pure ema
+
+    @torch.jit.ignore
+    def ema_and_swap(self) -> None:
+        """
+        Perform ema and swap on full sparse embedding tables within exact_rowwise_adagrad.
+
+        Returns:
+            None. Sparse embedding weights and optimizer states will be updated in-place.
+        """
+        ema_start = self._sparse_ema_options.ema_start
+        ema_end = self._sparse_ema_options.ema_end
+        ema_step = self._sparse_ema_options.ema_step
+        ema_coef = self._sparse_ema_options.ema_coef
+        ema_mode = self._sparse_ema_options.ema_mode
+        swap_step = self._sparse_ema_options.swap_step
+        swap_coef = self._sparse_ema_options.swap_coef
+
+        iter_int = int(self.iter_cpu.item())
+        should_start = iter_int > ema_start
+        should_end = (ema_end > 0) and (iter_int > ema_end)
+        should_ema = (iter_int - ema_start) % ema_step == 0
+        should_swap = (iter_int - ema_start) % swap_step == 0
+        ema_decay = (iter_int - ema_start) / ema_step if ema_mode in [1, 3] else 1.0
+        swap_decay = (iter_int - ema_start) / swap_step if ema_mode in [1, 3] else 1.0
+
+        if (should_start and not should_end) and (should_ema or should_swap):
+            weights = self.split_embedding_weights()
+            states = self.split_optimizer_states()
+            for i in range(len(self.embedding_specs)):
+                if ema_mode in [0, 1]:  # embedding shrinking
+                    if should_swap:
+                        weights[i].mul_(1.0 - (1.0 - swap_coef) / (swap_decay**0.5))
+                elif ema_mode in [2, 3]:  # embedding ensemble
+                    weights_cpu = weights[i].to(
+                        dtype=states[i][1].dtype, device=states[i][1].device
+                    )  # gpu to cpu
+                    if should_swap:  # swap
+                        weights_cpu.lerp_(
+                            states[i][1], (1.0 - swap_coef) / (swap_decay**0.5)
+                        )
+                        weights[i].copy_(weights_cpu, non_blocking=True)
+                    if should_ema:  # ema
+                        states[i][1].lerp_(
+                            weights_cpu, (1.0 - ema_coef) / (ema_decay**0.5)
+                        )
 
     def reset_uvm_cache_stats(self) -> None:
         assert (
@@ -2515,7 +2587,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         split_optimizer_states = self.split_optimizer_states()
         if (
-            self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            (
+                self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+                and self._used_rowwise_adagrad_with_ema not in [2, 3]
+            )
             or self.optimizer == OptimType.EXACT_ADAGRAD
             or self.optimizer == OptimType.EMAINPLACE_ROWWISE_ADAGRAD
         ):
@@ -2531,6 +2606,40 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                         }
                         if self._used_rowwise_adagrad_with_global_weight_decay
                         else {"sum": states[0]}
+                    )
+                )
+                for states in split_optimizer_states
+            ]
+            if self._used_rowwise_adagrad_with_ema in [0, 1]:
+                for state_dict in list_of_state_dict:
+                    state_dict.update({"iter": self.iter})
+        elif (
+            self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
+            and self._used_rowwise_adagrad_with_ema in [2, 3]
+        ):
+            list_of_state_dict = [
+                (
+                    {
+                        "sum": states[0],
+                        "sparse_ema": states[1],
+                        "prev_iter": states[2],
+                        "row_counter": states[3],
+                        "iter": self.iter,
+                    }
+                    if self._used_rowwise_adagrad_with_counter
+                    else (
+                        {
+                            "sum": states[0],
+                            "sparse_ema": states[1],
+                            "prev_iter": states[2],
+                            "iter": self.iter,
+                        }
+                        if self._used_rowwise_adagrad_with_global_weight_decay
+                        else {
+                            "sum": states[0],
+                            "sparse_ema": states[1],
+                            "iter": self.iter,
+                        }
                     )
                 )
                 for states in split_optimizer_states
@@ -2667,7 +2776,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             OptimType.LAMB,
             OptimType.PARTIAL_ROWWISE_LAMB,
             OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
-        ):
+        ) or self._used_rowwise_adagrad_with_ema in [2, 3]:
             states.append(
                 get_optimizer_states(
                     # pyre-fixme[6]: For 1st argument expected `Tensor` but got
