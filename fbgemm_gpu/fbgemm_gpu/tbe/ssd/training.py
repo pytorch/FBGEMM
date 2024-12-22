@@ -290,7 +290,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         assert weights_precision in (SparseType.FP32, SparseType.FP16)
-        assert output_dtype in (SparseType.FP32, SparseType.FP16)
         self.weights_precision = weights_precision
         self.output_dtype: int = output_dtype.as_int()
 
