@@ -357,6 +357,82 @@ class NBitFowardTest(NBitFowardTestCommon):
             output_dtype,
         )
 
+    @unittest.skipIf(
+        TEST_WITH_ROCM,
+        "This test is currently running into failing on rocm clang in OSS, and is being investigated.",
+    )
+    @given(
+        nbit_weights_ty=get_nbit_weights_ty(),
+        use_array_for_index_remapping=st.booleans(),
+        do_pruning=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [PoolingMode.SUM, PoolingMode.NONE, PoolingMode.MEAN]
+        ),
+        indices_dtype=st.sampled_from([torch.int32, torch.int64]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+    )
+    def test_nbit_forward_cpu_fake_ssd(
+        self,
+        nbit_weights_ty: Optional[SparseType],
+        use_array_for_index_remapping: bool,
+        do_pruning: bool,
+        pooling_mode: PoolingMode,
+        indices_dtype: torch.dtype,
+        output_dtype: SparseType,
+    ) -> None:
+        use_cpu = True
+        T = random.randint(1, 50)
+        B = random.randint(0, 128)
+        L = random.randint(0, 32)
+        D = random.randint(2, 2048)
+        log_E = random.randint(2, 4)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = CacheAlgorithm.LRU
+
+        mixed = random.choice([True, False])
+        if pooling_mode == PoolingMode.SUM:
+            weighted = random.choice([True, False])
+        else:
+            weighted = False
+
+        if nbit_weights_ty is None:
+            # don't care when mixed type is used.
+            weights_ty: SparseType = SparseType.INT8
+            mixed_weights_ty = True
+        else:
+            weights_ty: SparseType = nbit_weights_ty
+            mixed_weights_ty = False
+
+        self.execute_nbit_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            pooling_mode,
+            weights_ty,
+            use_cache,
+            cache_algorithm,
+            use_cpu,
+            use_array_for_index_remapping,
+            do_pruning,
+            mixed_weights_ty,
+            indices_dtype,
+            output_dtype,
+            test_ssd_prefetcher=True,
+        )
+
     @given(
         indices_dtype=st.sampled_from([torch.int32, torch.int64]),
         weights_ty_and_D=st.sampled_from(
