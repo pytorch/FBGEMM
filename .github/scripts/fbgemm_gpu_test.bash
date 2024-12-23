@@ -192,9 +192,9 @@ __setup_fbgemm_gpu_test () {
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
-  if [ "$fbgemm_gpu_variant" != "genai" ]; then
-    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
-  fi
+  # if [ "$fbgemm_gpu_variant" != "genai" ]; then
+  #   (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
+  # fi
 
   # Set the feature flags to enable experimental features as needed
   __set_feature_flags

@@ -72,7 +72,14 @@ install_pytorch_conda () {
   (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -y ${pytorch_package} -c "${pytorch_channel}") || return 1
 
   # Check that PyTorch is importable
-  (test_python_import_package "${env_name}" torch.distributed) || return 1
+  local subpackages=(
+    "torch"
+    "torch.distributed"
+  )
+
+  for package in "${subpackages[@]}"; do
+    (test_python_import_package "${env_name}" "${package}") || return 1
+  done
 
   # Print out the actual installed PyTorch version
   # shellcheck disable=SC2086,SC2155
