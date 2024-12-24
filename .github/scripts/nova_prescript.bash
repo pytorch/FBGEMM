@@ -61,7 +61,7 @@ if [[ $CU_VERSION = cu* ]]; then
   env_prefix=$(env_name_or_prefix "${BUILD_ENV_NAME}")
 
   # Use Nova CUDA installation
-  echo "[INSTALL] Set environment variables CUDNN_INCLUDE_DIR and CUDNN_LIBRARY ..."
+  echo "[INSTALL] Set environment variables LD_LIBRARY_PATH ..."
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="/usr/local/lib:${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
 
