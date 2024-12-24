@@ -63,7 +63,10 @@ if [[ $CU_VERSION = cu* ]]; then
   # Use Nova CUDA installation
   echo "[INSTALL] Set environment variables LD_LIBRARY_PATH ..."
   # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} LD_LIBRARY_PATH="/usr/local/lib:${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
+  print_exec conda env config vars set ${env_prefix} \
+    LD_LIBRARY_PATH="/usr/local/lib:${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}" \
+    CUDNN_INCLUDE_DIR="${CUDA_HOME}/include" \
+    CUDNN_LIBRARY="${CUDA_HOME}/lib64"
 
   echo "[NOVA] -------- Finding NVML_LIB_PATH -----------"
   if [[ ${NVML_LIB_PATH} == "" ]]; then
