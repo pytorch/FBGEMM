@@ -32,6 +32,8 @@ runtime=$((end_time-start_time))
 start_time=${end_time}
 echo "[NOVA] Time taken to collect PyTorch environment information: ${runtime} seconds"
 
+ python packaging/wheel/relocate.py
+
 # Install the wheel
 install_fbgemm_gpu_wheel "${BUILD_ENV_NAME}" fbgemm_gpu/dist/*.whl
 end_time=$(date +%s)
