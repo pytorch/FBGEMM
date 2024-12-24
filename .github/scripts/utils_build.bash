@@ -117,7 +117,11 @@ __conda_install_gcc () {
   # However, since https://github.com/pytorch/pytorch/pull/141035 landed, g++
   # 11.1+ became a requirement, since std::bit_cast is only available with
   # libstdc++ 11.1+.  See for details:
-  # https://gcc.gnu.org/onlinedocs/libstdc++/manual/status.html#manual.intro.status.iso
+  #   https://gcc.gnu.org/onlinedocs/libstdc++/manual/status.html#manual.intro.status.iso
+  #
+  # For GLIBCXX ABI compatibility checks, see:
+  #   https://stackoverflow.com/questions/56781513/understanding-the-gcc-version-and-the-glibc-glibcxx-versions-in-more-detail
+  #   https://gcc.gnu.org/onlinedocs/libstdc++/manual/abi.html
   #
   # shellcheck disable=SC2155
   local gcc_version="${GCC_VERSION:-11.2.0}"

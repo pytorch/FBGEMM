@@ -82,6 +82,9 @@ jobs:
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
+    - name: Prepare FBGEMM_GPU Build 2
+      run: . $PRELUDE; conda list
+
     - name: Build + Install FBGEMM_GPU (CPU version)
       run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_install $BUILD_ENV $BUILD_VARIANT
 
