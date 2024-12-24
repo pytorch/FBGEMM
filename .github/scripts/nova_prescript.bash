@@ -58,7 +58,7 @@ echo "[NOVA] Time taken to collect PyTorch environment information: ${runtime} s
 
 if [[ $CU_VERSION = cu* ]]; then
   # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
+  env_prefix=$(env_name_or_prefix "${env_name}")
 
   # Use Nova CUDA installation
   echo "[INSTALL] Set environment variables CUDNN_INCLUDE_DIR and CUDNN_LIBRARY ..."
