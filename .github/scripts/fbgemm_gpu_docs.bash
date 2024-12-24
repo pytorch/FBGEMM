@@ -49,7 +49,7 @@ install_docs_tools () {
 
   echo "[BUILD] Installing docs-build dependencies ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} python -m pip install -r requirements.txt) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y --file requirements.txt) || return 1
 
   echo "[INSTALL] Successfully installed all the docs tools"
 }

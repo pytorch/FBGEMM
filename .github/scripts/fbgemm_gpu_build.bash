@@ -45,7 +45,7 @@ prepare_fbgemm_gpu_build () {
 
   echo "[BUILD] Installing other build dependencies ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run --no-capture-output ${env_prefix} python -m pip install -r requirements.txt) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y --file requirements.txt) || return 1
 
   (install_triton_pip "${env_name}") || return 1
 
