@@ -42,13 +42,6 @@ runtime=$((end_time-start_time))
 start_time=${end_time}
 echo "[NOVA] Time taken to display GPU Info: ${runtime} seconds"
 
-# Install C/C++ Compilers
-install_cxx_compiler "${BUILD_ENV_NAME}"
-end_time=$(date +%s)
-runtime=$((end_time-start_time))
-start_time=${end_time}
-echo "[NOVA] Time taken to install C/C++ Compilers: ${runtime} seconds"
-
 # Install Build Tools
 install_build_tools "${BUILD_ENV_NAME}"
 end_time=$(date +%s)
