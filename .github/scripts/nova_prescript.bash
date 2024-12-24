@@ -57,36 +57,6 @@ start_time=${end_time}
 echo "[NOVA] Time taken to collect PyTorch environment information: ${runtime} seconds"
 
 if [[ $CU_VERSION = cu* ]]; then
-  # Extract the CUDA version number from CU_VERSION
-  cuda_version=$(echo "[NOVA] ${CU_VERSION}" | cut -c 3-)
-  install_cudnn "${BUILD_ENV_NAME}" "$(pwd)/build_only/cudnn" "${cuda_version}"
-  end_time=$(date +%s)
-  runtime=$((end_time-start_time))
-  start_time=${end_time}
-  echo "[NOVA] Time taken to install cudnn: ${runtime} seconds"
-
-  echo "[NOVA] -------- Finding NVML_LIB_PATH -----------"
-  if [[ ${NVML_LIB_PATH} == "" ]]; then
-    NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) &&
-    export NVML_LIB_PATH &&
-    echo "[NOVA] looking in ${CUDA_HOME}" ||
-    echo "[NOVA] libnvidia-ml.so not found in ${CUDA_HOME}";
-  fi
-
-  if [[ ${NVML_LIB_PATH} == "" ]]; then
-    NVML_LIB_PATH=$(find "${CONDA_ENV}" -name libnvidia-ml.so) &&
-    export NVML_LIB_PATH &&
-    echo "[NOVA] looking in ${CONDA_ENV}" ||
-    echo "[NOVA] libnvidia-ml.so not found in ${CONDA_ENV}";
-  fi
-
-  echo "[NOVA] NVML_LIB_PATH = ${NVML_LIB_PATH}"
-  echo "[NOVA] ------------------------------------------"
-  end_time=$(date +%s)
-  runtime=$((end_time-start_time))
-  start_time=${end_time}
-  echo "[NOVA] Time taken to find NVML_LIB_PATH: ${runtime} seconds"
-
   echo "[NOVA] Building the CUDA variant of FBGEMM_GPU ..."
   export fbgemm_variant="cuda"
 
