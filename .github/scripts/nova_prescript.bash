@@ -57,9 +57,13 @@ start_time=${end_time}
 echo "[NOVA] Time taken to collect PyTorch environment information: ${runtime} seconds"
 
 if [[ $CU_VERSION = cu* ]]; then
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
   # Use Nova CUDA installation
-  export CUDNN_INCLUDE_DIR="${CUDA_HOME}/include"
-  export CUDNN_LIBRARY="${CUDA_HOME}/lib"
+  echo "[INSTALL] Set environment variables CUDNN_INCLUDE_DIR and CUDNN_LIBRARY ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} CUDNN_INCLUDE_DIR="${CUDA_HOME}/include" CUDNN_LIBRARY="${CUDA_HOME}/lib"
 
   echo "[NOVA] -------- Finding NVML_LIB_PATH -----------"
   if [[ ${NVML_LIB_PATH} == "" ]]; then
