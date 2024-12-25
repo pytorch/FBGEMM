@@ -128,22 +128,25 @@ fix_libcuda () {
   local env_name="$1"
   local search_path="$2"
 
-  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
-  # shellcheck disable=SC2155
-  local libcuda_path=$(find "${search_path}" -type f -name libcuda.so)
-  nm -gDC "${libcuda_path}"
-  append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
+  for lib_name in libcuda.so libnvidia-ml.so
+  do
+    echo "[INSTALL] Appending ${lib_name} path to LD_LIBRARY_PATH ..."
+    # shellcheck disable=SC2155
+    local lib_path=$(find "${search_path}" -type f -name "${lib_name}")
+    nm -gDC "${lib_path}"
+    append_to_library_path "${env_name}" "$(dirname "$lib_path")"
 
-  # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
-  # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ] || [[ ! -f "$(dirname "$libcuda_path")/libcuda.so.1" ]]; then
-    local libcuda_owner=$(stat -c '%U' "${libcuda_path}")
-    if [ "${libcuda_owner}" == "root" ]; then
-      print_exec sudo ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
-    else
-      print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+    # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
+    # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
+    if [ "$ADD_LIBCUDA_SYMLINK" == "1" ] || [[ ! -f "$(dirname "$lib_path")/${lib_name}.1" ]]; then
+      local lib_owner=$(stat -c '%U' "${lib_path}")
+      if [ "${lib_owner}" == "root" ]; then
+        print_exec sudo ln "${lib_path}" -s "$(dirname "$lib_path")/${lib_name}.1"
+      else
+        print_exec ln "${lib_path}" -s "$(dirname "$lib_path")/${lib_name}.1"
+      fi
     fi
-  fi
+  done
 }
 
 install_cudnn () {
