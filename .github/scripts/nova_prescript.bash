@@ -60,7 +60,9 @@ if [[ $CU_VERSION = cu* ]]; then
   # shellcheck disable=SC2155
   env_prefix=$(env_name_or_prefix "${BUILD_ENV_NAME}")
 
-  # Use Nova CUDA installation
+  # Use Nova CUDA installation, but needs to apply some fixes from FBGEMM
+  fix_libcuda "${BUILD_ENV_NAME}" "${CUDA_HOME}"
+
   echo "[INSTALL] Set environment variables LD_LIBRARY_PATH ..."
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} \
