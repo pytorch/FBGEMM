@@ -62,7 +62,6 @@ install_cuda () {
   (test_filepath "${env_name}" libnvToolsExt.so) || return 1
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
 
-  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   (fix_libcuda "${env_name}" "${conda_prefix}") || return 1
@@ -137,8 +136,13 @@ fix_libcuda () {
 
   # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
   # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
-    print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ] || [! -f "$(dirname "$libcuda_path")/libcuda.so.1"]; then
+    local libcuda_owner=$(stat -c '%U' "${libcuda_path}")
+    if [ "${libcuda_owner}" == "root" ]; then
+      print_exec sudo ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+    else
+      print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+    fi
   fi
 }
 
