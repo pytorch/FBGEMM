@@ -136,7 +136,7 @@ fix_libcuda () {
 
   # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
   # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
-  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ] || [! -f "$(dirname "$libcuda_path")/libcuda.so.1"]; then
+  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ] || [[ ! -f "$(dirname "$libcuda_path")/libcuda.so.1" ]]; then
     local libcuda_owner=$(stat -c '%U' "${libcuda_path}")
     if [ "${libcuda_owner}" == "root" ]; then
       print_exec sudo ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
