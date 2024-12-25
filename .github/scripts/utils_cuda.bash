@@ -62,9 +62,19 @@ install_cuda () {
   (test_filepath "${env_name}" libnvToolsExt.so) || return 1
   (test_filepath "${env_name}" libnvidia-ml.so) || return 1
 
+  echo "[INSTALL] Appending libcuda.so path to LD_LIBRARY_PATH ..."
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
-  (fix_libcuda "${env_name}" "${conda_prefix}") || return 1
+  # shellcheck disable=SC2155
+  local libcuda_path=$(find "${conda_prefix}" -type f -name libcuda.so)
+  nm -gDC "${libcuda_path}"
+  append_to_library_path "${env_name}" "$(dirname "$libcuda_path")"
+
+  # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
+  # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
+  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+    print_exec ln "${libcuda_path}" -s "$(dirname "$libcuda_path")/libcuda.so.1"
+  fi
 
   echo "[INSTALL] Set environment variable NVML_LIB_PATH ..."
   # shellcheck disable=SC2155,SC2086
@@ -122,31 +132,6 @@ install_cuda () {
   fi
 
   echo "[INSTALL] Successfully installed CUDA ${cuda_version}"
-}
-
-fix_libcuda () {
-  local env_name="$1"
-  local search_path="$2"
-
-  for lib_name in libcuda.so libnvidia-ml.so
-  do
-    echo "[INSTALL] Appending ${lib_name} path to LD_LIBRARY_PATH ..."
-    # shellcheck disable=SC2155
-    local lib_path=$(find "${search_path}" -type f -name "${lib_name}")
-    nm -gDC "${lib_path}"
-    append_to_library_path "${env_name}" "$(dirname "$lib_path")"
-
-    # The symlink appears to be missing when we attempt to run FBGEMM_GPU on the
-    # `ubuntu-latest` runners on GitHub, so we have to manually add this in.
-    if [ "$ADD_LIBCUDA_SYMLINK" == "1" ] || [[ ! -f "$(dirname "$lib_path")/${lib_name}.1" ]]; then
-      local lib_owner=$(stat -c '%U' "${lib_path}")
-      if [ "${lib_owner}" == "root" ]; then
-        print_exec sudo ln "${lib_path}" -s "$(dirname "$lib_path")/${lib_name}.1"
-      else
-        print_exec ln "${lib_path}" -s "$(dirname "$lib_path")/${lib_name}.1"
-      fi
-    fi
-  done
 }
 
 install_cudnn () {

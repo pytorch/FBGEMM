@@ -67,9 +67,6 @@ if [[ $CU_VERSION = cu* ]]; then
     CUDNN_INCLUDE_DIR="${CUDA_HOME}/include" \
     CUDNN_LIBRARY="${CUDA_HOME}/lib64"
 
-  # Use Nova CUDA installation, but needs to apply some fixes from FBGEMM
-  fix_libcuda "${BUILD_ENV_NAME}" "${CUDA_HOME}"
-
   echo "[NOVA] -------- Finding NVML_LIB_PATH -----------"
   if [[ ${NVML_LIB_PATH} == "" ]]; then
     NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) &&
