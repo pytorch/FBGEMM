@@ -13,9 +13,6 @@ if [[ "$working_dir" == "$FBGEMM_REPO" ]]; then cd fbgemm_gpu || echo "Failed to
 ## Build clean/wheel will be done in pre-script. Set flag such that setup.py will skip these steps in Nova workflow
 export BUILD_FROM_NOVA=1
 
-## TODO (huydhn): Remove this when Nova is moving to manywheel 2.28
-export SET_GLIBCXX_PRELOAD=1
-
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
 
