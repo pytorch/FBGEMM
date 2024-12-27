@@ -629,7 +629,9 @@ symbols with <code class="docutils literal notranslate"><span class="pre">GLIBCX
 <span class="c1"># appropriate updated version of the sysroot_linux package.</span>
 <span class="nv">gcc_version</span><span class="o">=</span><span class="m">10</span>.4.0
 
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="si">${</span><span class="nv">gcc_version</span><span class="si">}</span><span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>gxx_linux-64<span class="o">=</span><span class="si">${</span><span class="nv">gcc_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17
 </pre></div>
 </div>
 <p>While newer versions of GCC can be used, binaries compiled under newer versions
@@ -657,7 +659,7 @@ toolchain <strong>that supports C++20</strong>:</p>
 
 <span class="c1"># NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot</span>
 <span class="c1"># explicitly specify the version number</span>
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span><span class="nv">clangxx</span><span class="o">=</span><span class="si">${</span><span class="nv">llvm_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>libcxx<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>llvm-openmp<span class="o">=</span><span class="si">${</span><span class="nv">llvm_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
@@ -697,7 +699,7 @@ ln<span class="w"> </span>-sf<span class="w"> </span><span class="s2">&quot;</sp
 <section id="other-build-tools">
 <h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this heading">¶</a></h3>
 <p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>click<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>

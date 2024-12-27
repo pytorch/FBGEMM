@@ -500,7 +500,7 @@ recommended.  Follow the installation instructions provided by Microsoft
 <section id="other-build-tools">
 <h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this heading">¶</a></h3>
 <p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>bazel<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>doxygen<span class="w"> </span><span class="se">\</span>

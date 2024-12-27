@@ -503,7 +503,10 @@ correctly.  Follow the instructions in
 pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
 
 <span class="c1"># Install Doxygen and and other tools</span>
-conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>doxygen<span class="w"> </span>graphviz<span class="w"> </span>make
+conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>doxygen<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>graphviz<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>make
 </pre></div>
 </div>
 </section>

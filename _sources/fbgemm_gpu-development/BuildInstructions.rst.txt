@@ -251,7 +251,9 @@ symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
   # appropriate updated version of the sysroot_linux package.
   gcc_version=10.4.0
 
-  conda install -n ${env_name} -c conda-forge -y gxx_linux-64=${gcc_version} sysroot_linux-64=2.17
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
+    gxx_linux-64=${gcc_version} \
+    sysroot_linux-64=2.17
 
 While newer versions of GCC can be used, binaries compiled under newer versions
 of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
@@ -285,7 +287,7 @@ toolchain **that supports C++20**:
 
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number
-  conda install -n ${env_name} -c conda-forge -y \
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
       clangxx=${llvm_version} \
       libcxx \
       llvm-openmp=${llvm_version} \
@@ -332,7 +334,7 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
 
 .. code:: sh
 
-  conda install -n ${env_name} -y \
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
       click \
       cmake \
       hypothesis \

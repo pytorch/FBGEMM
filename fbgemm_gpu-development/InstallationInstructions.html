@@ -461,7 +461,14 @@ ROCm Versions</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>1.0.0</p></td>
+<tr class="row-even"><td><p>1.1.0</p></td>
+<td><p>2.6.x</p></td>
+<td><p>3.9, 3.10, 3.11,
+3.12, 3.13</p></td>
+<td><p>11.8, 12.4</p></td>
+<td><p>6.0, 6.1</p></td>
+</tr>
+<tr class="row-odd"><td><p>1.0.0</p></td>
 <td><p>2.5.x</p></td>
 <td><p>3.9, 3.10, 3.11,
 3.12</p></td>
@@ -469,7 +476,7 @@ ROCm Versions</p></th>
 12.4</p></td>
 <td><p>6.0, 6.1</p></td>
 </tr>
-<tr class="row-odd"><td><p>0.8.0</p></td>
+<tr class="row-even"><td><p>0.8.0</p></td>
 <td><p>2.4.x</p></td>
 <td><p>3.8, 3.9, 3.10,
 3.11, 3.12</p></td>
@@ -477,28 +484,28 @@ ROCm Versions</p></th>
 12.4</p></td>
 <td><p>6.0, 6.1</p></td>
 </tr>
-<tr class="row-even"><td><p>0.7.0</p></td>
+<tr class="row-odd"><td><p>0.7.0</p></td>
 <td><p>2.3.x</p></td>
 <td><p>3.8, 3.9, 3.10,
 3.11, 3.12</p></td>
 <td><p>11.8, 12.1</p></td>
 <td><p>6.0</p></td>
 </tr>
-<tr class="row-odd"><td><p>0.6.0</p></td>
+<tr class="row-even"><td><p>0.6.0</p></td>
 <td><p>2.2.x</p></td>
 <td><p>3.8, 3.9, 3.10,
 3.11, 3.12</p></td>
 <td><p>11.8, 12.1</p></td>
 <td><p>5.7</p></td>
 </tr>
-<tr class="row-even"><td><p>0.5.0</p></td>
+<tr class="row-odd"><td><p>0.5.0</p></td>
 <td><p>2.1.x</p></td>
 <td><p>3.8, 3.9, 3.10,
 3.11</p></td>
 <td><p>11.8, 12.1</p></td>
 <td><p>5.5, 5.6</p></td>
 </tr>
-<tr class="row-odd"><td><p>0.4.0</p></td>
+<tr class="row-even"><td><p>0.4.0</p></td>
 <td><p>2.0.x</p></td>
 <td><p>3.8, 3.9, 3.10</p></td>
 <td><p>11.7, 11.8</p></td>
@@ -620,7 +627,7 @@ Conda. Follow the instructions for setting up the Conda environment at
 <section id="install-python-libraries">
 <span id="fbgemm-gpu-install-libraries"></span><h2>Install Python Libraries<a class="headerlink" href="#install-python-libraries" title="Permalink to this heading">¶</a></h2>
 <p>Install the relevant Python libraries for working with FBGEMM_GPU:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>numpy<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>scikit-build
