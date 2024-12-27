@@ -34,7 +34,7 @@ on:
         description: CUDA Version to Use for Building Artifact
         type: choice
         required: false
-        options: [ "11.8.0", "12.4.1" ]
+        options: [ "11.8.0", "12.4.1", "12.6.3" ]
         default: "12.4.1"
       publish_to_pypi:
         description: Publish Artifact to PyPI
@@ -71,7 +71,7 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1" ]
+        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
 
     steps:
     - name: Setup Build Container
@@ -144,7 +144,7 @@ jobs:
           { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1" ]
+        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
     needs: build_artifact
 
     steps:

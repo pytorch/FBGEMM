@@ -36,7 +36,7 @@ install_lint_tools () {
 
   echo "[INSTALL] Installing lint tools ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     click \
     flake8 \
     ufmt) || return 1

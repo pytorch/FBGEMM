@@ -92,7 +92,7 @@ __configure_fbgemm_gpu_build_nvcc () {
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
   else
-    # `-stdlib=libstdc++` doesn't exist for GCC
+    # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
     local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
   fi
 
@@ -113,6 +113,25 @@ __configure_fbgemm_gpu_build_nvcc () {
     # Override CMake configuration
     -DCMAKE_CXX_STANDARD="${cppstd_ver}"
   )
+}
+
+__configure_fbgemm_gpu_cuda_home () {
+  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+    # shellcheck disable=SC2155,SC2086
+    local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+    local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
+
+    # shellcheck disable=SC2206
+    build_args+=(
+      # NOTE: The legacy find_package(CUDA) uses CUDA_TOOLKIT_ROOT_DIR
+      # while the newer and recomended find_package(CUDAToolkit)
+      # uses CUDAToolkit_ROOT.
+      #
+      # https://github.com/conda-forge/cuda-feedstock/issues/59
+      -DCUDA_TOOLKIT_ROOT_DIR="${new_cuda_home}"
+      -DCUDAToolkit_ROOT="${new_cuda_home}"
+    )
+  fi
 }
 
 __configure_fbgemm_gpu_build_cpu () {
@@ -235,6 +254,9 @@ __configure_fbgemm_gpu_build_cuda () {
     # Pass to PyTorch CMake
     -DTORCH_CUDA_ARCH_LIST="'${arch_list}'"
   )
+
+  # Explicitly set CUDA_HOME (for CUDA 12.6+)
+  __configure_fbgemm_gpu_cuda_home
 
   # Set NVCC flags
   __configure_fbgemm_gpu_build_nvcc
@@ -536,6 +558,7 @@ run_fbgemm_gpu_audit_wheel () {
   echo "[BUILD] Wheel Audit: ${fbgemm_wheel}"
   echo ""
 
+  # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} auditwheel show "${fbgemm_wheel}"
   echo ""
   echo "################################################################################"
