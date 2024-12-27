@@ -86,6 +86,7 @@ class PartiallyMaterializedTensor:
 
     @implements(torch.detach)
     def detach(self) -> PartiallyMaterializedTensor:
+        self._requires_grad = False
         return self
 
     def to(self, *args, **kwargs) -> PartiallyMaterializedTensor:
