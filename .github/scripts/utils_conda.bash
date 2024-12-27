@@ -60,7 +60,11 @@ setup_miniconda () {
   # https://www.reddit.com/r/learnpython/comments/160kjz9/how_do_i_get_anaconda_to_work_the_way_i_want_it_to/
   # https://stackoverflow.com/questions/77617946/solve-conda-libmamba-solver-libarchive-so-19-error-after-updating-conda-to-23
   echo "[SETUP] Installing libmamba-solver (required since Anaconda 2024.02-1) and libarchive ..."
-  conda install --solver=classic -c conda-forge -y conda-libmamba-solver libmamba libmambapy libarchive
+  (exec_with_retries 3 conda install --solver=classic -c conda-forge --override-channels -y \
+    conda-libmamba-solver \
+    libmamba \
+    libmambapy \
+    libarchive) || return 1
 
   echo "[SETUP] Updating Miniconda base packages ..."
   (exec_with_retries 3 conda update -n base -c defaults --update-deps -y conda) || return 1
@@ -97,12 +101,12 @@ __handle_pyopenssl_version_issue () {
   # https://stackoverflow.com/questions/74981558/error-updating-python3-pip-attributeerror-module-lib-has-no-attribute-openss
   echo "[SETUP] Upgrading pyOpenSSL ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda run ${env_prefix} python -m pip install "pyOpenSSL>22.1.0") || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    "pyOpenSSL>22.1.0") || return 1
 
   # This test fails with load errors if the pyOpenSSL and cryptography package versions don't align
   echo "[SETUP] Testing pyOpenSSL import ..."
   (test_python_import_package "${env_name}" OpenSSL) || return 1
-
 }
 
 __handle_libcrypt_header_issue () {
@@ -116,7 +120,8 @@ __handle_libcrypt_header_issue () {
   # https://git.sr.ht/~andir/nixpkgs/commit/4ace88d63b14ef62f24d26c984775edc2ab1737c
   echo "[SETUP] Installing libxcrypt ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y libxcrypt) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    libxcrypt) || return 1
 
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
