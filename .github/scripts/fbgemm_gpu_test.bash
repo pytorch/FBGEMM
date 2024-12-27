@@ -188,7 +188,9 @@ __setup_fbgemm_gpu_test () {
 
   echo "[TEST] Installing PyTest ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -y pytest expecttest) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    pytest \
+    expecttest) || return 1
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
@@ -461,7 +463,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
 
     local env_name="test_py${py_version}_pytorch_${pytorch_channel_version}_fbgemm_${fbgemm_gpu_channel_version}_${variant_type}/${variant_version}"
     local env_name="${env_name//\//_}"
-    test_setup_conda_environment  "${env_name}" 'no-compiler' "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"   || return 1
+    test_setup_conda_environment  "${env_name}" gcc "${py_version}" pip "${pytorch_channel_version}" "${variant_type}" "${variant_version}"   || return 1
     install_fbgemm_gpu_pip        "${env_name}" "${fbgemm_gpu_channel_version}" "${variant_type}/${variant_version}"                                    || return 1
     cd "${repo}"                                                                                                                                        || return 1
 

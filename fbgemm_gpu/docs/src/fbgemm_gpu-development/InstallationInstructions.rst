@@ -25,6 +25,9 @@ older than the one that the FBGEMM release corresponds to.
 | FBGEMM Release  | Corresponding    | Supported        | Supported      | (Experimental) Supported  |
 |                 | PyTorch Release  | Python Versions  | CUDA Versions  | ROCm Versions             |
 +=================+==================+==================+================+===========================+
+| 1.1.0           | 2.6.x            | 3.9, 3.10, 3.11, | 11.8, 12.4     | 6.0, 6.1                  |
+|                 |                  | 3.12, 3.13       |                |                           |
++-----------------+------------------+------------------+----------------+---------------------------+
 | 1.0.0           | 2.5.x            | 3.9, 3.10, 3.11, | 11.8, 12.1,    | 6.0, 6.1                  |
 |                 |                  | 3.12             | 12.4           |                           |
 +-----------------+------------------+------------------+----------------+---------------------------+
@@ -182,7 +185,7 @@ Install the relevant Python libraries for working with FBGEMM_GPU:
 
 .. code:: sh
 
-  conda install -n ${env_name} -y \
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
       hypothesis \
       numpy \
       scikit-build
