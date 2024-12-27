@@ -16,13 +16,13 @@
 __set_cuda_symlinks_envvars () {
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
 
   if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
     # CUDA 12.6 installation has a very different package layout than previous
     # CUDA versions - notably, NVTX has been moved elsewhere, which causes
     # PyTorch CMake scripts to complain.
     echo "[INSTALL] Fixing file placements for CUDA 12.6+ ..."
-    local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
 
     echo "[INSTALL] Creating symlinks: libnvToolsExt.so"
     print_exec ln -sf "${conda_prefix}/lib/libnvToolsExt.so.1" "${conda_prefix}/lib/libnvToolsExt.so"
@@ -55,7 +55,7 @@ __set_cuda_symlinks_envvars () {
 
   echo "[INSTALL] Setting environment variable CUDA_INCLUDE_DIRS ..."
   # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} CUDA_INCLUDE_DIRS=\""${conda_prefix}/include/:${conda_prefix}/targets/${MACHINE_NAME_LC}-linux/include/"\"
+  print_exec conda env config vars set ${env_prefix} CUDA_INCLUDE_DIRS=\""${conda_prefix}/include/:${new_cuda_home}/include/"\"
 }
 
 __set_nvcc_prepend_flags () {

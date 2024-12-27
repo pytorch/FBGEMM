@@ -63,13 +63,6 @@ class FbgemmGpuBuild:
             choices=["nightly", "test", "release"],
             help="The target package release channel that the output wheel is intended for.",
         )
-        # parser.add_argument(
-        #     "--cuda_home",
-        #     type=str,
-        #     default=None,
-        #     help="CUDA home directory. CUDA headers will be in $CUDA_HOME/include/ and "
-        #     "CUDA libraries will generally be in $CUDA_HOME/lib/",
-        # )
         parser.add_argument(
             "--nvml_lib_path",
             type=str,
@@ -274,19 +267,6 @@ class FbgemmGpuBuild:
         if self.args.package_variant == "genai":
             print("[SETUP.PY] Building the GENAI-ONLY variant of FBGEMM_GPU ...")
             cmake_args.append("-DFBGEMM_GENAI_ONLY=ON")
-
-        # if self.args.cuda_home:
-        #     cmake_args.extend(
-        #         [
-        #             # NOTE: The legacy find_package(CUDA) uses CUDA_TOOLKIT_ROOT_DIR
-        #             # while the newer and recomended find_package(CUDAToolkit)
-        #             # uses CUDAToolkit_ROOT. 
-        #             #
-        #             # https://github.com/conda-forge/cuda-feedstock/issues/59
-        #             "-DCUDA_TOOLKIT_ROOT_DIR={self.args.cuda_home}",
-        #             "-DCUDAToolkit_ROOT={self.args.cuda_home}",
-        #         ]
-        #     )
 
         if self.args.nvml_lib_path:
             cmake_args.append(f"-DNVML_LIB_PATH={self.args.nvml_lib_path}")

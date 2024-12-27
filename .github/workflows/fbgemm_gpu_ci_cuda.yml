@@ -72,7 +72,7 @@ jobs:
         host-machine: [
           { arch: x86, instance: "linux.24xlarge" },
         ]
-        python-version: [ "3.13" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         compiler: [ "gcc", "clang" ]
 
@@ -156,10 +156,10 @@ jobs:
           # https://hud.pytorch.org/metrics
           # { arch: x86, instance: "linux.gcp.a100" },
         ]
-        python-version: [ "3.13" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "12.6.3" ]
+        cuda-version-publish: [ "12.4.1" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 

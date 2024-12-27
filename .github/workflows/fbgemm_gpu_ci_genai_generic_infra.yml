@@ -52,6 +52,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: genai
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -137,6 +138,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: genai
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
       ENFORCE_CUDA_DEVICE: 0
       CUDA_VISIBLE_DEVICES: -1
       ADD_LIBCUDA_SYMLINK: 1
@@ -148,8 +150,6 @@ jobs:
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.4.1" ]
-        # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "12.4.1" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
