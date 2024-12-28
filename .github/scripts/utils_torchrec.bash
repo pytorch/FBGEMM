@@ -42,7 +42,7 @@ install_torchrec_pip () {
 
   echo "[INSTALL] Installing TorchRec dependencies ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     iopath \
     lightning-utilities \
     pyre-extensions) || return 1

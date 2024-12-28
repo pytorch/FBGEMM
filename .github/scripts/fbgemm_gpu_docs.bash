@@ -37,7 +37,7 @@ install_docs_tools () {
   echo "[INSTALL] Installing documentation tools ..."
 
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     doxygen \
     graphviz \
     make) || return 1
