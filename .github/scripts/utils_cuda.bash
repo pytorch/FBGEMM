@@ -49,18 +49,54 @@ __set_cuda_symlinks_envvars () {
 
   echo "[INSTALL] Setting environment variable NVML_LIB_PATH ..."
   # shellcheck disable=SC2155
-  local nvml_lib_path=$(find "${conda_prefix}" -name libnvidia-ml.so | head -n1)
+  local libnvml_path=$(find "${conda_prefix}" -name libnvidia-ml.so | head -n1)
   # shellcheck disable=SC2086
-  print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${nvml_lib_path}"
+  print_exec conda env config vars set ${env_prefix} NVML_LIB_PATH="${libnvml_path}"
+
+  if [ "$ADD_LIBCUDA_SYMLINK" == "1" ]; then
+    echo "[INSTALL] Setting up symlink to libnvidia-ml.so.1"
+    print_exec ln "${libnvml_path}" -s "${conda_prefix}/lib/libnvidia-ml.so.1"
+  fi
 
   echo "[INSTALL] Setting environment variable CUDA_INCLUDE_DIRS ..."
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} CUDA_INCLUDE_DIRS=\""${conda_prefix}/include/:${new_cuda_home}/include/"\"
+
+  # Ensure that the CUDA headers are properly installed
+  (test_filepath "${env_name}" cuda_runtime.h) || return 1
+  # Ensure that the libraries are properly installed
+  (test_filepath "${env_name}" libcuda.so) || return 1
+  (test_filepath "${env_name}" libnvToolsExt.so) || return 1
+  (test_filepath "${env_name}" libnvidia-ml.so) || return 1
+
+  # Ensure that nvcc is properly installed
+  (test_binpath "${env_name}" nvcc) || return 1
 }
 
 __set_nvcc_prepend_flags () {
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+
+  # If clang is available, but CUDA was installed through conda-forge, the
+  # cc/c++ symlinks will be reset to gcc/g++, so fix this first
+  # shellcheck disable=SC2155,SC2086
+  if conda run ${env_prefix} clang --version; then
+    echo "[INSTALL] Resetting compiler symlinks to clang ..."
+    set_clang_symlinks "${env_name}"
+  fi
+
+  # The NVCC activation scripts append `-ccbin=${CXX}`` to NVCC_PREPEND_FLAGS,
+  # which overrides whatever `-ccbin` flag we set manually, so remove this
+  # unwanted hook
+  print_exec ls -la "${conda_prefix}/etc/conda/activate.d"
+  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+    echo "[INSTALL] Removing the -ccbin=CXX hook from NVCC activation scripts ..."
+    print_exec sed -i '/-ccbin=/d' "${conda_prefix}/etc/conda/activate.d/*cuda-nvcc_activate.sh"
+  fi
+
   local nvcc_prepend_flags=(
-    # Allow for the use of newer compilers than what the current CUDA SDK supports
+    # Allow for the use of newer compilers than what the current CUDA SDK
+    # supports
     -allow-unsupported-compiler
   )
 
@@ -144,24 +180,30 @@ install_cuda () {
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
-
-  # Install CUDA packages
   echo "[INSTALL] Installing CUDA ${cuda_version} ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c "nvidia/label/cuda-${cuda_version}" -y \
-    cuda) || return 1
+
+  # NOTE: Currently, CUDA 12.6 cannot be installed using the nvidia/label/cuda-*
+  # conda channels, because we run into the following error:
+  #
+  #   LibMambaUnsatisfiableError: Encountered problems while solving:
+  #     - nothing provides __win needed by cuda-12.6.3-0
+  #
+  # For now, we only use conda-forge for installing 12.6, but it is likely that
+  # in the future, we will be using conda-forge for installing all CUDA versions
+  # (except for versions 11.8 and below, which are only available through
+  # nvidia/label/cuda-*)
+  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+    # shellcheck disable=SC2086
+    (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
+      cuda=${cuda_version}) || return 1
+  else
+    # shellcheck disable=SC2086
+    (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c "nvidia/label/cuda-${cuda_version}" -y \
+      cuda) || return 1
+  fi
 
   # Set the symlinks and environment variables not covered by conda install
   __set_cuda_symlinks_envvars
-
-  # Ensure that nvcc is properly installed
-  (test_binpath "${env_name}" nvcc) || return 1
-  # Ensure that the CUDA headers are properly installed
-  (test_filepath "${env_name}" cuda_runtime.h) || return 1
-  # Ensure that the libraries are properly installed
-  (test_filepath "${env_name}" libcuda.so) || return 1
-  (test_filepath "${env_name}" libnvToolsExt.so) || return 1
-  (test_filepath "${env_name}" libnvidia-ml.so) || return 1
 
   # Set the NVCC prepend flags depending on gcc or clang
   __set_nvcc_prepend_flags

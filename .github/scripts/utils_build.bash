@@ -182,6 +182,7 @@ __remove_gcc_activation_scripts () {
   if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
       echo "[INSTALL] Removing GCC package activation scripts ..."
       local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+      print_exec ls -la ${conda_prefix}/etc/conda/activate.d
       print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gcc_linux-${COMPILER_ARCHNAME}.sh
       print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gxx_linux-${COMPILER_ARCHNAME}.sh
   fi
@@ -208,25 +209,7 @@ __conda_install_clang () {
   # The compilers are visible in the PATH as `clang` and `clang++`, so symlinks
   # will need to be created
   echo "[INSTALL] Setting the C/C++ compiler symlinks ..."
-  # shellcheck disable=SC2155,SC2086
-  local cc_path=$(conda run ${env_prefix} which clang)
-  # shellcheck disable=SC2155,SC2086
-  local cxx_path=$(conda run ${env_prefix} which clang++)
-
-  # Set the symlinks, override if needed
-  #
-  # NOTE: Setting the symlink CONDA_PREFIX/bin/c++ to point to clang++ can mess
-  # up the runtime for tests, since torch dynamo makes compilation calls with
-  # gcc-specific compiler flags, effectively making gcc a hard dependency:
-  #
-  #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
-  #
-  # As such, clang is installed only during the build step, where we are
-  # exercising building FBGEMM in clang.
-  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
-  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
-  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
-  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
+  set_clang_symlinks "${env_name}"
 
   # Remove the Conda activations scripts for gcc; see comments in the method for details
   __remove_gcc_activation_scripts
@@ -369,7 +352,7 @@ install_build_tools () {
     scikit-build \
     wheel) || return 1
 
-  echo "[INSTALL] Adding symlink librhash.so.0, which is needed by Cmake ..."
+  echo "[INSTALL] Adding symlink librhash.so.0, which is needed by CMake ..."
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   (print_exec ln -s "${conda_prefix}/lib/librhash.so" "${conda_prefix}/lib/librhash.so.0") || return 1

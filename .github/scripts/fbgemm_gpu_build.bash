@@ -106,6 +106,8 @@ __configure_fbgemm_gpu_build_nvcc () {
   echo "[BUILD] Setting NVCC flags ..."
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} NVCC_PREPEND_FLAGS=\"${nvcc_prepend_flags}\"
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} printenv NVCC_PREPEND_FLAGS
 
   echo "[BUILD] Setting CUDA build args ..."
   # shellcheck disable=SC2206
@@ -301,6 +303,9 @@ __configure_fbgemm_gpu_build () {
     echo "[BUILD] Configuring build as CUDA variant (this is the default behavior) ..."
     __configure_fbgemm_gpu_build_cuda "${fbgemm_variant_targets}"
   fi
+
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} c++ --version
 
   # Set other compiler flags as needed
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
