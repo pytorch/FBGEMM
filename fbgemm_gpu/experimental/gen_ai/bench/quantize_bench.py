@@ -275,6 +275,10 @@ def main(args: Any):
         M = [int(m) for m in args.M.strip().split(",")]
         N = [int(n) for n in args.N.strip().split(",")]
         K = [int(k) for k in args.K.strip().split(",")]
+        if args.groups:
+            M = M * int(args.groups)
+            N = N * int(args.groups)
+            K = K * int(args.groups)
         if args.B is None:
             B = [1] * len(M)
         else:
@@ -383,6 +387,11 @@ def invoke_main() -> None:
         action="store_true",
         help="If set, do grouped gemm. In this mode, M, N, and K are interpreted "
         "as the size of groups. The length of each must be the same.",
+    )
+    parser.add_argument(
+        "--groups",
+        default=None,
+        help="If set with grouped mode, repeat input shapes this many times.",
     )
     parser.add_argument(
         "--no_cuda_graph",

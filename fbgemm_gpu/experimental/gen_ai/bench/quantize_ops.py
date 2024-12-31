@@ -505,7 +505,7 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
             wq,
             x_scale,
             w_scale,
-            torch.tensor(m_values).to(dtype=torch.int32, device=xq[0].device),
+            torch.tensor(m_values).to(dtype=torch.int64, device=xq[0].device),
             output,
         )
 
