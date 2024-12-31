@@ -522,7 +522,9 @@ std::vector<at::Tensor> dispatch_bf16_grouped_kernel(
 std::vector<at::Tensor> bf16bf16bf16_grouped(
     at::TensorList x_group, // BF16
     at::TensorList w_group, // BF16
-    std::optional<at::Tensor> zero_start_index_M) {
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
+    std::optional<std::vector<at::Tensor>> output = std::nullopt) {
+  TORCH_CHECK(!output.has_value(), "Preallocated output not yet supported.");
   return dispatch_bf16_grouped_kernel(x_group, w_group, zero_start_index_M);
 }
 
@@ -531,7 +533,8 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
 std::vector<at::Tensor> bf16bf16bf16_grouped(
     at::TensorList /* x_group */, // BF16
     at::TensorList /* w_group */, // BF16
-    std::optional<at::Tensor> /* zero_start_index_M */) {
+    std::optional<at::Tensor> /* zero_start_index_M */,
+    std::optional<std::vector<at::Tensor>> /* output */) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
