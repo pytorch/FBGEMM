@@ -32,8 +32,8 @@ inline KernelMode get_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
 }
 
 inline std::tuple<int64_t, int64_t, int64_t> selectLargestProductDimensions(
-    const std::vector<at::Tensor>& XQ,
-    const std::vector<at::Tensor>& WQ) {
+    at::TensorList XQ,
+    at::TensorList WQ) {
   size_t maxProduct = 0;
   std::tuple<int64_t, int64_t, int64_t> dimensions;
   for (size_t i = 0; i < XQ.size(); ++i) {
@@ -55,8 +55,8 @@ inline std::tuple<int64_t, int64_t, int64_t> selectLargestProductDimensions(
 }
 
 inline KernelMode get_grouped_kernel_mode(
-    const std::vector<at::Tensor>& XQ,
-    const std::vector<at::Tensor>& WQ) {
+    at::TensorList XQ,
+    at::TensorList WQ) {
   // Select the dimensions M, N, K from the pair of tensors with the largest
   // product
   auto [M, N, K] = selectLargestProductDimensions(XQ, WQ);

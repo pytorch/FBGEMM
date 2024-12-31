@@ -199,7 +199,7 @@ __global__ void set_dynamic_kernel_args_kernel(
     int problem_count,
     int problem_shape_size,
     int group_index,
-    int* zero_start_index_M,
+    int64_t* zero_start_index_M,
     int N,
     int K) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -267,9 +267,9 @@ template <
     bool PONG,
     bool FAST_ACCUM>
 std::vector<at::Tensor> f8f8bf16_grouped_impl(
-    const std::vector<at::Tensor>& XQ, // FP8
-    const std::vector<at::Tensor>& WQ, // FP8
-    const std::vector<at::Tensor>& scale,
+    at::TensorList XQ, // FP8
+    at::TensorList WQ, // FP8
+    at::TensorList scale,
     std::optional<at::Tensor> zero_start_index_M) {
   int problem_count = XQ.size();
   TORCH_CHECK(WQ.size() == problem_count);
@@ -336,6 +336,11 @@ std::vector<at::Tensor> f8f8bf16_grouped_impl(
   auto stream = at::cuda::getCurrentCUDAStream().stream();
   int64_t output_offset = 0;
 
+  TORCH_CHECK(
+      !zero_start_index_M.has_value() ||
+          zero_start_index_M->dtype() == at::kLong,
+      "zero_start_index_M must be int64.");
+
   // Set arguments
   for (int i = 0; i < problem_count; ++i) {
     int N = WQ[i].size(0);
@@ -360,7 +365,7 @@ std::vector<at::Tensor> f8f8bf16_grouped_impl(
           problem_count,
           problem_shape_size,
           i,
-          reinterpret_cast<int*>(zero_start_index_M.value().data_ptr()),
+          reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
           N,
           K);
     } else {
@@ -473,9 +478,9 @@ std::vector<at::Tensor> f8f8bf16_grouped_impl(
 // FP8 Tensorwise grouped cutlass kernel dispatch.
 template <bool FastAccum>
 std::vector<at::Tensor> dispatch_fp8_grouped_kernel(
-    const std::vector<at::Tensor>& xq_group, // FP8
-    const std::vector<at::Tensor>& wq_group, // FP8
-    const std::vector<at::Tensor>& scale,
+    at::TensorList xq_group, // FP8
+    at::TensorList wq_group, // FP8
+    at::TensorList scale,
     std::optional<at::Tensor> zero_start_index_M) {
   KernelMode kernel = get_grouped_kernel_mode(xq_group, wq_group);
   if (kernel == KernelMode::Small) {
@@ -491,9 +496,9 @@ std::vector<at::Tensor> dispatch_fp8_grouped_kernel(
 }
 
 std::vector<at::Tensor> f8f8bf16_grouped(
-    const std::vector<at::Tensor>& xq_group, // FP8
-    const std::vector<at::Tensor>& wq_group, // FP8
-    const std::vector<at::Tensor>& scale,
+    at::TensorList xq_group, // FP8
+    at::TensorList wq_group, // FP8
+    at::TensorList scale,
     std::optional<at::Tensor> zero_start_index_M,
     bool use_fast_accum) {
   if (use_fast_accum) {
@@ -508,9 +513,9 @@ std::vector<at::Tensor> f8f8bf16_grouped(
 #else
 
 std::vector<at::Tensor> f8f8bf16_grouped(
-    const std::vector<at::Tensor>& xq_group, // FP8
-    const std::vector<at::Tensor>& wq_group, // FP8
-    const std::vector<at::Tensor>& scale,
+    at::TensorList xq_group, // FP8
+    at::TensorList wq_group, // FP8
+    at::TensorList scale,
     std::optional<at::Tensor> zero_start_index_M,
     bool use_fast_accum) {
   throw std::runtime_error(
