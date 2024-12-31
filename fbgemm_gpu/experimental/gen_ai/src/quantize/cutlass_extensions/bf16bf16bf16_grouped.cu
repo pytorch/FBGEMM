@@ -107,13 +107,12 @@ struct GroupedGemmConfigs {
 };
 } // namespace GroupedGemmBF16Args
 
-__global__ void set_bf16_kernel_args_kernel(
-    int64_t x_ptr,
-    int64_t w_ptr,
+__global__ void set_dynamic_kernel_args_kernel(
+    GroupedGemmBF16Args::ElementInputA* x_ptr,
+    GroupedGemmBF16Args::ElementInputB* w_ptr,
     int64_t* input_args_ptr,
     int64_t* output_args_ptr,
-    at::BFloat16* output_data,
-    int output_offset,
+    GroupedGemmBF16Args::ElementOutput* output_data,
     int x_ptr_offset,
     int w_ptr_offset,
     int problem_shape_buf_offset,
@@ -121,14 +120,12 @@ __global__ void set_bf16_kernel_args_kernel(
     int stride_size,
     int problem_count,
     int problem_shape_size,
-    int group_index,
+    int64_t* zero_start_index_M,
     int M,
     int N,
     int K) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each kernel annoyingly can only set the kernel args for one group.
-  // This could only be avoided with complicated memory management.
-  if (idx == 0) {
+  int group_index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (group_index < problem_count) {
     int64_t* x_ptr_ = input_args_ptr + x_ptr_offset;
     int64_t* w_ptr_ = input_args_ptr + w_ptr_offset;
     uint8_t* problem_shape_buf =
@@ -158,84 +155,13 @@ __global__ void set_bf16_kernel_args_kernel(
                     StrideOutput*>(stride_buf + (stride_size * 2));
 
     output_args_ptr[group_index] =
-        reinterpret_cast<int64_t>(output_data + output_offset);
+        reinterpret_cast<int64_t>(output_data + (group_index * M * N));
 
     // Write kernel arguments directly to memory.
-    x_ptr_[group_index] = x_ptr;
-    w_ptr_[group_index] = w_ptr;
-    problem_shape_ptr[group_index] =
-        GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape(M, N, K);
-    stride_input_A_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::StrideInputA{},
-        {M, K, 1});
-    stride_input_B_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::StrideInputB{},
-        {N, K, 1});
-    stride_output_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::StrideOutput{},
-        {M, N, 1});
-  }
-}
-
-__global__ void set_dynamic_kernel_args_kernel(
-    int64_t x_ptr,
-    int64_t w_ptr,
-    int64_t* input_args_ptr,
-    int64_t* output_args_ptr,
-    at::BFloat16* output_data,
-    int output_offset,
-    int x_ptr_offset,
-    int w_ptr_offset,
-    int problem_shape_buf_offset,
-    int stride_buf_offset,
-    int stride_size,
-    int problem_count,
-    int problem_shape_size,
-    int group_index,
-    int* zero_start_index_M,
-    int N,
-    int K) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // Each kernel annoyingly can only set the kernel args for one group.
-  // This could only be avoided with complicated memory management.
-  if (idx == 0) {
-    int64_t* x_ptr_ = input_args_ptr + x_ptr_offset;
-    int64_t* w_ptr_ = input_args_ptr + w_ptr_offset;
-    uint8_t* problem_shape_buf =
-        reinterpret_cast<uint8_t*>(input_args_ptr + problem_shape_buf_offset);
-    uint8_t* stride_buf =
-        reinterpret_cast<uint8_t*>(input_args_ptr + stride_buf_offset);
-
-    GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*
-        problem_shape_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*>(
-            problem_shape_buf);
-    // Pass dummy configs to get Stride structure
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
-        StrideInputA* stride_input_A_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
-                    StrideInputA*>(stride_buf);
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
-        StrideInputB* stride_input_B_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
-                    StrideInputB*>(stride_buf + stride_size);
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
-        StrideOutput* stride_output_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
-                    StrideOutput*>(stride_buf + (stride_size * 2));
-
-    output_args_ptr[group_index] =
-        reinterpret_cast<int64_t>(output_data + output_offset);
-
-    // Write kernel arguments directly to memory.
-    x_ptr_[group_index] = x_ptr;
-    w_ptr_[group_index] = w_ptr;
+    x_ptr_[group_index] =
+        reinterpret_cast<int64_t>(x_ptr + (group_index * M * K));
+    w_ptr_[group_index] =
+        reinterpret_cast<int64_t>(w_ptr + (group_index * N * K));
     problem_shape_ptr[group_index] =
         GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape(
             zero_start_index_M[group_index], N, K);
@@ -254,6 +180,76 @@ __global__ void set_dynamic_kernel_args_kernel(
   }
 }
 
+__global__ void set_static_kernel_args_kernel(
+    GroupedGemmBF16Args::ElementInputA* x_ptr,
+    GroupedGemmBF16Args::ElementInputB* w_ptr,
+    int64_t* input_args_ptr,
+    int64_t* output_args_ptr,
+    GroupedGemmBF16Args::ElementOutput* output_data,
+    int x_ptr_offset,
+    int w_ptr_offset,
+    int problem_shape_buf_offset,
+    int stride_buf_offset,
+    int stride_size,
+    int problem_count,
+    int problem_shape_size,
+    int group_index,
+    int M,
+    int N,
+    int K) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  // We only set one group's information per kernel launch.
+  if (idx == 0) {
+    int64_t* x_ptr_ = input_args_ptr + x_ptr_offset;
+    int64_t* w_ptr_ = input_args_ptr + w_ptr_offset;
+    uint8_t* problem_shape_buf =
+        reinterpret_cast<uint8_t*>(input_args_ptr + problem_shape_buf_offset);
+    uint8_t* stride_buf =
+        reinterpret_cast<uint8_t*>(input_args_ptr + stride_buf_offset);
+
+    GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*
+        problem_shape_ptr = reinterpret_cast<
+            GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*>(
+            problem_shape_buf);
+    // Pass dummy configs to get Stride structure
+    GroupedGemmBF16Args::GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
+        StrideInputA* stride_input_A_ptr = reinterpret_cast<
+            GroupedGemmBF16Args::
+                GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
+                    StrideInputA*>(stride_buf);
+    GroupedGemmBF16Args::GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
+        StrideInputB* stride_input_B_ptr = reinterpret_cast<
+            GroupedGemmBF16Args::
+                GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
+                    StrideInputB*>(stride_buf + stride_size);
+    GroupedGemmBF16Args::GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
+        StrideOutput* stride_output_ptr = reinterpret_cast<
+            GroupedGemmBF16Args::
+                GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::
+                    StrideOutput*>(stride_buf + (stride_size * 2));
+
+    output_args_ptr[group_index] = reinterpret_cast<int64_t>(output_data);
+
+    // Write kernel arguments directly to memory.
+    x_ptr_[group_index] = reinterpret_cast<int64_t>(x_ptr);
+    w_ptr_[group_index] = reinterpret_cast<int64_t>(w_ptr);
+    problem_shape_ptr[group_index] =
+        GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape(M, N, K);
+    stride_input_A_ptr[group_index] = cutlass::make_cute_packed_stride(
+        typename GroupedGemmBF16Args::
+            GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::StrideInputA{},
+        {M, K, 1});
+    stride_input_B_ptr[group_index] = cutlass::make_cute_packed_stride(
+        typename GroupedGemmBF16Args::
+            GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::StrideInputB{},
+        {N, K, 1});
+    stride_output_ptr[group_index] = cutlass::make_cute_packed_stride(
+        typename GroupedGemmBF16Args::
+            GroupedGemmConfigs<128, 128, 128, 2, 1, 1, true>::StrideOutput{},
+        {M, N, 1});
+  }
+}
+
 template <
     int TB_M,
     int TB_N,
@@ -262,9 +258,9 @@ template <
     int TBS_N,
     int TBS_K,
     bool PONG>
-at::Tensor bf16bf16bf16_grouped_impl(
-    const std::vector<at::Tensor>& X, // BF16
-    const std::vector<at::Tensor>& W, // BF16
+std::vector<at::Tensor> bf16bf16bf16_grouped_impl(
+    at::TensorList X, // BF16
+    at::TensorList W, // BF16
     std::optional<at::Tensor> zero_start_index_M) {
   int problem_count = X.size();
   TORCH_CHECK(W.size() == problem_count);
@@ -272,7 +268,7 @@ at::Tensor bf16bf16bf16_grouped_impl(
       !zero_start_index_M.has_value() ||
       zero_start_index_M->size(0) == problem_count);
   if (problem_count == 0) {
-    return at::empty({});
+    return {};
   }
   using GroupedGemmConfigs = GroupedGemmBF16Args::
       GroupedGemmConfigs<TB_M, TB_N, TB_K, TBS_M, TBS_N, TBS_K, PONG>;
@@ -298,9 +294,6 @@ at::Tensor bf16bf16bf16_grouped_impl(
                                                       // in units of elements
                                                       // (up to 16 bytes)
 
-  int64_t total_output_size = 0;
-  std::vector<int64_t> output_sizes;
-  output_sizes.reserve(problem_count);
   at::Tensor output_args =
       at::empty({problem_count}, X[0].options().dtype(at::kLong));
 
@@ -320,57 +313,105 @@ at::Tensor bf16bf16bf16_grouped_impl(
   int stride_buf_offset =
       problem_count * 2 * sizeof(int64_t) + problem_shape_size;
 
-  for (int i = 0; i < problem_count; ++i) {
-    const int64_t output_size = X[i].size(0) * W[i].size(0);
-    total_output_size += output_size;
-    output_sizes.push_back(output_size);
+  // Two modes for allocating output. When m_values is provided, we need
+  // the output tensor to be contiguous and can assume M, N, and K are the
+  // same across groups. Otherwise, we can allocate each output separately.
+  std::vector<at::Tensor> output_tensor;
+  if (zero_start_index_M.has_value()) {
+    int M = X[0].size(0);
+    int N = W[0].size(0);
+    // Fill output with zeros to simplify integration. This prevents nans from
+    // showing up in the tensor.
+    at::Tensor output_full =
+        at::zeros({problem_count, M, N}, X[0].options().dtype(at::kBFloat16));
+    // Split the output into groups.
+    output_tensor = at::unbind(output_full, 0);
+  } else {
+    for (int i = 0; i < problem_count; i++) {
+      int M = X[i].size(0);
+      int N = W[i].size(0);
+      output_tensor.push_back(
+          at::empty({M, N}, X[i].options().dtype(at::kBFloat16)));
+    }
   }
-
-  at::Tensor output_tensor =
-      at::zeros(total_output_size, X[0].options().dtype(at::kBFloat16));
-
-  int blockSize = 256;
-  int numBlocks = 1;
-  auto stream = at::cuda::getCurrentCUDAStream().stream();
-  int64_t output_offset = 0;
 
   TORCH_CHECK(
       !zero_start_index_M.has_value() ||
-      zero_start_index_M->dtype() == at::kInt);
+          zero_start_index_M->dtype() == at::kLong,
+      "zero_start_index_M must be int64.");
 
   // Set arguments
-  for (int i = 0; i < problem_count; ++i) {
-    int N = W[i].size(0);
-    int K = X[i].size(1);
-    TORCH_CHECK_EQ(W[i].size(1), K);
-    if (zero_start_index_M.has_value() == true) {
-      set_dynamic_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
-          reinterpret_cast<int64_t>(X[i].data_ptr<at::BFloat16>()),
-          reinterpret_cast<int64_t>(W[i].data_ptr<at::BFloat16>()),
-          input_args.data_ptr<int64_t>(),
-          output_args.data_ptr<int64_t>(),
-          output_tensor.data_ptr<at::BFloat16>(),
-          output_offset,
-          x_ptr_offset,
-          w_ptr_offset,
-          problem_shape_buf_offset,
-          stride_buf_offset,
-          stride_size,
-          problem_count,
-          problem_shape_size,
-          i,
-          reinterpret_cast<int*>(zero_start_index_M.value().data_ptr()),
-          N,
-          K);
-    } else {
+  // Here we support two methods for initializing arguments. If
+  // zero_start_index_M is provided, we assume that M is dynamic and N and K are
+  // fixed. This is useful for cuda graphs. If it is not provided we run in
+  // eager mode.
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  if (zero_start_index_M.has_value()) {
+    // When zero_start_M is provided, we run in dynamic shape mode.
+    int M = X[0].size(0);
+    int N = W[0].size(0);
+    int K = X[0].size(1);
+    // Make sure that inputs are allocated in sequential memory as required by
+    // this mode.
+    for (int i = 1; i < problem_count; i++) {
+      // Check that all inputs are allocated directly following preceding input.
+      TORCH_CHECK(
+          X[i].data_ptr() ==
+              (reinterpret_cast<GroupedGemmBF16Args::ElementInputA*>(
+                   X[i - 1].data_ptr()) +
+               (M * K)),
+          "Inputs must be sequential in memory to support dynamic M, but X is not.");
+      TORCH_CHECK(
+          W[i].data_ptr() ==
+              (reinterpret_cast<GroupedGemmBF16Args::ElementInputB*>(
+                   W[i - 1].data_ptr()) +
+               (N * K)),
+          "Inputs must be sequential in memory to support dynamic M, but W is not.");
+      TORCH_CHECK(
+          output_tensor[i].data_ptr() ==
+              (reinterpret_cast<GroupedGemmBF16Args::ElementOutput*>(
+                   output_tensor[i - 1].data_ptr()) +
+               (M * N)),
+          "Inputs must be sequential in memory to support dynamic M, but output is not.");
+    }
+    int blockSize = std::min(1024, problem_count);
+    int numBlocks = (problem_count + blockSize - 1) / blockSize;
+    set_dynamic_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
+        reinterpret_cast<GroupedGemmBF16Args::ElementInputA*>(X[0].data_ptr()),
+        reinterpret_cast<GroupedGemmBF16Args::ElementInputB*>(W[0].data_ptr()),
+        input_args.data_ptr<int64_t>(),
+        output_args.data_ptr<int64_t>(),
+        reinterpret_cast<GroupedGemmBF16Args::ElementOutput*>(
+            output_tensor[0].data_ptr()),
+        x_ptr_offset,
+        w_ptr_offset,
+        problem_shape_buf_offset,
+        stride_buf_offset,
+        stride_size,
+        problem_count,
+        problem_shape_size,
+        reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
+        M,
+        N,
+        K);
+  } else {
+    // Otherwise run in static mode, which can support arbitrary N and K.
+    int blockSize = 256;
+    int numBlocks = 1;
+    // Iterate over groups and launch one kernel to set each up.
+    for (int i = 0; i < problem_count; i++) {
       int M = X[i].size(0);
-      set_bf16_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
-          reinterpret_cast<int64_t>(X[i].data_ptr<at::BFloat16>()),
-          reinterpret_cast<int64_t>(W[i].data_ptr<at::BFloat16>()),
+      int N = W[i].size(0);
+      int K = X[i].size(1);
+      set_static_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
+          reinterpret_cast<GroupedGemmBF16Args::ElementInputA*>(
+              X[i].data_ptr()),
+          reinterpret_cast<GroupedGemmBF16Args::ElementInputB*>(
+              W[i].data_ptr()),
           input_args.data_ptr<int64_t>(),
           output_args.data_ptr<int64_t>(),
-          output_tensor.data_ptr<at::BFloat16>(),
-          output_offset,
+          reinterpret_cast<GroupedGemmBF16Args::ElementOutput*>(
+              output_tensor[i].data_ptr()),
           x_ptr_offset,
           w_ptr_offset,
           problem_shape_buf_offset,
@@ -383,9 +424,9 @@ at::Tensor bf16bf16bf16_grouped_impl(
           N,
           K);
     }
-    output_offset += output_sizes[i];
   }
 
+  // Get appropriate pointers to each component of the kernel args.
   int64_t* output_ptr = output_args.data_ptr<int64_t>();
   int64_t* x_ptr = input_args.data_ptr<int64_t>() + x_ptr_offset;
   int64_t* w_ptr = input_args.data_ptr<int64_t>() + w_ptr_offset;
@@ -461,9 +502,9 @@ at::Tensor bf16bf16bf16_grouped_impl(
   return output_tensor;
 }
 
-at::Tensor dispatch_bf16_grouped_kernel(
-    const std::vector<at::Tensor>& x_group, // BF16
-    const std::vector<at::Tensor>& w_group, // BF16
+std::vector<at::Tensor> dispatch_bf16_grouped_kernel(
+    at::TensorList x_group, // BF16
+    at::TensorList w_group, // BF16
     std::optional<at::Tensor> zero_start_index_M) {
   KernelMode kernel = get_grouped_kernel_mode(x_group, w_group);
   if (kernel == KernelMode::Small) {
@@ -478,18 +519,18 @@ at::Tensor dispatch_bf16_grouped_kernel(
   }
 }
 
-at::Tensor bf16bf16bf16_grouped(
-    const std::vector<at::Tensor>& x_group, // BF16
-    const std::vector<at::Tensor>& w_group, // BF16
+std::vector<at::Tensor> bf16bf16bf16_grouped(
+    at::TensorList x_group, // BF16
+    at::TensorList w_group, // BF16
     std::optional<at::Tensor> zero_start_index_M) {
   return dispatch_bf16_grouped_kernel(x_group, w_group, zero_start_index_M);
 }
 
 #else
 
-at::Tensor bf16bf16bf16_grouped(
-    const std::vector<at::Tensor>& /* x_group */, // BF16
-    const std::vector<at::Tensor>& /* w_group */, // BF16
+std::vector<at::Tensor> bf16bf16bf16_grouped(
+    at::TensorList /* x_group */, // BF16
+    at::TensorList /* w_group */, // BF16
     std::optional<at::Tensor> /* zero_start_index_M */) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
