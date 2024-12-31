@@ -598,7 +598,7 @@ class BF16GroupedGemm(QuantizeOpBase):
         return (
             x,
             w,
-            torch.tensor(m_values).to(dtype=torch.int32, device=x[0].device),
+            torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device),
             output,
         )
 
@@ -622,7 +622,7 @@ class BF16GroupedGemm(QuantizeOpBase):
         m_values = None
         return x, w, m_values, output
 
-    def compute(self, x, w, m_values, output):
+    def compute(self, x, w, m_values, _):
         return torch.ops.fbgemm.bf16bf16bf16_grouped(
             x,
             w,
@@ -642,7 +642,7 @@ class BF16GroupedGemm(QuantizeOpBase):
 
     @property
     def hip(self) -> bool:
-        return False
+        return True
 
     @property
     def cuda(self) -> bool:
