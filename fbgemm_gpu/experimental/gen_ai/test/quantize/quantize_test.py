@@ -755,8 +755,14 @@ class FP8Tests(unittest.TestCase):
             )
             * 64
         )
-        ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
-        ks = torch.randint(1, (K // 64) + 1, (G,), dtype=torch.int) * 64
+        # When using padding, Ns and Ks should be fixed.
+        if use_padding_zeros:
+            ns = [N] * G
+            ks = [K] * G
+        # Otherwise, any value is supported.
+        else:
+            ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
+            ks = torch.randint(1, (K // 64) + 1, (G,), dtype=torch.int) * 64
 
         x_group = []
         w_group = []
@@ -764,24 +770,18 @@ class FP8Tests(unittest.TestCase):
         wq_group = []
         scale_group = []
         zero_start_index_M = None
-        zero_start_index_M_value = M
 
+        # If padding, mark where zeros start for each input.
         if use_padding_zeros:
-            zero_start_index_M_value = 256
-            zero_start_index_M = torch.full(
-                size=(G,),
-                fill_value=zero_start_index_M_value,
-                dtype=torch.int,
-                device="cuda",
-            )
+            zero_start_index_M = torch.tensor(ms, dtype=torch.long, device="cuda")
 
-        for i, (m, n, k) in enumerate(zip(ms, ns, ks)):
+        for _, (m, n, k) in enumerate(zip(ms, ns, ks)):
             x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
             w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
 
             if use_padding_zeros:
-                # Zero out dim M from index zero_start_index_M_value
-                x[zero_start_index_M_value:, :] = 0
+                # When padding, all x values are made to have the same M.
+                x = torch.nn.functional.pad(x, (0, 0, 0, max(ms) - m), value=0)
 
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
             wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
@@ -790,6 +790,14 @@ class FP8Tests(unittest.TestCase):
             xq_group.append(xq)
             wq_group.append(wq)
             scale_group.append(x_scale * w_scale)
+
+        # Make inputs contiguous in memory, this simulates the typical MOE use-case.
+        if use_padding_zeros:
+            x_group = torch.unbind(torch.stack(x_group, dim=0).contiguous())
+            w_group = torch.unbind(torch.stack(w_group, dim=0).contiguous())
+            xq_group = torch.unbind(torch.stack(xq_group, dim=0).contiguous())
+            wq_group = torch.unbind(torch.stack(wq_group, dim=0).contiguous())
+            scale_group = torch.unbind(torch.stack(scale_group, dim=0).contiguous())
 
         # FP8 grouped gemm kernel
         if use_cudagraph:
@@ -854,24 +862,10 @@ class FP8Tests(unittest.TestCase):
                 y_fp8_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
             )
 
-        # Calculate output sizes
-        output_sizes = []
-        for i in range(len(x_group)):
-            output_size = x_group[i].size(0) * w_group[i].size(0)
-            output_sizes.append(output_size)
-        # Split the output_tensor into a list of tensors based on output_sizes
-        y_bf16_group = torch.split(y_bf16_group, output_sizes)
-        y_bf16_group_list = []
-        # Reshape each tensor in the output_group
-        for i in range(len(x_group)):
-            y_bf16_group_list.append(
-                y_bf16_group[i].view(x_group[i].size(0), w_group[i].size(0))
-            )
-
         # Assert BF16 outputs
         for i in range(len(y_group_ref)):
             torch.testing.assert_close(
-                y_bf16_group_list[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
+                y_bf16_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
             )
 
     @unittest.skipIf(
@@ -913,7 +907,6 @@ class FP8Tests(unittest.TestCase):
                 1,
                 M,
                 (G,),
-                dtype=torch.int,
                 device="cuda",
             )
             for i in range(len(x_group)):
