@@ -564,6 +564,55 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class FP8GroupedGemm(QuantizeOpBase):
+    """
+    FP8 grouped matmul with tensorwise scaling.
+    """
+
+    def quantize(self, x, w):
+        assert isinstance(
+            x, (list, tuple)
+        ), "Inputs to group gemm must be a list of tensors."
+
+        # First check if N and K are fixed.
+        m_values = [i.shape[0] for i in x]
+        # Otherwise handle in eager mode.
+        xq, x_scale = zip(*[torch.ops.fbgemm.quantize_fp8_per_tensor(i) for i in x])
+        wq, w_scale = zip(*[torch.ops.fbgemm.quantize_fp8_per_tensor(i) for i in w])
+        joint_scales = [xs * ws for xs, ws in zip(x_scale, w_scale)]
+        m_values = torch.tensor(m_values).to(dtype=torch.int64, device=xq[0].device)
+        return xq, wq, joint_scales, m_values
+
+    def compute(self, xq, wq, scales, m_values):
+        return torch.ops.fbgemm.f8f8bf16_grouped(
+            xq,
+            wq,
+            scales,
+            zero_start_index_M=m_values,
+        )
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, scales, m_values = self.quantize(x, w)
+        return self.compute(xq, wq, scales, m_values)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_grouped"
+        else:
+            return "ck_grouped"
+
+    @property
+    def hip(self) -> bool:
+        # Only rowwise grouped is currently supported.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class BF16GroupedGemm(QuantizeOpBase):
     """
     BF16 grouped matmul implemented with CK or Cutlass.
