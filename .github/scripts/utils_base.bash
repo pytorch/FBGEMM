@@ -265,3 +265,36 @@ test_library_symbol () {
     return 1
   fi
 }
+
+set_clang_symlinks () {
+  local env_name="$1"
+  if [ "$env_name" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
+    echo "Example(s):"
+    echo "    ${FUNCNAME[0]} build_env"
+    return 1
+  fi
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2155,SC2086
+  local cc_path=$(conda run ${env_prefix} which clang)
+  # shellcheck disable=SC2155,SC2086
+  local cxx_path=$(conda run ${env_prefix} which clang++)
+
+  # Set the symlinks, override if needed
+  #
+  # NOTE: Setting the symlink CONDA_PREFIX/bin/c++ to point to clang++ can mess
+  # up the runtime for tests, since torch dynamo makes compilation calls with
+  # gcc-specific compiler flags, effectively making gcc a hard dependency:
+  #
+  #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
+  #
+  # As such, clang is installed only during the build step, where we are
+  # exercising building FBGEMM in clang.
+  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
+  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
+  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
+  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
+}
