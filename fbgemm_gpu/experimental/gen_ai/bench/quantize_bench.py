@@ -10,6 +10,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 import pandas as pd
 import seaborn as sns
@@ -80,7 +81,11 @@ def benchmark_grouped(
     for i in range(num_groups):
         out_ref.append(torch.matmul(A[i], B[i].t()))
     # Keep track of results.
-    results: Dict[str, Any] = {"M": m, "N": n, "K": k, "groups": num_groups}
+    # Only log all shapes in a group if they are unique.
+    log_m = m[0] if len(np.unique(m)) == 1 else m
+    log_n = n[0] if len(np.unique(n)) == 1 else n
+    log_k = k[0] if len(np.unique(k)) == 1 else k
+    results: Dict[str, Any] = {"M": log_m, "N": log_n, "K": log_k, "groups": num_groups}
     # Benchmark each operator.
     for quantize_op in quantize_ops:
         # If kernel filter is provided, skip kernels that arent requested.
@@ -269,7 +274,7 @@ def main(args: Any):
         kernels = None
 
     # Enumerate shapes to benchmark.
-    if args.grouped:
+    if args.grouped and not args.groups:
         # In grouped mode, M, N, and K represent the groups of a single gemm.
         assert args.M is not None and args.N is not None and args.K is not None
         M = [int(m) for m in args.M.strip().split(",")]
@@ -307,6 +312,13 @@ def main(args: Any):
                 K = [int(k) for k in args.K.strip().split(",")]
             # List all shapes for simplicity.
             MNK = list(itertools.product(B, M, N, K))
+    # When groups is provided transform shapes into grouped format.
+    if args.groups:
+        groups = int(args.groups)
+        MNK = [
+            [[b] * groups, [m] * groups, [n] * groups, [k] * groups]
+            for b, m, n, k in MNK
+        ]
 
     # Iterate over shapes and benchmark.
     benchmark_results = []
@@ -383,6 +395,11 @@ def invoke_main() -> None:
         action="store_true",
         help="If set, do grouped gemm. In this mode, M, N, and K are interpreted "
         "as the size of groups. The length of each must be the same.",
+    )
+    parser.add_argument(
+        "--groups",
+        default=None,
+        help="If set with grouped mode, repeat input shapes this many times.",
     )
     parser.add_argument(
         "--no_cuda_graph",

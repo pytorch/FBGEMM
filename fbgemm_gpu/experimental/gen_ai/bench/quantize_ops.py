@@ -505,7 +505,7 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
             wq,
             x_scale,
             w_scale,
-            torch.tensor(m_values).to(dtype=torch.int32, device=xq[0].device),
+            torch.tensor(m_values).to(dtype=torch.int64, device=xq[0].device),
             output,
         )
 
@@ -561,6 +561,141 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return False
+
+
+@register_quantize_op
+class FP8GroupedGemm(QuantizeOpBase):
+    """
+    FP8 grouped matmul with tensorwise scaling.
+    """
+
+    def quantize(self, x, w):
+        assert isinstance(
+            x, (list, tuple)
+        ), "Inputs to group gemm must be a list of tensors."
+
+        # First check if N and K are fixed.
+        m_values = [i.shape[0] for i in x]
+        # Otherwise handle in eager mode.
+        xq, x_scale = zip(*[torch.ops.fbgemm.quantize_fp8_per_tensor(i) for i in x])
+        wq, w_scale = zip(*[torch.ops.fbgemm.quantize_fp8_per_tensor(i) for i in w])
+        joint_scales = [xs * ws for xs, ws in zip(x_scale, w_scale)]
+        m_values = torch.tensor(m_values).to(dtype=torch.int64, device=xq[0].device)
+        return xq, wq, joint_scales, m_values
+
+    def compute(self, xq, wq, scales, m_values):
+        return torch.ops.fbgemm.f8f8bf16_grouped(
+            xq,
+            wq,
+            scales,
+            zero_start_index_M=m_values,
+        )
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, scales, m_values = self.quantize(x, w)
+        return self.compute(xq, wq, scales, m_values)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_grouped"
+        else:
+            return "ck_grouped"
+
+    @property
+    def hip(self) -> bool:
+        # Only rowwise grouped is currently supported.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class BF16GroupedGemm(QuantizeOpBase):
+    """
+    BF16 grouped matmul implemented with CK or Cutlass.
+    """
+
+    def quantize_fixed_nk(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        # Inputs for fixed nk mode must be contiguous, however in the benchmark
+        # script they typically are not. Do a little special processing to make them
+        # work. In practice this wont be needed.
+        # Start by padding along m dimension with zeros.
+        max_m = max(m_values)
+        xp = [
+            torch.nn.functional.pad(i, (0, 0, 0, max_m - i.shape[0]), value=0)
+            for i in x
+        ]
+        # Stack inputs into groups.
+        x = torch.stack(xp).contiguous()
+        w = torch.stack(w).contiguous()
+        # Allocate output tensor.
+        output = torch.empty(
+            [x.shape[0], x.shape[1], w.shape[1]],
+            dtype=torch.bfloat16,
+            device=x.device,
+        )
+        # View these unified tensors as lists of tensors.
+        x = [xi.squeeze() for xi in x.split(1, dim=0)]
+        w = [wi.squeeze() for wi in w.split(1, dim=0)]
+        output = [o.squeeze() for o in output.split(1, dim=0)]
+
+        # Return processed tensors.
+        return (
+            x,
+            w,
+            torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device),
+            output,
+        )
+
+    def quantize(self, x, w):
+        assert isinstance(
+            x, (list, tuple)
+        ), "Inputs to group gemm must be a list of tensors."
+
+        # First check if N and K are fixed.
+        m_values = [i.shape[0] for i in x]
+        n_values = [i.shape[0] for i in w]
+        k_values = [i.shape[1] for i in w]
+        # if so, do specialized version of initialization.
+        if len(np.unique(n_values)) == 1 and len(np.unique(k_values)) == 1:
+            return self.quantize_fixed_nk(x, w)
+
+        output = [
+            torch.empty(m, n, device=x[0].device, dtype=torch.bfloat16)
+            for m, n in zip(m_values, n_values)
+        ]
+        m_values = None
+        return x, w, m_values, output
+
+    def compute(self, x, w, m_values, _):
+        return torch.ops.fbgemm.bf16bf16bf16_grouped(
+            x,
+            w,
+            zero_start_index_M=m_values,
+        )
+
+    def quantize_and_compute(self, x, w):
+        x, w, m_values, output = self.quantize(x, w)
+        return self.compute(x, w, m_values, output)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_bf16_grouped"
+        else:
+            return "ck_bf16_grouped"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
 
 
 @register_quantize_op

@@ -56,15 +56,16 @@ at::Tensor f8f8bf16_tensorwise(
     double scale,
     bool use_fast_accum = true);
 std::vector<at::Tensor> f8f8bf16_grouped(
-    const std::vector<at::Tensor>& XQ,
-    const std::vector<at::Tensor>& WQ,
-    const std::vector<at::Tensor>& scale,
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList scale,
     std::optional<at::Tensor> zero_start_index_M,
     bool use_fast_accum = true);
-at::Tensor bf16bf16bf16_grouped(
-    const std::vector<at::Tensor>& X,
-    const std::vector<at::Tensor>& W,
-    std::optional<at::Tensor> zero_start_index_M);
+std::vector<at::Tensor> bf16bf16bf16_grouped(
+    at::TensorList X,
+    at::TensorList W,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
+    std::optional<std::vector<at::Tensor>> output = std::nullopt);
 at::Tensor f8f8bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -178,8 +179,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] scale, Tensor? zero_start_index_M=None, bool use_fast_accum=True) -> Tensor[]");
   m.def(
-      "bf16bf16bf16_grouped(Tensor[] X, Tensor[] W, Tensor? zero_start_index_M=None) -> Tensor");
-  m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise_batched(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
@@ -195,6 +194,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "get_f8f8bf16_rowwise_grouped_kernels",
       get_f8f8bf16_rowwise_grouped_kernels);
 #endif
+  m.def(
+      "bf16bf16bf16_grouped(Tensor[] X, Tensor[] W, Tensor? zero_start_index_M=None, Tensor[](a!)? output=None) -> Tensor[]");
   m.def(
       "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor");
   m.def(
@@ -246,12 +247,12 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
+  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
-  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
@@ -271,12 +272,12 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
+  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
-  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
@@ -456,9 +457,9 @@ std::vector<at::Tensor> quantize_fp8_per_col_meta(
 }
 
 std::vector<at::Tensor> f8f8bf16_grouped_meta(
-    const std::vector<at::Tensor>& XQ,
-    const std::vector<at::Tensor>& WQ,
-    const std::vector<at::Tensor>& /* scale */,
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList /* scale */,
     std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */,
     bool /* use_fast_accum = true */) {
   std::vector<at::Tensor> Y;
@@ -470,22 +471,18 @@ std::vector<at::Tensor> f8f8bf16_grouped_meta(
   return Y;
 }
 
-at::Tensor bf16bf16bf16_grouped_meta(
-    const std::vector<at::Tensor>& X,
-    const std::vector<at::Tensor>& W,
-    std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */
+std::vector<at::Tensor> bf16bf16bf16_grouped_meta(
+    at::TensorList X,
+    at::TensorList W,
+    std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */,
+    std::optional<std::vector<at::Tensor>> /* output = std::nullopt */
 ) {
-  int problem_count = X.size();
-  int total_output_size = 0;
-  std::vector<int> output_sizes;
-  output_sizes.reserve(problem_count);
-  for (int i = 0; i < problem_count; ++i) {
-    const int output_size = X[i].size(0) * W[i].size(0);
-    total_output_size += output_size;
-    output_sizes.push_back(output_size);
+  std::vector<at::Tensor> Y;
+  for (int i = 0; i < X.size(); i++) {
+    const at::SymInt M = X[i].sym_size(0);
+    const at::SymInt N = W[i].sym_size(0);
+    Y.push_back(at::empty_symint({M, N}, X[i].options().dtype(at::kBFloat16)));
   }
-  at::Tensor Y =
-      at::empty(total_output_size, X[0].options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -497,6 +494,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor_meta);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row_meta);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col_meta);
+  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped_meta);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16_meta);
   m.impl("f8f8bf16", f8f8bf16_meta);
@@ -506,7 +504,6 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
   m.impl("f8f8bf16_grouped", f8f8bf16_grouped_meta);
-  m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped_meta);
 #endif
 }
 
