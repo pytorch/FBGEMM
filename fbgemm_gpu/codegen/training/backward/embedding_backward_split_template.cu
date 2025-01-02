@@ -308,13 +308,13 @@ split_embedding_backward_codegen_find_long_segments(
     const bool use_deterministic_algorithms);
 
 
-template <typename grad_t>
+template <typename grad_t, typename offset_t>
 __global__ __launch_bounds__(kMaxThreads) void
 grad_mean{{ vdesc }}_kernel(
     pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output_mean,
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> offsets,
     {%- if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
@@ -821,6 +821,7 @@ Tensor {{ embedding_cuda_op }}(
       else {
         {{ locs_or_addrs_tensor }}_sorted = at::empty_like({{ locs_or_addrs_tensor }});
         size_t temp_storage_bytes = 0;
+        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_1", [&] {
         AT_CUDA_CHECK(radix_sort_pairs(
               nullptr,
               temp_storage_bytes,
@@ -832,9 +833,11 @@ Tensor {{ embedding_cuda_op }}(
               0,
               total_hash_size_bits,
               at::cuda::getCurrentCUDAStream()));
+
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(at::kByte));
+
         AT_CUDA_CHECK(radix_sort_pairs(
               temp_storage.data_ptr(),
               temp_storage_bytes,
@@ -846,6 +849,7 @@ Tensor {{ embedding_cuda_op }}(
               0,
               total_hash_size_bits,
               at::cuda::getCurrentCUDAStream()));
+        });
       }
     }
 
@@ -865,6 +869,7 @@ Tensor {{ embedding_cuda_op }}(
      %}
     {%- endif %}
 
+    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&] {
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
         aligned_grad_output.scalar_type(),
@@ -890,9 +895,11 @@ Tensor {{ embedding_cuda_op }}(
                 0,
                 total_hash_size_bits,
                 at::cuda::getCurrentCUDAStream()));
+
             auto temp_storage = at::empty(
                 {static_cast<int64_t>(temp_storage_bytes)},
                 indices.options().dtype(at::kByte));
+
             AT_CUDA_CHECK(radix_sort_pairs(
                 temp_storage.data_ptr(),
                 temp_storage_bytes,
@@ -943,7 +950,7 @@ Tensor {{ embedding_cuda_op }}(
                         MAKE_PTA_WITH_NAME(func_name1, grad_output_mean, grad_t, 2, 64),
                         MAKE_PTA_WITH_NAME(func_name1, grad_output_reshaped, grad_t, 2, 64),
                         MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, offsets, int64_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
                         {%- if vbe %}
                         MAKE_PTA_WITH_NAME(func_name1, vbe_row_output_offsets, int64_t, 1, 32),
                         MAKE_PTA_WITH_NAME(func_name1, vbe_b_t_map, int32_t, 1, 32),
@@ -1308,6 +1315,7 @@ Tensor {{ embedding_cuda_op }}(
 
             }); // DISPATCH_OPTIMAL_KERNEL
         }); // DISPATCH_EMB_GRAD_CACHE_TYPES
+        }); // AT_DISPATCH_INDEX_TYPES
 
     {%- if dense %}
     return grad_dev_weights;
