@@ -308,13 +308,13 @@ split_embedding_backward_codegen_find_long_segments(
     const bool use_deterministic_algorithms);
 
 
-template <typename grad_t>
+template <typename grad_t, typename offset_t>
 __global__ __launch_bounds__(kMaxThreads) void
 grad_mean{{ vdesc }}_kernel(
     pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output_mean,
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> offsets,
     {%- if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
@@ -950,7 +950,7 @@ Tensor {{ embedding_cuda_op }}(
                         MAKE_PTA_WITH_NAME(func_name1, grad_output_mean, grad_t, 2, 64),
                         MAKE_PTA_WITH_NAME(func_name1, grad_output_reshaped, grad_t, 2, 64),
                         MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, offsets, int64_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
                         {%- if vbe %}
                         MAKE_PTA_WITH_NAME(func_name1, vbe_row_output_offsets, int64_t, 1, 32),
                         MAKE_PTA_WITH_NAME(func_name1, vbe_b_t_map, int32_t, 1, 32),
