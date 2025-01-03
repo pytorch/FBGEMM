@@ -18,6 +18,7 @@
 
 #include <ATen/ATen.h>
 #include <c10/hip/HIPStream.h>
+#include <hip_bf16.h>
 #include <torch/torch.h>
 
 #include "ck/ck.hpp"
@@ -184,17 +185,18 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     int M,
     int N,
     int K,
-    int group_count) {
-  int group_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int group_count,
+    const int BLOCK_SIZE) {
+  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each thread is responsible for setting up the arguments for one group.
-  if (group_idx < group_count) {
+  if (thread_idx < group_count) {
     // Compute offsets for this group.
-    int group_M = prepad_M[group_idx];
+    int group_M = prepad_M[thread_idx];
     KernelArguments kernel_group_args = {
-        XQ + (group_idx * M * K),
-        WQ + (group_idx * N * K),
-        {w_scale + (group_idx * N), x_scale + (group_idx * M)},
-        output + (group_idx * M * N),
+        XQ + (thread_idx * M * K),
+        WQ + (thread_idx * N * K),
+        {w_scale + (thread_idx * N), x_scale + (thread_idx * M)},
+        output + (thread_idx * M * N),
         group_M,
         N,
         K,
@@ -203,7 +205,35 @@ __global__ void set_kernel_args_fixed_nk_kernel(
         {0, 0},
         N};
     // Write kernel args to memory.
-    kernel_args[group_idx] = kernel_group_args;
+    kernel_args[thread_idx] = kernel_group_args;
+  }
+
+  // We also fuse in initialization of the output tensor.
+  // We write in chunks of 2 bfloats at a time for efficiency.
+  for (int i = 0; i < BLOCK_SIZE / 2; i++) {
+    // Figure out where in memory we are.
+    int output_offset = (thread_idx * BLOCK_SIZE) + (i * 2);
+    int current_group = output_offset / (M * N);
+    // Skip if outside of valid groups.
+    if (current_group < group_count) {
+      int nonzeros = prepad_M[current_group];
+      int current_M = output_offset / N;
+      // Only write if this block needs initialization.
+      // Avoid writing to final element if number of elements is odd.
+      if (current_M >= nonzeros && output_offset < (M * N * group_count) - 1) {
+        __hip_bfloat162* output_block =
+            reinterpret_cast<__hip_bfloat162*>(output + output_offset);
+        *output_block = __hip_bfloat162(0, 0);
+      }
+    }
+  }
+  // Handle case where there are an odd number of total elements.
+  if (((M * N * group_count) % 2) != 0 &&
+      ((M * N * group_count) - (thread_idx * BLOCK_SIZE) < BLOCK_SIZE)) {
+    // Write out the final element.
+    __hip_bfloat16* output_block =
+        reinterpret_cast<__hip_bfloat16*>(output + (M * N * group_count) - 1);
+    *output_block = __hip_bfloat16(0);
   }
 }
 
@@ -262,8 +292,10 @@ void set_dynamic_kernel_args(
   }
 
   // Launch a kernel that sets kernel argument memory.
-  int const blockSize = std::min(1024, group_count);
-  int const numBlocks = (group_count + blockSize - 1) / blockSize;
+  const int BLOCK_SIZE = 8;
+  int block_factor = std::max(group_count, (group_count * M * N) / BLOCK_SIZE);
+  int blockSize = std::min(1024, block_factor);
+  int numBlocks = (block_factor + blockSize - 1) / blockSize;
   set_kernel_args_fixed_nk_kernel<<<numBlocks, blockSize, 0, stream>>>(
       reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
       reinterpret_cast<ADataType*>(XQ[0].data_ptr()),
@@ -275,7 +307,8 @@ void set_dynamic_kernel_args(
       M,
       N,
       K,
-      group_count);
+      group_count,
+      BLOCK_SIZE);
 }
 
 at::Tensor get_grouped_kernel_args(
@@ -320,7 +353,6 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
-    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<std::vector<at::Tensor>> output = std::nullopt,
     std::optional<std::string> kernel_name = std::nullopt) {
   // Check that input datatypes are valid.
@@ -374,30 +406,16 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
           Y[i].dtype() == at::kBFloat16, "Output dtype must be bfloat16.");
     }
   } else {
-    // Two modes for allocating output. When m_values is provided, we need
-    // the output tensor to be contiguous and can assume M, N, and K are the
-    // same across groups. Otherwise, we can allocate each output separately.
-    if (zero_start_index_M.has_value()) {
-      int M = XQ[0].size(0);
-      int N = WQ[0].size(0);
-      // Fill output with zeros to simplify integration. This prevents nans from
-      // showing up in the tensor.
-      at::Tensor Y_full =
-          at::zeros({group_count, M, N}, XQ[0].options().dtype(at::kBFloat16));
-      // Split the output into groups.
-      Y = at::unbind(Y_full, 0);
-    } else {
-      for (int i = 0; i < group_count; i++) {
-        int M = XQ[i].size(0);
-        int N = WQ[i].size(0);
-        Y.push_back(at::empty({M, N}, XQ[i].options().dtype(at::kBFloat16)));
-      }
+    for (int i = 0; i < group_count; i++) {
+      int M = XQ[i].size(0);
+      int N = WQ[i].size(0);
+      Y.push_back(at::empty({M, N}, XQ[i].options().dtype(at::kBFloat16)));
     }
   }
 
   // Prepare kernel arguments by copying them to the proper device location.
   at::Tensor kernel_args =
-      get_grouped_kernel_args(XQ, WQ, x_scale, w_scale, zero_start_index_M, Y);
+      get_grouped_kernel_args(XQ, WQ, x_scale, w_scale, std::nullopt, Y);
 
   // If provided a specific kernel implementation, dispatch to it.
   if (kernel_name.has_value()) {
@@ -422,6 +440,88 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
   RowwiseGroupedKernel selected_kernel =
       rowwise_grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
   return selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+}
+
+at::Tensor f8f8bf16_rowwise_grouped_dynamic(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList x_scale,
+    at::TensorList w_scale,
+    at::Tensor zero_start_index_M,
+    std::optional<std::string> kernel_name = std::nullopt) {
+  // Check that input datatypes are valid.
+  // First confirm that there are the same number of groups in all inputs.
+  TORCH_CHECK(
+      XQ.size() == WQ.size() && XQ.size() == x_scale.size() &&
+          XQ.size() == w_scale.size(),
+      "All inputs must have the same number of groups.");
+  int group_count = XQ.size();
+  // Iterate over inputs and check they are valid.
+  for (at::Tensor x : XQ) {
+    TORCH_CHECK(x.is_cuda() && x.is_contiguous());
+    TORCH_CHECK(x.dim() == 2, "Inputs must be 2D.");
+    TORCH_CHECK(
+        x.dtype() == at::kFloat8_e4m3fnuz,
+        "Inputs must be type float8_e4m3fnuz.");
+  }
+  for (at::Tensor w : WQ) {
+    TORCH_CHECK(w.is_cuda() && w.is_contiguous());
+    TORCH_CHECK(w.dim() == 2, "Inputs must be 2D.");
+    TORCH_CHECK(
+        w.dtype() == at::kFloat8_e4m3fnuz,
+        "Inputs must be type float8_e4m3fnuz.");
+    TORCH_CHECK(
+        w.size(0) >= 512 && w.size(1) >= 512,
+        "N and K must be at least 512 for grouped gemm. For smaller inputs, consider unrolling.");
+  }
+  for (at::Tensor xs : x_scale) {
+    TORCH_CHECK(xs.dtype() == at::kFloat, "Scales must be float32.");
+  }
+  for (at::Tensor ws : x_scale) {
+    TORCH_CHECK(ws.dtype() == at::kFloat, "Scales must be float32.");
+  }
+
+  // Create a single chunk of tensor but view it as a list for compatibility.
+  int M = XQ[0].size(0);
+  int N = WQ[0].size(0);
+  // Allocate an empty output array. We will set its values to zero as part
+  // of kernel setup.
+  at::Tensor Y_full =
+      at::empty({group_count, M, N}, XQ[0].options().dtype(at::kBFloat16));
+  // Split the output into groups.
+  std::vector<at::Tensor> Y = at::unbind(Y_full, 0);
+
+  // Prepare kernel arguments by copying them to the proper device location.
+  at::Tensor kernel_args =
+      get_grouped_kernel_args(XQ, WQ, x_scale, w_scale, zero_start_index_M, Y);
+
+  // If provided a specific kernel implementation, dispatch to it.
+  if (kernel_name.has_value()) {
+    auto it = kernel_name_map.find(kernel_name.value());
+    // If not found, raise an error.
+    TORCH_CHECK(
+        it != kernel_name_map.end(),
+        "Could not find kernel " + kernel_name.value());
+    // If found, always use requested kernel.
+    it->second(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+    return Y_full;
+  }
+  // Otherwise, use heuristics to find the best kernel options.
+  // We use the largest of each shape for heuristics.
+  int MaxM = 0;
+  int MaxN = 0;
+  int MaxK = 0;
+  for (int i = 0; i < group_count; i++) {
+    MaxM = max(MaxM, XQ[i].size(0));
+    MaxN = max(MaxN, WQ[i].size(0));
+    MaxK = max(MaxK, XQ[i].size(1));
+  }
+  RowwiseGroupedKernel selected_kernel =
+      rowwise_grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
+  // Run kernel to populate Y.
+  selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+  // Return unified view of Y_full.
+  return Y_full;
 }
 
 std::vector<std::string> get_f8f8bf16_rowwise_grouped_kernels() {
