@@ -62,6 +62,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: cuda
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
     continue-on-error: true
     strategy:
       # Don't fast-fail all the other builds if one of the them fails
@@ -136,6 +137,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: cuda
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -170,6 +172,13 @@ jobs:
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers for Updated LIBGCC
+      # NOTE: gcc is required for torch dynamo to work properly, as some of
+      # the compilation flags used by torch dynamo are gcc-specific:
+      #
+      #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
 
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
