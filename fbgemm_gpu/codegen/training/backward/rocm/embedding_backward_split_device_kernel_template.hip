@@ -108,6 +108,7 @@ template <typename optimizer_t,
           typename emb_t,
           typename cache_t,
           typename grad_t,
+          typename index_t,
           int32_t block_size,
           int32_t embedding_dim,
           int32_t segment_prefetch, // 2
@@ -118,7 +119,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
     const grad_t* p_output_grad,
     emb_t* p_emb_table,
     const int64_t* p_hash_size_cumsum,
-    const int64_t* p_sorted_linear_indices_run,
+    const index_t* p_sorted_linear_indices_run,
     const int32_t* p_sorted_linear_indices_cumulative_run_lengths,
     const int32_t* p_sorted_linear_indices_num_runs,
     {%- if not nobag %}
@@ -151,7 +152,7 @@ __device__ void split_tbe_backward_hip_kernel_{{ kdesc }}(
         return;
     }
 
-    const int64_t linear_index  = p_sorted_linear_indices_run[run_id];
+    const auto linear_index  = p_sorted_linear_indices_run[run_id];
 
     const int32_t segment_start = p_sorted_linear_indices_cumulative_run_lengths[run_id];
     const int32_t segment_end   = p_sorted_linear_indices_cumulative_run_lengths[run_id + 1];

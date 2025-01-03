@@ -139,6 +139,7 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    typename index_t,
     {%- for ph_name in args.placeholder_tensor_names %}
     typename {{ ph_name + "_ph_t" }},
     {%- endfor %}
@@ -167,7 +168,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     {%- if not nobag %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -224,6 +225,7 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    typename index_t,
     int32_t kFixedMaxVecsPerThread,
     int32_t kThreadGroupSize,
     bool kUseVecBlocking,
@@ -247,7 +249,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     {%- if not nobag %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -826,8 +828,8 @@ Tensor {{ embedding_cuda_op }}(
         AT_CUDA_CHECK(radix_sort_pairs(
               nullptr,
               temp_storage_bytes,
-              linear_indices.data_ptr<int64_t>(),
-              linear_indices_sorted.data_ptr<int64_t>(),
+              linear_indices.data_ptr<index_t>(),
+              linear_indices_sorted.data_ptr<index_t>(),
               {{ locs_or_addrs_tensor }}.data_ptr<{{ locs_or_addrs_type }}>(),
               {{ locs_or_addrs_tensor }}_sorted.data_ptr<{{ locs_or_addrs_type }}>(),
               linear_indices.numel(),
@@ -842,8 +844,8 @@ Tensor {{ embedding_cuda_op }}(
         AT_CUDA_CHECK(radix_sort_pairs(
               temp_storage.data_ptr(),
               temp_storage_bytes,
-              linear_indices.data_ptr<int64_t>(),
-              linear_indices_sorted.data_ptr<int64_t>(),
+              linear_indices.data_ptr<index_t>(),
+              linear_indices_sorted.data_ptr<index_t>(),
               {{ locs_or_addrs_tensor }}.data_ptr<{{ locs_or_addrs_type }}>(),
               {{ locs_or_addrs_tensor }}_sorted.data_ptr<{{ locs_or_addrs_type }}>(),
               linear_indices.numel(),
@@ -888,8 +890,8 @@ Tensor {{ embedding_cuda_op }}(
             AT_CUDA_CHECK(radix_sort_pairs(
                 nullptr,
                 temp_storage_bytes,
-                linear_indices.data_ptr<int64_t>(),
-                linear_indices_sorted.data_ptr<int64_t>(),
+                linear_indices.data_ptr<index_t>(),
+                linear_indices_sorted.data_ptr<index_t>(),
                 indice_weights.data_ptr<at::acc_type<cache_t, true>>(),
                 indice_weights_sorted.data_ptr<at::acc_type<cache_t, true>>(),
                 linear_indices.numel(),
@@ -904,8 +906,8 @@ Tensor {{ embedding_cuda_op }}(
             AT_CUDA_CHECK(radix_sort_pairs(
                 temp_storage.data_ptr(),
                 temp_storage_bytes,
-                linear_indices.data_ptr<int64_t>(),
-                linear_indices_sorted.data_ptr<int64_t>(),
+                linear_indices.data_ptr<index_t>(),
+                linear_indices_sorted.data_ptr<index_t>(),
                 indice_weights.data_ptr<at::acc_type<cache_t, true>>(),
                 indice_weights_sorted.data_ptr<at::acc_type<cache_t, true>>(),
                 linear_indices.numel(),
@@ -1174,6 +1176,7 @@ Tensor {{ embedding_cuda_op }}(
                             <emb_t,
                              grad_t,
                              cache_t,
+                             index_t,
                              {%- for ph_name in args.placeholder_tensor_names %}
                              {{ ph_name + "_ph_t" }},
                              {%- endfor %}
@@ -1225,6 +1228,7 @@ Tensor {{ embedding_cuda_op }}(
                                     <emb_t,
                                     grad_t,
                                     cache_t,
+                                    index_t,
                                     kFixedMaxVecsPerThread,
                                     kThreadGroupSize,
                                     kUseVecBlocking,
@@ -1264,7 +1268,7 @@ Tensor {{ embedding_cuda_op }}(
                             D,
                             {%- endif %}
                             MAKE_PTA_WITH_NAME(func_name4, hash_size_cumsum, int64_t, 1, 32),
-                            MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_run, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_run, index_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name4, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
                             {%- if not nobag %}
                             MAKE_PTA_WITH_NAME(func_name4, infos_sorted, int32_t, 1, 32),
