@@ -26,12 +26,12 @@ on:
   workflow_dispatch:
     inputs:
       pytorch_version:
-        description: PyTorch Version (e.g. '2.1.0', 'nightly', 'test')
+        description: PyTorch Version (e.g. '2.6.0', 'nightly', 'test')
         type: string
         required: true
         default: "nightly"
       fbgemm_gpu_channel_version:
-        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.8.0r0')
+        description: FBGEMM-GPU Channel + Version (e.g. '1.1.0', 'nightly', 'test/1.0.0r1')
         type: string
         required: true
         default: "nightly"
@@ -85,6 +85,9 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
+    - name: Install C/C++ Compilers for Updated LIBGCC
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
@@ -113,6 +116,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
       BUILD_VARIANT: cuda
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -142,6 +146,13 @@ jobs:
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers for Updated LIBGCC
+      # NOTE: gcc is required for torch dynamo to work properly, as some of
+      # the compilation flags used by torch dynamo are gcc-specific:
+      #
+      #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
@@ -212,6 +223,9 @@ jobs:
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install ROCm AMD-SMI
+      run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
