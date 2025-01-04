@@ -84,7 +84,7 @@ setup_miniconda "$miniconda_prefix"
 echo "## 2. Create Conda environment"
 ################################################################################
 
-if [ "${cuda_version}" == "" ]; then
+if [ "${cuda_version}" != "" ]; then
   pytorch_variant="cuda ${cuda_version}"
 else
   pytorch_variant="cpu"
