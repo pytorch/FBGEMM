@@ -237,7 +237,9 @@ class FbgemmGpuBuild:
                 value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
             except ImportError:
                 value = 0
-            return "-DGLIBCXX_USE_CXX11_ABI=" + str(value)
+            # NOTE: The correct spelling for the flag is
+            # `_GLIBCXX_USE_CXX11_ABI`, not `GLIBCXX_USE_CXX11_ABI`
+            return f"-D_GLIBCXX_USE_CXX11_ABI={value}"
 
         torch_root = os.path.dirname(torch.__file__)
         os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)

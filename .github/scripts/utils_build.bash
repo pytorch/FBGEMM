@@ -357,8 +357,8 @@ install_build_tools () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   (print_exec ln -s "${conda_prefix}/lib/librhash.so" "${conda_prefix}/lib/librhash.so.0") || return 1
 
-  # For some reason, the build package for Python 3.12 is missing from Conda, so
-  # we have to install through PyPI instead.
+  # For some reason, the build package for Python 3.12+ is missing from conda,
+  # so we have to install through pip instead.
   #
   # LibMambaUnsatisfiableError: Encountered problems while solving:
   #   - package build-0.10.0-py310h06a4308_0 requires python >=3.10,<3.11.0a0, but none of the providers can be installed
