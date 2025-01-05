@@ -483,19 +483,12 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
         # Stack inputs into groups.
         xq = torch.stack(xq).contiguous()
         wq = torch.stack(w).contiguous()
-        # Allocate output tensor.
-        output = torch.empty(
-            [xq.shape[0], xq.shape[1], wq.shape[1]],
-            dtype=torch.bfloat16,
-            device=xq.device,
-        )
         # Apply quantization.
         xq, x_scale = quantize_fp8_row(xq)
         wq, w_scale = quantize_fp8_row(wq)
         # View these unified tensors as lists of tensors.
         xq = [x.squeeze() for x in xq.split(1, dim=0)]
         wq = [w.squeeze() for w in wq.split(1, dim=0)]
-        output = [o.squeeze() for o in output.split(1, dim=0)]
         x_scale = [xs.squeeze() for xs in x_scale.view(group_size, -1).split(1, dim=0)]
         w_scale = [ws.squeeze() for ws in w_scale.view(group_size, -1).split(1, dim=0)]
 
@@ -506,7 +499,6 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
             x_scale,
             w_scale,
             torch.tensor(m_values).to(dtype=torch.int64, device=xq[0].device),
-            output,
         )
 
     def quantize(self, x, w):
@@ -525,27 +517,31 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
         # Otherwise handle in eager mode.
         xq, x_scale = zip(*[quantize_fp8_row(i) for i in x])
         wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
-        output = [
-            torch.empty(m, n, device=xq[0].device, dtype=torch.bfloat16)
-            for m, n in zip(m_values, n_values)
-        ]
         m_values = None
-        return xq, wq, x_scale, w_scale, m_values, output
+        return xq, wq, x_scale, w_scale, m_values
 
-    def compute(self, xq, wq, x_scale, w_scale, m_values, output, kernel_name=None):
-        return torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
-            xq,
-            wq,
-            x_scale,
-            w_scale,
-            zero_start_index_M=m_values,
-            output=output,
-            kernel_name=kernel_name,
-        )
+    def compute(self, xq, wq, x_scale, w_scale, m_values, kernel_name=None):
+        if m_values is None:
+            return torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
+                xq,
+                wq,
+                x_scale,
+                w_scale,
+                kernel_name=kernel_name,
+            )
+        else:
+            return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
+                xq,
+                wq,
+                x_scale,
+                w_scale,
+                zero_start_index_M=m_values,
+                kernel_name=kernel_name,
+            )
 
     def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale, m_values, output = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale, w_scale, m_values, output)
+        xq, wq, x_scale, w_scale, m_values = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, m_values)
 
     @property
     def name(self) -> str:
