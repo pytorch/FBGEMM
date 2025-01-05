@@ -18,12 +18,15 @@ from .common import clone_tensor, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_github
+    from test_utils import gpu_unavailable
 else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_github
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
 
 
-@unittest.skipIf(*running_on_github)
+@unittest.skipIf(
+    open_source,
+    "Test fails in OSS mode, see https://github.com/triton-lang/triton/issues/5435",
+)
 class MultiHeadJaggedFlashAttentionTest(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     @given(
