@@ -336,10 +336,10 @@ test_setup_conda_environment () {
   local pytorch_channel_version="$5"
   local pytorch_variant_type="$6"
   local pytorch_variant_version="$7"
-  if [ "$pytorch_variant_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_CHANNEL[/VERSION] PYTORCH_VARIANT_TYPE [PYTORCH_VARIANT_VERSION]"
+  if [ "$pytorch_variant_version" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME COMPILER PYTHON_VERSION PYTORCH_INSTALLER PYTORCH_CHANNEL[/VERSION] PYTORCH_VARIANT_TYPE PYTORCH_VARIANT_VERSION"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env clang 3.13 pip test/1.0.0 cuda 12.4.1       # Setup environment with pytorch-test 1.0.0 for Clang + Python 3.13 + CUDA 12.4.1"
+    echo "    ${FUNCNAME[0]} build_env clang 3.13 pip test/1.0.0 cuda 12.6.3       # Setup environment with pytorch-test 1.0.0 for Clang + Python 3.13 + CUDA 12.6.3"
     return 1
   else
     echo "################################################################################"
@@ -350,15 +350,12 @@ test_setup_conda_environment () {
     echo ""
   fi
 
-  if [ "$env_name" == "" ]; then
-    local env_name="test_py${python_version}_${pytorch_installer}_pytorch_${pytorch_channel_version}_${pytorch_variant_type}"
-    if [ "$pytorch_variant_version" != "" ]; then
-      local env_name="${env_name}_${pytorch_variant_version}"
-    fi
-  fi
-
   echo "Creating the Build Environment: ${env_name} ..."
   create_conda_environment  "${env_name}" "${python_version}"           || return 1
+
+  if [ "$pytorch_variant_type" == "cuda" ] || [ "$pytorch_variant_type" == "genai" ]; then
+    print_exec conda env config vars set -n "${env_name}" BUILD_CUDA_VERSION="${pytorch_variant_version}"
+  fi
 
   # Install C++ compiler and build tools (all FBGEMM_GPU variants)
   if [ "$compiler" == "gcc" ] || [ "$compiler" == "clang" ]; then
@@ -503,6 +500,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
     local variant_versions=(
       11.8.0
       12.4.1
+      12.6.3
     )
   elif [ "$variant_type" == "rocm" ]; then
     local variant_versions=(
