@@ -37,8 +37,8 @@ prepare_fbgemm_gpu_build () {
   fi
 
   echo "[BUILD] Running git submodules update ..."
-  git submodule sync
-  git submodule update --init --recursive
+  (exec_with_retries 3 git submodule sync) || return 1
+  (exec_with_retries 3 git submodule update --init --recursive) || return 1
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
