@@ -435,32 +435,32 @@
 <span class="c1"># pyre-strict</span>
 <span class="c1"># pyre-ignore-all-errors[56]</span>
 
-<span class="kn">import</span> <span class="nn">contextlib</span>
-<span class="kn">import</span> <span class="nn">enum</span>
-<span class="kn">import</span> <span class="nn">functools</span>
-<span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">import</span> <span class="nn">math</span>
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">uuid</span>
-<span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
-<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">accumulate</span>
-<span class="kn">from</span> <span class="nn">math</span> <span class="kn">import</span> <span class="n">log2</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Type</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">contextlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">enum</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">accumulate</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">math</span><span class="w"> </span><span class="kn">import</span> <span class="n">log2</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Type</span><span class="p">,</span> <span class="n">Union</span>
 
-<span class="kn">import</span> <span class="nn">torch</span>  <span class="c1"># usort:skip</span>
-<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>  <span class="c1"># usort:skip</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
 
 <span class="c1"># @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers</span>
-<span class="kn">import</span> <span class="nn">fbgemm_gpu.split_embedding_codegen_lookup_invokers</span> <span class="k">as</span> <span class="nn">invokers</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_embedding_codegen_lookup_invokers</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">invokers</span>
 
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.config</span> <span class="kn">import</span> <span class="n">FeatureGate</span><span class="p">,</span> <span class="n">FeatureGateName</span>
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.runtime_monitor</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureGate</span><span class="p">,</span> <span class="n">FeatureGateName</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.runtime_monitor</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">AsyncSeriesTimer</span><span class="p">,</span>
     <span class="n">TBEStatsReporter</span><span class="p">,</span>
     <span class="n">TBEStatsReporterConfig</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.split_embedding_configs</span> <span class="kn">import</span> <span class="n">EmbOptimType</span> <span class="k">as</span> <span class="n">OptimType</span><span class="p">,</span> <span class="n">SparseType</span>
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_embedding_configs</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmbOptimType</span> <span class="k">as</span> <span class="n">OptimType</span><span class="p">,</span> <span class="n">SparseType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">BoundsCheckMode</span><span class="p">,</span>
     <span class="n">CacheAlgorithm</span><span class="p">,</span>
     <span class="n">CacheState</span><span class="p">,</span>
@@ -472,12 +472,12 @@
     <span class="n">RecordCacheMetrics</span><span class="p">,</span>
     <span class="n">SplitState</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_training_common</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_training_common</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">generate_vbe_metadata</span><span class="p">,</span>
     <span class="n">is_torchdynamo_compiling</span><span class="p">,</span>
 <span class="p">)</span>
 
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.utils.loader</span> <span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.utils.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="n">load_torch_module</span><span class="p">(</span>
@@ -497,17 +497,17 @@
 <span class="n">INT8_EMB_ROW_DIM_OFFSET</span> <span class="o">=</span> <span class="mi">8</span>
 
 
-<span class="k">class</span> <span class="nc">DoesNotHavePrefix</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DoesNotHavePrefix</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
     <span class="k">pass</span>
 
 
-<span class="k">class</span> <span class="nc">ComputeDevice</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ComputeDevice</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">CPU</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">CUDA</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="n">MTIA</span> <span class="o">=</span> <span class="mi">2</span>
 
 
-<span class="k">class</span> <span class="nc">WeightDecayMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">WeightDecayMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">NONE</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">L2</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="n">DECOUPLE</span> <span class="o">=</span> <span class="mi">2</span>
@@ -516,38 +516,38 @@
     <span class="n">DECOUPLE_GLOBAL</span> <span class="o">=</span> <span class="mi">5</span>
 
 
-<span class="k">class</span> <span class="nc">CounterWeightDecayMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CounterWeightDecayMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">NONE</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">L2</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="n">DECOUPLE</span> <span class="o">=</span> <span class="mi">2</span>
 
 
-<span class="k">class</span> <span class="nc">StepMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">StepMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">NONE</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">USE_COUNTER</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="n">USE_ITER</span> <span class="o">=</span> <span class="mi">2</span>
 
 
-<span class="k">class</span> <span class="nc">LearningRateMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LearningRateMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">EQUAL</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
     <span class="n">TAIL_ID_LR_INCREASE</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">TAIL_ID_LR_DECREASE</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="n">COUNTER_SGD</span> <span class="o">=</span> <span class="mi">2</span>
 
 
-<span class="k">class</span> <span class="nc">GradSumDecay</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GradSumDecay</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">NO_DECAY</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
     <span class="n">CTR_DECAY</span> <span class="o">=</span> <span class="mi">0</span>
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">TailIdThreshold</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TailIdThreshold</span><span class="p">:</span>
     <span class="n">val</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">is_ratio</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">CounterBasedRegularizationDefinition</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CounterBasedRegularizationDefinition</span><span class="p">:</span>
     <span class="n">counter_weight_decay_mode</span><span class="p">:</span> <span class="n">CounterWeightDecayMode</span> <span class="o">=</span> <span class="n">CounterWeightDecayMode</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">counter_halflife</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
     <span class="n">adjustment_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
@@ -559,7 +559,7 @@
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">CowClipDefinition</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CowClipDefinition</span><span class="p">:</span>
     <span class="n">counter_weight_decay_mode</span><span class="p">:</span> <span class="n">CounterWeightDecayMode</span> <span class="o">=</span> <span class="n">CounterWeightDecayMode</span><span class="o">.</span><span class="n">NONE</span>
     <span class="n">counter_halflife</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
     <span class="n">weight_norm_coefficient</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
@@ -567,13 +567,13 @@
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">GlobalWeightDecayDefinition</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GlobalWeightDecayDefinition</span><span class="p">:</span>
     <span class="n">start_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">lower_bound</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">EnsembleModeDefinition</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EnsembleModeDefinition</span><span class="p">:</span>
     <span class="n">step_ema</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span>
     <span class="n">step_swap</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span>
     <span class="n">step_start</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span>
@@ -582,14 +582,14 @@
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">EmainplaceModeDefinition</span><span class="p">:</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">EmainplaceModeDefinition</span><span class="p">:</span>
     <span class="n">step_ema</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10</span>
     <span class="n">step_start</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">step_ema_coef</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.6</span>
 
 
 <span class="c1"># Keep in sync with fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh</span>
-<span class="k">class</span> <span class="nc">UVMCacheStatsIndex</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">UVMCacheStatsIndex</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
     <span class="n">num_calls</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">num_requested_indices</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="n">num_unique_indices</span> <span class="o">=</span> <span class="mi">2</span>
@@ -598,7 +598,7 @@
     <span class="n">num_conflict_misses</span> <span class="o">=</span> <span class="mi">5</span>
 
 
-<span class="k">def</span> <span class="nf">construct_split_state</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">construct_split_state</span><span class="p">(</span>
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="p">]],</span>
     <span class="n">rowwise</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
     <span class="n">cacheable</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
@@ -646,7 +646,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">apply_split_helper</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">apply_split_helper</span><span class="p">(</span>
     <span class="n">persistent_state_fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">],</span> <span class="kc">None</span><span class="p">],</span>
     <span class="n">set_attr_fn</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span>
         <span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Union</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span> <span class="n">List</span><span class="p">[</span><span class="n">EmbeddingLocation</span><span class="p">]]],</span> <span class="kc">None</span>
@@ -766,7 +766,7 @@
 
 <span class="c1"># pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.</span>
 <span class="c1"># pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.</span>
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span> <span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Table Batched Embedding (TBE) operator.  Looks up one or more embedding</span>
 <span class="sd">    tables. The module is application for training. The backward operator is</span>
@@ -1009,7 +1009,7 @@
     <span class="n">_vbe_B_offsets</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
     <span class="n">_vbe_max_B</span><span class="p">:</span> <span class="nb">int</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>  <span class="c1"># noqa C901</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>  <span class="c1"># noqa C901</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span>
             <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="p">]</span>
@@ -1703,7 +1703,7 @@
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Log with TBE id prefix to distinguish between multiple TBE instances</span>
 <span class="sd">        per process</span>
@@ -1716,7 +1716,7 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[TBE=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_register_nonpersistent_buffers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_register_nonpersistent_buffers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># NOTE: make TorchScript work!</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">prefix</span><span class="si">}</span><span class="s2">_dev&quot;</span><span class="p">,</span>
@@ -1745,7 +1745,7 @@
         <span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Given a list of all table names in the TBE, generate a string to</span>
 <span class="sd">        represent them in logging. If there is more than one table, this method</span>
@@ -1767,7 +1767,7 @@
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&lt;</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">table_name_set</span><span class="p">)</span><span class="si">}</span><span class="s2"> tables&gt;&quot;</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">get_prefetch_passes</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_prefetch_passes</span><span class="p">(</span>
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">],</span>
         <span class="n">input_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">output_tensor</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1819,7 +1819,7 @@
             <span class="p">)</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">get_states</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_states</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get a state of a given tensor (`prefix`)</span>
 
@@ -1858,7 +1858,7 @@
             <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">offsets</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">get_all_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_all_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">Tensor</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get all states in the TBE (`weights`, `momentum1`, `momentum2`,</span>
 <span class="sd">        `prev_iter`, and `row_counter`)</span>
@@ -1877,7 +1877,7 @@
         <span class="k">return</span> <span class="n">all_states</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">get_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get the cache miss counter. `cache_miss_counter` contains two items:</span>
 
@@ -1894,7 +1894,7 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">get_table_wise_cache_miss</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_table_wise_cache_miss</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get the table-wise cache miss tensor. `table_wise_cache_miss` contains</span>
 <span class="sd">        all the cache miss count for each table in this embedding table object:</span>
@@ -1905,7 +1905,7 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span>
 
     <span class="c1"># The callback function for AsyncTimer to record duration to different event</span>
-    <span class="k">def</span> <span class="nf">_report_duration</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_report_duration</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">it_step</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">dur_ms</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
@@ -1923,7 +1923,7 @@
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_report_tbe_mem_usage</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_report_tbe_mem_usage</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -1965,7 +1965,7 @@
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_report_io_size_count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_report_io_size_count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">data</span>
         <span class="n">stats_reporter</span><span class="p">:</span> <span class="n">TBEStatsReporter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span>
@@ -1987,7 +1987,7 @@
         <span class="k">return</span> <span class="n">data</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]],</span>
@@ -2014,12 +2014,12 @@
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_feature_is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">feature</span><span class="p">:</span> <span class="n">FeatureGateName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_feature_is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">feature</span><span class="p">:</span> <span class="n">FeatureGateName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="c1"># Define proxy method so that it can be marked with @torch.jit.ignore</span>
         <span class="c1"># This allows models using this class to compile correctly</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
 
-<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
+<div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -2482,7 +2482,7 @@
 
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid OptimType: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
 
-    <span class="k">def</span> <span class="nf">ema_inplace</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">emainplace_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ema_inplace</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">emainplace_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Perform ema operations on the full sparse embedding tables.</span>
 <span class="sd">        We organize the sparse table, in the following way.</span>
@@ -2512,7 +2512,7 @@
                     <span class="n">emainplace_mode</span><span class="p">[</span><span class="s2">&quot;step_ema_coef&quot;</span><span class="p">],</span>
                 <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">ensemble_and_swap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ensemble_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">ensemble_and_swap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ensemble_mode</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Perform ensemble and swap operations on the full sparse embedding tables.</span>
 
@@ -2547,20 +2547,20 @@
                         <span class="n">states</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">mul_</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
                 <span class="c1">#  elif int(ensemble_mode[&quot;step_mode&quot;]) == 2:  pure ema</span>
 
-    <span class="k">def</span> <span class="nf">reset_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span>
         <span class="p">),</span> <span class="s2">&quot;gather_uvm_cache_stats should be set to true to access uvm cache stats.&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">get_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_local_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_local_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span>
         <span class="p">),</span> <span class="s2">&quot;gather_uvm_cache_stats should be set to true to access uvm cache stats.&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span> <span class="k">if</span> <span class="n">use_local_cache</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span>
 
-    <span class="k">def</span> <span class="nf">_get_uvm_cache_print_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_local_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_uvm_cache_print_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_local_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
         <span class="n">snapshot</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_uvm_cache_stats</span><span class="p">(</span><span class="n">use_local_cache</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">use_local_cache</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
@@ -2571,7 +2571,7 @@
         <span class="k">return</span> <span class="n">delta</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">print_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_local_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">print_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_local_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># TODO: Create a separate reporter class to unify the stdlog reporting</span>
         <span class="n">uvm_cache_stats</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_uvm_cache_print_state</span><span class="p">(</span><span class="n">use_local_cache</span><span class="p">)</span>
         <span class="n">N</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
@@ -2607,7 +2607,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;uvm_cache_stats=</span><span class="si">{</span><span class="n">m</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_report_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_report_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span>
         <span class="n">stats_reporter</span><span class="p">:</span> <span class="n">TBEStatsReporter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span>
@@ -2648,7 +2648,7 @@
                 <span class="n">tbe_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
             <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">prefetch</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">prefetch</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -2684,7 +2684,7 @@
         <span class="k">if</span> <span class="n">forward_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_prefetch_tensors_record_stream</span><span class="p">(</span><span class="n">forward_stream</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_prefetch</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_prefetch</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -2804,7 +2804,7 @@
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">should_log</span><span class="p">():</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">print_uvm_cache_stats</span><span class="p">(</span><span class="n">use_local_cache</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">should_log</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">should_log</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Determines if we should log for this step, using exponentially decreasing frequency.</span>
 
 <span class="sd">        Logs for steps: 100 200 ... 1,000 2,000 ... 10,000 20,000 ... 100,000 200,000 ...</span>
@@ -2812,7 +2812,7 @@
         <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+</span> <span class="mi">1</span>  <span class="c1"># step starts at 0</span>
         <span class="k">return</span> <span class="n">s</span> <span class="o">&gt;=</span> <span class="mi">100</span> <span class="ow">and</span> <span class="n">s</span> <span class="o">%</span> <span class="p">(</span><span class="mi">10</span> <span class="o">**</span> <span class="nb">int</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="n">s</span><span class="p">)))</span> <span class="o">==</span> <span class="mi">0</span>
 
-    <span class="k">def</span> <span class="nf">_prefetch_tensors_record_stream</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_prefetch_tensors_record_stream</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">forward_stream</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># Record the tensors created by prefetch stream and consumed by forward/backward</span>
@@ -2822,7 +2822,7 @@
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations_list</span><span class="p">:</span>
             <span class="n">t</span><span class="o">.</span><span class="n">record_stream</span><span class="p">(</span><span class="n">forward_stream</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_update_cache_miss_counter</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_cache_miss_counter</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">lxu_cache_locations</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -2846,7 +2846,7 @@
         <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase, indices: Union[None, slice[Any, A...</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="n">miss_count</span>
 
-    <span class="k">def</span> <span class="nf">_update_tablewise_cache_miss</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_tablewise_cache_miss</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">lxu_cache_locations</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -2875,7 +2875,7 @@
 
             <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">miss_count</span>
 
-    <span class="k">def</span> <span class="nf">init_embedding_weights_uniform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">min_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">max_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">init_embedding_weights_uniform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">min_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">max_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">splits</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">split_embedding_weights</span><span class="p">()</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">==</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">INT8</span><span class="p">:</span>
             <span class="c1"># TODO: add in-place FloatToFused8BitRowwiseQuantized conversion</span>
@@ -2893,7 +2893,7 @@
                 <span class="n">param</span><span class="o">.</span><span class="n">uniform_</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_embedding_weights">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">split_embedding_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">split_embedding_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Returns a list of embedding weights (view), split by table</span>
 
@@ -2924,7 +2924,7 @@
         <span class="k">return</span> <span class="n">splits</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">get_optimizer_buffer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_optimizer_buffer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Getting optimizer buffer is not supported for </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -2935,7 +2935,7 @@
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Optimizer buffer </span><span class="si">{</span><span class="n">state</span><span class="si">}</span><span class="s2"> not found&quot;</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">get_optimizer_state</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_optimizer_state</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Get the optimizer state dict that matches the OSS Pytorch optims</span>
 <span class="sd">        TODO: populate the supported list of optimizers</span>
@@ -2992,7 +2992,7 @@
         <span class="k">return</span> <span class="n">list_of_state_dict</span>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.split_optimizer_states">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">split_optimizer_states</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">split_optimizer_states</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -3035,7 +3035,7 @@
                 <span class="sa">f</span><span class="s2">&quot;Getting optimizer states is not supported for </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="p">)</span>
 
-        <span class="k">def</span> <span class="nf">get_optimizer_states</span><span class="p">(</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">get_optimizer_states</span><span class="p">(</span>
             <span class="n">state_dev</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
             <span class="n">state_host</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
             <span class="n">state_uvm</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -3165,7 +3165,7 @@
         <span class="k">return</span> <span class="n">return_states</span></div>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_learning_rate">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the learning rate.</span>
 
@@ -3179,7 +3179,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_set_learning_rate</span><span class="p">(</span><span class="n">lr</span><span class="p">)</span></div>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">update_hyper_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_hyper_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets hyper-parameters from external control flow.</span>
 
@@ -3210,7 +3210,7 @@
                 <span class="p">)</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_set_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lr</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Helper function to script `set_learning_rate`.</span>
 <span class="sd">        Note that returning None does not work.</span>
@@ -3219,7 +3219,7 @@
         <span class="k">return</span> <span class="mf">0.0</span>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">set_optimizer_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_optimizer_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Sets the optimizer step.</span>
 
@@ -3234,7 +3234,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">step</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">flush</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">flush</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
         <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
@@ -3251,7 +3251,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">stochastic_rounding</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_apply_split</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_split</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">split</span><span class="p">:</span> <span class="n">SplitState</span><span class="p">,</span>
         <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -3277,7 +3277,7 @@
             <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_apply_cache_state</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_cache_state</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">cache_state</span><span class="p">:</span> <span class="n">CacheState</span><span class="p">,</span>
         <span class="n">cache_algorithm</span><span class="p">:</span> <span class="n">CacheAlgorithm</span><span class="p">,</span>
@@ -3470,7 +3470,7 @@
             <span class="p">)</span>
 
     <span class="c1"># pyre-ignore</span>
-    <span class="k">def</span> <span class="nf">_recording_to_timer</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_recording_to_timer</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">timer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AsyncSeriesTimer</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_reporter</span><span class="o">.</span><span class="n">should_report</span><span class="p">(</span>
@@ -3483,7 +3483,7 @@
         <span class="c1"># No-Op context manager</span>
         <span class="k">return</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">nullcontext</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">_sync_stream_post_backward</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_sync_stream_post_backward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">grad</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -3498,7 +3498,7 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_stream</span><span class="o">.</span><span class="n">wait_stream</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">current_stream</span><span class="p">())</span>
 
-    <span class="k">def</span> <span class="nf">_update_cache_counter_and_locations</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_cache_counter_and_locations</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">module</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
         <span class="n">grad_input</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">Tensor</span><span class="p">],</span>
@@ -3580,7 +3580,7 @@
             <span class="n">lxu_cache_locations_output</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_locations</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_init_uvm_cache_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache_sets</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">persistent</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_init_uvm_cache_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache_sets</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">persistent</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefetch_pipeline</span> <span class="ow">and</span> <span class="n">persistent</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
                 <span class="s2">&quot;lxu_cache_locking_counter&quot;</span><span class="p">,</span>
@@ -3598,7 +3598,7 @@
                 <span class="n">persistent</span><span class="o">=</span><span class="n">persistent</span><span class="p">,</span>
             <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_init_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_init_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
             <span class="c1"># If uvm_cache_stats is not enabled, register stub entries via buffer to state_dict for TorchScript to JIT properly.</span>
             <span class="c1"># Since we&#39;re not using these variables, we can choose minimize tensor size to keep state_dict size small.</span>
@@ -3640,7 +3640,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">reset_uvm_cache_stats</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">last_uvm_cache_print_state</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">reset_cache_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_cache_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
         <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
@@ -3649,7 +3649,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_state</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep</span> <span class="o">=</span> <span class="mi">1</span>
 
-    <span class="k">def</span> <span class="nf">reset_embedding_weight_momentum</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_embedding_weight_momentum</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">pruned_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">pruned_indices_offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -3692,7 +3692,7 @@
                 <span class="n">total_cache_hash_size</span><span class="o">=</span><span class="n">total_cache_hash_size</span><span class="p">,</span>
             <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">prepare_inputs</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">prepare_inputs</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -3798,7 +3798,7 @@
 
         <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="n">vbe_metadata</span>
 
-    <span class="k">def</span> <span class="nf">_debug_print_input_stats_factory</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_debug_print_input_stats_factory</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        If the environment variable FBGEMM_DEBUG_PRINT_INPUT_STATS=1,</span>
 <span class="sd">        return a function pointer of a function that prints input</span>
@@ -3810,7 +3810,7 @@
 <span class="sd">        &quot;&quot;&quot;</span>
 
         <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-        <span class="k">def</span> <span class="nf">_debug_print_input_stats_factory_impl</span><span class="p">(</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">_debug_print_input_stats_factory_impl</span><span class="p">(</span>
             <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
             <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
             <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3864,7 +3864,7 @@
                 <span class="c1"># Counts of indices that segment lengths &gt; 1024</span>
                 <span class="n">counts_cta_per_row_mth</span> <span class="o">=</span> <span class="n">counts_cta_per_row</span><span class="p">[</span><span class="n">counts_cta_per_row</span> <span class="o">&gt;</span> <span class="mi">1024</span><span class="p">]</span>
 
-                <span class="k">def</span> <span class="nf">compute_numel_and_avg</span><span class="p">(</span><span class="n">counts</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+                <span class="k">def</span><span class="w"> </span><span class="nf">compute_numel_and_avg</span><span class="p">(</span><span class="n">counts</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
                     <span class="n">numel</span> <span class="o">=</span> <span class="n">counts</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
                     <span class="n">avg</span> <span class="o">=</span> <span class="p">(</span><span class="n">counts</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="o">/</span> <span class="n">numel</span><span class="p">)</span> <span class="k">if</span> <span class="n">numel</span> <span class="o">!=</span> <span class="mi">0</span> <span class="k">else</span> <span class="o">-</span><span class="mf">1.0</span>
                     <span class="k">return</span> <span class="n">numel</span><span class="p">,</span> <span class="n">avg</span>
@@ -3918,7 +3918,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">debug_step</span> <span class="o">+=</span> <span class="mi">1</span>
 
         <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-        <span class="k">def</span> <span class="nf">_debug_print_input_stats_factory_null</span><span class="p">(</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">_debug_print_input_stats_factory_null</span><span class="p">(</span>
             <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
             <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
             <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3933,7 +3933,7 @@
         <span class="k">return</span> <span class="n">_debug_print_input_stats_factory_null</span></div>
 
 
-<span class="k">class</span> <span class="nc">DenseTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DenseTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Table-batched version of nn.EmbeddingBag(sparse=False)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -3947,7 +3947,7 @@
     <span class="n">total_hash_size_bits</span><span class="p">:</span> <span class="nb">int</span>
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]],</span>  <span class="c1"># tuple of (rows, dims)</span>
         <span class="n">feature_table_map</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>  <span class="c1"># [T]</span>
@@ -4068,7 +4068,7 @@
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
-    <span class="k">def</span> <span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_generate_vbe_metadata</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]],</span>
@@ -4083,7 +4083,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -4124,7 +4124,7 @@
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">split_embedding_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">split_embedding_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Returns a list of weights, split by table</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -4136,7 +4136,7 @@
             <span class="p">)</span>
         <span class="k">return</span> <span class="n">splits</span>
 
-    <span class="k">def</span> <span class="nf">init_embedding_weights_uniform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">min_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">max_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">init_embedding_weights_uniform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">min_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">max_val</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">splits</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">split_embedding_weights</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">splits</span><span class="p">:</span>
             <span class="n">param</span><span class="o">.</span><span class="n">uniform_</span><span class="p">(</span><span class="n">min_val</span><span class="p">,</span> <span class="n">max_val</span><span class="p">)</span>

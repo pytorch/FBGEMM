@@ -436,16 +436,16 @@
 
 <span class="c1"># pyre-ignore-all-errors[56]</span>
 
-<span class="kn">import</span> <span class="nn">logging</span>
-<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">accumulate</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">accumulate</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
 
-<span class="kn">import</span> <span class="nn">fbgemm_gpu</span>  <span class="c1"># noqa: F401</span>
-<span class="kn">import</span> <span class="nn">torch</span>  <span class="c1"># usort:skip</span>
-<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fbgemm_gpu</span>  <span class="c1"># noqa: F401</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>  <span class="c1"># usort:skip</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
 
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.split_embedding_configs</span> <span class="kn">import</span> <span class="n">sparse_type_to_int</span><span class="p">,</span> <span class="n">SparseType</span>
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_embedding_configs</span><span class="w"> </span><span class="kn">import</span> <span class="n">sparse_type_to_int</span><span class="p">,</span> <span class="n">SparseType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">BoundsCheckMode</span><span class="p">,</span>
     <span class="n">CacheAlgorithm</span><span class="p">,</span>
     <span class="n">CacheState</span><span class="p">,</span>
@@ -461,7 +461,7 @@
     <span class="n">SplitState</span><span class="p">,</span>
     <span class="n">tensor_to_device</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.utils.loader</span> <span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.utils.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="n">load_torch_module</span><span class="p">(</span>
@@ -480,10 +480,10 @@
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
     <span class="k">pass</span>
 
-<span class="kn">import</span> <span class="nn">fbgemm_gpu</span>  <span class="c1"># noqa</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">fbgemm_gpu</span>  <span class="c1"># noqa</span>
 
 
-<span class="k">def</span> <span class="nf">rounded_row_size_in_bytes</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">rounded_row_size_in_bytes</span><span class="p">(</span>
     <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">weight_ty</span><span class="p">:</span> <span class="n">SparseType</span><span class="p">,</span>
     <span class="n">row_alignment</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -494,7 +494,7 @@
     <span class="k">return</span> <span class="n">round_up</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">row_alignment</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">unpadded_row_size_in_bytes</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">unpadded_row_size_in_bytes</span><span class="p">(</span>
     <span class="n">dim</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="n">weight_ty</span><span class="p">:</span> <span class="n">SparseType</span><span class="p">,</span>
     <span class="n">scale_bias_size_in_bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_SCALE_BIAS_SIZE_IN_BYTES</span><span class="p">,</span>
@@ -510,12 +510,12 @@
     <span class="k">return</span> <span class="n">r</span>
 
 
-<span class="k">def</span> <span class="nf">align_to_cacheline</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">align_to_cacheline</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
     <span class="c1"># align each table to 128b cache line boundary.</span>
     <span class="k">return</span> <span class="n">round_up</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="mi">128</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">nbit_construct_split_state</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">nbit_construct_split_state</span><span class="p">(</span>
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">SparseType</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">]],</span>
     <span class="n">cacheable</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
     <span class="n">row_alignment</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -559,7 +559,7 @@
     <span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">random_quant_scaled_tensor</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">random_quant_scaled_tensor</span><span class="p">(</span>
     <span class="n">shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
     <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
     <span class="n">output_tensor</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -584,7 +584,7 @@
 
 
 <span class="nd">@torch</span><span class="o">.</span><span class="n">fx</span><span class="o">.</span><span class="n">wrap</span>
-<span class="k">def</span> <span class="nf">inputs_to_device</span><span class="p">(</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">inputs_to_device</span><span class="p">(</span>
     <span class="n">indices</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">offsets</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
@@ -604,7 +604,7 @@
 
 
 <span class="c1"># pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.</span>
-<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span> <span class="nc">IntNBitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
+<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">IntNBitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Table-batched version of nn.EmbeddingBag(sparse=False)</span>
 <span class="sd">    Inference version, with support for FP32/FP16/FP8/INT8/INT4/INT2 weights</span>
@@ -763,7 +763,7 @@
     <span class="c1"># pyre-fixme[13]: Attribute `weights_placements` is never initialized.</span>
     <span class="n">weights_placements</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>  <span class="c1"># noqa C901</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>  <span class="c1"># noqa C901</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span>
             <span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">SparseType</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">]</span>
@@ -887,7 +887,7 @@
                     <span class="n">dim</span> <span class="o">%</span> <span class="p">(</span><span class="mi">8</span> <span class="o">/</span> <span class="n">weight_ty</span><span class="o">.</span><span class="n">bit_rate</span><span class="p">())</span> <span class="o">==</span> <span class="mi">0</span>
                 <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;For quantized types we need to at least pack at byte granularity, dim: </span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, weight_ty: </span><span class="si">{</span><span class="n">weight_ty</span><span class="si">}</span><span class="s2">&quot;</span>
 
-        <span class="k">def</span> <span class="nf">max_ty_D</span><span class="p">(</span><span class="n">ty</span><span class="p">:</span> <span class="n">SparseType</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">max_ty_D</span><span class="p">(</span><span class="n">ty</span><span class="p">:</span> <span class="n">SparseType</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
             <span class="k">return</span> <span class="nb">max</span><span class="p">(</span>
                 <span class="p">[</span>
                     <span class="n">dim</span>
@@ -1051,7 +1051,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">fp8_exponent_bits</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">fp8_exponent_bias</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
 
-    <span class="k">def</span> <span class="nf">get_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="c1"># cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss</span>
         <span class="c1"># cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses</span>
         <span class="c1"># cache_miss_counter[2]: total number of unique (dedup) access count</span>
@@ -1067,7 +1067,7 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">get_table_wise_cache_miss</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_table_wise_cache_miss</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_tablewise_cache_miss</span>
         <span class="p">),</span> <span class="s2">&quot;record_tablewise_cache_miss should be true to access counter values&quot;</span>
@@ -1075,12 +1075,12 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">get_feature_num_per_table</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_feature_num_per_table</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_names_per_table</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="p">[]</span>
         <span class="k">return</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">feature_names</span><span class="p">)</span> <span class="k">for</span> <span class="n">feature_names</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_names_per_table</span><span class="p">]</span>
 
-    <span class="k">def</span> <span class="nf">reset_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span>
         <span class="p">),</span> <span class="s2">&quot;record_cache_miss_counter should be true to access counter values&quot;</span>
@@ -1088,14 +1088,14 @@
             <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">reset_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span>
         <span class="p">),</span> <span class="s2">&quot;gather_uvm_cache_stats should be set to true to access uvm cache stats.&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">print_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">print_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span>
         <span class="p">),</span> <span class="s2">&quot;record_cache_miss_counter should be true to access counter values&quot;</span>
@@ -1113,13 +1113,13 @@
             <span class="sa">f</span><span class="s2">&quot;total_miss_rate using counter : </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">, </span><span class="se">\n</span><span class="s2">&quot;</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">get_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span>
         <span class="p">),</span> <span class="s2">&quot;gather_uvm_cache_stats should be set to true to access uvm cache stats.&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span>
 
-    <span class="k">def</span> <span class="nf">print_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">print_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span>
         <span class="p">),</span> <span class="s2">&quot;gather_uvm_cache_stats should be set to true to access uvm cache stats.&quot;</span>
@@ -1139,7 +1139,7 @@
             <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">prefetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">prefetch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span> <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep_counter</span><span class="o">.</span><span class="n">increment</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep_prefetch_size</span><span class="o">.</span><span class="n">increment</span><span class="p">()</span>
         <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
@@ -1187,7 +1187,7 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_assoc</span><span class="si">}</span><span class="s2"> not in [1, 32, 64]&quot;</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">prefetch_32way</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">prefetch_32way</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span><span class="p">:</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">lru_cache_populate_byte</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span>
@@ -1236,7 +1236,7 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_accumulate_uvm_cache_stats</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">prefetch_1way</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">prefetch_1way</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span><span class="p">:</span>
             <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">direct_mapped_lru_cache_populate_byte</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span>
@@ -1274,7 +1274,7 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_accumulate_uvm_cache_stats</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">_accumulate_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_accumulate_uvm_cache_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># Accumulate local_uvm_cache_stats (int32) into uvm_cache_stats (int64).</span>
         <span class="c1"># We may wanna do this accumulation atomically, but as it&#39;s only for monitoring,</span>
         <span class="c1"># slightly inaccurate result may be acceptable.</span>
@@ -1283,7 +1283,7 @@
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">local_uvm_cache_stats</span><span class="o">.</span><span class="n">zero_</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">_update_cache_miss_counter</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_cache_miss_counter</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">lxu_cache_locations</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1317,7 +1317,7 @@
         <span class="c1"># Number of total requests</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">+=</span> <span class="n">linear_cache_indices</span><span class="o">.</span><span class="n">size</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
 
-    <span class="k">def</span> <span class="nf">_update_tablewise_cache_miss</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_update_tablewise_cache_miss</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">lxu_cache_locations</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">linear_cache_indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1346,7 +1346,7 @@
 
             <span class="bp">self</span><span class="o">.</span><span class="n">table_wise_cache_miss</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">miss_count</span>
 
-    <span class="k">def</span> <span class="nf">_forward_impl</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_forward_impl</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1449,7 +1449,7 @@
             <span class="n">fp8_exponent_bias</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fp8_exponent_bias</span><span class="p">,</span>
         <span class="p">)</span>
 
-<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span>
+<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
         <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
@@ -1459,7 +1459,7 @@
             <span class="n">indices</span><span class="o">=</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="o">=</span><span class="n">per_sample_weights</span>
         <span class="p">)</span></div>
 
-    <span class="k">def</span> <span class="nf">initialize_logical_weights_placements_and_offsets</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_logical_weights_placements_and_offsets</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">weights_physical_offsets</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_specs</span><span class="p">)</span>
@@ -1477,7 +1477,7 @@
             <span class="n">placements</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">initialize_physical_weights_placements_and_offsets</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_physical_weights_placements_and_offsets</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">cacheline_alignment</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -1497,7 +1497,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">uvm_size</span> <span class="o">=</span> <span class="n">weight_split</span><span class="o">.</span><span class="n">uvm_size</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">reset_weights_placements_and_offsets</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_weights_placements_and_offsets</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">location</span><span class="p">:</span> <span class="nb">int</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># Overwrite location in embedding_specs with new location</span>
@@ -1520,7 +1520,7 @@
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">initialize_logical_weights_placements_and_offsets</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">reset_embedding_spec_location</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_embedding_spec_location</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">target_location</span><span class="p">:</span> <span class="n">EmbeddingLocation</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span> <span class="o">=</span> <span class="n">device</span>
@@ -1536,7 +1536,7 @@
         <span class="p">]</span>
 
 <div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.recompute_module_buffers"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.recompute_module_buffers">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">recompute_module_buffers</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">recompute_module_buffers</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Compute module buffers that&#39;re on meta device and are not materialized</span>
 <span class="sd">        in reset_weights_placements_and_offsets().  Currently those buffers are</span>
@@ -1603,7 +1603,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span>
         <span class="p">)</span></div>
 
-    <span class="k">def</span> <span class="nf">_apply_split</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_split</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">dev_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">host_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -1655,7 +1655,7 @@
                     <span class="p">),</span>
                 <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_apply_cache_state</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply_cache_state</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">cache_state</span><span class="p">:</span> <span class="n">CacheState</span><span class="p">,</span>
         <span class="n">cache_algorithm</span><span class="p">:</span> <span class="n">CacheAlgorithm</span><span class="p">,</span>
@@ -1881,7 +1881,7 @@
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">reset_uvm_cache_stats</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">reset_cache_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_cache_states</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># pyre-fixme[29]: `Union[(self: TensorBase) -&gt; int, Module, Tensor]` is not</span>
         <span class="c1">#  a function.</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">lxu_cache_weights</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
@@ -1890,7 +1890,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">lxu_state</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">timestep_counter</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
 
-    <span class="k">def</span> <span class="nf">move_to_device_with_cache</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">move_to_device_with_cache</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">cache_load_factor</span><span class="p">:</span> <span class="nb">float</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -1957,7 +1957,7 @@
         <span class="k">if</span> <span class="n">cache_load_factor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">update_cache_load_factor</span><span class="p">(</span><span class="n">cache_load_factor</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">update_cache_load_factor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache_load_factor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_cache_load_factor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache_load_factor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Updates cache_load_factor and embedding location for weights after TBE has already been initialized</span>
 <span class="sd">        Assumes that the location of the weights is already set correctly</span>
@@ -1996,7 +1996,7 @@
         <span class="p">)</span>
 
 <div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.split_embedding_weights_with_scale_bias"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.split_embedding_weights_with_scale_bias">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">split_embedding_weights_with_scale_bias</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">split_embedding_weights_with_scale_bias</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">split_scale_bias_mode</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">],</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]]]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -2125,7 +2125,7 @@
         <span class="k">return</span> <span class="n">splits</span></div>
 
 <div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.split_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.split_embedding_weights">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">split_embedding_weights</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">split_embedding_weights</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">split_scale_shifts</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
         <span class="c1"># When true, return list of two tensors, the first with weights and</span>
@@ -2149,7 +2149,7 @@
         <span class="p">]</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">initialize_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">initialize_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">weight_initialized</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">dev_size</span><span class="p">,</span>
@@ -2161,7 +2161,7 @@
             <span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">weight_initialized</span> <span class="o">=</span> <span class="kc">True</span>
 
-<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.fill_random_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.fill_random_weights">[docs]</a>    <span class="k">def</span> <span class="nf">fill_random_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.fill_random_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.fill_random_weights">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">fill_random_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Fill the buffer with random weights, table by table</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -2174,7 +2174,7 @@
                 <span class="n">output_tensor</span><span class="o">=</span><span class="n">dest_weight</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
             <span class="p">)</span></div>
 
-<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.assign_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.assign_embedding_weights">[docs]</a>    <span class="k">def</span> <span class="nf">assign_embedding_weights</span><span class="p">(</span>
+<div class="viewcode-block" id="IntNBitTableBatchedEmbeddingBagsCodegen.assign_embedding_weights"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_inference.html#fbgemm_gpu.split_table_batched_embeddings_ops_inference.IntNBitTableBatchedEmbeddingBagsCodegen.assign_embedding_weights">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">assign_embedding_weights</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">q_weight_list</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]]]</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
@@ -2192,7 +2192,7 @@
                 <span class="k">assert</span> <span class="n">dest_weight</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span></div>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">set_index_remappings_array</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_index_remappings_array</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">index_remapping</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">],</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -2235,7 +2235,7 @@
                 <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">indices_dtype</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span>
             <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">set_index_remappings</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_index_remappings</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">index_remapping</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tensor</span><span class="p">],</span>
         <span class="n">pruning_hash_load_factor</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
@@ -2308,7 +2308,7 @@
         <span class="k">else</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">set_index_remappings_array</span><span class="p">(</span><span class="n">index_remapping</span><span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">_embedding_inplace_update_per_table</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_embedding_inplace_update_per_table</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">update_table_idx</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">update_row_indices</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
@@ -2334,7 +2334,7 @@
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
-    <span class="k">def</span> <span class="nf">embedding_inplace_update</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">embedding_inplace_update</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">update_table_indices</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
         <span class="n">update_row_indices</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]],</span>
@@ -2347,7 +2347,7 @@
                 <span class="n">update_weights</span><span class="p">[</span><span class="n">i</span><span class="p">],</span>
             <span class="p">)</span>
 
-    <span class="k">def</span> <span class="nf">embedding_inplace_update_internal</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">embedding_inplace_update_internal</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">update_table_indices</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
         <span class="n">update_row_indices</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>

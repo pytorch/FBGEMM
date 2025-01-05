@@ -434,16 +434,16 @@
 
 <span class="c1"># pyre-strict</span>
 
-<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">accumulate</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">accumulate</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span>
 
-<span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
-<span class="kn">from</span> <span class="nn">fbgemm_gpu.utils.loader</span> <span class="kn">import</span> <span class="n">load_torch_module</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.utils.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_torch_module</span>
 
 <span class="k">try</span><span class="p">:</span>
     <span class="c1"># pyre-ignore[21]</span>
-    <span class="kn">from</span> <span class="nn">fbgemm_gpu</span> <span class="kn">import</span> <span class="n">open_source</span>  <span class="c1"># noqa: F401</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu</span><span class="w"> </span><span class="kn">import</span> <span class="n">open_source</span>  <span class="c1"># noqa: F401</span>
 <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">load_library</span><span class="p">(</span>
         <span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_cpu&quot;</span>
@@ -453,7 +453,7 @@
     <span class="p">)</span>
 
 
-<div class="viewcode-block" id="PermutePooledEmbeddings"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/pooled_embedding_modules.html#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings">[docs]</a><span class="k">class</span> <span class="nc">PermutePooledEmbeddings</span><span class="p">:</span>
+<div class="viewcode-block" id="PermutePooledEmbeddings"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/pooled_embedding_modules.html#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">PermutePooledEmbeddings</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    A module for permuting embedding outputs along the feature dimension</span>
 
@@ -518,7 +518,7 @@
 <span class="sd">            on</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">embs_dims</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
         <span class="n">permute</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
@@ -546,7 +546,7 @@
             <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">accumulate</span><span class="p">(</span><span class="n">inv_embs_dims</span><span class="p">)),</span> <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
         <span class="p">)</span>
 
-<div class="viewcode-block" id="PermutePooledEmbeddings.__call__"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/pooled_embedding_modules.html#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings.__call__">[docs]</a>    <span class="k">def</span> <span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pooled_embs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<div class="viewcode-block" id="PermutePooledEmbeddings.__call__"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/pooled_embedding_modules.html#fbgemm_gpu.permute_pooled_embedding_modules.PermutePooledEmbeddings.__call__">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pooled_embs</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Performs pooled embedding output permutation along the feature dimension</span>
 

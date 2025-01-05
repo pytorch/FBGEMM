@@ -452,7 +452,7 @@ minimum, please add descriptions of:</p>
 <p>Other sections such as <code class="docutils literal notranslate"><span class="pre">Todo</span></code>, <code class="docutils literal notranslate"><span class="pre">Note</span></code>, and <code class="docutils literal notranslate"><span class="pre">Example</span></code> should be added
 as needed.</p>
 <p>Here is an example Python docstring:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">example_method</span><span class="p">(</span><span class="n">alignment</span><span class="p">:</span> <span class="n">c_size_t</span><span class="p">,</span> <span class="n">param</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">example_method</span><span class="p">(</span><span class="n">alignment</span><span class="p">:</span> <span class="n">c_size_t</span><span class="p">,</span> <span class="n">param</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This class is an example of how you can write docstrings.</span>
 <span class="sd">    You can add multiple lines of those descriptions. Make sure to include</span>
@@ -612,9 +612,9 @@ repo.</p></li>
 <li><p>In the Python file, use the provided helper methods in
 <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu.docs.common</span></code> to add attach a docstring to the target
 auto-generated method by method name.  Here is an example from the codebase:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">torch</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
 
-<span class="kn">from</span> <span class="nn">.common</span> <span class="kn">import</span> <span class="n">add_docs</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.common</span><span class="w"> </span><span class="kn">import</span> <span class="n">add_docs</span>
 
 
 <span class="n">add_docs</span><span class="p">(</span>
