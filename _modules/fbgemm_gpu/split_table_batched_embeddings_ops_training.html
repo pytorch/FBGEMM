@@ -2001,10 +2001,12 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-            <span class="p">),</span> <span class="s2">&quot;&quot;&quot;</span>
-<span class="s2">                Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD,</span>
-<span class="s2">                OptimType.ENSEMBLE_ROWWISE_ADAGRAD, and OptimType.EMAINPLACE_ROWWISE_ADAGRAD only.</span>
-<span class="s2">                &quot;&quot;&quot;</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">,</span>
+            <span class="p">),</span> <span class="p">(</span>
+                <span class="s2">&quot;Variable batch size TBE support is enabled for &quot;</span>
+                <span class="s2">&quot;OptimType.EXACT_ROWWISE_ADAGRAD,EXACT_SGD, &quot;</span>
+                <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD, NONE, and ADAM only&quot;</span>
+            <span class="p">)</span>
         <span class="k">return</span> <span class="n">generate_vbe_metadata</span><span class="p">(</span>
             <span class="n">offsets</span><span class="p">,</span>
             <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
