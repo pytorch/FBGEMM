@@ -192,3 +192,78 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
 
   return Y;
 }
+
+// Dynamic variant of kernel launch.
+template <typename DeviceGemmInstance>
+at::Tensor f8f8bf16_rowwise_grouped_impl(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor kernel_args,
+    at::Tensor Y) {
+  // Get input information.
+  int group_count = XQ.size(0);
+  using KernelArguments =
+      ck::tensor_operation::device::GroupedGemmTileLoopKernelArguments<2>;
+  using GemmDesc = ck::tensor_operation::device::GemmDesc;
+  // Create gemm shape containers.
+  std::vector<GemmDesc> gemm_descs;
+  // Create container for input arguments.
+  std::vector<const void*> A_args;
+  std::vector<const void*> B_args;
+  std::vector<void*> C_args;
+  std::vector<std::array<const void*, 2>> D_args = {};
+  // Reserve space in argument arrays.
+  gemm_descs.reserve(group_count);
+  A_args.reserve(group_count);
+  B_args.reserve(group_count);
+  C_args.reserve(group_count);
+  D_args.reserve(group_count);
+  // Populate arguments.
+  int M = XQ.size(1);
+  int K = XQ.size(2);
+  int N = WQ.size(1);
+  for (int i = 0; i < group_count; i++) {
+    // Set the shape arguments for this gemm.
+    GemmDesc gemm_desc = {M, N, K, K, K, N, {0, 0}};
+    gemm_descs.push_back(gemm_desc);
+    // Set pointers to inputs and outputs.
+    A_args.push_back(reinterpret_cast<ADataType*>(
+        XQ.data_ptr<at::Float8_e4m3fnuz>() + i * M * K));
+    B_args.push_back(reinterpret_cast<BDataType*>(
+        WQ.data_ptr<at::Float8_e4m3fnuz>() + i * N * K));
+    C_args.push_back(
+        reinterpret_cast<EDataType*>(Y.data_ptr<at::BFloat16>() + i * M * N));
+    D_args.emplace_back(std::array<const void*, 2>{
+        reinterpret_cast<D0DataType*>(w_scale.data_ptr<float>() + i * N),
+        reinterpret_cast<D1DataType*>(x_scale.data_ptr<float>() + i * M)});
+  }
+
+  // Create gemm launcher and arguments.
+  auto gemm = DeviceGemmInstance{};
+  auto invoker = gemm.MakeInvoker();
+
+  auto a_element_op = AElementOp{};
+  auto b_element_op = BElementOp{};
+  auto cde_element_op = CDEElementOp{};
+  // Setup Gemm arguments.
+  auto argument = gemm.MakeArgument(
+      A_args,
+      B_args,
+      D_args,
+      C_args,
+      gemm_descs,
+      a_element_op,
+      b_element_op,
+      cde_element_op);
+
+  // Set gemm kernel arguments.
+  gemm.SetDeviceKernelArgs(argument, kernel_args.data_ptr());
+
+  // Get hip graph stream if it exists.
+  auto stream = at::cuda::getCurrentHIPStream().stream();
+  invoker.Run(argument, StreamConfig{stream, false});
+
+  return Y;
+}
