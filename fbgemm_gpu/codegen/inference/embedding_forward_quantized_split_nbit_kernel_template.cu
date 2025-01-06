@@ -97,8 +97,6 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   int32_t max_Ls = 0;
   constexpr size_t kOutputsPerThread = {{ (32 // emb_weight_type.bit_width) }};
 
-  const uint32_t packed_bag_idx = num_packed_bags > 0 ? threadIdx.x / num_packed_bags : 0;
-
   constexpr uint32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4);
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
