@@ -827,28 +827,30 @@ class FP8Tests(unittest.TestCase):
             )
 
         # BF16 grouped gemm kernel
+        bf16_args = (
+            [x_group, w_group, zero_start_index_M]
+            if use_padding_zeros
+            else [x_group, w_group]
+        )
+        bf16_op = (
+            torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
+            if use_padding_zeros
+            else torch.ops.fbgemm.bf16bf16bf16_grouped
+        )
         if use_cudagraph:
             # warmup
-            torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            bf16_op(*bf16_args)
             # With cudagraph
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
-                y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                    x_group,
-                    w_group,
-                    zero_start_index_M if use_padding_zeros else None,
-                )
+                y_bf16_group = bf16_op(*bf16_args)
             g.replay()
         else:
-            y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            y_bf16_group = bf16_op(*bf16_args)
+
+        # View output as list if needed.
+        if not isinstance(y_bf16_group, (tuple, list)):
+            y_bf16_group = torch.unbind(y_bf16_group)
 
         # BF16 loopover gemm reference
         y_group_ref = []

@@ -261,6 +261,7 @@ template <
 std::vector<at::Tensor> bf16bf16bf16_grouped_impl(
     at::TensorList X, // BF16
     at::TensorList W, // BF16
+    std::vector<at::Tensor> output_tensor,
     std::optional<at::Tensor> zero_start_index_M) {
   int problem_count = X.size();
   TORCH_CHECK(W.size() == problem_count);
@@ -272,27 +273,6 @@ std::vector<at::Tensor> bf16bf16bf16_grouped_impl(
   }
   using GroupedGemmConfigs = GroupedGemmBF16Args::
       GroupedGemmConfigs<TB_M, TB_N, TB_K, TBS_M, TBS_N, TBS_K, PONG>;
-
-  constexpr int AlignmentA =
-      128 /
-      cutlass::sizeof_bits<
-          GroupedGemmBF16Args::ElementInputA>::value; // Alignment of A matrix
-                                                      // in units of elements
-                                                      // (up to 16 bytes)
-
-  constexpr int AlignmentB =
-      128 /
-      cutlass::sizeof_bits<
-          GroupedGemmBF16Args::ElementInputB>::value; // Alignment of B matrix
-                                                      // in units of elements
-                                                      // (up to 16 bytes)
-
-  constexpr int AlignmentD =
-      128 /
-      cutlass::sizeof_bits<
-          GroupedGemmBF16Args::ElementOutput>::value; // Alignment of C matrix
-                                                      // in units of elements
-                                                      // (up to 16 bytes)
 
   at::Tensor output_args =
       at::empty({problem_count}, X[0].options().dtype(at::kLong));
@@ -312,28 +292,6 @@ std::vector<at::Tensor> bf16bf16bf16_grouped_impl(
   int problem_shape_buf_offset = problem_count * 2 * sizeof(int64_t);
   int stride_buf_offset =
       problem_count * 2 * sizeof(int64_t) + problem_shape_size;
-
-  // Two modes for allocating output. When m_values is provided, we need
-  // the output tensor to be contiguous and can assume M, N, and K are the
-  // same across groups. Otherwise, we can allocate each output separately.
-  std::vector<at::Tensor> output_tensor;
-  if (zero_start_index_M.has_value()) {
-    int M = X[0].size(0);
-    int N = W[0].size(0);
-    // Fill output with zeros to simplify integration. This prevents nans from
-    // showing up in the tensor.
-    at::Tensor output_full =
-        at::zeros({problem_count, M, N}, X[0].options().dtype(at::kBFloat16));
-    // Split the output into groups.
-    output_tensor = at::unbind(output_full, 0);
-  } else {
-    for (int i = 0; i < problem_count; i++) {
-      int M = X[i].size(0);
-      int N = W[i].size(0);
-      output_tensor.push_back(
-          at::empty({M, N}, X[i].options().dtype(at::kBFloat16)));
-    }
-  }
 
   TORCH_CHECK(
       !zero_start_index_M.has_value() ||
@@ -505,27 +463,58 @@ std::vector<at::Tensor> bf16bf16bf16_grouped_impl(
 std::vector<at::Tensor> dispatch_bf16_grouped_kernel(
     at::TensorList x_group, // BF16
     at::TensorList w_group, // BF16
+    std::vector<at::Tensor> output_tensor,
     std::optional<at::Tensor> zero_start_index_M) {
   KernelMode kernel = get_grouped_kernel_mode(x_group, w_group);
   if (kernel == KernelMode::Small) {
     return bf16bf16bf16_grouped_impl<64, 128, 128, 2, 1, 1, true>(
-        x_group, w_group, zero_start_index_M);
+        x_group, w_group, output_tensor, zero_start_index_M);
   } else if (kernel == KernelMode::Large) {
     return bf16bf16bf16_grouped_impl<128, 128, 128, 2, 1, 1, true>(
-        x_group, w_group, zero_start_index_M);
+        x_group, w_group, output_tensor, zero_start_index_M);
   } else {
     return bf16bf16bf16_grouped_impl<128, 128, 128, 1, 2, 1, true>(
-        x_group, w_group, zero_start_index_M);
+        x_group, w_group, output_tensor, zero_start_index_M);
   }
 }
 
 std::vector<at::Tensor> bf16bf16bf16_grouped(
     at::TensorList x_group, // BF16
     at::TensorList w_group, // BF16
-    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<std::vector<at::Tensor>> output = std::nullopt) {
   TORCH_CHECK(!output.has_value(), "Preallocated output not yet supported.");
-  return dispatch_bf16_grouped_kernel(x_group, w_group, zero_start_index_M);
+  // Initialize output tensor.
+  int problem_count = x_group.size();
+  std::vector<at::Tensor> output_tensor;
+  for (int i = 0; i < problem_count; i++) {
+    int M = x_group[i].size(0);
+    int N = w_group[i].size(0);
+    output_tensor.push_back(
+        at::empty({M, N}, x_group[i].options().dtype(at::kBFloat16)));
+  }
+  return dispatch_bf16_grouped_kernel(
+      x_group, w_group, output_tensor, std::nullopt);
+}
+
+at::Tensor bf16bf16bf16_grouped_dynamic(
+    at::TensorList x_group, // BF16
+    at::TensorList w_group, // BF16
+    at::Tensor zero_start_index_M) {
+  std::vector<at::Tensor> output_tensor;
+  int problem_count = x_group.size();
+  int M = x_group[0].size(0);
+  int N = w_group[0].size(0);
+  // Fill output with zeros to simplify integration. This prevents nans from
+  // showing up in the tensor.
+  at::Tensor output_full = at::zeros(
+      {problem_count, M, N}, x_group[0].options().dtype(at::kBFloat16));
+  // Split the output into groups.
+  output_tensor = at::unbind(output_full, 0);
+  // Run kernel to populate output tensor.
+  dispatch_bf16_grouped_kernel(
+      x_group, w_group, output_tensor, zero_start_index_M);
+  // Return coalesced view of output.
+  return output_full;
 }
 
 #else
@@ -533,8 +522,15 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
 std::vector<at::Tensor> bf16bf16bf16_grouped(
     at::TensorList /* x_group */, // BF16
     at::TensorList /* w_group */, // BF16
-    std::optional<at::Tensor> /* zero_start_index_M */,
     std::optional<std::vector<at::Tensor>> /* output */) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+
+at::Tensor bf16bf16bf16_grouped_dynamic(
+    at::TensorList /* x_group */, // BF16
+    at::TensorList /* w_group */, // BF16
+    at::Tensor /* zero_start_index_M */) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
