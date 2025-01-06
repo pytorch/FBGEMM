@@ -1326,50 +1326,52 @@ def nbit_device(  # noqa C901
 
     # Get trace for one run of iter
     tbe_type: str = "split"
-
+    times_kernel = []
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(
             trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
         )
         # averges the sum of all kernels
         total_cuda_time = sum(event.device_time*event.count/(iters+1) for event in p.key_averages() if event.cpu_time == 0.0)
-        print(f"Total CUDA time: {total_cuda_time:.3f} ")
+        #print(f"Total CUDA time: {total_cuda_time:.3f} ")
+        times_kernel.append(total_cuda_time)
 
     # pyre-ignore[3]
     def context_factory(on_trace_ready: Callable[[profile], None]):
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
-
-    requests = generate_requests(
-        iters,
-        B,
-        T,
-        L,
-        E,
-        reuse=reuse,
-        alpha=alpha,
-        weighted=weighted,
-        requests_data_file=requests_data_file,
-        tables=tables,
-    )
-    requests = [
-        TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
-        for req in requests
-    ]
-
-    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
-        # forward
-        time_per_iter = benchmark_requests(
-            requests,
-            lambda indices, offsets, per_sample_weights: emb.forward(
-                indices.int(),
-                offsets.int(),
-                per_sample_weights,
-            ),
-            check_median=check_median,
+    
+    for i in range(runs_of_iters):
+        requests = generate_requests(
+            iters,
+            B,
+            T,
+            L,
+            E,
+            reuse=reuse,
+            alpha=alpha,
+            weighted=weighted,
+            requests_data_file=requests_data_file,
+            tables=tables,
         )
-    # free up GPU memory
-    del requests
-
+        requests = [
+            TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+            for req in requests
+        ]
+        with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+            # forward
+            time_per_iter = benchmark_requests(
+                requests,
+                lambda indices, offsets, per_sample_weights: emb.forward(
+                    indices.int(),
+                    offsets.int(),
+                    per_sample_weights,
+                ),
+                check_median=check_median,
+            )
+        # free up GPU memory
+        del requests
+    mean_kernel_time= statistics.mean(times_kernel[warmup_runs-1:runs_of_iters-1])
+    print(f"Total CUDA time: {mean_kernel_time:.3f} ")
     if report_aibench and haveAIBench:
         print(
             emitMetric(
