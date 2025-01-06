@@ -1574,10 +1574,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                 OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 OptimType.NONE,
-            ), """
-                Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.ENSEMBLE_ROWWISE_ADAGRAD, and OptimType.EMAINPLACE_ROWWISE_ADAGRAD only.
-                """
+                OptimType.ADAM,
+            ), (
+                "Variable batch size TBE support is enabled for "
+                "OptimType.EXACT_ROWWISE_ADAGRAD,EXACT_SGD, "
+                "ENSEMBLE_ROWWISE_ADAGRAD, NONE, and ADAM only"
+            )
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,

@@ -878,6 +878,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         L=st.integers(min_value=0, max_value=20),
         weighted=st.booleans(),
         mixed=st.booleans(),
+        mixed_B=st.booleans(),
         optimizer=st.sampled_from(
             [
                 OptimType.ADAM,
@@ -911,12 +912,16 @@ class BackwardOptimizersTest(unittest.TestCase):
         L: int,
         weighted: bool,
         mixed: bool,
+        mixed_B: bool,
         optimizer: OptimType,
         long_segments: bool,
         pooling_mode: PoolingMode,
         use_cpu: bool,
         uvm_non_rowwise_momentum: bool,
     ) -> None:
+        # VBE is not supported for PoolingMode.NONE
+        if pooling_mode == PoolingMode.NONE or optimizer != OptimType.ADAM:
+            mixed_B = False
         self.execute_backward_optimizers_(
             T,
             D,
@@ -925,7 +930,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             L,
             weighted,
             mixed,
-            False,  # mixed_B
+            mixed_B,  # mixed_B
             optimizer,
             long_segments,
             pooling_mode,
