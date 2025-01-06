@@ -62,6 +62,7 @@ VBE_OPTIMIZERS = [
     "rowwise_adagrad_with_counter",
     "sgd",
     "dense",
+    "adam",
 ]
 
 # Individual optimizers (not fused with SplitTBE backward)
