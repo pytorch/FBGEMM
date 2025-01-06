@@ -1079,7 +1079,7 @@ def adam() -> Dict[str, Any]:
         "split_weight_update_cpu": split_weight_update_cpu,
         "has_cpu_support": False,
         "has_gpu_support": True,
-        "has_vbe_support": False,
+        "has_vbe_support": True,
         "has_global_weight_decay_support": False,
         "has_ssd_support": False,
     }
