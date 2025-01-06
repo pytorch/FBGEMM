@@ -628,23 +628,15 @@ class BF16GroupedGemm(QuantizeOpBase):
         # Stack inputs into groups.
         x = torch.stack(xp).contiguous()
         w = torch.stack(w).contiguous()
-        # Allocate output tensor.
-        output = torch.empty(
-            [x.shape[0], x.shape[1], w.shape[1]],
-            dtype=torch.bfloat16,
-            device=x.device,
-        )
         # View these unified tensors as lists of tensors.
         x = [xi.squeeze() for xi in x.split(1, dim=0)]
         w = [wi.squeeze() for wi in w.split(1, dim=0)]
-        output = [o.squeeze() for o in output.split(1, dim=0)]
 
         # Return processed tensors.
         return (
             x,
             w,
             torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device),
-            output,
         )
 
     def quantize(self, x, w):
@@ -660,23 +652,18 @@ class BF16GroupedGemm(QuantizeOpBase):
         if len(np.unique(n_values)) == 1 and len(np.unique(k_values)) == 1:
             return self.quantize_fixed_nk(x, w)
 
-        output = [
-            torch.empty(m, n, device=x[0].device, dtype=torch.bfloat16)
-            for m, n in zip(m_values, n_values)
-        ]
         m_values = None
-        return x, w, m_values, output
+        return x, w, m_values
 
-    def compute(self, x, w, m_values, _):
-        return torch.ops.fbgemm.bf16bf16bf16_grouped(
-            x,
-            w,
-            zero_start_index_M=m_values,
-        )
+    def compute(self, x, w, m_values):
+        if m_values is None:
+            return torch.ops.fbgemm.bf16bf16bf16_grouped(x, w)
+        else:
+            return torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic(x, w, m_values)
 
     def quantize_and_compute(self, x, w):
-        x, w, m_values, output = self.quantize(x, w)
-        return self.compute(x, w, m_values, output)
+        x, w, m_values = self.quantize(x, w)
+        return self.compute(x, w, m_values)
 
     @property
     def name(self) -> str:
