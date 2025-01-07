@@ -166,7 +166,15 @@ class FbgemmGpuBuild:
         elif self.args.package_variant == "rocm":
             if torch.version.hip is not None:
                 rocm_version = torch.version.hip.split(".")
-                pkg_vver = f"+rocm{rocm_version[0]}.{rocm_version[1]}"
+                # NOTE: Unlike CUDA-based releases, which ignores the minor patch version,
+                # ROCm-based releases may use the full version string.
+                # See https://download.pytorch.org/whl/nightly/torch/ for examples.
+                if len(rocm_version) > 2:
+                    pkg_vver = (
+                        f"+rocm{rocm_version[0]}.{rocm_version[1]}.{rocm_version[2]}"
+                    )
+                else:
+                    pkg_vver = f"+rocm{rocm_version[0]}.{rocm_version[1]}"
             else:
                 sys.exit(
                     "[SETUP.PY] The installed PyTorch variant is not ROCm; cannot determine the ROCm version!"
