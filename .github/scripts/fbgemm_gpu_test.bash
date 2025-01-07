@@ -90,6 +90,10 @@ __configure_fbgemm_gpu_test_cpu () {
     ./sll/jagged_jagged_bmm_jagged_out_test.py
     ./sll/jagged_dense_flash_attention_test.py
     ./sll/multi_head_jagged_flash_attention_test.py
+    ./sll/jagged_dense_bmm_test.py
+    ./sll/jagged_dense_elementwise_mul_jagged_out_test.py
+    ./sll/jagged_jagged_bmm_test.py
+    ./sll/jagged_softmax_test.py
   )
 }
 
