@@ -33,20 +33,13 @@ from fbgemm_gpu.tbe.utils import (
 from hypothesis import given, settings, Verbosity
 
 from .. import common  # noqa E402
-from ..common import open_source
-
-
-if open_source:
-    # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_github
-else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_github
+from ..common import gpu_unavailable, running_in_oss
 
 
 MAX_EXAMPLES = 40
 
 
-@unittest.skipIf(*running_on_github)
+@unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 @unittest.skipIf(True, "Test is broken.")
 class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):

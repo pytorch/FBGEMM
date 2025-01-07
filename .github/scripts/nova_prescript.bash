@@ -67,9 +67,14 @@ if [[ $CU_VERSION = cu* ]]; then
     CUDNN_INCLUDE_DIR="${CUDA_HOME}/include" \
     CUDNN_LIBRARY="${CUDA_HOME}/lib64"
 
+  echo "[NOVA] -------- Finding libcuda.so -----------"
+  LIBCUDA_PATH=$(find /usr/local -type f -name libcuda.so)
+  print_exec ln "${LIBCUDA_PATH}" -s "/usr/local/lib/libcuda.so.1"
+
   echo "[NOVA] -------- Finding NVML_LIB_PATH -----------"
   if [[ ${NVML_LIB_PATH} == "" ]]; then
     NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) &&
+    ln "${NVML_LIB_PATH}" -s "/usr/local/lib/libnvidia-ml.so.1" &&
     export NVML_LIB_PATH &&
     echo "[NOVA] looking in ${CUDA_HOME}" ||
     echo "[NOVA] libnvidia-ml.so not found in ${CUDA_HOME}";

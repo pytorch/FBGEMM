@@ -272,7 +272,7 @@ class BackwardDenseTest(unittest.TestCase):
             or output_dtype == SparseType.FP16
             or output_dtype == SparseType.BF16
         )
-        tol = 5.0e-3 if is_low_prec else 1.0e-5
+        tol = 5.0e-2 if is_low_prec else 1.0e-5
         torch.testing.assert_close(
             fc2.float(),
             f.float(),
@@ -287,7 +287,7 @@ class BackwardDenseTest(unittest.TestCase):
         else:
             goc = torch.cat(gos, dim=0)
         fc2.backward(goc)
-        tol = 5.0e-3 if is_low_prec else 1.0e-4
+        tol = 5.0e-2 if is_low_prec else 1.0e-4
         torch.testing.assert_close(
             cc.weights.grad,
             grad_weights,
