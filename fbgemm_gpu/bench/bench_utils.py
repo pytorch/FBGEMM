@@ -162,25 +162,33 @@ def benchmark_requests(
     warmup_ms: Optional[int] = None,
 ) -> float:
     times = []
-
     # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
     # for the first kernel
     num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
 
-    # warm-up the GPU before profiling  
+    # warm-up the GPU before profiling
     if warmup_ms:
         indices, offsets, weights = requests[0].unpack_3()
-        start_events = torch.cuda.Event(enable_timing=True)
-        end_events = torch.cuda.Event(enable_timing=True)
-        elapsed_time_ms=0
-        while elapsed_time_ms < warmup_ms:
-            if torch.cuda.is_available():
+        if torch.cuda.is_available():
+            elapsed_time_ms = 0
+            torch.cuda.synchronize()
+            start_events = torch.cuda.Event(enable_timing=True)
+            end_events = torch.cuda.Event(enable_timing=True)
+            while elapsed_time_ms < warmup_ms:
                 start_events.record()
                 out = func(indices, offsets, weights)
+                if bwd_only:
+                    out.backward(grad)
                 end_events.record()
                 torch.cuda.synchronize()
-                elapsed_time_ms+=start_events.elapsed_time(end_events) 
-                                
+                elapsed_time_ms += start_events.elapsed_time(end_events)
+        else:
+            start_time_ms = time.time() * 1000
+            while time.time() * 1000 - start_time_ms < warmup_ms:
+                out = func(indices, offsets, weights)
+                if bwd_only:
+                    out.backward(grad)
+
     if num_warmups > 0:
         indices, offsets, weights = requests[0].unpack_3()
         for _ in range(num_warmups):

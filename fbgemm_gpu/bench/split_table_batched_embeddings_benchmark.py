@@ -1328,17 +1328,35 @@ def nbit_device(  # noqa C901
 
     # Get trace for one run of iter
     tbe_type: str = "split"
-    
+
     def _kineto_trace_handler(p: profile, phase: str) -> None:
         p.export_chrome_trace(
             trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
         )
+        kernel_time = 0
+        kernel_run = 0
         for event in p.key_averages():
+            # Sum the total time of forward kernel runs
             if "embedding_codegen_forward" in event.key:
-                print(f"Total CUDA time: {event.device_time:.3f} ")
+                kernel_time += event.device_time
+                kernel_run += 1
+
+        assert kernel_time > 0
+        bandwidth = read_write_bytes / kernel_time / 1.0e3
+        logging.info(
+            f"kineto profiled stats: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+            f"Time: {kernel_time:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        )
+        print(f"Total CUDA time: {kernel_time:.2f} ")
+
     # pyre-ignore[3]
     def context_factory(on_trace_ready: Callable[[profile], None]):
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
     requests = generate_requests(
         iters,
         B,
@@ -1355,20 +1373,26 @@ def nbit_device(  # noqa C901
         TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
         for req in requests
     ]
-    # warm-up for kineto_trace profiling
+
+    # warm-up right before profiling
     if warmup_ms:
         indices, offsets, weights = requests[0].unpack_3()
-        start_events = torch.cuda.Event(enable_timing=True)
-        end_events = torch.cuda.Event(enable_timing=True)
-        elapsed_time_ms=0
-        while elapsed_time_ms < warmup_ms:
-            if torch.cuda.is_available():
+        if torch.cuda.is_available():
+            elapsed_time_ms = 0
+            torch.cuda.synchronize()
+            start_events = torch.cuda.Event(enable_timing=True)
+            end_events = torch.cuda.Event(enable_timing=True)
+            while elapsed_time_ms < warmup_ms:
                 start_events.record()
-                out =  emb.forward(indices, offsets, weights)
+                dummy_out = emb.forward(indices, offsets, weights)
                 end_events.record()
                 torch.cuda.synchronize()
-                elapsed_time_ms+=start_events.elapsed_time(end_events)
-                
+                elapsed_time_ms += start_events.elapsed_time(end_events)
+    elif warmup_runs > 0:
+        indices, offsets, weights = requests[0].unpack_3()
+        for _ in range(warmup_runs):
+            out = emb.forward(indices, offsets, weights)
+
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
         # forward
         time_per_iter = benchmark_requests(
@@ -1379,10 +1403,12 @@ def nbit_device(  # noqa C901
                 per_sample_weights,
             ),
             check_median=check_median,
-            warmup_ms = None,
+            warmup_ms=None,
         )
+
     # free up GPU memory
     del requests
+
     if report_aibench and haveAIBench:
         print(
             emitMetric(
