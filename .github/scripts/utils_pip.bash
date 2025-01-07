@@ -85,7 +85,7 @@ __export_package_variant_info () {
       # e.g. rocm 6.2.4 => rocm6.2.4
       #
       # NOTE: Unlike CUDA-based releases, which ignores the minor patch version,
-      # ROCm-based releases use the full version string.
+      # ROCm-based releases may use the full version string.
       # See https://download.pytorch.org/whl/nightly/torch/ for examples.
       local variant_type="rocm"
       if [ "${rocm_version_arr[2]}" == "" ]; then
