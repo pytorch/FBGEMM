@@ -499,20 +499,47 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
 at::Tensor bf16bf16bf16_grouped_dynamic(
     at::TensorList x_group, // BF16
     at::TensorList w_group, // BF16
-    at::Tensor zero_start_index_M) {
-  std::vector<at::Tensor> output_tensor;
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt) {
+  std::vector<at::Tensor> output_groups;
+  at::Tensor output_full;
   int problem_count = x_group.size();
-  int M = x_group[0].size(0);
   int N = w_group[0].size(0);
-  // Fill output with zeros to simplify integration. This prevents nans from
-  // showing up in the tensor.
-  at::Tensor output_full = at::zeros(
-      {problem_count, M, N}, x_group[0].options().dtype(at::kBFloat16));
-  // Split the output into groups.
-  output_tensor = at::unbind(output_full, 0);
+  int K = x_group[0].size(1);
+  if (zero_start_index_M.has_value()) {
+    int M = x_group[0].size(0);
+    // Fill output with zeros to simplify integration. This prevents nans from
+    // showing up in the tensor.
+    output_full = at::zeros(
+        {problem_count, M, N}, x_group[0].options().dtype(at::kBFloat16));
+    // Split the output into groups.
+    output_groups = at::unbind(output_full, 0);
+  } else {
+    // If not provided, we try to allocate a single blob that can store each
+    // group.
+    int total_M = 0;
+    std::vector<int> group_sizes = {};
+    for (int i = 0; i < problem_count; i++) {
+      TORCH_CHECK(
+          x_group[i].size(1) == K && w_group[i].size(0) == N,
+          "Dynamic grouped gemm requires fixed N and K.");
+      int group_M = x_group[i].size(0);
+      total_M += group_M;
+      group_sizes.push_back(group_M);
+    }
+    // Allocate a contiguous array for all groups.
+    output_full =
+        at::empty({total_M, N}, x_group[0].options().dtype(at::kBFloat16));
+    // Split the full array into appropriate groups.
+    // We do this with narrow to make sure there are no extra copies.
+    int offset = 0;
+    for (int size : group_sizes) {
+      output_groups.push_back(output_full.narrow(0, offset, size));
+      offset += size;
+    }
+  }
   // Run kernel to populate output tensor.
   dispatch_bf16_grouped_kernel(
-      x_group, w_group, output_tensor, zero_start_index_M);
+      x_group, w_group, output_groups, zero_start_index_M);
   // Return coalesced view of output.
   return output_full;
 }
@@ -530,7 +557,7 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
 at::Tensor bf16bf16bf16_grouped_dynamic(
     at::TensorList /* x_group */, // BF16
     at::TensorList /* w_group */, // BF16
-    at::Tensor /* zero_start_index_M */) {
+    std::optional<at::Tensor> /* zero_start_index_M */) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
