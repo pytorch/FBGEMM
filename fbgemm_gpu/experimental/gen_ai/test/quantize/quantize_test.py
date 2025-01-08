@@ -734,8 +734,9 @@ class FP8Tests(unittest.TestCase):
         M=st.sampled_from([2048, 3584]),
         N=st.sampled_from([1024, 6144]),
         K=st.sampled_from([512, 3584]),
-        use_cudagraph=st.sampled_from([True, False]),
-        use_padding_zeros=st.sampled_from([True, False]),
+        use_cudagraph=st.booleans(),
+        use_padding_zeros=st.booleans(),
+        use_dynamic=st.booleans(),
     )
     def test_fp8_grouped_gemm(
         self,
@@ -745,6 +746,7 @@ class FP8Tests(unittest.TestCase):
         K: int,
         use_cudagraph: bool,
         use_padding_zeros: bool,
+        use_dynamic: bool,
     ) -> None:
         ms = (
             torch.randint(
@@ -755,8 +757,8 @@ class FP8Tests(unittest.TestCase):
             )
             * 64
         )
-        # When using padding, Ns and Ks should be fixed.
-        if use_padding_zeros:
+        # When using padding or the dynamic kernel, Ns and Ks should be fixed.
+        if use_padding_zeros or use_dynamic:
             ns = [N] * G
             ks = [K] * G
         # Otherwise, any value is supported.
@@ -828,13 +830,13 @@ class FP8Tests(unittest.TestCase):
 
         # BF16 grouped gemm kernel
         bf16_args = (
-            [x_group, w_group, zero_start_index_M]
-            if use_padding_zeros
+            [x_group, w_group, zero_start_index_M if use_padding_zeros else None]
+            if use_dynamic
             else [x_group, w_group]
         )
         bf16_op = (
             torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
-            if use_padding_zeros
+            if use_dynamic
             else torch.ops.fbgemm.bf16bf16bf16_grouped
         )
         if use_cudagraph:
@@ -850,7 +852,10 @@ class FP8Tests(unittest.TestCase):
 
         # View output as list if needed.
         if not isinstance(y_bf16_group, (tuple, list)):
-            y_bf16_group = torch.unbind(y_bf16_group)
+            if y_bf16_group.ndim == 2:
+                y_bf16_group = torch.split(y_bf16_group, tuple(ms.tolist()), dim=0)
+            else:
+                y_bf16_group = torch.unbind(y_bf16_group)
 
         # BF16 loopover gemm reference
         y_group_ref = []
