@@ -1171,6 +1171,7 @@
                 <span class="ow">not</span> <span class="n">mixed_D</span>
             <span class="p">),</span> <span class="s2">&quot;OptimType.NONE does not support mixed embedding dimension&quot;</span>
 
+        <span class="bp">self</span><span class="o">.</span><span class="n">mixed_D</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">mixed_D</span>
         <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="p">(</span>
                 <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">)</span>
@@ -2235,6 +2236,7 @@
             <span class="n">is_experimental</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">is_experimental</span><span class="p">,</span>
             <span class="n">use_uniq_cache_locations_bwd</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_uniq_cache_locations_bwd</span><span class="p">,</span>
             <span class="n">use_homogeneous_placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_homogeneous_placements</span><span class="p">,</span>
+            <span class="n">mixed_D</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mixed_D</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
@@ -4010,6 +4012,14 @@
         <span class="p">)</span>
         <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">D_offsets</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="n">T</span> <span class="o">+</span> <span class="mi">1</span>
 
+        <span class="n">mixed_D</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">D</span> <span class="o">=</span> <span class="n">dims</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dims</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">d</span> <span class="o">!=</span> <span class="n">D</span><span class="p">:</span>
+                <span class="n">mixed_D</span> <span class="o">=</span> <span class="kc">True</span>
+                <span class="k">break</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mixed_D</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="n">mixed_D</span>
+
         <span class="c1"># Required for VBE</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
             <span class="s2">&quot;feature_dims&quot;</span><span class="p">,</span>
@@ -4123,6 +4133,7 @@
             <span class="n">max_B</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B</span><span class="p">,</span>
             <span class="n">max_B_feature_rank</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">max_B_feature_rank</span><span class="p">,</span>
             <span class="n">vbe_output_size</span><span class="o">=</span><span class="n">vbe_metadata</span><span class="o">.</span><span class="n">output_size</span><span class="p">,</span>
+            <span class="n">mixed_D</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mixed_D</span><span class="p">,</span>
         <span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">export</span>
