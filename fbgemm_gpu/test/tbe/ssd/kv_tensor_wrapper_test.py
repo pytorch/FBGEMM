@@ -10,29 +10,23 @@ import tempfile
 import unittest
 from unittest import TestCase
 
-import fbgemm_gpu
+import fbgemm_gpu  # noqa E402
 import torch
 import torch.testing
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.utils.loader import load_torch_module
 from hypothesis import given, settings, strategies as st, Verbosity
 
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+from .. import common  # noqa E402
+from ..common import open_source, running_in_oss
 
-if open_source:
-    from test_utils import running_on_github  # @manual  # pyre-ignore[21]
-else:
-    from fbgemm_gpu.test.test_utils import (  # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
-        running_on_github,
-    )
-
+if not open_source:
     load_torch_module(
         "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings",
     )
 
 
-@unittest.skipIf(*running_on_github)
+@unittest.skipIf(*running_in_oss)
 class KvTensorWrapperTest(TestCase):
     # pyre-ignore[56]
     @given(

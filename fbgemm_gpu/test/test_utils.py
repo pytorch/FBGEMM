@@ -63,6 +63,12 @@ running_on_github: Tuple[bool, str] = (
     "Test is currently known to fail or hang when run in the GitHub runners",
 )
 
+running_in_oss: Tuple[bool, str] = (
+    # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+    getattr(fbgemm_gpu, "open_source", False),
+    "Test is currently known to fail in OSS mode",
+)
+
 running_on_rocm: Tuple[bool, str] = (
     TEST_WITH_ROCM,
     "Test currently doesn't work on the ROCm stack",

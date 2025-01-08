@@ -19,11 +19,17 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_github, TEST_WITH_ROCM
+    from test_utils import (
+        gpu_unavailable,
+        running_in_oss,
+        running_on_github,
+        TEST_WITH_ROCM,
+    )
 else:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
     from fbgemm_gpu.test.test_utils import (  # noqa F401
         gpu_unavailable,
+        running_in_oss,
         running_on_github,
         TEST_WITH_ROCM,
     )

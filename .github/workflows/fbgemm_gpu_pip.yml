@@ -197,7 +197,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        rocm-version: [ "6.1.2", "6.2.4" ]
+        rocm-version: [ "6.2.4", "6.3" ]
 
     steps:
     - name: Setup Build Container
