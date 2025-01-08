@@ -228,6 +228,14 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     // equivalent to fence + wait.
     cp_async_wait<0>();
     syncwarp();
+    const int32_t uints_per_row = 4 * uint4_loads_per_row;
+    input_rows_in_flight = shfl_sync(input_rows_in_flight, threadIdx.x / uints_per_row % num_packed_bags * uint4_loads_per_row);
+    
+    #pragma unroll OutputRowsPerThread
+    for(uint32_t i = 0; i < OutputRowsPerThread; ++i)
+    {
+      Ls[i] = shfl_sync(Ls[i], threadIdx.x / uints_per_row % num_packed_bags * uint4_loads_per_row);
+    }
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -236,7 +244,6 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           continue;
         }
         const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-        const int32_t uints_per_row = 4 * uint4_loads_per_row;
         const int32_t packed_bag_idx = threadIdx.x / uints_per_row % num_packed_bags;
         // scale and bias are at the beginning of each row.
         // rationale: have scale/shift at start since these get loaded first
@@ -320,9 +327,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     const int32_t num_stores_with_padding_per_row = 4 * uint4_loads_per_row; 
     const int32_t packed_bag_idx = threadIdx.x / num_stores_with_padding_per_row;
     const uint32_t b = min(static_cast<uint32_t>(bb * num_packed_bags * OutputRowsPerThread + i * num_packed_bags + packed_bag_idx), static_cast<uint32_t>(B - 1));
-    int32_t local_Ls = Ls[i];
-    local_Ls = shfl_sync(local_Ls, threadIdx.x / uint4_loads_per_row % num_packed_bags * uint4_loads_per_row);
-    const float inv_L = (mean_pooling && local_Ls != 0) ? static_cast<float>(1.0) / local_Ls : static_cast<float>(1.0);
+    const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i] : static_cast<float>(1.0);
 
     if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
       #pragma unroll MaxNum128BRows
