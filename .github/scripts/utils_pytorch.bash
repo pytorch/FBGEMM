@@ -133,7 +133,7 @@ install_pytorch_pip () {
     numpy) || return 1
 
   # Install the torch package from PyTorch PIP (not PyPI)
-  install_from_pytorch_pip "${env_name}" torch==2.6.0.dev20241125 "${pytorch_channel_version}" "${pytorch_variant_type_version}" || return 1
+  install_from_pytorch_pip "${env_name}" torch "${pytorch_channel_version}" "${pytorch_variant_type_version}" || return 1
 
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
