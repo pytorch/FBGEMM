@@ -97,16 +97,13 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
-    std::optional<std::vector<at::Tensor>> output = std::nullopt,
-    std::optional<std::string> kernel_name = std::nullopt);
+    std::optional<std::vector<at::Tensor>> output = std::nullopt);
 at::Tensor f8f8bf16_rowwise_grouped_dynamic(
-    at::TensorList XQ,
-    at::TensorList WQ,
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    at::Tensor zero_start_index_M,
-    std::optional<std::string> kernel_name = std::nullopt);
-std::vector<std::string> get_f8f8bf16_rowwise_grouped_kernels();
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor zero_start_index_M);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -197,14 +194,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 #endif
 #ifdef USE_ROCM
   m.def(
-      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None, str? kernel_name=None) -> Tensor[]");
+      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None) -> Tensor[]");
   m.def(
-      "f8f8bf16_rowwise_grouped_dynamic(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor zero_start_index_M, str? kernel_name=None) -> Tensor");
-
-  m.def("get_f8f8bf16_rowwise_grouped_kernels() -> str[]");
-  m.impl(
-      "get_f8f8bf16_rowwise_grouped_kernels",
-      get_f8f8bf16_rowwise_grouped_kernels);
+      "f8f8bf16_rowwise_grouped_dynamic(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor zero_start_index_M) -> Tensor");
 #endif
   m.def(
       "bf16bf16bf16_grouped(Tensor[] X, Tensor[] W, Tensor[](a!)? output=None) -> Tensor[]");
