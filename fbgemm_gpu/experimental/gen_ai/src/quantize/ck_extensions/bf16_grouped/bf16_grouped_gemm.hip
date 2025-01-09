@@ -276,11 +276,7 @@ at::Tensor get_grouped_kernel_args(
 
   if (zero_start_index_M.has_value()) {
     set_dynamic_kernel_args(
-        kernel_args,
-        A,
-        B,
-        output,
-        zero_start_index_M.value());
+        kernel_args, A, B, output, zero_start_index_M.value());
   } else {
     set_static_kernel_args(kernel_args, A, B, output);
   }
@@ -294,23 +290,18 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   TORCH_CHECK(
-      A.size() == B.size(),
-      "A and B must have the same number of groups.");
+      A.size() == B.size(), "A and B must have the same number of groups.");
   int group_count = A.size();
   // Iterate over inputs and check they are valid.
   for (at::Tensor a : A) {
     TORCH_CHECK(a.is_cuda() && a.is_contiguous());
     TORCH_CHECK(a.dim() == 2, "Inputs must be 2D.");
-    TORCH_CHECK(
-        a.dtype() == at::kBFloat16,
-        "Inputs must be type bfloat16.");
+    TORCH_CHECK(a.dtype() == at::kBFloat16, "Inputs must be type bfloat16.");
   }
   for (at::Tensor b : B) {
     TORCH_CHECK(b.is_cuda() && b.is_contiguous());
     TORCH_CHECK(b.dim() == 2, "Inputs must be 2D.");
-    TORCH_CHECK(
-        b.dtype() == at::kBFloat16,
-        "Inputs must be type bfloat16.");
+    TORCH_CHECK(b.dtype() == at::kBFloat16, "Inputs must be type bfloat16.");
   }
 
   std::vector<at::Tensor> Y;
@@ -340,8 +331,7 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
   }
 
   // Prepare kernel arguments by copying them to the proper device location.
-  at::Tensor kernel_args = get_grouped_kernel_args(
-      A, B, std::nullopt, Y);
+  at::Tensor kernel_args = get_grouped_kernel_args(A, B, std::nullopt, Y);
 
   // Perform shape lookup to find best kernel.
   // We use the largest of each shape for heuristics.
@@ -353,50 +343,70 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
     MaxN = max(MaxN, B[i].size(0));
     MaxK = max(MaxK, A[i].size(1));
   }
-  GroupedKernel selected_kernel =
-      grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
+  GroupedKernel selected_kernel = grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
   return selected_kernel(A, B, kernel_args, Y);
 }
 
 at::Tensor bf16bf16bf16_grouped_dynamic(
     at::TensorList A,
     at::TensorList B,
-    at::Tensor zero_start_index_M) {
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   TORCH_CHECK(
-      A.size() == B.size(),
-      "A and B must have the same number of groups.");
+      A.size() == B.size(), "A and B must have the same number of groups.");
   int group_count = A.size();
   // Iterate over inputs and check they are valid.
   for (at::Tensor a : A) {
     TORCH_CHECK(a.is_cuda() && a.is_contiguous());
     TORCH_CHECK(a.dim() == 2, "Inputs must be 2D.");
-    TORCH_CHECK(
-        a.dtype() == at::kBFloat16,
-        "Inputs must be type bfloat16.");
+    TORCH_CHECK(a.dtype() == at::kBFloat16, "Inputs must be type bfloat16.");
   }
   for (at::Tensor b : B) {
     TORCH_CHECK(b.is_cuda() && b.is_contiguous());
     TORCH_CHECK(b.dim() == 2, "Inputs must be 2D.");
-    TORCH_CHECK(
-        b.dtype() == at::kBFloat16,
-        "Inputs must be type bfloat16.");
+    TORCH_CHECK(b.dtype() == at::kBFloat16, "Inputs must be type bfloat16.");
   }
 
   std::vector<at::Tensor> Y;
-  int M = A[0].size(0);
+  at::Tensor Y_full;
   int N = B[0].size(0);
-  // Fill output with zeros to simplify integration. This prevents nans from
-  // showing up in the tensor.
-  at::Tensor Y_full =
-      at::zeros({group_count, M, N}, A[0].options().dtype(at::kBFloat16));
-  // Split the output into groups.
-  Y = at::unbind(Y_full, 0);
+  int K = A[0].size(1);
+
+  if (zero_start_index_M.has_value()) {
+    int M = A[0].size(0);
+    // Fill output with zeros to simplify integration. This prevents nans from
+    // showing up in the tensor.
+    Y_full =
+        at::zeros({group_count, M, N}, A[0].options().dtype(at::kBFloat16));
+    // Split the output into groups.
+    Y = at::unbind(Y_full, 0);
+  } else {
+    // If not provided, we try to allocate a single blob that can store each
+    // group.
+    int total_M = 0;
+    std::vector<int> group_sizes = {};
+    for (int i = 0; i < group_count; i++) {
+      TORCH_CHECK(
+          A[i].size(1) == K && B[i].size(0) == N,
+          "Dynamic grouped gemm requires fixed N and K.");
+      int group_M = A[i].size(0);
+      total_M += group_M;
+      group_sizes.push_back(group_M);
+    }
+    // Allocate a contiguous array for all groups.
+    Y_full = at::empty({total_M, N}, A[0].options().dtype(at::kBFloat16));
+    // Split the full array into appropriate groups.
+    // We do this with narrow to make sure there are no extra copies.
+    int offset = 0;
+    for (int size : group_sizes) {
+      Y.push_back(Y_full.narrow(0, offset, size));
+      offset += size;
+    }
+  }
 
   // Prepare kernel arguments by copying them to the proper device location.
-  at::Tensor kernel_args = get_grouped_kernel_args(
-      A, B, zero_start_index_M, Y);
+  at::Tensor kernel_args = get_grouped_kernel_args(A, B, zero_start_index_M, Y);
 
   // Perform shape lookup to find best kernel.
   // We use the largest of each shape for heuristics.
@@ -408,8 +418,7 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
     MaxN = max(MaxN, B[i].size(0));
     MaxK = max(MaxK, A[i].size(1));
   }
-  GroupedKernel selected_kernel =
-      grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
+  GroupedKernel selected_kernel = grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
   // Run kernel to populate output.
   selected_kernel(A, B, kernel_args, Y);
   // Return coalesced view of output tensor.

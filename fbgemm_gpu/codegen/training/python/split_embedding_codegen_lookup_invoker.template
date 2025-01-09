@@ -409,5 +409,6 @@ def invoke(
         use_homogeneous_placements=common_args.use_homogeneous_placements,
         apply_global_weight_decay=apply_global_weight_decay,
         gwd_lower_bound=gwd_lower_bound,
+        mixed_D=common_args.mixed_D,
     )
     {%- endif %}

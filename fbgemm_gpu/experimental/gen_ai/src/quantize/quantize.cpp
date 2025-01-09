@@ -68,7 +68,7 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
 at::Tensor bf16bf16bf16_grouped_dynamic(
     at::TensorList X,
     at::TensorList W,
-    at::Tensor zero_start_index_M);
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt);
 at::Tensor f8f8bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -209,7 +209,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "bf16bf16bf16_grouped(Tensor[] X, Tensor[] W, Tensor[](a!)? output=None) -> Tensor[]");
   m.def(
-      "bf16bf16bf16_grouped_dynamic(Tensor[] X, Tensor[] W, Tensor zero_start_index_M) -> Tensor");
+      "bf16bf16bf16_grouped_dynamic(Tensor[] X, Tensor[] W, Tensor? zero_start_index_M=None) -> Tensor");
   m.def(
       "f8f8bf16_blockwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, int block_m=128, int block_n=128, int block_k=128) -> Tensor");
   m.def(
@@ -506,7 +506,7 @@ std::vector<at::Tensor> bf16bf16bf16_grouped_meta(
 at::Tensor bf16bf16bf16_grouped_dynamic_meta(
     at::TensorList X,
     at::TensorList W,
-    at::Tensor /* zero_start_index_M = std::nullopt */) {
+    std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */) {
   int G = X.size();
   int M = X[0].size(0);
   int N = W[0].size(0);
