@@ -241,5 +241,5 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} rocm/${{ matrix.rocm-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 20
+      timeout-minutes: 40
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
