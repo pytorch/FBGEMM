@@ -163,8 +163,10 @@ def benchmark_requests(
 ) -> float:
     times = []
     # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
-    # for the first kernel
-    num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
+    # for the first kernel if warmup_ms > 0
+    # warmup_ms is prioritized over num_warmups
+    if (warmup_ms is None):
+        num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
 
     # warm-up the GPU before profiling
     if warmup_ms:
@@ -188,8 +190,7 @@ def benchmark_requests(
                 out = func(indices, offsets, weights)
                 if bwd_only:
                     out.backward(grad)
-
-    if num_warmups > 0:
+    else:
         indices, offsets, weights = requests[0].unpack_3()
         for _ in range(num_warmups):
             out = func(indices, offsets, weights)

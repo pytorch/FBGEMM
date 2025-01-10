@@ -1148,6 +1148,15 @@ def nbit_cpu(  # noqa C901
     type=str,
     default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
 )
+@click.option(
+    "--warmup-runs", default=2,
+    help="Number of warmup runs. Ignored if --warmup-ms is set.")
+@click.option(
+    "--warmup-ms",
+    type=int,
+    default=None,
+    help="Warmup duration in milliseconds. Disables the --run-nums option."
+)
 def nbit_device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1168,8 +1177,6 @@ def nbit_device(  # noqa C901
     check_median: bool,
     iters: int,
     runs_of_iters: int,
-    warmup_runs: int,
-    warmup_ms: Optional[int],
     output_dtype: SparseType,
     report_aibench: bool,
     run_reference: bool,
@@ -1179,6 +1186,8 @@ def nbit_device(  # noqa C901
     fp8_exponent_bias: Optional[int],
     export_trace: bool,
     trace_url: str,
+    warmup_runs: int,
+    warmup_ms: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1375,6 +1384,7 @@ def nbit_device(  # noqa C901
     ]
 
     # warm-up right before profiling
+    # warmup_ms prioritized over warmup_runs
     if warmup_ms:
         indices, offsets, weights = requests[0].unpack_3()
         if torch.cuda.is_available():
@@ -1384,14 +1394,14 @@ def nbit_device(  # noqa C901
             end_events = torch.cuda.Event(enable_timing=True)
             while elapsed_time_ms < warmup_ms:
                 start_events.record()
-                dummy_out = emb.forward(indices, offsets, weights)
+                _ = emb.forward(indices, offsets, weights)
                 end_events.record()
                 torch.cuda.synchronize()
                 elapsed_time_ms += start_events.elapsed_time(end_events)
     elif warmup_runs > 0:
         indices, offsets, weights = requests[0].unpack_3()
         for _ in range(warmup_runs):
-            out = emb.forward(indices, offsets, weights)
+            _ = emb.forward(indices, offsets, weights)
 
     with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
         # forward
@@ -1403,7 +1413,6 @@ def nbit_device(  # noqa C901
                 per_sample_weights,
             ),
             check_median=check_median,
-            warmup_ms=None,
         )
 
     # free up GPU memory
@@ -1507,12 +1516,26 @@ def nbit_device(  # noqa C901
 @click.option("--check-median", is_flag=True, default=True)
 @click.option("--iters", default=100)
 @click.option("--runs-of-iters", default=5)
-@click.option("--warmup-runs", default=2)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--report-aibench", is_flag=True)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 @click.option("--use-cpu", is_flag=True, default=False)
+@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_spec_{phase}_trace_{ospid}.json",
+)
+@click.option(
+    "--warmup-runs", default=2,
+    help="Number of warmup runs. Ignored if --warmup-ms is set.")
+@click.option(
+    "--warmup-ms",
+    type=int,
+    default=None,
+    help="Warmup duration in milliseconds. Disables the --run-nums option."
+)
 def nbit_device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -1532,12 +1555,15 @@ def nbit_device_with_spec(  # noqa C901
     check_median: bool,
     iters: int,
     runs_of_iters: int,
-    warmup_runs: int,
     output_dtype: SparseType,
     report_aibench: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
     use_cpu: bool,
+    export_trace: bool,
+    trace_url: str,
+    warmup_runs: int,
+    warmup_ms: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1725,6 +1751,7 @@ def nbit_device_with_spec(  # noqa C901
                     per_sample_weights,
                 ),
                 check_median=check_median,
+                warmup_ms=warmup_ms
             )
 
         # free up memory
@@ -1753,6 +1780,118 @@ def nbit_device_with_spec(  # noqa C901
         f"Time: {time_per_iter * 1.0e6:.0f}us, "
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
+
+    # profile with kineto
+    tbe_type: str = "split"
+
+    def _kineto_trace_handler(p: profile, phase: str) -> None:
+        p.export_chrome_trace(
+            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
+        )
+        kernel_time = 0
+        for event in p.key_averages():
+            # Sum the total time of forward kernel runs
+            if "embedding_codegen_forward" in event.key:
+                kernel_time += event.device_time
+
+        assert kernel_time > 0
+        bandwidth = read_write_bytes / kernel_time / 1.0e3
+        logging.info(
+            f"kineto profiled stats: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+            f"Time: {kernel_time:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        )
+        print(f"Total CUDA time: {kernel_time:.2f} ")
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    if not use_cpu:
+        all_requests = {
+            "indices": [[] for _ in range(iters)],
+            "offsets": [[] for _ in range(iters)],
+            "weights": [[] for _ in range(iters)],
+        }
+        # row = iter, column = tensor
+        for t, (bag_size, e) in enumerate(zip(Ls, Es)):
+            requests = generate_requests(
+                iters,
+                B,
+                1,
+                bag_size,
+                e,
+                reuse=reuse,
+                # don't use zipf if e isn't large enough compared to bag_size.
+                alpha=alpha if (e / bag_size) > 2.0 else 1.0,
+                # need many more samples for zipf if bag_size is very small.
+                zipf_oversample_ratio=3 if bag_size > 5 else 10,
+                weighted=weighted,
+                use_cpu=use_cpu,
+            )
+            for it, req in enumerate(requests):
+                indices, offsets, weights = req.unpack_3()
+                all_requests["indices"][it].append(indices)
+                if t > 0:
+                    offsets = offsets[1:]  # remove the first element
+                    offsets += all_requests["offsets"][it][t - 1][-1]
+                all_requests["offsets"][it].append(offsets)
+                all_requests["weights"][it].append(weights)
+        requests = []
+        for it in range(iters):
+            indices = torch.concat(all_requests["indices"][it])
+            offsets = torch.concat(all_requests["offsets"][it])
+            if weighted:
+                weights = torch.concat(all_requests["weights"][it])
+            else:
+                weights = None
+            requests.append(TBERequest(indices, offsets, weights))
+        requests = [
+            TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
+            for req in requests
+            ]
+        del all_requests
+
+        # warm-up right before profiling
+        # warmup_ms prioritized over warmup_runs
+        if warmup_ms:
+            if torch.cuda.is_available():
+                elapsed_time_ms = 0
+                torch.cuda.synchronize()
+                start_events = torch.cuda.Event(enable_timing=True)
+                end_events = torch.cuda.Event(enable_timing=True)
+                indices, offsets, weights = requests[0].unpack_3()
+                while elapsed_time_ms < warmup_ms:
+                    start_events.record()
+                    _ = emb.forward(
+                        indices.int(),
+                        offsets.int(),
+                    )
+                    end_events.record()
+                    torch.cuda.synchronize()
+                    elapsed_time_ms += start_events.elapsed_time(end_events)
+
+        elif warmup_runs > 0:
+            indices, offsets, weights = requests[0].unpack_3()
+            for _ in range(warmup_runs):
+                _ = emb.forward(indices, offsets, weights)
+        with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+            # forward
+            time_per_iter = benchmark_requests(
+                requests,
+                lambda indices, offsets, per_sample_weights: emb.forward(
+                    indices.int(),
+                    offsets.int(),
+                    per_sample_weights,
+                ),
+                check_median=check_median,
+            )
+
+        # free up memory
+        del requests
 
     if report_aibench and haveAIBench:
         print(
