@@ -140,14 +140,14 @@ void split_embedding_backward_count_unique_indices_kernel
 
 {% for vbe in [True, False] %}
 {% set vdesc = "_vbe" if vbe else "" %}
-template <typename grad_t>
+template <typename grad_t, typename offset_t>
 __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
     pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output_mean,
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits>
         grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
@@ -212,15 +212,16 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
 ////////////////////////////////////////////////////////////////////////////////
 
 {% for grad_type in ['at::Half', 'float', 'at::BFloat16'] %}
+{% for offset_type in ['int32_t', 'int64_t'] %}
 template __global__ __launch_bounds__(kMaxThreads)
 void grad_mean{{ vdesc }}_kernel
-<{{ grad_type }}> (
+<{{ grad_type }}, {{ offset_type }}> (
     pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output_mean,
     const pta::PackedTensorAccessor64<{{ grad_type }}, 2, at::RestrictPtrTraits>
         grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<{{ offset_type }}, 1, at::RestrictPtrTraits> offsets,
     {% if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
@@ -230,6 +231,7 @@ void grad_mean{{ vdesc }}_kernel
     FixedDivisor fd_B
     {% endif %}
 );
+{% endfor %} // for offset_type in ['int32_t', 'int64_t']
 {% endfor %} // for grad_type in ['at::Half', 'float']
 {% endfor %} // for vbe in [True, False]
 
