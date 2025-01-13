@@ -38,6 +38,24 @@ struct IntTupleHash {
 // For certain high priority shapes, we directly map to the best kernel rather
 // than use heuristics.
 static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTupleHash> rowwise_lookup_dispatch = {
+    // Support for decode for [1024, 5120]
+    {{16, 1024, 5120},
+     fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+    {{32, 1024, 5120},
+     fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+    {{64, 1024, 5120},
+     fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+    {{128, 1024, 5120},
+     fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+    // Support for decode for [5120, 1024]
+    {{16, 5120, 1024},
+     fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+    {{32, 5120, 1024},
+     fp8_rowwise_64x16x16x128_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2},
+    {{64, 5120, 1024},
+     fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+    {{128, 5120, 1024},
+     fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2},
     // LLama 70B Decode shapes.
     // Support for decode across batch sizes for [1280, 8192]
     {{16, 1280, 8192},
