@@ -205,20 +205,18 @@ def benchmark_requests(
         num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
 
     # warm-up the GPU before profiling
-    if warmup_ms or num_warmups:
-        warmup(
-            requests[0],
-            warmup_ms,
-            num_warmups,
-            lambda indices, offsets, per_sample_weights: func(
-                indices.int(),
-                offsets.int(),
-                per_sample_weights,
-
-            ),
-            bwd_only=bwd_only,
-            grad=grad,
-        )
+    warmup(
+        requests[0],
+        warmup_ms,
+        num_warmups,
+        lambda indices, offsets, per_sample_weights: func(
+            indices.int(),
+            offsets.int(),
+            per_sample_weights,
+        ),
+        bwd_only=bwd_only,
+        grad=grad,
+    )
 
     if callback_after_warmup is not None:
         callback_after_warmup()
