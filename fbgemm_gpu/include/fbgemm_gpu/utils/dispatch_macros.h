@@ -33,8 +33,8 @@
   }
 
 #define _DISPATCH_EMB_CACHE_TYPES(emb_enum_type, cache_enum_type, NAME, ...)  \
-  at::ScalarType _emb_t = ::detail::scalar_type(emb_enum_type);               \
-  at::ScalarType _cache_t = ::detail::scalar_type(cache_enum_type);           \
+  at::ScalarType _emb_t = emb_enum_type;                                      \
+  at::ScalarType _cache_t = cache_enum_type;                                  \
   switch (_emb_t) {                                                           \
     PRIVATE_CASE_TYPE_EMB(                                                    \
         at::ScalarType::Float, _cache_t, float, NAME, __VA_ARGS__)            \
@@ -67,10 +67,9 @@
 #define DISPATCH_EMB_CACHE_OUTPUT_TYPES(                           \
     EMB_TYPE, CACHE_TYPE, OUTPUT_TYPE, NAME, ...)                  \
   [&] {                                                            \
-    const auto& output_type = OUTPUT_TYPE;                         \
+    const at::ScalarType _output_t = OUTPUT_TYPE; /*            */ \
     const auto& emb_type = EMB_TYPE;                               \
     const auto& cache_type = CACHE_TYPE;                           \
-    at::ScalarType _output_t = ::detail::scalar_type(output_type); \
     switch (_output_t) {                                           \
       PRIVATE_CASE_TYPE_OUTPUT(                                    \
           at::ScalarType::Half,                                    \
@@ -114,8 +113,7 @@
 
 #define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
   [&] {                                                                      \
-    const auto& output_type = OUTPUT_TYPE;                                   \
-    at::ScalarType _output_t = ::detail::scalar_type(output_type);           \
+    const at::ScalarType _output_t = OUTPUT_TYPE;                            \
     switch (_output_t) {                                                     \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Half, at::Half, __VA_ARGS__) \
       PRIVATE_CASE_TYPE_OUTPUT2(                                             \
@@ -137,8 +135,7 @@
 
 #define DISPATCH_OUTPUT_TYPES(OUTPUT_TYPE, NAME, ...)                        \
   [&] {                                                                      \
-    const auto& output_type = OUTPUT_TYPE;                                   \
-    at::ScalarType _output_t = ::detail::scalar_type(output_type);           \
+    const at::ScalarType _output_t = OUTPUT_TYPE;                            \
     switch (_output_t) {                                                     \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Half, at::Half, __VA_ARGS__) \
       PRIVATE_CASE_TYPE_OUTPUT2(at::ScalarType::Float, float, __VA_ARGS__)   \
@@ -175,9 +172,9 @@
     const auto& emb_type = EMB_TYPE;                                           \
     const auto& grad_type = GRAD_TYPE;                                         \
     const auto& cache_type = CACHE_TYPE;                                       \
-    at::ScalarType _emb_t = ::detail::scalar_type(emb_type);                   \
-    at::ScalarType _grad_t = ::detail::scalar_type(grad_type);                 \
-    at::ScalarType _cache_t = ::detail::scalar_type(cache_type);               \
+    at::ScalarType _emb_t = emb_type;                                          \
+    at::ScalarType _grad_t = grad_type;                                        \
+    at::ScalarType _cache_t = cache_type;                                      \
     switch (_grad_t) {                                                         \
       PRIVATE_CASE_TYPE_CACHE_EMB(                                             \
           at::ScalarType::Float, _cache_t, _emb_t, float, NAME, __VA_ARGS__)   \
