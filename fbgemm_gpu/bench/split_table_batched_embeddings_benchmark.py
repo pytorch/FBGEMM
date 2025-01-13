@@ -77,6 +77,7 @@ if open_source:
         benchmark_torch_function,
         benchmark_vbe,
         fill_random_scale_bias,
+        warmup,
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
@@ -87,10 +88,29 @@ else:
         benchmark_torch_function,
         benchmark_vbe,
         fill_random_scale_bias,
+        warmup,
     )
 
 
 logging.basicConfig(level=logging.DEBUG)
+
+
+def kineto_trace_profiler(
+    p: profile,
+    trace_info: tuple[str, str, str, str]
+) -> float:
+    phase, trace_url, tbe_type, kern_name = trace_info
+    p.export_chrome_trace(
+        trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
+    )
+    kernel_time = 0
+    for event in p.key_averages():
+        # Sum the total time of forward kernel runs
+        if kern_name in event.key:
+            kernel_time += event.device_time
+    assert kernel_time > 0
+    print(f"Total CUDA time: {kernel_time:.2f} ")
+    return kernel_time
 
 
 @click.group()
@@ -1335,37 +1355,6 @@ def nbit_device(  # noqa C901
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
 
-    # Get trace for one run of iter
-    tbe_type: str = "split"
-
-    def _kineto_trace_handler(p: profile, phase: str) -> None:
-        p.export_chrome_trace(
-            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
-        )
-        kernel_time = 0
-        kernel_run = 0
-        for event in p.key_averages():
-            # Sum the total time of forward kernel runs
-            if "embedding_codegen_forward" in event.key:
-                kernel_time += event.device_time
-                kernel_run += 1
-
-        assert kernel_time > 0
-        bandwidth = read_write_bytes / kernel_time / 1.0e3
-        logging.info(
-            f"kineto profiled stats: "
-            f"{weights_precision} Forward, B: {B}, "
-            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
-            f"Time: {kernel_time:.0f}us, "
-            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
-        )
-        print(f"Total CUDA time: {kernel_time:.2f} ")
-
-    # pyre-ignore[3]
-    def context_factory(on_trace_ready: Callable[[profile], None]):
-        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
-
     requests = generate_requests(
         iters,
         B,
@@ -1383,27 +1372,33 @@ def nbit_device(  # noqa C901
         for req in requests
     ]
 
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    # Get trace for one run of iter
+    tbe_type: str = "split"
+    # input of the kineto_trace_profiler
+    trace_info = ("fwd", trace_url, tbe_type, "embedding_codegen_forward")
+    time_dict = {"kernel_time": None}  # dict to hold the kernel time
+
     # warm-up right before profiling
     # warmup_ms prioritized over warmup_runs
-    if warmup_ms:
-        indices, offsets, weights = requests[0].unpack_3()
-        if torch.cuda.is_available():
-            elapsed_time_ms = 0
-            torch.cuda.synchronize()
-            start_events = torch.cuda.Event(enable_timing=True)
-            end_events = torch.cuda.Event(enable_timing=True)
-            while elapsed_time_ms < warmup_ms:
-                start_events.record()
-                _ = emb.forward(indices, offsets, weights)
-                end_events.record()
-                torch.cuda.synchronize()
-                elapsed_time_ms += start_events.elapsed_time(end_events)
-    elif warmup_runs > 0:
-        indices, offsets, weights = requests[0].unpack_3()
-        for _ in range(warmup_runs):
-            _ = emb.forward(indices, offsets, weights)
+    if warmup_ms or warmup_runs:
+        warmup(
+            requests[0],
+            warmup_ms,
+            warmup_runs,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.int(),
+                offsets.int(),
+                per_sample_weights,
+            )
+        )
 
-    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+    with context_factory(
+        lambda p: time_dict.update(kernel_time=kineto_trace_profiler(p, trace_info))
+    ):
         # forward
         time_per_iter = benchmark_requests(
             requests,
@@ -1414,6 +1409,18 @@ def nbit_device(  # noqa C901
             ),
             check_median=check_median,
         )
+
+    kernel_time = time_dict['kernel_time']
+    bandwidth = read_write_bytes / kernel_time / 1.0e3
+
+    logging.info(
+        f"kineto profiled stats: "
+        f"{weights_precision} Forward, B: {B}, "
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+        f"Time: {kernel_time:.0f}us, "
+        f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+    )
 
     # free up GPU memory
     del requests
@@ -1675,6 +1682,7 @@ def nbit_device_with_spec(  # noqa C901
     )
 
     times = []
+    kineto_request = []
     for i in range(runs_of_iters):
         # Generate a request for each table then combine
         all_requests = {
@@ -1754,6 +1762,10 @@ def nbit_device_with_spec(  # noqa C901
                 warmup_ms=warmup_ms
             )
 
+        # copy the request of last iteration for kineto profile benchmark
+        if (i == runs_of_iters-1):
+            kineto_request = requests
+
         # free up memory
         del requests
 
@@ -1781,107 +1793,36 @@ def nbit_device_with_spec(  # noqa C901
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
 
-    # profile with kineto
-    tbe_type: str = "split"
-
-    def _kineto_trace_handler(p: profile, phase: str) -> None:
-        p.export_chrome_trace(
-            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
-        )
-        kernel_time = 0
-        for event in p.key_averages():
-            # Sum the total time of forward kernel runs
-            if "embedding_codegen_forward" in event.key:
-                kernel_time += event.device_time
-
-        assert kernel_time > 0
-        bandwidth = read_write_bytes / kernel_time / 1.0e3
-        logging.info(
-            f"kineto profiled stats: "
-            f"{weights_precision} Forward, B: {B}, "
-            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
-            f"Time: {kernel_time:.0f}us, "
-            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
-        )
-        print(f"Total CUDA time: {kernel_time:.2f} ")
-
     # pyre-ignore[3]
     def context_factory(on_trace_ready: Callable[[profile], None]):
         return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
 
     if not use_cpu:
-        all_requests = {
-            "indices": [[] for _ in range(iters)],
-            "offsets": [[] for _ in range(iters)],
-            "weights": [[] for _ in range(iters)],
-        }
-        # row = iter, column = tensor
-        for t, (bag_size, e) in enumerate(zip(Ls, Es)):
-            requests = generate_requests(
-                iters,
-                B,
-                1,
-                bag_size,
-                e,
-                reuse=reuse,
-                # don't use zipf if e isn't large enough compared to bag_size.
-                alpha=alpha if (e / bag_size) > 2.0 else 1.0,
-                # need many more samples for zipf if bag_size is very small.
-                zipf_oversample_ratio=3 if bag_size > 5 else 10,
-                weighted=weighted,
-                use_cpu=use_cpu,
-            )
-            for it, req in enumerate(requests):
-                indices, offsets, weights = req.unpack_3()
-                all_requests["indices"][it].append(indices)
-                if t > 0:
-                    offsets = offsets[1:]  # remove the first element
-                    offsets += all_requests["offsets"][it][t - 1][-1]
-                all_requests["offsets"][it].append(offsets)
-                all_requests["weights"][it].append(weights)
-        requests = []
-        for it in range(iters):
-            indices = torch.concat(all_requests["indices"][it])
-            offsets = torch.concat(all_requests["offsets"][it])
-            if weighted:
-                weights = torch.concat(all_requests["weights"][it])
-            else:
-                weights = None
-            requests.append(TBERequest(indices, offsets, weights))
-        requests = [
-            TBERequest(req.indices.int(), req.offsets.int(), req.per_sample_weights)
-            for req in requests
-            ]
-        del all_requests
+        # profile with kineto
+        tbe_type: str = "split"
+        time_dict = {"kernel_time": None}  # Shared variable to hold the kernel time
+        trace_info = ("fwd", trace_url, tbe_type, "embedding_codegen_forward")
 
         # warm-up right before profiling
         # warmup_ms prioritized over warmup_runs
-        if warmup_ms:
-            if torch.cuda.is_available():
-                elapsed_time_ms = 0
-                torch.cuda.synchronize()
-                start_events = torch.cuda.Event(enable_timing=True)
-                end_events = torch.cuda.Event(enable_timing=True)
-                indices, offsets, weights = requests[0].unpack_3()
-                while elapsed_time_ms < warmup_ms:
-                    start_events.record()
-                    _ = emb.forward(
-                        indices.int(),
-                        offsets.int(),
-                    )
-                    end_events.record()
-                    torch.cuda.synchronize()
-                    elapsed_time_ms += start_events.elapsed_time(end_events)
+        if warmup_ms or warmup_runs:
+            warmup(
+                kineto_request[0],
+                warmup_ms,
+                warmup_runs,
+                lambda indices, offsets, per_sample_weights: emb.forward(
+                    indices.int(),
+                    offsets.int(),
+                    per_sample_weights,
+                )
+            )
 
-        elif warmup_runs > 0:
-            indices, offsets, weights = requests[0].unpack_3()
-            for _ in range(warmup_runs):
-                _ = emb.forward(indices, offsets, weights)
-        with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+        with context_factory(
+            lambda p: time_dict.update(kernel_time=kineto_trace_profiler(p, trace_info))
+        ):
             # forward
             time_per_iter = benchmark_requests(
-                requests,
+                kineto_request,
                 lambda indices, offsets, per_sample_weights: emb.forward(
                     indices.int(),
                     offsets.int(),
@@ -1890,8 +1831,20 @@ def nbit_device_with_spec(  # noqa C901
                 check_median=check_median,
             )
 
-        # free up memory
-        del requests
+        kernel_time = time_dict['kernel_time']
+        bandwidth = read_write_bytes / kernel_time / 1.0e3
+
+        logging.info(
+            f"kineto profiled stats: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+            f"Time: {kernel_time:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        )
+
+    # free up memory
+    del kineto_request
 
     if report_aibench and haveAIBench:
         print(
