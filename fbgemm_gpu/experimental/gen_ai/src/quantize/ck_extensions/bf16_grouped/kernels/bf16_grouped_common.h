@@ -125,7 +125,7 @@ std::vector<at::Tensor> bf16_grouped_impl(
   // Get input information.
   int group_count = A.size();
   using KernelArguments =
-      ck::tensor_operation::device::GroupedGemmTileLoopKernelArguments<0>;
+      ck::tensor_operation::device::GroupedGemmKernelArgument<0>;
   using GemmDesc = ck::tensor_operation::device::GemmDesc;
   // Create gemm shape containers.
   std::vector<GemmDesc> gemm_descs;
