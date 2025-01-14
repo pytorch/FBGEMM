@@ -51,12 +51,18 @@ at::Tensor f8f8bf16_rowwise_impl(
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
   int K = WQ.size(1);
-  TORCH_CHECK(XQ.size(-1) == K);
   // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
   // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
   auto out_sizes = XQ.sizes().vec();
   out_sizes.back() = N;
+  // Handle case where there is a zero dimension, we simply return an empty
+  // tensor.
+  if (M == 0 || N == 0 || K == 0) {
+    // Use zeros instead of empty for special case where K=0.
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
 
+  TORCH_CHECK(XQ.size(-1) == K);
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
 

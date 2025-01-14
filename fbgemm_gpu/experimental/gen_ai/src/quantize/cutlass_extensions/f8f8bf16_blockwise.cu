@@ -60,6 +60,11 @@ at::Tensor f8f8bf16_blockwise_impl(
   // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
   auto out_sizes = XQ.sizes().vec();
   out_sizes.back() = N;
+  // Handle case where input shapes are empty.
+  if (M == 0 || N == 0 || K == 0) {
+    // Return a zero tensor in case K is 0.
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
 
   TORCH_CHECK(WQ.size(1) == K);
   TORCH_CHECK(XQ.stride(-1) == 1);
