@@ -66,6 +66,9 @@ class TestFp8Matmul(unittest.TestCase):
                 # Undo scaling.
                 a_torch = a_fp8.to(torch.bfloat16)
                 broadcast_shape = list(a_torch.shape[:-1]) + [-1]
+
+                assert a_scale.shape == a_torch.shape[:-1]
+
                 a_torch *= a_scale.view(broadcast_shape)
 
                 self.assertTrue(
