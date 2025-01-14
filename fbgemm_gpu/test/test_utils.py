@@ -63,6 +63,12 @@ running_on_github: Tuple[bool, str] = (
     "Test is currently known to fail or hang when run in the GitHub runners",
 )
 
+running_in_oss: Tuple[bool, str] = (
+    # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+    getattr(fbgemm_gpu, "open_source", False),
+    "Test is currently known to fail in OSS mode",
+)
+
 running_on_rocm: Tuple[bool, str] = (
     TEST_WITH_ROCM,
     "Test currently doesn't work on the ROCm stack",
@@ -248,6 +254,26 @@ def skipIfRocm(reason: str = "Test currently doesn't work on the ROCm stack") ->
                 raise unittest.SkipTest(reason)
             else:
                 fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+# pyre-fixme[3]: Return annotation cannot be `Any`.
+def skipIfNotRocm(
+    reason: str = "Test currently doesn work only on the ROCm stack",
+) -> Any:
+    # pyre-fixme[3]: Return annotation cannot be `Any`.
+    # pyre-fixme[24]: Generic type `Callable` expects 2 type parameters.
+    def decorator(fn: Callable) -> Any:
+        @wraps(fn)
+        # pyre-fixme[3]: Return annotation cannot be `Any`.
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if TEST_WITH_ROCM:
+                fn(*args, **kwargs)
+            else:
+                raise unittest.SkipTest(reason)
 
         return wrapper
 

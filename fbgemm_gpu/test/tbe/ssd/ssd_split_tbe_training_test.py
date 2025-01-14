@@ -8,6 +8,7 @@
 # pyre-ignore-all-errors[3,6,56]
 
 import unittest
+from enum import Enum
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,15 +25,7 @@ from fbgemm_gpu.tbe.utils import b_indices, get_table_batched_offsets_from_dense
 from hypothesis import assume, given, settings, Verbosity
 
 from .. import common  # noqa E402
-from ..common import gen_mixed_B_batch_sizes, open_source
-
-if open_source:
-    # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_github
-else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_github
-
-from enum import Enum
+from ..common import gen_mixed_B_batch_sizes, gpu_unavailable, running_in_oss
 
 
 MAX_EXAMPLES = 40
@@ -69,7 +62,7 @@ class FlushLocation(Enum):
     ALL = 4
 
 
-@unittest.skipIf(*running_on_github)
+@unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     def get_physical_table_arg_indices_(self, feature_table_map: List[int]):
@@ -303,6 +296,17 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             l2_cache_size=8,
             bulk_init_chunk_size=bulk_init_chunk_size,
         ).cuda()
+
+        if bulk_init_chunk_size > 0:
+            self.assertIsNotNone(
+                emb.lazy_init_thread,
+                "if bulk_init_chunk_size > 0, lazy_init_thread must be set and it should not be force-synchronized yet",
+            )
+
+        # By doing the check for ssd_db being None below, we also access the getter property of ssd_db, which will
+        # force the synchronization of lazy_init_thread, and then reset it to None.
+        if emb.ssd_db is not None:
+            self.assertIsNone(emb.lazy_init_thread)
 
         # A list to keep the CPU tensor alive until `set` (called inside
         # `set_cuda`) is complete. Note that `set_cuda` is non-blocking

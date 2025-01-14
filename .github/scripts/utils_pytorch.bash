@@ -69,7 +69,8 @@ install_pytorch_conda () {
   # Use --force-reinstall to address this on retries - https://datascience.stackexchange.com/questions/41732/conda-verification-failed
   echo "[INSTALL] Attempting to install '${pytorch_package}' (${pytorch_version}, variant = ${pytorch_variant_type}) through Conda using channel '${pytorch_channel}' ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -y ${pytorch_package} -c "${pytorch_channel}") || return 1
+  (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c "${pytorch_channel}" --override-channels -y \
+    ${pytorch_package}) || return 1
 
   # Check that PyTorch is importable
   (test_python_import_package "${env_name}" torch.distributed) || return 1
@@ -128,8 +129,14 @@ install_pytorch_pip () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   # Install the main dependencies
+  #
+  # NOTE: Since CUDA 12.6, the conda channels information after CUDA installation
+  # gets messed up, and adding the --override-channels flag is needed to get
+  # packages to be installed correctly.  See:
+  #   https://github.com/conda/conda/issues/14063#issuecomment-2244508044
+  #
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     numpy) || return 1
 
   # Install the torch package from PyTorch PIP (not PyPI)
@@ -142,6 +149,10 @@ install_pytorch_pip () {
   # shellcheck disable=SC2086,SC2155
   local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
+
+  echo "[CHECK] NOTE: Checking _GLIBCXX_USE_CXX11_ABI ..."
+  # shellcheck disable=SC2086,SC2155
+  conda run ${env_prefix} python -c 'import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI); print(torch.compiled_with_cxx11_abi())'
 
   if [ "$pytorch_variant_type" == "cuda" ]; then
     # Ensure that the PyTorch-CUDA headers are properly installed

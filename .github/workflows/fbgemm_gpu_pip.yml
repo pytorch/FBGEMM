@@ -26,12 +26,12 @@ on:
   workflow_dispatch:
     inputs:
       pytorch_version:
-        description: PyTorch Version (e.g. '2.1.0', 'nightly', 'test')
+        description: PyTorch Version (e.g. '2.6.0', 'nightly', 'test')
         type: string
         required: true
         default: "nightly"
       fbgemm_gpu_channel_version:
-        description: FBGEMM-GPU Channel + Version (e.g. '0.5.0', 'nightly', 'test/0.8.0r0')
+        description: FBGEMM-GPU Channel + Version (e.g. '1.1.0', 'nightly', 'test/1.0.0r1')
         type: string
         required: true
         default: "nightly"
@@ -85,6 +85,9 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
+    - name: Install C/C++ Compilers for Updated LIBGCC
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
@@ -113,6 +116,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: test_install
       BUILD_VARIANT: cuda
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -121,7 +125,7 @@ jobs:
           { instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1" ]
+        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
 
     steps:
     # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
@@ -142,6 +146,13 @@ jobs:
 
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers for Updated LIBGCC
+      # NOTE: gcc is required for torch dynamo to work properly, as some of
+      # the compilation flags used by torch dynamo are gcc-specific:
+      #
+      #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
@@ -185,8 +196,8 @@ jobs:
           { arch: x86, instance: "rocm" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
-        python-version: [ "3.11", "3.12", "3.13" ]
-        rocm-version: [ "6.1.2", "6.2.4" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        rocm-version: [ "6.2.4", "6.3" ]
 
     steps:
     - name: Setup Build Container
@@ -213,6 +224,9 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
+    - name: Install ROCm AMD-SMI
+      run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
+
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
@@ -227,5 +241,5 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} rocm/${{ matrix.rocm-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 20
+      timeout-minutes: 40
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV

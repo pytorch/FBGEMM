@@ -251,7 +251,9 @@ symbols with ``GLIBCXX`` when compiling FBGEMM_CPU:
   # appropriate updated version of the sysroot_linux package.
   gcc_version=10.4.0
 
-  conda install -n ${env_name} -c conda-forge -y gxx_linux-64=${gcc_version} sysroot_linux-64=2.17
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
+    gxx_linux-64=${gcc_version} \
+    sysroot_linux-64=2.17
 
 While newer versions of GCC can be used, binaries compiled under newer versions
 of GCC will not be compatible with older systems such as Ubuntu 20.04 or CentOS
@@ -285,7 +287,7 @@ toolchain **that supports C++20**:
 
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number
-  conda install -n ${env_name} -c conda-forge -y \
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
       clangxx=${llvm_version} \
       libcxx \
       llvm-openmp=${llvm_version} \
@@ -332,7 +334,7 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
 
 .. code:: sh
 
-  conda install -n ${env_name} -y \
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
       click \
       cmake \
       hypothesis \
@@ -392,13 +394,13 @@ more deterministic and thus reliable:
   conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu/
 
   # Install the latest test (RC), CUDA variant
-  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu121/
+  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu126/
 
   # Install a specific version, CUDA variant
-  conda run -n ${env_name} pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu121/
+  conda run -n ${env_name} pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu126/
 
   # Install the latest nightly, ROCm variant
-  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
+  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
 
 For installing the ROCm variant of PyTorch, PyTorch PIP is the only available
 channel as of time of writing.
@@ -506,7 +508,7 @@ Python platform name must first be properly set:
   export ARCH=$(uname -m)
 
   # Set the Python platform name for the Linux case
-  export python_plat_name="manylinux2014_${ARCH}"
+  export python_plat_name="manylinux_2_28_${ARCH}"
   # For the macOS (x86_64) case
   export python_plat_name="macosx_10_9_${ARCH}"
   # For the macOS (arm64) case
@@ -690,8 +692,8 @@ presuming the toolchains have been properly installed.
   # [OPTIONAL] Enable verbose HIPCC logs
   export HIPCC_VERBOSE=1
 
-  # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx906;gfx908;gfx90a')
-  # See https://wiki.gentoo.org/wiki/ROCm for list
+  # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx908,gfx90a,gfx942')
+  # See https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html for list
   export PYTORCH_ROCM_ARCH=$(${ROCM_PATH}/bin/rocminfo | grep -o -m 1 'gfx.*')
 
   # Build the wheel artifact only
@@ -699,6 +701,7 @@ presuming the toolchains have been properly installed.
       --package_variant=rocm \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
+      -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
@@ -706,6 +709,7 @@ presuming the toolchains have been properly installed.
   # Build and install the library into the Conda environment
   python setup.py install \
       --package_variant=rocm \
+      -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"

@@ -87,7 +87,10 @@ Set Up the Documentation Toolchain
   pip install -r requirements.txt
 
   # Install Doxygen and and other tools
-  conda install -c conda-forge -y doxygen graphviz make
+  conda install -c conda-forge --override-channels -y \
+    doxygen \
+    graphviz \
+    make
 
 Build the Documentation
 ~~~~~~~~~~~~~~~~~~~~~~~

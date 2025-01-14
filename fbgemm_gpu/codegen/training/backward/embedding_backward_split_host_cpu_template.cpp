@@ -64,14 +64,14 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
     bool gradient_clipping,
     double max_gradient,
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }},
+    {{ args.split_function_args_autograd | join(", ") }},
     int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
     Tensor indice_weights_value = indice_weights.value_or(Tensor());
     Tensor feature_requires_grad_value =
         feature_requires_grad.value_or(Tensor());
     ctx->save_for_backward({
         host_weights, weights_placements, weights_offsets, D_offsets, hash_size_cumsum,
-        indices, offsets, indice_weights_value, feature_requires_grad_value, {{ args.split_saved_tensors | join(", ") }} });
+        indices, offsets, indice_weights_value, feature_requires_grad_value, {{ args.split_saved_tensors_optional | join(", ") }} });
 
     ctx->saved_data["total_D"] = total_D;
     ctx->saved_data["max_D"] = max_D;
@@ -242,7 +242,7 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
       gradient_clipping,
       max_gradient,
       stochastic_rounding,
-      {{ args.split_function_arg_names | join(", ") }},
+      {{ args.split_function_arg_names_autograd | join(", ") }},
       output_dtype)[0];
   {% else %}
   TORCH_CHECK(false, "split_embedding_codegen_lookup_{{ optimizer }}_function_cpu is deprecated. Please see https://github.com/pytorch/FBGEMM/discussions/1727 for more detail.");

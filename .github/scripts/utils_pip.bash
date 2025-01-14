@@ -71,7 +71,8 @@ __export_package_variant_info () {
       local cuda_version="${variant_version:-${FALLBACK_VERSION_CUDA}}"
       # shellcheck disable=SC2206
       local cuda_version_arr=(${cuda_version//./ })
-      # Convert, i.e. cuda 12.4.0 => cu124
+      # Convert to package variant label,
+      # e.g. cuda 12.4.0 => cu124
       local variant_type="cu"
       local variant_version="${cuda_version_arr[0]}${cuda_version_arr[1]}"
 
@@ -80,9 +81,18 @@ __export_package_variant_info () {
       local rocm_version="${variant_version:-${FALLBACK_VERSION_ROCM}}"
       # shellcheck disable=SC2206
       local rocm_version_arr=(${rocm_version//./ })
-      # Convert, i.e. rocm 5.6.1 => rocm5.6
+      # Convert to package variant label,
+      # e.g. rocm 6.2.4 => rocm6.2.4
+      #
+      # NOTE: Unlike CUDA-based releases, which ignores the minor patch version,
+      # ROCm-based releases may use the full version string.
+      # See https://download.pytorch.org/whl/nightly/torch/ for examples.
       local variant_type="rocm"
-      local variant_version="${rocm_version_arr[0]}.${rocm_version_arr[1]}"
+      if [ "${rocm_version_arr[2]}" == "" ]; then
+        local variant_version="${rocm_version_arr[0]}.${rocm_version_arr[1]}"
+      else
+        local variant_version="${rocm_version_arr[0]}.${rocm_version_arr[1]}.${rocm_version_arr[2]}"
+      fi
 
     else
       echo "[INSTALL] Package variant type '$variant_type' is neither CUDA nor ROCm variant, falling back to cpu"
@@ -318,7 +328,8 @@ publish_to_pypi () {
 
   echo "[INSTALL] Installing twine ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -y twine) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    twine) || return 1
   (test_python_import_package "${env_name}" twine) || return 1
   (test_python_import_package "${env_name}" OpenSSL) || return 1
 

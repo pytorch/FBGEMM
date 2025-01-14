@@ -1001,6 +1001,29 @@ def partial_rowwise_lamb() -> Dict[str, Any]:
 
 
 def adam() -> Dict[str, Any]:
+    split_precomputation = """
+    at::acc_type<cache_t, true>* __restrict__ row_counter;
+    at::acc_type<cache_t, true> _row_counter = iter;
+    if (use_rowwise_bias_correction) {
+        const auto row_counter_placement = static_cast<PlacementType>(row_counter_placements[t]);
+        const int64_t row_counter_offset = row_counter_offsets[t];
+        if (row_counter_placement == PlacementType::DEVICE) {
+            row_counter = &row_counter_dev[row_counter_offset];
+        } else {
+            row_counter = &row_counter_uvm[row_counter_offset];
+        }
+
+        // need to compute bias correction for each row
+        if (threadIdx.x == 0) {
+            _row_counter = row_counter[idx] + 1;
+            row_counter[idx] = _row_counter;
+        }
+
+        // broadcast bias correction to all threads
+        _row_counter = SHFL_SYNC(_row_counter, 0);
+    }
+    """
+
     split_weight_update = """
       Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
       m_t.acc.x *= beta1;
@@ -1023,10 +1046,10 @@ def adam() -> Dict[str, Any]:
       v_t.fma_(grad, 1.0 - beta2);
       v_t.store(&momentum2[idx * D + d]);
 
-      weight_new.acc.x -= learning_rate * (m_t.acc.x / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.x / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.x);
-      weight_new.acc.y -= learning_rate * (m_t.acc.y / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.y / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.y);
-      weight_new.acc.z -= learning_rate * (m_t.acc.z / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.z / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.z);
-      weight_new.acc.w -= learning_rate * (m_t.acc.w / (1.0 - powf(beta1, iter)) / (sqrtf((v_t.acc.w / (1.0 - powf(beta2, iter)))) + eps) + weight_decay * weight_new.acc.w);
+      weight_new.acc.x -= learning_rate * (m_t.acc.x / (1.0 - powf(beta1, _row_counter)) / (sqrtf((v_t.acc.x / (1.0 - powf(beta2, _row_counter)))) + eps) + weight_decay * weight_new.acc.x);
+      weight_new.acc.y -= learning_rate * (m_t.acc.y / (1.0 - powf(beta1, _row_counter)) / (sqrtf((v_t.acc.y / (1.0 - powf(beta2, _row_counter)))) + eps) + weight_decay * weight_new.acc.y);
+      weight_new.acc.z -= learning_rate * (m_t.acc.z / (1.0 - powf(beta1, _row_counter)) / (sqrtf((v_t.acc.z / (1.0 - powf(beta2, _row_counter)))) + eps) + weight_decay * weight_new.acc.z);
+      weight_new.acc.w -= learning_rate * (m_t.acc.w / (1.0 - powf(beta1, _row_counter)) / (sqrtf((v_t.acc.w / (1.0 - powf(beta2, _row_counter)))) + eps) + weight_decay * weight_new.acc.w);
     """
     split_weight_update_cpu = ""  # TODO
 
@@ -1043,18 +1066,20 @@ def adam() -> Dict[str, Any]:
                 OptimItem(ArgType.FLOAT, "beta2"),
                 OptimItem(ArgType.FLOAT, "weight_decay"),
                 OptimItem(ArgType.INT, "iter"),
+                OptimItem(ArgType.BOOL, "use_rowwise_bias_correction"),
+                OptimItem(ArgType.TENSOR, "row_counter", is_optional=True),
             ],
             {
-                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0"
+                "v1": "Tensor momentum1, Tensor momentum2, float learning_rate = 0, float eps = 0, float beta1 = 0, float beta2 = 0, float weight_decay = 0, int iter = 0, bool use_rowwise_bias_correction = False, Tensor? row_counter = None",
             },
         ),
-        "split_precomputation": "",
+        "split_precomputation": split_precomputation,
         "split_weight_update": split_weight_update,
         "split_post_update": "",
         "split_weight_update_cpu": split_weight_update_cpu,
         "has_cpu_support": False,
         "has_gpu_support": True,
-        "has_vbe_support": False,
+        "has_vbe_support": True,
         "has_global_weight_decay_support": False,
         "has_ssd_support": False,
     }

@@ -77,7 +77,11 @@ using namespace fbgemm_gpu;
   }
 #endif
 
+DEF_RADIX_SORT_PAIRS_FN(int64_t, int32_t);
+DEF_RADIX_SORT_PAIRS_FN(int64_t, int64_t);
 DEF_RADIX_SORT_PAIRS_FN(int64_t, float);
 DEF_RADIX_SORT_PAIRS_FN(int64_t, double);
-DEF_RADIX_SORT_PAIRS_FN(int64_t, int64_t);
-DEF_RADIX_SORT_PAIRS_FN(int64_t, int32_t);
+DEF_RADIX_SORT_PAIRS_FN(int32_t, int32_t);
+DEF_RADIX_SORT_PAIRS_FN(int32_t, int64_t);
+DEF_RADIX_SORT_PAIRS_FN(int32_t, float);
+DEF_RADIX_SORT_PAIRS_FN(int32_t, double);

@@ -62,6 +62,7 @@ VBE_OPTIMIZERS = [
     "rowwise_adagrad_with_counter",
     "sgd",
     "dense",
+    "adam",
 ]
 
 # Individual optimizers (not fused with SplitTBE backward)
@@ -471,6 +472,25 @@ gen_gpu_files_training = (
         "gen_embedding_backward_split_dense.cpp",
     ]
 )
+
+gen_hip_files_training = [
+    "gen_embedding_backward_split_{}{}_device_kernel_hip.hip".format(
+        "weighted" if weighted else "unweighted",
+        "_nobag" if nobag else "",
+    )
+    for nobag in [
+        True,
+        False,
+    ]
+    for weighted in (
+        [
+            True,
+            False,
+        ]
+        if not nobag
+        else [False]
+    )
+]
 
 ################################################################################
 # Python Training Code

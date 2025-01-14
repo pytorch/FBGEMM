@@ -141,6 +141,9 @@ void nccl_allgather(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
   TORCH_CHECK(src.is_contiguous());
   TORCH_CHECK(dst.is_contiguous());
+  TORCH_CHECK(
+      src.dtype() == dst.dtype(),
+      "dst and src tensors must have the same dtype.");
   ncclDataType_t type = to_nccl_data_type(src.scalar_type());
   C10D_NCCL_CHECK(
       ncclAllGather(
@@ -153,7 +156,7 @@ void nccl_allgather(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
       "ncclAllGather");
 }
 
-void nccl_alltoall(
+void nccl_alltoall_single(
     at::Tensor dst,
     at::Tensor src,
     int64_t world_size,
@@ -164,6 +167,14 @@ void nccl_alltoall(
   auto stream = at::cuda::getCurrentCUDAStream();
   torch::cuda::nccl::all2all_single_equal_split(
       src, dst, world_size, *get_nccl_comm(comm_idx), stream);
+}
+
+void nccl_alltoall(
+    std::vector<at::Tensor> dsts,
+    std::vector<at::Tensor> srcs,
+    int64_t comm_idx) {
+  auto stream = at::cuda::getCurrentCUDAStream();
+  torch::cuda::nccl::all2all(dsts, srcs, *get_nccl_comm(comm_idx), stream);
 }
 
 void nccl_reducescatter(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
@@ -268,7 +279,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("nccl_allgather(Tensor(a!) dst, Tensor src, int comm_idx=0) -> ()");
 
   m.def(
-      "nccl_alltoall(Tensor(a!) dst, Tensor src, int world_size, int comm_idx=0) -> ()");
+      "nccl_alltoall_single(Tensor(a!) dst, Tensor src, int world_size, int comm_idx=0) -> ()");
+  m.def("nccl_alltoall(Tensor(a!)[] dst, Tensor[] src, int comm_idx=0) -> ()");
 
   m.def("nccl_reducescatter(Tensor(a!) dst, Tensor src, int comm_idx=0) -> ()");
 
@@ -295,6 +307,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("nccl_allreduce", nccl_allreduce);
   m.impl("nccl_allgather", nccl_allgather);
+  m.impl("nccl_alltoall_single", nccl_alltoall_single);
   m.impl("nccl_alltoall", nccl_alltoall);
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
@@ -306,6 +319,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("nccl_allreduce", nccl_allreduce);
   m.impl("nccl_allgather", nccl_allgather);
+  m.impl("nccl_alltoall_single", nccl_alltoall_single);
   m.impl("nccl_alltoall", nccl_alltoall);
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
@@ -328,10 +342,17 @@ void nccl_allgather_meta(
   return;
 }
 
-void nccl_alltoall_meta(
+void nccl_alltoall_single_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
     int64_t /* world_size */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
+void nccl_alltoall_meta(
+    std::vector<at::Tensor> /* dsts */,
+    std::vector<at::Tensor> /* srcs */,
     int64_t /* comm_idx */) {
   return;
 }
@@ -362,6 +383,7 @@ void two_shot_car_allreduce_meta(
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("nccl_allreduce", nccl_allreduce_meta);
   m.impl("nccl_allgather", nccl_allgather_meta);
+  m.impl("nccl_alltoall_single", nccl_alltoall_single_meta);
   m.impl("nccl_alltoall", nccl_alltoall_meta);
   m.impl("nccl_reducescatter", nccl_reducescatter_meta);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce_meta);

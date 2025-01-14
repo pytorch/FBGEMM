@@ -638,6 +638,20 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.pooling_mode = pooling_mode
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
         # If environment variable is set, it overwrites the default bounds check mode.
+        self.bounds_check_version: int = 1
+        if bounds_check_mode.name.startswith("V2_"):
+            self.bounds_check_version = 2
+            if bounds_check_mode == BoundsCheckMode.V2_IGNORE:
+                bounds_check_mode = BoundsCheckMode.IGNORE
+            elif bounds_check_mode == BoundsCheckMode.V2_WARNING:
+                bounds_check_mode = BoundsCheckMode.WARNING
+            elif bounds_check_mode == BoundsCheckMode.V2_FATAL:
+                bounds_check_mode = BoundsCheckMode.FATAL
+            else:
+                raise NotImplementedError(
+                    f"Did not recognize V2 bounds check mode: {bounds_check_mode}"
+                )
+
         self.bounds_check_mode_int: int = int(
             os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
         )
@@ -730,6 +744,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 not mixed_D
             ), "OptimType.NONE does not support mixed embedding dimension"
 
+        self.mixed_D: bool = mixed_D
         if device is None:
             self.current_device: torch.device = (
                 torch.device("cpu")
@@ -1560,10 +1575,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 OptimType.ENSEMBLE_ROWWISE_ADAGRAD,
                 OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 OptimType.NONE,
-            ), """
-                Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD,
-                OptimType.ENSEMBLE_ROWWISE_ADAGRAD, and OptimType.EMAINPLACE_ROWWISE_ADAGRAD only.
-                """
+                OptimType.ADAM,
+            ), (
+                "Variable batch size TBE support is enabled for "
+                "OptimType.EXACT_ROWWISE_ADAGRAD,EXACT_SGD, "
+                "ENSEMBLE_ROWWISE_ADAGRAD, NONE, and ADAM only"
+            )
         return generate_vbe_metadata(
             offsets,
             batch_size_per_feature_per_rank,
@@ -1792,6 +1809,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             is_experimental=self.is_experimental,
             use_uniq_cache_locations_bwd=self.use_uniq_cache_locations_bwd,
             use_homogeneous_placements=self.use_homogeneous_placements,
+            mixed_D=self.mixed_D,
         )
 
         if self.optimizer == OptimType.NONE:
@@ -3352,6 +3370,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 b_t_map=b_t_map,
                 info_B_num_bits=info_B_num_bits,
                 info_B_mask=info_B_mask,
+                bounds_check_version=self.bounds_check_version,
             )
 
         return indices, offsets, per_sample_weights, vbe_metadata
@@ -3565,6 +3584,15 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
         assert self.D_offsets.numel() == T + 1
+
+        mixed_D = False
+        D = dims[0]
+        for d in dims:
+            if d != D:
+                mixed_D = True
+                break
+        self.mixed_D: bool = mixed_D
+
         # Required for VBE
         self.register_buffer(
             "feature_dims",
@@ -3678,6 +3706,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_B=vbe_metadata.max_B,
             max_B_feature_rank=vbe_metadata.max_B_feature_rank,
             vbe_output_size=vbe_metadata.output_size,
+            mixed_D=self.mixed_D,
         )
 
     @torch.jit.export
