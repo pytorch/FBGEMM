@@ -130,7 +130,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     __shared__ AllBuffers buffers;
 
     {% if weighted %}
-    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight];
+    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
     __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
 
@@ -187,7 +187,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           uint4 data = valid ? row_data_v[inner_i] : zeros;
           buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_idx] = data;
           {% if weighted %}
-          buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
           {% endif %}
         }
       }
@@ -218,7 +218,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_idx], &row[row_load_idx], valid);
 
         {% if weighted %}
-        buffers_indice_weights[warp_idx][i][input_row_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+        buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
         {% endif %}
       }
       {%- if is_rocm %}
@@ -253,7 +253,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         {% endif %}
 
         {% if weighted %}
-        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx];
+        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_idx];
         {% endif %}
 
         using scalar_t = {{ emb_weight_type.cpp_type_name }};
