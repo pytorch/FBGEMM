@@ -1410,17 +1410,18 @@ def nbit_device(  # noqa C901
             check_median=check_median,
         )
 
-    kernel_time = time_dict['kernel_time']
-    bandwidth = read_write_bytes / kernel_time / 1.0e3
+    if export_trace:
+        kernel_time = time_dict['kernel_time']
+        bandwidth = read_write_bytes / kernel_time / 1.0e3
 
-    logging.info(
-        f"kineto profiled stats: "
-        f"{weights_precision} Forward, B: {B}, "
-        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
-        f"Time: {kernel_time:.0f}us, "
-        f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
-    )
+        logging.info(
+            f"kineto profiled stats: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+            f"Time: {kernel_time:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        )
 
     # free up GPU memory
     del requests
@@ -1831,17 +1832,18 @@ def nbit_device_with_spec(  # noqa C901
                 check_median=check_median,
             )
 
-        kernel_time = time_dict['kernel_time']
-        bandwidth = read_write_bytes / kernel_time / 1.0e3
+        if export_trace:
+            kernel_time = time_dict['kernel_time']
+            bandwidth = read_write_bytes / kernel_time / 1.0e3
 
-        logging.info(
-            f"kineto profiled stats: "
-            f"{weights_precision} Forward, B: {B}, "
-            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
-            f"Time: {kernel_time:.0f}us, "
-            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
-        )
+            logging.info(
+                f"kineto profiled stats: "
+                f"{weights_precision} Forward, B: {B}, "
+                f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+                f"Time: {kernel_time:.0f}us, "
+                f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+            )
 
     # free up memory
     del kineto_request
