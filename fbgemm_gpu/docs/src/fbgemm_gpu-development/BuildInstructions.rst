@@ -394,13 +394,13 @@ more deterministic and thus reliable:
   conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu/
 
   # Install the latest test (RC), CUDA variant
-  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu121/
+  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu126/
 
   # Install a specific version, CUDA variant
-  conda run -n ${env_name} pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu121/
+  conda run -n ${env_name} pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu126/
 
   # Install the latest nightly, ROCm variant
-  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
+  conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
 
 For installing the ROCm variant of PyTorch, PyTorch PIP is the only available
 channel as of time of writing.
@@ -692,8 +692,8 @@ presuming the toolchains have been properly installed.
   # [OPTIONAL] Enable verbose HIPCC logs
   export HIPCC_VERBOSE=1
 
-  # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx906;gfx908;gfx90a')
-  # See https://wiki.gentoo.org/wiki/ROCm for list
+  # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx908,gfx90a,gfx942')
+  # See https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html for list
   export PYTORCH_ROCM_ARCH=$(${ROCM_PATH}/bin/rocminfo | grep -o -m 1 'gfx.*')
 
   # Build the wheel artifact only
@@ -701,6 +701,7 @@ presuming the toolchains have been properly installed.
       --package_variant=rocm \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
+      -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
@@ -708,6 +709,7 @@ presuming the toolchains have been properly installed.
   # Build and install the library into the Conda environment
   python setup.py install \
       --package_variant=rocm \
+      -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
