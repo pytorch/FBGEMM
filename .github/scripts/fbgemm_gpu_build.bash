@@ -164,8 +164,10 @@ __configure_fbgemm_gpu_build_rocm () {
 
         # By default, we build just for MI100 and MI250 to save time.  This list
         # needs to be updated if the CI ROCm machines have different hardware.
-        # Architecture mapping can be found at: https://wiki.gentoo.org/wiki/ROCm
-        local arch_list="gfx908,gfx90a"
+        #
+        # Architecture mapping can be found at:
+        #   https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html
+        local arch_list="gfx908,gfx90a,gfx942"
       fi
     else
       echo "[BUILD] rocminfo not found in PATH!"
@@ -180,11 +182,15 @@ __configure_fbgemm_gpu_build_rocm () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} HIPCC_VERBOSE=1
 
+  # For more info on rocmcc flags:
+  #   https://rocm.docs.amd.com/en/docs-6.1.1/reference/rocmcc.html
   echo "[BUILD] Setting ROCm build args ..."
   build_args=(
     --package_variant=rocm
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
     -DHIP_ROOT_DIR=/opt/rocm
+    # ROCm CMake complains about missing AMDGPU_TARGETS, so we explicitly set this
+    -DAMDGPU_TARGETS="${arch_list}"
   )
 }
 
