@@ -14,7 +14,7 @@
 ################################################################################
 
 __export_package_channel_info () {
-  local package_channel_version="$1"
+  local package_channel_version="test"
 
   # Extract the package channel and version from the tuple-string
   if [ "$package_channel_version" == "nightly" ] || [ "$package_channel_version" == "test" ] || [ "$package_channel_version" == "release" ]; then
