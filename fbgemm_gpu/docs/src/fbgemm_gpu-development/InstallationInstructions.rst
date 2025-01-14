@@ -50,7 +50,11 @@ Note that the list of supported CUDA and ROCm architectures refer to the targets
 support available in the default installation packages, and that building for
 other architecures may be possible, but not guaranteed.
 
-For more information, please visit the `FBGEMM Releases Page <https://github.com/pytorch/FBGEMM/releases>`__.
+For more information, please visit:
+
+- `FBGEMM Releases Page <https://github.com/pytorch/FBGEMM/releases>`_
+- `CUDA Architectures <https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/>`_
+- `ROCm Architectures <https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html>`_
 
 
 Set Up CPU-Only Environment
@@ -249,16 +253,16 @@ PyTorch PIP is the preferred channel for installing FBGEMM_GPU:
   pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cpu/
 
   # CUDA Nightly
-  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121/
-  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cu121/
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu126/
+  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cu126/
 
   # CUDA Release
-  pip install torch --index-url https://download.pytorch.org/whl/cu121/
-  pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cu121/
+  pip install torch --index-url https://download.pytorch.org/whl/cu126/
+  pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cu126/
 
   # ROCm Nightly
-  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
-  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
+  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
 
   # Test the installation
   python -c "import torch; import fbgemm_gpu"

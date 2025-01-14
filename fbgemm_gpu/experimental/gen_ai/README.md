@@ -39,11 +39,11 @@ y = torch.ops.fbgemm.f8f8bf16_rowwise(
 
 ```bash
 # Full FBGEMM library
-pip install fbgemm-gpu==0.8.0
-pip install fbgemm-gpu==0.8.0 --index-url https://download.pytorch.org/whl/cu121
+pip install fbgemm-gpu==1.1.0
+pip install fbgemm-gpu==1.1.0 --index-url https://download.pytorch.org/whl/cu126
+
 # FBGEMM library with GenAI operator only
 pip install fbgemm-gpu-genai
-pip install fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/cu121
 ```
 
 # 2. **External Coverage**
