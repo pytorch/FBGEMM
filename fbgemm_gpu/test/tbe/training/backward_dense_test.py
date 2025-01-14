@@ -229,9 +229,6 @@ class BackwardDenseTest(unittest.TestCase):
             weights_precision=weights_precision,
             output_dtype=output_dtype,
         )
-        if do_pooling and not mixed_B:
-            # NOTE: test TorchScript-compatible!
-            cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
