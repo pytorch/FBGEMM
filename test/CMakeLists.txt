@@ -87,8 +87,12 @@ endmacro()
 file(GLOB TEST_LIST "*Test.cc")
 
 foreach(TEST_FILE ${TEST_LIST})
+  # NOTE: Skip FP32 test until FP32 is properly integrated into OSS builds
+  if(TEST_FILE MATCHES "FP32Test.cc$")
+    continue()
+  endif()
+
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
   get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)
-  add_gtest("${TEST_NAME}"
-    "${TEST_FILE_ONLY}")
+  add_gtest("${TEST_NAME}" "${TEST_FILE_ONLY}")
 endforeach()
