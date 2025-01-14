@@ -129,8 +129,8 @@
                   <span class=dropdown-title>Developer Resources</span>
                   <p>Find resources and get questions answered</p>
                 </a>
-                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem/contributor-awards-2023">
-                  <span class="dropdown-title">Contributor Awards - 2023</span>
+                <a class="nav-dropdown-item" href="https://pytorch.org/ecosystem/contributor-awards-2024">
+                  <span class="dropdown-title">Contributor Awards - 2024</span>
                   <p>Award winners announced at this year's PyTorch Conference</p>
                 </a>
               </div>
@@ -150,6 +150,9 @@
                 <a class="nav-dropdown-item" href="https://pytorch.org/executorch-overview">
                   <span class="dropdown-title">ExecuTorch</span>
                   <p>End-to-end solution for enabling on-device inference capabilities across mobile and edge devices</p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/executorch/stable/index.html">
+                  <span class="dropdown-title">ExecuTorch Docs</span>
                 </a>
               </div>
             </div>  
@@ -198,6 +201,10 @@
                   <span class="dropdown-title">Events</span>
                   <p>Find events, webinars, and podcasts</p>
                 </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/newsletter">
+                  <span class="dropdown-title">Newsletter</span>
+                  <p>Stay up-to-date with the latest updates</p>
+                </a>
             </div>
           </li>
 
@@ -213,6 +220,22 @@
                 </a>
                 <a class="nav-dropdown-item" href="https://pytorch.org/governing-board">
                   <span class="dropdown-title">Governing Board</span>
+                  <p></p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/credits">
+                  <span class="dropdown-title">Cloud Credit Program</span>
+                  <p></p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/tac">
+                  <span class="dropdown-title">Technical Advisory Council</span>
+                  <p></p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/staff">
+                  <span class="dropdown-title">Staff</span>
+                  <p></p>
+                </a>
+                <a class="nav-dropdown-item" href="https://pytorch.org/contact-us">
+                  <span class="dropdown-title">Contact Us</span>
                   <p></p>
                 </a>
               </div>
@@ -538,7 +561,12 @@ ROCm Architectures</p></th>
 <p>Note that the list of supported CUDA and ROCm architectures refer to the targets
 support available in the default installation packages, and that building for
 other architecures may be possible, but not guaranteed.</p>
-<p>For more information, please visit the <a class="reference external" href="https://github.com/pytorch/FBGEMM/releases">FBGEMM Releases Page</a>.</p>
+<p>For more information, please visit:</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/pytorch/FBGEMM/releases">FBGEMM Releases Page</a></p></li>
+<li><p><a class="reference external" href="https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/">CUDA Architectures</a></p></li>
+<li><p><a class="reference external" href="https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html">ROCm Architectures</a></p></li>
+</ul>
 </section>
 <section id="set-up-cpu-only-environment">
 <h2>Set Up CPU-Only Environment<a class="headerlink" href="#set-up-cpu-only-environment" title="Permalink to this heading">¶</a></h2>
@@ -700,16 +728,16 @@ pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> 
 pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu/
 
 <span class="c1"># CUDA Nightly</span>
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu121/
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu121/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu126/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu126/
 
 <span class="c1"># CUDA Release</span>
-pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
-pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
+pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu126/
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu126/
 
 <span class="c1"># ROCm Nightly</span>
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm6.3/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm6.3/
 
 <span class="c1"># Test the installation</span>
 python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu&quot;</span>
@@ -1045,7 +1073,7 @@ be reported to the FBGEMM developers.</p>
                <a href="https://pytorch.org/resources">Developer Resources</a>
              </li>
              <li>
-               <a href="https://pytorch.org/ecosystem/contributor-awards-2023">Contributor Awards - 2023</a>
+               <a href="https://pytorch.org/ecosystem/contributor-awards-2023">Contributor Awards - 2024</a>
              </li>
            </ul>
 
@@ -1060,6 +1088,9 @@ be reported to the FBGEMM developers.</p>
              
              <li>
                <a href="https://pytorch.org/executorch-overview">ExecuTorch</a>
+             </li>
+             <li>
+               <a href="https://pytorch.org/executorch/stable/index.html">ExecuTorch Documentation</a>
              </li>
            </ul>
 
@@ -1099,6 +1130,9 @@ be reported to the FBGEMM developers.</p>
             <li>
               <a href="https://pytorch.org/events">Events</a>
             </li>
+            <li>
+               <a href="https://pytorch.org/newsletter">Newsletter</a>
+             </li>
           </ul>
           
           <li class="resources-mobile-menu-title">
@@ -1111,6 +1145,18 @@ be reported to the FBGEMM developers.</p>
             </li>
             <li>
               <a href="https://pytorch.org/governing-board">Governing Board</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/credits">Cloud Credit Program</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/tac">Technical Advisory Council</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/staff">Staff</a>
+            </li>
+            <li>
+               <a href="https://pytorch.org/contact-us">Contact Us</a>
             </li>
           </ul>
         </ul>
