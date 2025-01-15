@@ -76,6 +76,7 @@ class OptimizerArgs(NamedTuple):
     weight_norm_coefficient: float
     lower_bound: float
     regularization_mode: int
+    use_rowwise_bias_correction: bool # Used for OptimType.ADAM
 
 
 class Momentum(NamedTuple):
