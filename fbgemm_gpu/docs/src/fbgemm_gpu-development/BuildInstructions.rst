@@ -158,6 +158,12 @@ module.  CUTLASS should be already be available in the repository as a git
 submodule (see :ref:`fbgemm-gpu.build.prepare`).  The following include paths
 are already added to the CMake configuration:
 
+.. code:: cmake
+  set(THIRDPARTY ${FBGEMM}/external)
+
+  ${THIRDPARTY}/cutlass/include
+  ${THIRDPARTY}/cutlass/tools/util/include
+
 
 Set Up for ROCm Build
 ---------------------
@@ -207,7 +213,7 @@ guide <https://rocm.docs.amd.com/en/latest/>`__:
   apt update
 
   # Download the installer
-  wget -q https://repo.radeon.com/amdgpu-install/5.6.1/ubuntu/focal/amdgpu-install_5.6.50601-1_all.deb -O amdgpu-install.deb
+  wget -q https://repo.radeon.com/amdgpu-install/6.3.1/ubuntu/focal/amdgpu-install_6.3.60301-1_all.deb -O amdgpu-install.deb
 
   # Run the installer
   apt install ./amdgpu-install.deb
@@ -397,7 +403,7 @@ more deterministic and thus reliable:
   conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/test/cu126/
 
   # Install a specific version, CUDA variant
-  conda run -n ${env_name} pip install torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu126/
+  conda run -n ${env_name} pip install torch==2.6.0+cu126 --index-url https://download.pytorch.org/whl/cu126/
 
   # Install the latest nightly, ROCm variant
   conda run -n ${env_name} pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3/

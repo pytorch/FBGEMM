@@ -2448,7 +2448,7 @@ def triton_quantize_fp8_row(
         USE_INT64=use_int64,
     )
 
-    return a_fp8, a_scale
+    return a_fp8, a_scale.view(a.shape[:-1])
 
 
 @torch.library.custom_op("triton::quantize_fp8_row", mutates_args=())
@@ -2488,6 +2488,7 @@ def quantize_fp8_row(
     if not output_device:
         output_device = a.device
 
+    a_shape = a.shape
     # Get constants.
     pt_dtype, _, max_fp8, eps = get_fp8_constants()
     row_max: torch.Tensor = torch.max(torch.abs(a), dim=-1)[0]
@@ -2505,7 +2506,7 @@ def quantize_fp8_row(
     a_fp8 = a_fp8.to(device=output_device, dtype=pt_dtype)
     a_scale = a_scale.to(output_device)  # pyre-ignore
     del a
-    return a_fp8, 1 / a_scale  # pyre-ignore
+    return a_fp8, (1 / a_scale).view(a_shape.shape[:-1])  # pyre-ignore
 
 
 @quantize_fp8_row.register_fake
@@ -2518,11 +2519,11 @@ def quantize_fp8_row_meta(
     """Shape function for torch compile."""
     if output_device is None:
         output_device = a.device
+    a_shape = a.shape
     # Flatten to 2D since each row of each potential batch gets a scale.
-    M = a.view(-1, a.shape[-1]).shape[0]
     dtype = get_fp8_constants()[0]
     fake_out = torch.empty(a.shape, device=output_device, dtype=dtype)
-    fake_scale = torch.empty((M), device=output_device, dtype=torch.float32)
+    fake_scale = torch.empty(a_shape[:-1], device=output_device, dtype=torch.float32)
     return fake_out, fake_scale
 
 

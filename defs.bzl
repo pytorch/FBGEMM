@@ -25,6 +25,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmI64.cc",
         "src/FbgemmSparseDense.cc",
         "src/FbgemmI8Spmdm.cc",
+        # "src/fp32/FbgemmFP32.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
         "src/GenerateKernelU8S8S32ACC16.cc",
@@ -59,6 +60,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmConvert.h",
         "include/fbgemm/FbgemmEmbedding.h",
         "include/fbgemm/FbgemmFP16.h",
+        "include/fbgemm/FbgemmFP32.h",
         "include/fbgemm/FbgemmFPCommon.h",
         "include/fbgemm/FbgemmI64.h",
         "include/fbgemm/FbgemmI8DepthwiseAvx2.h",
@@ -102,7 +104,10 @@ def get_fbgemm_inline_avx2_srcs(msvc = False, buck = False):
     intrinsics_srcs = ["src/FbgemmFP16UKernelsIntrinsicAvx2.cc"]
 
     #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
-    asm_srcs = ["src/FbgemmFP16UKernelsAvx2.cc"]
+    asm_srcs = [
+        # "src/fp32/FbgemmFP32UKernelsAvx2.cc",
+        "src/FbgemmFP16UKernelsAvx2.cc",
+    ]
     if buck:
         return select({
             "DEFAULT": asm_srcs,
@@ -133,6 +138,8 @@ def get_fbgemm_inline_avx512_srcs(msvc = False, buck = False):
     asm_srcs = [
         "src/FbgemmFP16UKernelsAvx512.cc",
         "src/FbgemmFP16UKernelsAvx512_256.cc",
+        # "src/fp32/FbgemmFP32UKernelsAvx512.cc",
+        # "src/fp32/FbgemmFP32UKernelsAvx512_256.cc",
     ]
     if buck:
         return select({
@@ -168,7 +175,7 @@ def get_fbgemm_autovec_srcs():
         "src/EmbeddingSpMDMAutovec.cc",
     ]
 
-def get_fbgemm_tests(skip_tests = []):
+def get_fbgemm_tests(skip_tests = ["test/FP32Test.cc"]):
     return native.glob(["test/*Test.cc"], exclude = skip_tests)
 
 def read_bool(section, field, default):
