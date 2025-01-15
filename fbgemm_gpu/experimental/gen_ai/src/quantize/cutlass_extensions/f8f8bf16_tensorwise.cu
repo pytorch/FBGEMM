@@ -48,6 +48,10 @@ at::Tensor f8f8bf16_tensorwise_impl(
   // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
   auto out_sizes = XQ.sizes().vec();
   out_sizes.back() = N;
+  // Handle case where inputs are empty.
+  if (M == 0 || N == 0 || K == 0) {
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
 
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());

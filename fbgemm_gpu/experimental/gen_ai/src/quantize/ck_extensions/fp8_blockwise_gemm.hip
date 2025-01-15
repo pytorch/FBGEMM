@@ -66,6 +66,10 @@ at::Tensor f8f8bf16_blockwise_impl(
 
   // Create output tensor.
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  // If inputs are empty return an empty tensor.
+  if (M == 0 || N == 0 || K == 0) {
+    return Y;
+  }
 
   int StrideA = K;
   int StrideB = K;
