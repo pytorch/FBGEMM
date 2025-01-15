@@ -1200,7 +1200,7 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    Tensor[]? ssd_tensors=None,"
           {%- endif %}
           "   float gwd_lower_bound=0, "
-          "   bool mixed_D=False"
+          "   bool mixed_D=True"
           ") -> Tensor",
           {PT2_COMPLIANT_TAG});
 
