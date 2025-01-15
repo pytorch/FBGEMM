@@ -591,6 +591,17 @@
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">UserEnabledConfigDefinition</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    This class is used to configure whether certain modes are to be enabled</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># This is used in Adam to perform rowwise bias correction using `row_counter`</span>
+    <span class="c1"># More details can be found in D64848802.</span>
+    <span class="n">use_rowwise_bias_correction</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">EnsembleModeDefinition</span><span class="p">:</span>
     <span class="n">step_ema</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span>
     <span class="n">step_swap</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">10000</span>
@@ -1009,6 +1020,11 @@
 <span class="sd">            using `malloc` + `cudaHostRegister`. Otherwise use</span>
 <span class="sd">            `cudaMallocManaged`</span>
 
+<span class="sd">        extra_optimizer_config Optional[UserEnabledConfigDefinition] = None):</span>
+<span class="sd">            An extra config to enable certain modes for optimizer. These modes</span>
+<span class="sd">            are not enabled by default.</span>
+<span class="sd">            - `use_rowwise_bias_correction` is used in Adam to enable rowwise</span>
+<span class="sd">                bias correction computation</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="p">]]</span>
@@ -1075,6 +1091,7 @@
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">global_weight_decay</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">GlobalWeightDecayDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">extra_optimizer_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">UserEnabledConfigDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
 
@@ -1451,6 +1468,20 @@
             <span class="c1"># and CowClipDefinition are not used</span>
             <span class="n">counter_halflife</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
 
+        <span class="c1"># TO DO: Enable this on the new interface</span>
+        <span class="c1"># learning_rate_tensor = torch.tensor(</span>
+        <span class="c1">#     learning_rate, device=torch.device(&quot;cpu&quot;), dtype=torch.float</span>
+        <span class="c1"># )</span>
+        <span class="k">if</span> <span class="n">extra_optimizer_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">extra_optimizer_config</span> <span class="o">=</span> <span class="n">UserEnabledConfigDefinition</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">extra_optimizer_config</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
+                <span class="s2">&quot;`use_rowwise_bias_correction` is only supported for OptimType.ADAM&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">OptimizerArgs</span><span class="p">(</span>
             <span class="n">stochastic_rounding</span><span class="o">=</span><span class="n">stochastic_rounding</span><span class="p">,</span>
             <span class="n">gradient_clipping</span><span class="o">=</span><span class="n">gradient_clipping</span><span class="p">,</span>
@@ -1477,6 +1508,7 @@
             <span class="n">weight_norm_coefficient</span><span class="o">=</span><span class="n">cowclip_regularization</span><span class="o">.</span><span class="n">weight_norm_coefficient</span><span class="p">,</span>
             <span class="n">lower_bound</span><span class="o">=</span><span class="n">cowclip_regularization</span><span class="o">.</span><span class="n">lower_bound</span><span class="p">,</span>
             <span class="n">regularization_mode</span><span class="o">=</span><span class="n">weight_decay_mode</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">use_rowwise_bias_correction</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">optimizer</span> <span class="o">!=</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
@@ -1613,6 +1645,19 @@
                     <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                     <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                 <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
+                    <span class="n">construct_split_state</span><span class="p">(</span>
+                        <span class="n">embedding_specs</span><span class="p">,</span>
+                        <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                        <span class="n">cacheable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;row_counter&quot;</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
+                    <span class="c1">#  but got `Type[torch.float32]`.</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                    <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
+                <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;prev_iter&quot;</span><span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;row_counter&quot;</span><span class="p">)</span>
@@ -1637,7 +1682,6 @@
                     <span class="s2">&quot;iter&quot;</span><span class="p">,</span>
                     <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                 <span class="p">)</span>
-
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
                     <span class="s2">&quot;iter&quot;</span><span class="p">,</span>
@@ -2340,6 +2384,24 @@
         <span class="n">iter_int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="o">.</span><span class="n">add_</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>  <span class="c1"># used for local computation</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">add_</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># used for checkpointing</span>
 
+        <span class="n">row_counter</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
+            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_dev</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_host</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_uvm</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_offsets</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_placements</span><span class="p">,</span>
+        <span class="p">)</span>
+
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
                 <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
@@ -2349,6 +2411,10 @@
                     <span class="n">momentum1</span><span class="p">,</span>
                     <span class="n">momentum2</span><span class="p">,</span>
                     <span class="n">iter_int</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">,</span>
+                    <span class="n">row_counter</span><span class="o">=</span><span class="p">(</span>
+                        <span class="n">row_counter</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span> <span class="k">else</span> <span class="kc">None</span>
+                    <span class="p">),</span>
                 <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">:</span>
@@ -2401,23 +2467,6 @@
             <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
             <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_placements</span><span class="p">,</span>
-        <span class="p">)</span>
-        <span class="n">row_counter</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
-            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_dev</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_host</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_uvm</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_offsets</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_placements</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">:</span>
@@ -2988,6 +3037,15 @@
             <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="p">{</span><span class="s2">&quot;momentum_buffer&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span> <span class="k">for</span> <span class="n">states</span> <span class="ow">in</span> <span class="n">split_optimizer_states</span>
             <span class="p">]</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">:</span>
+            <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;exp_avg&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                    <span class="s2">&quot;exp_avg_sq&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                    <span class="s2">&quot;row_counter&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+                <span class="p">}</span>
+                <span class="k">for</span> <span class="n">states</span> <span class="ow">in</span> <span class="n">split_optimizer_states</span>
+            <span class="p">]</span>
         <span class="k">elif</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span>
             <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span>
@@ -3162,7 +3220,9 @@
                     <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span> <span class="ow">or</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span>
+        <span class="p">):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
                     <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
