@@ -49,6 +49,7 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    typename index_t,
     {%- for ph_name in args.placeholder_tensor_names %}
     typename {{ ph_name + "_ph_t" }},
     {%- endfor %}
@@ -77,7 +78,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
@@ -1052,6 +1053,7 @@ Tensor {{ embedding_cuda_op }}(
                             <emb_t,
                              grad_t,
                              cache_t,
+                             index_t,
                              {%- for ph_name in args.placeholder_tensor_names %}
                              {{ ph_name + "_ph_t" }},
                              {%- endfor %}
@@ -1101,7 +1103,7 @@ Tensor {{ embedding_cuda_op }}(
                             D,
                             {%- endif %}
                             MAKE_PTA_WITH_NAME(func_name3, hash_size_cumsum, int64_t, 1, 32),
-                            MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_run, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_run, index_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name3, long_run_ids, int32_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name3, num_long_run_ids, int32_t, 1, 32),
