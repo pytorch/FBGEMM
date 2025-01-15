@@ -33,6 +33,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
     StepMode,
     TailIdThreshold,
+    UserEnabledConfigDefinition,
     WeightDecayMode,
 )
 
@@ -105,6 +106,7 @@ class BackwardOptimizersTest(unittest.TestCase):
         weight_decay_mode: WeightDecayMode = WeightDecayMode.NONE,
         uvm_non_rowwise_momentum: bool = False,
         optimizer_state_dtypes: Optional[Dict[str, SparseType]] = None,
+        use_rowwise_bias_correction: bool = False,
     ) -> None:
         # NOTE: limit (T * B * L * D) to avoid timeout for CPU version!
 
@@ -307,6 +309,9 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer_kwargs["weight_decay"] = weight_decay
             optimizer_kwargs["optimizer_state_dtypes"] = optimizer_state_dtypes
 
+        extra_optimizer_config = UserEnabledConfigDefinition(
+            use_rowwise_bias_correction=use_rowwise_bias_correction
+        )
         if optimizer in (OptimType.PARTIAL_ROWWISE_LAMB, OptimType.LAMB):
             optimizer_kwargs["eps"] = eps
             optimizer_kwargs["beta1"] = beta1
@@ -335,6 +340,10 @@ class BackwardOptimizersTest(unittest.TestCase):
                 step_ema_coef=momentum,
                 step_mode=step_mode,
             )
+        row_counter_ref = [torch.zeros(E, dtype=torch.float32) for E in Es]
+        if optimizer == OptimType.ADAM and use_rowwise_bias_correction:
+            for i, indices in enumerate(xs):
+                row_counter_ref[i][indices.cpu()] += 1
 
         if optimizer == OptimType.EMAINPLACE_ROWWISE_ADAGRAD:
             (eps, step_ema, step_start) = (
@@ -356,6 +365,7 @@ class BackwardOptimizersTest(unittest.TestCase):
             optimizer=optimizer,
             pooling_mode=pooling_mode,
             uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
+            extra_optimizer_config=extra_optimizer_config,
             **optimizer_kwargs,
         )
 
@@ -539,8 +549,21 @@ class BackwardOptimizersTest(unittest.TestCase):
 
         if optimizer in (OptimType.PARTIAL_ROWWISE_ADAM, OptimType.ADAM):
             rowwise = optimizer == OptimType.PARTIAL_ROWWISE_ADAM
+            row_counter: Optional[torch.Tensor] = None
             for t in range(T):
-                (m1, m2) = split_optimizer_states[t]
+                if rowwise or not use_rowwise_bias_correction:
+                    (m1, m2) = split_optimizer_states[t]
+                else:  # Full adam with rowwise bias correction
+                    (m1, m2, row_counter) = split_optimizer_states[t]
+                    # check row counter
+                    row_counter = row_counter.cpu()
+                    torch.testing.assert_close(
+                        row_counter,
+                        row_counter_ref[t],
+                        atol=0,
+                        rtol=0,
+                    )
+                    row_counter = row_counter.reshape(row_counter.size(0), 1)
                 # Some optimizers have non-float momentums
                 dense_cpu_grad = bs[t].weight.grad.cpu().to_dense()
                 m2_ref = (
@@ -552,9 +575,10 @@ class BackwardOptimizersTest(unittest.TestCase):
                 m1_ref = dense_cpu_grad * (1.0 - beta1)
                 self.assert_close_optim_state(m1, m1_ref)
                 iter_ = cc.iter.item()
-                v_hat_t = m2_ref / (1 - beta2**iter_)
+                power = row_counter if use_rowwise_bias_correction else iter_
+                v_hat_t = m2_ref / (1 - beta2**power)
                 v_hat_t = v_hat_t if not rowwise else v_hat_t.view(v_hat_t.numel(), 1)
-                m_hat_t = m1_ref / (1 - beta1**iter_)
+                m_hat_t = m1_ref / (1 - beta1**power)
                 weights_new = split_weights[t]
                 weights_ref = (
                     torch.addcdiv(
@@ -574,10 +598,16 @@ class BackwardOptimizersTest(unittest.TestCase):
 
                 if get_optimizer_states is not None:
                     optimizer_states_dict = get_optimizer_states[t]
-                    assert set(optimizer_states_dict.keys()) == {
-                        "exp_avg",
-                        "exp_avg_sq",
-                    }
+                    state_keys = (
+                        {
+                            "exp_avg",
+                            "exp_avg_sq",
+                            "row_counter",
+                        }
+                        if use_rowwise_bias_correction
+                        else {"exp_avg", "exp_avg_sq"}
+                    )
+                    assert set(optimizer_states_dict.keys()) == state_keys
 
         if optimizer == OptimType.ENSEMBLE_ROWWISE_ADAGRAD:
             for t in range(T):
@@ -936,6 +966,63 @@ class BackwardOptimizersTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+                PoolingMode.NONE,
+            ]
+        ),
+        uvm_non_rowwise_momentum=st.booleans(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    @unittest.skipIf(*gpu_unavailable)
+    def test_backward_optimizers_adam_rowwise_bias_correction(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+        uvm_non_rowwise_momentum: bool,
+    ) -> None:
+        self.execute_backward_optimizers_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weighted,
+            mixed,
+            mixed_B,
+            OptimType.ADAM,
+            long_segments,
+            pooling_mode,
+            False,  # use_cpu
+            uvm_non_rowwise_momentum=uvm_non_rowwise_momentum,
+            use_rowwise_bias_correction=True,
         )
 
     @given(
