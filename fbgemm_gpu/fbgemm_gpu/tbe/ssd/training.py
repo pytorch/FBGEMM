@@ -570,6 +570,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             weight_norm_coefficient=cowclip_regularization.weight_norm_coefficient,
             lower_bound=cowclip_regularization.lower_bound,
             regularization_mode=weight_decay_mode.value,
+            use_rowwise_bias_correction=False,  # Unused, this is used in TBE's Adam
         )
 
         table_embedding_dtype = weights_precision.as_dtype()
