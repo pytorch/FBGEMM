@@ -1266,6 +1266,9 @@ def matmul_fp8_row(
     )
 
     output_shape = a_shape[:-1] + (N,)
+    # Handle tensor with empty inputs.
+    if (M == 0) or (N == 0) or (K == 0):
+        return torch.zeros(output_shape, device=device, dtype=torch.bfloat16)
     # launch kernel
     if a.device == torch.device("cpu"):
         logger.info(
@@ -2084,6 +2087,10 @@ def matmul_fp8_block(
     )
 
     output_shape = a_shape[:-1] + (N,)
+    # Handle case where inputs are empty.
+    if (M == 0) or (N == 0) or (K == 0):
+        return torch.zeros(output_shape, device=device, dtype=torch.bfloat16)
+
     # launch kernel
     assert device != torch.device(
         "cpu"
