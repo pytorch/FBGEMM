@@ -314,6 +314,14 @@ at::Tensor f8f8bf16_rowwise_wrapper(
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
   int K = WQ.size(1);
+  // Compute target output sizes.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
+  // Handle case where an input dimension is zero.
+  if (M == 0 || N == 0 || K == 0) {
+    // Return a tensor of zeros to handle case where K is 0.
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
 
   // Prepare output tensor if needed.
   at::Tensor Y;
@@ -324,10 +332,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
     TORCH_CHECK(Y_M == M && Y.sizes().vec().back() == N);
     TORCH_CHECK(Y.dtype() == at::kBFloat16);
   } else {
-    // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
-    // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
-    auto out_sizes = XQ.sizes().vec();
-    out_sizes.back() = N;
     Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
   }
 
