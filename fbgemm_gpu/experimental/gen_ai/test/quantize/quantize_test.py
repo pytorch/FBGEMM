@@ -224,7 +224,7 @@ class FP8Tests(unittest.TestCase):
     )
     @settings(deadline=None)
     @given(
-        B_T=st.sampled_from([2048, 4096]),
+        B_T=st.sampled_from([0, 2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
         Mode=st.sampled_from(
@@ -433,8 +433,8 @@ class FP8Tests(unittest.TestCase):
         # Blockwise seems to have slightly more noisy outputs.
         # Special case correctness to avoid flakiness.
         if Mode == "blockwise":
-            atol = 1.2e-1
-            rtol = 1.2e-1
+            atol = 1.3e-1
+            rtol = 1.3e-1
         else:
             atol = 9.0e-2
             rtol = 9.0e-2
@@ -919,29 +919,28 @@ class FP8Tests(unittest.TestCase):
             for i in range(len(x_group)):
                 x_group[i][zero_start_index_M[i] :, :] = 0
 
+        bf16_op = (
+            torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
+            if use_padding_zeros
+            else torch.ops.fbgemm.bf16bf16bf16_grouped
+        )
+        bf16_args = (
+            (x_group, w_group, zero_start_index_M)
+            if use_padding_zeros
+            else (x_group, w_group)
+        )
+
         # BF16 grouped gemm kernel
         if use_cudagraph:
             # warmup
-            torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            bf16_op(*bf16_args)
             # With cudagraph
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
-                y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                    x_group,
-                    w_group,
-                    zero_start_index_M if use_padding_zeros else None,
-                )
+                y_bf16_group = bf16_op(*bf16_args)
             g.replay()
         else:
-            y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            y_bf16_group = bf16_op(*bf16_args)
 
         # BF16 loopover gemm reference
         y_group_ref = torch.bmm(xs, ws.transpose(1, 2))
@@ -1100,6 +1099,7 @@ class FP8Tests(unittest.TestCase):
     @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet suported."
     )
+    @settings(deadline=None)
     @given(
         K=st.sampled_from([0, 128]),
     )

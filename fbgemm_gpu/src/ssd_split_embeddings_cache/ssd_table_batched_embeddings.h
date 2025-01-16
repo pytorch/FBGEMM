@@ -25,6 +25,7 @@
 #endif
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "kv_db_table_batched_embeddings.h"
+#include "kv_tensor_wrapper.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 
 namespace ssd {
@@ -124,55 +125,29 @@ class Initializer {
   std::unique_ptr<std::thread> producer_;
 };
 
+class EmbeddingRocksDB;
+using snapshot_ptr_t = const rocksdb::Snapshot*;
+// @lint-ignore CLANGTIDY cppcoreguidelines-special-member-functions
+class SnapshotHandle {
+ public:
+  explicit SnapshotHandle(EmbeddingRocksDB* db);
+  ~SnapshotHandle();
+  void release();
+  snapshot_ptr_t get_snapshot_for_shard(size_t shard) const;
+
+ private:
+  friend class EmbeddingRocksDB;
+
+  EmbeddingRocksDB* db_;
+  std::vector<snapshot_ptr_t> shard_snapshots_;
+}; // class SnapshotHandle
+
 /// @ingroup embedding-ssd
 ///
 /// @brief An implementation of EmbeddingKVDB for RocksDB
 ///
 class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
-  using snapshot_ptr_t = const rocksdb::Snapshot*;
-
  public:
-  class SnapshotHandle {
-   public:
-    explicit SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
-      auto num_shards = db->num_shards();
-      CHECK_GT(num_shards, 0);
-      shard_snapshots_.reserve(num_shards);
-      for (auto shard = 0; shard < num_shards; ++shard) {
-        const auto* snapshot = db->dbs_[shard]->GetSnapshot();
-        CHECK(snapshot != nullptr)
-            << "ERROR: create_snapshot fails to create a snapshot "
-            << "for db shard " << shard << ". Please make sure that "
-            << "inplace_update_support is set to false" << std::endl;
-        shard_snapshots_.push_back(snapshot);
-      }
-    }
-
-    ~SnapshotHandle() {
-      for (auto shard = 0; shard < db_->dbs_.size(); ++shard) {
-        snapshot_ptr_t snapshot = shard_snapshots_[shard];
-        CHECK(snapshot != nullptr)
-            << "Unexpected nullptr for snapshot " << shard;
-        db_->dbs_[shard]->ReleaseSnapshot(snapshot);
-      }
-    }
-
-    void release() {
-      db_->release_snapshot(this);
-    }
-
-    snapshot_ptr_t get_snapshot_for_shard(size_t shard) const {
-      CHECK_LE(shard, shard_snapshots_.size());
-      return shard_snapshots_[shard];
-    }
-
-   private:
-    friend class EmbeddingRocksDB;
-
-    EmbeddingRocksDB* db_;
-    std::vector<snapshot_ptr_t> shard_snapshots_;
-  };
-
   explicit EmbeddingRocksDB(
       std::string path,
       int64_t num_shards,
@@ -934,6 +909,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return folly::collect(futures);
   }
 
+  friend class SnapshotHandle;
+
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
   std::vector<std::unique_ptr<Initializer>> initializers_;
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
@@ -959,59 +936,5 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t max_D_;
   int64_t elem_size_;
 }; // class EmbeddingRocksDB
-
-class EmbeddingRocksDBWrapper;
-
-struct EmbeddingSnapshotHandleWrapper : public torch::jit::CustomClassHolder {
-  explicit EmbeddingSnapshotHandleWrapper(
-      const EmbeddingRocksDB::SnapshotHandle* handle,
-      std::shared_ptr<EmbeddingRocksDB> db)
-      : handle(handle), db(std::move(db)) {}
-
-  ~EmbeddingSnapshotHandleWrapper() {
-    db->release_snapshot(handle);
-  }
-
-  const EmbeddingRocksDB::SnapshotHandle* handle;
-  std::shared_ptr<EmbeddingRocksDB> db;
-};
-
-class KVTensorWrapper : public torch::jit::CustomClassHolder {
- public:
-  explicit KVTensorWrapper(
-      c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
-      std::vector<int64_t> shape,
-      int64_t dtype,
-      int64_t row_offset,
-      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-          snapshot_handle);
-
-  at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
-
-  void set_range(
-      int64_t dim,
-      const int64_t start,
-      const int64_t length,
-      const at::Tensor& weights);
-
-  c10::IntArrayRef size();
-
-  c10::ScalarType dtype();
-
-  std::string_view dtype_str();
-
-  c10::Device device();
-
-  std::string device_str();
-
-  std::string layout_str();
-
- private:
-  std::shared_ptr<EmbeddingRocksDB> db_;
-  c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
-  at::TensorOptions options_;
-  std::vector<int64_t> shape_;
-  int64_t row_offset_;
-};
 
 } // namespace ssd
