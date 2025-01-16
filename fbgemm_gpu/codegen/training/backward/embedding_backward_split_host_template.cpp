@@ -1083,7 +1083,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- else %}
     const c10::SymInt vbe_output_size = -1,
     {%- endif %}
-    const bool mixed_D = false
+    const bool mixed_D = true
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
