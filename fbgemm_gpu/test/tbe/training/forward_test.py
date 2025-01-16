@@ -541,7 +541,7 @@ class ForwardTest(unittest.TestCase):
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
-        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_experimental_tbe=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -670,7 +670,7 @@ class ForwardTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_experimental_tbe=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
@@ -740,7 +740,7 @@ class ForwardTest(unittest.TestCase):
     @unittest.skipIf(*gpu_unavailable)
     @given(
         cache_algorithm=st.sampled_from(CacheAlgorithm),
-        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+        use_experimental_tbe=st.booleans(),
     )
     @settings(
         verbosity=VERBOSITY,
