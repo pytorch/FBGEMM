@@ -187,7 +187,8 @@ def benchmark_requests(
     # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
     # for the first kernel if warmup_ms > 0
     # warmup_ms is prioritized over num_warmups
-    if (warmup_ms is None):
+
+    if warmup_ms is None:
         num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
 
     # warm-up the GPU before profiling

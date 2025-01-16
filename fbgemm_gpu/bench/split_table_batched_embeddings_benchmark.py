@@ -95,10 +95,7 @@ else:
 logging.basicConfig(level=logging.DEBUG)
 
 
-def kineto_trace_profiler(
-    p: profile,
-    trace_info: tuple[str, str, str, str]
-) -> float:
+def kineto_trace_profiler(p: profile, trace_info: tuple[str, str, str, str]) -> float:
     phase, trace_url, tbe_type, kern_name = trace_info
     p.export_chrome_trace(
         trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
@@ -1169,13 +1166,15 @@ def nbit_cpu(  # noqa C901
     default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
 )
 @click.option(
-    "--warmup-runs", default=2,
-    help="Number of warmup runs. Ignored if --warmup-ms is set.")
+    "--warmup-runs",
+    default=2,
+    help="Number of warmup runs. Ignored if --warmup-ms is set.",
+)
 @click.option(
     "--warmup-ms",
     type=int,
     default=None,
-    help="Warmup duration in milliseconds. Disables the --run-nums option."
+    help="Warmup duration in milliseconds. Disables the --run-nums option.",
 )
 def nbit_device(  # noqa C901
     alpha: float,
@@ -1393,7 +1392,7 @@ def nbit_device(  # noqa C901
                 indices.int(),
                 offsets.int(),
                 per_sample_weights,
-            )
+            ),
         )
 
     with context_factory(
@@ -1411,7 +1410,7 @@ def nbit_device(  # noqa C901
         )
 
     if export_trace:
-        kernel_time = time_dict['kernel_time']
+        kernel_time = time_dict["kernel_time"]
         bandwidth = read_write_bytes / kernel_time / 1.0e3
 
         logging.info(
@@ -1536,13 +1535,15 @@ def nbit_device(  # noqa C901
     default="{tbe_type}_tbe_spec_{phase}_trace_{ospid}.json",
 )
 @click.option(
-    "--warmup-runs", default=2,
-    help="Number of warmup runs. Ignored if --warmup-ms is set.")
+    "--warmup-runs",
+    default=2,
+    help="Number of warmup runs. Ignored if --warmup-ms is set.",
+)
 @click.option(
     "--warmup-ms",
     type=int,
     default=None,
-    help="Warmup duration in milliseconds. Disables the --run-nums option."
+    help="Warmup duration in milliseconds. Disables the --run-nums option.",
 )
 def nbit_device_with_spec(  # noqa C901
     alpha: float,
@@ -1760,11 +1761,11 @@ def nbit_device_with_spec(  # noqa C901
                     per_sample_weights,
                 ),
                 check_median=check_median,
-                warmup_ms=warmup_ms
+                warmup_ms=warmup_ms,
             )
 
         # copy the request of last iteration for kineto profile benchmark
-        if (i == runs_of_iters - 1):
+        if i == runs_of_iters - 1:
             kineto_request = requests
 
         # free up memory
@@ -1815,7 +1816,7 @@ def nbit_device_with_spec(  # noqa C901
                     indices.int(),
                     offsets.int(),
                     per_sample_weights,
-                )
+                ),
             )
 
         with context_factory(
@@ -1833,7 +1834,7 @@ def nbit_device_with_spec(  # noqa C901
             )
 
         if export_trace:
-            kernel_time = time_dict['kernel_time']
+            kernel_time = time_dict["kernel_time"]
             bandwidth = read_write_bytes / kernel_time / 1.0e3
 
             logging.info(
