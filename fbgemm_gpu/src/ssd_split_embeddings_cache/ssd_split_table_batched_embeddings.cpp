@@ -386,6 +386,46 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
   std::shared_ptr<ssd::EmbeddingRocksDB> impl_;
 };
 
+SnapshotHandle::SnapshotHandle(EmbeddingRocksDB* db) : db_(db) {
+  auto num_shards = db->num_shards();
+  CHECK_GT(num_shards, 0);
+  shard_snapshots_.reserve(num_shards);
+  for (auto shard = 0; shard < num_shards; ++shard) {
+    const auto* snapshot = db->dbs_[shard]->GetSnapshot();
+    CHECK(snapshot != nullptr)
+        << "ERROR: create_snapshot fails to create a snapshot "
+        << "for db shard " << shard << ". Please make sure that "
+        << "inplace_update_support is set to false" << std::endl;
+    shard_snapshots_.push_back(snapshot);
+  }
+}
+
+SnapshotHandle::~SnapshotHandle() {
+  for (auto shard = 0; shard < db_->dbs_.size(); ++shard) {
+    snapshot_ptr_t snapshot = shard_snapshots_[shard];
+    CHECK(snapshot != nullptr) << "Unexpected nullptr for snapshot " << shard;
+    db_->dbs_[shard]->ReleaseSnapshot(snapshot);
+  }
+}
+
+void SnapshotHandle::release() {
+  db_->release_snapshot(this);
+}
+
+snapshot_ptr_t SnapshotHandle::get_snapshot_for_shard(size_t shard) const {
+  CHECK_LE(shard, shard_snapshots_.size());
+  return shard_snapshots_[shard];
+}
+
+EmbeddingSnapshotHandleWrapper::EmbeddingSnapshotHandleWrapper(
+    const SnapshotHandle* handle,
+    std::shared_ptr<EmbeddingRocksDB> db)
+    : handle(handle), db(std::move(db)) {}
+
+EmbeddingSnapshotHandleWrapper::~EmbeddingSnapshotHandleWrapper() {
+  db->release_snapshot(handle);
+}
+
 KVTensorWrapper::KVTensorWrapper(
     c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
     std::vector<int64_t> shape,
