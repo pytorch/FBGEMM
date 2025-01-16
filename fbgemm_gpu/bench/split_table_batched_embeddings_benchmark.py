@@ -1764,7 +1764,7 @@ def nbit_device_with_spec(  # noqa C901
             )
 
         # copy the request of last iteration for kineto profile benchmark
-        if (i == runs_of_iters-1):
+        if (i == runs_of_iters - 1):
             kineto_request = requests
 
         # free up memory
