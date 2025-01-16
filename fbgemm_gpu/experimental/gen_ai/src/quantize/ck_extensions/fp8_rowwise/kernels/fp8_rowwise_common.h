@@ -160,7 +160,8 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor Y) {
+    at::Tensor Y,
+    int KBatch = 1) {
   // Get input information.
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
@@ -194,7 +195,7 @@ at::Tensor f8f8bf16_rowwise_impl(
       StrideB,
       std::array<ck::index_t, NumDTensor>{0, 0},
       StrideE,
-      1,
+      KBatch,
       a_element_op,
       b_element_op,
       cde_element_op);
