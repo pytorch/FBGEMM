@@ -125,7 +125,7 @@ jobs:
 
     - name: Upload Built Wheel as GHA Artifact
       # Cannot upgrade to actions/upload-artifact@v4 yet because GLIBC on the instance is too old
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: fbgemm_gpu_nightly_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
         path: fbgemm_gpu/dist/*.whl
@@ -165,13 +165,13 @@ jobs:
     steps:
     # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
     - name: Checkout the Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: true
 
     - name: Download Wheel Artifact from GHA
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: fbgemm_gpu_nightly_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
 
