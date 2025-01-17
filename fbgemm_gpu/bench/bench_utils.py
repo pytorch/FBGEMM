@@ -30,6 +30,28 @@ from torch import nn
 logging.basicConfig(level=logging.DEBUG)
 
 
+def warmup(
+    request: TBERequest,
+    warmup_ms: int,
+    warmup_runs: int,
+    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    bwd_only: bool = False,
+    grad: Optional[torch.Tensor] = None,
+) -> None:
+    indices, offsets, weights = request.unpack_3()
+    if warmup_ms:
+        start_time_ms = time.time() * 1000
+        while time.time() * 1000 - start_time_ms < warmup_ms:
+            out = func(indices, offsets, weights)
+            if bwd_only:
+                out.backward(grad)
+    else:
+        for _ in range(warmup_runs):
+            out = func(indices, offsets, weights)
+            if bwd_only:
+                out.backward(grad)
+
+
 def benchmark_torch_function(  # noqa: C901
     # pyre-fixme[2]: Parameter must be annotated.
     f,
@@ -159,19 +181,30 @@ def benchmark_requests(
     # Can be used to clear model's stats after warmup for example.
     callback_after_warmup: Optional[Callable[[], None]] = None,
     periodic_logs: bool = False,
+    warmup_ms: Optional[int] = None,
 ) -> float:
     times = []
-
     # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
-    # for the first kernel
-    num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
+    # for the first kernel if warmup_ms > 0
+    # warmup_ms is prioritized over num_warmups
 
-    if num_warmups > 0:
-        indices, offsets, weights = requests[0].unpack_3()
-        for _ in range(num_warmups):
-            out = func(indices, offsets, weights)
-            if bwd_only:
-                out.backward(grad)
+    if warmup_ms is None:
+        num_warmups = num_warmups + 1 if num_warmups >= 0 else 1
+
+    # warm-up the GPU before profiling
+    warmup(
+        requests[0],
+        # pyre-ignore[6]
+        warmup_ms,
+        num_warmups,
+        lambda indices, offsets, per_sample_weights: func(
+            indices,
+            offsets,
+            per_sample_weights,
+        ),
+        bwd_only=bwd_only,
+        grad=grad,
+    )
 
     if callback_after_warmup is not None:
         callback_after_warmup()
