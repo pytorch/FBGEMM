@@ -1,0 +1,45 @@
+load("@fbcode_macros//build_defs:gpu_python_unittest.bzl", "gpu_python_unittest")
+load("@fbcode_macros//build_defs/lib:re_test_utils.bzl", "re_test_utils")
+load("//ai_codesign/gen_ai/trt_llm/0.15.0:build_utils.bzl", "is_sm90_cuda12040")
+
+oncall("fbgemm_dev")
+
+[
+    gpu_python_unittest(
+        name = testname,
+        cuda_srcs = (
+            [
+                "{}_test.py".format(testname),
+            ] + [
+                "{}.py".format(f)
+                for f in helper_files
+            ]
+        ) if is_sm90_cuda12040() else [],
+        keep_gpu_sections = True,
+        par_style = "xar",
+        remote_execution = select({
+            "DEFAULT": re_test_utils.remote_execution(
+                gpu_generation_or_newer = "H100",
+                mig = "false",
+                platform = "gpu-remote-execution",
+                resource_units = 2,
+            ),
+        }),
+        visibility = [
+            "//deeplearning/fbgemm/fbgemm_gpu/...",
+        ],
+        deps = [
+            "fbsource//third-party/pypi/hypothesis:hypothesis",
+            "fbsource//third-party/pypi/numpy:numpy",
+            "//caffe2:torch",
+            "//deeplearning/fbgemm/fbgemm_gpu:test_utils",
+            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:fb_gen_ai_ops_py",
+        ],
+    )
+    for (testname, helper_files) in [
+        (
+            "multi_gpu_car",
+            [],
+        ),
+    ]
+]

@@ -1,0 +1,8 @@
+load("@fbsource//tools/target_determinator/macros:ci.bzl", "ci")
+
+ci.package(
+    ci.replace({ci.linux(ci.dev()): ci.linux(
+        ci.mode("fbcode//mode/dev-nosan"),
+    )}),
+    ci.remove(ci.linux(ci.coverage(ci.mode("fbcode//mode/dev-nosan-amd-gpu")))),
+)
