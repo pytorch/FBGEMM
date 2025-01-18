@@ -717,40 +717,6 @@ class FP8RowwiseBatchedGemm(QuantizeOpBase):
 
 
 @register_quantize_op
-class FP8LiteGemm(QuantizeOpBase):
-    """
-    FP8 lite matmul for memory bound.
-    """
-
-    def quantize(self, x, w):
-        # Quantize both input tensors.
-        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-        return xq, wq, x_scale, w_scale
-
-    def compute(self, xq, wq, x_scale, w_scale):
-        return torch.ops.fbgemm.f8f8bf16_lite(xq, wq, x_scale * w_scale)
-
-    def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale * w_scale)
-
-    @property
-    def name(self) -> str:
-        return "cuda_lite"
-
-    @property
-    def hip(self) -> bool:
-        # Need to add support for better quantize kernel.
-        # Also may have an issue with cuda graphs.
-        return False
-
-    @property
-    def cuda(self) -> bool:
-        return True
-
-
-@register_quantize_op
 class TritonFP8RowwiseGemm(QuantizeOpBase):
     """
     FP8 matmul with rowwise scaling implemented with Triton.
