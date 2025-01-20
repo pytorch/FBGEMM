@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -87,8 +87,12 @@ endmacro()
 file(GLOB TEST_LIST "*Test.cc")
 
 foreach(TEST_FILE ${TEST_LIST})
+  # NOTE: Skip FP32 test until FP32 is properly integrated into OSS builds
+  if(TEST_FILE MATCHES "FP32Test.cc$")
+    continue()
+  endif()
+
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
   get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)
-  add_gtest("${TEST_NAME}"
-    "${TEST_FILE_ONLY}")
+  add_gtest("${TEST_NAME}" "${TEST_FILE_ONLY}")
 endforeach()

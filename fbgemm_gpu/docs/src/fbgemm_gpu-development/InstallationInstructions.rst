@@ -21,29 +21,40 @@ FBGEMM is released in accordance to the PyTorch release schedule, and is each
 release has no guarantee to work in conjunction with PyTorch releases that are
 older than the one that the FBGEMM release corresponds to.
 
-+-----------------+------------------+------------------+----------------+---------------------------+
-| FBGEMM Release  | Corresponding    | Supported        | Supported      | (Experimental) Supported  |
-|                 | PyTorch Release  | Python Versions  | CUDA Versions  | ROCm Versions             |
-+=================+==================+==================+================+===========================+
-| 1.0.0           | 2.5.x            | 3.9, 3.10, 3.11, | 11.8, 12.1,    | 6.0, 6.1                  |
-|                 |                  | 3.12             | 12.4           |                           |
-+-----------------+------------------+------------------+----------------+---------------------------+
-| 0.8.0           | 2.4.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1,    | 6.0, 6.1                  |
-|                 |                  | 3.11, 3.12       | 12.4           |                           |
-+-----------------+------------------+------------------+----------------+---------------------------+
-| 0.7.0           | 2.3.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 6.0                       |
-|                 |                  | 3.11, 3.12       |                |                           |
-+-----------------+------------------+------------------+----------------+---------------------------+
-| 0.6.0           | 2.2.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 5.7                       |
-|                 |                  | 3.11, 3.12       |                |                           |
-+-----------------+------------------+------------------+----------------+---------------------------+
-| 0.5.0           | 2.1.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 5.5, 5.6                  |
-|                 |                  | 3.11             |                |                           |
-+-----------------+------------------+------------------+----------------+---------------------------+
-| 0.4.0           | 2.0.x            | 3.8, 3.9, 3.10   | 11.7, 11.8     | 5.3, 5.4                  |
-+-----------------+------------------+------------------+----------------+---------------------------+
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
+| FBGEMM Release  | Corresponding    | Supported        | Supported      | Supported CUDA  | (Experimental) Supported  | (Experimental) Supported  |
+|                 | PyTorch Release  | Python Versions  | CUDA Versions  | Architectures   | ROCm Versions             | ROCm Architectures        |
++=================+==================+==================+================+=================+===========================+===========================+
+| 1.1.0           | 2.6.x            | 3.9, 3.10, 3.11, | 11.8, 12.4,    | 7.0, 8.0, 9.0,  | 6.1, 6.2.4, 6.3           | gfx908, gfx90a, gfx942    |
+|                 |                  | 3.12, 3.13       | 12.6           | 9.0a            |                           |                           |
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
+| 1.0.0           | 2.5.x            | 3.9, 3.10, 3.11, | 11.8, 12.1,    | 7.0, 8.0, 9.0,  | 6.0, 6.1                  | gfx908, gfx90a            |
+|                 |                  | 3.12             | 12.4           | 9.0a            |                           |                           |
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
+| 0.8.0           | 2.4.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1,    | 7.0, 8.0, 9.0,  | 6.0, 6.1                  | gfx908, gfx90a            |
+|                 |                  | 3.11, 3.12       | 12.4           | 9.0a            |                           |                           |
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
+| 0.7.0           | 2.3.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 7.0, 8.0, 9.0   | 6.0                       | gfx908, gfx90a            |
+|                 |                  | 3.11, 3.12       |                |                 |                           |                           |
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
+| 0.6.0           | 2.2.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 7.0, 8.0, 9.0   | 5.7                       | gfx90a                    |
+|                 |                  | 3.11, 3.12       |                |                 |                           |                           |
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
+| 0.5.0           | 2.1.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 7.0, 8.0, 9.0   | 5.5, 5.6                  | gfx90a                    |
+|                 |                  | 3.11             |                |                 |                           |                           |
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
+| 0.4.0           | 2.0.x            | 3.8, 3.9, 3.10   | 11.7, 11.8     | 7.0, 8.0        | 5.3, 5.4                  | gfx90a                    |
++-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
 
-For more information, please visit the `FBGEMM Releases Page <https://github.com/pytorch/FBGEMM/releases>`__.
+Note that the list of supported CUDA and ROCm architectures refer to the targets
+support available in the default installation packages, and that building for
+other architecures may be possible, but not guaranteed.
+
+For more information, please visit:
+
+- `FBGEMM Releases Page <https://github.com/pytorch/FBGEMM/releases>`_
+- `CUDA Architectures <https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/>`_
+- `ROCm Architectures <https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html>`_
 
 
 Set Up CPU-Only Environment
@@ -182,7 +193,7 @@ Install the relevant Python libraries for working with FBGEMM_GPU:
 
 .. code:: sh
 
-  conda install -n ${env_name} -y \
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
       hypothesis \
       numpy \
       scikit-build
@@ -242,16 +253,16 @@ PyTorch PIP is the preferred channel for installing FBGEMM_GPU:
   pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cpu/
 
   # CUDA Nightly
-  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121/
-  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cu121/
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu126/
+  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/cu126/
 
   # CUDA Release
-  pip install torch --index-url https://download.pytorch.org/whl/cu121/
-  pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cu121/
+  pip install torch --index-url https://download.pytorch.org/whl/cu126/
+  pip install fbgemm-gpu --index-url https://download.pytorch.org/whl/cu126/
 
   # ROCm Nightly
-  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
-  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/rocm5.6/
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
+  pip install --pre fbgemm-gpu --index-url https://download.pytorch.org/whl/nightly/rocm6.3/
 
   # Test the installation
   python -c "import torch; import fbgemm_gpu"

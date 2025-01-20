@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -83,10 +83,14 @@ if(FBGEMM_BUILD_BENCHMARKS)
 
   file(GLOB BENCH_LIST "*Benchmark.cc")
   foreach(BENCH_FILE ${BENCH_LIST})
+    # NOTE: Skip FP32 benchmark until FP32 is properly integrated into OSS builds
+    if(BENCH_FILE MATCHES "FP32Benchmark.cc$")
+      continue()
+    endif()
+
     get_filename_component(BENCH_NAME "${BENCH_FILE}" NAME_WE)
     get_filename_component(BENCH_FILE_ONLY "${BENCH_FILE}" NAME)
-    add_benchmark("${BENCH_NAME}"
-      "${BENCH_FILE_ONLY}")
+    add_benchmark("${BENCH_NAME}" "${BENCH_FILE_ONLY}")
     list(APPEND BENCHMARKS "${BENCH_NAME}")
   endforeach()
 

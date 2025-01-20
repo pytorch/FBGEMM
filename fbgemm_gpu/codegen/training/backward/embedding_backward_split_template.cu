@@ -26,6 +26,10 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
+{%- if is_rocm %}
+#include "fbgemm_gpu/rocm/cdna_guard.h"
+{%- endif %}
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -45,6 +49,7 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    typename index_t,
     {%- for ph_name in args.placeholder_tensor_names %}
     typename {{ ph_name + "_ph_t" }},
     {%- endfor %}
@@ -73,7 +78,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> long_run_ids,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> num_long_run_ids,
@@ -211,6 +216,78 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
     {%- endif %}
 );
+
+{%- if is_rocm and optimizer == "rowwise_adagrad" and not dense and not is_index_select
+               and not is_gwd_kernel and not vbe and not ssd %}
+#include "fbgemm_gpu/rocm/split_embeddings_common.h"
+template <
+    typename emb_t,
+    typename grad_t,
+    typename cache_t,
+    int32_t kFixedMaxVecsPerThread,
+    int32_t kThreadGroupSize,
+    bool kUseVecBlocking,
+    int32_t embedding_dim,
+    int32_t weight_decay_mode_v>
+__global__ void
+hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_kernel_warp_per_row_1(
+    const pta::PackedTensorAccessor64<grad_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> grad_output,
+    {%- if optimizer != "none" %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> dev_weights,
+    {%- if not dense %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> uvm_weights,
+    pta::PackedTensorAccessor64<cache_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
+    {%- endif %}
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> weights_offsets,
+    {%- if not nobag or is_index_select %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
+    {%- else %}
+    int64_t D,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
+    {%- if not nobag %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- else %}
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_infos,
+    {%- endif %}
+    {%- if not dense %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_lxu_cache_locations,
+    const bool use_uniq_cache_locations,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> table_unique_indices_offsets,
+    {%- endif %}
+    {%- if weighted %}
+    const pta::PackedTensorAccessor32<at::acc_type<cache_t, true>, 1, at::RestrictPtrTraits> sorted_indice_weights,
+    {%- endif %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_num_runs,
+    int32_t max_segment_length_per_warp,
+    {%- if not dense and optimizer != "none" %}
+    bool stochastic_rounding,
+    at::PhiloxCudaState stochastic_rounding_philox_args,
+    {%- else %}
+    pta::PackedTensorAccessor64<emb_t, 1, at::RestrictPtrTraits> grad_dev_weights,
+    {%- endif %} // if not dense and optimizer != "none"
+    {%- if not nobag and vbe %}
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> B_offsets,
+    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> row_output_offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    const int32_t info_B_num_bits,
+    const uint32_t info_B_mask,
+    {%- endif %}
+    const int32_t max_D,
+    const int32_t max_vecs_per_thread,
+    {%- if is_index_select %}
+    const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
+    const bool permute_output_dim_0_1
+    {%- else %}
+    {{ args.split_kernel_args | replace_pta_namespace() | join(",\n    ") }}
+    {%- endif %}
+);
+{%- endif %}
 {% if is_index_select %}
 namespace index_select {
 {% else %}
@@ -232,13 +309,13 @@ split_embedding_backward_codegen_find_long_segments(
     const bool use_deterministic_algorithms);
 
 
-template <typename grad_t>
+template <typename grad_t, typename offset_t>
 __global__ __launch_bounds__(kMaxThreads) void
 grad_mean{{ vdesc }}_kernel(
     pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output_mean,
     const pta::PackedTensorAccessor64<grad_t, 2, at::RestrictPtrTraits> grad_output,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> D_offsets,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> offsets,
+    const pta::PackedTensorAccessor32<offset_t, 1, at::RestrictPtrTraits> offsets,
     {%- if vbe %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> b_t_map,
@@ -345,7 +422,7 @@ using namespace embedding_ops;
 #define DISPATCH_PLACEHOLDER_TYPES({{ args.placeholder_tensor_names | to_upper_placeholder_types() | join(", ") }}, NAME, ...) \
   {%- for ph_name in args.placeholder_tensor_names %}
   at::ScalarType _{{ph_name}}_t =                                       \
-    ::detail::scalar_type({{ ph_name.upper() + "_T" }});                \
+    {{ ph_name.upper() + "_T" }};                                       \
   {%- endfor %}
   {%- for ph_combo in args.placeholder_type_combos %}
   if (                                                                  \
@@ -451,6 +528,9 @@ Tensor {{ embedding_cuda_op }}(
     const c10::SymInt max_D_,
     {%- else %}
     const c10::SymInt D_,
+    {%- endif %}
+    {%- if not nobag and not is_index_select %}
+    const bool mixed_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -742,6 +822,7 @@ Tensor {{ embedding_cuda_op }}(
       else {
         {{ locs_or_addrs_tensor }}_sorted = at::empty_like({{ locs_or_addrs_tensor }});
         size_t temp_storage_bytes = 0;
+        AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_1", [&] {
         AT_CUDA_CHECK(radix_sort_pairs(
               nullptr,
               temp_storage_bytes,
@@ -753,9 +834,11 @@ Tensor {{ embedding_cuda_op }}(
               0,
               total_hash_size_bits,
               at::cuda::getCurrentCUDAStream()));
+
         auto temp_storage = at::empty(
             {static_cast<int64_t>(temp_storage_bytes)},
             indices.options().dtype(at::kByte));
+
         AT_CUDA_CHECK(radix_sort_pairs(
               temp_storage.data_ptr(),
               temp_storage_bytes,
@@ -767,6 +850,7 @@ Tensor {{ embedding_cuda_op }}(
               0,
               total_hash_size_bits,
               at::cuda::getCurrentCUDAStream()));
+        });
       }
     }
 
@@ -775,6 +859,18 @@ Tensor {{ embedding_cuda_op }}(
     }
     {%- endif %}
 
+    {%- if is_rocm and optimizer == "rowwise_adagrad" and not dense and not is_index_select
+                   and not is_gwd_kernel and not vbe and not ssd %}
+    {%- set hip_kernel = "hip_split_embedding{}_backward_codegen_{}_{}{}_kernel_warp_per_row_1".format(
+            ndesc,
+            optimizer,
+            wdesc,
+            vdesc,
+            )
+     %}
+    {%- endif %}
+
+    AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "{{ embedding_cuda_op }}_2", [&] {
     DISPATCH_EMB_GRAD_CACHE_TYPES(
         dev_weights.scalar_type(),
         aligned_grad_output.scalar_type(),
@@ -800,9 +896,11 @@ Tensor {{ embedding_cuda_op }}(
                 0,
                 total_hash_size_bits,
                 at::cuda::getCurrentCUDAStream()));
+
             auto temp_storage = at::empty(
                 {static_cast<int64_t>(temp_storage_bytes)},
                 indices.options().dtype(at::kByte));
+
             AT_CUDA_CHECK(radix_sort_pairs(
                 temp_storage.data_ptr(),
                 temp_storage_bytes,
@@ -853,7 +951,7 @@ Tensor {{ embedding_cuda_op }}(
                         MAKE_PTA_WITH_NAME(func_name1, grad_output_mean, grad_t, 2, 64),
                         MAKE_PTA_WITH_NAME(func_name1, grad_output_reshaped, grad_t, 2, 64),
                         MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, offsets, int64_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
                         {%- if vbe %}
                         MAKE_PTA_WITH_NAME(func_name1, vbe_row_output_offsets, int64_t, 1, 32),
                         MAKE_PTA_WITH_NAME(func_name1, vbe_b_t_map, int32_t, 1, 32),
@@ -955,6 +1053,7 @@ Tensor {{ embedding_cuda_op }}(
                             <emb_t,
                              grad_t,
                              cache_t,
+                             index_t,
                              {%- for ph_name in args.placeholder_tensor_names %}
                              {{ ph_name + "_ph_t" }},
                              {%- endfor %}
@@ -1004,7 +1103,7 @@ Tensor {{ embedding_cuda_op }}(
                             D,
                             {%- endif %}
                             MAKE_PTA_WITH_NAME(func_name3, hash_size_cumsum, int64_t, 1, 32),
-                            MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_run, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_run, index_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name3, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name3, long_run_ids, int32_t, 1, 32),
                             MAKE_PTA_WITH_NAME(func_name3, num_long_run_ids, int32_t, 1, 32),
@@ -1070,7 +1169,7 @@ Tensor {{ embedding_cuda_op }}(
                             desc_suffix,
                         )
                     %}
-                    const auto backward_warp_per_row_kernel =
+                    auto backward_warp_per_row_kernel =
                         {{ warp_kernel }}
                             <emb_t,
                              grad_t,
@@ -1085,6 +1184,7 @@ Tensor {{ embedding_cuda_op }}(
                     // Compute shared memory size for warp_per_row
                     int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
                     int32_t warp_per_row_smem_bytes = 0;
+
                     if (kUseVecBlocking) {
                       warp_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                           &num_warp_per_row_groups,
@@ -1098,16 +1198,52 @@ Tensor {{ embedding_cuda_op }}(
                           used_shared_bytes);
                     }
 
-                    const int32_t warp_per_row_grid_size = std::min(
+                    auto blockSize = dim3(kThreadGroupSize, num_warp_per_row_groups);
+
+                    int32_t warp_per_row_grid_size = std::min(
                         div_round_up(total_unique_indices, num_warp_per_row_groups),
                         get_max_thread_blocks_());
+
+#ifdef USE_ROCM
+                    {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and
+                        not dense and not is_gwd_kernel and not vbe and not ssd and not nobag %}
+                    const bool isSupportedWeightsType = dev_weights.scalar_type() == at::ScalarType::Half
+                                                      || dev_weights.scalar_type() == at::ScalarType::Float;
+                    if(isSupportedWeightsType && !mixed_D && rocm::is_supported_cdna())
+                    {
+                        constexpr int segments_per_workgroup = 4;
+                        {%- for kDimSize in [64, 128, 160, 192, 256] %}
+                        {%- for kWeightDecayMode in [0, 1, 2] %}
+                        if(max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
+                        {
+                            warp_per_row_grid_size = div_round_up(sorted_linear_indices_num_runs[0].item<int32_t>(), segments_per_workgroup);
+                            blockSize = dim3(256);
+                            warp_per_row_smem_bytes = 0;
+
+                            backward_warp_per_row_kernel =
+                                {{ hip_kernel }}
+                                    <emb_t,
+                                    grad_t,
+                                    cache_t,
+                                    kFixedMaxVecsPerThread,
+                                    kThreadGroupSize,
+                                    kUseVecBlocking,
+                                    {{ kDimSize }},
+                                    {{ kWeightDecayMode }}>;
+                        }
+                        {%- endfor %}
+                        {%- endfor %}
+                    }
+                    {%- endif %}
+#endif
+
 
 #ifdef FBGEMM_GPU_MEMCHECK
                     const auto func_name4 = "{{ warp_kernel }}";
 #endif
                     backward_warp_per_row_kernel
                         <<<warp_per_row_grid_size,
-                            dim3(kThreadGroupSize, num_warp_per_row_groups),
+                            blockSize,
                             warp_per_row_smem_bytes,
                             at::cuda::getCurrentCUDAStream()>>>(
                             grad_output_accessor,
@@ -1181,6 +1317,7 @@ Tensor {{ embedding_cuda_op }}(
 
             }); // DISPATCH_OPTIMAL_KERNEL
         }); // DISPATCH_EMB_GRAD_CACHE_TYPES
+        }); // AT_DISPATCH_INDEX_TYPES
 
     {%- if dense %}
     return grad_dev_weights;
@@ -1221,6 +1358,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           "    SymInt max_D, "
           {%- else %}
           "    SymInt D, "
+          {%- endif %}
+          {%- if not nobag and not is_index_select %}
+          "    bool mixed_D, "
           {%- endif %}
           "    Tensor hash_size_cumsum, "
           "    int total_hash_size_bits, "

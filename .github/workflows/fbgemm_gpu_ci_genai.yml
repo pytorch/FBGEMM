@@ -63,6 +63,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: genai
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
     continue-on-error: true
     strategy:
       # Don't fast-fail all the other builds if one of the them fails
@@ -72,7 +73,7 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1" ]
+        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -124,7 +125,7 @@ jobs:
 
     - name: Upload Built Wheel as GHA Artifact
       # Cannot upgrade to actions/upload-artifact@v4 yet because GLIBC on the instance is too old
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: fbgemm_gpu_nightly_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
         path: fbgemm_gpu/dist/*.whl
@@ -143,6 +144,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: genai
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -154,7 +156,7 @@ jobs:
           # { arch: x86, instance: "linux.gcp.a100" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1" ]
+        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         # Specify exactly ONE CUDA version for artifact publish
         cuda-version-publish: [ "12.4.1" ]
         compiler: [ "gcc", "clang" ]
@@ -163,13 +165,13 @@ jobs:
     steps:
     # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
     - name: Checkout the Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: true
 
     - name: Download Wheel Artifact from GHA
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: fbgemm_gpu_nightly_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
 
@@ -190,8 +192,11 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
     - name: Install C/C++ Compilers for Updated LIBGCC
-      # Install clang libraries to enable building and install triton
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV clang
+      # NOTE: gcc is required for torch dynamo to work properly, as some of
+      # the compilation flags used by torch dynamo are gcc-specific:
+      #
+      #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
 
     - name: Install CUDA
       run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}

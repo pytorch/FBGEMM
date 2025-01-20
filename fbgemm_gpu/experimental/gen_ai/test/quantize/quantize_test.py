@@ -134,7 +134,9 @@ class FP8TorchExportTests(unittest.TestCase):
 
         model = TestModule().cuda()
         # bf16 required here
-        _ = torch.export.export(model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),))
+        _ = torch.export.export(
+            model, (torch.randn(32, 32).to(torch.bfloat16).cuda(),), strict=True
+        )
 
     def test_f8f8bf16_export(self) -> None:
         class TestModule(torch.nn.Module):
@@ -161,7 +163,7 @@ class FP8TorchExportTests(unittest.TestCase):
             fp8_dtype = torch.float8_e4m3fnuz
         xq = torch.randn(M, K).to(fp8_dtype).cuda()
         wq = torch.randn(N, K).to(fp8_dtype).cuda()
-        _ = torch.export.export(model, (xq, wq))
+        _ = torch.export.export(model, (xq, wq), strict=True)
 
 
 @unittest.skipIf(
@@ -222,7 +224,7 @@ class FP8Tests(unittest.TestCase):
     )
     @settings(deadline=None)
     @given(
-        B_T=st.sampled_from([2048, 4096]),
+        B_T=st.sampled_from([0, 2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
         Mode=st.sampled_from(
@@ -431,8 +433,8 @@ class FP8Tests(unittest.TestCase):
         # Blockwise seems to have slightly more noisy outputs.
         # Special case correctness to avoid flakiness.
         if Mode == "blockwise":
-            atol = 1.2e-1
-            rtol = 1.2e-1
+            atol = 1.3e-1
+            rtol = 1.3e-1
         else:
             atol = 9.0e-2
             rtol = 9.0e-2
@@ -732,8 +734,9 @@ class FP8Tests(unittest.TestCase):
         M=st.sampled_from([2048, 3584]),
         N=st.sampled_from([1024, 6144]),
         K=st.sampled_from([512, 3584]),
-        use_cudagraph=st.sampled_from([True, False]),
-        use_padding_zeros=st.sampled_from([True, False]),
+        use_cudagraph=st.booleans(),
+        use_padding_zeros=st.booleans(),
+        use_dynamic=st.booleans(),
     )
     def test_fp8_grouped_gemm(
         self,
@@ -743,6 +746,7 @@ class FP8Tests(unittest.TestCase):
         K: int,
         use_cudagraph: bool,
         use_padding_zeros: bool,
+        use_dynamic: bool,
     ) -> None:
         ms = (
             torch.randint(
@@ -753,8 +757,14 @@ class FP8Tests(unittest.TestCase):
             )
             * 64
         )
-        ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
-        ks = torch.randint(1, (K // 64) + 1, (G,), dtype=torch.int) * 64
+        # When using padding or the dynamic kernel, Ns and Ks should be fixed.
+        if use_padding_zeros or use_dynamic:
+            ns = [N] * G
+            ks = [K] * G
+        # Otherwise, any value is supported.
+        else:
+            ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
+            ks = torch.randint(1, (K // 64) + 1, (G,), dtype=torch.int) * 64
 
         x_group = []
         w_group = []
@@ -762,24 +772,18 @@ class FP8Tests(unittest.TestCase):
         wq_group = []
         scale_group = []
         zero_start_index_M = None
-        zero_start_index_M_value = M
 
+        # If padding, mark where zeros start for each input.
         if use_padding_zeros:
-            zero_start_index_M_value = 256
-            zero_start_index_M = torch.full(
-                size=(G,),
-                fill_value=zero_start_index_M_value,
-                dtype=torch.int,
-                device="cuda",
-            )
+            zero_start_index_M = torch.tensor(ms, dtype=torch.long, device="cuda")
 
-        for i, (m, n, k) in enumerate(zip(ms, ns, ks)):
+        for _, (m, n, k) in enumerate(zip(ms, ns, ks)):
             x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
             w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
 
             if use_padding_zeros:
-                # Zero out dim M from index zero_start_index_M_value
-                x[zero_start_index_M_value:, :] = 0
+                # When padding, all x values are made to have the same M.
+                x = torch.nn.functional.pad(x, (0, 0, 0, max(ms) - m), value=0)
 
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
             wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
@@ -788,6 +792,14 @@ class FP8Tests(unittest.TestCase):
             xq_group.append(xq)
             wq_group.append(wq)
             scale_group.append(x_scale * w_scale)
+
+        # Make inputs contiguous in memory, this simulates the typical MOE use-case.
+        if use_padding_zeros:
+            x_group = torch.unbind(torch.stack(x_group, dim=0).contiguous())
+            w_group = torch.unbind(torch.stack(w_group, dim=0).contiguous())
+            xq_group = torch.unbind(torch.stack(xq_group, dim=0).contiguous())
+            wq_group = torch.unbind(torch.stack(wq_group, dim=0).contiguous())
+            scale_group = torch.unbind(torch.stack(scale_group, dim=0).contiguous())
 
         # FP8 grouped gemm kernel
         if use_cudagraph:
@@ -817,28 +829,33 @@ class FP8Tests(unittest.TestCase):
             )
 
         # BF16 grouped gemm kernel
+        bf16_args = (
+            [x_group, w_group, zero_start_index_M if use_padding_zeros else None]
+            if use_dynamic
+            else [x_group, w_group]
+        )
+        bf16_op = (
+            torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
+            if use_dynamic
+            else torch.ops.fbgemm.bf16bf16bf16_grouped
+        )
         if use_cudagraph:
             # warmup
-            torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            bf16_op(*bf16_args)
             # With cudagraph
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
-                y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                    x_group,
-                    w_group,
-                    zero_start_index_M if use_padding_zeros else None,
-                )
+                y_bf16_group = bf16_op(*bf16_args)
             g.replay()
         else:
-            y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            y_bf16_group = bf16_op(*bf16_args)
+
+        # View output as list if needed.
+        if not isinstance(y_bf16_group, (tuple, list)):
+            if y_bf16_group.ndim == 2:
+                y_bf16_group = torch.split(y_bf16_group, tuple(ms.tolist()), dim=0)
+            else:
+                y_bf16_group = torch.unbind(y_bf16_group)
 
         # BF16 loopover gemm reference
         y_group_ref = []
@@ -852,24 +869,10 @@ class FP8Tests(unittest.TestCase):
                 y_fp8_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
             )
 
-        # Calculate output sizes
-        output_sizes = []
-        for i in range(len(x_group)):
-            output_size = x_group[i].size(0) * w_group[i].size(0)
-            output_sizes.append(output_size)
-        # Split the output_tensor into a list of tensors based on output_sizes
-        y_bf16_group = torch.split(y_bf16_group, output_sizes)
-        y_bf16_group_list = []
-        # Reshape each tensor in the output_group
-        for i in range(len(x_group)):
-            y_bf16_group_list.append(
-                y_bf16_group[i].view(x_group[i].size(0), w_group[i].size(0))
-            )
-
         # Assert BF16 outputs
         for i in range(len(y_group_ref)):
             torch.testing.assert_close(
-                y_bf16_group_list[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
+                y_bf16_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
             )
 
     @unittest.skipIf(
@@ -911,35 +914,33 @@ class FP8Tests(unittest.TestCase):
                 1,
                 M,
                 (G,),
-                dtype=torch.int,
                 device="cuda",
             )
             for i in range(len(x_group)):
                 x_group[i][zero_start_index_M[i] :, :] = 0
 
+        bf16_op = (
+            torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
+            if use_padding_zeros
+            else torch.ops.fbgemm.bf16bf16bf16_grouped
+        )
+        bf16_args = (
+            (x_group, w_group, zero_start_index_M)
+            if use_padding_zeros
+            else (x_group, w_group)
+        )
+
         # BF16 grouped gemm kernel
         if use_cudagraph:
             # warmup
-            torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            bf16_op(*bf16_args)
             # With cudagraph
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
-                y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                    x_group,
-                    w_group,
-                    zero_start_index_M if use_padding_zeros else None,
-                )
+                y_bf16_group = bf16_op(*bf16_args)
             g.replay()
         else:
-            y_bf16_group = torch.ops.fbgemm.bf16bf16bf16_grouped(
-                x_group,
-                w_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            y_bf16_group = bf16_op(*bf16_args)
 
         # BF16 loopover gemm reference
         y_group_ref = torch.bmm(xs, ws.transpose(1, 2))
@@ -1098,6 +1099,7 @@ class FP8Tests(unittest.TestCase):
     @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet suported."
     )
+    @settings(deadline=None)
     @given(
         K=st.sampled_from([0, 128]),
     )

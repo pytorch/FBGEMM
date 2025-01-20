@@ -684,18 +684,24 @@ at::Tensor get_fp8_per_tensor_scale(
     std::optional<at::Tensor> scale_ub) // scale upper bound
 {
   CUDA_DEVICE_GUARD(input);
-  TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
   auto _st = input.scalar_type();
   TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
 
+  int out_size = input.numel() == 0 ? 0 : 1;
+
   at::Tensor scale = torch::empty(
-      {1},
+      {out_size},
       torch::dtype(torch::kFloat32)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+
+  // Handle case where input is empty.
+  if (input.numel() == 0) {
+    return scale;
+  }
 
   const auto stream = at::cuda::getCurrentCUDAStream();
   invokeComputeScale(
@@ -720,7 +726,6 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
     std::optional<at::Tensor> bs, // batch size
     bool stochastic_rounding) {
   CUDA_DEVICE_GUARD(input);
-  TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
@@ -738,6 +743,11 @@ at::Tensor quantize_fp8_per_tensor_fixed_scale(
       torch::dtype(torch_fp8_e4m3)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+
+  // When input is empty, return empty scale as well.
+  if (input.numel() == 0) {
+    return quantized_input;
+  }
 
   const auto stream = at::cuda::getCurrentCUDAStream();
   invokeQuantizeMatrix(
@@ -761,7 +771,6 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
     bool stochastic_rounding) // stochastic rounding
 {
   CUDA_DEVICE_GUARD(input);
-  TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
@@ -789,6 +798,10 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
       torch::dtype(torch::kFloat32)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+  // When input is empty, return empty tensors.
+  if (input.numel() == 0) {
+    return std::vector<at::Tensor>{quantized_input, scales};
+  }
   auto* const quantized_input_ptr =
       reinterpret_cast<__nv_fp8_e4m3*>(quantized_input.data_ptr());
   const auto stream = at::cuda::getCurrentCUDAStream();
@@ -1177,7 +1190,6 @@ std::vector<at::Tensor> quantize_fp8_per_col(
     std::optional<at::Tensor> scale_ub) // scale upperbound)
 {
   CUDA_DEVICE_GUARD(input);
-  TORCH_CHECK(input.numel() != 0, "input should not be empty tensor");
   TORCH_CHECK(
       input.dim() >= 2,
       "Invalid dim. The dim of input should be greater than or equal to 2");
@@ -1201,6 +1213,10 @@ std::vector<at::Tensor> quantize_fp8_per_col(
       torch::dtype(torch::kFloat32)
           .device(torch::kCUDA, at::cuda::current_device())
           .requires_grad(false));
+  // When input is empty, return empty tensors.
+  if (input.numel() == 0) {
+    return std::vector<at::Tensor>{quantized_input, scales};
+  }
   auto* const quantized_input_ptr =
       reinterpret_cast<__nv_fp8_e4m3*>(quantized_input.data_ptr());
   const auto stream = at::cuda::getCurrentCUDAStream();

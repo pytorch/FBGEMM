@@ -33,20 +33,13 @@ from fbgemm_gpu.tbe.utils import (
 from hypothesis import given, settings, Verbosity
 
 from .. import common  # noqa E402
-from ..common import open_source
-
-
-if open_source:
-    # pyre-ignore[21]
-    from test_utils import gpu_unavailable, running_on_github
-else:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_github
+from ..common import gpu_unavailable, running_in_oss
 
 
 MAX_EXAMPLES = 40
 
 
-@unittest.skipIf(*running_on_github)
+@unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 @unittest.skipIf(True, "Test is broken.")
 class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
@@ -157,8 +150,6 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_uniform_init_upper=0.1,
             pooling_mode=PoolingMode.SUM,
         ).cuda()
-        # # NOTE: test TorchScript-compatible!
-        # emb = torch.jit.script(emb)
 
         bs = [
             torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
@@ -300,8 +291,6 @@ class SSDIntNBitTableBatchedEmbeddingsTest(unittest.TestCase):
             ssd_shards=2,
             pooling_mode=PoolingMode.SUM,
         ).cuda()
-        # # NOTE: test TorchScript-compatible!
-        # emb = torch.jit.script(emb)
 
         bs = [
             torch.nn.EmbeddingBag(E, D, mode="sum", sparse=True).cuda()
