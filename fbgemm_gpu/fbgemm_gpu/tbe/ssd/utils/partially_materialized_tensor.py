@@ -48,7 +48,7 @@ class PartiallyMaterializedTensor:
             wrapped: torch.classes.fbgemm.KVTensorWrapper
         """
         self._wrapped = wrapped
-        self._requires_grad = True
+        self._requires_grad = False
 
     @property
     def wrapped(self):
@@ -86,6 +86,7 @@ class PartiallyMaterializedTensor:
 
     @implements(torch.detach)
     def detach(self) -> PartiallyMaterializedTensor:
+        self._requires_grad = False
         return self
 
     def to(self, *args, **kwargs) -> PartiallyMaterializedTensor:

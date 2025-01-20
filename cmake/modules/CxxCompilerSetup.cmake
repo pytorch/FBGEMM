@@ -43,14 +43,6 @@ endif()
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-if(DEFINED GLIBCXX_USE_CXX11_ABI)
-  if(${GLIBCXX_USE_CXX11_ABI} EQUAL 1)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=1")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
-  endif()
-endif()
-
 BLOCK_PRINT(
   "Default C compiler flags"
   "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"

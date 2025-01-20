@@ -60,7 +60,7 @@ def invoke(
     {%- if "prev_iter_dev" in args.split_function_arg_names %}
     prev_iter: Momentum,
     {%- endif %}
-    {%- if "row_counter_dev" in args.split_function_arg_names %}
+    {%- if "row_counter_dev" in args.split_function_arg_names and "row_counter" not in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
     row_counter: Momentum,
     {%- endif %}
     {%- if "iter" in args.split_function_arg_names %}
@@ -81,6 +81,9 @@ def invoke(
     prev_iter_dev: Optional[torch.Tensor] = None,
     {%- endif %}
     gwd_lower_bound: float = 0.0,
+    {%- if "row_counter" in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
+    row_counter: Optional[Momentum] = None,
+    {%- endif %}
 ) -> torch.Tensor:
     {%- if is_experimental_optimizer %}
     # By design, the warning only shows up once
@@ -94,7 +97,20 @@ def invoke(
     {%- endif %}
 
     vbe_metadata = common_args.vbe_metadata
-
+    {%- if "row_counter" in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
+    if not optimizer_args.use_rowwise_bias_correction or row_counter is None:
+        row_counter_dev = None
+        row_counter_uvm = None
+        row_counter_offsets = None
+        row_counter_placements = None
+    elif optimizer_args.use_rowwise_bias_correction and row_counter is None:
+        assert False, "use_rowwise_bias_correction is set but row_counter cannot be None"
+    else:
+        row_counter_dev = row_counter.dev
+        row_counter_uvm = row_counter.uvm
+        row_counter_offsets = row_counter.offsets
+        row_counter_placements = row_counter.placements    
+    {%- endif %}
     {%- if has_cpu_support and not ssd %}
     if (common_args.host_weights.numel() > 0):
         T = common_args.D_offsets.numel() - 1
@@ -209,7 +225,7 @@ def invoke(
             prev_iter_placements=prev_iter.placements,
             {%- endif %}
             # row_counter
-            {%- if "row_counter_dev" in args.split_function_arg_names %}
+            {%- if "row_counter_dev" in args.split_function_arg_names and "row_counter" not in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
             row_counter_host=row_counter.host,
             row_counter_offsets=row_counter.offsets,
             row_counter_placements=row_counter.placements,
@@ -262,7 +278,6 @@ def invoke(
     ssd_tensors.append(common_args.ssd_tensors["{{ tensor }}"])
     {%- endfor %}
     {%- endif %}
-
 
     return torch.ops.fbgemm.{{ mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
         # common_args
@@ -387,11 +402,20 @@ def invoke(
         prev_iter_dev=prev_iter_dev,
         {%- endif %}
         # row_counter
-        {%- if "row_counter_dev" in args.split_function_arg_names %}
+        {%- if "row_counter_dev" in args.split_function_arg_names and "row_counter" not in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
         row_counter_dev=row_counter.dev,
         row_counter_uvm=row_counter.uvm,
         row_counter_offsets=row_counter.offsets,
         row_counter_placements=row_counter.placements,
+        {%- endif %}
+        {%- if "row_counter" in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
+        row_counter_dev=row_counter_dev,
+        row_counter_uvm=row_counter_uvm,
+        row_counter_offsets=row_counter_offsets,
+        row_counter_placements=row_counter_placements,
+        {%- endif %}
+        {%- if "use_rowwise_bias_correction" in args_pt2.unified_pt2.split_function_arg_names %}
+        use_rowwise_bias_correction=optimizer_args.use_rowwise_bias_correction,
         {%- endif %}
         # iter
         iter=iter,
@@ -409,5 +433,6 @@ def invoke(
         use_homogeneous_placements=common_args.use_homogeneous_placements,
         apply_global_weight_decay=apply_global_weight_decay,
         gwd_lower_bound=gwd_lower_bound,
+        mixed_D=common_args.mixed_D,
     )
     {%- endif %}

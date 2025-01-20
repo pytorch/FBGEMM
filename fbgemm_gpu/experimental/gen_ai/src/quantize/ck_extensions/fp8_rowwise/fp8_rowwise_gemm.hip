@@ -38,6 +38,24 @@ struct IntTupleHash {
 // For certain high priority shapes, we directly map to the best kernel rather
 // than use heuristics.
 static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTupleHash> rowwise_lookup_dispatch = {
+    // Support for decode for [1024, 5120]
+    {{16, 1024, 5120},
+     fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2_8},
+    {{32, 1024, 5120},
+     fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2_8},
+    {{64, 1024, 5120},
+     fp8_rowwise_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+    {{128, 1024, 5120},
+     fp8_rowwise_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+    // Support for decode for [5120, 1024]
+    {{16, 5120, 1024},
+     fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+    {{32, 5120, 1024},
+     fp8_rowwise_64x16x16x128_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2},
+    {{64, 5120, 1024},
+     fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2},
+    {{128, 5120, 1024},
+     fp8_rowwise_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2},
     // LLama 70B Decode shapes.
     // Support for decode across batch sizes for [1280, 8192]
     {{16, 1280, 8192},
@@ -67,11 +85,11 @@ static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTup
     {{128, 7168, 8192},
      fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
     {{1024, 7168, 8192},
-     fp8_rowwise_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v5},
+     fp8_rowwise_256x256x96x128_32x32_2x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
     {{2048, 7168, 8192},
-     fp8_rowwise_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+     fp8_rowwise_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
     {{4096, 7168, 8192},
-     fp8_rowwise_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+     fp8_rowwise_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
     {{8192, 7168, 8192},
      fp8_rowwise_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
     // Support for decode across batch sizes for [8192, 3584]
@@ -84,7 +102,7 @@ static const std::unordered_map<std::tuple<int, int, int>, RowwiseKernel, IntTup
     {{128, 8192, 3584},
      fp8_rowwise_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
     {{1024, 8192, 3584},
-     fp8_rowwise_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+     fp8_rowwise_256x256x128x128_32x32_4x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
     {{2048, 8192, 3584},
      fp8_rowwise_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
     {{4096, 8192, 3584},
@@ -296,6 +314,14 @@ at::Tensor f8f8bf16_rowwise_wrapper(
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
   int K = WQ.size(1);
+  // Compute target output sizes.
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
+  // Handle case where an input dimension is zero.
+  if (M == 0 || N == 0 || K == 0) {
+    // Return a tensor of zeros to handle case where K is 0.
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
 
   // Prepare output tensor if needed.
   at::Tensor Y;
@@ -306,10 +332,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
     TORCH_CHECK(Y_M == M && Y.sizes().vec().back() == N);
     TORCH_CHECK(Y.dtype() == at::kBFloat16);
   } else {
-    // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
-    // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
-    auto out_sizes = XQ.sizes().vec();
-    out_sizes.back() = N;
     Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
   }
 

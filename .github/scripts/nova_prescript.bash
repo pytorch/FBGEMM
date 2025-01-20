@@ -42,13 +42,6 @@ runtime=$((end_time-start_time))
 start_time=${end_time}
 echo "[NOVA] Time taken to display GPU Info: ${runtime} seconds"
 
-# Install C/C++ Compilers
-install_cxx_compiler "${BUILD_ENV_NAME}"
-end_time=$(date +%s)
-runtime=$((end_time-start_time))
-start_time=${end_time}
-echo "[NOVA] Time taken to install C/C++ Compilers: ${runtime} seconds"
-
 # Install Build Tools
 install_build_tools "${BUILD_ENV_NAME}"
 end_time=$(date +%s)
@@ -64,17 +57,24 @@ start_time=${end_time}
 echo "[NOVA] Time taken to collect PyTorch environment information: ${runtime} seconds"
 
 if [[ $CU_VERSION = cu* ]]; then
-  # Extract the CUDA version number from CU_VERSION
-  cuda_version=$(echo "[NOVA] ${CU_VERSION}" | cut -c 3-)
-  install_cudnn "${BUILD_ENV_NAME}" "$(pwd)/build_only/cudnn" "${cuda_version}"
-  end_time=$(date +%s)
-  runtime=$((end_time-start_time))
-  start_time=${end_time}
-  echo "[NOVA] Time taken to install cudnn: ${runtime} seconds"
+  # shellcheck disable=SC2155
+  env_prefix=$(env_name_or_prefix "${BUILD_ENV_NAME}")
+
+  echo "[INSTALL] Set environment variables LD_LIBRARY_PATH ..."
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} \
+    LD_LIBRARY_PATH="/usr/local/lib:${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}" \
+    CUDNN_INCLUDE_DIR="${CUDA_HOME}/include" \
+    CUDNN_LIBRARY="${CUDA_HOME}/lib64"
+
+  echo "[NOVA] -------- Finding libcuda.so -----------"
+  LIBCUDA_PATH=$(find /usr/local -type f -name libcuda.so)
+  print_exec ln "${LIBCUDA_PATH}" -s "/usr/local/lib/libcuda.so.1"
 
   echo "[NOVA] -------- Finding NVML_LIB_PATH -----------"
   if [[ ${NVML_LIB_PATH} == "" ]]; then
     NVML_LIB_PATH=$(find "${CUDA_HOME}" -name libnvidia-ml.so) &&
+    ln "${NVML_LIB_PATH}" -s "/usr/local/lib/libnvidia-ml.so.1" &&
     export NVML_LIB_PATH &&
     echo "[NOVA] looking in ${CUDA_HOME}" ||
     echo "[NOVA] libnvidia-ml.so not found in ${CUDA_HOME}";

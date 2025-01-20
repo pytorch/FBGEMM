@@ -77,6 +77,7 @@ if open_source:
         benchmark_torch_function,
         benchmark_vbe,
         fill_random_scale_bias,
+        warmup,
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
@@ -87,10 +88,26 @@ else:
         benchmark_torch_function,
         benchmark_vbe,
         fill_random_scale_bias,
+        warmup,
     )
 
 
 logging.basicConfig(level=logging.DEBUG)
+
+
+def kineto_trace_profiler(p: profile, trace_info: tuple[str, str, str, str]) -> float:
+    phase, trace_url, tbe_type, kern_name = trace_info
+    p.export_chrome_trace(
+        trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
+    )
+    kernel_time = 0
+    for event in p.key_averages():
+        # Sum the total time of forward kernel runs
+        if kern_name in event.key:
+            kernel_time += event.device_time
+    assert kernel_time > 0
+    print(f"Total CUDA time: {kernel_time:.2f} ")
+    return kernel_time
 
 
 @click.group()
@@ -323,7 +340,6 @@ def device(  # noqa C901
     logging.info(
         f"Accessed weights per batch: {B * sum(Ds) * L * param_size_multiplier / 1.0e9: .2f} GB"
     )
-
     requests = generate_requests(
         iters,
         B,
@@ -1135,6 +1151,7 @@ def nbit_cpu(  # noqa C901
 @click.option("--iters", default=100)
 @click.option("--runs-of-iters", default=5)
 @click.option("--warmup-runs", default=2)
+@click.option("--warmup-ms", type=int, default=None)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--report-aibench", is_flag=True)
 @click.option("--run-reference", is_flag=True, default=False)
@@ -1147,6 +1164,17 @@ def nbit_cpu(  # noqa C901
     "--trace-url",
     type=str,
     default="{tbe_type}_tbe_{phase}_trace_{ospid}.json",
+)
+@click.option(
+    "--warmup-runs",
+    default=2,
+    help="Number of warmup runs. Ignored if --warmup-ms is set.",
+)
+@click.option(
+    "--warmup-ms",
+    type=int,
+    default=None,
+    help="Warmup duration in milliseconds. Disables the --run-nums option.",
 )
 def nbit_device(  # noqa C901
     alpha: float,
@@ -1168,7 +1196,6 @@ def nbit_device(  # noqa C901
     check_median: bool,
     iters: int,
     runs_of_iters: int,
-    warmup_runs: int,
     output_dtype: SparseType,
     report_aibench: bool,
     run_reference: bool,
@@ -1178,6 +1205,8 @@ def nbit_device(  # noqa C901
     fp8_exponent_bias: Optional[int],
     export_trace: bool,
     trace_url: str,
+    warmup_runs: int,
+    warmup_ms: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1295,6 +1324,7 @@ def nbit_device(  # noqa C901
                 per_sample_weights,
             ),
             check_median=check_median,
+            warmup_ms=warmup_ms,
         )
 
         # free up GPU memory
@@ -1324,18 +1354,6 @@ def nbit_device(  # noqa C901
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
 
-    # Get trace for one run of iter
-    tbe_type: str = "split"
-
-    def _kineto_trace_handler(p: profile, phase: str) -> None:
-        p.export_chrome_trace(
-            trace_url.format(tbe_type=tbe_type, phase=phase, ospid=os.getpid())
-        )
-
-    # pyre-ignore[3]
-    def context_factory(on_trace_ready: Callable[[profile], None]):
-        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
-
     requests = generate_requests(
         iters,
         B,
@@ -1353,7 +1371,35 @@ def nbit_device(  # noqa C901
         for req in requests
     ]
 
-    with context_factory(lambda p: _kineto_trace_handler(p, "fwd")):
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    # Get trace for one run of iter
+    tbe_type: str = "split"
+    # input of the kineto_trace_profiler
+    trace_info = ("fwd", trace_url, tbe_type, "embedding_codegen_forward")
+    time_dict = {"kernel_time": None}  # dict to hold the kernel time
+
+    # warm-up right before profiling
+    # warmup_ms prioritized over warmup_runs
+    if warmup_ms or warmup_runs:
+        warmup(
+            requests[0],
+            # pyre-ignore[6]
+            warmup_ms,
+            warmup_runs,
+            lambda indices, offsets, per_sample_weights: emb.forward(
+                indices.int(),
+                offsets.int(),
+                per_sample_weights,
+            ),
+        )
+
+    with context_factory(
+        # pyre-ignore[6]
+        lambda p: time_dict.update(kernel_time=kineto_trace_profiler(p, trace_info))
+    ):
         # forward
         time_per_iter = benchmark_requests(
             requests,
@@ -1364,6 +1410,21 @@ def nbit_device(  # noqa C901
             ),
             check_median=check_median,
         )
+
+    if export_trace:
+        kernel_time = time_dict["kernel_time"]
+        # pyre-ignore[58]
+        bandwidth = read_write_bytes / kernel_time / 1.0e3
+
+        logging.info(
+            f"kineto profiled stats: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+            f"Time: {kernel_time:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        )
+
     # free up GPU memory
     del requests
 
@@ -1465,12 +1526,28 @@ def nbit_device(  # noqa C901
 @click.option("--check-median", is_flag=True, default=True)
 @click.option("--iters", default=100)
 @click.option("--runs-of-iters", default=5)
-@click.option("--warmup-runs", default=2)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP16)
 @click.option("--report-aibench", is_flag=True)
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 @click.option("--use-cpu", is_flag=True, default=False)
+@click.option("--export-trace", is_flag=True, default=False)
+@click.option(
+    "--trace-url",
+    type=str,
+    default="{tbe_type}_tbe_spec_{phase}_trace_{ospid}.json",
+)
+@click.option(
+    "--warmup-runs",
+    default=2,
+    help="Number of warmup runs. Ignored if --warmup-ms is set.",
+)
+@click.option(
+    "--warmup-ms",
+    type=int,
+    default=None,
+    help="Warmup duration in milliseconds. Disables the --run-nums option.",
+)
 def nbit_device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -1490,12 +1567,15 @@ def nbit_device_with_spec(  # noqa C901
     check_median: bool,
     iters: int,
     runs_of_iters: int,
-    warmup_runs: int,
     output_dtype: SparseType,
     report_aibench: bool,
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
     use_cpu: bool,
+    export_trace: bool,
+    trace_url: str,
+    warmup_runs: int,
+    warmup_ms: Optional[int],
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1607,6 +1687,7 @@ def nbit_device_with_spec(  # noqa C901
     )
 
     times = []
+    kineto_request = []
     for i in range(runs_of_iters):
         # Generate a request for each table then combine
         all_requests = {
@@ -1683,7 +1764,12 @@ def nbit_device_with_spec(  # noqa C901
                     per_sample_weights,
                 ),
                 check_median=check_median,
+                warmup_ms=warmup_ms,
             )
+
+        # copy the request of last iteration for kineto profile benchmark
+        if i == runs_of_iters - 1:
+            kineto_request = requests
 
         # free up memory
         del requests
@@ -1711,6 +1797,63 @@ def nbit_device_with_spec(  # noqa C901
         f"Time: {time_per_iter * 1.0e6:.0f}us, "
         f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
     )
+
+    # pyre-ignore[3]
+    def context_factory(on_trace_ready: Callable[[profile], None]):
+        return profile(on_trace_ready=on_trace_ready) if export_trace else nullcontext()
+
+    if not use_cpu:
+        # profile with kineto
+        tbe_type: str = "split"
+        time_dict = {"kernel_time": None}  # Shared variable to hold the kernel time
+        trace_info = ("fwd", trace_url, tbe_type, "embedding_codegen_forward")
+
+        # warm-up right before profiling
+        # warmup_ms prioritized over warmup_runs
+        if warmup_ms or warmup_runs:
+            warmup(
+                kineto_request[0],
+                # pyre-ignore[6]
+                warmup_ms,
+                warmup_runs,
+                lambda indices, offsets, per_sample_weights: emb.forward(
+                    indices.int(),
+                    offsets.int(),
+                    per_sample_weights,
+                ),
+            )
+
+        with context_factory(
+            # pyre-ignore[6]
+            lambda p: time_dict.update(kernel_time=kineto_trace_profiler(p, trace_info))
+        ):
+            # forward
+            time_per_iter = benchmark_requests(
+                kineto_request,
+                lambda indices, offsets, per_sample_weights: emb.forward(
+                    indices.int(),
+                    offsets.int(),
+                    per_sample_weights,
+                ),
+                check_median=check_median,
+            )
+
+        if export_trace:
+            kernel_time = time_dict["kernel_time"]
+            # pyre-ignore[6]
+            bandwidth = read_write_bytes / kernel_time / 1.0e3
+
+            logging.info(
+                f"kineto profiled stats: "
+                f"{weights_precision} Forward, B: {B}, "
+                f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+                f"BW: {bandwidth: .2f} GB/s, "  # noqa: B950
+                f"Time: {kernel_time:.0f}us, "
+                f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+            )
+
+    # free up memory
+    del kineto_request
 
     if report_aibench and haveAIBench:
         print(

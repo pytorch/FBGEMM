@@ -141,17 +141,22 @@ def _kernel_quantize_mx4(
     EXPONENT_OVERFLOW_THRESHOLD: tl.constexpr = (1 << EBITS) - 1  # type: ignore[Incompatible variable type]
     IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
     RAND_MASK: tl.constexpr = (1 << (FP32_EXP_OFFSET - MBITS)) - 1  # type: ignore[Incompatible variable type]
-    # Boundaries for writing to output tensor.
-    PACKED_GROUP_SIZE: tl.constexpr = GROUP_SIZE // 2 + 1  # type: ignore[Incompatible variable type]
-    NUM_GROUPS = M * GROUPS_PER_ROW
-    OUTPUT_CHUNK_SIZE = (GROUPS_PER_THREAD * GROUP_SIZE) // 2 + GROUPS_PER_THREAD
-    OUTPUT_SIZE = (GROUP_SIZE * NUM_GROUPS) // 2 + NUM_GROUPS
 
     # Get the current thread number.
     pid = tl.program_id(0)
     # For very large inputs, we need to use int64 indexes. This is slower but necessary.
     if USE_INT64:
         pid = pid.to(tl.int64)
+        M = tl.cast(M, tl.int64)
+        K = tl.cast(K, tl.int64)
+        GROUPS_PER_THREAD = tl.cast(GROUPS_PER_THREAD, tl.int64)
+
+    # Boundaries for writing to output tensor.
+    PACKED_GROUP_SIZE: tl.constexpr = GROUP_SIZE // 2 + 1  # type: ignore[Incompatible variable type]
+    NUM_GROUPS = M * GROUPS_PER_ROW
+    OUTPUT_CHUNK_SIZE = (GROUPS_PER_THREAD * GROUP_SIZE) // 2 + GROUPS_PER_THREAD
+    OUTPUT_SIZE = (GROUP_SIZE * NUM_GROUPS) // 2 + NUM_GROUPS
+
     # Find starting offsets for this thread. These are calculated before adjusting for padding.
     input_start = pid * (GROUPS_PER_THREAD * GROUP_SIZE)
     output_start = pid * OUTPUT_CHUNK_SIZE
@@ -183,6 +188,7 @@ def _kernel_quantize_mx4(
         # When theres no padding we can simplify indexing.
         else:
             padded_input_offset = input_offset
+
         # Load a block of values.
         a = tl.load(
             A + padded_input_offset,
@@ -434,7 +440,8 @@ def triton_quantize_mx4(
         rand_bits = None
 
     # Check if we need to use int64 for indexing.
-    use_int64 = a.numel() > 2**31 - 1
+    use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
+
     # Invoke triton quantization kernel over rows.
     grid = (num_threads,)
     _kernel_quantize_mx4[grid](
@@ -499,16 +506,20 @@ def _kernel_dequantize_mx4(
     MX4_BIT_MASK: tl.constexpr = 0xF  # type: ignore[Incompatible variable type]
     FP32_EXP_BIAS: tl.constexpr = 127  # type: ignore[Incompatible variable type]
     PACKED_GROUP_SIZE: tl.constexpr = GROUP_SIZE // 2 + 1  # type: ignore[Incompatible variable type]
-    # Boundaries for reading input and writing to output tensor.
-    INPUT_CHUNK_SIZE = GROUPS_PER_THREAD * PACKED_GROUP_SIZE
-    OUTPUT_CHUNK_SIZE = GROUPS_PER_THREAD * GROUP_SIZE
-    OUTPUT_SIZE = (M // PACKED_GROUP_SIZE) * GROUP_SIZE
 
     # Get the current thread number.
     pid = tl.program_id(0)
     # For very large tensors, use int64 for indexing. This is slower but necessary.
     if USE_INT64:
         pid = pid.to(tl.int64)
+        M = tl.cast(M, tl.int64)
+        GROUPS_PER_THREAD = tl.cast(GROUPS_PER_THREAD, tl.int64)
+
+    # Boundaries for reading input and writing to output tensor.
+    INPUT_CHUNK_SIZE = GROUPS_PER_THREAD * PACKED_GROUP_SIZE
+    OUTPUT_CHUNK_SIZE = GROUPS_PER_THREAD * GROUP_SIZE
+    OUTPUT_SIZE = (M // PACKED_GROUP_SIZE) * GROUP_SIZE
+
     # Find the starting offsets for this thread.
     input_start = pid * (GROUPS_PER_THREAD * PACKED_GROUP_SIZE)
     exp_start = input_start + GROUP_SIZE // 2
@@ -615,7 +626,7 @@ def triton_dequantize_mx4(
     output_elems = num_groups * group_size
     out = torch.empty([output_elems], device=a.device, dtype=torch.float)
     # Check if we need to use int64 for indexing.
-    use_int64 = a.numel() > 2**31 - 1
+    use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
     # Invoke triton dequantization kernel over rows.
     grid = (num_threads,)
     _kernel_dequantize_mx4[grid](

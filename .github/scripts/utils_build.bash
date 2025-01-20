@@ -14,7 +14,7 @@
 ################################################################################
 
 setup_bazel () {
-  local bazel_version="${1:-6.1.1}"
+  local bazel_version="${1:-8.0.0}"
   echo "################################################################################"
   echo "# Setup Bazel"
   echo "#"
@@ -41,14 +41,13 @@ setup_bazel () {
 # Build Tools Setup Functions
 ################################################################################
 
-__extract_archname () {
-  export archname=""
+__extract_compiler_archname () {
   if [ "$MACHINE_NAME_LC" = "x86_64" ]; then
-    export archname="64"
+    export COMPILER_ARCHNAME="64"
   elif [ "$MACHINE_NAME_LC" = "aarch64" ] || [ "$MACHINE_NAME_LC" = "arm64" ]; then
-    export archname="aarch64"
+    export COMPILER_ARCHNAME="aarch64"
   else
-    export archname="$MACHINE_NAME_LC"
+    export COMPILER_ARCHNAME="$MACHINE_NAME_LC"
   fi
 }
 
@@ -62,9 +61,10 @@ __conda_install_glibc () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  echo "[INSTALL] Installing GLIBC (architecture = ${archname}) ..."
+  echo "[INSTALL] Installing GLIBC (architecture = ${COMPILER_ARCHNAME}) ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y "sysroot_linux-${archname}"=2.17) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    "sysroot_linux-${COMPILER_ARCHNAME}"=2.17) || return 1
 
   echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
   # Ensure libstdc++.so.6 is found
@@ -122,10 +122,10 @@ __conda_install_gcc () {
   # shellcheck disable=SC2155
   local gcc_version="${GCC_VERSION:-11.4.0}"
 
-  echo "[INSTALL] Installing GCC (${gcc_version}, ${archname}) through Conda ..."
+  echo "[INSTALL] Installing GCC (${gcc_version}, ${COMPILER_ARCHNAME}) through Conda ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
-    "gxx_linux-${archname}"=${gcc_version}) || return 1
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    "gxx_linux-${COMPILER_ARCHNAME}"=${gcc_version}) || return 1
 
   # The compilers are visible in the PATH as `x86_64-conda-linux-gnu-cc` and
   # `x86_64-conda-linux-gnu-c++`, so symlinks will need to be created
@@ -147,6 +147,47 @@ __conda_install_gcc () {
   fi
 }
 
+__remove_gcc_activation_scripts () {
+  # NOTE: The following hack describes a peculiar issue that exists with
+  # building FBGEMM with a combination of CUDA + Clang.
+  #
+  # When installing Clang, we also install libstdc++ - this is because NVCC does
+  # not work at all with libc++.  The most reliable way to install libstdc++
+  # using Conda is through installing the whole gcc package.
+  #
+  # Herein lies the problem.  It turns out that environment variables can be
+  # sticky" i.e. they are reset with each invocation of Conda through activation
+  # scripts in $CONDA_PREFIX/etc/conda/activate.d/.  This happens to be the
+  # case with CC and CXX after gcc is installed.  See
+  #   https://github.com/conda-forge/ctng-compiler-activation-feedstock/blob/main/recipe/activate-gcc.sh
+  #   https://github.com/conda-forge/ctng-compiler-activation-feedstock/blob/main/recipe/activate-g%2B%2B.sh
+  #
+  # When we build under CUDA + Clang, we have to set NVCC_PREPEND_FLAGS to point
+  # out Clang as the host compiler.  But CUDA, as of 12.6+, also comes with its
+  # own activation scripts, where NVCC_PREPEND_FLAGS is appended to point out
+  # CXX as the host compiler.  See
+  #   https://github.com/conda-forge/cuda-nvcc-feedstock/issues/20
+  #   https://github.com/conda-forge/cuda-nvcc-feedstock/blob/main/recipe/activate.sh
+  #
+  # When -ccbin is added twice to NVCC_PREPEND_FLAGS, the last entry wins, and
+  # so combining these two phenomenon, it becomes impossible to actually set
+  # Clang as the host compiler in CUDA 12.6+.
+  #
+  # The workaround for this issue is to delete the activation scripts for gcc,
+  # since we only need gcc for the presence of libstdc++ when we build using
+  # Clang.
+  #   https://stackoverflow.com/questions/64289376/how-to-circumvent-anaconda-gcc-compiler
+  #
+  # shellcheck disable=SC2155,SC2086
+  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+      echo "[INSTALL] Removing GCC package activation scripts ..."
+      local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+      print_exec ls -la ${conda_prefix}/etc/conda/activate.d
+      print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gcc_linux-${COMPILER_ARCHNAME}.sh
+      print_exec rm -rf ${conda_prefix}/etc/conda/activate.d/activate-gxx_linux-${COMPILER_ARCHNAME}.sh
+  fi
+}
+
 __conda_install_clang () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
@@ -154,12 +195,12 @@ __conda_install_clang () {
   # shellcheck disable=SC2155
   local llvm_version="${LLVM_VERSION:-16.0.6}"
 
-  echo "[INSTALL] Installing Clang (${llvm_version}, ${archname}) and relevant libraries through Conda ..."
+  echo "[INSTALL] Installing Clang (${llvm_version}, ${COMPILER_ARCHNAME}) and relevant libraries through Conda ..."
   # NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot
   # explicitly specify the version number
   #
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     clangxx=${llvm_version} \
     libcxx \
     llvm-openmp=${llvm_version} \
@@ -168,21 +209,19 @@ __conda_install_clang () {
   # The compilers are visible in the PATH as `clang` and `clang++`, so symlinks
   # will need to be created
   echo "[INSTALL] Setting the C/C++ compiler symlinks ..."
-  # shellcheck disable=SC2155,SC2086
-  local cc_path=$(conda run ${env_prefix} which clang)
-  # shellcheck disable=SC2155,SC2086
-  local cxx_path=$(conda run ${env_prefix} which clang++)
+  set_clang_symlinks "${env_name}"
+
+  # Remove the Conda activations scripts for gcc; see comments in the method for details
+  __remove_gcc_activation_scripts
 
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} CC="${cc_path}"
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} CXX="${cxx_path}"
-
-  # Set the symlinks, override if needed
-  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/cc"
-  print_exec ln -sf "${cc_path}" "$(dirname "$cc_path")/gcc"
-  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/c++"
-  print_exec ln -sf "${cxx_path}" "$(dirname "$cxx_path")/g++"
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} printenv CC
+  # shellcheck disable=SC2086
+  print_exec conda run ${env_prefix} printenv CXX
 
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
@@ -242,8 +281,8 @@ install_cxx_compiler () {
 
   test_network_connection || return 1
 
-  # Extract the archname
-  __extract_archname
+  # Extract the compiler archname
+  __extract_compiler_archname
 
   # Install GLIBC
   __conda_install_glibc
@@ -294,12 +333,14 @@ install_build_tools () {
   #   $CONDA_PREFIX/include directory, which is required for FBGEMM tests
   #
   # - ncurses is needed to silence libtinfo6.so errors for ROCm+Clang builds
+  # - rhash is needed bc newer versions of GXX package don't come packaged with this library anymore
   #
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge -y \
+  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+    auditwheel \
     bazel \
     click \
-    cmake \
+    'cmake>=3.30' \
     hypothesis \
     jinja2 \
     make \
@@ -307,15 +348,22 @@ install_build_tools () {
     ninja \
     openblas \
     patchelf \
+    rhash \
     scikit-build \
     wheel) || return 1
 
-  # For some reason, the build package for Python 3.12 is missing from Conda, so
-  # we have to install through PyPI instead.
+  echo "[INSTALL] Adding symlink librhash.so.0, which is needed by CMake ..."
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  (print_exec ln -s "${conda_prefix}/lib/librhash.so" "${conda_prefix}/lib/librhash.so.0") || return 1
+
+  # For some reason, the build package for Python 3.12+ is missing from conda,
+  # so we have to install through pip instead.
   #
   # LibMambaUnsatisfiableError: Encountered problems while solving:
   #   - package build-0.10.0-py310h06a4308_0 requires python >=3.10,<3.11.0a0, but none of the providers can be installed
   #
+  # shellcheck disable=SC2086
   (exec_with_retries 3 conda run ${env_prefix} pip install \
     build) || return 1
 
