@@ -64,6 +64,8 @@ def generate_requests_from_data_file(
     E: int,
     weighted: bool,
     tables: Optional[str] = None,
+    index_dtype: Optional[torch.dtype] = None,
+    offset_dtype: Optional[torch.dtype] = None,
 ) -> List[TBERequest]:
     """
     Generate TBE requests from the input data file (`requests_data_file`)
@@ -123,8 +125,8 @@ def generate_requests_from_data_file(
     for _ in range(iters):
         rs.append(
             TBERequest(
-                indices_tensor.to(get_device()),
-                offsets_tensor.to(get_device()),
+                maybe_to_dtype(indices_tensor.to(get_device()), index_dtype),
+                maybe_to_dtype(offsets_tensor.to(get_device()), offset_dtype),
                 weights_tensor,
             )
         )
@@ -349,6 +351,10 @@ def update_indices_with_random_pruning(
     return indices
 
 
+def maybe_to_dtype(tensor: torch.Tensor, dtype: Optional[torch.dtype]) -> torch.Tensor:
+    return tensor if dtype is None else tensor.to(dtype)
+
+
 def generate_requests(  # noqa C901
     iters: int,
     B: int,
@@ -383,6 +389,8 @@ def generate_requests(  # noqa C901
     batch_size_dist: str = "normal",
     # Number of ranks for variable batch size generation
     vbe_num_ranks: Optional[int] = None,
+    index_dtype: Optional[torch.dtype] = None,
+    offset_dtype: Optional[torch.dtype] = None,
 ) -> List[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
@@ -398,6 +406,8 @@ def generate_requests(  # noqa C901
             E,
             weighted,
             tables,
+            index_dtype=index_dtype,
+            offset_dtype=offset_dtype,
         )
 
     if sigma_B is not None:
@@ -488,8 +498,11 @@ def generate_requests(  # noqa C901
             )
             rs.append(
                 TBERequest(
-                    all_indices[start_offset : L_offsets[(it + 1) * total_B]],
-                    it_L_offsets.to(get_device()),
+                    maybe_to_dtype(
+                        all_indices[start_offset : L_offsets[(it + 1) * total_B]],
+                        index_dtype,
+                    ),
+                    maybe_to_dtype(it_L_offsets.to(get_device()), offset_dtype),
                     weights_tensor,
                     Bs_feature_rank if use_variable_B else None,
                 )
@@ -506,5 +519,11 @@ def generate_requests(  # noqa C901
             indices, offsets = get_table_batched_offsets_from_dense(
                 all_indices[it].view(T, B, L), use_cpu=use_cpu
             )
-            rs.append(TBERequest(indices, offsets, weights_tensor))
+            rs.append(
+                TBERequest(
+                    maybe_to_dtype(indices, index_dtype),
+                    maybe_to_dtype(offsets, offset_dtype),
+                    weights_tensor,
+                )
+            )
     return rs
