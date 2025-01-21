@@ -95,9 +95,9 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sparse_features_cuda_kernel
     const index_t* const __restrict__ indices_data,
     offset_t* const __restrict__ new_lengths_data,
     offset_t* __restrict__ length_to_feature_idx,
-    const offset_t* const __restrict__ block_bucketize_pos_concat,
-    const offset_t* const __restrict__ block_bucketize_pos_offsets,
-    offset_t* __restrict__ indices_to_lb) {
+    const index_t* const __restrict__ block_bucketize_pos_concat,
+    const index_t* const __restrict__ block_bucketize_pos_offsets,
+    index_t* __restrict__ indices_to_lb) {
   using uindex_t = std::make_unsigned_t<index_t>;
   const auto bt_start = blockIdx.x * blockDim.y + threadIdx.y;
   const auto stride = gridDim.x * blockDim.y;
@@ -188,9 +188,9 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_pooled_sparse_features_cuda
     scalar_t* __restrict__ new_weights_data,
     index_t* __restrict__ new_pos_data,
     const offset_t* const __restrict__ length_to_feature_idx,
-    const offset_t* const __restrict__ block_bucketize_pos_concat,
-    const offset_t* const __restrict__ block_bucketize_pos_offsets,
-    const offset_t* const __restrict__ indices_to_lb,
+    const index_t* const __restrict__ block_bucketize_pos_concat,
+    const index_t* const __restrict__ block_bucketize_pos_offsets,
+    const index_t* const __restrict__ indices_to_lb,
     const bool keep_orig_idx) {
   using uindex_t = std::make_unsigned_t<index_t>;
   const auto bt_start = blockIdx.x * blockDim.y + threadIdx.y;
@@ -304,9 +304,9 @@ __launch_bounds__(kMaxThreads) void _block_bucketize_sequence_sparse_features_cu
     index_t* const __restrict__ unbucketize_permute_data,
     index_t* const __restrict__ bag_mapping_data,
     const offset_t* const __restrict__ length_to_feature_idx,
-    const offset_t* const __restrict__ block_bucketize_pos_concat,
-    const offset_t* const __restrict__ block_bucketize_pos_offsets,
-    const offset_t* const __restrict__ indices_to_lb,
+    const index_t* const __restrict__ block_bucketize_pos_concat,
+    const index_t* const __restrict__ block_bucketize_pos_offsets,
+    const index_t* const __restrict__ indices_to_lb,
     const bool keep_orig_idx) {
   using uindex_t = std::make_unsigned_t<index_t>;
   using uoffset_t = std::make_unsigned_t<offset_t>;
@@ -446,15 +446,15 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                                 : static_cast<offset_t*>(nullptr),               \
                             block_bucketize_pos.has_value()                      \
                                 ? block_bucketize_pos_concat                     \
-                                      .data_ptr<offset_t>()                      \
-                                : static_cast<offset_t*>(nullptr),               \
+                                      .data_ptr<index_t>()                       \
+                                : static_cast<index_t*>(nullptr),                \
                             block_bucketize_pos.has_value()                      \
                                 ? block_bucketize_pos_offsets                    \
-                                      .data_ptr<offset_t>()                      \
-                                : static_cast<offset_t*>(nullptr),               \
+                                      .data_ptr<index_t>()                       \
+                                : static_cast<index_t*>(nullptr),                \
                             block_bucketize_pos.has_value()                      \
-                                ? indices_to_lb.data_ptr<offset_t>()             \
-                                : static_cast<offset_t*>(nullptr),               \
+                                ? indices_to_lb.data_ptr<index_t>()              \
+                                : static_cast<index_t*>(nullptr),                \
                             keep_orig_idx);                                      \
                     C10_CUDA_KERNEL_LAUNCH_CHECK();                              \
                   });                                                            \
@@ -506,14 +506,14 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                           ? length_to_feature_idx.data_ptr<offset_t>()              \
                           : static_cast<offset_t*>(nullptr),                        \
                       block_bucketize_pos.has_value()                               \
-                          ? block_bucketize_pos_concat.data_ptr<offset_t>()         \
-                          : static_cast<offset_t*>(nullptr),                        \
+                          ? block_bucketize_pos_concat.data_ptr<index_t>()          \
+                          : static_cast<index_t*>(nullptr),                         \
                       block_bucketize_pos.has_value()                               \
-                          ? block_bucketize_pos_offsets.data_ptr<offset_t>()        \
-                          : static_cast<offset_t*>(nullptr),                        \
+                          ? block_bucketize_pos_offsets.data_ptr<index_t>()         \
+                          : static_cast<index_t*>(nullptr),                         \
                       block_bucketize_pos.has_value()                               \
-                          ? indices_to_lb.data_ptr<offset_t>()                      \
-                          : static_cast<offset_t*>(nullptr),                        \
+                          ? indices_to_lb.data_ptr<index_t>()                       \
+                          : static_cast<index_t*>(nullptr),                         \
                       keep_orig_idx);                                               \
               C10_CUDA_KERNEL_LAUNCH_CHECK();                                       \
             });                                                                     \
@@ -569,14 +569,14 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                             ? length_to_feature_idx.data_ptr<offset_t>()         \
                             : static_cast<offset_t*>(nullptr),                   \
                         block_bucketize_pos.has_value()                          \
-                            ? block_bucketize_pos_concat.data_ptr<offset_t>()    \
-                            : static_cast<offset_t*>(nullptr),                   \
+                            ? block_bucketize_pos_concat.data_ptr<index_t>()     \
+                            : static_cast<index_t*>(nullptr),                    \
                         block_bucketize_pos.has_value()                          \
-                            ? block_bucketize_pos_offsets.data_ptr<offset_t>()   \
-                            : static_cast<offset_t*>(nullptr),                   \
+                            ? block_bucketize_pos_offsets.data_ptr<index_t>()    \
+                            : static_cast<index_t*>(nullptr),                    \
                         block_bucketize_pos.has_value()                          \
-                            ? indices_to_lb.data_ptr<offset_t>()                 \
-                            : static_cast<offset_t*>(nullptr),                   \
+                            ? indices_to_lb.data_ptr<index_t>()                  \
+                            : static_cast<index_t*>(nullptr),                    \
                         keep_orig_idx);                                          \
                     C10_CUDA_KERNEL_LAUNCH_CHECK();                              \
                   });                                                            \
@@ -629,14 +629,14 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                       ? length_to_feature_idx.data_ptr<offset_t>()                  \
                       : static_cast<offset_t*>(nullptr),                            \
                   block_bucketize_pos.has_value()                                   \
-                      ? block_bucketize_pos_concat.data_ptr<offset_t>()             \
-                      : static_cast<offset_t*>(nullptr),                            \
+                      ? block_bucketize_pos_concat.data_ptr<index_t>()              \
+                      : static_cast<index_t*>(nullptr),                             \
                   block_bucketize_pos.has_value()                                   \
-                      ? block_bucketize_pos_offsets.data_ptr<offset_t>()            \
-                      : static_cast<offset_t*>(nullptr),                            \
+                      ? block_bucketize_pos_offsets.data_ptr<index_t>()             \
+                      : static_cast<index_t*>(nullptr),                             \
                   block_bucketize_pos.has_value()                                   \
-                      ? indices_to_lb.data_ptr<offset_t>()                          \
-                      : static_cast<offset_t*>(nullptr),                            \
+                      ? indices_to_lb.data_ptr<index_t>()                           \
+                      : static_cast<index_t*>(nullptr),                             \
                   keep_orig_idx);                                                   \
               C10_CUDA_KERNEL_LAUNCH_CHECK();                                       \
             });                                                                     \
@@ -725,9 +725,9 @@ _block_bucketize_sparse_features_cuda(
   }
 
   at::Tensor block_bucketize_pos_concat =
-      at::empty({1}, lengths_contig.options());
+      at::empty({1}, indices_contig.options());
   at::Tensor block_bucketize_pos_offsets =
-      at::empty({1}, lengths_contig.options());
+      at::empty({1}, indices_contig.options());
 
   if (block_bucketize_pos.has_value()) {
     block_bucketize_pos_concat = at::cat(block_bucketize_pos.value(), 0);
@@ -738,7 +738,7 @@ _block_bucketize_sparse_features_cuda(
     }
     sizes_.push_back(0);
     at::Tensor sizes_vec =
-        at::tensor(sizes_, at::TensorOptions().dtype(lengths_contig.dtype()));
+        at::tensor(sizes_, at::TensorOptions().dtype(indices_contig.dtype()));
     block_bucketize_pos_offsets = asynchronous_exclusive_cumsum_cpu(
         sizes_vec); // expect sizes_vec to be a small tensor, using cpu instead
                     // of gpu for cumsum
@@ -778,14 +778,14 @@ _block_bucketize_sparse_features_cuda(
                       ? length_to_feature_idx.data_ptr<offset_t>()
                       : static_cast<offset_t*>(nullptr),
                   block_bucketize_pos.has_value()
-                      ? block_bucketize_pos_concat.data_ptr<offset_t>()
-                      : static_cast<offset_t*>(nullptr),
+                      ? block_bucketize_pos_concat.data_ptr<index_t>()
+                      : static_cast<index_t*>(nullptr),
                   block_bucketize_pos.has_value()
-                      ? block_bucketize_pos_offsets.data_ptr<offset_t>()
-                      : static_cast<offset_t*>(nullptr),
+                      ? block_bucketize_pos_offsets.data_ptr<index_t>()
+                      : static_cast<index_t*>(nullptr),
                   block_bucketize_pos.has_value()
-                      ? indices_to_lb.data_ptr<offset_t>()
-                      : static_cast<offset_t*>(nullptr));
+                      ? indices_to_lb.data_ptr<index_t>()
+                      : static_cast<index_t*>(nullptr));
               C10_CUDA_KERNEL_LAUNCH_CHECK();
             });
       });
