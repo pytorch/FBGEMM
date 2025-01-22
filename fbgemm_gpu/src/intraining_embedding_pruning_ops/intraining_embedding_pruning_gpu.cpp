@@ -32,7 +32,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor address_lookup, "
       "    Tensor(a!) row_util, "
       "    Tensor buffer_offsets, "
-      "    Tensor[]? full_values_list=None"
+      "    Tensor[]? full_values_list=None, "
+      "    bool? update_util=None"
       ") -> Tensor");
   DISPATCH_TO_CUDA(
       "remap_indices_update_utils",
