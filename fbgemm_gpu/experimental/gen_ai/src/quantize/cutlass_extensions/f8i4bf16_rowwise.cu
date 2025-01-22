@@ -92,18 +92,18 @@ at::Tensor f8i4bf16_rowwise_impl(
       cute::Int<TBS_K>>; // Shape of the
                          // threadblocks in a
                          // cluster
-	using CooperativeSchedule =
-			cutlass::gemm::KernelTmaWarpSpecializedCooperativeMixedInput;
+  using CooperativeSchedule =
+      cutlass::gemm::KernelTmaWarpSpecializedCooperativeMixedInput;
   using PongSchedule =
       cutlass::gemm::KernelTmaWarpSpecializedPingpongMixedInput;
-	using CooperativeEpilogueSchedule =
-			cutlass::epilogue::TmaWarpSpecializedCooperative;
+  using CooperativeEpilogueSchedule =
+      cutlass::epilogue::TmaWarpSpecializedCooperative;
   using PongEpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
   using MainLoopSchedule =
       cute::conditional_t<PONG, PongSchedule, CooperativeSchedule>;
-	using EpilogueSchedule = cute::
-			conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
+  using EpilogueSchedule = cute::
+      conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
 
   // Implement rowwise scaling epilogue for x
   using XScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
