@@ -1665,7 +1665,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             },
             # pyre-fixme[6]: Expected `lookup_args_ssd.VBEMetadata` but got `lookup_args.VBEMetadata`
             vbe_metadata=vbe_metadata,
-            mixed_D=False,
         )
 
         self.timesteps_prefetched.pop(0)

@@ -161,6 +161,12 @@ def cli() -> None:
     "--ssd-prefix", type=str, default="/tmp/ssd_benchmark", help="SSD directory prefix"
 )
 @click.option("--cache-load-factor", default=0.2)
+@click.option(
+    "--num-requests",
+    default=-1,
+    help="Number of input batches to generate. If the value is smaller than "
+    "iters, the benchmark will reuse the input batches",
+)
 def device(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -191,8 +197,10 @@ def device(  # noqa C901
     ssd: bool,
     ssd_prefix: str,
     cache_load_factor: float,
+    num_requests: int,
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
+    num_requests = iters if num_requests == -1 else num_requests
     np.random.seed(42)
     torch.manual_seed(42)
     B = batch_size
@@ -341,7 +349,7 @@ def device(  # noqa C901
         f"Accessed weights per batch: {B * sum(Ds) * L * param_size_multiplier / 1.0e9: .2f} GB"
     )
     requests = generate_requests(
-        iters,
+        num_requests,
         B,
         T,
         L,
@@ -375,6 +383,7 @@ def device(  # noqa C901
             ),
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
             num_warmups=warmup_runs,
+            iters=iters,
         )
 
     logging.info(
@@ -409,6 +418,7 @@ def device(  # noqa C901
             bwd_only=True,
             grad=grad_output,
             num_warmups=warmup_runs,
+            iters=iters,
         )
 
     logging.info(

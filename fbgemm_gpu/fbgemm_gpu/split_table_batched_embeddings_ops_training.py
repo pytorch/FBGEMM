@@ -761,7 +761,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 not mixed_D
             ), "OptimType.NONE does not support mixed embedding dimension"
 
-        self.mixed_D: bool = mixed_D
         if device is None:
             self.current_device: torch.device = (
                 torch.device("cpu")
@@ -1853,7 +1852,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             is_experimental=self.is_experimental,
             use_uniq_cache_locations_bwd=self.use_uniq_cache_locations_bwd,
             use_homogeneous_placements=self.use_homogeneous_placements,
-            mixed_D=self.mixed_D,
         )
 
         if self.optimizer == OptimType.NONE:
@@ -3645,14 +3643,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert self.D_offsets.numel() == T + 1
 
-        mixed_D = False
-        D = dims[0]
-        for d in dims:
-            if d != D:
-                mixed_D = True
-                break
-        self.mixed_D: bool = mixed_D
-
         # Required for VBE
         self.register_buffer(
             "feature_dims",
@@ -3766,7 +3756,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_B=vbe_metadata.max_B,
             max_B_feature_rank=vbe_metadata.max_B_feature_rank,
             vbe_output_size=vbe_metadata.output_size,
-            mixed_D=self.mixed_D,
         )
 
     @torch.jit.export
