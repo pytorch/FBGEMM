@@ -20,6 +20,13 @@ class AddTensorsFloatTest(unittest.TestCase):
         c = utils.add_tensors(a, b)
         torch.testing.assert_close(c.cpu(), expected.cpu())
 
+    def test_add_tensors_float_nested_ns(self) -> None:
+        a = torch.tensor([1, 2, 3])
+        b = torch.tensor([4, 5, 6])
+        expected = torch.tensor([5, 7, 9], dtype=torch.float)
+        c = utils.add_tensors_nested_ns(a, b)
+        torch.testing.assert_close(c.cpu(), expected.cpu())
+
 
 if __name__ == "__main__":
     unittest.main()
