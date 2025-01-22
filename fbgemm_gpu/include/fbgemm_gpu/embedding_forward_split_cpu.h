@@ -116,12 +116,12 @@ struct HyperCompressedSparseColumn {
   }
 };
 
-template <typename scalar_t>
+template <typename index_t, typename scalar_t>
 void csr2csc(
     HyperCompressedSparseColumn& csc,
     int B,
-    const at::TensorAccessor<int64_t, 1>& csr_offsets,
-    const at::TensorAccessor<int64_t, 1>& csr_indices,
+    const at::TensorAccessor<index_t, 1>& csr_offsets,
+    const at::TensorAccessor<index_t, 1>& csr_indices,
     const at::TensorAccessor<scalar_t, 1>& csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
