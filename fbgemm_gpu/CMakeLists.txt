@@ -236,11 +236,11 @@ endif()
 ################################################################################
 
 if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
-  # TODO: Figure out NCCL/RCCL integration with ROCm
   add_subdirectory(experimental/example)
 endif()
 
 if(NOT FBGEMM_CPU_ONLY)
+  # Package Triton GEMM (GenAI) kernels
   add_subdirectory(experimental/gemm)
 endif()
 

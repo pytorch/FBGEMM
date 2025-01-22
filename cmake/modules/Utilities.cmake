@@ -74,8 +74,13 @@ endmacro()
 
 function(add_to_package)
   set(flags)
-  set(singleValueArgs DESTINATION)
-  set(multiValueArgs FILES TARGETS)
+  set(singleValueArgs
+    DESTINATION       # The destination directory, RELATIVE to the root of the installation package directory
+  )
+  set(multiValueArgs
+    FILES             # The list of files to place into the DESTINATION directory
+    TARGETS           # THe list of CMake targets whose build artifacts to place into the DESTINATION directory
+  )
 
   cmake_parse_arguments(
     args
