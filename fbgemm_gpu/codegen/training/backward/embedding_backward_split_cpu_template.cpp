@@ -87,14 +87,16 @@ for (const auto t : c10::irange(num_tables)) {
     int feature_begin = table_to_feature_offset[t];
     int64_t hash_size = get_hash_size(feature_begin);
 
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name = "::internal::csr2csc";
+#endif
+    using weight_t = at::acc_type<scalar_t, true>;
     ::internal::csr2csc(
         cscs[t],
         B,
-        offsets.accessor<int64_t, 1>(),
-        indices.accessor<int64_t, 1>(),
-        indice_weights.defined()
-            ? indice_weights.accessor<at::acc_type<scalar_t, true>, 1>()
-            : at::TensorAccessor<at::acc_type<scalar_t, true>, 1>(nullptr, nullptr, nullptr),
+        MAKE_TA_WITH_NAME(func_name, offsets, int64_t, 1),
+        MAKE_TA_WITH_NAME(func_name, indices, int64_t, 1),
+        MAKE_TA_WITH_NAME(func_name, indice_weights, weight_t, 1),
         pooling_mode,
         table_to_feature_offset + t,
         hash_size);

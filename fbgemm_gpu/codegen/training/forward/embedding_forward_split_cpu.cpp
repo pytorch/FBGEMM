@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
 #else
@@ -384,9 +385,9 @@ template <typename index_t, typename scalar_t, bool IS_VALUE_PAIR>
 void csr2csc_template_(
     HyperCompressedSparseColumn& csc,
     int B,
-    const at::TensorAccessor<index_t, 1>& csr_offsets,
-    const at::TensorAccessor<index_t, 1>& csr_indices,
-    const at::TensorAccessor<scalar_t, 1>& csr_weights,
+    const pta::TensorAccessor<index_t, 1>& csr_offsets,
+    const pta::TensorAccessor<index_t, 1>& csr_indices,
+    const pta::TensorAccessor<scalar_t, 1>& csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
@@ -585,9 +586,9 @@ void csr2csc_template_(
   template void csr2csc_template_<index_t, scalar_t, is_value_pair>(     \
       HyperCompressedSparseColumn & csc,                                 \
       int B,                                                             \
-      const at::TensorAccessor<index_t, 1>& csr_offsets,                 \
-      const at::TensorAccessor<index_t, 1>& csr_indices,                 \
-      const at::TensorAccessor<scalar_t, 1>& csr_weights,                \
+      const pta::TensorAccessor<index_t, 1>& csr_offsets,                \
+      const pta::TensorAccessor<index_t, 1>& csr_indices,                \
+      const pta::TensorAccessor<scalar_t, 1>& csr_weights,               \
       int64_t pooling_mode,                                              \
       const int* table_to_feature_offset,                                \
       int64_t num_embeddings);
@@ -613,9 +614,9 @@ template <typename index_t, typename scalar_t>
 void csr2csc(
     HyperCompressedSparseColumn& csc,
     int B,
-    const at::TensorAccessor<index_t, 1>& csr_offsets,
-    const at::TensorAccessor<index_t, 1>& csr_indices,
-    const at::TensorAccessor<scalar_t, 1>& csr_weights,
+    const pta::TensorAccessor<index_t, 1>& csr_offsets,
+    const pta::TensorAccessor<index_t, 1>& csr_indices,
+    const pta::TensorAccessor<scalar_t, 1>& csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
@@ -644,15 +645,15 @@ void csr2csc(
   }
 }
 
-#define INSTANTIATE_CSR2CSC_0(index_t, scalar_t)          \
-  template void csr2csc<index_t, scalar_t>(               \
-      HyperCompressedSparseColumn & csc,                  \
-      int B,                                              \
-      const at::TensorAccessor<index_t, 1>& csr_offsets,  \
-      const at::TensorAccessor<index_t, 1>& csr_indices,  \
-      const at::TensorAccessor<scalar_t, 1>& csr_weights, \
-      int64_t pooling_mode,                               \
-      const int* table_to_feature_offset,                 \
+#define INSTANTIATE_CSR2CSC_0(index_t, scalar_t)           \
+  template void csr2csc<index_t, scalar_t>(                \
+      HyperCompressedSparseColumn & csc,                   \
+      int B,                                               \
+      const pta::TensorAccessor<index_t, 1>& csr_offsets,  \
+      const pta::TensorAccessor<index_t, 1>& csr_indices,  \
+      const pta::TensorAccessor<scalar_t, 1>& csr_weights, \
+      int64_t pooling_mode,                                \
+      const int* table_to_feature_offset,                  \
       int64_t num_embeddings);
 
 #define INSTANTIATE_CSR2CSC_1(index_t)   \
