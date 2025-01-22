@@ -11,7 +11,7 @@
 #include <c10/core/ScalarTypeToTypeMeta.h>
 #include <torch/library.h>
 
-#include "./kv_tensor_wrapper.h"
+#include <fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/kv_tensor_wrapper.h>
 #include "common/base/Exception.h"
 
 using namespace at;
