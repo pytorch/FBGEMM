@@ -15,11 +15,14 @@
 #include "fbgemm_gpu/embedding_forward_split_cpu.h"
 #include "torch/types.h" // @manual=//caffe2:torch-cpp-cpu
 
-TEST(CpuKernelTest, csr2csc_test) {
+template <c10::ScalarType DType, typename T>
+void test_csr2csc() {
   internal::HyperCompressedSparseColumn csc;
   int B = 2;
-  at::Tensor offsets = torch::tensor({0, 4, 8});
-  at::Tensor indices = torch::tensor({1, 2, 4, 5, 4, 3, 2, 9});
+  at::Tensor offsets =
+      torch::tensor({0, 4, 8}, torch::TensorOptions().dtype(DType));
+  at::Tensor indices = torch::tensor(
+      {1, 2, 4, 5, 4, 3, 2, 9}, torch::TensorOptions().dtype(DType));
   int64_t pooling_mode = (int64_t)fbgemm_gpu::PoolingMode::SUM;
   int table_to_feature_offset[2] = {0, 1};
   int num_embeddings = 10;
@@ -27,8 +30,8 @@ TEST(CpuKernelTest, csr2csc_test) {
   ::internal::csr2csc(
       csc,
       B,
-      offsets.accessor<int64_t, 1>(),
-      indices.accessor<int64_t, 1>(),
+      offsets.accessor<T, 1>(),
+      indices.accessor<T, 1>(),
       at::TensorAccessor<at::acc_type<float, true>, 1>(
           nullptr, nullptr, nullptr), // no weights
       pooling_mode,
@@ -61,8 +64,8 @@ TEST(CpuKernelTest, csr2csc_test) {
   ::internal::csr2csc(
       csc_weighted,
       B,
-      offsets.accessor<int64_t, 1>(),
-      indices.accessor<int64_t, 1>(),
+      offsets.accessor<T, 1>(),
+      indices.accessor<T, 1>(),
       indice_weights.accessor<at::acc_type<float, true>, 1>(),
       pooling_mode,
       table_to_feature_offset,
@@ -87,4 +90,12 @@ TEST(CpuKernelTest, csr2csc_test) {
   for (int i = 0; i < expect_weights.size(); ++i) {
     EXPECT_EQ(expect_weights[i], csc_weighted.weights[i]);
   }
+}
+
+TEST(CpuKernelTest, csr2csc_test_int32) {
+  test_csr2csc<torch::kInt32, int32_t>();
+}
+
+TEST(CpuKernelTest, csr2csc_test_int64) {
+  test_csr2csc<torch::kInt64, int64_t>();
 }
