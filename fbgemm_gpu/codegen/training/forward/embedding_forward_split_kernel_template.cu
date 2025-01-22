@@ -507,7 +507,7 @@ using namespace fbgemm_gpu;
         {%- endif %}
 
         {%- if is_rocm %}
-        for(auto j = L - L % kManualUnrollLength; j < kThreadGroupSize && l_start + j < L; ++j) {
+        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
         {%- else %}
         // Iterate over kThreadGroupSize indices
         for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {
