@@ -158,6 +158,7 @@ class SplitLookupFunction_{{ optimizer }}_Op : public torch::autograd::Function<
         stochastic_rounding,
         {{ args.split_function_arg_names | join(", ") }},
         output_dtype);
+
     static auto op2 =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::split_embedding_codegen_grad_indice_weights_cpu", "")
