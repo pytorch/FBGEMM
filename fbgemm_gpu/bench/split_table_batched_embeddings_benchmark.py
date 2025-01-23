@@ -360,6 +360,8 @@ def device(  # noqa C901
         requests_data_file=requests_data_file,
         tables=tables,
         use_cpu=not torch.cuda.is_available(),
+        index_dtype=torch.long,
+        offset_dtype=torch.long,
     )
 
     def _kineto_trace_handler(p: profile, phase: str) -> None:
@@ -376,8 +378,8 @@ def device(  # noqa C901
         time_per_iter = benchmark_requests(
             requests,
             lambda indices, offsets, per_sample_weights: emb.forward(
-                indices.long(),
-                offsets.long(),
+                indices,
+                offsets,
                 per_sample_weights,
                 feature_requires_grad=feature_requires_grad,
             ),
@@ -409,8 +411,8 @@ def device(  # noqa C901
         time_per_iter = benchmark_requests(
             requests,
             lambda indices, offsets, per_sample_weights: emb(
-                indices.long(),
-                offsets.long(),
+                indices,
+                offsets,
                 per_sample_weights,
                 feature_requires_grad=feature_requires_grad,
             ),
@@ -596,6 +598,8 @@ def uvm(
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
+        index_dtype=torch.long,
+        offset_dtype=torch.long,
     )
 
     requests_gpu = None
@@ -611,6 +615,8 @@ def uvm(
             weighted=False,
             requests_data_file=requests_data_file,
             tables=tables,
+            index_dtype=torch.long,
+            offset_dtype=torch.long,
         )
 
     param_size_multiplier = weights_precision.bit_rate() / 8.0
@@ -680,8 +686,8 @@ def uvm(
             emb_uvm.local_uvm_cache_stats[4] = 0 if no_conflict_misses else 1
 
         emb_uvm.forward(
-            indices.long(),
-            offsets.long(),
+            indices,
+            offsets,
             per_sample_weights,
         )
 
@@ -726,8 +732,8 @@ def uvm(
         time_per_iter = benchmark_requests(
             requests_gpu,
             lambda indices, offsets, per_sample_weights: emb_gpu.forward(
-                indices.long(),
-                offsets.long(),
+                indices,
+                offsets,
                 per_sample_weights,
             ),
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
@@ -747,8 +753,8 @@ def uvm(
         time_per_iter = benchmark_requests(
             requests,
             lambda indices, offsets, per_sample_weights: emb_mixed.forward(
-                indices.long(),
-                offsets.long(),
+                indices,
+                offsets,
                 per_sample_weights,
             ),
             flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
@@ -893,6 +899,8 @@ def cache(  # noqa C901
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
+        index_dtype=torch.long,
+        offset_dtype=torch.long,
     )
     warmup_requests, requests = requests[:iters], requests[iters:]
     grad_output = torch.randn(B, sum(Ds)).cuda()
@@ -900,7 +908,7 @@ def cache(  # noqa C901
     time_per_iter = benchmark_requests(
         requests,
         lambda indices, offsets, per_sample_weights: emb_nc(
-            indices.long(), offsets.long(), per_sample_weights
+            indices, offsets, per_sample_weights
         ).backward(grad_output),
         flush_gpu_cache_size_mb=flush_gpu_cache_size_mb,
         num_warmups=warmup_runs,
@@ -914,7 +922,7 @@ def cache(  # noqa C901
     # warm up
     for req in warmup_requests:
         indices, offsets = req.unpack_2()
-        emb.forward(indices.long(), offsets.long())
+        emb.forward(indices, offsets)
     # get cache miss rate (forward and backward) and exchanged cache lines (prefetch)
     cache_misses = []
     exchanged_cache_lines = []
@@ -925,7 +933,7 @@ def cache(  # noqa C901
         #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
         #  function.
         old_lxu_cache_state = emb.lxu_cache_state.clone()
-        emb.prefetch(indices.long(), offsets.long())
+        emb.prefetch(indices, offsets)
         exchanged_cache_lines.append(
             # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
             (emb.lxu_cache_state != old_lxu_cache_state)
@@ -933,7 +941,7 @@ def cache(  # noqa C901
             .item()
         )
         cache_misses.append((emb.lxu_cache_locations_list[0] == NOT_FOUND).sum().item())
-        emb.forward(indices.long(), offsets.long())
+        emb.forward(indices, offsets)
     logging.info(
         f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines) / len(requests): .2f}, "
         f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
@@ -2976,6 +2984,8 @@ def bounds_check_indices(  # noqa C901
             E,
             requests_data_file=requests_data_file,
             tables=tables,
+            index_dtype=torch.long,
+            offset_dtype=torch.long,
         )
         B_offsets = B_offsets.to(get_device()).to(torch.int)
     else:
@@ -2992,6 +3002,8 @@ def bounds_check_indices(  # noqa C901
             E,
             requests_data_file=requests_data_file,
             tables=tables,
+            index_dtype=torch.long,
+            offset_dtype=torch.long,
         )
 
     warning = torch.tensor([0]).long().to(get_device())
@@ -3045,8 +3057,8 @@ def bounds_check_indices(  # noqa C901
             requests,
             lambda indices, offsets, _: torch.ops.fbgemm.bounds_check_indices(
                 rows_per_table,
-                indices.long(),
-                offsets.long(),
+                indices,
+                offsets,
                 BoundsCheckMode(bounds_check_mode),
                 warning,
                 B_offsets=B_offsets,
@@ -3412,6 +3424,8 @@ def device_with_spec(  # noqa C901
             # pyre-fixme[61]: `sigma_Ls` is undefined, or not always defined.
             sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
             zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
+            index_dtype=torch.long,
+            offset_dtype=torch.long,
         )
         for i, req in enumerate(requests):
             indices, offsets, weights = req.unpack_3()
@@ -3470,8 +3484,8 @@ def device_with_spec(  # noqa C901
     time_per_iter = benchmark_requests(
         requests,
         lambda indices, offsets, per_sample_weights: emb.forward(
-            indices.long(),
-            offsets.long(),
+            indices,
+            offsets,
             per_sample_weights,
             feature_requires_grad=feature_requires_grad,
         ),
@@ -3500,8 +3514,8 @@ def device_with_spec(  # noqa C901
     time_per_iter = benchmark_requests(
         requests,
         lambda indices, offsets, per_sample_weights: emb(
-            indices.long(),
-            offsets.long(),
+            indices,
+            offsets,
             per_sample_weights,
             feature_requires_grad=feature_requires_grad,
         ),
@@ -3582,20 +3596,20 @@ def benchmark_tbe_input_compression(
     compressed_lengths = [L] * sum(compressed_batch_sizes)
     compressed_offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
         torch.tensor(compressed_lengths, device=get_device())
-    )
+    ).long()
     compressed_values = torch.randint(
         low=0,
         high=E,
         size=(sum(compressed_lengths),),
         device=get_device(),
-        dtype=torch.int32,
+        dtype=torch.long,
     )
 
     batch_sizes = [B] * T
     lengths = [L] * sum(batch_sizes)
     offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(
         torch.tensor(lengths, device=get_device())
-    )
+    ).long()
     reindex = []
 
     for t in range(cT):
@@ -3608,7 +3622,11 @@ def benchmark_tbe_input_compression(
     reindex.extend(range(cB * cT, (cB * cT) + (B * cT)))
 
     reindex = torch.tensor(reindex, device=get_device())
-    values = torch.index_select(compressed_values.reshape(-1, L), 0, reindex).flatten()
+    values = (
+        torch.index_select(compressed_values.reshape(-1, L), 0, reindex)
+        .flatten()
+        .long()
+    )
 
     requests = [
         (
@@ -3629,12 +3647,12 @@ def benchmark_tbe_input_compression(
         requests,
         compressed_requests,
         baseline_func=lambda indices, offsets: emb.forward(
-            indices.long(),
-            offsets.long(),
+            indices,
+            offsets,
         ),
         compressed_func=lambda indices, offsets: emb.forward(
-            indices.long(),
-            offsets.long(),
+            indices,
+            offsets,
             batch_size_per_feature_per_rank=[[bs] for bs in compressed_batch_sizes],
         ),
         reindex=reindex,
@@ -3750,7 +3768,7 @@ def vbe(
     lengths = torch.cat(lengths_list, 0)
 
     # Convert lengths into offsets.
-    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths)
+    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths).long()
 
     # Set up values.
     values_list: List[torch.Tensor] = []
@@ -3765,7 +3783,7 @@ def vbe(
                 device=get_device(),
             )
         )
-    values = torch.cat(values_list, 0)
+    values = torch.cat(values_list, 0).long()
 
     requests = [
         (
@@ -3778,8 +3796,8 @@ def vbe(
     fwd_time_sec, bwd_time_sec = benchmark_vbe(
         requests,
         func=lambda indices, offsets: emb.forward(
-            indices.long(),
-            offsets.long(),
+            indices,
+            offsets,
             batch_size_per_feature_per_rank=[[B] for B in Bs],
         ),
     )
