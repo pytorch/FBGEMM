@@ -447,7 +447,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
-    at::Tensor zero_start_index_M,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<std::string> kernel_name = std::nullopt) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
