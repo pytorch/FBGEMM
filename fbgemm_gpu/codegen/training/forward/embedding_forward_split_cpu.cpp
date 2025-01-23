@@ -14,6 +14,7 @@
 #include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
 #else
@@ -24,6 +25,12 @@
 #include <ATen/AccumulateType.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/script.h>
+
+#if FBGEMM_GPU_MEMCHECK
+#define FBGEMM_MEM_CHECK_ONLY
+#else
+#define FBGEMM_MEM_CHECK_ONLY maybe_unused
+#endif
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -286,7 +293,7 @@ Tensor split_embedding_codegen_forward_cpu_meta(
   return output;
 }
 
-template <typename weights_t, typename grad_t>
+template <typename index_t, typename weights_t, typename grad_t>
 void split_embedding_grad_indice_weights_cpu_kernel(
     Tensor grad_output,
     Tensor weights,
@@ -304,8 +311,11 @@ void split_embedding_grad_indice_weights_cpu_kernel(
 
   const auto D_offsets_data = D_offsets.accessor<int, 1>();
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
-  const auto offsets_data = offsets.accessor<int64_t, 1>();
-  const auto indices_data = indices.accessor<int64_t, 1>();
+
+  [[FBGEMM_MEM_CHECK_ONLY]] const auto func_name =
+      "split_embedding_grad_indice_weights_cpu_kernel";
+  const auto indices_data = MAKE_TA_WITH_NAME(func_name, indices, index_t, 1);
+  const auto offsets_data = MAKE_TA_WITH_NAME(func_name, offsets, index_t, 1);
 
   const auto weights_data = weights.accessor<weights_t, 1>();
   const auto grad_output_data = grad_output.accessor<grad_t, 2>();
@@ -351,25 +361,34 @@ Tensor split_embedding_codegen_grad_indice_weights_cpu(
       indices,
       indices.options().dtype(
           at::toAccumulateType(grad_output.scalar_type(), true)));
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
-      grad_output.scalar_type(),
-      "split_embedding_grad_indice_weights_cpu_outer",
+
+  AT_DISPATCH_INDEX_TYPES(
+      indices.scalar_type(),
+      "split_embedding_grad_indice_weights_cpu_kernel_1",
       [&] {
-        using grad_t = scalar_t;
         FBGEMM_DISPATCH_FLOAT_AND_HALF(
-            weights.scalar_type(),
-            "split_embedding_grad_indice_weights_cpu",
+            grad_output.scalar_type(),
+            "split_embedding_grad_indice_weights_cpu_kernel_2",
             [&] {
-              using weights_t = scalar_t;
-              split_embedding_grad_indice_weights_cpu_kernel<weights_t, grad_t>(
-                  grad_output,
-                  weights,
-                  weights_offsets,
-                  D_offsets,
-                  indices,
-                  offsets,
-                  feature_requires_grad,
-                  grad_indice_weights);
+              using grad_t = scalar_t;
+              FBGEMM_DISPATCH_FLOAT_AND_HALF(
+                  weights.scalar_type(),
+                  "split_embedding_grad_indice_weights_cpu_kernel_3",
+                  [&] {
+                    using weights_t = scalar_t;
+                    split_embedding_grad_indice_weights_cpu_kernel<
+                        index_t,
+                        weights_t,
+                        grad_t>(
+                        grad_output,
+                        weights,
+                        weights_offsets,
+                        D_offsets,
+                        indices,
+                        offsets,
+                        feature_requires_grad,
+                        grad_indice_weights);
+                  });
             });
       });
 
@@ -384,9 +403,9 @@ template <typename index_t, typename scalar_t, bool IS_VALUE_PAIR>
 void csr2csc_template_(
     HyperCompressedSparseColumn& csc,
     int B,
-    const at::TensorAccessor<index_t, 1>& csr_offsets,
-    const at::TensorAccessor<index_t, 1>& csr_indices,
-    const at::TensorAccessor<scalar_t, 1>& csr_weights,
+    const pta::TensorAccessor<index_t, 1>& csr_offsets,
+    const pta::TensorAccessor<index_t, 1>& csr_indices,
+    const pta::TensorAccessor<scalar_t, 1>& csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
@@ -585,9 +604,9 @@ void csr2csc_template_(
   template void csr2csc_template_<index_t, scalar_t, is_value_pair>(     \
       HyperCompressedSparseColumn & csc,                                 \
       int B,                                                             \
-      const at::TensorAccessor<index_t, 1>& csr_offsets,                 \
-      const at::TensorAccessor<index_t, 1>& csr_indices,                 \
-      const at::TensorAccessor<scalar_t, 1>& csr_weights,                \
+      const pta::TensorAccessor<index_t, 1>& csr_offsets,                \
+      const pta::TensorAccessor<index_t, 1>& csr_indices,                \
+      const pta::TensorAccessor<scalar_t, 1>& csr_weights,               \
       int64_t pooling_mode,                                              \
       const int* table_to_feature_offset,                                \
       int64_t num_embeddings);
@@ -613,9 +632,9 @@ template <typename index_t, typename scalar_t>
 void csr2csc(
     HyperCompressedSparseColumn& csc,
     int B,
-    const at::TensorAccessor<index_t, 1>& csr_offsets,
-    const at::TensorAccessor<index_t, 1>& csr_indices,
-    const at::TensorAccessor<scalar_t, 1>& csr_weights,
+    const pta::TensorAccessor<index_t, 1>& csr_offsets,
+    const pta::TensorAccessor<index_t, 1>& csr_indices,
+    const pta::TensorAccessor<scalar_t, 1>& csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings) {
@@ -644,15 +663,15 @@ void csr2csc(
   }
 }
 
-#define INSTANTIATE_CSR2CSC_0(index_t, scalar_t)          \
-  template void csr2csc<index_t, scalar_t>(               \
-      HyperCompressedSparseColumn & csc,                  \
-      int B,                                              \
-      const at::TensorAccessor<index_t, 1>& csr_offsets,  \
-      const at::TensorAccessor<index_t, 1>& csr_indices,  \
-      const at::TensorAccessor<scalar_t, 1>& csr_weights, \
-      int64_t pooling_mode,                               \
-      const int* table_to_feature_offset,                 \
+#define INSTANTIATE_CSR2CSC_0(index_t, scalar_t)           \
+  template void csr2csc<index_t, scalar_t>(                \
+      HyperCompressedSparseColumn & csc,                   \
+      int B,                                               \
+      const pta::TensorAccessor<index_t, 1>& csr_offsets,  \
+      const pta::TensorAccessor<index_t, 1>& csr_indices,  \
+      const pta::TensorAccessor<scalar_t, 1>& csr_weights, \
+      int64_t pooling_mode,                                \
+      const int* table_to_feature_offset,                  \
       int64_t num_embeddings);
 
 #define INSTANTIATE_CSR2CSC_1(index_t)   \

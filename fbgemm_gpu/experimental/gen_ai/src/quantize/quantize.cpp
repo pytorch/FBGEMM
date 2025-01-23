@@ -104,7 +104,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::TensorList WQ,
     at::TensorList x_scale,
     at::TensorList w_scale,
-    at::Tensor zero_start_index_M,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<std::string> kernel_name = std::nullopt);
 std::vector<std::string> get_f8f8bf16_rowwise_grouped_kernels();
 at::Tensor f8f8bf16_blockwise(
@@ -199,7 +199,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None, str? kernel_name=None) -> Tensor[]");
   m.def(
-      "f8f8bf16_rowwise_grouped_dynamic(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor zero_start_index_M, str? kernel_name=None) -> Tensor");
+      "f8f8bf16_rowwise_grouped_dynamic(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor? zero_start_index_M=None, str? kernel_name=None) -> Tensor");
 
   m.def("get_f8f8bf16_rowwise_grouped_kernels() -> str[]");
   m.impl(

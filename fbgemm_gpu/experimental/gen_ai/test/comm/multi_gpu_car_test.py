@@ -246,7 +246,7 @@ def _run_oneshot_car_stress_inner(path: str) -> None:
     torch.distributed.barrier()
 
     ITER = 1000
-    for idx, N in enumerate(np.logspace(4, 24, num=20, base=2).tolist()):
+    for idx, N in enumerate([0] + np.logspace(4, 24, num=20, base=2).tolist()):
         N = int(N)
 
         def round_up(a: int, b: int) -> int:

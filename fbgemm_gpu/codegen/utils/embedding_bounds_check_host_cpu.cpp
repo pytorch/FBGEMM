@@ -13,7 +13,14 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
+
+#if FBGEMM_GPU_MEMCHECK
+#define FBGEMM_MEM_CHECK_ONLY
+#else
+#define FBGEMM_MEM_CHECK_ONLY maybe_unused
+#endif
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -75,9 +82,10 @@ void bounds_check_indices_cpu(
   auto warning_acc = warning.data_ptr<int64_t>();
 
   AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "bounds_check_indices_cpu", [&] {
-    auto offsets_acc = offsets.accessor<index_t, 1>();
-    auto indices_acc = indices.accessor<index_t, 1>();
-    auto num_indices = indices.numel();
+    [[FBGEMM_MEM_CHECK_ONLY]] const auto func_name = "bounds_check_indices_cpu";
+    auto indices_acc = MAKE_TA_WITH_NAME(func_name, indices, index_t, 1);
+    auto offsets_acc = MAKE_TA_WITH_NAME(func_name, offsets, index_t, 1);
+    const auto num_indices = indices.numel();
 
     if (vbe) {
       TORCH_CHECK(max_B >= 0);

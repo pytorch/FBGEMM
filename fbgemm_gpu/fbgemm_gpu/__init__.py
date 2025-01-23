@@ -46,15 +46,24 @@ fbgemm_gpu_libraries = [
     "fbgemm_gpu_py",
 ]
 
+fbgemm_gpu_genai_libraries = [
+    "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai",
+]
+
+# NOTE: While FBGEMM_GPU GenAI is not available for ROCm yet, we would like to
+# be able to install the existing CUDA variant of the package onto ROCm systems,
+# so that we can at least use the Triton GEMM libraries from experimental/gemm.
+# But loading fbgemm_gpu package will trigger load-checking the .SO file for the
+# GenAI libraries, which will fail.  This workaround ignores check-loading the
+# .SO file for the ROCm case, so that clients can import
+# fbgemm_gpu.experimental.gemm without triggering an error.
+if torch.cuda.is_available() and torch.version.hip:
+    fbgemm_gpu_genai_libraries = []
+
 libraries_to_load = {
     "cpu": fbgemm_gpu_libraries,
-    "cuda": fbgemm_gpu_libraries
-    + [
-        "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py",
-    ],
-    "genai": [
-        "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai_py",
-    ],
+    "cuda": fbgemm_gpu_libraries + fbgemm_gpu_genai_libraries,
+    "genai": fbgemm_gpu_genai_libraries,
     "rocm": fbgemm_gpu_libraries,
 }
 

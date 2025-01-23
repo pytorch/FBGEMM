@@ -8,14 +8,12 @@
 # Target Sources
 ################################################################################
 
-set(experimental_example_cpp_source_files
-    src/cutlass_sgemm_nn.cu
-    src/example_ops.cpp
-    src/nccl_example.cpp)
+file(GLOB_RECURSE experimental_example_cpp_source_files
+  src/*.cu
+  src/*.cpp)
 
-set(experimental_example_python_source_files
-    example/__init__.py
-    example/utils.py)
+file(GLOB_RECURSE experimental_example_python_source_files
+  example/*.py)
 
 
 ################################################################################
@@ -23,14 +21,14 @@ set(experimental_example_python_source_files
 ################################################################################
 
 gpu_cpp_library(
-    PREFIX
-        fbgemm_gpu_experimental_example_py
-    TYPE
-        SHARED
-    INCLUDE_DIRS
-        ${fbgemm_sources_include_directories}
-    GPU_SRCS
-        ${experimental_example_cpp_source_files})
+  PREFIX
+    fbgemm_gpu_experimental_example_py
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${experimental_example_cpp_source_files})
 
 
 ################################################################################
@@ -38,5 +36,5 @@ gpu_cpp_library(
 ################################################################################
 
 add_to_package(DESTINATION fbgemm_gpu/experimental/example
-    TARGETS fbgemm_gpu_experimental_example_py
-    FILES ${experimental_example_python_source_files})
+  TARGETS fbgemm_gpu_experimental_example_py
+  FILES ${experimental_example_python_source_files})

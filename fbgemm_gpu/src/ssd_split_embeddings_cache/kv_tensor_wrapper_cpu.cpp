@@ -6,7 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/ATen.h>
 #include <ATen/core/op_registration/op_registration.h>
 #include <c10/core/ScalarTypeToTypeMeta.h>
 #include <torch/library.h>
@@ -46,7 +45,7 @@ at::Tensor KVTensorWrapper::narrow(
     [[maybe_unused]] int64_t start,
     [[maybe_unused]] int64_t length) {
   FBEXCEPTION("Not implemented");
-  return at::empty(c10::IntArrayRef({1, 1}), options_);
+  return {};
 }
 
 void KVTensorWrapper::set_range(

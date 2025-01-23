@@ -241,7 +241,7 @@ class QuantizedCommCodec:
                 group_size = MX_GROUP_SIZE_DEFAULT
             assert (
                 input_len % group_size == 0
-            ), f"input_len {input_len} needs to be multiple of group_size 32"
+            ), f"input_len {input_len} needs to be multiple of group_size {group_size}"
             # quantized output size = half input size + number of groups (shared exp)
             ctx = none_throws(ctx)
             return (input_len // 2) + (input_len // ctx.mx_group_size)

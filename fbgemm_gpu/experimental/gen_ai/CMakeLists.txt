@@ -42,8 +42,7 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
 
 # Python sources
 file(GLOB_RECURSE experimental_gen_ai_python_source_files
-  RELATIVE gen_ai
-  *.py)
+  gen_ai/*.py)
 
 
 ################################################################################
@@ -52,7 +51,7 @@ file(GLOB_RECURSE experimental_gen_ai_python_source_files
 
 gpu_cpp_library(
   PREFIX
-    fbgemm_gpu_experimental_gen_ai_py
+    fbgemm_gpu_experimental_gen_ai
   TYPE
     SHARED
   INCLUDE_DIRS
@@ -72,5 +71,5 @@ gpu_cpp_library(
 
 add_to_package(
   DESTINATION fbgemm_gpu/experimental/gen_ai
-  TARGETS fbgemm_gpu_experimental_gen_ai_py
+  TARGETS fbgemm_gpu_experimental_gen_ai
   FILES ${experimental_gen_ai_python_source_files})
