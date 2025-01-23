@@ -28,6 +28,8 @@ struct TypeConverter {
   T operator()(F) const;
 };
 
+#define PMAT_ALIGNMENT 64
+
 /// class that performs packing of matrix in
 /// row-major format into
 /// internal packed blocked-row major format
@@ -96,6 +98,32 @@ class PackedGemmMatrixB {
     initializeMemory();
   }
 
+  PackedGemmMatrixB(
+      const int nrow,
+      const int ncol,
+      const int brow,
+      const int last_brow,
+      const int bcol,
+      const int nbrow,
+      const int nbcol,
+      const uint64_t size,
+      const int kernel_ncol_blocks,
+      const void* pmat)
+      : nrow_(nrow),
+        ncol_(ncol),
+        brow_(brow),
+        last_brow_(last_brow),
+        bcol_(bcol),
+        nbrow_(nbrow),
+        nbcol_(nbcol),
+        size_(size),
+        kernel_ncol_blocks_(kernel_ncol_blocks) {
+    pmat_ =
+        static_cast<T*>(fbgemmAlignedAlloc(PMAT_ALIGNMENT, size * sizeof(T)));
+    memcpy(pmat_, pmat, size * sizeof(T));
+    packed_ = true;
+  }
+
   void initializeParam() {
     if (!cpuinfo_initialize()) {
       throw std::runtime_error("Failed to initialize cpuinfo!");
@@ -132,7 +160,8 @@ class PackedGemmMatrixB {
   void initializeMemory() {
     // allocate and initialize packed memory
     size_ = (blockRowSize() * nbrow_) * (blockColSize() * nbcol_);
-    pmat_ = static_cast<T*>(fbgemmAlignedAlloc(64, matSize() * sizeof(T)));
+    pmat_ = static_cast<T*>(
+        fbgemmAlignedAlloc(PMAT_ALIGNMENT, matSize() * sizeof(T)));
     memset(pmat_, 0, matSize() * sizeof(T));
   }
 
