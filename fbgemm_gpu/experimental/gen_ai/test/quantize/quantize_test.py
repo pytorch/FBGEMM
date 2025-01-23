@@ -1110,6 +1110,30 @@ class FP8Tests(unittest.TestCase):
         torch.testing.assert_close(w.shape, wq.shape)
         torch.testing.assert_close(w_scale.shape, w_scale_ref.shape)
 
+    @unittest.skipIf(torch.version.hip, "Skip on AMD: fp8 lite op is yet suported.")
+    @settings(deadline=None)
+    @given(
+        M=st.sampled_from([1, 4]),
+        N=st.sampled_from([1024, 6144]),
+        K=st.sampled_from([512, 3584]),
+        CudaGraph=st.sampled_from([True, False]),
+    )
+    def test_fp8_lite_matmul(self, M: int, N: int, K: int, CudaGraph: bool) -> None:
+        x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
+        w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+        if CudaGraph:
+            zq = torch.ops.fbgemm.f8f8bf16_lite(xq, wq, x_scale * w_scale)
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                zq = torch.ops.fbgemm.f8f8bf16_lite(xq, wq, x_scale * w_scale)
+            g.replay()
+        else:
+            zq = torch.ops.fbgemm.f8f8bf16_lite(xq, wq, x_scale * w_scale)
+        zq_ref = (x @ w.T).to(torch.bfloat16)
+        torch.testing.assert_close(zq, zq_ref, atol=9.0e-2, rtol=9.0e-2)
+
 
 if __name__ == "__main__":
     unittest.main()
