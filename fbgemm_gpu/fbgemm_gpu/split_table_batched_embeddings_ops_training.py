@@ -3373,8 +3373,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if force_cast_input_types:
-            # Force casting indices and offsets to long
-            (indices, offsets) = indices.long(), offsets.long()
+            # NOTE: Force offsets to have the same dtype as indices since the
+            # kernels assume same dtype.  We might need to revisit the assumption
+            # of same dtypes in the future.
+            offsets = offsets.to(dtype=indices.dtype)
 
             # Force casting per_sample_weights to float
             if per_sample_weights is not None:
@@ -3731,7 +3733,11 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets, batch_size_per_feature_per_rank
         )
 
-        (indices, offsets) = indices.long(), offsets.long()
+        # NOTE: Force offsets to have the same dtype as indices since the
+        # kernels assume same dtype.  We might need to revisit the assumption
+        # of same dtypes in the future.
+        offsets = offsets.to(dtype=indices.dtype)
+
         # Force casting per_sample_weights to float
         if per_sample_weights is not None:
             per_sample_weights = per_sample_weights.float()
