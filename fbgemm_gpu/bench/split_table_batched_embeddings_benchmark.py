@@ -142,6 +142,7 @@ def cli() -> None:
 @click.option("--flush-gpu-cache-size-mb", default=0)
 @click.option("--dense", is_flag=True, default=False)
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
+@click.option("--indices-dtype", type=click.Choice(["32", "64"]), default="64")
 @click.option("--requests_data_file", type=str, default=None)
 @click.option("--tables", type=str, default=None)
 @click.option("--export-trace", is_flag=True, default=False)
@@ -189,6 +190,7 @@ def device(  # noqa C901
     flush_gpu_cache_size_mb: int,
     dense: bool,
     output_dtype: SparseType,
+    indices_dtype: str,
     requests_data_file: Optional[str],
     tables: Optional[str],
     export_trace: bool,
@@ -201,6 +203,9 @@ def device(  # noqa C901
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
     num_requests = iters if num_requests == -1 else num_requests
+    indices_dtype_torch: torch.dtype = (
+        torch.int32 if int(indices_dtype) == 32 else torch.int64
+    )
     np.random.seed(42)
     torch.manual_seed(42)
     B = batch_size
@@ -378,8 +383,8 @@ def device(  # noqa C901
         time_per_iter = benchmark_requests(
             requests,
             lambda indices, offsets, per_sample_weights: emb.forward(
-                indices,
-                offsets,
+                indices.to(dtype=indices_dtype_torch),
+                offsets.to(dtype=indices_dtype_torch),
                 per_sample_weights,
                 feature_requires_grad=feature_requires_grad,
             ),
@@ -411,8 +416,8 @@ def device(  # noqa C901
         time_per_iter = benchmark_requests(
             requests,
             lambda indices, offsets, per_sample_weights: emb(
-                indices,
-                offsets,
+                indices.to(dtype=indices_dtype_torch),
+                offsets.to(dtype=indices_dtype_torch),
                 per_sample_weights,
                 feature_requires_grad=feature_requires_grad,
             ),
