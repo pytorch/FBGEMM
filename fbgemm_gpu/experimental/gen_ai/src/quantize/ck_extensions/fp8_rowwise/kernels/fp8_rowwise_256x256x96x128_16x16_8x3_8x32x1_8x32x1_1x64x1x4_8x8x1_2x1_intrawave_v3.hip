@@ -9,7 +9,7 @@
 #include "fp8_rowwise_common.h"
 
 at::Tensor
-fp8_rowwise_256x128x160x128_32x32_1x5_8x32x1_8x32x1_1x64x1x4_8x8x1_1x1_intrawave_v3(
+fp8_rowwise_256x256x96x128_16x16_8x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -17,18 +17,18 @@ fp8_rowwise_256x128x160x128_32x32_1x5_8x32x1_8x32x1_1x64x1x4_8x8x1_1x1_intrawave
     at::Tensor Y) {
   using DeviceGemmInstance = DeviceGemmHelper<
       256,
+      256,
+      96,
       128,
-      160,
-      128,
-      32,
-      32,
-      1,
-      5,
+      16,
+      16,
+      8,
+      3,
       S<8, 32, 1>,
       S<8, 32, 1>,
       S<1, 64, 1, 4>,
       S<8, 8, 1>,
-      1,
+      2,
       1,
       ck::BlockGemmPipelineScheduler::Intrawave,
       ck::BlockGemmPipelineVersion::v3,
