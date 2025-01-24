@@ -3818,8 +3818,10 @@
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">force_cast_input_types</span><span class="p">:</span>
-            <span class="c1"># Force casting indices and offsets to long</span>
-            <span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">offsets</span><span class="o">.</span><span class="n">long</span><span class="p">()</span>
+            <span class="c1"># NOTE: Force offsets to have the same dtype as indices since the</span>
+            <span class="c1"># kernels assume same dtype.  We might need to revisit the assumption</span>
+            <span class="c1"># of same dtypes in the future.</span>
+            <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
             <span class="c1"># Force casting per_sample_weights to float</span>
             <span class="k">if</span> <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -4176,7 +4178,11 @@
             <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
         <span class="p">)</span>
 
-        <span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">offsets</span><span class="o">.</span><span class="n">long</span><span class="p">()</span>
+        <span class="c1"># NOTE: Force offsets to have the same dtype as indices since the</span>
+        <span class="c1"># kernels assume same dtype.  We might need to revisit the assumption</span>
+        <span class="c1"># of same dtypes in the future.</span>
+        <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
         <span class="c1"># Force casting per_sample_weights to float</span>
         <span class="k">if</span> <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">per_sample_weights</span> <span class="o">=</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>
