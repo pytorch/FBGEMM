@@ -494,6 +494,12 @@
     <span class="n">generate_vbe_metadata</span><span class="p">,</span>
     <span class="n">is_torchdynamo_compiling</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.tbe_input_multiplexer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">TBEInfo</span><span class="p">,</span>
+    <span class="n">TBEInputInfo</span><span class="p">,</span>
+    <span class="n">TBEInputMultiplexer</span><span class="p">,</span>
+    <span class="n">TBEInputMultiplexerConfig</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.utils.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
 
@@ -1092,6 +1098,7 @@
         <span class="n">global_weight_decay</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">GlobalWeightDecayDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">extra_optimizer_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">UserEnabledConfigDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">tbe_input_multiplexer_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEInputMultiplexerConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
 
@@ -1264,6 +1271,23 @@
 
         <span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">feature_table_map</span> <span class="k">if</span> <span class="n">feature_table_map</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">T_</span><span class="p">))</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">tbe_input_multiplexer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEInputMultiplexer</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">tbe_input_multiplexer_config</span><span class="o">.</span><span class="n">create_tbe_input_multiplexer</span><span class="p">(</span>
+                <span class="n">tbe_info</span><span class="o">=</span><span class="n">TBEInfo</span><span class="p">(</span>
+                    <span class="n">table_names</span><span class="o">=</span><span class="p">(</span>
+                        <span class="n">table_names</span>
+                        <span class="k">if</span> <span class="n">table_names</span>
+                        <span class="k">else</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;table-</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">embedding_specs</span><span class="p">))]</span>
+                    <span class="p">),</span>
+                    <span class="n">table_heights</span><span class="o">=</span><span class="n">rows</span><span class="p">,</span>
+                    <span class="n">tbe_uuid</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
+                    <span class="n">feature_table_map</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">tbe_input_multiplexer_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
         <span class="n">T</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">T_</span> <span class="o">&lt;=</span> <span class="n">T</span>
@@ -2233,6 +2257,15 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">step</span> <span class="o">+=</span> <span class="mi">1</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;fwd_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_report_tbe_mem_usage</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">tbe_input_multiplexer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">tbe_input_multiplexer</span><span class="p">:</span> <span class="n">TBEInputMultiplexer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tbe_input_multiplexer</span>
+                <span class="k">if</span> <span class="n">tbe_input_multiplexer</span><span class="o">.</span><span class="n">should_run</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">):</span>
+                    <span class="n">tbe_input_multiplexer</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+                        <span class="n">tbe_input_info</span><span class="o">=</span><span class="n">TBEInputInfo</span><span class="p">(</span>
+                            <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
 
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="c1"># In forward, we don&#39;t enable multi-pass prefetch as we want the process</span>
