@@ -49,6 +49,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
     is_torchdynamo_compiling,
 )
+from fbgemm_gpu.tbe_input_multiplexer import (
+    TBEInfo,
+    TBEInputInfo,
+    TBEInputMultiplexer,
+    TBEInputMultiplexerConfig,
+)
 
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
@@ -647,6 +653,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         global_weight_decay: Optional[GlobalWeightDecayDefinition] = None,
         uvm_host_mapped: bool = False,
         extra_optimizer_config: Optional[UserEnabledConfigDefinition] = None,
+        tbe_input_multiplexer_config: Optional[TBEInputMultiplexerConfig] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -819,6 +826,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
+        )
+
+        self.tbe_input_multiplexer: Optional[TBEInputMultiplexer] = (
+            tbe_input_multiplexer_config.create_tbe_input_multiplexer(
+                tbe_info=TBEInfo(
+                    table_names=(
+                        table_names
+                        if table_names
+                        else [f"table-{i}" for i in range(len(embedding_specs))]
+                    ),
+                    table_heights=rows,
+                    tbe_uuid=self.uuid,
+                    feature_table_map=self.feature_table_map,
+                )
+            )
+            if tbe_input_multiplexer_config is not None
+            else None
         )
         T = len(self.feature_table_map)
         assert T_ <= T
@@ -1788,6 +1812,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.step += 1
             self._report_io_size_count("fwd_input", indices)
             self._report_tbe_mem_usage()
+
+            if self.tbe_input_multiplexer is not None:
+                tbe_input_multiplexer: TBEInputMultiplexer = self.tbe_input_multiplexer
+                if tbe_input_multiplexer.should_run(self.step):
+                    tbe_input_multiplexer.run(
+                        tbe_input_info=TBEInputInfo(
+                            indices, offsets, batch_size_per_feature_per_rank
+                        )
+                    )
 
         if len(self.timesteps_prefetched) == 0:
             # In forward, we don't enable multi-pass prefetch as we want the process
