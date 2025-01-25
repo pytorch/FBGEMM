@@ -9,16 +9,31 @@
 #pragma once
 
 #include <ATen/ATen.h>
+
 #include <cuda.h>
+
+#ifdef __HIP_PLATFORM_AMD__
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <ATen/cuda/PhiloxUtils.cuh>
+
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h> // @manual
+#else
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
+#endif
 #include <cassert>
 
 namespace {
 
 inline int get_device_sm_cnt_() {
+#ifdef __HIP_PLATFORM_AMD__
+  hipDeviceProp_t deviceProp;
+  hipGetDeviceProperties(&deviceProp, c10::hip::current_device());
+  return deviceProp.multiProcessorCount;
+#else
   cudaDeviceProp* deviceProp =
       at::cuda::getDeviceProperties(c10::cuda::current_device());
   return deviceProp->multiProcessorCount;
+#endif
 }
 
 } // namespace
