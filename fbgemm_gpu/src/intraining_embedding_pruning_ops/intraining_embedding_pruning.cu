@@ -743,7 +743,8 @@ Tensor remap_indices_update_utils_cuda(
     // frequencies which are used for updating row_util. Since row_util is used
     // during pruning, updating row_util with the distorted value frequencies
     // can affect training accuracy.
-    const std::optional<std::vector<Tensor>>& full_values_list) {
+    const std::optional<std::vector<Tensor>>& full_values_list,
+    const std::optional<bool>& update_util) {
   // buffer_idx, feature_lengths, feature_offsets are placed on CPU.
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       values, address_lookup, row_util, buffer_offsets);
@@ -769,10 +770,10 @@ Tensor remap_indices_update_utils_cuda(
 
   const auto use_gdt = full_values_list.has_value();
   const int32_t num_features = feature_lengths.numel();
-  // TODO: Remove redudant update_utils
-  // Iter 0-9 update every iter; afterwards mod 19 until 100; afterwards mod 39
-  const bool update_utils = (iter < 10) ||
-      (iter < 100 && (iter + 1) % 19 == 0) || ((iter + 1) % 39 == 0);
+  const bool update_util_value = update_util.has_value()
+      ? update_util.value()
+      : ((iter < 10) || (iter < 100 && (iter + 1) % 19 == 0) ||
+         ((iter + 1) % 39 == 0));
 
   AT_DISPATCH_INDEX_TYPES(
       values.scalar_type(), "remap_indices_update_utils_cuda", [&] {
@@ -784,7 +785,7 @@ Tensor remap_indices_update_utils_cuda(
             continue;
           }
 
-          if (update_utils) {
+          if (update_util_value) {
             const Tensor& full_values =
                 use_gdt ? full_values_list.value()[i] : values;
             const index_t full_start = use_gdt ? 0 : start;
