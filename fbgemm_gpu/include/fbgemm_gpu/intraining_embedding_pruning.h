@@ -45,6 +45,7 @@ Tensor remap_indices_update_utils_cuda(
     const Tensor& address_lookup,
     Tensor& row_util,
     const Tensor& buffer_offsets,
-    const std::optional<std::vector<Tensor>>& full_values_list);
+    const std::optional<std::vector<Tensor>>& full_values_list,
+    const std::optional<bool>& update_util);
 
 } // namespace fbgemm_gpu
