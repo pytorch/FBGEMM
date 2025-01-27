@@ -1,29 +1,9 @@
 load("@fbcode_macros//build_defs:gpu_cpp_library.bzl", "gpu_cpp_library")
 load("@fbcode_macros//build_defs:python_library.bzl", "python_library")
-load("//caffe2/caffe2/fb:defs_gpu.bzl", "gpu_library_selector")
+load("//deeplearning/fbgemm/fbgemm_gpu:build_utils.bzl", "hard_alias_select")
 load("//tools/build/buck:nvcc_flags.bzl", "get_nvcc_arch_args")
 
 oncall("fbgemm_dev")
-
-python_library(
-    # @autodeps-skip
-    name = "fused_moe",
-    srcs = ["fused_moe.py"],
-    base_module = "fbgemm_gpu.experimental.gen_ai.fb.src.moe",
-    typing = True,
-    deps = [
-        ":fused_moe_ops",
-        "//caffe2:torch",
-        "//triton:triton",  # @manual
-    ],
-)
-
-gpu_library_selector(
-    name = "fused_moe_ops",
-    deps_gpu = [":fused_moe_ops_gpu"],
-    exclude_hip_target = False,
-    supports_python_dlopen = True,
-)
 
 gpu_cpp_library(
     # @autodeps-skip
@@ -55,5 +35,23 @@ gpu_cpp_library(
         ("cuda", None, "cublas-lazy"),
         ("cuda", None, "cublasLt-lazy"),
         ("cub", None, "cub"),
+    ],
+)
+
+hard_alias_select(
+    name = "fused_moe_ops",
+    deps_gpu = [":fused_moe_ops_gpu"],
+)
+
+python_library(
+    # @autodeps-skip
+    name = "fused_moe",
+    srcs = ["fused_moe.py"],
+    base_module = "fbgemm_gpu.experimental.gen_ai.fb.src.moe",
+    typing = True,
+    deps = [
+        ":fused_moe_ops",
+        "//caffe2:torch",
+        "//triton:triton",  # @manual
     ],
 )
