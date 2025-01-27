@@ -23,6 +23,15 @@ float fused_moegemm_(const ck_tile::stream_config& s, fused_moegemm_args a) {
       typename Ts_::BlockTile_1,
       typename Ts_::WarpPerBlock_0,
       typename Ts_::WarpTile_0>;
+
+  constexpr auto get_activation_ = []() {
+    if constexpr (Ts_::Activation == 0) {
+      return ck_tile::element_wise::FastGeluAsm{};
+    } else
+      return ck_tile::element_wise::Silu{};
+  };
+  using f_act_ = ck_tile::remove_cvref_t<decltype(get_activation_())>;
+
   using f_problem = ck_tile::FusedMoeGemmPipelineProblem<
       typename Ts_::ADataType,
       typename Ts_::GDataType,
@@ -35,7 +44,7 @@ float fused_moegemm_(const ck_tile::stream_config& s, fused_moegemm_args a) {
       typename Ts_::YSmoothScaleDataType,
       typename Ts_::TopkWeightDataType,
       typename Ts_::IndexDataType,
-      ck_tile::element_wise::FastGeluAsm, // TODO: hardcoded
+      f_act_, // TODO: hardcoded
       f_shape,
       f_traits>;
 
