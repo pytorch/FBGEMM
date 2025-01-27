@@ -1083,7 +1083,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     {%- else %}
     const c10::SymInt vbe_output_size = -1,
     {%- endif %}
-    const bool mixed_D = true
+    const bool mixed_D = false
 ) {
   // TODO: refactor into macro
   {%- if has_gpu_support %}
@@ -1200,7 +1200,7 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    Tensor[]? ssd_tensors=None,"
           {%- endif %}
           "   float gwd_lower_bound=0, "
-          "   bool mixed_D=True"
+          "   bool mixed_D=False"
           ") -> Tensor",
           {PT2_COMPLIANT_TAG});
 
