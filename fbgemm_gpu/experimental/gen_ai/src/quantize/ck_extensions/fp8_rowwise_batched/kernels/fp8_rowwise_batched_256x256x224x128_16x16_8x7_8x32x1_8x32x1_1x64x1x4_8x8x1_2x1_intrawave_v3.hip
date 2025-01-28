@@ -15,55 +15,25 @@ fp8_rowwise_batched_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_i
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
-  // Check if this input needs to be padded.
-  int M = XQ.size(1);
-  int N = WQ.size(1);
-  int K = WQ.size(2);
-  bool pad = (M % 256 != 0) || (N % 224 != 0) || (K % 128 != 0);
-
-  // This kernel seems optimal in the most purely compute bound tasks.
-  if (pad) {
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        256,
-        224,
-        128,
-        16,
-        16,
-        8,
-        7,
-        S<8, 32, 1>,
-        S<8, 32, 1>,
-        S<1, 64, 1, 4>,
-        S<8, 8, 1>,
-        2,
-        1,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_batched_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, Y);
-  } else {
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        256,
-        224,
-        128,
-        16,
-        16,
-        8,
-        7,
-        S<8, 32, 1>,
-        S<8, 32, 1>,
-        S<1, 64, 1, 4>,
-        S<8, 8, 1>,
-        2,
-        1,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3,
-        ck::tensor_operation::device::GemmSpecialization::Default>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_batched_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, Y);
-  }
+  using DeviceGemmInstance = DeviceGemmHelper<
+      256,
+      256,
+      224,
+      128,
+      16,
+      16,
+      8,
+      7,
+      S<8, 32, 1>,
+      S<8, 32, 1>,
+      S<1, 64, 1, 4>,
+      S<8, 8, 1>,
+      2,
+      1,
+      ck::BlockGemmPipelineScheduler::Intrawave,
+      ck::BlockGemmPipelineVersion::v3,
+      ck::tensor_operation::device::GemmSpecialization::Default>;
+  // Run kernel instance.
+  return f8f8bf16_rowwise_batched_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
 }
+

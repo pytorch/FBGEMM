@@ -9,29 +9,29 @@
 #include "fp8_rowwise_batched_common.h"
 
 at::Tensor
-fp8_rowwise_batched_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v5(
+fp8_rowwise_batched_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
   using DeviceGemmInstance = DeviceGemmHelper<
+      128,
+      16,
+      32,
       256,
-      128,
-      128,
-      128,
-      32,
-      32,
-      2,
-      2,
-      S<8, 32, 1>,
-      S<8, 32, 1>,
-      S<1, 32, 1, 8>,
-      S<8, 8, 1>,
+      16,
+      16,
       1,
       1,
-      ck::BlockGemmPipelineScheduler::Intrawave,
-      ck::BlockGemmPipelineVersion::v5,
+      S<16, 8, 1>,
+      S<16, 8, 1>,
+      S<1, 16, 1, 8>,
+      S<4, 4, 1>,
+      1,
+      1,
+      ck::BlockGemmPipelineScheduler::Interwave,
+      ck::BlockGemmPipelineVersion::v1,
       ck::tensor_operation::device::GemmSpecialization::Default>;
   // Run kernel instance.
   return f8f8bf16_rowwise_batched_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
