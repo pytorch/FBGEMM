@@ -2301,6 +2301,7 @@ def _kernel_quantize_fp8_row(
     A_scale,
     A_fp8,
     scale_ub,
+    zero_start_index_M,
     B,
     M,
     N,
@@ -2313,10 +2314,14 @@ def _kernel_quantize_fp8_row(
     stride_om,
     stride_on,
     stride_ok,
+    stride_zb,
+    stride_zm,
+    stride_zn,
     TL_FP8_DTYPE: tl.constexpr,
     MAX_FP8: tl.constexpr,
     EPS: tl.constexpr,
     CLAMP_MAX: tl.constexpr,
+    JAGGED: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
     USE_INT64: tl.constexpr,
 ) -> None:
@@ -2347,10 +2352,14 @@ def _kernel_quantize_fp8_row(
         stride_om (int): Stride of m dimension of output.
         stride_on (int): Stride of n dimension of output.
         stride_ok (int): Stride of k dimension of output.
+        stride_zb (int): Stride of b dimension of jagged index.
+        stride_zm (int): Stride of m dimension of jagged index.
+        stride_zn (int): Stride of n dimension of jagged index.
         TL_FP8_DTYPE (tl.dtype): Target fp8 datatype.
         MAX_FP8 (float): Maxmimum expressible value for FP8.
         EPS (float): Epsilon value for numerical stability.
         CLAMP_MAX (bool): Whethar to apply scale_ub.
+        JAGGED (bool): Whether to use jagged indexing.
         BLOCK_SIZE (int): Block size for reduction.
         USE_INT64 (bool): Whether to use int64 indexing for large inputs.
     """
@@ -2371,11 +2380,25 @@ def _kernel_quantize_fp8_row(
         + (pid % (M * N)) % N * stride_on
     )
 
+    if JAGGED:
+        z_offset_base = (
+            pid // (M * N) * stride_zb
+            + (pid % (M * N)) // N * stride_zm
+            + (pid % (M * N)) % N * stride_zn
+        )
+        row_size = tl.load(zero_start_index_M + z_offset_base)
+    else:
+        row_size = K
+
+    blocks = tl.cdiv(row_size, BLOCK_SIZE)
+
     # Calculate max.
     cur_max = 0.0
-    for _k in range(0, tl.cdiv(K, BLOCK_SIZE)):
+    for _k in range(0, blocks):
         a = tl.load(
-            A + a_offset_base + n_offset * stride_ak, mask=n_offset < K, other=0.0
+            A + a_offset_base + n_offset * stride_ak,
+            mask=n_offset < row_size,
+            other=0.0,
         )
         tile_max = tl.max(tl.abs(a))
         cur_max = tl.maximum(tile_max, cur_max)
@@ -2394,7 +2417,9 @@ def _kernel_quantize_fp8_row(
 
     for _k in range(0, tl.cdiv(K, BLOCK_SIZE)):
         a = tl.load(
-            A + a_offset_base + n_offset * stride_ak, mask=n_offset < K, other=0.0
+            A + a_offset_base + n_offset * stride_ak,
+            mask=n_offset < row_size,
+            other=0.0,
         )
         a_fp8 = a * a_scale
         # Clamp A to fp8 range to make sure there's no overflow.
@@ -2403,13 +2428,17 @@ def _kernel_quantize_fp8_row(
         a_fp8 = tl.clamp(a_fp8, -MAX_FP8, MAX_FP8)
         a_fp8.to(TL_FP8_DTYPE)
         tl.store(
-            A_fp8 + a_fp8_offset_base + n_offset * stride_ok, a_fp8, mask=n_offset < K
+            A_fp8 + a_fp8_offset_base + n_offset * stride_ok,
+            a_fp8,
+            mask=n_offset < K,
         )
         n_offset += BLOCK_SIZE
 
 
 def triton_quantize_fp8_row(
-    a: Tensor, scale_ub: Optional[Tensor] = None
+    a: Tensor,
+    scale_ub: Optional[Tensor] = None,
+    zero_start_index_M: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor]:
     """
     Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
@@ -2417,6 +2446,7 @@ def triton_quantize_fp8_row(
     Args:
         a (Tensor): higher precision input tensor of 4 dimension.
         scale_ub (Tensor): Maximum allowed value for scale.
+        zero_start_index_M (Tensor): Indicates number of nonzero elements in each row.
 
     Returns:
         torch.Tensor: fp8 scaled tensor.
@@ -2436,6 +2466,7 @@ def triton_quantize_fp8_row(
         a_scale,
         a_fp8,
         scale_ub,
+        zero_start_index_M,
         a.shape[0],
         a.shape[1],
         a.shape[2],
@@ -2448,20 +2479,25 @@ def triton_quantize_fp8_row(
         a_fp8.stride(1),
         a_fp8.stride(2),
         a_fp8.stride(3),
+        zero_start_index_M.stride(0) if zero_start_index_M is not None else None,
+        zero_start_index_M.stride(1) if zero_start_index_M is not None else None,
+        zero_start_index_M.stride(2) if zero_start_index_M is not None else None,
         TL_FP8_DTYPE=tl_dtype,
         MAX_FP8=max_fp8,
         EPS=eps,
         CLAMP_MAX=scale_ub is not None,
+        JAGGED=zero_start_index_M is not None,
         USE_INT64=use_int64,
     )
 
-    return a_fp8, a_scale.view(a.shape[:-1])
+    return a_fp8, a_scale
 
 
 @torch.library.custom_op("triton::quantize_fp8_row", mutates_args=())
 def quantize_fp8_row(
     a: Tensor,
     scale_ub: Optional[Tensor] = None,
+    zero_start_index_M: Optional[Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -2471,6 +2507,7 @@ def quantize_fp8_row(
     Args:
         a (Tensor): Input high precision tensor. Required to have no more than 4 dimension
         scale_ub (Tensor): Maximum allowed value for scale.
+        zero_start_index_M (Tensor): Indicates number of nonzero elements in each row.
         use_triton (bool): Whether to use triton kernel or pytorch.
         output_device (torch.device): Device to optionally move the scaled tensors to.
 
@@ -2489,8 +2526,11 @@ def quantize_fp8_row(
         a_shape = a.shape
         while a.dim() < 4:
             a = a.unsqueeze(0)
-        a_fp8, a_scale = triton_quantize_fp8_row(a, scale_ub)
-        return a_fp8.view(a_shape), a_scale
+        if zero_start_index_M is not None:
+            while zero_start_index_M.dim() < 3:
+                zero_start_index_M = zero_start_index_M.unsqueeze(0)
+        a_fp8, a_scale = triton_quantize_fp8_row(a, scale_ub, zero_start_index_M)
+        return a_fp8.view(a_shape), a_scale.view(a_shape[:-1])
     # else use pytorch implementation.
     if not output_device:
         output_device = a.device
@@ -2513,7 +2553,7 @@ def quantize_fp8_row(
     a_fp8 = a_fp8.to(device=output_device, dtype=pt_dtype)
     a_scale = a_scale.to(output_device)  # pyre-ignore
     del a
-    return a_fp8, (1 / a_scale).view(a_shape.shape[:-1])  # pyre-ignore
+    return a_fp8, (1 / a_scale).view(a_shape[:-1])  # pyre-ignore
 
 
 @quantize_fp8_row.register_fake
