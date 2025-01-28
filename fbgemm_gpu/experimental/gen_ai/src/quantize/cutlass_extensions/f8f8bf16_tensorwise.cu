@@ -110,8 +110,7 @@ at::Tensor f8f8bf16_tensorwise_impl(
       cute::conditional_t<PONG, FastPongSchedule, FastDefaultSchedule>;
   using CooperativeEpilogueSchedule =
       cutlass::epilogue::TmaWarpSpecializedCooperative;
-  using PongEpilogueSchedule =
-      cutlass::epilogue::TmaWarpSpecialized;
+  using PongEpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
   using MainLoopSchedule =
       cute::conditional_t<FAST_ACCUM, FastAccum, SlowAccum>;
   using EpilogueSchedule = cute::
