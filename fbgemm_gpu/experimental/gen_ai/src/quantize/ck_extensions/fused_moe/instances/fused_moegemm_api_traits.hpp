@@ -18,6 +18,7 @@ template <
     typename BlockTIle_, // seq<b_token, b_interm, b_hidden, b_down>
     typename WarpPerBlock_,
     typename WarpTile_, // seq<*,*,*>, used to select mfma
+    ck_tile::index_t Activation_ = 0, // 0: Gelu 1: Silu
     ck_tile::index_t GateOnly_ = 0,
     ck_tile::index_t FusedQuant_ = 0>
 struct fmoe_ // traits, ugly name, only used for internal
@@ -55,10 +56,11 @@ struct fmoe_ // traits, ugly name, only used for internal
   using WarpPerBlock_0 = ck_tile::remove_cvref_t<WarpPerBlock_>;
   using WarpTile_0 = ck_tile::remove_cvref_t<WarpTile_>;
 
-  using BlockTile_1 = ck_tile::sequence<BT_, BD_, BI_ / (GateOnly_ ? 1 : 2)>;
+  using BlockTile_1 = ck_tile::sequence<BT_, BD_, BI_>;
   using WarpPerBlock_1 = ck_tile::remove_cvref_t<WarpPerBlock_>;
   using WarpTile_1 = ck_tile::remove_cvref_t<WarpTile_>;
 
+  static constexpr ck_tile::index_t Activation = Activation_; // 0: Gelu 1: Silu
   static constexpr ck_tile::index_t GateOnly = GateOnly_;
   static constexpr ck_tile::index_t FusedQuant = FusedQuant_;
 };

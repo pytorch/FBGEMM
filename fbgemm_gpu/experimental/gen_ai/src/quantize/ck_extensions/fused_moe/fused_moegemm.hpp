@@ -99,7 +99,8 @@ struct fused_moegemm_traits {
   std::string prec_sq; // smooth quant scale
   std::string prec_kw; // topk-weight data type
   int block_m;
-  int gate_only;
+  int activation; // 0:gelu, 1:silu
+  int gate_only; // 0:g1u0, 1:g1u1
   int fused_quant; // 0:no-sweep, 1:smooth-dynamic-quant, 2:dynamic-quant
 };
 

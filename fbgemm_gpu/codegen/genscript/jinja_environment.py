@@ -331,8 +331,7 @@ def compute_global_weight_decay(is_global_weight_decay_kernel: bool) -> str:
     if is_global_weight_decay_kernel:
         return """
         const auto prev_iter = prev_iter_dev[linear_index];
-        CUDA_KERNEL_ASSERT(prev_iter < iter);
-        const auto global_weight_decay = prev_iter == 0 ? 1 : max(gwd_lower_bound, powf(weight_decay_base, iter - prev_iter - 1));
+        const auto global_weight_decay = prev_iter == 0 ? 1 : max(gwd_lower_bound, powf(weight_decay_base, max(iter - prev_iter - 1, 0.0f)));
         if (threadIdx.x == 0) {
             prev_iter_dev[linear_index] = iter;
         }
