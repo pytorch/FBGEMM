@@ -209,8 +209,9 @@ function(gpu_cpp_library)
 
     if(USE_ROCM)
         if(lib_sources)
-            # Fetch the equivalent HIPified sources if available.
-            # This presumes that `hipify()` has already been run.
+            # Fetch the equivalent HIPified sources if available.  The mapping
+            # is provided by a table that is generated during transpilation
+            # process, so this presumes that `hipify()` has already been run.
             #
             # This code is placed under an if-guard so that it won't fail for
             # targets that have nothing to do with HIP, e.g. asmjit
