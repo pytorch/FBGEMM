@@ -49,6 +49,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
     is_torchdynamo_compiling,
 )
+from fbgemm_gpu.tbe_input_multiplexer import (
+    TBEInfo,
+    TBEInputInfo,
+    TBEInputMultiplexer,
+    TBEInputMultiplexerConfig,
+)
 
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
@@ -647,6 +653,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         global_weight_decay: Optional[GlobalWeightDecayDefinition] = None,
         uvm_host_mapped: bool = False,
         extra_optimizer_config: Optional[UserEnabledConfigDefinition] = None,
+        tbe_input_multiplexer_config: Optional[TBEInputMultiplexerConfig] = None,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -761,7 +768,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 not mixed_D
             ), "OptimType.NONE does not support mixed embedding dimension"
 
-        self.mixed_D: bool = mixed_D
         if device is None:
             self.current_device: torch.device = (
                 torch.device("cpu")
@@ -820,6 +826,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
+        )
+
+        self.tbe_input_multiplexer: Optional[TBEInputMultiplexer] = (
+            tbe_input_multiplexer_config.create_tbe_input_multiplexer(
+                tbe_info=TBEInfo(
+                    table_names=(
+                        table_names
+                        if table_names
+                        else [f"table-{i}" for i in range(len(embedding_specs))]
+                    ),
+                    table_heights=rows,
+                    tbe_uuid=self.uuid,
+                    feature_table_map=self.feature_table_map,
+                )
+            )
+            if tbe_input_multiplexer_config is not None
+            else None
         )
         T = len(self.feature_table_map)
         assert T_ <= T
@@ -1790,6 +1813,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self._report_io_size_count("fwd_input", indices)
             self._report_tbe_mem_usage()
 
+            if self.tbe_input_multiplexer is not None:
+                tbe_input_multiplexer: TBEInputMultiplexer = self.tbe_input_multiplexer
+                if tbe_input_multiplexer.should_run(self.step):
+                    tbe_input_multiplexer.run(
+                        tbe_input_info=TBEInputInfo(
+                            indices, offsets, batch_size_per_feature_per_rank
+                        )
+                    )
+
         if len(self.timesteps_prefetched) == 0:
             # In forward, we don't enable multi-pass prefetch as we want the process
             # to be as fast as possible and memory usage doesn't matter (will be recycled
@@ -1853,7 +1885,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             is_experimental=self.is_experimental,
             use_uniq_cache_locations_bwd=self.use_uniq_cache_locations_bwd,
             use_homogeneous_placements=self.use_homogeneous_placements,
-            mixed_D=self.mixed_D,
         )
 
         if self.optimizer == OptimType.NONE:
@@ -3375,8 +3406,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         if force_cast_input_types:
-            # Force casting indices and offsets to long
-            (indices, offsets) = indices.long(), offsets.long()
+            # NOTE: Force offsets to have the same dtype as indices since the
+            # kernels assume same dtype.  We might need to revisit the assumption
+            # of same dtypes in the future.
+            offsets = offsets.to(dtype=indices.dtype)
 
             # Force casting per_sample_weights to float
             if per_sample_weights is not None:
@@ -3645,14 +3678,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         assert self.D_offsets.numel() == T + 1
 
-        mixed_D = False
-        D = dims[0]
-        for d in dims:
-            if d != D:
-                mixed_D = True
-                break
-        self.mixed_D: bool = mixed_D
-
         # Required for VBE
         self.register_buffer(
             "feature_dims",
@@ -3741,7 +3766,11 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets, batch_size_per_feature_per_rank
         )
 
-        (indices, offsets) = indices.long(), offsets.long()
+        # NOTE: Force offsets to have the same dtype as indices since the
+        # kernels assume same dtype.  We might need to revisit the assumption
+        # of same dtypes in the future.
+        offsets = offsets.to(dtype=indices.dtype)
+
         # Force casting per_sample_weights to float
         if per_sample_weights is not None:
             per_sample_weights = per_sample_weights.float()
@@ -3766,7 +3795,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_B=vbe_metadata.max_B,
             max_B_feature_rank=vbe_metadata.max_B_feature_rank,
             vbe_output_size=vbe_metadata.output_size,
-            mixed_D=self.mixed_D,
         )
 
     @torch.jit.export

@@ -165,8 +165,8 @@ using namespace fbgemm_gpu;
 {%- endmacro %}
 
 {#-/*
-    Splitted version of load_and_accumulate macro. This code chunk describes 
-    the weights load in forward kernel. Set up the WeightRow and load quantization 
+    Splitted version of load_and_accumulate macro. This code chunk describes
+    the weights load in forward kernel. Set up the WeightRow and load quantization
     parameters. Shortcut store for nobag mode.
 
     The main difference is in whether the slices are loaded from the embedding
@@ -242,7 +242,7 @@ using namespace fbgemm_gpu;
     {%- if not nobag %}
     // Iterate over the row in the weights table, in 4-element strides
     #pragma unroll kMaxVecsPerThread
-    for (int32_t i = 0; i < kMaxVecsPerThread; ++i) 
+    for (int32_t i = 0; i < kMaxVecsPerThread; ++i)
     {
         // Load the slice of the weights
         int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
@@ -270,9 +270,9 @@ using namespace fbgemm_gpu;
 {%- endmacro %}
 
 {#-/*
-    Splitted version of load_and_accumulate macro. This code chunk 
-    describes the weights accumulate step in the forward kernel. 
-    Accumulate the slices of values from the row. Does nothing for 
+    Splitted version of load_and_accumulate macro. This code chunk
+    describes the weights accumulate step in the forward kernel.
+    Accumulate the slices of values from the row. Does nothing for
     nobag mode assuming all the work is done in load() macro.
 
     The main difference is in whether the slices are loaded from the embedding
@@ -347,8 +347,7 @@ using namespace fbgemm_gpu;
         {%- if is_gwd_kernel %}
         // if l > L or prev_iter == 0, global_weight_decay = 1
         const auto prev_it = prev_iter[idx];
-        CUDA_KERNEL_ASSERT(prev_it < iter);
-        const auto global_weight_decay = (l > L || prev_it == 0) ? 1 : max(gwd_lower_bound, powf(weight_decay_base, iter - prev_it - 1));
+        const auto global_weight_decay = (l > L || prev_it == 0) ? 1 : max(gwd_lower_bound, powf(weight_decay_base, max(iter - prev_it - 1, 0.0f)));
         {%- endif %}
 
         {%- if weighted %}
@@ -358,14 +357,14 @@ using namespace fbgemm_gpu;
 
         {%- if is_rocm %}
         {%- if not nobag %}
-        rocm::Vec2T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];        
+        rocm::Vec2T<cache_t> vals[kManualUnrollLength * kMaxVecsPerThread];
         {%- endif %}
         // Iterate over kThreadGroupSize indices
-        for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength) 
+        for (auto outer_j = 0; outer_j < kThreadGroupSize && l_start + outer_j < L - L % kManualUnrollLength; outer_j += kManualUnrollLength)
         {
             {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
             // Load index from thread j in the group
-            [[maybe_unused]] int64_t idx_j_[kManualUnrollLength]; 
+            [[maybe_unused]] int64_t idx_j_[kManualUnrollLength];
             for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
                 idx_j_[inner_j] = SHFL_SYNC(idx, outer_j + inner_j);
@@ -373,7 +372,7 @@ using namespace fbgemm_gpu;
             {%- endif %}
             {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
             // Load cache's index from thread j in the group
-            [[maybe_unused]] int32_t {{ locs_or_addrs_idx }}_j_[kManualUnrollLength]; 
+            [[maybe_unused]] int32_t {{ locs_or_addrs_idx }}_j_[kManualUnrollLength];
             for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
                 {{ locs_or_addrs_idx }}_j_[inner_j] = use_lxu_cache ? SHFL_SYNC({{ locs_or_addrs_idx }}, outer_j + inner_j) : 0;
@@ -382,7 +381,7 @@ using namespace fbgemm_gpu;
 
 	        {%- if weighted %}
             // Load positional weight index from thread j in the group
-            at::acc_type<cache_t, true> idx_weight_j_[kManualUnrollLength]; 
+            at::acc_type<cache_t, true> idx_weight_j_[kManualUnrollLength];
             for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
                 idx_weight_j_[inner_j] = SHFL_SYNC(idx_weight, outer_j + inner_j);
@@ -390,7 +389,7 @@ using namespace fbgemm_gpu;
             {%- endif %}
 
 
-            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j) 
+            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
                 auto j = outer_j + inner_j;
                 {%- if is_index_select %}
@@ -447,7 +446,7 @@ using namespace fbgemm_gpu;
                 {#/**************************************************************/#}
             }
             {%- if not nobag %}
-            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j) 
+            for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
                 auto j = outer_j + inner_j;
 
@@ -507,7 +506,7 @@ using namespace fbgemm_gpu;
         {%- endif %}
 
         {%- if is_rocm %}
-        for(auto j = L - L % kManualUnrollLength; j < kThreadGroupSize && l_start + j < L; ++j) {
+        for(auto j = L % kThreadGroupSize - L % kManualUnrollLength; l_start + kThreadGroupSize > L &&  l_start + j < L; ++j) {
         {%- else %}
         // Iterate over kThreadGroupSize indices
         for (auto j = 0; j < kThreadGroupSize && l_start + j < L; ++j) {

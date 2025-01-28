@@ -62,6 +62,7 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    typename index_t,
     {%- for ph_name in args.placeholder_tensor_names %}
     typename {{ ph_name + "_ph_t"}},
     {%- endfor %}
@@ -90,7 +91,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     {%- if not nobag %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -341,6 +342,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
       emb_type,
       grad_type,
       cache_type,
+      index_type,
       ph_type_combo,
       kFixedMaxVecsPerThread,
       kThreadGroupSize,
@@ -358,6 +360,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
+  {{ index_type }},
   {%- for ph_name in args.placeholder_tensor_names %}
   {{ ph_type_combo[ph_name].primitive_type }},
   {%- endfor %}
@@ -381,7 +384,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     {%- if not nobag %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -441,17 +444,20 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
+    {%- for index_type in ['int32_t', 'int64_t'] %}
     {%- for ph_type_combo in args.placeholder_type_combos %}
         {{ template_instantiation(
             emb_type,
             grad_type,
             cache_type,
+            index_type,
             ph_type_combo,
             kFixedMaxVecsPerThread,
             kThreadGroupSize,
             kUseVecBlocking
           )
         }}
+    {%- endfor %}
     {%- endfor %}
     {%- endfor %}
     {%- endfor %}
@@ -533,6 +539,7 @@ template <
     typename emb_t,
     typename grad_t,
     typename cache_t,
+    typename index_t,
     int32_t kFixedMaxVecsPerThread,
     int32_t kThreadGroupSize,
     bool kUseVecBlocking,
@@ -556,7 +563,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     {%- if not nobag %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -652,6 +659,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
         emb_t,
         cache_t,
         grad_t,
+        index_t,
         BLOCK_SIZE,
         embedding_dim,
         segment_prefetch,
@@ -684,6 +692,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
       emb_type,
       grad_type,
       cache_type,
+      index_type,
       kFixedMaxVecsPerThread,
       kThreadGroupSize,
       kUseVecBlocking,
@@ -696,6 +705,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
 < {{ emb_type }},
   {{ grad_type }},
   {{ cache_type }},
+  {{ index_type }},
   {{ kFixedMaxVecsPerThread }},
   {{ kThreadGroupSize }},
   {{ kUseVecBlocking }},
@@ -718,7 +728,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     int64_t D,
     {%- endif %}
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> hash_size_cumsum,
-    const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
+    const pta::PackedTensorAccessor32<{{ index_type }}, 1, at::RestrictPtrTraits> sorted_linear_indices_run,
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_linear_indices_cumulative_run_lengths,
     {%- if not nobag %}
     const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> sorted_infos,
@@ -764,12 +774,14 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
     {%- for grad_type in ['float', 'at::Half', 'at::BFloat16'] %}
     {%- for emb_type in ['float', 'at::Half'] %}
     {%- for cache_type in ['float', 'at::Half'] %}
+    {%- for index_type in ['int32_t', 'int64_t'] %}
     {%- for kEmbeddingDim in [64, 128, 160, 192, 256] %}
     {%- for kWeighDecayMode in [0, 1, 2] %}
         {{ hip_template_instantiation(
             emb_type,
             grad_type,
             cache_type,
+            index_type,
             kFixedMaxVecsPerThread,
             kThreadGroupSize,
             kUseVecBlocking,
@@ -777,6 +789,7 @@ hip_split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vd
             kWeighDecayMode
           )
         }}
+    {%- endfor %}
     {%- endfor %}
     {%- endfor %}
     {%- endfor %}
