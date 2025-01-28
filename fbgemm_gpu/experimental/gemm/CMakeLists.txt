@@ -8,15 +8,15 @@
 # Target Sources
 ################################################################################
 
-set(experimental_triton_python_source_files
-    triton_gemm/__init__.py
-    triton_gemm/fp8_gemm.py
-    triton_gemm/matmul_perf_model.py)
+# Python sources
+file(GLOB_RECURSE experimental_triton_gemm_python_source_files
+  triton_gemm/*.py)
 
 
 ################################################################################
 # Install Python Files
 ################################################################################
 
-add_to_package(DESTINATION fbgemm_gpu/experimental/gemm/triton_gemm
-    FILES ${experimental_triton_python_source_files})
+add_to_package(
+  DESTINATION fbgemm_gpu/experimental/gemm/triton_gemm
+  FILES ${experimental_triton_gemm_python_source_files})

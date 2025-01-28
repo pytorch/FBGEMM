@@ -480,6 +480,10 @@ void one_shot_car_allreduce(
   TORCH_CHECK(y.numel() % 8 == 0);
   TORCH_CHECK(y.numel() < kMaxCAR);
   const auto N = y.numel();
+  if (N == 0) {
+    // no data to allreduce, return
+    return;
+  }
   if (z) {
     TORCH_CHECK(z->numel() == y.numel());
   }

@@ -24,6 +24,12 @@
 #include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
+#if FBGEMM_GPU_MEMCHECK
+#define FBGEMM_MEM_CHECK_ONLY
+#else
+#define FBGEMM_MEM_CHECK_ONLY maybe_unused
+#endif
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -40,7 +46,7 @@ struct half2float16<at::Half> {
 } // namespace internal
 
 namespace {
-template <typename scalar_t, typename grad_t>
+template <typename index_t, typename scalar_t, typename grad_t>
 void split_embedding_backward_exact_cpu_kernel(
     Tensor grad_output,
     Tensor host_weights,
@@ -87,14 +93,16 @@ for (const auto t : c10::irange(num_tables)) {
     int feature_begin = table_to_feature_offset[t];
     int64_t hash_size = get_hash_size(feature_begin);
 
+#ifdef FBGEMM_GPU_MEMCHECK
+    const auto func_name = "::internal::csr2csc";
+#endif
+    using weight_t = at::acc_type<scalar_t, true>;
     ::internal::csr2csc(
         cscs[t],
         B,
-        offsets.accessor<int64_t, 1>(),
-        indices.accessor<int64_t, 1>(),
-        indice_weights.defined()
-            ? indice_weights.accessor<at::acc_type<scalar_t, true>, 1>()
-            : at::TensorAccessor<at::acc_type<scalar_t, true>, 1>(nullptr, nullptr, nullptr),
+        MAKE_TA_WITH_NAME(func_name, offsets, index_t, 1),
+        MAKE_TA_WITH_NAME(func_name, indices, index_t, 1),
+        MAKE_TA_WITH_NAME(func_name, indice_weights, weight_t, 1),
         pooling_mode,
         table_to_feature_offset + t,
         hash_size);
@@ -194,19 +202,21 @@ for (const auto t : c10::irange(num_tables)) {
       // TODO: to parallelize, we should easily identify segments belong to
       // the same column.
       at::acc_type<grad_t, true> grad_buffer[D];
-for (const auto c : c10::irange(num_non_zero_columns)) {
+      for (const auto c : c10::irange(num_non_zero_columns)) {
         int64_t idx = col_segment_indices[c];
         if (c == 0 || col_segment_indices[c - 1] != idx) {
           memset(grad_buffer, 0, D * sizeof(at::acc_type<grad_t, true>));
         }
         [[maybe_unused]] const int64_t embedding_begin = table_begin + idx * D;
+        
         for (int r = col_segment_ptr[c]; r < col_segment_ptr[c + 1]; ++r) {
           int D_offset = D_begin;
           if (is_shared_table) {
             D_offset += cscs[t].column_segment_ids[r] * D;
           }
           int b = cscs[t].row_indices[r];
-for (const auto d : c10::irange(D)) {
+          
+          for (const auto d : c10::irange(D)) {
             if (cscs[t].weights != nullptr) {
               grad_buffer[d] += grad_output_data[b * grad_stride + D_offset + d] *
                     cscs[t].weights[r];
@@ -223,7 +233,7 @@ for (const auto d : c10::irange(D)) {
   } // for each table
 }
 
-template <typename scalar_t>
+template <typename index_t, typename scalar_t>
 void split_embedding_backward_exact_cpu_dense_kernel(
     Tensor grad,
     Tensor grad_output,
@@ -240,8 +250,10 @@ void split_embedding_backward_exact_cpu_dense_kernel(
 
   auto grad_output_data = grad_output.accessor<scalar_t, 2>();
 
-  const auto indices_data = indices.accessor<int64_t, 1>();
-  const auto offsets_data = offsets.accessor<int64_t, 1>();
+  [[FBGEMM_MEM_CHECK_ONLY]] const auto func_name = "split_embedding_backward_exact_cpu_dense_kernel";
+
+  const auto indices_data = MAKE_TA_WITH_NAME(func_name, indices, index_t, 1);
+  const auto offsets_data = MAKE_TA_WITH_NAME(func_name, offsets, index_t, 1);
   const auto indice_weights_data = indice_weights.defined()
       ?
       // If indice_weights are not defined, then this accessor won't be
@@ -347,34 +359,41 @@ for (const auto d : c10::irange(D)) {
 
   grad_output = grad_output.contiguous();
 
-
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
+  AT_DISPATCH_INDEX_TYPES(
+    indices.scalar_type(), 
+    "split_embedding_backward_exact_cpu_kernel_1", [&] {
+      
+    FBGEMM_DISPATCH_FLOAT_AND_HALF(
       grad_output.scalar_type(),
-      "split_embedding_backward_exact_cpu_outer", [&]() {
-        using grad_t = scalar_t;
+      "split_embedding_backward_exact_cpu_kernel_2", [&] {
+      using grad_t = scalar_t;
+
       FBGEMM_DISPATCH_FLOAT_AND_HALF(
-          host_weights.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
-            split_embedding_backward_exact_cpu_kernel<scalar_t, grad_t>(
-                grad_output,
-                host_weights,
-                weights_offsets_data,
-                D_offsets_data,
-                hash_size_cumsum,
-                indices,
-                offsets,
-                pooling_mode,
-                indice_weights,
-                num_tables,
-                B,
-                table_to_feature_offset,
-                {% if "momentum1_offsets" in args.split_function_arg_names %}
-                momentum1_offsets_data,
-                {% endif %}
-                {% if "momentum2_offsets" in args.split_function_arg_names %}
-                momentum2_offsets_data,
-                {% endif %}
-                {{ args.split_cpu_kernel_arg_constructors | join(", ") }});
-          });
+        host_weights.scalar_type(), 
+        "split_embedding_backward_exact_cpu_kernel_3", [&] {
+
+          split_embedding_backward_exact_cpu_kernel<index_t, scalar_t, grad_t>(
+              grad_output,
+              host_weights,
+              weights_offsets_data,
+              D_offsets_data,
+              hash_size_cumsum,
+              indices,
+              offsets,
+              pooling_mode,
+              indice_weights,
+              num_tables,
+              B,
+              table_to_feature_offset,
+              {% if "momentum1_offsets" in args.split_function_arg_names %}
+              momentum1_offsets_data,
+              {% endif %}
+              {% if "momentum2_offsets" in args.split_function_arg_names %}
+              momentum2_offsets_data,
+              {% endif %}
+              {{ args.split_cpu_kernel_arg_constructors | join(", ") }});
+        });
+      });
     });
 
   return;
@@ -383,10 +402,15 @@ for (const auto d : c10::irange(D)) {
 
   // When input is dense enough, avoid sorting and just treat as dense.
   auto grad = zeros_like(host_weights, grad_output.dtype());
-  FBGEMM_DISPATCH_FLOAT_AND_HALF(
-      grad_output.scalar_type(), "split_embedding_backward_exact_cpu", [&] {
+  AT_DISPATCH_INDEX_TYPES(
+    indices.scalar_type(), 
+    "split_embedding_backward_exact_cpu_dense_kernel", [&] {
 
-        split_embedding_backward_exact_cpu_dense_kernel<scalar_t>(
+    FBGEMM_DISPATCH_FLOAT_AND_HALF(
+      grad_output.scalar_type(), 
+      "split_embedding_backward_exact_cpu", [&] {
+
+        split_embedding_backward_exact_cpu_dense_kernel<index_t, scalar_t>(
             grad,
             grad_output,
             weights_offsets_data,
@@ -398,7 +422,8 @@ for (const auto d : c10::irange(D)) {
             num_tables,
             B,
             table_to_feature_offset);
-      }); // dispatch host_weights.scalar_type()
+      });
+    });
 
   return grad;
   {% endif %}

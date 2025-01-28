@@ -182,6 +182,7 @@ def benchmark_requests(
     callback_after_warmup: Optional[Callable[[], None]] = None,
     periodic_logs: bool = False,
     warmup_ms: Optional[int] = None,
+    iters: int = -1,
 ) -> float:
     times = []
     # Run at least one warmup iteration to avoid the long cudaLaunchKernel time
@@ -209,17 +210,20 @@ def benchmark_requests(
     if callback_after_warmup is not None:
         callback_after_warmup()
 
-    num_iters = len(requests)
+    num_reqs = len(requests)
+    iters = num_reqs if iters == -1 else iters
 
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-        start_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
-        end_events = [torch.cuda.Event(enable_timing=True) for _ in range(num_iters)]
+        start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
     else:
         start_events = []
         end_events = []
 
-    for it, req in enumerate(requests):
+    for it in range(iters):
+        req = requests[it % num_reqs]
+
         indices, offsets, weights = req.unpack_3()
         if bwd_only:
             # Run forward before profiling if does backward only
@@ -259,7 +263,7 @@ def benchmark_requests(
         ]
 
     if periodic_logs:
-        for it in range(100, num_iters + 1, 100):
+        for it in range(100, iters + 1, 100):
             times_ = times[0:it]
             avg_time = sum(times_) / len(times_) * 1.0e6
             last_100_avg = sum(times_[-100:]) / 100 * 1.0e6
@@ -267,7 +271,7 @@ def benchmark_requests(
                 f"Iteration [{it}/{len(requests)}]: Last 100: {last_100_avg:.2f} us, Running avg: {avg_time:.2f} us"
             )
 
-    avg_time = sum(times) / len(requests)
+    avg_time = sum(times) / iters
     median_time = statistics.median(times)
     return median_time if check_median else avg_time
 

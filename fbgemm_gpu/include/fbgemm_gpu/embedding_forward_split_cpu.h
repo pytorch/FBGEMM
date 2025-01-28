@@ -11,6 +11,7 @@
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
 #include "fbgemm/Utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
 at::Tensor split_embedding_codegen_forward_cpu(
     at::Tensor weights,
@@ -116,13 +117,13 @@ struct HyperCompressedSparseColumn {
   }
 };
 
-template <typename scalar_t>
+template <typename index_t, typename scalar_t>
 void csr2csc(
     HyperCompressedSparseColumn& csc,
     int B,
-    const at::TensorAccessor<int64_t, 1>& csr_offsets,
-    const at::TensorAccessor<int64_t, 1>& csr_indices,
-    const at::TensorAccessor<scalar_t, 1>& csr_weights,
+    const pta::TensorAccessor<index_t, 1>& csr_offsets,
+    const pta::TensorAccessor<index_t, 1>& csr_indices,
+    const pta::TensorAccessor<scalar_t, 1>& csr_weights,
     int64_t pooling_mode,
     const int* table_to_feature_offset,
     int64_t num_embeddings);
