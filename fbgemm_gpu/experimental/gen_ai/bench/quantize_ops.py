@@ -972,8 +972,8 @@ class F8I4RowwiseGemm(QuantizeOpBase):
 
         # Cutlass expects column major layout for scale and zero point,
         # so we transpose here and make them contiguous.
-        scales = scales.view(x.shape[0], -1).t().contiguous()
-        zeros = zeros.view(x.shape[0], -1).t().contiguous()
+        scales = scales.view(x.shape[0], -1)
+        zeros = zeros.view(x.shape[0], -1)
 
         return out, scales, zeros
 
@@ -1030,7 +1030,12 @@ class BF16I4RowwiseGemm(F8I4RowwiseGemm):
         wq, w_scale, w_zp = self._int4_row_quantize(w)
         # Pack int4 values together.
         wq = self._pack_int4(wq)
-        return x.to(torch.bfloat16), wq, w_scale, w_zp
+        return (
+            x.to(torch.bfloat16),
+            wq,
+            w_scale.to(torch.bfloat16),
+            w_zp.to(torch.bfloat16),
+        )
 
     def compute(self, x, wq, w_scale, w_zp):
         return torch.ops.fbgemm.bf16i4bf16_rowwise(x, wq, w_scale, w_zp)
