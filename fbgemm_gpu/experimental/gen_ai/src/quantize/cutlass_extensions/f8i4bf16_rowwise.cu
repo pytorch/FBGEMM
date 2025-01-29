@@ -92,9 +92,8 @@ at::Tensor f8i4bf16_rowwise_impl(
       cute::Int<TBS_K>>; // Shape of the
                          // threadblocks in a
                          // cluster
-  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecializedMixedInput;
-  using PongSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedPingpongMixedInput;
+  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
+  using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
   using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
   using MainLoopSchedule =
