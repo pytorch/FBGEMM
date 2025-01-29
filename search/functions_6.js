@@ -39,12 +39,13 @@ var searchData=
   ['floattofloat16_5favx512_36',['FloatToFloat16_avx512',['../namespacefbgemm.html#a5305ff58517ca3669ec41c7f1d4817a4',1,'fbgemm']]],
   ['floattofloat16_5fref_37',['FloatToFloat16_ref',['../namespacefbgemm.html#af44c584c974f95f4866806cee3798742',1,'fbgemm']]],
   ['floattofloat16_5fsimd_38',['FloatToFloat16_simd',['../namespacefbgemm.html#a53a50b113345c09b89b45834f31d52df',1,'fbgemm']]],
-  ['floattofloat8_5fref_39',['FloatToFloat8_ref',['../namespacefbgemm.html#a32a45639603e1584965b471846fd067f',1,'fbgemm']]],
-  ['flush_40',['flush',['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB']]],
-  ['fused8bitrowwisequantizedsbfloattofloatorhalf_41',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a42aefaaf238d065625a64a757f998eef',1,'fbgemm']]],
-  ['fused8bitrowwisequantizedsbfloattofloatorhalfref_42',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a19217d3a8551a7b251ecb1eba79669bc',1,'fbgemm']]],
-  ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_43',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga211b61807b27bbdc041036557246c0ce',1,'fbgemm_gpu']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalf_44',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a2b2ca55a7d2d5c2dbba337ee2e585f6a',1,'fbgemm']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_45',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a514c18488451bcb6633be67c36a924d7',1,'fbgemm']]],
-  ['fusedquantizedequantize_46',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
+  ['floattofloat16_5fsve2_39',['FloatToFloat16_sve2',['../namespacefbgemm.html#a150beacb26a913c4a012ec1d4a092eaf',1,'fbgemm']]],
+  ['floattofloat8_5fref_40',['FloatToFloat8_ref',['../namespacefbgemm.html#a32a45639603e1584965b471846fd067f',1,'fbgemm']]],
+  ['flush_41',['flush',['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB']]],
+  ['fused8bitrowwisequantizedsbfloattofloatorhalf_42',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a42aefaaf238d065625a64a757f998eef',1,'fbgemm']]],
+  ['fused8bitrowwisequantizedsbfloattofloatorhalfref_43',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a19217d3a8551a7b251ecb1eba79669bc',1,'fbgemm']]],
+  ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_44',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga211b61807b27bbdc041036557246c0ce',1,'fbgemm_gpu']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalf_45',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a2b2ca55a7d2d5c2dbba337ee2e585f6a',1,'fbgemm']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_46',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a514c18488451bcb6633be67c36a924d7',1,'fbgemm']]],
+  ['fusedquantizedequantize_47',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
 ];
