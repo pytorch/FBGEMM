@@ -43,6 +43,10 @@ void FloatToFloat16_simd(
       FloatToFloat16_avx512(src, dst, size, do_clip);
     } else if (fbgemmHasAvx2Support()) {
       FloatToFloat16_avx2(src, dst, size, do_clip);
+#ifdef __aarch64__
+    } else if (fbgemmHasArmSve2Support()) {
+      FloatToFloat16_sve2(src, dst, size, do_clip);
+#endif
     } else {
       FloatToFloat16_ref(src, dst, size, do_clip);
       return;
