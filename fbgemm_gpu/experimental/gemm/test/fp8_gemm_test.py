@@ -37,6 +37,7 @@ class TestFp8Matmul(unittest.TestCase):
             use_triton: bool,
             device: torch.device,
             output_device: Optional[torch.device] = None,
+            use_jagged: bool = False,
             use_scale_ub: bool = False,
             transpose_inputs: bool = False,
         ) -> None:
@@ -49,16 +50,30 @@ class TestFp8Matmul(unittest.TestCase):
                 for dim1, dim2 in itertools.combinations(dims, 2):
                     dims_list = list(dims)
                     dims_list[dim1], dims_list[dim2] = dims_list[dim2], dims_list[dim1]
-                    inputs.append(a.permute(dims_list))
+                    inputs.append(a.clone().permute(dims_list))
             scale_ub = (
                 torch.tensor([1200], dtype=torch.float, device=device)
                 if use_scale_ub
                 else None
             )
             for input_a in inputs:
+                # Apply sparsification if specified.
+                zero_start_index_M = None
+                if use_jagged:
+                    m_vals = torch.randint(
+                        0, input_a.shape[-1] + 1, (input_a.shape[:-1])
+                    )
+                    mask = torch.arange(input_a.shape[-1]).expand(
+                        input_a.shape[:-1] + (input_a.shape[-1],)
+                    ) >= m_vals.unsqueeze(-1)
+                    # Set corresponding values to 0.
+                    input_a[mask] = 0.0
+                    # Generate nonzero tensor in same layout as input.
+                    zero_start_index_M = torch.count_nonzero(input_a, dim=-1)
                 a_fp8, a_scale = quantize_fp8_row(
                     input_a,
                     scale_ub=scale_ub,
+                    zero_start_index_M=zero_start_index_M,
                     use_triton=use_triton,
                     output_device=output_device,
                 )
@@ -73,7 +88,10 @@ class TestFp8Matmul(unittest.TestCase):
 
                 self.assertTrue(
                     torch.allclose(
-                        input_a.to(device=output_device), a_torch, atol=2e-1, rtol=1e-1
+                        input_a.to(device=output_device),
+                        a_torch,
+                        atol=2e-1,
+                        rtol=1e-1,
                     )
                 )
 
@@ -97,6 +115,18 @@ class TestFp8Matmul(unittest.TestCase):
         )
         _test_quantize_fp8_row((4, 2, 3), True, torch.device("cpu"))
         _test_quantize_fp8_row((6, 4, 2, 3), True, torch.device("cpu"))
+        # Test with zero_start_index_M
+        _test_quantize_fp8_row((20, 30), True, torch.device("cuda"), use_jagged=True)
+        _test_quantize_fp8_row(
+            (6, 4, 2, 3), True, torch.device("cuda"), use_jagged=True
+        )
+        _test_quantize_fp8_row(
+            (4, 2, 3),
+            True,
+            torch.device("cuda"),
+            transpose_inputs=True,
+            use_jagged=True,
+        )
 
     def test_scale_fp8_row(self) -> None:
         def _test_scale_fp8_row(
