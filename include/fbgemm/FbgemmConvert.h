@@ -136,6 +136,16 @@ FBGEMM_API void FloatToFloat16_avx512(
     bool do_clip = false);
 
 /**
+ * @brief SVE2 implementation to convert fp32 numbers to fp16 numbers.
+ *
+ */
+FBGEMM_API void FloatToFloat16_sve2(
+    const float* src,
+    float16* dst,
+    size_t size,
+    bool do_clip = false);
+
+/**
  * @brief AVX2 implementation to convert fp16 numbers to fp32 numbers.
  *
  */
