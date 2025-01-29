@@ -25,6 +25,81 @@ namespace fbgemm_gpu {
 using RowwiseBatchedKernel = std::function<
     at::Tensor(at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor)>;
 
+using BNKLookupTableType = std::map<int, RowwiseBatchedKernel>;
+
+// Define a custom hash function for std::tuple<int, int, int>
+struct IntTupleHash {
+  size_t operator()(const std::tuple<int, int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    auto hash3 = std::hash<int>{}(std::get<2>(t));
+    return hash1 ^ hash2 ^ hash3;
+  }
+};
+
+static const std::map<int, RowwiseBatchedKernel> B_2_N_5120_K_8192_dispatch_table = {
+  { 8, fp8_rowwise_batched_64x16x16x512_16x16_1x1_32x2x1_32x2x1_1x16x1x4_4x4x1_1x1_interwave_v2},
+  { 16, fp8_rowwise_batched_64x16x16x512_16x16_1x1_32x2x1_32x2x1_1x16x1x4_4x4x1_1x1_intrawave_v2},
+  { 32, fp8_rowwise_batched_256x32x64x512_16x16_1x2_32x8x1_32x8x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 64, fp8_rowwise_batched_256x64x64x512_32x32_1x1_32x8x1_32x8x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 72, fp8_rowwise_batched_256x32x64x512_16x16_1x2_32x8x1_32x8x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 96, fp8_rowwise_batched_256x32x128x256_32x32_1x1_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 192, fp8_rowwise_batched_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 248, fp8_rowwise_batched_256x128x96x256_32x32_1x3_16x16x1_16x16x1_1x64x1x4_8x8x1_1x1_intrawave_v3},
+  { 384, fp8_rowwise_batched_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 512, fp8_rowwise_batched_256x128x160x128_32x32_1x5_8x32x1_8x32x1_1x64x1x4_8x8x1_1x1_intrawave_v3},
+  { 640, fp8_rowwise_batched_256x128x192x128_32x32_2x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 768, fp8_rowwise_batched_256x256x128x128_16x16_8x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 896, fp8_rowwise_batched_256x128x256x128_32x32_2x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 1024, fp8_rowwise_batched_256x256x160x128_16x16_8x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+  { 1568, fp8_rowwise_batched_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 1792, fp8_rowwise_batched_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 2304, fp8_rowwise_batched_256x256x160x128_16x16_8x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+  { 2816, fp8_rowwise_batched_256x256x192x128_16x16_8x6_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 3360, fp8_rowwise_batched_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 8992, fp8_rowwise_batched_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+};
+
+static const std::map<int, RowwiseBatchedKernel> B_2_N_8192_K_5120_dispatch_table = {
+  { 4, fp8_rowwise_batched_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
+  { 8, fp8_rowwise_batched_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1},
+  { 16, fp8_rowwise_batched_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_intrawave_v3},
+  { 32, fp8_rowwise_batched_256x32x64x512_16x16_1x2_32x8x1_32x8x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 64, fp8_rowwise_batched_256x64x64x512_32x32_1x1_32x8x1_32x8x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 128, fp8_rowwise_batched_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 192, fp8_rowwise_batched_256x64x192x256_32x32_1x3_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 208, fp8_rowwise_batched_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v5},
+  { 232, fp8_rowwise_batched_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 256, fp8_rowwise_batched_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 384, fp8_rowwise_batched_256x128x192x128_32x32_2x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+  { 512, fp8_rowwise_batched_256x256x128x128_16x16_8x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 768, fp8_rowwise_batched_256x256x192x128_16x16_8x6_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 896, fp8_rowwise_batched_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 1024, fp8_rowwise_batched_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+  { 1280, fp8_rowwise_batched_256x256x160x128_16x16_8x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+  { 1792, fp8_rowwise_batched_256x256x192x128_16x16_8x6_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 2048, fp8_rowwise_batched_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
+  { 2304, fp8_rowwise_batched_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 2560, fp8_rowwise_batched_256x256x192x128_16x16_8x6_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 3136, fp8_rowwise_batched_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+  { 8992, fp8_rowwise_batched_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3},
+};
+
+static const std::unordered_map<std::tuple<int, int, int>, BNKLookupTableType, IntTupleHash> BNK_lookup_table = {
+  {{2, 5120, 8192}, B_2_N_5120_K_8192_dispatch_table},
+  {{2, 8192, 5120}, B_2_N_8192_K_5120_dispatch_table}
+};
+
+RowwiseBatchedKernel rowwise_batched_bnk_lookup(int M, const BNKLookupTableType& table) {
+  auto it = table.lower_bound(M);
+  if (it != table.end()) {
+    return it->second;
+  } else {
+    --it;
+    return it->second;
+  }
+}
+
 RowwiseBatchedKernel
 rowwise_batched_heuristic_dispatch(int B, int M, int N, int K) {
   // Use shape heuristics to guess what the best kernel might be for the given
@@ -114,6 +189,15 @@ rowwise_batched_heuristic_dispatch(int B, int M, int N, int K) {
   return fp8_rowwise_batched_256x256x256x128_16x16_8x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3;
 }
 
+RowwiseBatchedKernel
+rowwise_batched_dispatch(int B, int M, int N, int K) {
+  auto it = BNK_lookup_table.find({B, N, K});
+  if (it != BNK_lookup_table.end()) {
+    return rowwise_batched_bnk_lookup(M, it->second);
+  }
+  return rowwise_batched_heuristic_dispatch(B, M, N, K);
+}
+
 at::Tensor f8f8bf16_rowwise_batched(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -165,7 +249,7 @@ at::Tensor f8f8bf16_rowwise_batched(
   }
 
   RowwiseBatchedKernel selected_kernel =
-      rowwise_batched_heuristic_dispatch(B, M, N, K);
+      rowwise_batched_dispatch(B, M, N, K);
   return selected_kernel(XQ, WQ, x_scale, w_scale, Y);
 }
 

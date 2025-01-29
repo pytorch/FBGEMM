@@ -154,14 +154,24 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
         "src/UtilsSve.cc",
-    ]
+    ] + select({
+        "DEFAULT": [],
+        "ovr_config//cpu:arm64": [
+            "src/FbgemmFloat16ConvertSVE.cc",
+        ],
+    })
 
     #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
         "src/UtilsSve.cc",
-    ]
+    ] + select({
+        "DEFAULT": [],
+        "ovr_config//cpu:arm64": [
+            "src/FbgemmFloat16ConvertSVE.cc",
+        ],
+    })
     if buck:
         return select({
             "DEFAULT": asm_srcs,
