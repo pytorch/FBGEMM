@@ -3677,7 +3677,6 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
             torch.tensor(D_offsets, device=self.current_device, dtype=torch.int32),
         )
         assert self.D_offsets.numel() == T + 1
-
         # Required for VBE
         self.register_buffer(
             "feature_dims",
