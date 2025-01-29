@@ -60,7 +60,6 @@ void FloatToFloat16_sve2(
     float16* dst,
     size_t size,
     bool do_clip) {
-#pragma STDC FENV_ROUND FE_TONEAREST
   const size_t chunkSize = svcntw() * 2;
 
   // Note: we don't use predicates here, because then we can't use svld2. This
