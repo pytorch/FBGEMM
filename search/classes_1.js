@@ -9,9 +9,10 @@ var searchData=
   ['codegenbase_6',['CodeGenBase',['../classfbgemm_1_1_code_gen_base.html',1,'fbgemm']]],
   ['codegenbase_3c_20packingamatrix_3a_3ainptype_2c_20packingbmatrix_3a_3ainptype_2c_20ct_2c_20packingbmatrix_3a_3aacctype_20_3e_7',['CodeGenBase&lt; packingAMatrix::inpType, packingBMatrix::inpType, cT, packingBMatrix::accType &gt;',['../classfbgemm_1_1_code_gen_base.html',1,'fbgemm']]],
   ['codegenbase_3c_20uint8_5ft_2c_20int8_5ft_2c_20int32_5ft_2c_20packingamatrix_3a_3aacctype_20_3e_8',['CodeGenBase&lt; uint8_t, int8_t, int32_t, packingAMatrix::accType &gt;',['../classfbgemm_1_1_code_gen_base.html',1,'fbgemm']]],
-  ['comparator_9',['Comparator',['../structfbgemm__gpu_1_1_comparator.html',1,'fbgemm_gpu']]],
-  ['compressedsparsecolumn_10',['CompressedSparseColumn',['../classfbgemm_1_1_compressed_sparse_column.html',1,'fbgemm']]],
-  ['conv_5fparam_5ft_11',['conv_param_t',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]],
-  ['conv_5fparam_5ft_3c_202_20_3e_12',['conv_param_t&lt; 2 &gt;',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]],
-  ['conv_5fparam_5ft_3c_20spatial_5fdim_20_3e_13',['conv_param_t&lt; SPATIAL_DIM &gt;',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]]
+  ['codegenbase_3c_20uint8_5ft_2c_20int8_5ft_2c_20int32_5ft_2c_20typename_20packingamatrix_3a_3aacctype_20_3e_9',['CodeGenBase&lt; uint8_t, int8_t, int32_t, typename packingAMatrix::accType &gt;',['../classfbgemm_1_1_code_gen_base.html',1,'fbgemm']]],
+  ['comparator_10',['Comparator',['../structfbgemm__gpu_1_1_comparator.html',1,'fbgemm_gpu']]],
+  ['compressedsparsecolumn_11',['CompressedSparseColumn',['../classfbgemm_1_1_compressed_sparse_column.html',1,'fbgemm']]],
+  ['conv_5fparam_5ft_12',['conv_param_t',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]],
+  ['conv_5fparam_5ft_3c_202_20_3e_13',['conv_param_t&lt; 2 &gt;',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]],
+  ['conv_5fparam_5ft_3c_20spatial_5fdim_20_3e_14',['conv_param_t&lt; SPATIAL_DIM &gt;',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]]
 ];
