@@ -17,7 +17,7 @@ using Tensor = at::Tensor;
 namespace nbit {
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
-template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly>
+template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly, bool PackedMode>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
@@ -381,6 +381,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 // kWarpsPerBlock is defined in embedding_forward_quantized_split_nbit_host_template.cu
 {% set warps_per_block = '4' %}
 
+{% for packed_mode in ['true', 'false'] %}
 {% for device_only in ['true', 'false'] %}
 {% for output_type in ['at::Half', 'at::BFloat16', 'float', 'uint8_t'] %}
 {% for index_type in ['int32_t', 'int64_t'] %}
@@ -401,7 +402,8 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
   {{ params.input_rows_in_flight }},
   {{ params.min_128b_rows }},
   {{ params.max_128b_rows }},
-  {{ device_only }} > (
+  {{ device_only }},
+  {{ packed_mode }} > (
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
   const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
@@ -440,6 +442,7 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
 {% endfor %} // for index_type in ['int32_t', 'int64_t']
 {% endfor %} // for output_type in [True, False]
 {% endfor %} // device_only in [True, False]
+{% endfor %} // packed_bags in ['true', 'false']
 
 }
 
