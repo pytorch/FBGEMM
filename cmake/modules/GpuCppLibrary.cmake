@@ -23,7 +23,7 @@ function(prepare_target_sources)
         GPU_SRCS
         CUDA_SPECIFIC_SRCS
         HIP_SPECIFIC_SRCS
-        GPU_FLAGS
+        NVCC_FLAGS
         INCLUDE_DIRS
     )
 
@@ -92,7 +92,7 @@ function(prepare_target_sources)
         # Set source properties
         set_source_files_properties(${${args_PREFIX}_sources_cu}
             PROPERTIES COMPILE_OPTIONS
-            "${args_GPU_FLAGS}")
+            "${args_NVCC_FLAGS}")
 
         set_source_files_properties(${${args_PREFIX}_sources_cu}
             PROPERTIES INCLUDE_DIRECTORIES
@@ -157,7 +157,9 @@ function(gpu_cpp_library)
         CUDA_SPECIFIC_SRCS  # Sources available only for CUDA build
         HIP_SPECIFIC_SRCS   # Sources available only for HIP build
         OTHER_SRCS          # Sources from third-party libraries
-        GPU_FLAGS           # Compile flags for GPU builds
+        CC_FLAGS            # General compilation flags applicable to all build variants
+        NVCC_FLAGS          # Compilation flags specific to NVCC
+        HIPCC_FLAGS         # Compilation flags specific to HIPCC
         INCLUDE_DIRS        # Include directories for compilation
         DEPS                # Target dependencies, i.e. built STATIC targets
     )
@@ -179,7 +181,7 @@ function(gpu_cpp_library)
         GPU_SRCS ${args_GPU_SRCS}
         CUDA_SPECIFIC_SRCS ${args_CUDA_SPECIFIC_SRCS}
         HIP_SPECIFIC_SRCS ${args_HIP_SPECIFIC_SRCS}
-        GPU_FLAGS ${args_GPU_FLAGS}
+        NVCC_FLAGS ${args_NVCC_FLAGS}
         INCLUDE_DIRS ${args_INCLUDE_DIRS})
     set(lib_sources ${${args_PREFIX}_sources})
 
@@ -218,8 +220,8 @@ function(gpu_cpp_library)
             get_hipified_list("${lib_sources}" lib_sources_hipified)
 
             # Set properties for the HIPified sources
-            set_source_files_properties(${lib_sources_hipified}
-                                        PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+            set_source_files_properties(${lib_sources_hipified} PROPERTIES
+                HIP_SOURCE_PROPERTY_FORMAT 1)
         endif()
 
         # Set the include directories for HIP
@@ -230,8 +232,7 @@ function(gpu_cpp_library)
             ${lib_sources_hipified}
             ${args_OTHER_SRCS}
             ${FBGEMM_HIP_HCC_LIBRARIES}
-            HIPCC_OPTIONS
-            ${HIP_HCC_FLAGS})
+            HIPCC_OPTIONS ${HIP_HCC_FLAGS} ${args_HIPCC_FLAGS})
 
         # Append ROCM includes
         target_include_directories(${lib_name} PUBLIC
@@ -299,8 +300,14 @@ function(gpu_cpp_library)
     # Link against the external libraries as needed
     target_link_libraries(${lib_name} PRIVATE ${library_dependencies})
 
-    # Silence compiler warnings (in asmjit)
+    ############################################################################
+    # Other Compilation Flags
+    ############################################################################
+
+    # Set the additional compilation flags
     target_compile_options(${lib_name} PRIVATE
+        ${args_CC_FLAGS}
+        # Silence compiler warnings (in asmjit)
         -Wno-deprecated-anon-enum-enum-conversion
         -Wno-deprecated-declarations)
 
@@ -361,8 +368,14 @@ function(gpu_cpp_library)
         "OTHER_SRCS:"
         "${args_OTHER_SRCS}"
         " "
-        "GPU_FLAGS:"
-        "${args_GPU_FLAGS}"
+        "CC_FLAGS:"
+        "${args_CC_FLAGS}"
+        " "
+        "NVCC_FLAGS:"
+        "${args_NVCC_FLAGS}"
+        " "
+        "HIPCC_FLAGS:"
+        "${args_HIPCC_FLAGS}"
         " "
         "INCLUDE_DIRS:"
         "${args_INCLUDE_DIRS}"

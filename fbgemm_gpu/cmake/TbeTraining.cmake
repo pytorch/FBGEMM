@@ -111,7 +111,7 @@ gpu_cpp_library(
     ${static_cpu_files_common}
   GPU_SRCS
     ${static_gpu_files_common}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm
@@ -127,7 +127,7 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
   GPU_SRCS
     ${gen_defused_optim_src_files}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DESTINATION
     fbgemm_gpu)
@@ -143,7 +143,7 @@ gpu_cpp_library(
     ${gen_cpu_files_forward_split}
   GPU_SRCS
     ${gen_gpu_files_forward_split}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DESTINATION
     fbgemm_gpu)
@@ -162,7 +162,7 @@ gpu_cpp_library(
     ${gen_gpu_files_training}
   HIP_SPECIFIC_SRCS
     ${gen_hip_files_training}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm
@@ -186,7 +186,7 @@ gpu_cpp_library(
   GPU_SRCS
     ${static_gpu_files_index_select}
     ${gen_gpu_files_index_select}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm_gpu_sparse_async_cumsum
