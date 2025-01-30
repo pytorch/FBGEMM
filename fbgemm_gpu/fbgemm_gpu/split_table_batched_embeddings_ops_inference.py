@@ -939,24 +939,15 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices, offsets, per_sample_weights = inputs_to_device(
             indices, offsets, per_sample_weights, self.bounds_check_warning.device
         )
-        # bag_sizes = offsets[1:] - offsets[:-1]
-        # max_Ls = bag_sizes.max()
-        max_ls_tys = []
         weights_tys: List[SparseType] = [e[3] for e in self.embedding_specs]
-
         type_list  = [SparseType.INT2, SparseType.INT4, SparseType.INT8, SparseType.FP8, SparseType.FP16, SparseType.FP32]
         INT2_max_ls = find_max_ls(SparseType.INT2, weights_tys, offsets)
-        print(INT2_max_ls)
         INT4_max_ls = find_max_ls(SparseType.INT4, weights_tys, offsets)
-        print(INT4_max_ls)
         INT8_max_ls = find_max_ls(SparseType.INT8, weights_tys, offsets)
-        print(INT8_max_ls)
         FP8_max_ls = find_max_ls(SparseType.FP8, weights_tys, offsets)
-        print(FP8_max_ls)
         FP16_max_ls = find_max_ls(SparseType.FP16, weights_tys, offsets)
-        print(FP16_max_ls)
         FP32_max_ls = find_max_ls(SparseType.FP32, weights_tys, offsets)
-        print(FP32_max_ls)
+   
 
    
 
