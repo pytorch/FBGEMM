@@ -28,13 +28,18 @@ from .common import (
 # pyre-fixme[16]: Module `common` has no attribute `open_source`.
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_available
+    from test_utils import gpu_available, optests
 else:
-    from fbgemm_gpu.test.test_utils import gpu_available
+    from fbgemm_gpu.test.test_utils import gpu_available, optests
+
+    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops")
+
+torch.ops.import_module("fbgemm_gpu.sparse_ops")
 
 no_long_tests: bool = False
 
 
+@optests.generate_opcheck_tests(fast=True)
 class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
     # pyre-fixme[56]: Pyre was not able to infer the type of argument
     #  `hypothesis.strategies.integers($parameter$min_value = 0, $parameter$max_value =
@@ -118,21 +123,7 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                 reference[:, ncols + 4 : ncols + 8],
             )
 
-    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
-    @given(
-        nrows=st.integers(min_value=0, max_value=100),
-        ncols=st.sampled_from([32, 128, 256, 384, 512, 1024]),
-        output_dtype=st.sampled_from(
-            [SparseType.FP16, SparseType.FP32, SparseType.BF16]
-        ),
-        quant_padding_float_type=st.sampled_from(
-            [True, False],
-        ),
-        test_generic_op=st.booleans(),
-        test_cuda=st.booleans(),
-    )
-    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
-    def test_quantize_and_dequantize_op(  # noqa: C901
+    def quantize_and_dequantize_op_test_helper(  # noqa: C901
         self,
         nrows: int,
         ncols: int,
@@ -288,6 +279,56 @@ class TestFused8BitRowwiseQuantizationConversion(unittest.TestCase):
                 torch.testing.assert_close(
                     dequantized_data_trimmed.bfloat16(), reference.bfloat16()
                 )
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        nrows=st.integers(min_value=0, max_value=100),
+        ncols=st.sampled_from([32, 128, 256, 384, 512, 1024]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+        ),
+        quant_padding_float_type=st.sampled_from(
+            [True, False],
+        ),
+        test_generic_op=st.booleans(),
+    )
+    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
+    def test_quantize_and_dequantize_op_cpu(  # noqa: C901
+        self,
+        nrows: int,
+        ncols: int,
+        output_dtype: SparseType,
+        quant_padding_float_type: bool,
+        test_generic_op: bool,
+    ) -> None:
+        self.quantize_and_dequantize_op_test_helper(
+            nrows, ncols, output_dtype, quant_padding_float_type, test_generic_op, False
+        )
+
+    # pyre-ignore [56]: Invalid decoration, was not able to infer the type of argument
+    @given(
+        nrows=st.integers(min_value=0, max_value=100),
+        ncols=st.sampled_from([32, 128, 256, 384, 512, 1024]),
+        output_dtype=st.sampled_from(
+            [SparseType.FP16, SparseType.FP32, SparseType.BF16]
+        ),
+        quant_padding_float_type=st.sampled_from(
+            [True, False],
+        ),
+        test_generic_op=st.booleans(),
+    )
+    @settings(deadline=10000, suppress_health_check=[HealthCheck.filter_too_much])
+    def test_quantize_and_dequantize_op_cuda(  # noqa: C901
+        self,
+        nrows: int,
+        ncols: int,
+        output_dtype: SparseType,
+        quant_padding_float_type: bool,
+        test_generic_op: bool,
+    ) -> None:
+        self.quantize_and_dequantize_op_test_helper(
+            nrows, ncols, output_dtype, quant_padding_float_type, test_generic_op, True
+        )
 
     @unittest.skipIf(no_long_tests, "Slow test, requires buck build to run.")  # noqa
     def test_quantize_and_dequantize_op_cuda_large_nrows(self) -> None:
