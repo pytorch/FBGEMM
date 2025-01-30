@@ -64,6 +64,18 @@ additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_nbit_forward_cpu_gpu_dequantize_parity": [
         unittest.skip("Operator not implemented for Meta tensors"),
     ],
+    "test_schema__test_nbit_forward_cpu_gpu_dequantize_parity": [
+        unittest.skip("Operator not implemented for Meta tensors"),
+    ],
+    "test_autograd_registration__test_nbit_forward_cpu_gpu_dequantize_parity": [
+        unittest.skip("Operator not implemented for Meta tensors"),
+    ],
+    "test_aot_dispatch_static__test_nbit_forward_cpu_gpu_dequantize_parity": [
+        unittest.skip("Operator not implemented for Meta tensors"),
+    ],
+    "test_aot_dispatch_dynamic__test_nbit_forward_cpu_gpu_dequantize_parity": [
+        unittest.skip("Operator not implemented for Meta tensors"),
+    ],
     "test_faketensor__test_nbit_forward_cpu_seq_int4": {
         unittest.skip(
             "Operator outputs int4 tensors which do not support opcheck tests"
@@ -755,10 +767,11 @@ class NBitFowardTest(NBitFowardTestCommon):
         nbit_weights_ty=st.sampled_from(
             [
                 SparseType.INT8,
+                SparseType.INT4,
             ]
         ),
         pooling_mode=st.sampled_from([PoolingMode.NONE]),
-        output_dtype=st.sampled_from([SparseType.BF16, SparseType.FP16]),
+        output_dtype=st.sampled_from([SparseType.FP16, SparseType.BF16]),
         D=st.sampled_from([32, 256, 384, 512, 1024]),
         B=st.integers(min_value=8, max_value=32),
         T=st.integers(min_value=10, max_value=20),
@@ -827,13 +840,21 @@ class NBitFowardTest(NBitFowardTestCommon):
             (weights, scale_shift) = split_weights[t]
             (ref_weights, ref_scale_shift) = ref_split_weights[t]
             self.assertEqual(weights.size(), ref_weights.size())
-            element_size = SparseType.INT8.bit_rate() / 8.0
+            element_size = (
+                SparseType.INT8.bit_rate()
+                if nbit_weights_ty == SparseType.INT8
+                else SparseType.INT4.bit_rate()
+            ) / 8.0
             rand_tensor = torch.rand(
                 ref_weights.shape[0], int(ref_weights.shape[1] / element_size)
             )
             rand_weights, rand_scale_shift = quantize_embs(
                 rand_tensor,
-                SparseType.INT8,
+                (
+                    SparseType.INT8
+                    if nbit_weights_ty == SparseType.INT8
+                    else SparseType.INT4
+                ),
             )
             ref_weights.copy_(rand_weights)
             weights.copy_(ref_weights)
@@ -861,14 +882,35 @@ class NBitFowardTest(NBitFowardTestCommon):
         quant_cc_output = quant_cc(indices.int(), offsets.int())
         dequant_cc_output = dequant_cc(indices.int(), offsets.int())
         cuda_device = torch.device("cuda")
-        dequant_output_from_quant_cc = (
-            torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatOrHalf(
-                quant_cc_output.to(cuda_device),
-                output_dtype.as_int(),
-                quant_padding_float_type=False,
-                scale_bias_last=False,
+        if nbit_weights_ty == SparseType.INT8:
+            dequant_output_from_quant_cc = (
+                torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloatOrHalf(
+                    quant_cc_output.to(cuda_device),
+                    output_dtype.as_int(),
+                    quant_padding_float_type=False,
+                    scale_bias_last=False,
+                )
             )
-        )
+        elif nbit_weights_ty == SparseType.INT4:
+            tensor_gpu = torch.zeros(
+                (quant_cc_output.shape[0], int((quant_cc_output.shape[1] + 1) / 2)),
+                dtype=torch.uint8,
+                device=cuda_device,
+            )
+            tensor_gpu.untyped_storage().copy_(quant_cc_output.untyped_storage())
+            dequant_output_from_quant_cc = (
+                torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf(
+                    tensor_gpu,
+                    bit_rate=4,
+                    output_dtype=output_dtype.as_int(),
+                    scale_bias_last=False,
+                )
+            )
+        else:
+            raise ValueError(
+                "Unsupported nbit_weights_ty in test_nbit_forward_cpu_gpu_dequantize_parity"
+            )
+
         torch.testing.assert_close(
             dequant_cc_output.cpu(),
             dequant_output_from_quant_cc.cpu(),
