@@ -33,7 +33,7 @@ gpu_cpp_library(
     ${FBGEMM_GPU}/src/split_embeddings_cache/lxu_cache.cu
     ${FBGEMM_GPU}/src/split_embeddings_cache/reset_weight_momentum.cu
     ${FBGEMM_GPU}/src/split_embeddings_cache/split_embeddings_cache_ops.cu
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DESTINATION
     fbgemm_gpu)
@@ -63,7 +63,7 @@ gpu_cpp_library(
   GPU_SRCS
     ${static_gpu_files_inference}
     ${gen_gpu_files_inference}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     asmjit
