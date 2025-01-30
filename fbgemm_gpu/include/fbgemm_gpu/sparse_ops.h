@@ -432,7 +432,8 @@ at::Tensor fusednbitrowwise_to_half_cpu(
 at::Tensor fusednbitrowwise_to_float_or_half_cpu(
     const at::Tensor& input,
     const int64_t bit_rate,
-    const int64_t output_dtype);
+    const int64_t output_dtype,
+    const bool scale_bias_last = true);
 
 at::Tensor quantize_mx_cuda(
     const at::Tensor& input,

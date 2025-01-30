@@ -7,7 +7,8 @@
     "fbgemm::FloatToHFP8Quantized": {},
     "fbgemm::Fused8BitRowwiseQuantizedToFloat": {},
     "fbgemm::Fused8BitRowwiseQuantizedToFloatOrHalf": {},
-    "fbgemm::FusedNBitRowwiseQuantizedSBHalfFrontToFloat": {},
+    "fbgemm::FusedNBitRowwiseQuantizedSBHalfFrontToFloatOrHalf": {},
+    "fbgemm::FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf": {},
     "fbgemm::HFP8QuantizedToFloat": {},
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::bounds_check_indices": {},
@@ -44,7 +45,15 @@
         "comment": "",
         "status": "xsuccess"
       },
+      "NBitFowardTest.test_faketensor__test_nbit_forward_cpu_gpu_dequantize_parity": {
+        "comment": "this operator outputs torch.quint4x2 tensors which is not compatible with generate_opcheck_tests",
+        "status": "xfail"
+      },
       "NBitFowardTest.test_faketensor__test_nbit_forward_cpu_seq_int4": {
+        "comment": "this operator outputs torch.quint4x2 tensors which is not compatible with generate_opcheck_tests",
+        "status": "xfail"
+      },
+      "NBitFowardTest.test_schema__test_nbit_forward_cpu_gpu_dequantize_parity": {
         "comment": "this operator outputs torch.quint4x2 tensors which is not compatible with generate_opcheck_tests",
         "status": "xfail"
       }
