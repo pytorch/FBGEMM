@@ -662,8 +662,8 @@ class {{ autograd_func }} :
         << "T=" << T << ","
         << "avg_D=" << ({{ "total_D / T" if not nobag else "D" }}) << ","
         << "max_D=" << {{ "max_D" if not nobag else "D" }} << ","
-        << "num_indices=" << indices.numel() << ","
-        << "avg_pooling_fac=" << (static_cast<float>(indices.numel()) / T / max_B_)
+        << "num_indices=" << indices.sym_numel() << ","
+        << "avg_pooling_fac=" << (static_cast<c10::SymFloat>(indices.sym_numel()) / T / max_B_)
         << "]";
       op_annotation = ss.str();
       record_trace = profiler::record_function_enter_new(

@@ -6,3 +6,5 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-unsafe
+
+from fbgemm_gpu.utils.torch_library import TorchLibraryFragment  # noqa F401
