@@ -54,8 +54,8 @@ var searchData=
   ['fp8_2016_2032_51',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalf_52',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a42aefaaf238d065625a64a757f998eef',1,'fbgemm']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalfref_53',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a19217d3a8551a7b251ecb1eba79669bc',1,'fbgemm']]],
-  ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_54',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga211b61807b27bbdc041036557246c0ce',1,'fbgemm_gpu']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalf_55',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a2b2ca55a7d2d5c2dbba337ee2e585f6a',1,'fbgemm']]],
-  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_56',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a514c18488451bcb6633be67c36a924d7',1,'fbgemm']]],
+  ['fusednbitrowwise_5fsbfront_5fto_5ffloat_5fcpu_54',['fusednbitrowwise_sbfront_to_float_cpu',['../group__quantize-data-cpu.html#ga18fbbbcd643061657cf2575a816435cc',1,'fbgemm_gpu']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalf_55',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalf',['../namespacefbgemm.html#a512483b4cf064a2938fdaa4067a476ac',1,'fbgemm']]],
+  ['fusednbitrowwisequantizedsbhalftofloatorhalfref_56',['FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef',['../namespacefbgemm.html#a4ac91c9d5806b57c70b0dc7fa6a55464',1,'fbgemm']]],
   ['fusedquantizedequantize_57',['FusedQuantizeDequantize',['../group__fbgemm-quant-utils-generic.html#gaa51ab0f363fbcdf8ffa0a561884225d9',1,'fbgemm']]]
 ];
