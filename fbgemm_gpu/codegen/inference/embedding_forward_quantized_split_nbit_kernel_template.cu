@@ -141,7 +141,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       }
       uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
       const uint32_t packed_bag_idx = PackedMode ? (load_idx % NumUint4LoadsPerRow) / uint4_loads_per_row : 0;
-      bool load_idx_valid = PackedMode ? packed_bag_idx < num_packed_bags : packed_bag_idx < num_packed_bags;
+      bool load_idx_valid = PackedMode ? packed_bag_idx < num_packed_bags : row_load_idx < uint4_loads_per_row;
       {%- if is_rocm %}
       constexpr uint32_t kMaxRowUnroll = 4;
       constexpr uint32_t kRowUnroll = OutputRowsPerThread < kMaxRowUnroll ? OutputRowsPerThread : kMaxRowUnroll;
