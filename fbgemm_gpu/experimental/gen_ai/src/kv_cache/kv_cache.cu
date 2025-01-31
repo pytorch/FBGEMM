@@ -1874,9 +1874,11 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   // correct block_tables. (2) From outside, keep a persistent buffer that has a
   // matching shape with the original paged KV and feed the same buffer
   // into this function at every layer to reuse it and prevent allocation.
-  auto cache_K_dq = at::empty(
+
+  // FIXME: T213958042
+  auto cache_K_dq = at::zeros(
       {B_KV, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
-  auto cache_V_dq = at::empty(
+  auto cache_V_dq = at::zeros(
       {B_KV, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
 
   if (B == 0) {

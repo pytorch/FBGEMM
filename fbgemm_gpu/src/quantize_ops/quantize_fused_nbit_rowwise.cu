@@ -74,7 +74,7 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
 }
 
 // Fused 4/2-bit rowwise -> FP32/FP16 kernel
-template <typename output_t>
+template <typename output_t, bool scale_bias_last>
 __global__ inline void _fusednbitrowwise_to_float_cuda_kernel(
     const int bit_rate,
     const std::uint8_t* input,
@@ -83,7 +83,6 @@ __global__ inline void _fusednbitrowwise_to_float_cuda_kernel(
     output_t* const output) {
   const int num_elem_per_byte = 8 / bit_rate;
   const int output_columns = (ncols - 2 * sizeof(__half)) * num_elem_per_byte;
-
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
   const int row_incre = blockDim.y * gridDim.y;
@@ -92,9 +91,14 @@ __global__ inline void _fusednbitrowwise_to_float_cuda_kernel(
       const std::uint8_t* input_row = input + row * ncols;
       const __half* input_row_scale_bias = reinterpret_cast<const __half*>(
           input_row +
-          (output_columns + num_elem_per_byte - 1) / num_elem_per_byte);
+          (!scale_bias_last
+               ? 0
+               : (output_columns + num_elem_per_byte - 1) / num_elem_per_byte));
       float scale = __half2float(input_row_scale_bias[0]);
       float bias = __half2float(input_row_scale_bias[1]);
+      if constexpr (!scale_bias_last) {
+        input_row += 2 * sizeof(__half);
+      }
       output_t* output_row = output + row * output_columns;
 
       std::uint8_t quantized = input_row[col / num_elem_per_byte];
@@ -215,7 +219,8 @@ DLL_PUBLIC Tensor _single_or_half_precision_to_fusednbitrowwise_gpu(
 template <typename output_t>
 Tensor _fusednbitrowwise_to_float_gpu_t(
     const Tensor& input,
-    const int64_t bit_rate) {
+    const int64_t bit_rate,
+    const bool scale_bias_last) {
   TENSOR_ON_CUDA_GPU(input);
   TENSOR_NDIM_EQUALS(input, 2);
   CUDA_DEVICE_GUARD(input);
@@ -245,7 +250,9 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
         {nrows, output_columns}, // 2 = sizeof(bfloat16)
         input.options().dtype(at::kBFloat16));
   } else {
-    TORCH_CHECK(false, "Unsupported output dtype");
+    TORCH_CHECK(
+        false,
+        "Unsupported output dtype within _fusednbitrowwise_to_float_gpu_t");
   }
 
   if (nrows == 0 || output_columns == 0) {
@@ -260,18 +267,25 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
   const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
   const dim3 gridDim(gridDim_x, gridDim_y);
 
+#define DEQUANT_LAUNCH_NBIT(scale_bias_last)                        \
+  _fusednbitrowwise_to_float_cuda_kernel<scalar_t, scale_bias_last> \
+      <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>( \
+          bit_rate,                                                 \
+          input.data_ptr<std::uint8_t>(),                           \
+          nrows,                                                    \
+          ncols,                                                    \
+          output.data_ptr<scalar_t>())
+
   FBGEMM_DISPATCH_FLOATING_TYPES(
       output.scalar_type(), "fusednbitrowwise_to_float_cuda_kernel", [&] {
-        _fusednbitrowwise_to_float_cuda_kernel<scalar_t>
-            <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                bit_rate,
-                input.data_ptr<uint8_t>(),
-                nrows,
-                ncols,
-                output.data_ptr<scalar_t>());
+        if (scale_bias_last) {
+          DEQUANT_LAUNCH_NBIT(true);
+        } else {
+          DEQUANT_LAUNCH_NBIT(false);
+        }
         C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
-
+#undef DEQUANT_LAUNCH_NBIT
   return output;
 }
 
@@ -286,7 +300,8 @@ Tensor _fusednbitrowwise_to_float_gpu_t(
 DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
-  return _fusednbitrowwise_to_float_gpu_t<float>(input, bit_rate);
+  return _fusednbitrowwise_to_float_gpu_t<float>(
+      input, bit_rate, true /* scale_bias_last */);
 }
 
 /// @ingroup quantize-ops-cuda
@@ -301,7 +316,8 @@ DLL_PUBLIC at::Tensor _fusednbitrowwise_to_float_gpu(
 DLL_PUBLIC at::Tensor _fusednbitrowwise_to_half_gpu(
     const at::Tensor& input,
     const int64_t bit_rate) {
-  return _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
+  return _fusednbitrowwise_to_float_gpu_t<at::Half>(
+      input, bit_rate, true /* scale_bias_last */);
 }
 
 /// @ingroup quantize-ops-cuda
@@ -321,19 +337,23 @@ DLL_PUBLIC at::Tensor _fusednbitrowwise_to_half_gpu(
 DLL_PUBLIC at::Tensor _fusednbitrowwise_to_single_or_half_precision_gpu(
     const at::Tensor& input,
     const int64_t bit_rate,
-    const int64_t output_dtype) {
+    const int64_t output_dtype,
+    const bool scale_bias_last) {
   Tensor output;
 
   SparseType output_sparse_dtype = static_cast<SparseType>(output_dtype);
   switch (output_sparse_dtype) {
     case SparseType::FP32:
-      output = _fusednbitrowwise_to_float_gpu_t<float>(input, bit_rate);
+      output = _fusednbitrowwise_to_float_gpu_t<float>(
+          input, bit_rate, scale_bias_last);
       break;
     case SparseType::FP16:
-      output = _fusednbitrowwise_to_float_gpu_t<at::Half>(input, bit_rate);
+      output = _fusednbitrowwise_to_float_gpu_t<at::Half>(
+          input, bit_rate, scale_bias_last);
       break;
     case SparseType::BF16:
-      output = _fusednbitrowwise_to_float_gpu_t<at::BFloat16>(input, bit_rate);
+      output = _fusednbitrowwise_to_float_gpu_t<at::BFloat16>(
+          input, bit_rate, scale_bias_last);
       break;
     default:
       TORCH_CHECK(false);
