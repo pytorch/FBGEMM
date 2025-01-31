@@ -213,19 +213,6 @@ def cpu_jagged_self_substraction_jagged_out(
     return jagged_B
 
 
-def meta_jagged_self_substraction_jagged_out(
-    jagged_A: torch.Tensor,
-    offsets_a: torch.Tensor,
-    offsets_b: torch.Tensor,
-    max_seq_len: int,
-) -> torch.Tensor:
-    return torch.empty(
-        [torch.library.get_ctx().new_dynamic_size()],
-        dtype=jagged_A.dtype,
-        device=jagged_A.device,
-    )
-
-
 def cpu_jagged2_to_padded_dense(
     values: torch.Tensor,
     offsets: torch.Tensor,
@@ -344,65 +331,6 @@ def cpu_jagged_dense_elementwise_mul_jagged_out(
     max_seq_len: int,
 ) -> torch.Tensor:
     return CPUJaggedDenseElementwiseMul.apply(
-        x,
-        y,
-        x_seq_lengths,
-        x_offsets,
-        max_seq_len,
-    )
-
-
-class MetaJaggedDenseElementwiseMul(torch.autograd.Function):
-    @staticmethod
-    # pyre-fixme
-    def forward(
-        ctx,  # pyre-ignore [2]
-        x: torch.Tensor,
-        y: torch.Tensor,
-        x_seq_lengths: torch.Tensor,
-        x_offsets: torch.Tensor,
-        max_seq_len: int,
-    ) -> torch.Tensor:
-        ctx.max_seq_len = max_seq_len
-
-        ctx.save_for_backward(
-            x,
-            y,
-            x_seq_lengths,
-            x_offsets,
-        )
-
-        total_L = x.size(0)
-        jagged_C = torch.zeros((total_L), device=x.device, dtype=x.dtype)
-
-        return jagged_C
-
-    @staticmethod
-    # pyre-fixme
-    def backward(ctx, grad_output: torch.Tensor):
-        (
-            x,
-            y,
-            x_seq_lengths,
-            x_offsets,
-        ) = ctx.saved_tensors
-
-        total_L = grad_output.size(0)
-        jagged_C = torch.zeros(
-            (total_L), device=grad_output.device, dtype=grad_output.dtype
-        )
-
-        return jagged_C, None, None, None, None
-
-
-def meta_jagged_dense_elementwise_mul_jagged_out(
-    x: torch.Tensor,
-    y: torch.Tensor,
-    x_seq_lengths: torch.Tensor,
-    x_offsets: torch.Tensor,
-    max_seq_len: int,
-) -> torch.Tensor:
-    return MetaJaggedDenseElementwiseMul.apply(
         x,
         y,
         x_seq_lengths,
