@@ -40,7 +40,10 @@ at::Tensor fused_moe_impl(
   auto tokens = input.size(0);
   auto hidden_size = input.size(1);
   auto experts = gate_up_weight.size(0);
-  auto intermediate_size = gate_up_weight.size(1);
+  // Interface requires that you pass intermediate size. On |gate_only| = False,
+  // |gate_up_weight| might be 2 * intermediate size, so extract the size from
+  // |down_weight|
+  auto intermediate_size = down_weight.size(2);
   auto topk = topk_ids.size(1);
   auto stride = input.stride(0);
 
@@ -81,6 +84,7 @@ at::Tensor fused_moe_impl(
       "fp32", // prec_sq (smooth quant)
       "fp32", // prec_kw (topk weight)
       static_cast<int>(block_m),
+      1,
       static_cast<int>(gate_only),
       static_cast<int>(fused_quant)};
 
