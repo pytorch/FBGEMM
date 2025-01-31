@@ -240,17 +240,17 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     cp_async_wait<0>();
     syncwarp();
     const int32_t uints_per_row = 4 * uint4_loads_per_row;
+    const int32_t packed_bag_idx = PackedMode ? (threadIdx.x / uints_per_row) % num_packed_bags : 0;
     if constexpr (PackedMode) {
-      input_rows_in_flight = shfl_sync(input_rows_in_flight, threadIdx.x / uints_per_row % num_packed_bags * uint4_loads_per_row);
+      input_rows_in_flight = shfl_sync(input_rows_in_flight, packed_bag_idx * uint4_loads_per_row);
 
       #pragma unroll OutputRowsPerThread
       for(uint32_t i = 0; i < OutputRowsPerThread; ++i)
       {
-        Ls[i] = shfl_sync(Ls[i], threadIdx.x / uints_per_row % num_packed_bags * uint4_loads_per_row);
+        Ls[i] = shfl_sync(Ls[i], packed_bag_idx * uint4_loads_per_row);
       }
     }
     
-    const int32_t packed_bag_idx = PackedMode ? (threadIdx.x / uints_per_row) % num_packed_bags : 0;
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
