@@ -248,6 +248,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         Ls[i] = shfl_sync(Ls[i], threadIdx.x / uints_per_row % num_packed_bags * uint4_loads_per_row);
       }
     }
+    
+    const int32_t packed_bag_idx = PackedMode ? (threadIdx.x / uints_per_row) % num_packed_bags : 0;
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -256,7 +258,6 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           continue;
         }
         const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-        const int32_t packed_bag_idx = PackedMode ? (threadIdx.x / uints_per_row) % num_packed_bags : 0;
         // scale and bias are at the beginning of each row.
         // rationale: have scale/shift at start since these get loaded first
         // and then broadcasted around so it might speed up the first cache miss.
