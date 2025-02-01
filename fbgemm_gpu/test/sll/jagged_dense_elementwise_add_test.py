@@ -9,9 +9,10 @@
 
 import unittest
 
+import fbgemm_gpu.sll  # noqa F401
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.triton_sll import jagged_dense_elementwise_add  # noqa
+
 from hypothesis import given, settings
 
 from .common import open_source
