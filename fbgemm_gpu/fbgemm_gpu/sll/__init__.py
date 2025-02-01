@@ -41,12 +41,10 @@ from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     jagged_dense_bmm,
     jagged_dense_elementwise_add,
     jagged_dense_elementwise_mul_jagged_out,
-    jagged_dense_flash_attention,
     jagged_flash_attention_basic,
     jagged_jagged_bmm,
     jagged_jagged_bmm_jagged_out,
     jagged_softmax,
-    multi_head_jagged_flash_attention,
     triton_jagged_self_substraction_jagged_out,
 )
 
@@ -322,19 +320,16 @@ sll_gpu_registrations = {
         "CUDA": jagged_dense_elementwise_add,
         "AutogradCUDA": jagged_dense_elementwise_add,
     },
-    "sll_jagged_dense_flash_attention": {
-        "CUDA": jagged_dense_flash_attention,
-        "AutogradCUDA": jagged_dense_flash_attention,
-    },
-    "sll_multi_head_jagged_flash_attention": {
-        "CUDA": multi_head_jagged_flash_attention,
-        "AutogradCUDA": multi_head_jagged_flash_attention,
-    },
 }
 
 for op_name, dispatches in sll_cpu_registrations.items():
     lib.register(op_name, dispatches)
 
 if torch.cuda.is_available():
+    from fbgemm_gpu.sll.triton import op_registrations
+
+    for op_name, dispatches in op_registrations.items():
+        lib.register(op_name, dispatches)
+
     for op_name, dispatches in sll_gpu_registrations.items():
         lib.register(op_name, dispatches)

@@ -10,7 +10,7 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.triton_sll import multi_head_jagged_flash_attention
+from fbgemm_gpu.sll.triton import multi_head_jagged_flash_attention
 from hypothesis import given, settings
 from torch.nn import functional as F
 
