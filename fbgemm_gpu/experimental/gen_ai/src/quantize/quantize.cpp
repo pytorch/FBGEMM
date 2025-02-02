@@ -56,13 +56,6 @@ at::Tensor f8f8bf16_tensorwise(
     double scale,
     bool use_fast_accum = true);
 at::Tensor f8f8bf16_lite(at::Tensor XQ, at::Tensor WQ, at::Tensor scale);
-std::vector<at::Tensor> f8f8bf16_grouped(
-    at::TensorList XQ,
-    at::TensorList WQ,
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    std::optional<at::Tensor> zero_start_index_M,
-    bool use_fast_accum = true);
 std::vector<at::Tensor> bf16bf16bf16_grouped(
     at::TensorList X,
     at::TensorList W,
@@ -187,8 +180,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "f8f8bf16_cublas(Tensor A, Tensor B, Tensor? Ainvs=None, Tensor? Binvs=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
-  m.def(
-      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor? zero_start_index_M=None, bool use_fast_accum=True) -> Tensor[]");
   m.def("f8f8bf16_lite(Tensor XQ, Tensor WQ, Tensor scale) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
@@ -199,11 +190,6 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
 #endif
 #ifdef USE_ROCM
-  m.def(
-      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None, str? kernel_name=None) -> Tensor[]");
-  m.def(
-      "f8f8bf16_rowwise_grouped_dynamic(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor? zero_start_index_M=None, str? kernel_name=None) -> Tensor");
-
   m.def("get_f8f8bf16_rowwise_grouped_kernels() -> str[]");
   m.impl(
       "get_f8f8bf16_rowwise_grouped_kernels",
@@ -221,6 +207,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "f8f8bf16_rowwise_out(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor(a!) output, Tensor? bias=None, bool use_fast_accum=True) -> ()");
   m.def(
       "f8f8bf16_rowwise_batched(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
+  m.def(
+      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None, str? kernel_name=None) -> Tensor[]");
+  m.def(
+      "f8f8bf16_rowwise_grouped_dynamic(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor? zero_start_index_M=None, str? kernel_name=None) -> Tensor");
   m.def(
       "f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
   m.def("per_tensor_quantize_i8(Tensor X, float scale) -> Tensor");
@@ -261,24 +251,22 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
   m.impl("f8f8bf16_rowwise_out", f8f8bf16_rowwise_out);
   m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched);
+  m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
+  m.impl("f8f8bf16_rowwise_grouped_dynamic", f8f8bf16_rowwise_grouped_dynamic);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
   m.impl("bf16bf16bf16_grouped", bf16bf16bf16_grouped);
   m.impl("bf16bf16bf16_grouped_dynamic", bf16bf16bf16_grouped_dynamic);
+
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
-  m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
   m.impl("f8f8bf16_lite", f8f8bf16_lite);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
-#endif
-#ifdef USE_ROCM
-  m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
-  m.impl("f8f8bf16_rowwise_grouped_dynamic", f8f8bf16_rowwise_grouped_dynamic);
 #endif
 }
 
@@ -289,6 +277,8 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
   m.impl("f8f8bf16_rowwise", f8f8bf16_rowwise);
   m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched);
+  m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
+  m.impl("f8f8bf16_rowwise_grouped_dynamic", f8f8bf16_rowwise_grouped_dynamic);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
   m.impl("quantize_fp8_per_row", quantize_fp8_per_row);
   m.impl("quantize_fp8_per_col", quantize_fp8_per_col);
@@ -298,15 +288,10 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
-  m.impl("f8f8bf16_grouped", f8f8bf16_grouped);
   m.impl("f8f8bf16_lite", f8f8bf16_lite);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
-#endif
-#ifdef USE_ROCM
-  m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
-  m.impl("f8f8bf16_rowwise_grouped_dynamic", f8f8bf16_rowwise_grouped_dynamic);
 #endif
 }
 
@@ -486,22 +471,6 @@ std::vector<at::Tensor> quantize_fp8_per_col_meta(
   return {Y, scale};
 }
 
-std::vector<at::Tensor> f8f8bf16_grouped_meta(
-    at::TensorList XQ,
-    at::TensorList WQ,
-    at::TensorList /* x_scale */,
-    at::TensorList /* w_scale */,
-    std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */,
-    bool /* use_fast_accum = true */) {
-  std::vector<at::Tensor> Y;
-  for (int i = 0; i < XQ.size(); i++) {
-    const at::SymInt M = XQ[i].sym_size(0);
-    const at::SymInt N = WQ[i].sym_size(0);
-    Y.push_back(at::empty_symint({M, N}, XQ[i].options().dtype(at::kBFloat16)));
-  }
-  return Y;
-}
-
 std::vector<at::Tensor> bf16bf16bf16_grouped_meta(
     at::TensorList X,
     at::TensorList W,
@@ -545,7 +514,6 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
-  m.impl("f8f8bf16_grouped", f8f8bf16_grouped_meta);
   m.impl("f8f8bf16_lite", f8f8bf16_lite_meta);
 #endif
 }

@@ -806,33 +806,62 @@ class FP8Tests(unittest.TestCase):
 
         # FP8 grouped gemm kernel
         if use_cudagraph:
-            # warmup
-            torch.ops.fbgemm.f8f8bf16_grouped(
-                xq_group,
-                wq_group,
-                x_scale_group,
-                w_scale_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
-            # With cudagraph
-            g = torch.cuda.CUDAGraph()
-            with torch.cuda.graph(g):
-                y_fp8_group = torch.ops.fbgemm.f8f8bf16_grouped(
+            if use_padding_zeros:
+                # warmup
+                torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
                     xq_group,
                     wq_group,
                     x_scale_group,
                     w_scale_group,
-                    zero_start_index_M if use_padding_zeros else None,
+                    zero_start_index_M,
                 )
-            g.replay()
+                # With cudagraph
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
+                        xq_group,
+                        wq_group,
+                        x_scale_group,
+                        w_scale_group,
+                        zero_start_index_M,
+                    )
+                g.replay()
+                y_fp8_group = y_fp8_group.unbind(dim=0)
+            else:
+                # warmup
+                torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
+                    xq_group,
+                    wq_group,
+                    x_scale_group,
+                    w_scale_group,
+                )
+                # With cudagraph
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
+                        xq_group,
+                        wq_group,
+                        x_scale_group,
+                        w_scale_group,
+                    )
+                g.replay()
         else:
-            y_fp8_group = torch.ops.fbgemm.f8f8bf16_grouped(
-                xq_group,
-                wq_group,
-                x_scale_group,
-                w_scale_group,
-                zero_start_index_M if use_padding_zeros else None,
-            )
+            if use_padding_zeros:
+                y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
+                    xq_group,
+                    wq_group,
+                    x_scale_group,
+                    w_scale_group,
+                    zero_start_index_M,
+                )
+                y_fp8_group = y_fp8_group.unbind(dim=0)
+            else:
+                y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
+                    xq_group,
+                    wq_group,
+                    x_scale_group,
+                    w_scale_group,
+                )
 
         # BF16 grouped gemm kernel
         bf16_args = (
