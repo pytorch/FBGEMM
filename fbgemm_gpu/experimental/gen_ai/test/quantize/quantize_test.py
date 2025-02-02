@@ -730,7 +730,7 @@ class FP8Tests(unittest.TestCase):
     )
     @settings(deadline=None)
     @given(
-        G=st.sampled_from([1, 4, 5]),
+        G=st.sampled_from([1, 4, 5, 16]),
         M=st.sampled_from([2048, 3584]),
         N=st.sampled_from([1024, 6144]),
         K=st.sampled_from([512, 3584]),
@@ -770,7 +770,8 @@ class FP8Tests(unittest.TestCase):
         w_group = []
         xq_group = []
         wq_group = []
-        scale_group = []
+        x_scale_group = []
+        w_scale_group = []
         zero_start_index_M = None
 
         # If padding, mark where zeros start for each input.
@@ -785,13 +786,14 @@ class FP8Tests(unittest.TestCase):
                 # When padding, all x values are made to have the same M.
                 x = torch.nn.functional.pad(x, (0, 0, 0, max(ms) - m), value=0)
 
-            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-            wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+            xq, x_scale = quantize_fp8_row(x)
+            wq, w_scale = quantize_fp8_row(w)
             x_group.append(x)
             w_group.append(w)
             xq_group.append(xq)
             wq_group.append(wq)
-            scale_group.append(x_scale * w_scale)
+            x_scale_group.append(x_scale)
+            w_scale_group.append(w_scale)
 
         # Make inputs contiguous in memory, this simulates the typical MOE use-case.
         if use_padding_zeros:
@@ -799,7 +801,8 @@ class FP8Tests(unittest.TestCase):
             w_group = torch.unbind(torch.stack(w_group, dim=0).contiguous())
             xq_group = torch.unbind(torch.stack(xq_group, dim=0).contiguous())
             wq_group = torch.unbind(torch.stack(wq_group, dim=0).contiguous())
-            scale_group = torch.unbind(torch.stack(scale_group, dim=0).contiguous())
+            x_scale_group = torch.unbind(torch.stack(x_scale_group, dim=0).contiguous())
+            w_scale_group = torch.unbind(torch.stack(w_scale_group, dim=0).contiguous())
 
         # FP8 grouped gemm kernel
         if use_cudagraph:
@@ -807,7 +810,8 @@ class FP8Tests(unittest.TestCase):
             torch.ops.fbgemm.f8f8bf16_grouped(
                 xq_group,
                 wq_group,
-                scale_group,
+                x_scale_group,
+                w_scale_group,
                 zero_start_index_M if use_padding_zeros else None,
             )
             # With cudagraph
@@ -816,7 +820,8 @@ class FP8Tests(unittest.TestCase):
                 y_fp8_group = torch.ops.fbgemm.f8f8bf16_grouped(
                     xq_group,
                     wq_group,
-                    scale_group,
+                    x_scale_group,
+                    w_scale_group,
                     zero_start_index_M if use_padding_zeros else None,
                 )
             g.replay()
@@ -824,7 +829,8 @@ class FP8Tests(unittest.TestCase):
             y_fp8_group = torch.ops.fbgemm.f8f8bf16_grouped(
                 xq_group,
                 wq_group,
-                scale_group,
+                x_scale_group,
+                w_scale_group,
                 zero_start_index_M if use_padding_zeros else None,
             )
 

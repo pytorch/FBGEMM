@@ -59,7 +59,8 @@ at::Tensor f8f8bf16_lite(at::Tensor XQ, at::Tensor WQ, at::Tensor scale);
 std::vector<at::Tensor> f8f8bf16_grouped(
     at::TensorList XQ,
     at::TensorList WQ,
-    at::TensorList scale,
+    at::TensorList x_scale,
+    at::TensorList w_scale,
     std::optional<at::Tensor> zero_start_index_M,
     bool use_fast_accum = true);
 std::vector<at::Tensor> bf16bf16bf16_grouped(
@@ -187,7 +188,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
-      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] scale, Tensor? zero_start_index_M=None, bool use_fast_accum=True) -> Tensor[]");
+      "f8f8bf16_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor? zero_start_index_M=None, bool use_fast_accum=True) -> Tensor[]");
   m.def("f8f8bf16_lite(Tensor XQ, Tensor WQ, Tensor scale) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
@@ -488,7 +489,8 @@ std::vector<at::Tensor> quantize_fp8_per_col_meta(
 std::vector<at::Tensor> f8f8bf16_grouped_meta(
     at::TensorList XQ,
     at::TensorList WQ,
-    at::TensorList /* scale */,
+    at::TensorList /* x_scale */,
+    at::TensorList /* w_scale */,
     std::optional<at::Tensor> /* zero_start_index_M = std::nullopt */,
     bool /* use_fast_accum = true */) {
   std::vector<at::Tensor> Y;
