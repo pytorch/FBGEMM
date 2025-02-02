@@ -522,39 +522,22 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
 
     def compute(self, xq, wq, x_scale, w_scale, m_values, kernel_name=None):
         if m_values is None:
-            if torch.version.cuda:
-                return torch.ops.fbgemm.f8f8bf16_grouped(
-                    xq,
-                    wq,
-                    x_scale,
-                    w_scale,
-                )
-            else:
-                return torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
-                    xq,
-                    wq,
-                    x_scale,
-                    w_scale,
-                    kernel_name=kernel_name,
-                )
+            return torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
+                xq,
+                wq,
+                x_scale,
+                w_scale,
+                kernel_name=kernel_name,
+            )
         else:
-            if torch.version.cuda:
-                return torch.ops.fbgemm.f8f8bf16_grouped(
-                    xq,
-                    wq,
-                    x_scale,
-                    w_scale,
-                    zero_start_index_M=m_values,
-                )
-            else:
-                return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
-                    xq,
-                    wq,
-                    x_scale,
-                    w_scale,
-                    zero_start_index_M=m_values,
-                    kernel_name=kernel_name,
-                )
+            return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
+                xq,
+                wq,
+                x_scale,
+                w_scale,
+                zero_start_index_M=m_values,
+                kernel_name=kernel_name,
+            )
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale, m_values = self.quantize(x, w)
