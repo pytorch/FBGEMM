@@ -39,7 +39,6 @@ from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     jagged2_softmax,
     jagged2_to_padded_dense,
     jagged_dense_bmm,
-    jagged_dense_elementwise_add,
     jagged_dense_elementwise_mul_jagged_out,
     jagged_flash_attention_basic,
     jagged_jagged_bmm,
@@ -315,10 +314,6 @@ sll_gpu_registrations = {
     "sll_jagged_flash_attention_basic": {
         "CUDA": jagged_flash_attention_basic,
         "AutogradCUDA": jagged_flash_attention_basic,
-    },
-    "sll_jagged_dense_elementwise_add": {
-        "CUDA": jagged_dense_elementwise_add,
-        "AutogradCUDA": jagged_dense_elementwise_add,
     },
 }
 
