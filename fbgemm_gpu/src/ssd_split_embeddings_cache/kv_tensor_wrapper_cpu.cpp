@@ -57,9 +57,14 @@ void KVTensorWrapper::set_range(
   FBEXCEPTION("Not implemented");
 }
 
-c10::IntArrayRef KVTensorWrapper::size() {
+c10::IntArrayRef KVTensorWrapper::sizes() {
   FBEXCEPTION("Not implemented");
   return shape_;
+}
+
+c10::IntArrayRef KVTensorWrapper::strides() {
+  FBEXCEPTION("Not implemented");
+  return shape_; // make linter happy.
 }
 
 c10::ScalarType KVTensorWrapper::dtype() {
