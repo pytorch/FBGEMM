@@ -7,6 +7,13 @@
 
 # pyre-strict
 
+from fbgemm_gpu.sll.triton.triton_jagged_bmm import (  # noqa F401
+    jagged_dense_bmm,
+    jagged_jagged_bmm,
+    JaggedDenseBmm,  # noqa F401
+    JaggedJaggedBmm,  # noqa F401
+)
+
 from fbgemm_gpu.sll.triton.triton_jagged_dense_elementwise_add import (  # noqa F401
     jagged_dense_elementwise_add,
     JaggedDenseAdd,  # noqa F401
@@ -36,6 +43,14 @@ from fbgemm_gpu.sll.triton.triton_multi_head_jagged_flash_attention import (  # 
 
 # pyre-ignore[5]
 op_registrations = {
+    "sll_jagged_dense_bmm": {
+        "CUDA": jagged_dense_bmm,
+        "AutogradCUDA": jagged_dense_bmm,
+    },
+    "sll_jagged_jagged_bmm": {
+        "CUDA": jagged_jagged_bmm,
+        "AutogradCUDA": jagged_jagged_bmm,
+    },
     "sll_jagged_softmax": {
         "CUDA": jagged_softmax,
         "AutogradCUDA": jagged_softmax,
