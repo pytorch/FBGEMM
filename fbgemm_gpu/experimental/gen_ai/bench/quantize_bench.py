@@ -127,7 +127,8 @@ def benchmark_grouped(
         # Also check if the operator is supported.
         if kernel_requested and quantize_op.supported:
             # Get the quantized tensors for this operator.
-            quantized_vals = quantize_op.quantize(A, B)
+            preprocessed_args = quantize_op.preprocess(A, B)
+            quantized_vals = quantize_op.quantize(*preprocessed_args)
             # Compute the output given quantized values.
             output = quantize_op.compute(*quantized_vals)
             # Some kernels may pad output, just take the first m values of each row.
@@ -143,8 +144,7 @@ def benchmark_grouped(
             if bench_quantize:
                 # Benchmark both quantize and compute.
                 ms_runtime = quantize_op.benchmark(
-                    A,
-                    B,
+                    *preprocessed_args,
                     bench_quantize=True,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
                     use_cuda_graph=use_cuda_graph,
@@ -218,8 +218,10 @@ def benchmark(
         )
         # Also check if the operator is supported.
         if kernel_requested and quantize_op.supported:
+            # Preprocess data if needed.
+            preprocessed_args = quantize_op.preprocess(A, B)
             # Get the quantized tensors for this operator.
-            quantized_vals = quantize_op.quantize(A, B)
+            quantized_vals = quantize_op.quantize(*preprocessed_args)
             # Compute the output given quantized values.
             output = quantize_op.compute(*quantized_vals)
             # Compare the quantize op output to reference as a sanity check.
@@ -229,8 +231,7 @@ def benchmark(
             if bench_quantize:
                 # Benchmark both quantize and compute.
                 ms_runtime = quantize_op.benchmark(
-                    A,
-                    B,
+                    *preprocessed_args,
                     bench_quantize=True,
                     use_rotating_buffer_bench=use_rotating_buffer_bench,
                     use_cuda_graph=use_cuda_graph,
