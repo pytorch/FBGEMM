@@ -47,7 +47,9 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const int64_t length,
       const at::Tensor& weights);
 
-  c10::IntArrayRef size();
+  c10::IntArrayRef sizes();
+
+  c10::IntArrayRef strides();
 
   c10::ScalarType dtype();
 
