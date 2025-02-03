@@ -726,7 +726,8 @@ class FP8Tests(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: GMM ops are not yet suported."
+        not torch.version.cuda and torch.version.hip < "6.2",
+        "Skip on AMD with < RoCM 6.2",
     )
     @settings(deadline=None)
     @given(
@@ -805,63 +806,39 @@ class FP8Tests(unittest.TestCase):
             w_scale_group = torch.unbind(torch.stack(w_scale_group, dim=0).contiguous())
 
         # FP8 grouped gemm kernel
+        fp8_args = (
+            [
+                xq_group,
+                wq_group,
+                x_scale_group,
+                w_scale_group,
+                zero_start_index_M if use_padding_zeros else None,
+            ]
+            if use_dynamic
+            else [xq_group, wq_group, x_scale_group, w_scale_group]
+        )
+        fp8_op = (
+            torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
+            if use_dynamic
+            else torch.ops.fbgemm.f8f8bf16_rowwise_grouped
+        )
         if use_cudagraph:
-            if use_padding_zeros:
-                # warmup
-                torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
-                    xq_group,
-                    wq_group,
-                    x_scale_group,
-                    w_scale_group,
-                    zero_start_index_M,
-                )
-                # With cudagraph
-                g = torch.cuda.CUDAGraph()
-                with torch.cuda.graph(g):
-                    y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
-                        xq_group,
-                        wq_group,
-                        x_scale_group,
-                        w_scale_group,
-                        zero_start_index_M,
-                    )
-                g.replay()
-                y_fp8_group = y_fp8_group.unbind(dim=0)
-            else:
-                # warmup
-                torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
-                    xq_group,
-                    wq_group,
-                    x_scale_group,
-                    w_scale_group,
-                )
-                # With cudagraph
-                g = torch.cuda.CUDAGraph()
-                with torch.cuda.graph(g):
-                    y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
-                        xq_group,
-                        wq_group,
-                        x_scale_group,
-                        w_scale_group,
-                    )
-                g.replay()
+            # warmup
+            fp8_op(*fp8_args)
+            # With cudagraph
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y_fp8_group = fp8_op(*fp8_args)
+            g.replay()
         else:
-            if use_padding_zeros:
-                y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
-                    xq_group,
-                    wq_group,
-                    x_scale_group,
-                    w_scale_group,
-                    zero_start_index_M,
-                )
-                y_fp8_group = y_fp8_group.unbind(dim=0)
+            y_fp8_group = fp8_op(*fp8_args)
+
+        # Massage output into proper format.
+        if not isinstance(y_fp8_group, (tuple, list)):
+            if y_fp8_group.ndim == 2:
+                y_fp8_group = torch.split(y_fp8_group, tuple(ms.tolist()), dim=0)
             else:
-                y_fp8_group = torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
-                    xq_group,
-                    wq_group,
-                    x_scale_group,
-                    w_scale_group,
-                )
+                y_fp8_group = torch.unbind(y_fp8_group)
 
         # BF16 grouped gemm kernel
         bf16_args = (

@@ -462,8 +462,6 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
        reinterpret_cast<GroupedGemmArgs::ElementOutput**>(output_ptr),
        stride_output_ptr}};
 
-  int M = XQ[0].size(0);
-  int N = WQ[0].size(0);
   arguments.epilogue.thread = {
       {reinterpret_cast<const GroupedGemmArgs::ElementComputeEpilogue**>(
           x_scale_ptr)}, // x_scale
@@ -599,7 +597,13 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
   at::Tensor output = std::get<0>(dispatch_fp8_grouped_kernel(
       XQ, WQ, x_scale, w_scale, Y, zero_start_index_M));
   // View as proper shape.
-  output = output.view({-1, XQ[0].size(0), WQ[0].size(0)});
+  // When zero_start_index_M is provided, we can view as [G, M, N]
+  if (zero_start_index_M.has_value()) {
+    output = output.view({-1, XQ[0].size(0), WQ[0].size(0)});
+    // Otherwise we view as {total_M, N}.
+  } else {
+    output = output.view({-1, WQ[0].size(0)});
+  }
   return output;
 }
 
