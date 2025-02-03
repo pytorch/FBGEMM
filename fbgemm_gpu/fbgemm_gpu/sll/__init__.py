@@ -36,14 +36,11 @@ from fbgemm_gpu.sll.meta_sll import (  # noqa F401
 from fbgemm_gpu.sll.triton_sll import (  # noqa F401
     array_jagged_bmm_jagged_out,
     dense_jagged_cat_jagged_out,
-    jagged2_softmax,
     jagged2_to_padded_dense,
     jagged_dense_bmm,
     jagged_dense_elementwise_mul_jagged_out,
-    jagged_flash_attention_basic,
     jagged_jagged_bmm,
     jagged_jagged_bmm_jagged_out,
-    jagged_softmax,
     triton_jagged_self_substraction_jagged_out,
 )
 
@@ -295,14 +292,6 @@ sll_gpu_registrations = {
         "CUDA": jagged_dense_elementwise_mul_jagged_out,
         "AutogradCUDA": jagged_dense_elementwise_mul_jagged_out,
     },
-    "sll_jagged_softmax": {
-        "CUDA": jagged_softmax,
-        "AutogradCUDA": jagged_softmax,
-    },
-    "sll_jagged2_softmax": {
-        "CUDA": jagged2_softmax,
-        "AutogradCUDA": jagged2_softmax,
-    },
     "sll_array_jagged_bmm_jagged_out": {
         "CUDA": array_jagged_bmm_jagged_out,
         "AutogradCUDA": array_jagged_bmm_jagged_out,
@@ -310,10 +299,6 @@ sll_gpu_registrations = {
     "sll_jagged_jagged_bmm_jagged_out": {
         "CUDA": jagged_jagged_bmm_jagged_out,
         "AutogradCUDA": jagged_jagged_bmm_jagged_out,
-    },
-    "sll_jagged_flash_attention_basic": {
-        "CUDA": jagged_flash_attention_basic,
-        "AutogradCUDA": jagged_flash_attention_basic,
     },
 }
 
