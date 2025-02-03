@@ -60,16 +60,23 @@ class TestFp8Matmul(unittest.TestCase):
                 # Apply sparsification if specified.
                 zero_start_index_M = None
                 if use_jagged:
-                    m_vals = torch.randint(
-                        0, input_a.shape[-1] + 1, (input_a.shape[:-1])
+                    # View input as [G, M, K] where G is the number of groups.
+                    grouped_input = input_a.view(
+                        -1, input_a.shape[-2], input_a.shape[-1]
                     )
-                    mask = torch.arange(input_a.shape[-1]).expand(
-                        input_a.shape[:-1] + (input_a.shape[-1],)
+                    m_vals = torch.randint(
+                        0, grouped_input.shape[1] + 1, (grouped_input.shape[0],)
+                    )
+                    mask = torch.arange(grouped_input.shape[-2]).expand(
+                        (grouped_input.shape[0], grouped_input.shape[1])
                     ) >= m_vals.unsqueeze(-1)
                     # Set corresponding values to 0.
-                    input_a[mask] = 0.0
+                    grouped_input[mask] = 0.0
                     # Generate nonzero tensor in same layout as input.
-                    zero_start_index_M = torch.count_nonzero(input_a, dim=-1)
+                    zero_start_index_M = torch.count_nonzero(
+                        torch.sum(grouped_input, dim=-1), dim=-1
+                    )
+
                 a_fp8, a_scale = quantize_fp8_row(
                     input_a,
                     scale_ub=scale_ub,
