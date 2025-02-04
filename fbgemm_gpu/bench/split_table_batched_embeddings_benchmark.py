@@ -122,6 +122,7 @@ def cli() -> None:
 @click.option("--batch-size", default=512)
 @click.option("--embedding-dim", default=128)
 @click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
+@click.option("--cache-precision", type=SparseType, default=None)
 @click.option("--stoc", is_flag=True, default=False)
 @click.option("--iters", default=100)
 @click.option("--warmup-runs", default=0)
@@ -174,6 +175,7 @@ def device(  # noqa C901
     batch_size: int,
     embedding_dim: int,
     weights_precision: SparseType,
+    cache_precision: Optional[SparseType],
     stoc: bool,
     iters: int,
     warmup_runs: int,
@@ -317,7 +319,9 @@ def device(  # noqa C901
                 )
                 for d in Ds
             ],
-            cache_precision=weights_precision,
+            cache_precision=(
+                weights_precision if cache_precision is None else cache_precision
+            ),
             cache_algorithm=CacheAlgorithm.LRU,
             cache_load_factor=cache_load_factor,
             **common_split_args,
