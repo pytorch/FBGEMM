@@ -72,7 +72,8 @@ at::Tensor rope_qkv_varseq_prefill(
     double hi_freq_factor,
     std::optional<at::Tensor> qparam_k,
     std::optional<at::Tensor> qparam_v,
-    bool write_k_back);
+    bool write_k_back,
+    bool k_rms_norm);
 
 at::Tensor rope_qkv_decoding(
     at::Tensor XQ,
@@ -95,7 +96,8 @@ at::Tensor rope_qkv_decoding(
     double lo_freq_factor,
     double hi_freq_factor,
     std::optional<at::Tensor> qparam_k,
-    std::optional<at::Tensor> qparam_v);
+    std::optional<at::Tensor> qparam_v,
+    bool k_rms_norm);
 
 at::Tensor xpos_qkv_varseq_prefill(
     at::Tensor XQ,
@@ -175,9 +177,9 @@ at::Tensor mqa_attn(
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("rope_qkv_varseq_prefill(Tensor XQ, Tensor(a!) XK, Tensor XV, Tensor(b!) cache_K, Tensor(c!) cache_V,  Tensor varseq_batch, Tensor varseq_seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
       DEFAULT_PAGE_SIZE) ", Tensor? varseq_cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192"
-      ", float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32,  Tensor? qparam_k=None, Tensor? qparam_v=None, bool write_k_back=False) -> Tensor");
+      ", float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32,  Tensor? qparam_k=None, Tensor? qparam_v=None, bool write_k_back=False, bool k_rms_norm=False) -> Tensor");
   m.def("rope_qkv_decoding(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
-      DEFAULT_PAGE_SIZE) ", Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None,  int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32, Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor");
+      DEFAULT_PAGE_SIZE) ", Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None,  int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32, Tensor? qparam_k=None, Tensor? qparam_v=None, bool k_rms_norm=False) -> Tensor");
   m.def(
       "nope_qkv_varseq_prefill(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor varseq_batch, Tensor varseq_seqpos, Tensor? block_tables=None, int page_size=" STRING(
           DEFAULT_PAGE_SIZE) ", Tensor? varseq_cache_seqpos=None) -> Tensor");
@@ -237,7 +239,8 @@ at::Tensor rope_qkv_varseq_prefill_meta(
     double /* hi_freq_factor */,
     std::optional<at::Tensor> /* qparam_k */,
     std::optional<at::Tensor> /* qparam_v */,
-    bool /* write_k_back */
+    bool /* write_k_back */,
+    bool /* k_rms_norm */
 ) {
   return at::empty_like(XQ);
 }
@@ -263,7 +266,8 @@ at::Tensor rope_qkv_decoding_meta(
     double /* lo_freq_factor */,
     double /* hi_freq_factor */,
     std::optional<at::Tensor> /* qparam_k */,
-    std::optional<at::Tensor> /* qparam_v */
+    std::optional<at::Tensor> /* qparam_v */,
+    bool /* k_rms_norm */
 ) {
   return at::empty_like(XQ);
 }

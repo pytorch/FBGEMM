@@ -347,8 +347,18 @@ void KVTensorWrapper::set_range(
   }
 }
 
-c10::IntArrayRef KVTensorWrapper::size() {
+c10::IntArrayRef KVTensorWrapper::sizes() {
   return shape_;
+}
+
+c10::IntArrayRef KVTensorWrapper::strides() {
+  // Assume contiguous tensor.
+  std::vector<int64_t> strides(shape_.size(), 1);
+  for (int i = shape_.size() - 2; i > -1; i--) {
+    int prev = i + 1;
+    strides[i] = strides[prev] * std::max<int64_t>(shape_[prev], 1);
+  }
+  return strides;
 }
 
 c10::ScalarType KVTensorWrapper::dtype() {
@@ -500,9 +510,10 @@ static auto kv_tensor_wrapper =
         .def_property("layout_str", &KVTensorWrapper::layout_str)
         .def_property(
             "shape",
-            &KVTensorWrapper::size,
+            &KVTensorWrapper::sizes,
             std::string(
-                "Returns the shape of the original tensor. Only the narrowed part is materialized."));
+                "Returns the shape of the original tensor. Only the narrowed part is materialized."))
+        .def_property("strides", &KVTensorWrapper::strides);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
