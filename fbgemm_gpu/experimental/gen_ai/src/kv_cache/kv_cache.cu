@@ -210,8 +210,11 @@ __device__ void get_dst_row(
 
 enum class PositionEmbeddingMode { ROPE = 0, XPOS = 1 };
 enum class QKV { Q, K, V };
-DEVICE_INLINE void
-quantize_fp8_kv(fx4 dst, uint8_t* dst_row_q, __half2* qparam = nullptr);
+DEVICE_INLINE void quantize_fp8_kv(
+    fx4 dst,
+    uint8_t* dst_row_q,
+    __half2* qparam = nullptr,
+    bool do_rms_norm = false);
 
 __global__ void nope_qkv_varseq_prefill_kernel(
     at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
@@ -711,7 +714,8 @@ DEVICE_INLINE void quantize_int4_kv(fx4 dst, uint8_t* dst_row_q) {
     old_context_len,                                                        \
     scaling_factor,                                                         \
     lo_freq_factor,                                                         \
-    hi_freq_factor)                                                         \
+    hi_freq_factor,                                                         \
+    k_rms_norm)                                                             \
   rope_xpos_qkv_varseq_prefill_kernel_<EMB_MODE, DTYPE, NUM_GROUPS>         \
       <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(           \
           XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),   \
@@ -737,7 +741,8 @@ DEVICE_INLINE void quantize_int4_kv(fx4 dst, uint8_t* dst_row_q) {
           old_context_len,                                                  \
           scaling_factor,                                                   \
           lo_freq_factor,                                                   \
-          hi_freq_factor);
+          hi_freq_factor,                                                   \
+          k_rms_norm);
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
@@ -799,7 +804,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_(
     int64_t old_context_len = 8192,
     double scaling_factor = 16,
     double lo_freq_factor = 1,
-    double hi_freq_factor = 32) {
+    double hi_freq_factor = 32,
+    bool k_rms_norm = false) {
   // Launch b_t_(sum(h)) warps.
   auto b_t_hh = blockIdx.x * blockDim.y +
       threadIdx.y; // Block = [kThreadsPerWarp, kWarpsPerBlock]
@@ -904,7 +910,7 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_(
     if (kCacheDtype == CacheLogicalDtype::FP8) {
       if (qparam_k_ptr == nullptr) {
         CUDA_KERNEL_ASSERT(D_H_q - D_H == 4);
-        quantize_fp8_kv(dst, dst_row_q);
+        quantize_fp8_kv(dst, dst_row_q, nullptr, (qkv == QKV::K && k_rms_norm));
       } else {
         __half2* qparam_row = nullptr;
         auto T = cache_K.size(1);
@@ -930,7 +936,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_(
             qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
           }
         }
-        quantize_fp8_kv(dst, dst_row_q, qparam_row);
+        quantize_fp8_kv(
+            dst, dst_row_q, qparam_row, (qkv == QKV::K && k_rms_norm));
       }
 
     } else if (kCacheDtype == CacheLogicalDtype::INT4) {
@@ -1087,7 +1094,8 @@ at::Tensor rope_qkv_varseq_prefill(
     double hi_freq_factor = 32,
     std::optional<at::Tensor> qparam_k = {},
     std::optional<at::Tensor> qparam_v = {},
-    bool write_k_back = false) {
+    bool write_k_back = false,
+    bool k_rms_norm = false) {
   auto B_T = XQ.size(0);
   auto N_H = XQ.size(1);
   auto N_KVH = XK.size(1);
@@ -1181,7 +1189,8 @@ at::Tensor rope_qkv_varseq_prefill(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          k_rms_norm);
       C10_CUDA_KERNEL_LAUNCH_CHECK();
 #else
       throw std::runtime_error("CUDA version is older than 12.0");
@@ -1208,7 +1217,8 @@ at::Tensor rope_qkv_varseq_prefill(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          false);
 
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
@@ -1293,8 +1303,7 @@ at::Tensor xpos_qkv_varseq_prefill(
             old_context_len,
             scaling_factor,
             lo_freq_factor,
-            hi_freq_factor,
-            false);
+            hi_freq_factor);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
@@ -1331,7 +1340,8 @@ at::Tensor xpos_qkv_varseq_prefill(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          false);
 
       C10_CUDA_KERNEL_LAUNCH_CHECK();
 #else
@@ -1359,7 +1369,8 @@ at::Tensor xpos_qkv_varseq_prefill(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          false);
 
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
@@ -1388,7 +1399,8 @@ at::Tensor rope_qkv_decoding(
     double lo_freq_factor = 1,
     double hi_freq_factor = 32,
     std::optional<at::Tensor> qparam_k = {},
-    std::optional<at::Tensor> qparam_v = {}) {
+    std::optional<at::Tensor> qparam_v = {},
+    bool k_rms_norm = false) {
   auto B = XQ.size(0);
   auto N_H = XQ.size(1);
   auto N_KVH = XK.size(1);
@@ -1441,8 +1453,7 @@ at::Tensor rope_qkv_decoding(
             old_context_len,
             scaling_factor,
             lo_freq_factor,
-            hi_freq_factor,
-            false);
+            hi_freq_factor);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto seqpos_ =
@@ -1478,7 +1489,8 @@ at::Tensor rope_qkv_decoding(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          k_rms_norm);
 
       C10_CUDA_KERNEL_LAUNCH_CHECK();
 #else
@@ -1506,7 +1518,8 @@ at::Tensor rope_qkv_decoding(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          false);
 
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
@@ -1592,8 +1605,7 @@ at::Tensor xpos_qkv_decoding(
             old_context_len,
             scaling_factor,
             lo_freq_factor,
-            hi_freq_factor,
-            false);
+            hi_freq_factor);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
@@ -1629,7 +1641,8 @@ at::Tensor xpos_qkv_decoding(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          false);
       C10_CUDA_KERNEL_LAUNCH_CHECK();
 #else
       throw std::runtime_error("CUDA version is older than 12.0");
@@ -1656,7 +1669,8 @@ at::Tensor xpos_qkv_decoding(
           old_context_len,
           scaling_factor,
           lo_freq_factor,
-          hi_freq_factor);
+          hi_freq_factor,
+          false);
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
   }
@@ -1931,8 +1945,18 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   return {cache_K_dq, cache_V_dq};
 }
 
-DEVICE_INLINE void
-quantize_fp8_kv(fx4 dst, uint8_t* dst_row_q, __half2* qparam) {
+DEVICE_INLINE void quantize_fp8_kv(
+    fx4 dst,
+    uint8_t* dst_row_q,
+    __half2* qparam,
+    bool do_rms_norm) {
+  if (do_rms_norm) {
+    float sum = fx4_dot(dst, dst);
+    // Warp reduce sum
+    sum = warpReduceSum(sum);
+    float rsqr = rsqrtf(sum / 128);
+    dst = fx4_scale(dst, rsqr);
+  }
   auto thread_min = fminf(fminf(fminf(dst.x, dst.y), dst.z), dst.w);
   auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
 
@@ -1994,7 +2018,8 @@ quantize_fp8_kv(fx4 dst, uint8_t* dst_row_q, __half2* qparam) {
 }
 #else
 DEVICE_INLINE void
-quantize_fp8_kv(fx4 dst, uint8_t* dst_row_, __half2* qparam) {}
+quantize_fp8_kv(fx4 dst, uint8_t* dst_row_, __half2* qparam, bool do_rms_norm) {
+}
 std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size

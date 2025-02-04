@@ -180,6 +180,17 @@ DEVICE_INLINE fx4 fx4_acc(fx4 a, fx4 b) {
   a.w += b.w;
   return a;
 }
+DEVICE_INLINE float fx4_dot(fx4 a, fx4 b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+DEVICE_INLINE fx4 fx4_scale(fx4 a, float scale) {
+  a.x *= scale;
+  a.y *= scale;
+  a.z *= scale;
+  a.w *= scale;
+  return a;
+}
 
 DEVICE_INLINE bfx4 fx4_to_bfx4(fx4 a) {
   bfx4 r;
