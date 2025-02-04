@@ -411,20 +411,26 @@ class FP8RowwiseGemm(QuantizeOpBase):
     FP8 matmul with rowwise scaling.
     """
 
-    def quantize(self, x, w):
+    def preprocess(self, x, w):
+        # Prequantize weights.
+        if isinstance(w, (list, tuple)):
+            wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
+        else:
+            wq, w_scale = quantize_fp8_row(w)
+            if wq.dim() == 3:
+                w_scale = w_scale.view(wq.size(0), -1)
+        return x, wq, w_scale
+
+    def quantize(self, x, wq, w_scale):
         # Quantize both input tensors.
         # Handle both grouped and standard gemm.
         if isinstance(x, (list, tuple)):
             xq, x_scale = zip(*[quantize_fp8_row(i) for i in x])
-            wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
         else:
             xq, x_scale = quantize_fp8_row(x)
-            wq, w_scale = quantize_fp8_row(w)
             # Set proper batch dimension shapes.
             if xq.dim() == 3:
                 x_scale = x_scale.view(xq.size(0), -1)
-            if wq.dim() == 3:
-                w_scale = w_scale.view(wq.size(0), -1)
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
@@ -451,8 +457,8 @@ class FP8RowwiseGemm(QuantizeOpBase):
         # Otherwise return normal gemm result.
         return torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, x_scale, w_scale)
 
-    def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale = self.quantize(x, w)
+    def quantize_and_compute(self, x, wq, w_scale):
+        xq, wq, x_scale, w_scale = self.quantize(x, wq, w_scale)
         return self.compute(xq, wq, x_scale, w_scale)
 
     @property
