@@ -89,6 +89,9 @@ class KvTensorWrapperTest(TestCase):
             )
             self.assertEqual(tensor_wrapper.shape, [E, D])
 
+            # read one row as an extreme case
+            narrowed = tensor_wrapper.narrow(0, 0, 1)
+
             # table has a total of E rows
             # load 1000 rows at a time
             step = 1000
