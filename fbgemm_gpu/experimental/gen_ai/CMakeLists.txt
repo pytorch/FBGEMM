@@ -33,7 +33,10 @@ endif()
 # CUDA-specific sources
 file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_cuda
   src/quantize/cutlass_extensions/*.cu
-  src/quantize/cutlass_extensions/**/*.cu)
+  src/quantize/cutlass_extensions/**/*.cu
+  src/quantize/fast_gemv/*.cu
+  src/quantize/fast_gemv/**/*.cu
+  src/quantize/fast_gemv/**/*.cuh)
 
 # HIP-specific sources
 file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
