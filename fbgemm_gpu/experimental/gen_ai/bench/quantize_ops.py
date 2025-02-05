@@ -371,6 +371,38 @@ class FP8TensorwiseGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class BF16OSSFastGemv(QuantizeOpBase):
+    """
+    BF16 OSS fast gemv kernel.
+    """
+
+    def quantize(self, x, w):
+        # dummy quantize
+        return x, w
+
+    def compute(self, x, w):
+        out = torch.ops.fbgemm.bf16_fast_gemv(x, w)
+        return out
+
+    def quantize_and_compute(self, x, w):
+        x, w = self.quantize(x, w)
+        return self.compute(x, w)
+
+    @property
+    def name(self) -> str:
+        return "bf16_oss_fast_gemv"
+
+    @property
+    def hip(self) -> bool:
+        # This implementation is specific to cublas.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class FP8CublasRowwiseGemm(QuantizeOpBase):
     """
     FP8 matmul with tensorwise scaling.
