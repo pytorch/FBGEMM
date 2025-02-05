@@ -16,6 +16,16 @@ import pandas as pd
 import seaborn as sns
 import torch
 
+try:
+    from accelerators.pytorch.lib.utils.torch_profiler import profiler_or_nullcontext
+except ImportError:
+    from contextlib import nullcontext
+
+    class profiler_or_nullcontext(nullcontext):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+
 from .quantize_ops import get_quantize_ops, QuantizeOpBase
 
 
@@ -96,6 +106,7 @@ def benchmark_grouped(
     bench_quantize: bool = False,
     use_rotating_buffer_bench: bool = False,
     use_cuda_graph: bool = True,
+    trace: bool = False,
 ) -> Dict[str, Any]:
     num_groups = len(m)
     # Create input tensors.
@@ -143,19 +154,21 @@ def benchmark_grouped(
             # Now perform benchmark.
             if bench_quantize:
                 # Benchmark both quantize and compute.
-                ms_runtime = quantize_op.benchmark(
-                    *preprocessed_args,
-                    bench_quantize=True,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *preprocessed_args,
+                        bench_quantize=True,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
             else:
-                ms_runtime = quantize_op.benchmark(
-                    *quantized_vals,
-                    bench_quantize=False,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *quantized_vals,
+                        bench_quantize=False,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
 
             # Print out results for this op.
             tflops = 0
@@ -197,6 +210,7 @@ def benchmark(
     bench_quantize: bool = False,
     use_rotating_buffer_bench: bool = False,
     use_cuda_graph: bool = True,
+    trace: bool = False,
 ) -> Dict[str, Any]:
     # Create input tensors.
     if b > 1:
@@ -230,19 +244,21 @@ def benchmark(
             # Now perform benchmark.
             if bench_quantize:
                 # Benchmark both quantize and compute.
-                ms_runtime = quantize_op.benchmark(
-                    *preprocessed_args,
-                    bench_quantize=True,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *preprocessed_args,
+                        bench_quantize=True,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
             else:
-                ms_runtime = quantize_op.benchmark(
-                    *quantized_vals,
-                    bench_quantize=False,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *quantized_vals,
+                        bench_quantize=False,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
 
             # Print out results for this op.
             tflops = 2 * b * m * n * k / (ms_runtime / 1e3) / 1e12
@@ -370,6 +386,7 @@ def main(args: Any):
             args.bench_quantize,
             args.use_rotating_buffer_bench,
             not args.no_cuda_graph,
+            args.trace,
         )
         benchmark_results.append(quantize_measurements)
     if args.export_csv:
@@ -459,6 +476,12 @@ def invoke_main() -> None:
         default=False,
         action="store_true",
         help="If set, benchmark using fixed shapes relevant to ldm workloads.",
+    )
+    parser.add_argument(
+        "--trace",
+        default=False,
+        action="store_true",
+        help="If set, produce a performance trace of the benchmark.",
     )
 
     args = parser.parse_args()

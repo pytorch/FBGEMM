@@ -846,6 +846,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                               }
                               key_indices.push_back(i);
                             }
+
+                            // bail if nothing to do
+                            if (key_indices.empty()) {
+                              return;
+                            }
+
                             std::sort(
                                 key_indices.begin(),
                                 key_indices.end(),
