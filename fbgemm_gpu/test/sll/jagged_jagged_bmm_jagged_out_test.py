@@ -10,7 +10,7 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.triton_sll import triton_jagged_jagged_bmm_jagged_out
+from fbgemm_gpu.sll.triton import triton_jagged_jagged_bmm_jagged_out
 from hypothesis import given, settings
 
 from .common import open_source  # noqa

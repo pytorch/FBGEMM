@@ -7,11 +7,24 @@
 
 # pyre-strict
 
+from fbgemm_gpu.sll.triton.triton_dense_jagged_cat_jagged_out import (
+    dense_jagged_cat_jagged_out,
+)
+
 from fbgemm_gpu.sll.triton.triton_jagged_bmm import (  # noqa F401
     jagged_dense_bmm,
     jagged_jagged_bmm,
     JaggedDenseBmm,  # noqa F401
     JaggedJaggedBmm,  # noqa F401
+)
+
+from fbgemm_gpu.sll.triton.triton_jagged_bmm_jagged_out import (  # noqa F401
+    array_jagged_bmm_jagged_out,
+    ArrayJaggedBmmNopadding,  # noqa F401
+    jagged_jagged_bmm_jagged_out,
+    JaggedJaggedBmmNoPadding,  # noqa F401
+    triton_array_jagged_bmm_jagged_out,  # noqa F401
+    triton_jagged_jagged_bmm_jagged_out,  # noqa F401
 )
 
 from fbgemm_gpu.sll.triton.triton_jagged_dense_elementwise_add import (  # noqa F401
@@ -43,6 +56,9 @@ from fbgemm_gpu.sll.triton.triton_multi_head_jagged_flash_attention import (  # 
 
 # pyre-ignore[5]
 op_registrations = {
+    "sll_dense_jagged_cat_jagged_out": {
+        "CUDA": dense_jagged_cat_jagged_out,
+    },
     "sll_jagged_dense_bmm": {
         "CUDA": jagged_dense_bmm,
         "AutogradCUDA": jagged_dense_bmm,
@@ -50,6 +66,14 @@ op_registrations = {
     "sll_jagged_jagged_bmm": {
         "CUDA": jagged_jagged_bmm,
         "AutogradCUDA": jagged_jagged_bmm,
+    },
+    "sll_array_jagged_bmm_jagged_out": {
+        "CUDA": array_jagged_bmm_jagged_out,
+        "AutogradCUDA": array_jagged_bmm_jagged_out,
+    },
+    "sll_jagged_jagged_bmm_jagged_out": {
+        "CUDA": jagged_jagged_bmm_jagged_out,
+        "AutogradCUDA": jagged_jagged_bmm_jagged_out,
     },
     "sll_jagged_softmax": {
         "CUDA": jagged_softmax,
