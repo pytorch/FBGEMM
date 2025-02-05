@@ -29,7 +29,7 @@ namespace fbgemm_gpu {
 
 // Define useful types that are needed for various kernels.
 using KernelArguments =
-    ck::tensor_operation::device::GroupedGemmTileLoopKernelArguments<2>;
+    ck::tensor_operation::device::GroupedGemmKernelArgument<2>;
 using ADataType = ck::f8_t;
 using BDataType = ck::f8_t;
 using D0DataType = float;
