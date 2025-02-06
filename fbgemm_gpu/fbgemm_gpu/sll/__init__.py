@@ -34,7 +34,6 @@ from fbgemm_gpu.sll.meta_sll import (  # noqa F401
 )
 
 from fbgemm_gpu.sll.triton_sll import (  # noqa F401
-    jagged2_to_padded_dense,
     jagged_dense_elementwise_mul_jagged_out,
     triton_jagged_self_substraction_jagged_out,
 )
@@ -267,10 +266,6 @@ sll_cpu_registrations = {
 sll_gpu_registrations = {
     "sll_jagged_self_substraction_jagged_out": {
         "CUDA": triton_jagged_self_substraction_jagged_out,
-    },
-    "sll_jagged2_to_padded_dense": {
-        "CUDA": jagged2_to_padded_dense,
-        "AutogradCUDA": jagged2_to_padded_dense,
     },
     "sll_jagged_dense_elementwise_mul_jagged_out": {
         "CUDA": jagged_dense_elementwise_mul_jagged_out,
