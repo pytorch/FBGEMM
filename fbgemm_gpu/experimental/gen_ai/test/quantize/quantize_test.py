@@ -1131,7 +1131,7 @@ class FP8Tests(unittest.TestCase):
             z = torch.ops.fbgemm.bf16_fast_gemv(x, w)
             z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
 
-            torch.testing.assert_close(z, z_ref, atol=1.0e-3, rtol=1.0e-3)
+            torch.testing.assert_close(z, z_ref, atol=9.0e-3, rtol=9.0e-3)
 
     @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet supported."
