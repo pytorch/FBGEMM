@@ -11,6 +11,11 @@ from fbgemm_gpu.sll.triton.triton_dense_jagged_cat_jagged_out import (
     dense_jagged_cat_jagged_out,
 )
 
+from fbgemm_gpu.sll.triton.triton_jagged2_to_padded_dense import (  # noqa F401
+    jagged2_to_padded_dense,
+    Jagged2ToPaddedDense,  # noqa F401
+)
+
 from fbgemm_gpu.sll.triton.triton_jagged_bmm import (  # noqa F401
     jagged_dense_bmm,
     jagged_jagged_bmm,
@@ -66,6 +71,10 @@ op_registrations = {
     "sll_jagged_jagged_bmm": {
         "CUDA": jagged_jagged_bmm,
         "AutogradCUDA": jagged_jagged_bmm,
+    },
+    "sll_jagged2_to_padded_dense": {
+        "CUDA": jagged2_to_padded_dense,
+        "AutogradCUDA": jagged2_to_padded_dense,
     },
     "sll_array_jagged_bmm_jagged_out": {
         "CUDA": array_jagged_bmm_jagged_out,

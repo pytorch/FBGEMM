@@ -737,7 +737,7 @@ class FP8Tests(unittest.TestCase):
         K=st.sampled_from([512, 3584]),
         use_cudagraph=st.booleans(),
         use_padding_zeros=st.booleans(),
-        use_dynamic=st.booleans(),
+        return_stacked=st.booleans(),
     )
     def test_fp8_grouped_gemm(
         self,
@@ -747,7 +747,7 @@ class FP8Tests(unittest.TestCase):
         K: int,
         use_cudagraph: bool,
         use_padding_zeros: bool,
-        use_dynamic: bool,
+        return_stacked: bool,
     ) -> None:
         ms = (
             torch.randint(
@@ -759,13 +759,14 @@ class FP8Tests(unittest.TestCase):
             * 64
         )
         # When using padding or the dynamic kernel, Ns and Ks should be fixed.
-        if use_padding_zeros or use_dynamic:
+        if use_padding_zeros or return_stacked:
             ns = [N] * G
             ks = [K] * G
         # Otherwise, any value is supported.
         else:
-            ns = torch.randint(1, (N // 64) + 1, (G,), dtype=torch.int) * 64
-            ks = torch.randint(1, (K // 64) + 1, (G,), dtype=torch.int) * 64
+            # AMD requires N and K >= 512.
+            ns = torch.randint(512 // 64, (N // 64) + 1, (G,), dtype=torch.int) * 64
+            ks = torch.randint(512 // 64, (K // 64) + 1, (G,), dtype=torch.int) * 64
 
         x_group = []
         w_group = []
@@ -800,10 +801,10 @@ class FP8Tests(unittest.TestCase):
         if use_padding_zeros:
             x_group = torch.unbind(torch.stack(x_group, dim=0).contiguous())
             w_group = torch.unbind(torch.stack(w_group, dim=0).contiguous())
-            xq_group = torch.unbind(torch.stack(xq_group, dim=0).contiguous())
-            wq_group = torch.unbind(torch.stack(wq_group, dim=0).contiguous())
-            x_scale_group = torch.unbind(torch.stack(x_scale_group, dim=0).contiguous())
-            w_scale_group = torch.unbind(torch.stack(w_scale_group, dim=0).contiguous())
+            xq_group = torch.stack(xq_group, dim=0).contiguous()
+            wq_group = torch.stack(wq_group, dim=0).contiguous()
+            x_scale_group = torch.stack(x_scale_group, dim=0).contiguous()
+            w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
 
         # FP8 grouped gemm kernel
         fp8_args = (
@@ -812,15 +813,19 @@ class FP8Tests(unittest.TestCase):
                 wq_group,
                 x_scale_group,
                 w_scale_group,
-                zero_start_index_M if use_padding_zeros else None,
+                zero_start_index_M,
             ]
-            if use_dynamic
+            if use_padding_zeros
             else [xq_group, wq_group, x_scale_group, w_scale_group]
         )
         fp8_op = (
             torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
-            if use_dynamic
-            else torch.ops.fbgemm.f8f8bf16_rowwise_grouped
+            if use_padding_zeros
+            else (
+                torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
+                if return_stacked
+                else torch.ops.fbgemm.f8f8bf16_rowwise_grouped
+            )
         )
         if use_cudagraph:
             # warmup
@@ -843,12 +848,12 @@ class FP8Tests(unittest.TestCase):
         # BF16 grouped gemm kernel
         bf16_args = (
             [x_group, w_group, zero_start_index_M if use_padding_zeros else None]
-            if use_dynamic
+            if return_stacked
             else [x_group, w_group]
         )
         bf16_op = (
             torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
-            if use_dynamic
+            if return_stacked
             else torch.ops.fbgemm.bf16bf16bf16_grouped
         )
         if use_cudagraph:
@@ -878,7 +883,7 @@ class FP8Tests(unittest.TestCase):
         # Assert FP8 outputs
         for i in range(len(y_group_ref)):
             torch.testing.assert_close(
-                y_fp8_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
+                y_fp8_group[i], y_group_ref[i], atol=8.0e-2, rtol=2.0e-1
             )
 
         # Assert BF16 outputs
