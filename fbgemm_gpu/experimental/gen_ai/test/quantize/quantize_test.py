@@ -1138,6 +1138,33 @@ class FP8Tests(unittest.TestCase):
 
             torch.testing.assert_close(z, z_ref, atol=9.0e-3, rtol=9.0e-3)
 
+    def test_fp8_gemv(self) -> None:
+        test_cases = [
+            # (1, 128, 256),
+            # (1, 256, 256),
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+        ]
+        for M, N, K in test_cases:
+            print(f"Testing M={M}, N={N}, K={K}")
+            x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
+            w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+            wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+
+            print(wq)
+            print(w_scale)
+
+            z = torch.ops.fbgemm.bf16fp8bf16_fast_gemv(
+                x, wq, w_scale, torch.empty_like(w_scale)
+            )
+            z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
+            print("First 10 elements of z:", z.flatten()[:10])
+            print("First 10 elements of z_ref:", z_ref.flatten()[:10])
+
+            torch.testing.assert_close(z, z_ref, atol=1.0e-2, rtol=1.0e-2)
+
     @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet supported."
     )

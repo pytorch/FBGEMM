@@ -121,6 +121,12 @@ at::Tensor f8f8bf16_cublas(
     bool use_fast_accum = true,
     std::optional<at::Tensor> output = std::nullopt);
 at::Tensor bf16_fast_gemv(at::Tensor X, at::Tensor W);
+at::Tensor bf16fp8bf16_fast_gemv(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor scale,
+    at::Tensor zp);
+
 at::Tensor f8i4bf16_rowwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -185,6 +191,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def("bf16_fast_gemv(Tensor X, Tensor W) -> Tensor");
+  m.def(
+      "bf16fp8bf16_fast_gemv(Tensor X, Tensor W, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def("f8f8bf16_lite(Tensor XQ, Tensor WQ, Tensor scale) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
@@ -266,6 +274,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
+  m.impl("bf16fp8bf16_fast_gemv", bf16fp8bf16_fast_gemv);
   m.impl("f8f8bf16_lite", f8f8bf16_lite);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
@@ -293,6 +302,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
+  m.impl("bf16fp8bf16_fast_gemv", bf16fp8bf16_fast_gemv);
   m.impl("f8f8bf16_lite", f8f8bf16_lite);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
@@ -403,6 +413,17 @@ at::Tensor bf16_fast_gemv_meta(at::Tensor X, at::Tensor W) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kHalf));
+  return Y;
+}
+
+at::Tensor bf16fp8bf16_fast_gemv_meta(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor /*w_scale*/,
+    at::Tensor /*w_zp*/) {
+  const at::SymInt M = X.sym_size(0);
+  const at::SymInt N = W.sym_size(0);
+  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -523,6 +544,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
   m.impl("bf16_fast_gemv", bf16_fast_gemv_meta);
+  m.impl("bf16fp8bf16_fast_gemv", bf16fp8bf16_fast_gemv_meta);
   m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
