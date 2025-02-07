@@ -303,6 +303,7 @@ __global__ void set_dynamic_kernel_args_kernel(
 }
 
 template <
+    typename InputType,
     int TB_M,
     int TB_N,
     int TB_K,
@@ -310,17 +311,26 @@ template <
     int TBS_N,
     int TBS_K,
     bool PONG>
-std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
-    at::TensorList XQ, // FP8
-    at::TensorList WQ, // FP8
-    at::TensorList x_scale,
-    at::TensorList w_scale,
+at::Tensor f8f8bf16_rowwise_grouped_impl(
+    InputType XQ, // FP8
+    InputType WQ, // FP8
+    InputType x_scale,
+    InputType w_scale,
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M) {
-  int group_count = XQ.size();
-  TORCH_CHECK(WQ.size() == group_count);
+  int group_count;
+  at::TensorOptions options;
+  if constexpr (std::is_same_v<InputType, at::TensorList>) {
+    group_count = XQ.size();
+    options = XQ[0].options();
+    TORCH_CHECK(WQ.size() == group_count);
+  } else {
+    group_count = XQ.size(0);
+    options = XQ.options();
+    TORCH_CHECK(WQ.size(0) == group_count);
+  }
   if (group_count == 0) {
-    return {at::Tensor(), std::vector<at::Tensor>()};
+    return at::Tensor();
   }
   using GroupedGemmConfigs = GroupedGemmArgs::
       GroupedGemmConfigs<TB_M, TB_N, TB_K, TBS_M, TBS_N, TBS_K, PONG>;
@@ -328,8 +338,7 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
   int64_t total_output_size = 0;
   std::vector<int64_t> output_sizes;
   output_sizes.reserve(group_count);
-  at::Tensor output_args =
-      at::empty({group_count}, XQ[0].options().dtype(at::kLong));
+  at::Tensor output_args = at::empty({group_count}, options.dtype(at::kLong));
 
   const int64_t problem_shape_size = group_count *
       ((int64_t)sizeof(GroupedGemmArgs::ProblemShape::UnderlyingProblemShape));
@@ -341,7 +350,7 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
   // number
   at::Tensor input_args = at::empty(
       {group_count * 4 + problem_shape_size + stride_size * 3 + 1000},
-      XQ[0].options().dtype(at::kLong));
+      options.dtype(at::kLong));
 
   int xq_ptr_offset = 0;
   int wq_ptr_offset = group_count * sizeof(int64_t);
@@ -351,10 +360,18 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
   int stride_buf_offset =
       group_count * 4 * sizeof(int64_t) + problem_shape_size;
 
-  for (int i = 0; i < group_count; ++i) {
-    const int64_t output_size = XQ[i].size(0) * WQ[i].size(0);
-    total_output_size += output_size;
-    output_sizes.push_back(output_size);
+  if constexpr (std::is_same_v<InputType, at::TensorList>) {
+    for (int i = 0; i < group_count; ++i) {
+      const int64_t output_size = XQ[i].size(0) * WQ[i].size(0);
+      total_output_size += output_size;
+      output_sizes.push_back(output_size);
+    }
+  } else {
+    // When inputs are pregrouped, output has G * M * N elements.
+    total_output_size = group_count * XQ.size(1) * WQ.size(1);
+    for (int i = 0; i < group_count; ++i) {
+      output_sizes.push_back(XQ.size(1) * WQ.size(1));
+    }
   }
 
   int blockSize = 256;
@@ -369,17 +386,39 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
 
   // Set arguments
   for (int i = 0; i < group_count; ++i) {
-    int N = WQ[i].size(0);
-    int K = XQ[i].size(1);
-    TORCH_CHECK_EQ(WQ[i].size(1), K);
+    int M, N, K;
+    int64_t xq_ptr, wq_ptr, x_scale_ptr, w_scale_ptr;
+    // Compute buffer pointers based on input type.
+    if constexpr (std::is_same_v<InputType, at::TensorList>) {
+      M = XQ[i].size(0);
+      N = WQ[i].size(0);
+      K = XQ[i].size(1);
+      TORCH_CHECK_EQ(WQ[i].size(1), K);
+      // Calculate data pointer for this group.
+      xq_ptr = reinterpret_cast<int64_t>(XQ[i].data_ptr());
+      wq_ptr = reinterpret_cast<int64_t>(WQ[i].data_ptr());
+      x_scale_ptr = reinterpret_cast<int64_t>(x_scale[i].data_ptr());
+      w_scale_ptr = reinterpret_cast<int64_t>(w_scale[i].data_ptr());
+    } else {
+      M = XQ.size(1);
+      N = WQ.size(1);
+      K = XQ.size(2);
+      // Calculate data pointer for this group.
+      xq_ptr = reinterpret_cast<int64_t>(XQ.data_ptr()) +
+          (i * M * K * sizeof(GroupedGemmArgs::ElementInputA));
+      wq_ptr = reinterpret_cast<int64_t>(WQ.data_ptr()) +
+          (i * N * K * sizeof(GroupedGemmArgs::ElementInputB));
+      x_scale_ptr = reinterpret_cast<int64_t>(x_scale.data_ptr()) +
+          (i * M * sizeof(GroupedGemmArgs::ElementAccumulator));
+      w_scale_ptr = reinterpret_cast<int64_t>(w_scale.data_ptr()) +
+          (i * N * sizeof(GroupedGemmArgs::ElementAccumulator));
+    }
     if (zero_start_index_M.has_value() == true) {
       set_dynamic_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
-          reinterpret_cast<int64_t>(XQ[i].data_ptr<at::Float8_e4m3fn>()),
-          reinterpret_cast<int64_t>(WQ[i].data_ptr<at::Float8_e4m3fn>()),
-          reinterpret_cast<int64_t>(
-              x_scale[i].data_ptr<GroupedGemmArgs::ElementAccumulator>()),
-          reinterpret_cast<int64_t>(
-              w_scale[i].data_ptr<GroupedGemmArgs::ElementAccumulator>()),
+          xq_ptr,
+          wq_ptr,
+          x_scale_ptr,
+          w_scale_ptr,
           input_args.data_ptr<int64_t>(),
           output_args.data_ptr<int64_t>(),
           output.data_ptr<at::BFloat16>(),
@@ -398,14 +437,11 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
           N,
           K);
     } else {
-      int M = XQ[i].size(0);
       set_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
-          reinterpret_cast<int64_t>(XQ[i].data_ptr<at::Float8_e4m3fn>()),
-          reinterpret_cast<int64_t>(WQ[i].data_ptr<at::Float8_e4m3fn>()),
-          reinterpret_cast<int64_t>(
-              x_scale[i].data_ptr<GroupedGemmArgs::ElementAccumulator>()),
-          reinterpret_cast<int64_t>(
-              w_scale[i].data_ptr<GroupedGemmArgs::ElementAccumulator>()),
+          xq_ptr,
+          wq_ptr,
+          x_scale_ptr,
+          w_scale_ptr,
           input_args.data_ptr<int64_t>(),
           output_args.data_ptr<int64_t>(),
           output.data_ptr<at::BFloat16>(),
@@ -508,29 +544,117 @@ std::tuple<at::Tensor, std::vector<at::Tensor>> f8f8bf16_rowwise_grouped_impl(
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-  std::vector<at::Tensor> output_group = output.split(output_sizes);
-  for (int i = 0; i < group_count; ++i) {
-    output_group[i] = output_group[i].view({XQ[i].size(0), WQ[i].size(0)});
-  }
-  // Return two views of the same underlying tensor.
-  return {output, output_group};
+  return output;
 }
 
 // FP8 Tensorwise grouped cutlass kernel dispatch.
-std::tuple<at::Tensor, std::vector<at::Tensor>> dispatch_fp8_grouped_kernel(
-    at::TensorList XQ, // FP8
-    at::TensorList WQ, // FP8
-    at::TensorList x_scale,
-    at::TensorList w_scale,
+template <typename InputType>
+at::Tensor dispatch_fp8_grouped_kernel(
+    InputType XQ, // FP8
+    InputType WQ, // FP8
+    InputType x_scale,
+    InputType w_scale,
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M) {
   KernelMode kernel = get_grouped_kernel_mode(XQ, WQ);
   if (kernel == KernelMode::Small) {
-    return f8f8bf16_rowwise_grouped_impl<64, 128, 128, 2, 1, 1, true>(
-        XQ, WQ, x_scale, w_scale, output, zero_start_index_M);
+    return f8f8bf16_rowwise_grouped_impl<
+        InputType,
+        64,
+        128,
+        128,
+        2,
+        1,
+        1,
+        true>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M);
   } else {
-    return f8f8bf16_rowwise_grouped_impl<128, 256, 64, 2, 1, 1, false>(
-        XQ, WQ, x_scale, w_scale, output, zero_start_index_M);
+    return f8f8bf16_rowwise_grouped_impl<
+        InputType,
+        128,
+        256,
+        64,
+        2,
+        1,
+        1,
+        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M);
+  }
+}
+
+template <typename OutputType>
+OutputType _f8f8bf16_rowwise_grouped(
+    at::TensorList XQ, // FP8
+    at::TensorList WQ, // FP8
+    at::TensorList x_scale,
+    at::TensorList w_scale,
+    std::optional<OutputType> output = std::nullopt) {
+  at::Tensor Y;
+  int group_count = XQ.size();
+  std::vector<int64_t> output_sizes;
+  if (output.has_value()) {
+    // Handle initialization check for output list.
+    if constexpr (std::is_same_v<OutputType, std::vector<at::Tensor>>) {
+      std::vector<at::Tensor> output_;
+      output_ = output.value();
+      TORCH_CHECK(
+          output_.size() == group_count,
+          "Output and input must have same number of groups.");
+      // Check that output shapes are correct.
+      for (int i = 0; i < group_count; i++) {
+        int M = XQ[i].size(0);
+        int N = WQ[i].size(0);
+        int out_M = output_[i].size(0);
+        int out_N = output_[i].size(1);
+        TORCH_CHECK(
+            M == out_M && N == out_N,
+            "Output tensors do not have the expected shape.");
+        TORCH_CHECK(
+            output_[i].dtype() == at::kBFloat16,
+            "Output dtype must be bfloat16.");
+        output_sizes.push_back(out_M * out_N);
+      }
+      Y = at::stack(output.value(), 0);
+      // Handle initialization check for output tensor.
+    } else {
+      at::Tensor output_ = output.value();
+      // Check that output shapes are correct.
+      int N = WQ[0].size(0);
+      for (int i = 0; i < group_count; i++) {
+        TORCH_CHECK(
+            WQ[i].size(0) == N,
+            "N must be static for single output tensor mode.");
+        TORCH_CHECK(
+            output_.size(0) == group_count &&
+                output_.size(1) == XQ[i].size(0) && output_.size(2) == N,
+            "Output must be shape [G, M, N]");
+      }
+      TORCH_CHECK(output_.dtype() == at::kBFloat16, "Output must be bfloat16.")
+      Y = output_.view(-1);
+    }
+  } else {
+    int64_t total_output_size = 0;
+    for (int i = 0; i < group_count; ++i) {
+      const int64_t output_size = XQ[i].size(0) * WQ[i].size(0);
+      total_output_size += output_size;
+      output_sizes.push_back(output_size);
+    }
+    Y = at::empty(total_output_size, XQ[0].options().dtype(at::kBFloat16));
+  }
+
+  // Run kernel.
+  at::Tensor g_out = dispatch_fp8_grouped_kernel<at::TensorList>(
+      XQ, WQ, x_scale, w_scale, Y, std::nullopt);
+
+  // Return proper output type.
+  if constexpr (std::is_same_v<OutputType, std::vector<at::Tensor>>) {
+    // Return grouped view of output.
+    std::vector<at::Tensor> output_group = g_out.split(output_sizes);
+    for (int i = 0; i < group_count; ++i) {
+      output_group[i] = output_group[i].view({XQ[i].size(0), WQ[i].size(0)});
+    }
+    return output_group;
+  } else {
+    // When stacked we assume N is fixed.
+    return g_out.view({-1, WQ[0].size(0)});
   }
 }
 
@@ -539,72 +663,38 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
     at::TensorList w_scale,
-    std::optional<std::vector<at::Tensor>> output = std::nullopt,
-    std::optional<std::string> kernel_name = std::nullopt) {
-  at::Tensor Y;
-  int group_count = XQ.size();
-  if (output.has_value()) {
-    std::vector<at::Tensor> output_;
-    output_ = output.value();
-    TORCH_CHECK(
-        output_.size() == group_count,
-        "Output and input must have same number of groups.");
-    // Check that output shapes are correct.
-    for (int i = 0; i < group_count; i++) {
-      int M = XQ[i].size(0);
-      int N = WQ[i].size(0);
-      int out_M = output_[i].size(0);
-      int out_N = output_[i].size(1);
-      TORCH_CHECK(
-          M == out_M && N == out_N,
-          "Output tensors do not have the expected shape.");
-      TORCH_CHECK(
-          output_[i].dtype() == at::kBFloat16,
-          "Output dtype must be bfloat16.");
-    }
-    Y = at::stack(output.value(), 0);
-  } else {
-    int64_t total_output_size = 0;
-    std::vector<int64_t> output_sizes;
-    for (int i = 0; i < group_count; ++i) {
-      const int64_t output_size = XQ[i].size(0) * WQ[i].size(0);
-      total_output_size += output_size;
-      output_sizes.push_back(output_size);
-    }
-    Y = at::zeros(total_output_size, XQ[0].options().dtype(at::kBFloat16));
-  }
-  // Return grouped view of output.
-  return std::get<1>(
-      dispatch_fp8_grouped_kernel(XQ, WQ, x_scale, w_scale, Y, std::nullopt));
+    std::optional<std::vector<at::Tensor>> output = std::nullopt) {
+  return _f8f8bf16_rowwise_grouped<std::vector<at::Tensor>>(
+      XQ, WQ, x_scale, w_scale);
 }
 
-at::Tensor f8f8bf16_rowwise_grouped_dynamic(
+at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::TensorList XQ, // FP8
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
     at::TensorList w_scale,
-    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
-    std::optional<std::string> kernel_name = std::nullopt) {
+    std::optional<at::Tensor> output = std::nullopt) {
+  return _f8f8bf16_rowwise_grouped<at::Tensor>(XQ, WQ, x_scale, w_scale);
+}
+
+at::Tensor f8f8bf16_rowwise_grouped_dynamic(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor zero_start_index_M) {
   at::Tensor Y;
-  int group_count = XQ.size();
-  int64_t total_output_size = 0;
-  for (int i = 0; i < group_count; ++i) {
-    const int64_t output_size = XQ[i].size(0) * WQ[i].size(0);
-    total_output_size += output_size;
-  }
-  Y = at::zeros(total_output_size, XQ[0].options().dtype(at::kBFloat16));
+  int group_count = XQ.size(0);
+  int M = XQ.size(1);
+  int N = WQ.size(1);
+  int K = XQ.size(0);
+  int total_output_size = group_count * M * N;
+  Y = at::zeros(total_output_size, XQ.options().dtype(at::kBFloat16));
   // Return continuous view of output.
-  at::Tensor output = std::get<0>(dispatch_fp8_grouped_kernel(
-      XQ, WQ, x_scale, w_scale, Y, zero_start_index_M));
+  at::Tensor output = dispatch_fp8_grouped_kernel<at::Tensor>(
+      XQ, WQ, x_scale, w_scale, Y, zero_start_index_M);
   // View as proper shape.
-  // When zero_start_index_M is provided, we can view as [G, M, N]
-  if (zero_start_index_M.has_value()) {
-    output = output.view({-1, XQ[0].size(0), WQ[0].size(0)});
-    // Otherwise we view as {total_M, N}.
-  } else {
-    output = output.view({-1, WQ[0].size(0)});
-  }
-  return output;
+  return output.view({-1, M, N});
 }
 
 #else
@@ -614,19 +704,27 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
     at::TensorList w_scale,
-    std::optional<std::vector<at::Tensor>> output = std::nullopt,
-    std::optional<std::string> kernel_name = std::nullopt) {
+    std::optional<std::vector<at::Tensor>> output = std::nullopt) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+
+at::Tensor f8f8bf16_rowwise_grouped_stacked(
+    at::TensorList XQ, // FP8
+    at::TensorList WQ, // FP8
+    at::TensorList x_scale,
+    at::TensorList w_scale,
+    std::optional<at::Tensor> output = std::nullopt) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 at::Tensor f8f8bf16_rowwise_grouped_dynamic(
-    at::TensorList XQ, // FP8
-    at::TensorList WQ, // FP8
-    at::TensorList x_scale,
-    at::TensorList w_scale,
-    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
-    std::optional<std::string> kernel_name = std::nullopt) {
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor zero_start_index_M) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
