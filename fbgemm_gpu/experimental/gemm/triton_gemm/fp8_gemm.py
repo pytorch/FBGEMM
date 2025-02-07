@@ -2447,6 +2447,13 @@ def triton_quantize_fp8_row(
         torch.Tensor: fp8 scaled tensor.
         torch.Tensor: reciprocal scale tensor per row.
     """
+    assert a.dim() <= 4, "Triton only supports up to 4 dimension input tensor."
+    a_shape = a.shape
+    while a.dim() < 4:
+        a = a.unsqueeze(0)
+    if zero_start_index_M is not None:
+        # There should be one value of zero_start_index_M per NxK matrix.
+        zero_start_index_M = zero_start_index_M.view(a.shape[0], a.shape[1])
     # Get constant values.
     pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     num_rows = a.numel() // a.shape[-1]
@@ -2484,7 +2491,7 @@ def triton_quantize_fp8_row(
         USE_INT64=use_int64,
     )
 
-    return a_fp8, a_scale
+    return a_fp8.view(a_shape), a_scale.view(a_shape[:-1])
 
 
 @torch.library.custom_op("triton::quantize_fp8_row", mutates_args=())
@@ -2514,17 +2521,7 @@ def quantize_fp8_row(
         logger.info("Triton does not support cpu, falling back to torch ops.")
         use_triton = False
     if use_triton:
-        assert (
-            a.dim() <= 4
-        ), "Only up to 4 dimension input tensor is supported if use_triton is True"
-        a_shape = a.shape
-        while a.dim() < 4:
-            a = a.unsqueeze(0)
-        if zero_start_index_M is not None:
-            # There should be one value of zero_start_index_M per NxK matrix.
-            zero_start_index_M = zero_start_index_M.view(a.shape[0], a.shape[1])
-        a_fp8, a_scale = triton_quantize_fp8_row(a, scale_ub, zero_start_index_M)
-        return a_fp8.view(a_shape), a_scale.view(a_shape[:-1])
+        return triton_quantize_fp8_row(a, scale_ub, zero_start_index_M)
     # else use pytorch implementation.
     if not output_device:
         output_device = a.device

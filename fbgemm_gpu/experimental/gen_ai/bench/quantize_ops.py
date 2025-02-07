@@ -19,6 +19,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     quantize_fp8_block,
     quantize_fp8_row,
     scale_fp8_row,
+    triton_quantize_fp8_row,
 )
 from tinygemm.utils import group_quantize_tensor
 
@@ -553,38 +554,31 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
     def quantize(self, x, wq, w_scale, m_values=None):
         # Handle case where inputs are explicitly grouped and non-sparse.
         if isinstance(x, (tuple, list)):
-            xq, x_scale = zip(*[quantize_fp8_row(i) for i in x])
+            xq, x_scale = zip(*[triton_quantize_fp8_row(i) for i in x])
             return xq, wq, x_scale, w_scale, m_values
         # Otherwise inputs are unified tensors and sparse.
         else:
             B = x.shape[0]
-            xq, x_scale = quantize_fp8_row(x, zero_start_index_M=m_values)
+            xq, x_scale = triton_quantize_fp8_row(x, zero_start_index_M=m_values)
             x_scale = x_scale.view(B, -1)
             return xq, wq, x_scale, w_scale, m_values
 
-    def compute(self, xq, wq, x_scale, w_scale, m_values, kernel_name=None):
+    def compute(self, xq, wq, x_scale, w_scale, m_values):
         if m_values is None:
             return torch.ops.fbgemm.f8f8bf16_rowwise_grouped(
                 xq,
                 wq,
                 x_scale,
                 w_scale,
-                kernel_name=kernel_name,
             )
         else:
             # Break tensor into groups, simulates what is done e2e.
-            B = xq.shape[0]
-            xq_group = [xq[i, :, :] for i in range(B)]
-            x_scale_group = [x_scale[i, :] for i in range(B)]
-            wq_group = [wq[i, :, :] for i in range(B)]
-            w_scale_group = [w_scale[i, :] for i in range(B)]
             return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic(
-                xq_group,
-                wq_group,
-                x_scale_group,
-                w_scale_group,
+                xq,
+                wq,
+                x_scale,
+                w_scale,
                 zero_start_index_M=m_values,
-                kernel_name=kernel_name,
             )
 
     def quantize_and_compute(self, x, wq, w_scale, m_values=None):
