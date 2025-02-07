@@ -16,6 +16,8 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
 import triton  # noqa: F401
 
+from torch._inductor.utils import do_bench_using_profiling
+
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
         matmul_fp8_block,
@@ -1164,6 +1166,34 @@ class FP8Tests(unittest.TestCase):
             print("First 10 elements of z_ref:", z_ref.flatten()[:10])
 
             torch.testing.assert_close(z, z_ref, atol=1.0e-2, rtol=1.0e-2)
+
+    def test_fp8fp8_gemv(self) -> None:
+        test_cases = [
+            # (1, 128, 256),
+            # (1, 256, 256),
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+        ]
+        for M, N, K in test_cases:
+            print(f"Testing M={M}, N={N}, K={K}")
+            x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
+            w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+            wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+            xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+
+            print(wq)
+            print(w_scale)
+
+            z = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(
+                xq, wq, w_scale * x_scale, torch.empty_like(w_scale)
+            )
+            z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
+            print("First 10 elements of z:", z.flatten()[:10])
+            print("First 10 elements of z_ref:", z_ref.flatten()[:10])
+
+            torch.testing.assert_close(z, z_ref, atol=9.0e-2, rtol=9.0e-2)
 
     @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet supported."
