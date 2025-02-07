@@ -112,6 +112,8 @@ class FusedCommComp : public torch::CustomClassHolder {
 
   void avoidInCastCongestion(bool flag);
 
+  cudaStream_t getInternalPutStream();
+
   // Local reduce results from the internal buffer into the final output tensor
   void localReduceIntoTensor(at::Tensor output, at::Tensor input);
 
@@ -225,6 +227,10 @@ FusedCommComp::~FusedCommComp() {
   if (shouldDestroyComm_) {
     CHECK_NCCL(ncclCommDestroy(comm_));
   }
+}
+
+cudaStream_t FusedCommComp::getInternalPutStream() {
+  return putStream_;
 }
 
 void FusedCommComp::internalBarrier_(cudaStream_t stream) {
@@ -607,5 +613,6 @@ TORCH_LIBRARY(fbgemm, m) {
       .def("avoid_incast_congestion", &FusedCommComp::avoidInCastCongestion)
       .def("local_reduce_into_tensor", &FusedCommComp::localReduceIntoTensor)
       .def("split_overlap_ag", &FusedCommComp::splitOverlapAllGather)
-      .def("split_overlap_rs", &FusedCommComp::splitOverlapReduceScatter);
+      .def("split_overlap_rs", &FusedCommComp::splitOverlapReduceScatter)
+      .def("get_internal_put_stream", &FusedCommComp::getInternalPutStream);
 }
