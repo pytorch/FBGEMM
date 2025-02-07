@@ -788,7 +788,7 @@ class FP8LiteGemm(QuantizeOpBase):
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale * w_scale)
+        return self.compute(xq, wq, x_scale, w_scale)
 
     @property
     def name(self) -> str:
