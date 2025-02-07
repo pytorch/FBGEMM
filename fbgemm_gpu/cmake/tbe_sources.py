@@ -191,6 +191,9 @@ gen_fused_optim_header_files = (
     + [
         "gen_embedding_backward_split_common_device_kernel.cuh",
     ]
+    + [
+        "pt2_arg_utils.h",
+    ]
 )
 
 gen_defused_optim_templates = [
@@ -502,7 +505,6 @@ gen_py_files_training = (
         for optimizer in COMMON_OPTIMIZERS + CPU_ONLY_OPTIMIZERS + GPU_ONLY_OPTIMIZERS
         for fstring in [
             "lookup_{}.py",
-            "lookup_{}_pt2.py",
         ]
     ]
     + [
@@ -510,7 +512,6 @@ gen_py_files_training = (
         for optimizer in SSD_OPTIMIZERS
         for fstring in [
             "lookup_{}_ssd.py",
-            "lookup_{}_ssd_pt2.py",
         ]
     ]
     + [
