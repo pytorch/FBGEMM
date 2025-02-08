@@ -10,7 +10,6 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.triton import multi_head_jagged_flash_attention
 from hypothesis import given, settings
 from torch.nn import functional as F
 
@@ -21,6 +20,9 @@ if open_source:
     from test_utils import gpu_unavailable
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.sll.triton import multi_head_jagged_flash_attention
 
 
 @unittest.skipIf(

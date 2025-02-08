@@ -8,8 +8,7 @@
 # pyre-ignore-all-errors[56]
 
 import fbgemm_gpu
-import fbgemm_gpu.sll.cpu_sll
-import fbgemm_gpu.sll.triton_sll
+import fbgemm_gpu.sll
 import torch
 
 # pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
