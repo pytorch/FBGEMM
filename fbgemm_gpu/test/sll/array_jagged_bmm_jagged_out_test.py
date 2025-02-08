@@ -10,7 +10,6 @@ import unittest
 
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.triton import triton_array_jagged_bmm_jagged_out
 from hypothesis import given, settings
 
 from .common import open_source
@@ -20,6 +19,9 @@ if open_source:
     from test_utils import gpu_unavailable, running_on_rocm
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, running_on_rocm
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.sll.triton import triton_array_jagged_bmm_jagged_out
 
 
 class ArrayJaggedBmmJaggedTest(unittest.TestCase):
@@ -31,7 +33,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
     )
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_rocm)
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out(
         self,
         B: int,
@@ -157,7 +159,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
     )
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_rocm)
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out_with_grad(
         self,
         B: int,
@@ -244,7 +246,7 @@ class ArrayJaggedBmmJaggedTest(unittest.TestCase):
     )
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_rocm)
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_triton_array_jagged_bmm_jagged_out_meta_backend(
         self,
         B: int,

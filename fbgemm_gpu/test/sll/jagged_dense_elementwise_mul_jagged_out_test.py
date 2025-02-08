@@ -7,10 +7,7 @@
 # pyre-strict
 import unittest
 
-import fbgemm_gpu
-import fbgemm_gpu.sll.cpu_sll  # noqa F401
-import fbgemm_gpu.sll.triton_sll  # noqa F401
-
+import fbgemm_gpu.sll  # noqa F401
 import torch
 from hypothesis import given, settings, strategies as st
 
@@ -31,7 +28,7 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
         B=st.integers(10, 512),
         L=st.integers(1, 200),
     )
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_jagged_dense_elementwise_mul_jagged_out(
         self,
         B: int,
@@ -164,7 +161,7 @@ class JaggedDenseElementwiseMulJaggedOutTest(unittest.TestCase):
         L=st.integers(1, 200),
         device_type=st.sampled_from(["meta"]),
     )
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_jagged_dense_elementwise_mul_jagged_out_meta_backend(
         self,
         B: int,

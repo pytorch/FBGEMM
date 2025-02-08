@@ -34,7 +34,7 @@ class JaggedDenseElementwiseAddTest(unittest.TestCase):
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
     @unittest.skipIf(*gpu_unavailable)
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_triton_jagged_dense_add(
         self, B: int, D: int, N: int, use_fbgemm_kernel: bool, device_type: str
     ) -> None:

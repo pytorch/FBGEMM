@@ -37,6 +37,11 @@ from fbgemm_gpu.sll.triton.triton_jagged_dense_elementwise_add import (  # noqa 
     JaggedDenseAdd,  # noqa F401
 )
 
+from fbgemm_gpu.sll.triton.triton_jagged_dense_elementwise_mul_jagged_out import (  # noqa F401
+    jagged_dense_elementwise_mul_jagged_out,
+    JaggedDenseElementwiseMul,  # noqa F401
+)
+
 from fbgemm_gpu.sll.triton.triton_jagged_dense_flash_attention import (  # noqa F401
     jagged_dense_flash_attention,
     JaggedDenseFlashAttention,  # noqa F401
@@ -45,6 +50,10 @@ from fbgemm_gpu.sll.triton.triton_jagged_dense_flash_attention import (  # noqa 
 from fbgemm_gpu.sll.triton.triton_jagged_flash_attention_basic import (  # noqa F401
     jagged_flash_attention_basic,
     JaggedFlashAttentionBasic,  # noqa F401
+)
+
+from fbgemm_gpu.sll.triton.triton_jagged_self_substraction_jagged_out import (
+    triton_jagged_self_substraction_jagged_out,
 )
 
 from fbgemm_gpu.sll.triton.triton_jagged_softmax import (  # noqa F401
@@ -107,5 +116,12 @@ op_registrations = {
     "sll_multi_head_jagged_flash_attention": {
         "CUDA": multi_head_jagged_flash_attention,
         "AutogradCUDA": multi_head_jagged_flash_attention,
+    },
+    "sll_jagged_self_substraction_jagged_out": {
+        "CUDA": triton_jagged_self_substraction_jagged_out,
+    },
+    "sll_jagged_dense_elementwise_mul_jagged_out": {
+        "CUDA": jagged_dense_elementwise_mul_jagged_out,
+        "AutogradCUDA": jagged_dense_elementwise_mul_jagged_out,
     },
 }
