@@ -33,11 +33,6 @@ from fbgemm_gpu.sll.meta_sll import (  # noqa F401
     meta_jagged_self_substraction_jagged_out,
 )
 
-from fbgemm_gpu.sll.triton_sll import (  # noqa F401
-    jagged_dense_elementwise_mul_jagged_out,
-    triton_jagged_self_substraction_jagged_out,
-)
-
 from fbgemm_gpu.utils import TorchLibraryFragment
 
 lib = TorchLibraryFragment("fbgemm")
@@ -262,25 +257,11 @@ sll_cpu_registrations = {
     },
 }
 
-# pyre-ignore[5]
-sll_gpu_registrations = {
-    "sll_jagged_self_substraction_jagged_out": {
-        "CUDA": triton_jagged_self_substraction_jagged_out,
-    },
-    "sll_jagged_dense_elementwise_mul_jagged_out": {
-        "CUDA": jagged_dense_elementwise_mul_jagged_out,
-        "AutogradCUDA": jagged_dense_elementwise_mul_jagged_out,
-    },
-}
-
 for op_name, dispatches in sll_cpu_registrations.items():
     lib.register(op_name, dispatches)
 
 if torch.cuda.is_available():
-    from fbgemm_gpu.sll.triton import op_registrations
-
-    for op_name, dispatches in op_registrations.items():
-        lib.register(op_name, dispatches)
+    from fbgemm_gpu.sll.triton import op_registrations as sll_gpu_registrations
 
     for op_name, dispatches in sll_gpu_registrations.items():
         lib.register(op_name, dispatches)
