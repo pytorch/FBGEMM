@@ -7,9 +7,8 @@
 # pyre-strict
 import unittest
 
-import fbgemm_gpu
-import fbgemm_gpu.sll.cpu_sll  # noqa F401
-import fbgemm_gpu.sll.triton_sll  # noqa F401
+import fbgemm_gpu  # noqa F401
+import fbgemm_gpu.sll  # noqa F401
 
 import torch
 from hypothesis import given, settings, strategies as st

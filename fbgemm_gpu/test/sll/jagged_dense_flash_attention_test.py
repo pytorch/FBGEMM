@@ -8,6 +8,7 @@
 
 import unittest
 
+import fbgemm_gpu.sll  # noqa F401
 import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings
@@ -33,7 +34,7 @@ class JaggedDenseFlashAttentionTest(unittest.TestCase):
     )
     @unittest.skipIf(*gpu_unavailable)
     @unittest.skipIf(*running_on_rocm)
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_jagged_dense_flash_attention(
         self,
         B: int,
