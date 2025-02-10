@@ -215,6 +215,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     {%- else %}
     const Tensor& D_offsets,
     const c10::SymInt max_D,
+    const bool mixed_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -275,6 +276,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
                         {%- else %}
                         const Tensor& /*D_offsets*/,
                         const c10::SymInt /*max_D*/,
+                        const bool /*mixed_D*/,
                         {%- endif %}
                         const Tensor& /*hash_size_cumsum*/,
                         const int64_t /*total_hash_size_bits*/,
@@ -327,6 +329,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
             {%- else %}
             D_offsets,
             max_D,
+            mixed_D,
             {%- endif %}
             hash_size_cumsum,
             total_hash_size_bits,
@@ -570,6 +573,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- else %}
         "    Tensor D_offsets, "
         "    SymInt max_D, "
+        "    bool mixed_D, "
         {%- endif %}
         "    Tensor hash_size_cumsum, "
         "    int total_hash_size_bits, "
