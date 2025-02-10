@@ -7,7 +7,7 @@
 
 # pyre-strict
 
-from typing import NamedTuple, Optional, Dict
+from typing import NamedTuple, Optional, Dict, List
 
 import torch
 
@@ -57,6 +57,36 @@ class OptimizerArgs(NamedTuple):
     max_gradient: float
     max_norm: float
     learning_rate: float
+    eps: float
+    beta1: float
+    beta2: float
+    weight_decay: float
+    weight_decay_mode: int
+    eta: float
+    momentum: float
+    counter_halflife: int
+    adjustment_iter: int
+    adjustment_ub: float
+    learning_rate_mode: int
+    grad_sum_decay: int
+    tail_id_threshold: float
+    is_tail_id_thresh_ratio: int
+    total_hash_size: int  # Required for OptimType.NONE
+    weight_norm_coefficient: float
+    lower_bound: float
+    regularization_mode: int
+    use_rowwise_bias_correction: bool # Used for OptimType.ADAM
+
+
+class OptimizerArgsPT2(NamedTuple):
+    """
+    Optimizer arguments for PT2 interface
+    """
+    stochastic_rounding: bool
+    gradient_clipping: bool
+    max_gradient: float
+    max_norm: float
+    learning_rate_tensor: torch.Tensor
     eps: float
     beta1: float
     beta2: float

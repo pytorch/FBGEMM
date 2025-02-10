@@ -94,6 +94,16 @@ inline bool torch_tensor_empty_or_on_cpu_check(
   return !ten.has_value() || torch_tensor_empty_or_on_cpu_check(ten.value());
 }
 
+inline bool torch_tensor_on_cpu_or_on_mtia_check(const at::Tensor& ten) {
+  return ten.is_cpu() || ten.is_mtia();
+}
+
+#define TENSOR_ON_CPU_OR_MTIA(x)                                      \
+  TORCH_CHECK(                                                        \
+      torch_tensor_on_cpu_or_on_mtia_check(x),                        \
+      #x " must be a CPU or MTIA tensor; it is currently on device ", \
+      torch_tensor_device_name(x))
+
 #define TENSOR_ON_CPU(x)                                      \
   TORCH_CHECK(                                                \
       torch_tensor_on_cpu_check(x),                           \

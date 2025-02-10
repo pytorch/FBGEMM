@@ -175,6 +175,7 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
     const int64_t max_D,
+    const bool mixed_D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -207,19 +208,19 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
             torch::Dispatcher::singleton()
                 .findSchemaOrThrow("fbgemm::{{ backward_op }}", "")
                 .typed<void(
-                    Tensor,
-                    Tensor,
-                    Tensor,
-                    Tensor,
-                    Tensor,
-                    int64_t,
-                    Tensor,
-                    int64_t,
-                    Tensor,
-                    Tensor,
-                    int64_t,
-                    Tensor,
-                    bool,
+                    Tensor, /* grad_output */
+                    Tensor, /* host_weights */
+                    Tensor, /* weights_placements */
+                    Tensor, /* weights_offsets */
+                    Tensor, /* D_offsets */
+                    int64_t, /* max_D */
+                    Tensor, /* hash_size_cumsum */
+                    int64_t, /* total_hash_size_bits */
+                    Tensor, /* indices */
+                    Tensor, /* offsets */
+                    int64_t, /* pooling_mode */
+                    Tensor, /* indices_weights */
+                    bool, /* stochastic_rounding */
                     {%- for arg_type in args.split_function_args %}
                     {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
                     {%- endfor %}
@@ -322,6 +323,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- else %}
         "    Tensor D_offsets, "
         "    SymInt max_D, "
+        "    bool mixed_D, "
         {%- endif %}
         "    Tensor hash_size_cumsum, "
         "    int total_hash_size_bits, "
