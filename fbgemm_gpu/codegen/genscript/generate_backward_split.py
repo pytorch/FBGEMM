@@ -197,7 +197,6 @@ class BackwardSplitGenerator:
                     )
                     for filename in [
                         f"lookup_{optimizer}{sdesc}.py",
-                        f"lookup_{optimizer}{sdesc}_pt2.py",
                     ]:
                         template.write(
                             filename, is_fbcode=args.is_fbcode, ssd=ssd, **kwargs
@@ -332,6 +331,23 @@ class BackwardSplitGenerator:
         )
 
     @staticmethod
+    def generate_backward_header(
+        aux_args: Dict[str, List[str]], aux_names: List[str]
+    ) -> None:
+        """
+        Generate a header file that contains enum of argument order from the dict
+
+        Parameters:
+            aux_args (Dict[str, List[str]]): a dict containing a list of arguments
+            aux_names (List[str]): names of the argument types (e.g. aux_tensor, aux_int, etc.)
+        Return:
+            None
+        """
+        # Generate backward header for PT2 Autograd
+        template = CodeTemplate.load("training/pt2/pt2_arg_utils_template.h")
+        template.write(f"pt2_arg_utils.h", aux_args=aux_args, aux_names=aux_names)
+
+    @staticmethod
     def generate_python_sources(
         all_optimizers: List[str], ssd_optimizers: List[str]
     ) -> None:
@@ -375,6 +391,40 @@ class BackwardSplitGenerator:
             "actions_count",
         ]
 
+        aux_names = ["aux_tensor", "aux_int", "aux_float", "aux_bool"]
+        # This is a dict of auxilary arguments used in TBE PT2 interface where the aux
+        # arguments of a type are packed into a list for that type. This dict maintains the
+        # order of the arguments of each type.
+        aux_args: Dict[str, List[str]] = {
+            "aux_tensor": [
+                "B_offsets",  # 0
+                "vbe_output_offsets_feature_rank",  # 1
+                "vbe_B_offsets_rank_per_feature",  # 2
+                "lxu_cache_locations",  # 3
+                "uvm_cache_stats",  # 4
+                "prev_iter_dev",  # 5
+            ],
+            "aux_int": [
+                "iter",  # 0
+            ],
+            "aux_float": [
+                "gwd_lower_bound",  # 0
+                "max_gradient",  # 1
+            ],
+            "aux_bool": [
+                "is_experimental_tbe",  # 0
+                "use_uniq_cache_locations_bwd",  # 1
+                "use_homogeneous_placements",  # 2
+                "apply_global_weight_decay",  # 3
+                "gradient_clipping",  # 4
+                "stochastic_rounding",  # 5
+                "mixed_D",  # 6
+            ],
+        }
+        assert (
+            list(aux_args.keys()) == aux_names
+        ), f"{aux_names} must match {aux_args.keys()}"
+
         all_optimizers = []
         ssd_optimizers = []
 
@@ -398,6 +448,9 @@ class BackwardSplitGenerator:
         # Generate forwards and specialized backwards
         BackwardSplitGenerator.generate_backward_grad()
         BackwardSplitGenerator.generate_backward_indices()
+
+        # Generate headers for backwards
+        BackwardSplitGenerator.generate_backward_header(aux_args, aux_names)
 
         BackwardSplitGenerator.generate_python_sources(all_optimizers, ssd_optimizers)
 

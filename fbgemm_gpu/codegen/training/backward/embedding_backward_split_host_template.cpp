@@ -171,10 +171,10 @@ enum SSDTensor {
           {%- endif %}
           BT_block_size,
           max_segment_length_per_warp,
-          {%- if optimizer != "none" and not dense %}
+          {%- if not dense %}
+          {%- if optimizer != "none" %}
           stochastic_rounding,
           {%- endif %}
-          {%- if not dense %}
           info_B_num_bits,
           info_B_mask_int64,
           {%- endif %}
@@ -311,42 +311,41 @@ enum SSDTensor {
           hash_size_cumsum,
           total_hash_size_bits,
           indices,
-          {%- if not nobag and dense and not vbe %}
-          offsets,
-          pooling_mode,
-          indice_weights,
-          feature_requires_grad
-          {%- elif not nobag %}
-          offsets,
-          pooling_mode,
-          indice_weights,
-          feature_requires_grad,
-          {%- elif nobag and dense and not vbe %}
+          {%- if dense and nobag %}
           offsets
           {%- else %}
           offsets,
           {%- endif %}
+          {%- if not nobag %}
+          pooling_mode,
+          indice_weights,
+          {%- if dense and not vbe %}
+          feature_requires_grad
+          {%- else %}
+          feature_requires_grad,
+          {%- endif %}
+          {%- endif %} {# /* if not nobag */ #}
           {%- if not dense %}
           lxu_cache_locations,
           uvm_cache_stats,
-          {%- endif %}
-          {%- if optimizer != "none" and not dense %}
+          {%- if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
           stochastic_rounding,
           {%- endif %}
+          {%- endif %} {# /* if not dense */ #}
           {%- if vbe %}
           B_offsets,
           vbe_output_offsets_feature_rank,
           vbe_B_offsets_rank_per_feature,
           max_B,
           max_B_feature_rank,
-          {%- endif %}
-          {%- if vbe and not dense %}
-          vbe_output_size,
-          {%- elif vbe and dense %}
+          {%- if dense %}
           vbe_output_size
-          {%- endif %}
+          {%- else %}
+          vbe_output_size,
+          {%- endif %} {# /* if dense */ #}
+          {%- endif %} {# /* if vbe */ #}
           {%- if not dense %}
           is_experimental,
           use_uniq_cache_locations_bwd,
@@ -359,12 +358,12 @@ enum SSDTensor {
           iter,
           {%- endif %}
           gwd_lower_bound,
-          {%- endif %}
+          {%- endif %} {# /* if is_gwd */ #}
           {%- if ssd %}
           ssd_tensors.value(),
           {%- endif  %}
           {{ args.split_function_arg_names_autograd | join(", ") }}
-          {%- endif %}
+          {%- endif %} {# /* if not dense */ #}
           )[0];
 {%- endmacro %}
 
@@ -577,20 +576,19 @@ class {{ autograd_func }} :
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
-    {%- if not nobag and dense and not vbe %}
-    const Tensor& offsets,
-    const int64_t pooling_mode,
-    const std::optional<Tensor>& indice_weights,
-    const std::optional<Tensor>& feature_requires_grad
-    {%- elif not nobag %}
-    const Tensor& offsets,
-    const int64_t pooling_mode,
-    const std::optional<Tensor>& indice_weights,
-    const std::optional<Tensor>& feature_requires_grad,
-    {%- elif nobag and dense and not vbe %}
+    {%- if dense and nobag %}
     const Tensor& offsets
     {%- else %}
     const Tensor& offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    const int64_t pooling_mode,
+    const std::optional<Tensor>& indice_weights,
+    {%- if dense and not vbe %}
+    const std::optional<Tensor>& feature_requires_grad
+    {%- else %}
+    const std::optional<Tensor>& feature_requires_grad,
+    {%- endif %}
     {%- endif %}
     {%- if not dense %}
     const Tensor& lxu_cache_locations,
@@ -619,7 +617,7 @@ class {{ autograd_func }} :
     const int64_t iter,
     {%- endif %}
     const double gwd_lower_bound,
-    {%- endif %}
+    {%- endif %} {#-/* if is_gwd */#}
     {%- if ssd %}
     const at::TensorList& ssd_tensors,
     {%- endif %}
@@ -633,14 +631,13 @@ class {{ autograd_func }} :
     const c10::SymInt max_B_feature_rank,
     const c10::SymInt vbe_output_size
     {%- endif %}
-    {%- endif %}) {
+    {%- endif %} {# /* if not dense */ #}) {
 
     const auto T = weights_offsets.sym_numel();
     {%- if vbe %}
     const auto B_offsets_ = B_offsets.value_or(Tensor());
     const auto vbe_output_offsets_feature_rank_ = vbe_output_offsets_feature_rank.value_or(Tensor());
     const auto vbe_B_offsets_rank_per_feature_ = vbe_B_offsets_rank_per_feature.value_or(Tensor());
-
     const c10::SymInt max_B_ = max_B;
     {%- else %}
     const auto max_B_ = offsets.sym_size(0) / T;

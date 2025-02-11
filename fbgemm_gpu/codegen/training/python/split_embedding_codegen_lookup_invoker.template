@@ -414,7 +414,7 @@ def invoke(
         row_counter_offsets=row_counter_offsets,
         row_counter_placements=row_counter_placements,
         {%- endif %}
-        {%- if "use_rowwise_bias_correction" in args_pt2.unified_pt2.split_function_arg_names %}
+        {%- if "use_rowwise_bias_correction" in args_pt2.split_function_arg_names %}
         use_rowwise_bias_correction=optimizer_args.use_rowwise_bias_correction,
         {%- endif %}
         # iter
