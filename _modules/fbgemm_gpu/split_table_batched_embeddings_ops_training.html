@@ -1111,6 +1111,7 @@
         <span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SplitTableBatchedEmbeddingBagsCodegen Arguments: </span><span class="si">{</span><span class="nb">locals</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
@@ -1135,9 +1136,23 @@
             <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">=</span> <span class="n">weights_precision</span>
-        <span class="n">cache_precision</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">weights_precision</span> <span class="k">if</span> <span class="n">cache_precision</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">cache_precision</span>
-        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">hip</span><span class="p">:</span>
+            <span class="c1"># NOTE: It was discovered that FP16 cache precision caused a 500x</span>
+            <span class="c1"># slowdown in performance of split_embedding_nobag_backward_codegen_rowwise_adagrad_unweighted_kernel_warp_per_row_1</span>
+            <span class="c1"># kernel on ROCm, so to work around this, we fix cache precision to</span>
+            <span class="c1"># be FP32 always for the ROCm environment case.</span>
+            <span class="c1">#</span>
+            <span class="c1"># See:</span>
+            <span class="c1">#   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/</span>
+            <span class="n">cache_precision</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># NOTE: The changes from D65865527 are retained here until we can</span>
+            <span class="c1"># test that the the hack also works for non-ROCm environments.</span>
+            <span class="n">cache_precision</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">weights_precision</span> <span class="k">if</span> <span class="n">cache_precision</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">cache_precision</span>
+            <span class="p">)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">output_dtype</span><span class="o">.</span><span class="n">as_int</span><span class="p">()</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="ow">not</span> <span class="n">prefetch_pipeline</span> <span class="ow">or</span> <span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span>
