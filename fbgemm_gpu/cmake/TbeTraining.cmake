@@ -26,8 +26,12 @@ handle_genfiles_rocm(gen_gpu_files_forward_split)
 get_tbe_sources_list(static_cpu_files_training)
 get_tbe_sources_list(gen_cpu_files_training)
 get_tbe_sources_list(gen_gpu_files_training)
+get_tbe_sources_list(gen_gpu_files_training_pt2)
+get_tbe_sources_list(gen_gpu_files_training_dense)
 handle_genfiles_rocm(gen_cpu_files_training)
 handle_genfiles_rocm(gen_gpu_files_training)
+handle_genfiles_rocm(gen_gpu_files_training_pt2)
+handle_genfiles_rocm(gen_gpu_files_training_dense)
 
 # Index Select
 get_tbe_sources_list(static_cpu_files_index_select)
@@ -150,6 +154,27 @@ gpu_cpp_library(
 
 gpu_cpp_library(
   PREFIX
+    fbgemm_gpu_tbe_training_backward_pt2
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${gen_gpu_files_training_pt2}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm
+    fbgemm_gpu_config
+    fbgemm_gpu_tbe_cache
+    fbgemm_gpu_tbe_common
+    fbgemm_gpu_tbe_utils
+    fbgemm_gpu_sparse_async_cumsum
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
     fbgemm_gpu_tbe_training_backward
   TYPE
     SHARED
@@ -173,6 +198,23 @@ gpu_cpp_library(
     fbgemm_gpu_sparse_async_cumsum
   DESTINATION
     fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward_dense
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${gen_gpu_files_training_dense}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_training_backward
+  DESTINATION
+    fbgemm_gpu)
+
 
 gpu_cpp_library(
   PREFIX
