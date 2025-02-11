@@ -666,6 +666,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         embedding_table_offset_type: torch.dtype = torch.int64,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
+        logging.info(f"SplitTableBatchedEmbeddingBagsCodegen Arguments: {locals()}")
 
         self.uuid = str(uuid.uuid4())
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
@@ -690,9 +691,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
         )
         self.weights_precision = weights_precision
-        cache_precision = (
-            weights_precision if cache_precision is None else cache_precision
-        )
+
+        if torch.cuda.is_available() and torch.version.hip:
+            # NOTE: It was discovered that FP16 cache precision caused a 500x
+            # slowdown in performance of split_embedding_nobag_backward_codegen_rowwise_adagrad_unweighted_kernel_warp_per_row_1
+            # kernel on ROCm, so to work around this, we fix cache precision to
+            # be FP32 always for the ROCm environment case.
+            #
+            # See:
+            #   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/
+            cache_precision = SparseType.FP32
+        else:
+            # NOTE: The changes from D65865527 are retained here until we can
+            # test that the the hack also works for non-ROCm environments.
+            cache_precision = (
+                weights_precision if cache_precision is None else cache_precision
+            )
+
         self.output_dtype: int = output_dtype.as_int()
         assert (
             not prefetch_pipeline or cache_algorithm == CacheAlgorithm.LRU
