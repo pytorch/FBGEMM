@@ -5,6 +5,8 @@
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
+#include <c10/hip/HIPStream.h>
+
 #include <atomic>
 #include <cassert>
 #include <cmath>
@@ -40,7 +42,10 @@ at::Tensor fused_moe_impl(
   auto tokens = input.size(0);
   auto hidden_size = input.size(1);
   auto experts = gate_up_weight.size(0);
-  auto intermediate_size = gate_up_weight.size(1);
+  // Interface requires that you pass intermediate size. On |gate_only| = False,
+  // |gate_up_weight| might be 2 * intermediate size, so extract the size from
+  // |down_weight|
+  auto intermediate_size = down_weight.size(2);
   auto topk = topk_ids.size(1);
   auto stride = input.stride(0);
 
@@ -70,6 +75,7 @@ at::Tensor fused_moe_impl(
   auto prec_i = get_prec_str(input);
   auto prec_w = get_prec_str(gate_up_weight);
   auto prec_o = get_prec_str(output);
+  auto prec_tkw = get_prec_str(topk_weights);
 
   // Set up traits structure
   fused_moe_traits traits{
@@ -79,8 +85,9 @@ at::Tensor fused_moe_impl(
       "fp32", // prec_st (token scale)
       "fp32", // prec_sw (weight scale)
       "fp32", // prec_sq (smooth quant)
-      "fp32", // prec_kw (topk weight)
+      prec_tkw, // prec_kw (topk weight)
       static_cast<int>(block_m),
+      1,
       static_cast<int>(gate_only),
       static_cast<int>(fused_quant)};
 
@@ -109,10 +116,9 @@ at::Tensor fused_moe_impl(
       static_cast<int>(stride)};
 
   // Call kernel with default stream config
-  ck_tile::stream_config stream_cfg{nullptr, true, 0, 0, 1};
-  float time_ms = fused_moe(traits, args, stream_cfg);
-
-  TORCH_CHECK(time_ms >= 0, "Fused MoE kernel execution failed");
+  auto stream = at::cuda::getCurrentHIPStream().stream();
+  ck_tile::stream_config stream_cfg{stream};
+  fused_moe(traits, args, stream_cfg);
 
   return output;
 }
