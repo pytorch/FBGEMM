@@ -305,11 +305,18 @@ function(gpu_cpp_library)
     ############################################################################
 
     # Set the additional compilation flags
-    target_compile_options(${lib_name} PRIVATE
-        ${args_CC_FLAGS}
-        # Silence compiler warnings (in asmjit)
-        -Wno-deprecated-anon-enum-enum-conversion
-        -Wno-deprecated-declarations)
+    if(EXISTS "/tmp/evo.evaluation")
+        target_compile_options(${lib_name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+               -Xptxas=--apply-controls=/home/xzhao9/cuda/dna-enc.bin,--gpu-name=sm_90a
+               >
+                -Wno-deprecated-anon-enum-enum-conversion
+                -Wno-deprecated-declarations
+        )
+    else()
+        target_compile_options(${lib_name} PRIVATE
+                -Wno-deprecated-anon-enum-enum-conversion
+                -Wno-deprecated-declarations)
+    endif()
 
     ############################################################################
     # Post-Build Steps
