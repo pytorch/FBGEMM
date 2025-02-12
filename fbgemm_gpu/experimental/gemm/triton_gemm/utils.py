@@ -31,6 +31,8 @@ def map_dtype_to_triton(dtype: torch.dtype) -> tl.dtype:
         return tl.float32
     elif dtype == torch.int32:
         return tl.int32
+    elif dtype == torch.float8_e4m3fn and torch.version.hip is None:
+        return tl.float8e4nv
     else:
         raise ValueError(f"Unsupported dtype {dtype}")
 
