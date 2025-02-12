@@ -35,7 +35,7 @@ class SweepHeuristics:
         ]
         self.nks = [(1280, 8192), (8192, 1024), (7168, 8192), (8192, 3584)]
 
-    def sweep_heuristics(self) -> None:
+    def sweep_heuristics(self, fn) -> None:
         for n, k in self.nks:
             x = torch.randn(size=(self.m, k), dtype=torch.half, device="cuda")
             w = torch.randn(size=(n, k), dtype=torch.half, device="cuda")
@@ -49,11 +49,11 @@ class SweepHeuristics:
                 ):
                     continue
                 # This requires
-                # 1. update for testing purpose for `bf16_fast_gemv` pytorch custom op to pass in block_dim_x and block_dim_y
-                # 2. modify the fp16_fast_gemv.cu kernel signature to reflect the block_dim heuristics
-                # https://www.internalfb.com/code/fbsource/[bafd6390bc8c842b46d81be1a27dafd384503a53]/fbcode/deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/bench/quantize_ops.py?lines=365
+                # 1. update for "testing purpose" the pytorch custom gemv op to accept additional params block_dim_x and block_dim_y
+                # 2. modify the corresponding `{precision}_fast_gemv.cu` kernel signature to reflect the block_dim_x and block_dim_y heuristics
+                # e.g. https://www.internalfb.com/code/fbsource/[208a27f25373]/fbcode/deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/bench/quantize_ops.py?lines=375
                 res = do_bench_using_profiling(
-                    lambda x=x, w=w, block_dim_x=block_dim_x, block_dim_y=block_dim_y: torch.ops.fbgemm.bf16_fast_gemv(
+                    lambda func=fn, x=x, w=w, block_dim_x=block_dim_x, block_dim_y=block_dim_y: func(
                         x, w, block_dim_x, block_dim_y
                     )
                 )
@@ -72,7 +72,8 @@ class SweepHeuristics:
                 / (best_elapsed_time / 1000)
                 / (1024**3)
             )
-
+            print(f"m: {self.m}, n: {n}, k: {k}")
+            print(f"tuning heuristics for kernel: {fn.__name__}")
             print(f"best elapsed time: {best_elapsed_time} ms")
             print(f"best block_dim_x: {best_block_dim_x}")
             print(f"best block_dim_y: {best_block_dim_y}")
@@ -80,4 +81,6 @@ class SweepHeuristics:
 
 
 sweep_instance = SweepHeuristics()
-sweep_instance.sweep_heuristics()
+sweep_instance.sweep_heuristics(fn=torch.ops.fbgemm.bf16_fast_gemv)
+sweep_instance.sweep_heuristics(fn=torch.ops.fbgemm.bf16fp8bf16_fast_gemv)
+sweep_instance.sweep_heuristics(fn=torch.ops.fbgemm.fp8fp8bf16_fast_gemv)
