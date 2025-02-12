@@ -21,13 +21,14 @@ namespace fbgemm_gpu {
 // problem sizes we care about and selected the best elapsed time/bw
 // combination. See more in
 // deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/src/quantize/fast_gemv/sweep_utils.py
+namespace {
 dim3 get_best_block_dim(int m, int n, int k) {
   if (m == 1 && n == 1280 && k == 8192) {
-    return dim3(128, 4);
+    return dim3(128, 1);
   } else if (m == 1 && n == 8192 && k == 1024) {
-    return dim3(32, 8);
+    return dim3(32, 4);
   } else if (m == 1 && n == 7168 && k == 8192) {
-    return dim3(256, 1);
+    return dim3(128, 1);
   } else if (m == 1 && n == 8192 && k == 3584) {
     return dim3(64, 2);
   } else {
@@ -35,8 +36,10 @@ dim3 get_best_block_dim(int m, int n, int k) {
     return dim3(32, 4);
   }
 }
+} // namespace
 
-at::Tensor bf16_fast_gemv(at::Tensor X, at::Tensor W) {
+at::Tensor
+bf16fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, double w_scale, double w_zp) {
   // X: M x K
   // W: N x K
   auto m = X.size(0);
@@ -57,11 +60,13 @@ at::Tensor bf16_fast_gemv(at::Tensor X, at::Tensor W) {
 
   auto Y = at::empty({m, n}, X.options().dtype(at::kBFloat16));
 
-  gemv_bf16<<<grid_dim, block_dim, 0, stream>>>(
-      reinterpret_cast<__nv_bfloat16*>(W.data_ptr()), // mat
+  gemv_quantized_bf16_fp8<<<grid_dim, block_dim, 0, stream>>>(
+      reinterpret_cast<cutlass::float_e4m3_t*>(W.data_ptr()), // mat
       reinterpret_cast<__nv_bfloat16*>(X.data_ptr()), // vec
       reinterpret_cast<__nv_bfloat16*>(Y.data_ptr()), // res
       k,
+      __float2half(float(w_scale)),
+      __float2half(float(w_zp)),
       num_per_thread);
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
