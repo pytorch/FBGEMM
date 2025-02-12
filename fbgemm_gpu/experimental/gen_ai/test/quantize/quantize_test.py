@@ -16,8 +16,6 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
 import triton  # noqa: F401
 
-from torch._inductor.utils import do_bench_using_profiling
-
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
         matmul_fp8_block,
