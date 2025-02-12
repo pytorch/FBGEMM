@@ -345,20 +345,42 @@ gen_cpu_files_training = (
     ]
 )
 
+gen_gpu_files_training_pt2 = (
+    [
+        "gen_embedding_split_{}_pt2_autograd.cpp".format(optimizer)
+        for optimizer in ALL_OPTIMIZERS
+    ]
+    + [
+        "gen_embedding_ssd_{}_pt2_autograd.cpp".format(optimizer)
+        for optimizer in SSD_OPTIMIZERS
+    ]
+    + [
+        "gen_embedding_backward_split_{}_pt2_cuda_wrapper.cpp".format(optimizer)
+        for optimizer in ALL_OPTIMIZERS
+    ]
+    + [
+        "gen_embedding_backward_ssd_{}_pt2_cuda_wrapper.cpp".format(optimizer)
+        for optimizer in SSD_OPTIMIZERS
+    ]
+)
+
+gen_gpu_files_training_dense = [
+    # Dense host and kernel, and forward-quantized host src files
+    fstring.format(wdesc)
+    for wdesc in WEIGHT_OPTIONS
+    for fstring in [
+        "gen_embedding_backward_dense_split_{}_cuda.cu",
+        "gen_embedding_backward_dense_split_{}_meta.cpp",
+        "gen_embedding_backward_dense_split_{}_kernel_cta.cu",
+        "gen_embedding_backward_dense_split_{}_kernel_warp.cu",
+    ]
+] + [
+    "gen_embedding_backward_split_dense.cpp",
+]
+
 gen_gpu_files_training = (
     [
         "gen_embedding_backward_split_grad_embedding_ops.cu",
-    ]
-    + [
-        # Dense host and kernel, and forward-quantized host src files
-        fstring.format(wdesc)
-        for wdesc in WEIGHT_OPTIONS
-        for fstring in [
-            "gen_embedding_backward_dense_split_{}_cuda.cu",
-            "gen_embedding_backward_dense_split_{}_meta.cpp",
-            "gen_embedding_backward_dense_split_{}_kernel_cta.cu",
-            "gen_embedding_backward_dense_split_{}_kernel_warp.cu",
-        ]
     ]
     + [
         # Backward-split positional weights and forward src files
@@ -448,31 +470,12 @@ gen_gpu_files_training = (
         for optimizer in SSD_OPTIMIZERS
     ]
     + [
-        "gen_embedding_split_{}_pt2_autograd.cpp".format(optimizer)
-        for optimizer in ALL_OPTIMIZERS
-    ]
-    + [
-        "gen_embedding_ssd_{}_pt2_autograd.cpp".format(optimizer)
-        for optimizer in SSD_OPTIMIZERS
-    ]
-    + [
         "gen_embedding_backward_{}_split_{}_meta.cpp".format(optimizer, wdesc)
         for optimizer in GPU_OPTIMIZERS
         for wdesc in [
             "weighted",
             "unweighted",
         ]
-    ]
-    + [
-        "gen_embedding_backward_split_{}_pt2_cuda_wrapper.cpp".format(optimizer)
-        for optimizer in ALL_OPTIMIZERS
-    ]
-    + [
-        "gen_embedding_backward_ssd_{}_pt2_cuda_wrapper.cpp".format(optimizer)
-        for optimizer in SSD_OPTIMIZERS
-    ]
-    + [
-        "gen_embedding_backward_split_dense.cpp",
     ]
 )
 
