@@ -42,6 +42,7 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <cutlass/cutlass.h>
+#include <cutlass/float8.h>
 
 #include "utility.cuh"
 
@@ -57,10 +58,10 @@ __global__ void gemv_bf16(
     unsigned int n,
     unsigned int num_per_thread);
 
-__global__ void gemv_quantized_int8(
-    int8_t* mat,
-    half* vec,
-    half* res,
+__global__ void gemv_quantized_bf16_fp8(
+    cutlass::float_e4m3_t* mat,
+    __nv_bfloat16* vec,
+    __nv_bfloat16* res,
     unsigned int n,
     half scale,
     half zero_point,
