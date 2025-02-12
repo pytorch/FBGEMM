@@ -141,19 +141,19 @@
     "fbgemm::generic_histogram_binning_calibration_by_feature": {
       "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_generic_histogram_binning_calibration_by_feature": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "HistogramBinningCalibrationTest.test_aot_dispatch_dynamic__test_generic_histogram_binning_calibration_by_feature_cpu_gpu": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "HistogramBinningCalibrationTest.test_faketensor__test_generic_histogram_binning_calibration_by_feature": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       },
       "HistogramBinningCalibrationTest.test_faketensor__test_generic_histogram_binning_calibration_by_feature_cpu_gpu": {
         "comment": "",
-        "status": "xfail"
+        "status": "xsuccess"
       }
     },
     "fbgemm::group_index_select_dim0": {
