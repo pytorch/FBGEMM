@@ -1100,6 +1100,27 @@ def fused_8_bit_rowwise_quantized_to_half(
     return torch.empty(output_shape, dtype=torch.float16, device=input_t.device)
 
 
+def generic_histogram_binning_calibration_by_feature(
+    logit: Tensor,
+    segment_value: Tensor,
+    segment_lengths: Tensor,
+    num_segments: int,
+    bin_num_examples: Tensor,
+    bin_num_positives: Tensor,
+    bin_boundaries: Tensor,
+    positive_weight: float,
+    bin_ctr_in_use_after: int,
+    bin_ctr_weight_value: float,
+) -> Tuple[Tensor, Tensor]:
+    torch._check(bin_num_examples.numel() == bin_num_positives.numel())
+    torch._check(
+        bin_num_examples.numel() == (num_segments + 1) * (bin_boundaries.numel() + 1)
+    )
+    return torch.empty_like(logit), torch.empty(
+        [logit.numel()], dtype=torch.int64, device=logit.device
+    )
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1232,6 +1253,10 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::histogram_binning_calibration",
             histogram_binning_calibration_abstract,
+        )
+        impl_abstract(
+            "fbgemm::generic_histogram_binning_calibration_by_feature",
+            generic_histogram_binning_calibration_by_feature,
         )
         impl_abstract(
             "fbgemm::FloatToHFP8Quantized",
