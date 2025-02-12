@@ -16,6 +16,8 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
 import triton  # noqa: F401
 
+from torch._inductor.utils import do_bench_using_profiling
+
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
         matmul_fp8_block,
@@ -1120,13 +1122,19 @@ class FP8Tests(unittest.TestCase):
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
     )
-    def test_gemv(self, test_cases, gemv_op, atol, rtol, quantize_w=False):
+    def test_gemv(
+        self, test_cases, gemv_op, atol, rtol, quantize_w=False, quantize_x=False
+    ):
         for M, N, K in test_cases:
             x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
             w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
-            if quantize_w:
+            if quantize_w and not quantize_x:
                 wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
                 z = gemv_op(x, wq, w_scale.item(), 0.0)
+            elif quantize_w and quantize_x:
+                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+                z = gemv_op(xq, wq, x_scale.item() * w_scale.item(), 0.0)
             else:
                 z = gemv_op(x, w)
             z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
@@ -1164,6 +1172,25 @@ class FP8Tests(unittest.TestCase):
             1.0e-2,
             1.0e-2,
             quantize_w=True,
+        )
+
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
+    )
+    def test_fp8_fp8_gemv(self) -> None:
+        test_cases = [
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+        ]
+        self.test_gemv(
+            test_cases,
+            torch.ops.fbgemm.fp8fp8bf16_fast_gemv,
+            9.0e-2,
+            9.0e-2,
+            quantize_w=True,
+            quantize_x=True,
         )
 
     @unittest.skipIf(
