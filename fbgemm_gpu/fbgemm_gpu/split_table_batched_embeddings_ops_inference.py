@@ -34,6 +34,15 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     SplitState,
     tensor_to_device,
 )
+from fbgemm_gpu.split_table_batched_embeddings_ops_utils import (  # noqa: F401
+    align_to_cacheline,  # noqa: F401
+    inputs_to_device,
+    nbit_construct_split_state,
+    random_quant_scaled_tensor,
+    rounded_row_size_in_bytes,
+    unpadded_row_size_in_bytes,
+)
+from fbgemm_gpu.ssd_prefetcher import SSDPrefetcher
 from fbgemm_gpu.utils.loader import load_torch_module, load_torch_module_bc
 
 try:
@@ -56,124 +65,7 @@ except Exception:
 import fbgemm_gpu  # noqa
 
 
-def rounded_row_size_in_bytes(
-    dim: int,
-    weight_ty: SparseType,
-    row_alignment: int,
-    scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
-) -> int:
-    r = unpadded_row_size_in_bytes(dim, weight_ty, scale_bias_size_in_bytes)
-    # align each row to 16-byte boundaries.
-    return round_up(r, row_alignment)
-
-
-def unpadded_row_size_in_bytes(
-    dim: int,
-    weight_ty: SparseType,
-    scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
-) -> int:
-    r = {
-        SparseType.FP32.value: dim * 4,
-        SparseType.FP16.value: dim * 2,
-        SparseType.FP8.value: dim,
-        SparseType.INT8.value: dim + scale_bias_size_in_bytes,
-        SparseType.INT4.value: dim // 2 + scale_bias_size_in_bytes,
-        SparseType.INT2.value: dim // 4 + scale_bias_size_in_bytes,
-    }[weight_ty.value]
-    return r
-
-
-def align_to_cacheline(a: int) -> int:
-    # align each table to 128b cache line boundary.
-    return round_up(a, 128)
-
-
-def nbit_construct_split_state(
-    embedding_specs: List[Tuple[str, int, int, SparseType, EmbeddingLocation]],
-    cacheable: bool,
-    row_alignment: int,
-    scale_bias_size_in_bytes: int = DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
-    cacheline_alignment: bool = True,
-) -> SplitState:
-    placements = torch.jit.annotate(List[EmbeddingLocation], [])
-    offsets = torch.jit.annotate(List[int], [])
-    dev_size = 0
-    host_size = 0
-    uvm_size = 0
-    for _, num_embeddings, embedding_dim, weight_ty, location in embedding_specs:
-        embedding_dim = rounded_row_size_in_bytes(
-            embedding_dim, weight_ty, row_alignment, scale_bias_size_in_bytes
-        )
-        state_size = num_embeddings * embedding_dim
-        if cacheline_alignment:
-            state_size = align_to_cacheline(state_size)
-        if location == EmbeddingLocation.HOST:
-            placements.append(EmbeddingLocation.HOST)
-            offsets.append(host_size)
-            host_size += state_size
-        elif location == EmbeddingLocation.DEVICE or location == EmbeddingLocation.MTIA:
-            placements.append(location)
-            offsets.append(dev_size)
-            dev_size += state_size
-        else:
-            if cacheable and location == EmbeddingLocation.MANAGED_CACHING:
-                placements.append(EmbeddingLocation.MANAGED_CACHING)
-            else:
-                placements.append(EmbeddingLocation.MANAGED)
-            offsets.append(uvm_size)
-            uvm_size += state_size
-    assert len(placements) == len(offsets)
-    return SplitState(
-        dev_size=dev_size,
-        host_size=host_size,
-        uvm_size=uvm_size,
-        placements=placements,
-        offsets=offsets,
-    )
-
-
-def random_quant_scaled_tensor(
-    shape: torch.Size,
-    device: torch.device,
-    output_tensor: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
-    if output_tensor is not None:
-        return torch.randint(
-            0,
-            255,
-            size=shape,
-            out=output_tensor,
-            dtype=torch.uint8,
-            device=device,
-        )
-    else:
-        return torch.randint(
-            0,
-            255,
-            size=shape,
-            dtype=torch.uint8,
-            device=device,
-        )
-
-
-@torch.fx.wrap
-def inputs_to_device(
-    indices: torch.Tensor,
-    offsets: torch.Tensor,
-    per_sample_weights: Optional[torch.Tensor],
-    device: torch.device,
-) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-    if device.type == "meta":
-        return indices, offsets, per_sample_weights
-
-    non_blocking = device.type != "cpu"
-    if indices.device != device:
-        indices = indices.to(device, non_blocking=non_blocking)
-    if offsets.device != device:
-        offsets = offsets.to(device, non_blocking=non_blocking)
-    if per_sample_weights is not None and per_sample_weights.device != device:
-        per_sample_weights = per_sample_weights.to(device, non_blocking=non_blocking)
-    return indices, offsets, per_sample_weights
+torch.fx.wrap("inputs_to_device")
 
 
 # pyre-fixme[13]: Attribute `cache_miss_counter` is never initialized.
@@ -335,6 +227,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
     weights_offsets: torch.Tensor
     # pyre-fixme[13]: Attribute `weights_placements` is never initialized.
     weights_placements: torch.Tensor
+    # pyre-fixme[13]: Attribute `ssd_placements` is never initialized.
+    ssd_placements: torch.Tensor
 
     def __init__(  # noqa C901
         self,
@@ -367,6 +261,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         reverse_qparam: bool = False,  # True to load qparams at end of each row; False to load qparam at begnning of each row.
         feature_names_per_table: Optional[List[List[str]]] = None,
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
+        ssd_prefetcher: Optional[SSDPrefetcher] = None,
+        ssd_placements: Optional[
+            Union[List[int], torch.Tensor]
+        ] = None,  # Indicies to embedding tables in the storage
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
 
@@ -392,6 +290,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.uvm_host_mapped = uvm_host_mapped
         self.feature_names_per_table = feature_names_per_table
         self.indices_dtype = indices_dtype
+        self.ssd_prefetcher = ssd_prefetcher
+        if ssd_placements is not None and self.ssd_prefetcher is not None:
+            self.set_ssd_placements(ssd_placements)
         # (feature_names, rows, dims, weights_tys, locations) = zip(*embedding_specs)
         # Pyre workaround
         self.feature_names: List[str] = [e[0] for e in embedding_specs]
@@ -503,7 +404,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights_tys_int, device=self.current_device, dtype=torch.uint8
             ),
         )
-        self.weight_initialized: bool = False
+        # When we use SSD offloading, weights are located in local or remote storage
+        # and we rely on prefetcher to query them.
+        self.weight_initialized: bool = False if self.ssd_prefetcher is None else True
 
         self.weights_dev: torch.Tensor = torch.zeros(
             0,
@@ -534,6 +437,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.reverse_qparam = reverse_qparam
         # Assign weights after weights and weights_offsets are initialized.
         if weight_lists:
+            assert (
+                self.ssd_prefetcher is None
+            ), "Weights are read-only by prefetcher in SSD mode."
             self._apply_split(
                 self.dev_size,
                 self.host_size,
@@ -623,6 +529,33 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.fp8_exponent_bits = -1
             self.fp8_exponent_bias = -1
+
+    def set_ssd_placements(
+        self,
+        ssd_placements: Union[List[int], torch.Tensor],
+    ) -> None:
+        """
+        When the TBE module is in SSD mode, this function is used to set the
+        SSD placements for each embedding table.
+
+        Args:
+            ssd_placements (Union[List[int], torch.Tensor]): A list or tensor of
+              integers representing where each embedding table is located in the
+              backend storage.
+
+        Returns:
+            None
+
+        """
+        assert (
+            self.ssd_prefetcher is not None
+        ), "set_ssd_placements is not meaningful in non-ssd mode"
+        if isinstance(ssd_placements, torch.Tensor):
+            self.ssd_placements = ssd_placements.to(self.current_device)
+        else:
+            self.ssd_placements = torch.tensor(
+                ssd_placements, device=self.current_device, dtype=torch.int32
+            )
 
     def get_cache_miss_counter(self) -> Tensor:
         # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
@@ -993,6 +926,57 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.bounds_check_warning,
                 per_sample_weights,
             )
+
+        # If we use SSD mode, use SSD prefetcher to query weights with given
+        # indices and offsets
+        if self.ssd_prefetcher is not None:
+            weights_ssd, indices_ssd, weights_offsets = self.ssd_prefetcher.prefetch(
+                indices, offsets, self.ssd_placements
+            )
+            weights_ssd = weights_ssd.to(self.current_device)
+            if indices_ssd is not None:
+                indices_ssd = indices_ssd.to(self.current_device)
+            else:
+                indices_ssd = torch.arange(
+                    0, len(indices), dtype=indices.dtype, device=indices.device
+                )
+            if weights_offsets is not None:
+                weights_offsets = weights_offsets.to(self.current_device)
+            else:
+                weights_offsets = torch.tensor(
+                    [0], dtype=torch.int64, device=self.current_device
+                )
+
+            # This is different from self.ssd_placements: this tensor specifies which device each
+            # table is located on (e.g. HOST or DEVICE).
+            weights_placements = torch.tensor(
+                self.weights_physical_placements,
+                device=self.current_device,
+                dtype=torch.int32,
+            )
+            return torch.ops.fbgemm.int_nbit_split_embedding_codegen_lookup_function(
+                dev_weights=weights_ssd,
+                uvm_weights=self.weights_uvm,
+                weights_placements=weights_placements,
+                weights_offsets=weights_offsets,
+                weights_tys=self.weights_tys,
+                D_offsets=self.D_offsets,
+                total_D=self.total_D,
+                max_int2_D=self.max_int2_D,
+                max_int4_D=self.max_int4_D,
+                max_int8_D=self.max_int8_D,
+                max_float16_D=self.max_float16_D,
+                max_float32_D=self.max_float32_D,
+                indices=indices_ssd,
+                offsets=offsets,
+                pooling_mode=int(self.pooling_mode),
+                indice_weights=per_sample_weights,
+                output_dtype=self.output_dtype,
+                max_float8_D=self.max_float8_D,
+                fp8_exponent_bits=self.fp8_exponent_bits,
+                fp8_exponent_bias=self.fp8_exponent_bias,
+            )
+
         # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
         # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
         # weights_placements
@@ -1210,6 +1194,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         if uvm_size > 0:
             assert not self.use_cpu
+            assert self.ssd_prefetcher is None
             if enforce_hbm:
                 if not torch.jit.is_scripting():
                     logging.info("Enforce hbm for the cache location")
@@ -1580,6 +1565,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             2: return weights, scale, bias.
         """
         assert self.weight_initialized
+        assert (
+            self.ssd_prefetcher is None
+        ), "split_embedding_weights not available in SSD mode"
         splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = []
         for t, (_, rows, dim, weight_ty, _) in enumerate(self.embedding_specs):
             placement = self.weights_physical_placements[t]
@@ -1709,8 +1697,12 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Returns a list of weights, split by table
         """
+        assert (
+            self.ssd_prefetcher is None
+        ), "split_embedding_weights not available in SSD mode"
+
         # fmt: off
-        splits: List[Tuple[Tensor, Optional[Tensor], Optional[Tensor]]] = (
+        splits = (
             self.split_embedding_weights_with_scale_bias(
                 split_scale_bias_mode=(1 if split_scale_shifts else 0)
             )
@@ -1738,6 +1730,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Fill the buffer with random weights, table by table
         """
+        assert (
+            self.ssd_prefetcher is None
+        ), "fill_random_weights not available in SSD mode"
         self.initialize_weights()
         weights = self.split_embedding_weights()
         for dest_weight in weights:
@@ -1753,6 +1748,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         """
         Assigns self.split_embedding_weights() with values from the input list of weights and scale_shifts.
         """
+        assert (
+            self.ssd_prefetcher is None
+        ), "assign_embedding_weights not available in SSD mode"
         weights = self.split_embedding_weights()
         assert len(q_weight_list) == len(weights)
 
