@@ -7,6 +7,9 @@
  */
 
 #pragma once
+
+#include <c10/util/irange.h>
+
 #include <chrono>
 #include <functional>
 #include <vector>
@@ -123,7 +126,7 @@ double measureWithWarmup(
     int measuredIterations,
     const Fe& fe = empty_flush(),
     bool useOpenMP = false) {
-  for (int i = 0; i < warmupIterations; ++i) {
+  for (const auto i : c10::irange(warmupIterations)) {
     // Evict data first
     fe();
     fn();
@@ -135,7 +138,7 @@ double measureWithWarmup(
 #pragma omp parallel if (useOpenMP)
   {
 #endif
-    for (int i = 0; i < measuredIterations; ++i) {
+    for (const auto i : c10::irange(measuredIterations)) {
       std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
       const auto thread_id = useOpenMP ? fbgemm_get_thread_num() : 0;
@@ -188,8 +191,8 @@ void transpose_matrix(
     int ld_src,
     T* dst,
     int ld_dst) {
-  for (int i = 0; i < N; ++i) {
-    for (int j = 0; j < M; ++j) {
+  for (const auto i : c10::irange(N)) {
+    for (const auto j : c10::irange(M)) {
       dst[i * ld_dst + j] = src[i + j * ld_src];
     }
   } // for each output row
@@ -230,7 +233,7 @@ void performance_test(
 #if dataset == 1
   const int NITER = (flush) ? 10 : 100;
   std::vector<std::vector<int>> shapes;
-  for (auto m = 1; m < 120; m++) {
+  for (const auto m : c10::irange(1, 120)) {
     // shapes.push_back({m, 128, 512});
     shapes.push_back({m, 512, 512});
   }
@@ -247,7 +250,7 @@ void performance_test(
   std::default_random_engine generator(r());
   std::uniform_int_distribution<int> dm(1, 100);
   std::uniform_int_distribution<int> dnk(1, 1024);
-  for (int i = 0; i < 1000; i++) {
+  for (const auto i : c10::irange(1000)) {
     int m = dm(generator);
     int n = dnk(generator);
     int k = dnk(generator);
@@ -266,7 +269,7 @@ void performance_test(
     aligned_vector<int> Aint(m * k);
     randFill(Aint, 0, 4);
     std::vector<aligned_vector<float>> A;
-    for (int i = 0; i < num_instances; ++i) {
+    for (const auto i : c10::irange(num_instances)) {
       A.push_back(aligned_vector<float>(Aint.begin(), Aint.end()));
     }
 
@@ -274,7 +277,7 @@ void performance_test(
     randFill(Bint, 0, 4);
     aligned_vector<float> B(Bint.begin(), Bint.end());
     std::vector<std::unique_ptr<PackedGemmMatrixB<btype>>> Bp;
-    for (int i = 0; i < num_instances; ++i) {
+    for (const auto i : c10::irange(num_instances)) {
       Bp.emplace_back(std::unique_ptr<PackedGemmMatrixB<btype>>(
           new PackedGemmMatrixB<btype>(btran, k, n, alpha, B.data())));
     }
@@ -285,21 +288,21 @@ void performance_test(
 
     if (btran == matrix_op_t::Transpose) {
       Bt_ref.resize(k * nAligned);
-      for (auto row = 0; row < k; ++row) {
-        for (auto col = 0; col < n; ++col) {
+      for (const auto row : c10::irange(k)) {
+        for (const auto col : c10::irange(n)) {
           Bt_ref[row * nAligned + col] = alpha * B[col * k + row];
         }
       }
     } else {
       Bt_ref.resize(kAligned * n);
-      for (auto row = 0; row < k; ++row) {
-        for (auto col = 0; col < n; ++col) {
+      for (const auto row : c10::irange(k)) {
+        for (const auto col : c10::irange(n)) {
           Bt_ref[col * kAligned + row] = alpha * B[col * k + row];
         }
       }
     }
 
-    for (auto i = 1; i < num_instances; ++i) {
+    for (const auto i : c10::irange(1, num_instances)) {
       Bt[i] = Bt_ref;
     }
 
@@ -308,12 +311,12 @@ void performance_test(
     if (beta != 0.0f) {
       aligned_vector<int> Cint(m * n);
       randFill(Cint, 0, 4);
-      for (int i = 0; i < num_instances; ++i) {
+      for (const auto i : c10::irange(num_instances)) {
         C_ref.push_back(aligned_vector<float>(Cint.begin(), Cint.end()));
         C_fb.push_back(aligned_vector<float>(Cint.begin(), Cint.end()));
       }
     } else {
-      for (int i = 0; i < num_instances; ++i) {
+      for (const auto i : c10::irange(num_instances)) {
         C_ref.push_back(aligned_vector<float>(m * n, 1.f));
         C_fb.push_back(aligned_vector<float>(m * n, NAN));
       }
@@ -324,7 +327,7 @@ void performance_test(
 
     // warm up MKL and fbgemm
     // check correctness at the same time
-    for (auto w = 0; w < 3; w++) {
+    for (const auto w : c10::irange(3)) {
 #if defined(USE_MKL) || defined(USE_BLAS)
       cblas_sgemm(
           CblasRowMajor,
@@ -376,7 +379,7 @@ void performance_test(
 
 #if defined(USE_MKL) || defined(USE_BLAS)
       // Compare results
-      for (size_t i = 0; i < C_ref[0].size(); i++) {
+      for (const auto i : c10::irange(C_ref[0].size())) {
         if (std::abs(C_ref[0][i] - C_fb[0][i]) > 1e-3) {
           fprintf(
               stderr,
@@ -403,7 +406,7 @@ void performance_test(
       ttot = measureWithWarmup(
           [&]() {
             int copy = num_instances == 1 ? 0 : fbgemm_get_thread_num();
-            for (int i = 0; i < repetitions; ++i) {
+            for (const auto i : c10::irange(repetitions)) {
 #if defined(USE_MKL) || defined(USE_BLAS)
               cblas_sgemm(
                   CblasRowMajor,
@@ -481,7 +484,7 @@ void performance_test(
           int num_threads = num_instances == 1 ? fbgemm_get_num_threads() : 1;
           int tid = num_instances == 1 ? fbgemm_get_thread_num() : 0;
 
-          for (int i = 0; i < repetitions; ++i) {
+          for (const auto i : c10::irange(repetitions)) {
             cblas_gemm_compute(
                 matrix_op_t::NoTranspose,
                 m,
