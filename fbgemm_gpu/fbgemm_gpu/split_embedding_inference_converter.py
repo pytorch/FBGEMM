@@ -129,7 +129,7 @@ class SplitEmbInferenceConverter:
                 index_remapping_list = []
                 for t, (_, E, D, weight_ty) in enumerate(embedding_specs):
                     # Try to prune embeddings.
-                    (pruned_weight, index_remapping) = self._prune_embs(t, E, child)
+                    (pruned_weight, index_remappings) = self._prune_embs(t, E, child)
                     new_embedding_specs.append(
                         (
                             "",
@@ -143,7 +143,7 @@ class SplitEmbInferenceConverter:
                             ),
                         )
                     )
-                    index_remapping_list.append(index_remapping)
+                    index_remapping_list.append(index_remappings)
 
                     # Try to quantize embeddings.
                     weight_lists.append(self._quantize_embs(pruned_weight, weight_ty))
@@ -152,7 +152,7 @@ class SplitEmbInferenceConverter:
 
                 q_child = IntNBitTableBatchedEmbeddingBagsCodegen(
                     embedding_specs=new_embedding_specs,
-                    index_remapping=(
+                    index_remappings=(
                         index_remapping_list if self.pruning_ratio is not None else None
                     ),
                     pooling_mode=child.pooling_mode,

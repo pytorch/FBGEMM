@@ -191,7 +191,7 @@ class NBitFowardTestCommon(unittest.TestCase):
                 x, use_cpu=use_cpu
             )
 
-            # generate index_remapping
+            # generate index_remappings
             dense_indices = torch.randint(low=0, high=E, size=(T, B, L)).view(-1).int()
 
             original_E = E
@@ -200,7 +200,7 @@ class NBitFowardTestCommon(unittest.TestCase):
             indices = indices.view(-1).int()
             offsets = offsets.view(-1).int()
 
-            # generate index_remapping done
+            # generate index_remappings done
             # Initialize and insert Array index remapping based data structure
             index_remappings_array = []
             for t in range(T):
@@ -241,7 +241,7 @@ class NBitFowardTestCommon(unittest.TestCase):
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
             pooling_mode=pooling_mode,
-            index_remapping=index_remappings_array if B != 0 else None,
+            index_remappings=index_remappings_array if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),
             cache_algorithm=cache_algorithm,
             use_array_for_index_remapping=use_array_for_index_remapping,
