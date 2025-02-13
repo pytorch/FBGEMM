@@ -1112,10 +1112,31 @@ class FP8Tests(unittest.TestCase):
                 block_scale[0],
                 block_scale[0],
             )
-            # test f16_fast_gemv is torch compileable
+            # test bf16_fast_gemv is torch compileable
             X_bf16 = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
             W_bf16 = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
             torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X_bf16, W_bf16)
+
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
+    )
+    def test_gemv(
+        self, test_cases, gemv_op, atol, rtol, quantize_w=False, quantize_x=False
+    ):
+        for M, N, K in test_cases:
+            x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
+            w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+            if quantize_w and not quantize_x:
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+                z = gemv_op(x, wq, w_scale.item(), 0.0)
+            elif quantize_w and quantize_x:
+                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+                z = gemv_op(xq, wq, x_scale.item() * w_scale.item(), 0.0)
+            else:
+                z = gemv_op(x, w)
+            z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
+            torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
@@ -1129,14 +1150,46 @@ class FP8Tests(unittest.TestCase):
             (1, 7168, 8192),
             (1, 8192, 3584),
         ]
-        for M, N, K in test_cases:
-            x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
-            w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+        self.test_gemv(test_cases, torch.ops.fbgemm.bf16_fast_gemv, 9.0e-3, 9.0e-3)
 
-            z = torch.ops.fbgemm.bf16_fast_gemv(x, w)
-            z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
+    )
+    def test_bf16_fp8_gemv(self) -> None:
+        test_cases = [
+            (1, 128, 256),
+            (1, 256, 256),
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+        ]
+        self.test_gemv(
+            test_cases,
+            torch.ops.fbgemm.bf16fp8bf16_fast_gemv,
+            1.0e-2,
+            1.0e-2,
+            quantize_w=True,
+        )
 
-            torch.testing.assert_close(z, z_ref, atol=9.0e-3, rtol=9.0e-3)
+    @unittest.skipIf(
+        not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
+    )
+    def test_fp8_fp8_gemv(self) -> None:
+        test_cases = [
+            (1, 1280, 8192),
+            (1, 8192, 1024),
+            (1, 7168, 8192),
+            (1, 8192, 3584),
+        ]
+        self.test_gemv(
+            test_cases,
+            torch.ops.fbgemm.fp8fp8bf16_fast_gemv,
+            9.0e-2,
+            9.0e-2,
+            quantize_w=True,
+            quantize_x=True,
+        )
 
     @unittest.skipIf(
         torch.version.hip, "Skip on AMD: cuda quantize op is yet supported."

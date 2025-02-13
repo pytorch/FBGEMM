@@ -41,6 +41,8 @@
 #include <cuda.h>
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#include <cutlass/cutlass.h>
+#include <cutlass/float8.h>
 #include <stdio.h>
 
 #include <cstdint>
@@ -80,6 +82,9 @@ struct bfloat16_2 {
 };
 struct int8_2 {
   int8_t x, y;
+};
+struct fp8_2 {
+  cutlass::float_e4m3_t x, y;
 };
 struct uint4_2_4 {
   uint4_2 x, y, z, w;
