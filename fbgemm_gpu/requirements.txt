@@ -13,7 +13,7 @@
 backports.tarfile
 build
 cmake
-hypothesis
+hypothesis==6.83.1
 jinja2
 mpmath==1.3.0
 ninja
