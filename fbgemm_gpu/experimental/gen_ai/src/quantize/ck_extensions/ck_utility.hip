@@ -23,8 +23,40 @@
 #include "ck/ck.hpp"
 #include "ck/stream_config.hpp"
 #include "ck/host_utility/hip_check_error.hpp"
+
+#if __has_include("ck/utility/flush_icache.hpp")
+
 #include "ck/utility/flush_icache.hpp"
 
+#else
+
+#include <hip/hip_runtime.h>
+
+namespace ck {
+// Copied from: https://github.com/ROCm/composable_kernel/blob/rocm-6.2.0/include/ck/utility/flush_icache.hpp
+static __global__ void flush_icache() {
+    asm __volatile__("s_icache_inv \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t"
+                     "s_nop 0 \n\t" ::
+                         :);
+}
+} // namespace ck
+
+#endif
 namespace fbgemm_gpu {
 
 void flush_icache_ck()
