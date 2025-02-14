@@ -1291,9 +1291,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     torch.zeros(1, dtype=torch.int64, device=self.current_device),
                     persistent=False,
                 )
-            self.iter_cpu: torch.Tensor = torch.zeros(
-                1, dtype=torch.int64, device="cpu"
-            )
+
+        self.iter_cpu: torch.Tensor = torch.zeros(1, dtype=torch.int64, device="cpu")
 
         cache_state = construct_cache_state(rows, locations, self.feature_table_map)
 
