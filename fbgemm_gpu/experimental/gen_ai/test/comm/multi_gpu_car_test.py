@@ -302,18 +302,18 @@ class LLamaMultiGpuTests(unittest.TestCase):
                     f"on {torch.cuda.get_device_capability()}"
                 )
 
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_allgather_inner)(
                 os.path.join(path, "rdvz"), dtype, dtype
@@ -346,18 +346,18 @@ class LLamaMultiGpuTests(unittest.TestCase):
                     f"on {torch.cuda.get_device_capability()}"
                 )
 
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             with self.assertRaises(Exception) as cm:
                 elastic_launch(config=lc, entrypoint=_run_allgather_inner)(
@@ -371,33 +371,33 @@ class LLamaMultiGpuTests(unittest.TestCase):
             )
 
     def test_allreduce(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_allreduce_inner)(path)
 
     def test_oneshot_car_stress(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_oneshot_car_stress_inner)(path)
