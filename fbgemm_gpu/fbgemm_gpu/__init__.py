@@ -45,6 +45,8 @@ fbgemm_gpu_libraries = [
     "fbgemm_gpu_tbe_training_backward",
     "fbgemm_gpu_tbe_training_backward_pt2",
     "fbgemm_gpu_tbe_training_backward_dense",
+    "fbgemm_gpu_tbe_training_backward_split_host",
+    "fbgemm_gpu_tbe_training_backward_gwd",
     "fbgemm_gpu_py",
 ]
 
