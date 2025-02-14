@@ -59,11 +59,6 @@ VERBOSITY: Verbosity = Verbosity.verbose
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardDenseTest(unittest.TestCase):
-    @unittest.skipIf(
-        os.getenv("GITHUB_ENV") is not None,
-        "This test is currently running into illegal memmory access issues in OSS, and is being investigated; please see https://github.com/pytorch/pytorch/issues/141904.",
-    )
-    @skipIfRocm("Currently runs into memory access issues")
     @given(
         T=st.integers(min_value=1, max_value=3),
         D=st.integers(min_value=2, max_value=128),
@@ -330,17 +325,24 @@ class BackwardDenseTest(unittest.TestCase):
         )
         y.sum().backward()
         indice_weight_grad_mask = per_sample_weights.grad.clone().cpu()
+        if not use_cpu:
+            torch.cuda.synchronize()
+
+        acc_B = 0
         for t in range(T_):
             B = Bs[t]
+            table_indice_weight_grad_mask = indice_weight_grad_mask[acc_B : acc_B + B * L]
+            table_indice_weight_grad_all = indice_weight_grad_all[acc_B : acc_B + B * L]
+            acc_B += B * L
             if feature_requires_grad[t]:
                 torch.testing.assert_close(
-                    indice_weight_grad_mask.view(T_, B, L)[t],
-                    indice_weight_grad_all.view(T_, B, L)[t],
+                    table_indice_weight_grad_mask,
+                    table_indice_weight_grad_all,
                 )
             else:
                 torch.testing.assert_close(
-                    indice_weight_grad_mask.view(T_, B, L)[t],
-                    torch.zeros_like(indice_weight_grad_mask.view(T_, B, L)[t]),
+                    table_indice_weight_grad_mask,
+                    torch.zeros_like(table_indice_weight_grad_mask),
                 )
 
         per_sample_weights = to_device(xw.contiguous().view(-1), use_cpu)
