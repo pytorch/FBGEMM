@@ -471,7 +471,7 @@ class Fp8Fp8OSSFastGemv(QuantizeOpBase):
 @register_quantize_op
 class FP8CublasRowwiseGemm(QuantizeOpBase):
     """
-    FP8 matmul with tensorwise scaling.
+    FP8 cublas matmul with rowwise scaling.
     """
 
     def quantize(self, x, w):
@@ -492,6 +492,39 @@ class FP8CublasRowwiseGemm(QuantizeOpBase):
     @property
     def name(self) -> str:
         return "cublas_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        # This implementation is specific to cublas.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class FP8CublasTensorwiseGemm(QuantizeOpBase):
+    """
+    FP8 cublas matmul with tensorwise scaling.
+    """
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f8f8bf16_cublas(xq, wq, x_scale * w_scale)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale * w_scale)
+
+    @property
+    def name(self) -> str:
+        return "cublas_tensorwise"
 
     @property
     def hip(self) -> bool:
