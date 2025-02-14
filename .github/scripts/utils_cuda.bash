@@ -192,7 +192,7 @@ install_cuda () {
   # in the future, we will be using conda-forge for installing all CUDA versions
   # (except for versions 11.8 and below, which are only available through
   # nvidia/label/cuda-*)
-  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+  if [[ "$cuda_version" =~ ^12.6.*$ ]]; then
     # shellcheck disable=SC2086
     (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
       cuda=${cuda_version}) || return 1
