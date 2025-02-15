@@ -88,6 +88,13 @@ jobs:
     - name: Build FBGEMM_GPU Documentation
       run: . $PRELUDE; cd fbgemm_gpu/docs; build_fbgemm_gpu_docs $BUILD_ENV
 
+    - name: Upload Built Docs as GHA Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: fbgemm_gpu_docs_${{ github.sha }}
+        path: fbgemm_gpu/docs/build
+        if-no-files-found: error
+
     - name: Deploy FBGEMM_GPU Documentation
       if: ${{ github.event_name != 'pull_request' }}
       uses: JamesIves/github-pages-deploy-action@releases/v4
