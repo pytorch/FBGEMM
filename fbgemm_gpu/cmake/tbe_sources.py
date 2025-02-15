@@ -421,6 +421,40 @@ gen_gpu_files_training_gwd = [
     )
 ]
 
+gen_gpu_files_training_vbe = [
+    fstring.format(optimizer, wdesc)
+    for optimizer in VBE_OPTIMIZERS
+    for wdesc in PARTIAL_WEIGHT_OPTIONS
+    for fstring in [
+        "gen_embedding_backward_{}_split_{}_vbe_meta.cpp",
+    ]
+    + (
+        [
+            "gen_embedding_backward_{}_ssd_{}_vbe_meta.cpp",
+        ]
+        if optimizer in SSD_OPTIMIZERS
+        else []
+    )
+] + [
+    fstring.format(optimizer, wdesc)
+    for optimizer in VBE_OPTIMIZERS
+    for wdesc in PARTIAL_WEIGHT_OPTIONS
+    for fstring in [
+        "gen_embedding_backward_{}_split_{}_vbe_cuda.cu",
+        "gen_embedding_backward_{}_split_{}_vbe_kernel_cta.cu",
+        "gen_embedding_backward_{}_split_{}_vbe_kernel_warp.cu",
+    ]
+    + (
+        [
+            "gen_embedding_backward_{}_ssd_{}_vbe_cuda.cu",
+            "gen_embedding_backward_{}_ssd_{}_vbe_kernel_cta.cu",
+            "gen_embedding_backward_{}_ssd_{}_vbe_kernel_warp.cu",
+        ]
+        if optimizer in SSD_OPTIMIZERS
+        else []
+    )
+]
+
 gen_gpu_files_training = (
     [
         "gen_embedding_backward_split_grad_embedding_ops.cu",
@@ -450,40 +484,6 @@ gen_gpu_files_training = (
             "gen_embedding_backward_{}_{}_{}_kernel_cta.cu",
             "gen_embedding_backward_{}_{}_{}_kernel_warp.cu",
         ]
-    ]
-    + [
-        fstring.format(optimizer, wdesc)
-        for optimizer in VBE_OPTIMIZERS
-        for wdesc in PARTIAL_WEIGHT_OPTIONS
-        for fstring in [
-            "gen_embedding_backward_{}_split_{}_vbe_meta.cpp",
-        ]
-        + (
-            [
-                "gen_embedding_backward_{}_ssd_{}_vbe_meta.cpp",
-            ]
-            if optimizer in SSD_OPTIMIZERS
-            else []
-        )
-    ]
-    + [
-        fstring.format(optimizer, wdesc)
-        for optimizer in VBE_OPTIMIZERS
-        for wdesc in PARTIAL_WEIGHT_OPTIONS
-        for fstring in [
-            "gen_embedding_backward_{}_split_{}_vbe_cuda.cu",
-            "gen_embedding_backward_{}_split_{}_vbe_kernel_cta.cu",
-            "gen_embedding_backward_{}_split_{}_vbe_kernel_warp.cu",
-        ]
-        + (
-            [
-                "gen_embedding_backward_{}_ssd_{}_vbe_cuda.cu",
-                "gen_embedding_backward_{}_ssd_{}_vbe_kernel_cta.cu",
-                "gen_embedding_backward_{}_ssd_{}_vbe_kernel_warp.cu",
-            ]
-            if optimizer in SSD_OPTIMIZERS
-            else []
-        )
     ]
 )
 

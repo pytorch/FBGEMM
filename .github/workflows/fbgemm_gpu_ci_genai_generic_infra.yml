@@ -11,14 +11,10 @@ on:
   # PR Trigger
   #
   pull_request:
-    branches:
-      - main
 
   # Push Trigger (enable to catch errors coming out of multiple merges)
   #
   push:
-    branches:
-      - main
 
   # Manual Trigger
   #
