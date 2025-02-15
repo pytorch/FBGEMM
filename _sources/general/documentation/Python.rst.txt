@@ -41,7 +41,7 @@ docstring:
       .. autofunction:: fbgemm_gpu.docs.examples.example_method
 
 #.  Make sure the ``.rst`` file is included in to the ``toctree`` in
-    ``index.rst`` (e.g. :ref:`fbgemm-gpu.toc.api.python`).
+    ``index.rst`` (e.g. :ref:`fbgemm-gpu.toc.api.python.ops`).
 
 #.  Verify the changes by building the docs locally with
     :ref:`general.docs.build` or submitting a PR for a Netlify preview.
