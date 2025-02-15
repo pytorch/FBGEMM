@@ -139,7 +139,7 @@ OutputType f8f8bf16_rowwise_grouped_impl(
     group_count = XQ.size();
   }
   using KernelArguments =
-      ck::tensor_operation::device::GroupedGemmTileLoopKernelArguments<2>;
+      ck::tensor_operation::device::GroupedGemmKernelArgument<2>;
   using GemmDesc = ck::tensor_operation::device::GemmDesc;
   // Create gemm shape containers.
   std::vector<GemmDesc> gemm_descs;
