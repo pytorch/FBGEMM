@@ -5,7 +5,7 @@
 #if !defined(USE_ROCM)
 #ifndef CUDART_VERSION
 #error CUDART_VERSION Undefined!
-#elif (CUDART_VERSION >= 12040)
+#elif (CUDART_VERSION >= 12040) && defined(FBGEMM_FBCODE)
 #define ENABLE_TRT_LLM_CAR
 #endif
 #endif
