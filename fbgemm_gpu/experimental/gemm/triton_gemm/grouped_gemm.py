@@ -34,6 +34,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm import utils
         for num_stages in [3, 4]
         for num_warps in [4, 8]
         for num_ctas in [1]
+        if not (block_size_m == 64 and num_warps == 8)
     ],
     key=["G", "M_BUCKET", "N", "K"],
 )
@@ -50,6 +51,7 @@ def _kernel_grouped_gemm(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    USE_TMA_STORE: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
@@ -76,16 +78,17 @@ def _kernel_grouped_gemm(
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
             num_tiles = num_m_tiles * num_n_tiles
 
-            # pyre-ignore
-            tl.extra.cuda.experimental_device_tensormap_create2d(
-                desc_ptr=c_desc_ptr,
-                global_address=c_ptr + M_start_offset * N,
-                load_size=[BLOCK_SIZE_M, BLOCK_SIZE_N],
-                global_size=[m_size, n_size],
-                element_ty=c_ptr.dtype.element_ty,
-            )
-            # pyre-ignore
-            tl.extra.cuda.experimental_tensormap_fenceproxy_acquire(c_desc_ptr)
+            if USE_TMA_STORE:
+                # pyre-ignore
+                tl.extra.cuda.experimental_device_tensormap_create2d(
+                    desc_ptr=c_desc_ptr,
+                    global_address=c_ptr + M_start_offset * N,
+                    load_size=[BLOCK_SIZE_M, BLOCK_SIZE_N],
+                    global_size=[m_size, n_size],
+                    element_ty=c_ptr.dtype.element_ty,
+                )
+                # pyre-ignore
+                tl.extra.cuda.experimental_tensormap_fenceproxy_acquire(c_desc_ptr)
 
             # Move across tiles
             while tidx >= iterated_tiles and tidx < iterated_tiles + num_tiles:
@@ -113,13 +116,25 @@ def _kernel_grouped_gemm(
                     )
                     accumulator += tl.dot(a, b.T)
 
-                m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
-                tl._experimental_descriptor_store(
-                    c_desc_ptr,
-                    accumulator.to(c_ptr.dtype.element_ty),
-                    [m_offset, n_offset],
-                )
+                if USE_TMA_STORE:
+                    m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                    n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                    tl._experimental_descriptor_store(
+                        c_desc_ptr,
+                        accumulator.to(c_ptr.dtype.element_ty),
+                        [m_offset, n_offset],
+                    )
+                else:
+                    offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                    offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                    c = accumulator.to(c_ptr.dtype.element_ty)
+                    tl.store(
+                        c_ptr
+                        + (M_start_offset + offs_am[:, None]) * N
+                        + offs_bn[None, :],
+                        c,
+                        mask=offs_am[:, None] < m_size and offs_bn[None, :] < n_size,
+                    )
                 tidx += NUM_SMS
 
             iterated_tiles += num_tiles
@@ -143,6 +158,7 @@ def _kernel_grouped_gemm(
         for num_stages in [3, 4]
         for num_warps in [4, 8]
         for num_ctas in [1]
+        if not (block_size_m == 64 and num_warps == 8)
     ],
     key=["G", "M_BUCKET", "N", "K"],
 )
@@ -161,6 +177,7 @@ def _kernel_grouped_gemm_fp8_rowwise(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    USE_TMA_STORE: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
@@ -187,16 +204,17 @@ def _kernel_grouped_gemm_fp8_rowwise(
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
             num_tiles = num_m_tiles * num_n_tiles
 
-            # pyre-ignore
-            tl.extra.cuda.experimental_device_tensormap_create2d(
-                desc_ptr=c_desc_ptr,
-                global_address=c_ptr + M_start_offset * N,
-                load_size=[BLOCK_SIZE_M, BLOCK_SIZE_N],
-                global_size=[m_size, n_size],
-                element_ty=c_ptr.dtype.element_ty,
-            )
-            # pyre-ignore
-            tl.extra.cuda.experimental_tensormap_fenceproxy_acquire(c_desc_ptr)
+            if USE_TMA_STORE:
+                # pyre-ignore
+                tl.extra.cuda.experimental_device_tensormap_create2d(
+                    desc_ptr=c_desc_ptr,
+                    global_address=c_ptr + M_start_offset * N,
+                    load_size=[BLOCK_SIZE_M, BLOCK_SIZE_N],
+                    global_size=[m_size, n_size],
+                    element_ty=c_ptr.dtype.element_ty,
+                )
+                # pyre-ignore
+                tl.extra.cuda.experimental_tensormap_fenceproxy_acquire(c_desc_ptr)
 
             # Move across tiles
             while tidx >= iterated_tiles and tidx < iterated_tiles + num_tiles:
@@ -236,19 +254,25 @@ def _kernel_grouped_gemm_fp8_rowwise(
                 )
                 c = accumulator.to(tl.float32) * a_scale * b_scale
 
-                m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
-                tl._experimental_descriptor_store(
-                    c_desc_ptr,
-                    c.to(c_ptr.dtype.element_ty),
-                    [m_offset, n_offset],
-                )
+                if USE_TMA_STORE:
+                    m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                    n_offset = (tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                    tl._experimental_descriptor_store(
+                        c_desc_ptr,
+                        c.to(c_ptr.dtype.element_ty),
+                        [m_offset, n_offset],
+                    )
+                else:
+                    tl.store(
+                        c_ptr
+                        + (M_start_offset + offs_am[:, None]) * N
+                        + offs_bn[None, :],
+                        c,
+                        mask=offs_am[:, None] < m_size and offs_bn[None, :] < n_size,
+                    )
                 tidx += NUM_SMS
 
             iterated_tiles += num_tiles
-
-
-_ON_DEVICE_TMA_WORKSPACE = {}
 
 
 def _grouped_gemm(
@@ -262,10 +286,6 @@ def _grouped_gemm(
         raise NotImplementedError("Grouped GEMM without TMA is not supported yet")
 
     G = m_offsets.shape[0]
-
-    # TODO(shikaili): G=1 could produce NaNs results with on-device TMA store. Need to debug.
-    if G == 1:
-        raise NotImplementedError("Grouped GEMM with NUM_GROUPS=1 is not supported yet")
 
     assert x.is_contiguous()
     assert w.is_contiguous()
@@ -283,14 +303,11 @@ def _grouped_gemm(
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
 
-    global _ON_DEVICE_TMA_WORKSPACE
-    if x.device not in _ON_DEVICE_TMA_WORKSPACE:
-        _ON_DEVICE_TMA_WORKSPACE[x.device] = torch.empty(
-            NUM_SMS * utils.TmaAutoTuneHelper.TMA_SIZE,
-            device=x.device,
-            dtype=torch.uint8,
-        )
-    workspace = _ON_DEVICE_TMA_WORKSPACE[x.device]
+    workspace = torch.empty(
+        NUM_SMS * utils.TmaAutoTuneHelper.TMA_SIZE,
+        device=x.device,
+        dtype=torch.uint8,
+    )
 
     def grid(META):
         nonlocal desc_helper
@@ -320,6 +337,7 @@ def _grouped_gemm(
     desc_w = desc_helper.get_tma_descriptor_kernel_param("w")
 
     M_BUCKET = triton.next_power_of_2(M)
+    USE_TMA_STORE = False
     if x_scale is not None and w_scale is not None:
         assert x_scale.is_contiguous()
         assert w_scale.is_contiguous()
@@ -336,6 +354,7 @@ def _grouped_gemm(
             N,
             K,
             NUM_SMS,
+            USE_TMA_STORE,
         )
     else:
         assert x_scale is None
@@ -351,6 +370,7 @@ def _grouped_gemm(
             N,
             K,
             NUM_SMS,
+            USE_TMA_STORE,
         )
 
     return y

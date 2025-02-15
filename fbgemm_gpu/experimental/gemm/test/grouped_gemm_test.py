@@ -6,6 +6,7 @@
 
 # pyre-strict
 
+import logging
 import unittest
 from typing import Tuple
 
@@ -72,12 +73,10 @@ class TestGroupedGEMM(unittest.TestCase):
 
             torch.testing.assert_close(result, expected_result, atol=2e-2, rtol=1.6e-2)
 
-        _test_grouped_gemm_fp8_rowwise((16, 512, 256, 256), torch.device("cuda"))
-        _test_grouped_gemm_fp8_rowwise((8, 512, 256, 256), torch.device("cuda"))
-        _test_grouped_gemm_fp8_rowwise((4, 512, 256, 256), torch.device("cuda"))
-        _test_grouped_gemm_fp8_rowwise((2, 512, 256, 256), torch.device("cuda"))
-        # TODO(shikaili): G=1 could produce NaNs results with on-device TMA store. Need to debug.
-        # _test_grouped_gemm_fp8_rowwise((1, 512, 256, 256), torch.device("cuda"))
+        for G in (1, 2, 4, 8, 16):
+            for M in (64, 512):
+                logging.info(f"Testing FP8 GMM with G={G}, M={M}")
+                _test_grouped_gemm_fp8_rowwise((G, M, 256, 256), torch.device("cuda"))
 
     def test_grouped_gemm_bf16(self) -> None:
         def _test_grouped_gemm_bf16(
@@ -109,9 +108,7 @@ class TestGroupedGEMM(unittest.TestCase):
 
             torch.testing.assert_close(result, expected_result, atol=1e-5, rtol=1.6e-2)
 
-        _test_grouped_gemm_bf16((16, 512, 256, 256), torch.device("cuda"))
-        _test_grouped_gemm_bf16((8, 512, 256, 256), torch.device("cuda"))
-        _test_grouped_gemm_bf16((4, 512, 256, 256), torch.device("cuda"))
-        _test_grouped_gemm_bf16((2, 512, 256, 256), torch.device("cuda"))
-        # TODO(shikaili): G=1 could produce NaNs results with on-device TMA store. Need to debug.
-        # _test_grouped_gemm_bf16((1, 512, 256, 256), torch.device("cuda"))
+        for G in (1, 2, 4, 8, 16):
+            for M in (64, 512):
+                logging.info(f"Testing BF16 GMM with G={G}, M={M}")
+                _test_grouped_gemm_bf16((G, M, 256, 256), torch.device("cuda"))
