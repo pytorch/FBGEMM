@@ -205,8 +205,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga802490706abaca9d86d780bbdc0922cc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga756a59a6b84321e9b91af3e5f3334c31" id="r_ga756a59a6b84321e9b91af3e5f3334c31"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga756a59a6b84321e9b91af3e5f3334c31">_fusednbitrowwise_to_half_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate)</td></tr>
 <tr class="separator:ga756a59a6b84321e9b91af3e5f3334c31"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga3c4470ccad29f964a31ac68490f10d90" id="r_ga3c4470ccad29f964a31ac68490f10d90"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga3c4470ccad29f964a31ac68490f10d90">_fusednbitrowwise_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype, const bool scale_bias_last)</td></tr>
-<tr class="separator:ga3c4470ccad29f964a31ac68490f10d90"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5ee877a3c135bd5160991c77ed170b23" id="r_ga5ee877a3c135bd5160991c77ed170b23"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga5ee877a3c135bd5160991c77ed170b23">_fusednbitrowwise_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype)</td></tr>
+<tr class="separator:ga5ee877a3c135bd5160991c77ed170b23"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga4050ec86de055f06ad3a89c8b9cd24e9" id="r_ga4050ec86de055f06ad3a89c8b9cd24e9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga4050ec86de055f06ad3a89c8b9cd24e9">_float_to_hfp8_gpu</a> (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias, const double max_pos)</td></tr>
 <tr class="separator:ga4050ec86de055f06ad3a89c8b9cd24e9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga1dd6b70398b542022b236f4c576609a2" id="r_ga1dd6b70398b542022b236f4c576609a2"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga1dd6b70398b542022b236f4c576609a2">_hfp8_to_float_gpu</a> (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias)</td></tr>
@@ -215,8 +215,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga63e0eb01baaf7a680056549386bd17ec"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6bf8bd180a3ed7174965bf73d18c3f2e" id="r_ga6bf8bd180a3ed7174965bf73d18c3f2e"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga6bf8bd180a3ed7174965bf73d18c3f2e">_msfp_to_float_gpu</a> (const at::Tensor &amp;input, const int64_t ebits, const int64_t mbits, const int64_t bias)</td></tr>
 <tr class="separator:ga6bf8bd180a3ed7174965bf73d18c3f2e"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga18fbbbcd643061657cf2575a816435cc" id="r_ga18fbbbcd643061657cf2575a816435cc"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-data-cpu.html#ga18fbbbcd643061657cf2575a816435cc">fusednbitrowwise_sbfront_to_float_cpu</a> (const Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype)</td></tr>
-<tr class="separator:ga18fbbbcd643061657cf2575a816435cc"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga211b61807b27bbdc041036557246c0ce" id="r_ga211b61807b27bbdc041036557246c0ce"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-data-cpu.html#ga211b61807b27bbdc041036557246c0ce">fusednbitrowwise_sbfront_to_float_cpu</a> (const Tensor &amp;input, const int64_t bit_rate)</td></tr>
+<tr class="separator:ga211b61807b27bbdc041036557246c0ce"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga5f9b9bdd22dba5a1870ef9c0e0877087" id="r_ga5f9b9bdd22dba5a1870ef9c0e0877087"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga5f9b9bdd22dba5a1870ef9c0e0877087">_float_to_paddedFP8rowwise_gpu</a> (const Tensor &amp;input, const bool forward, const int64_t row_dim)</td></tr>
 <tr class="separator:ga5f9b9bdd22dba5a1870ef9c0e0877087"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga6c6d6fc1318239ecfaf902349a988cd6" id="r_ga6c6d6fc1318239ecfaf902349a988cd6"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__quantize-ops-cuda.html#ga6c6d6fc1318239ecfaf902349a988cd6">_paddedFP8rowwise_to_float_gpu</a> (const at::Tensor &amp;input, const bool forward, const int64_t row_dim, const int64_t output_last_dim, const int64_t output_dtype)</td></tr>
@@ -231,8 +231,6 @@ Functions</h2></td></tr>
 <tr class="separator:a24acd9b73d0192a8b79da788762c7806"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a82c2bc63d382fd3881bcb6794b8d5e1d" id="r_a82c2bc63d382fd3881bcb6794b8d5e1d"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a82c2bc63d382fd3881bcb6794b8d5e1d">pack_segments_forward_cuda</a> (const Tensor &amp;t_in, const Tensor &amp;lengths, const int64_t max_length)</td></tr>
 <tr class="separator:a82c2bc63d382fd3881bcb6794b8d5e1d"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1c01df2b7cf0269422559226a406c49b" id="r_a1c01df2b7cf0269422559226a406c49b"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, std::optional&lt; Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c01df2b7cf0269422559226a406c49b">pack_segments_forward_cuda_v2</a> (const Tensor &amp;t_in, const Tensor &amp;lengths, const int64_t max_length, const bool pad_minf, const bool return_presence_mask)</td></tr>
-<tr class="separator:a1c01df2b7cf0269422559226a406c49b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>This is a placeholder source file that is used to force compilation and generation of an .SO file. </p>
@@ -1084,51 +1082,6 @@ details</h1>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_length</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-<p>Map N dim tensor to N+1 dim based on lengths tensor. Sequences that are shorter than the longest sequence are padded with zeros. </p><dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">t_in</td><td>N dim Tensor. </td></tr>
-    <tr><td class="paramname">lengths</td><td>1D int/long tensor contains the length in each of the output. </td></tr>
-    <tr><td class="paramname">max_length</td><td>The pre-defined max_length for the packed segments. </td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>packed_tensor packed_tensor N + 1 dim Tensor where dim(1) is the max length, dim(0) is the batch size. </dd></dl>
-
-</div>
-</div>
-<a id="a1c01df2b7cf0269422559226a406c49b" name="a1c01df2b7cf0269422559226a406c49b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1c01df2b7cf0269422559226a406c49b">&#9670;&#160;</a></span>pack_segments_forward_cuda_v2()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">std::tuple&lt; Tensor, std::optional&lt; Tensor &gt; &gt; pack_segments_forward_cuda_v2 </td>
-          <td>(</td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>t_in</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>lengths</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_length</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>pad_minf</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>return_presence_mask</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
