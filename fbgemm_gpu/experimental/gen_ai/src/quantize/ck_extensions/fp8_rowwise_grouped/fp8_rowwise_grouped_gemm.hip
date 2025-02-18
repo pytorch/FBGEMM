@@ -206,7 +206,8 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     int M,
     int N,
     int K,
-    int group_count) {
+    int group_count,
+    bool zeroing_output_tensor) {
   int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each thread is responsible for setting up the arguments for one group.
   if (thread_idx < group_count) {
@@ -227,6 +228,7 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     // Write kernel args to memory.
     kernel_args[thread_idx] = kernel_group_args;
   }
+  if (!zeroing_output_tensor) return;
 
   // Figure out where in memory we are.
   // Each thread sets one float 4 which corresponds to 8 bf16 values.
@@ -252,7 +254,8 @@ void set_dynamic_kernel_args(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor output,
-    at::Tensor zero_start_index_M) {
+    at::Tensor zero_start_index_M,
+    bool zeroing_output_tensor) {
   // Get current cuda stream.
   auto stream = at::cuda::getCurrentHIPStream().stream();
   int group_count = XQ.size(0);
@@ -292,7 +295,8 @@ void set_dynamic_kernel_args(
       M,
       N,
       K,
-      group_count);
+      group_count,
+      zeroing_output_tensor);
 }
 
 template <typename OutputType>
@@ -433,7 +437,8 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor zero_start_index_M) {
+    at::Tensor zero_start_index_M,
+    bool zeroing_output_tensor = true) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int group_count = XQ.size(0);
@@ -473,7 +478,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
       {static_cast<long>(group_count * sizeof(KernelArguments))},
       XQ.options().dtype(at::kByte));
   set_dynamic_kernel_args(
-      kernel_args, XQ, WQ, x_scale, w_scale, Y, zero_start_index_M);
+      kernel_args, XQ, WQ, x_scale, w_scale, Y, zero_start_index_M, zeroing_output_tensor);
 
   RowwiseGroupedKernel<at::Tensor, at::Tensor> selected_kernel =
       rowwise_grouped_heuristic_dispatch<at::Tensor, at::Tensor>(M, N, K);
