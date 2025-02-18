@@ -10,6 +10,7 @@
 struct fused_moesorting_trait {
   std::string index_type;
   std::string weight_type; // currently always float
+  bool local_expert_masking; // if mask experts as local expert
 };
 
 struct fused_moesorting_args : public ck_tile::MoeSortingHostArgs {};
