@@ -231,6 +231,8 @@ Functions</h2></td></tr>
 <tr class="separator:a24acd9b73d0192a8b79da788762c7806"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a82c2bc63d382fd3881bcb6794b8d5e1d" id="r_a82c2bc63d382fd3881bcb6794b8d5e1d"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a82c2bc63d382fd3881bcb6794b8d5e1d">pack_segments_forward_cuda</a> (const Tensor &amp;t_in, const Tensor &amp;lengths, const int64_t max_length)</td></tr>
 <tr class="separator:a82c2bc63d382fd3881bcb6794b8d5e1d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1c01df2b7cf0269422559226a406c49b" id="r_a1c01df2b7cf0269422559226a406c49b"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, std::optional&lt; Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1c01df2b7cf0269422559226a406c49b">pack_segments_forward_cuda_v2</a> (const Tensor &amp;t_in, const Tensor &amp;lengths, const int64_t max_length, const bool pad_minf, const bool return_presence_mask)</td></tr>
+<tr class="separator:a1c01df2b7cf0269422559226a406c49b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>This is a placeholder source file that is used to force compilation and generation of an .SO file. </p>
@@ -1082,6 +1084,51 @@ details</h1>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_length</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Map N dim tensor to N+1 dim based on lengths tensor. Sequences that are shorter than the longest sequence are padded with zeros. </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">t_in</td><td>N dim Tensor. </td></tr>
+    <tr><td class="paramname">lengths</td><td>1D int/long tensor contains the length in each of the output. </td></tr>
+    <tr><td class="paramname">max_length</td><td>The pre-defined max_length for the packed segments. </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>packed_tensor packed_tensor N + 1 dim Tensor where dim(1) is the max length, dim(0) is the batch size. </dd></dl>
+
+</div>
+</div>
+<a id="a1c01df2b7cf0269422559226a406c49b" name="a1c01df2b7cf0269422559226a406c49b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1c01df2b7cf0269422559226a406c49b">&#9670;&#160;</a></span>pack_segments_forward_cuda_v2()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::tuple&lt; Tensor, std::optional&lt; Tensor &gt; &gt; pack_segments_forward_cuda_v2 </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>t_in</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>lengths</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_length</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>pad_minf</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>return_presence_mask</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">

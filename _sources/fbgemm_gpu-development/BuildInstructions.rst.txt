@@ -600,6 +600,9 @@ toolchains have been properly installed.
   # [OPTIONAL] Set NVCC_PREPEND_FLAGS as needed
   export NVCC_PREPEND_FLAGS="${nvcc_prepend_flags[@]}"
 
+  # [OPTIONAL] Enable verbose NVCC logs
+  export NVCC_VERBOSE=1
+
   # Specify cuDNN header and library paths
   export CUDNN_INCLUDE_DIR=/path/to/cudnn/include
   export CUDNN_LIBRARY=/path/to/cudnn/lib
@@ -683,6 +686,9 @@ presuming the toolchains have been properly installed.
   # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
   export ROCM_PATH=/path/to/rocm
+
+  # [OPTIONAL] Enable verbose HIPCC logs
+  export HIPCC_VERBOSE=1
 
   # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx906;gfx908;gfx90a')
   # See https://wiki.gentoo.org/wiki/ROCm for list
