@@ -102,13 +102,18 @@ at::Tensor bf16i4bf16_rowwise_batched_impl(
       cute::Int<TBS_K>>; // Shape of the
                          // threadblocks in a
                          // cluster
-  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecializedMixedInput;
+  using CooperativeSchedule =
+      cutlass::gemm::KernelTmaWarpSpecializedCooperativeMixedInput;
   using PongSchedule =
       cutlass::gemm::KernelTmaWarpSpecializedPingpongMixedInput;
-  using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+  using CooperativeEpilogueSchedule =
+      cutlass::epilogue::TmaWarpSpecializedCooperative;
+  using PongEpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
   using MainLoopSchedule =
-      cute::conditional_t<PONG, PongSchedule, DefaultSchedule>;
+      cute::conditional_t<PONG, PongSchedule, CooperativeSchedule>;
+  using EpilogueSchedule = cute::
+      conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
 
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
@@ -235,17 +240,17 @@ at::Tensor dispatch_bf16i4bf16_rowwise_batched_kernel(
   } else if (kernel == KernelMode::Large) {
     return bf16i4bf16_rowwise_batched_impl<
         128,
-        128,
+        256,
         64,
         2,
         1,
         1,
-        true,
+        false,
         WEIGHT_SCALE_DTYPE>(X, WQ, w_scale, w_zp);
   } else {
     return bf16i4bf16_rowwise_batched_impl<
         128,
-        128,
+        256,
         64,
         2,
         1,
