@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Installation Instructions &mdash; FBGEMM 1.1.0 documentation</title>
+  <title>Installation Instructions &mdash; FBGEMM 1.0.0 documentation</title>
   
 
   
@@ -287,7 +287,7 @@
               
               
                 <div class="version">
-                  1.1
+                  1.0
                 </div>
               
             
@@ -474,12 +474,8 @@ PyTorch Release</p></th>
 Python Versions</p></th>
 <th class="head"><p>Supported
 CUDA Versions</p></th>
-<th class="head"><p>Supported CUDA
-Architectures</p></th>
 <th class="head"><p>(Experimental) Supported
 ROCm Versions</p></th>
-<th class="head"><p>(Experimental) Supported
-ROCm Architectures</p></th>
 </tr>
 </thead>
 <tbody>
@@ -487,12 +483,8 @@ ROCm Architectures</p></th>
 <td><p>2.6.x</p></td>
 <td><p>3.9, 3.10, 3.11,
 3.12, 3.13</p></td>
-<td><p>11.8, 12.4,
-12.6</p></td>
-<td><p>7.0, 8.0, 9.0,
-9.0a</p></td>
-<td><p>6.1, 6.2.4, 6.3</p></td>
-<td><p>gfx908, gfx90a, gfx942</p></td>
+<td><p>11.8, 12.4</p></td>
+<td><p>6.0, 6.1</p></td>
 </tr>
 <tr class="row-odd"><td><p>1.0.0</p></td>
 <td><p>2.5.x</p></td>
@@ -500,10 +492,7 @@ ROCm Architectures</p></th>
 3.12</p></td>
 <td><p>11.8, 12.1,
 12.4</p></td>
-<td><p>7.0, 8.0, 9.0,
-9.0a</p></td>
 <td><p>6.0, 6.1</p></td>
-<td><p>gfx908, gfx90a</p></td>
 </tr>
 <tr class="row-even"><td><p>0.8.0</p></td>
 <td><p>2.4.x</p></td>
@@ -511,57 +500,38 @@ ROCm Architectures</p></th>
 3.11, 3.12</p></td>
 <td><p>11.8, 12.1,
 12.4</p></td>
-<td><p>7.0, 8.0, 9.0,
-9.0a</p></td>
 <td><p>6.0, 6.1</p></td>
-<td><p>gfx908, gfx90a</p></td>
 </tr>
 <tr class="row-odd"><td><p>0.7.0</p></td>
 <td><p>2.3.x</p></td>
 <td><p>3.8, 3.9, 3.10,
 3.11, 3.12</p></td>
 <td><p>11.8, 12.1</p></td>
-<td><p>7.0, 8.0, 9.0</p></td>
 <td><p>6.0</p></td>
-<td><p>gfx908, gfx90a</p></td>
 </tr>
 <tr class="row-even"><td><p>0.6.0</p></td>
 <td><p>2.2.x</p></td>
 <td><p>3.8, 3.9, 3.10,
 3.11, 3.12</p></td>
 <td><p>11.8, 12.1</p></td>
-<td><p>7.0, 8.0, 9.0</p></td>
 <td><p>5.7</p></td>
-<td><p>gfx90a</p></td>
 </tr>
 <tr class="row-odd"><td><p>0.5.0</p></td>
 <td><p>2.1.x</p></td>
 <td><p>3.8, 3.9, 3.10,
 3.11</p></td>
 <td><p>11.8, 12.1</p></td>
-<td><p>7.0, 8.0, 9.0</p></td>
 <td><p>5.5, 5.6</p></td>
-<td><p>gfx90a</p></td>
 </tr>
 <tr class="row-even"><td><p>0.4.0</p></td>
 <td><p>2.0.x</p></td>
 <td><p>3.8, 3.9, 3.10</p></td>
 <td><p>11.7, 11.8</p></td>
-<td><p>7.0, 8.0</p></td>
 <td><p>5.3, 5.4</p></td>
-<td><p>gfx90a</p></td>
 </tr>
 </tbody>
 </table>
-<p>Note that the list of supported CUDA and ROCm architectures refer to the targets
-support available in the default installation packages, and that building for
-other architecures may be possible, but not guaranteed.</p>
-<p>For more information, please visit:</p>
-<ul class="simple">
-<li><p><a class="reference external" href="https://github.com/pytorch/FBGEMM/releases">FBGEMM Releases Page</a></p></li>
-<li><p><a class="reference external" href="https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/">CUDA Architectures</a></p></li>
-<li><p><a class="reference external" href="https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html">ROCm Architectures</a></p></li>
-</ul>
+<p>For more information, please visit the <a class="reference external" href="https://github.com/pytorch/FBGEMM/releases">FBGEMM Releases Page</a>.</p>
 </section>
 <section id="set-up-cpu-only-environment">
 <h2>Set Up CPU-Only Environment<a class="headerlink" href="#set-up-cpu-only-environment" title="Permalink to this heading">¶</a></h2>
@@ -723,16 +693,16 @@ pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> 
 pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu/
 
 <span class="c1"># CUDA Nightly</span>
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu126/
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu126/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu121/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cu121/
 
 <span class="c1"># CUDA Release</span>
-pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu126/
-pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu126/
+pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
+pip<span class="w"> </span>install<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
 
 <span class="c1"># ROCm Nightly</span>
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm6.3/
-pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm6.3/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
+pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>fbgemm-gpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
 
 <span class="c1"># Test the installation</span>
 python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; import fbgemm_gpu&quot;</span>
