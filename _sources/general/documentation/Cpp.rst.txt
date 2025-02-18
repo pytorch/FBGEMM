@@ -4,7 +4,7 @@ Adding Documentation to C++ Code
 --------------------------------
 
 Documentation for C++ is provided through
-`Javadoc-style comments <https://www.oracle.com/java/technologies/javase/javadoc-tool.html>`__
+`Javadoc-style comments <https://www.oracle.com/technical-resources/articles/java/javadoc-tool.html>`__
 and generated using Sphinx, `Doxygen <https://www.doxygen.nl/>`__, and
 `Breathe <https://breathe.readthedocs.io>`__.
 

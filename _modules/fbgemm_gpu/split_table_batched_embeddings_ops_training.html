@@ -9,7 +9,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>fbgemm_gpu.split_table_batched_embeddings_ops_training &mdash; FBGEMM 1.0.0 documentation</title>
+  <title>fbgemm_gpu.split_table_batched_embeddings_ops_training &mdash; FBGEMM 1.1.0 documentation</title>
   
 
   
@@ -284,7 +284,7 @@
               
               
                 <div class="version">
-                  1.0
+                  1.1
                 </div>
               
             
@@ -494,6 +494,12 @@
     <span class="n">generate_vbe_metadata</span><span class="p">,</span>
     <span class="n">is_torchdynamo_compiling</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.tbe_input_multiplexer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">TBEInfo</span><span class="p">,</span>
+    <span class="n">TBEInputInfo</span><span class="p">,</span>
+    <span class="n">TBEInputMultiplexer</span><span class="p">,</span>
+    <span class="n">TBEInputMultiplexerConfig</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.utils.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_torch_module</span><span class="p">,</span> <span class="n">load_torch_module_bc</span>
 
@@ -588,6 +594,17 @@
 <span class="k">class</span><span class="w"> </span><span class="nc">GlobalWeightDecayDefinition</span><span class="p">:</span>
     <span class="n">start_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
     <span class="n">lower_bound</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">UserEnabledConfigDefinition</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    This class is used to configure whether certain modes are to be enabled</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># This is used in Adam to perform rowwise bias correction using `row_counter`</span>
+    <span class="c1"># More details can be found in D64848802.</span>
+    <span class="n">use_rowwise_bias_correction</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1009,6 +1026,19 @@
 <span class="sd">            using `malloc` + `cudaHostRegister`. Otherwise use</span>
 <span class="sd">            `cudaMallocManaged`</span>
 
+<span class="sd">        extra_optimizer_config Optional[UserEnabledConfigDefinition] = None):</span>
+<span class="sd">            An extra config to enable certain modes for optimizer. These modes</span>
+<span class="sd">            are not enabled by default.</span>
+<span class="sd">            - `use_rowwise_bias_correction` is used in Adam to enable rowwise</span>
+<span class="sd">                bias correction computation</span>
+
+<span class="sd">        embedding_table_index_type (torch.dtype = torch.int64): The data type of</span>
+<span class="sd">            the embedding table index tensor. Options are `torch.int32` and</span>
+<span class="sd">            `torch.int64`</span>
+
+<span class="sd">        embedding_table_offset_type (torch.dtype = torch.int64): The data type of</span>
+<span class="sd">            the embedding table offset tensor. Options are `torch.int32` and</span>
+<span class="sd">            `torch.int64`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="p">]]</span>
@@ -1075,8 +1105,13 @@
         <span class="n">multipass_prefetch_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">MultiPassPrefetchConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">global_weight_decay</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">GlobalWeightDecayDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">extra_optimizer_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">UserEnabledConfigDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">tbe_input_multiplexer_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEInputMultiplexerConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">embedding_table_index_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
+        <span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SplitTableBatchedEmbeddingBagsCodegen Arguments: </span><span class="si">{</span><span class="nb">locals</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
@@ -1101,9 +1136,23 @@
             <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">=</span> <span class="n">weights_precision</span>
-        <span class="n">cache_precision</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">weights_precision</span> <span class="k">if</span> <span class="n">cache_precision</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">cache_precision</span>
-        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">hip</span><span class="p">:</span>
+            <span class="c1"># NOTE: It was discovered that FP16 cache precision caused a 500x</span>
+            <span class="c1"># slowdown in performance of split_embedding_nobag_backward_codegen_rowwise_adagrad_unweighted_kernel_warp_per_row_1</span>
+            <span class="c1"># kernel on ROCm, so to work around this, we fix cache precision to</span>
+            <span class="c1"># be FP32 always for the ROCm environment case.</span>
+            <span class="c1">#</span>
+            <span class="c1"># See:</span>
+            <span class="c1">#   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/</span>
+            <span class="n">cache_precision</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># NOTE: The changes from D65865527 are retained here until we can</span>
+            <span class="c1"># test that the the hack also works for non-ROCm environments.</span>
+            <span class="n">cache_precision</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">weights_precision</span> <span class="k">if</span> <span class="n">cache_precision</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">cache_precision</span>
+            <span class="p">)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">output_dtype</span><span class="o">.</span><span class="n">as_int</span><span class="p">()</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="ow">not</span> <span class="n">prefetch_pipeline</span> <span class="ow">or</span> <span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span>
@@ -1247,6 +1296,23 @@
 
         <span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">feature_table_map</span> <span class="k">if</span> <span class="n">feature_table_map</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">T_</span><span class="p">))</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">tbe_input_multiplexer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEInputMultiplexer</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">tbe_input_multiplexer_config</span><span class="o">.</span><span class="n">create_tbe_input_multiplexer</span><span class="p">(</span>
+                <span class="n">tbe_info</span><span class="o">=</span><span class="n">TBEInfo</span><span class="p">(</span>
+                    <span class="n">table_names</span><span class="o">=</span><span class="p">(</span>
+                        <span class="n">table_names</span>
+                        <span class="k">if</span> <span class="n">table_names</span>
+                        <span class="k">else</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;table-</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">embedding_specs</span><span class="p">))]</span>
+                    <span class="p">),</span>
+                    <span class="n">table_heights</span><span class="o">=</span><span class="n">rows</span><span class="p">,</span>
+                    <span class="n">tbe_uuid</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
+                    <span class="n">feature_table_map</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">tbe_input_multiplexer_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="k">else</span> <span class="kc">None</span>
         <span class="p">)</span>
         <span class="n">T</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">)</span>
         <span class="k">assert</span> <span class="n">T_</span> <span class="o">&lt;=</span> <span class="n">T</span>
@@ -1450,6 +1516,20 @@
             <span class="c1"># and CowClipDefinition are not used</span>
             <span class="n">counter_halflife</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
 
+        <span class="c1"># TO DO: Enable this on the new interface</span>
+        <span class="c1"># learning_rate_tensor = torch.tensor(</span>
+        <span class="c1">#     learning_rate, device=torch.device(&quot;cpu&quot;), dtype=torch.float</span>
+        <span class="c1"># )</span>
+        <span class="k">if</span> <span class="n">extra_optimizer_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">extra_optimizer_config</span> <span class="o">=</span> <span class="n">UserEnabledConfigDefinition</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">extra_optimizer_config</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
+                <span class="s2">&quot;`use_rowwise_bias_correction` is only supported for OptimType.ADAM&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">OptimizerArgs</span><span class="p">(</span>
             <span class="n">stochastic_rounding</span><span class="o">=</span><span class="n">stochastic_rounding</span><span class="p">,</span>
             <span class="n">gradient_clipping</span><span class="o">=</span><span class="n">gradient_clipping</span><span class="p">,</span>
@@ -1476,6 +1556,7 @@
             <span class="n">weight_norm_coefficient</span><span class="o">=</span><span class="n">cowclip_regularization</span><span class="o">.</span><span class="n">weight_norm_coefficient</span><span class="p">,</span>
             <span class="n">lower_bound</span><span class="o">=</span><span class="n">cowclip_regularization</span><span class="o">.</span><span class="n">lower_bound</span><span class="p">,</span>
             <span class="n">regularization_mode</span><span class="o">=</span><span class="n">weight_decay_mode</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+            <span class="n">use_rowwise_bias_correction</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">optimizer</span> <span class="o">!=</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">:</span>
@@ -1612,6 +1693,19 @@
                     <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                     <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                 <span class="p">)</span>
+            <span class="k">elif</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_apply_split</span><span class="p">(</span>
+                    <span class="n">construct_split_state</span><span class="p">(</span>
+                        <span class="n">embedding_specs</span><span class="p">,</span>
+                        <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                        <span class="n">cacheable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">prefix</span><span class="o">=</span><span class="s2">&quot;row_counter&quot;</span><span class="p">,</span>
+                    <span class="c1"># pyre-fixme[6]: Expected `Type[Type[torch._dtype]]` for 3rd param</span>
+                    <span class="c1">#  but got `Type[torch.float32]`.</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+                    <span class="n">uvm_host_mapped</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uvm_host_mapped</span><span class="p">,</span>
+                <span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;prev_iter&quot;</span><span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_register_nonpersistent_buffers</span><span class="p">(</span><span class="s2">&quot;row_counter&quot;</span><span class="p">)</span>
@@ -1636,16 +1730,14 @@
                     <span class="s2">&quot;iter&quot;</span><span class="p">,</span>
                     <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                 <span class="p">)</span>
-
             <span class="k">else</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
                     <span class="s2">&quot;iter&quot;</span><span class="p">,</span>
                     <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                     <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                 <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
-                <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span>
-            <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">)</span>
 
         <span class="n">cache_state</span> <span class="o">=</span> <span class="n">construct_cache_state</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">locations</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">)</span>
 
@@ -1719,6 +1811,17 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">use_bounds_check_v2</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span>
             <span class="n">FeatureGateName</span><span class="o">.</span><span class="n">BOUNDS_CHECK_INDICES_V2</span>
         <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">embedding_table_index_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;embedding_table_index_type must be torch.int32 or torch.int64, but got </span><span class="si">{</span><span class="n">embedding_table_index_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">embedding_table_index_type</span>
+        <span class="k">if</span> <span class="n">embedding_table_offset_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;embedding_table_offset_type must be torch.int32 or torch.int64, but got </span><span class="si">{</span><span class="n">embedding_table_offset_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">embedding_table_offset_type</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -2019,10 +2122,12 @@
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">ENSEMBLE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">,</span>
                 <span class="n">OptimType</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
-            <span class="p">),</span> <span class="s2">&quot;&quot;&quot;</span>
-<span class="s2">                Variable batch size TBE support is enabled for OptimType.EXACT_ROWWISE_ADAGRAD,</span>
-<span class="s2">                OptimType.ENSEMBLE_ROWWISE_ADAGRAD, and OptimType.EMAINPLACE_ROWWISE_ADAGRAD only.</span>
-<span class="s2">                &quot;&quot;&quot;</span>
+                <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">,</span>
+            <span class="p">),</span> <span class="p">(</span>
+                <span class="s2">&quot;Variable batch size TBE support is enabled for &quot;</span>
+                <span class="s2">&quot;OptimType.EXACT_ROWWISE_ADAGRAD,EXACT_SGD, &quot;</span>
+                <span class="s2">&quot;ENSEMBLE_ROWWISE_ADAGRAD, NONE, and ADAM only&quot;</span>
+            <span class="p">)</span>
         <span class="k">return</span> <span class="n">generate_vbe_metadata</span><span class="p">(</span>
             <span class="n">offsets</span><span class="p">,</span>
             <span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
@@ -2188,6 +2293,15 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span><span class="s2">&quot;fwd_input&quot;</span><span class="p">,</span> <span class="n">indices</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_report_tbe_mem_usage</span><span class="p">()</span>
 
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">tbe_input_multiplexer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">tbe_input_multiplexer</span><span class="p">:</span> <span class="n">TBEInputMultiplexer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tbe_input_multiplexer</span>
+                <span class="k">if</span> <span class="n">tbe_input_multiplexer</span><span class="o">.</span><span class="n">should_run</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">step</span><span class="p">):</span>
+                    <span class="n">tbe_input_multiplexer</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+                        <span class="n">tbe_input_info</span><span class="o">=</span><span class="n">TBEInputInfo</span><span class="p">(</span>
+                            <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
+                        <span class="p">)</span>
+                    <span class="p">)</span>
+
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timesteps_prefetched</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="c1"># In forward, we don&#39;t enable multi-pass prefetch as we want the process</span>
             <span class="c1"># to be as fast as possible and memory usage doesn&#39;t matter (will be recycled</span>
@@ -2336,6 +2450,24 @@
         <span class="n">iter_int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="o">.</span><span class="n">add_</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">())</span>  <span class="c1"># used for local computation</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">add_</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># used for checkpointing</span>
 
+        <span class="n">row_counter</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
+            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_dev</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_host</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_uvm</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_offsets</span><span class="p">,</span>
+            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
+            <span class="c1">#  `Union[Module, Tensor]`.</span>
+            <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_placements</span><span class="p">,</span>
+        <span class="p">)</span>
+
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">:</span>
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_report_io_size_count</span><span class="p">(</span>
                 <span class="s2">&quot;fwd_output&quot;</span><span class="p">,</span>
@@ -2345,6 +2477,10 @@
                     <span class="n">momentum1</span><span class="p">,</span>
                     <span class="n">momentum2</span><span class="p">,</span>
                     <span class="n">iter_int</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">,</span>
+                    <span class="n">row_counter</span><span class="o">=</span><span class="p">(</span>
+                        <span class="n">row_counter</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span> <span class="k">else</span> <span class="kc">None</span>
+                    <span class="p">),</span>
                 <span class="p">),</span>
             <span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span><span class="p">:</span>
@@ -2397,23 +2533,6 @@
             <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
             <span class="c1">#  `Union[Module, Tensor]`.</span>
             <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">prev_iter_placements</span><span class="p">,</span>
-        <span class="p">)</span>
-        <span class="n">row_counter</span> <span class="o">=</span> <span class="n">invokers</span><span class="o">.</span><span class="n">lookup_args</span><span class="o">.</span><span class="n">Momentum</span><span class="p">(</span>
-            <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">dev</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_dev</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 2nd argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">host</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_host</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 3rd argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">uvm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_uvm</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 4th argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">offsets</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_offsets</span><span class="p">,</span>
-            <span class="c1"># pyre-fixme[6]: For 5th argument expected `Tensor` but got</span>
-            <span class="c1">#  `Union[Module, Tensor]`.</span>
-            <span class="n">placements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">row_counter_placements</span><span class="p">,</span>
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EMAINPLACE_ROWWISE_ADAGRAD</span><span class="p">:</span>
@@ -2984,6 +3103,15 @@
             <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
                 <span class="p">{</span><span class="s2">&quot;momentum_buffer&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span> <span class="k">for</span> <span class="n">states</span> <span class="ow">in</span> <span class="n">split_optimizer_states</span>
             <span class="p">]</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">:</span>
+            <span class="n">list_of_state_dict</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;exp_avg&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                    <span class="s2">&quot;exp_avg_sq&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                    <span class="s2">&quot;row_counter&quot;</span><span class="p">:</span> <span class="n">states</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+                <span class="p">}</span>
+                <span class="k">for</span> <span class="n">states</span> <span class="ow">in</span> <span class="n">split_optimizer_states</span>
+            <span class="p">]</span>
         <span class="k">elif</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span>
             <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">PARTIAL_ROWWISE_ADAM</span>
@@ -3158,7 +3286,9 @@
                     <span class="n">rowwise</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="p">)</span>
             <span class="p">)</span>
-        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_counter</span> <span class="ow">or</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span>
+        <span class="p">):</span>
             <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                 <span class="n">get_optimizer_states</span><span class="p">(</span>
                     <span class="c1"># pyre-fixme[6]: For 1st argument expected `Tensor` but got</span>
@@ -3756,8 +3886,19 @@
         <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">force_cast_input_types</span><span class="p">:</span>
-            <span class="c1"># Force casting indices and offsets to long</span>
-            <span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">offsets</span><span class="o">.</span><span class="n">long</span><span class="p">()</span>
+            <span class="c1"># NOTE: Force offsets to have the same dtype as indices since the</span>
+            <span class="c1"># kernels assume same dtype.  We might need to revisit the assumption</span>
+            <span class="c1"># of same dtypes in the future.</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+                    <span class="s2">&quot;Casting indices to int32 based on embedding_table_index_type input.&quot;</span>
+                <span class="p">)</span>
+                <span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Force casting offsets to </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="si">}</span><span class="s2"> so that it is the same as the indices type.&quot;</span>
+                <span class="p">)</span>
+            <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
             <span class="c1"># Force casting per_sample_weights to float</span>
             <span class="k">if</span> <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -4114,7 +4255,11 @@
             <span class="n">offsets</span><span class="p">,</span> <span class="n">batch_size_per_feature_per_rank</span>
         <span class="p">)</span>
 
-        <span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">)</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">long</span><span class="p">(),</span> <span class="n">offsets</span><span class="o">.</span><span class="n">long</span><span class="p">()</span>
+        <span class="c1"># NOTE: Force offsets to have the same dtype as indices since the</span>
+        <span class="c1"># kernels assume same dtype.  We might need to revisit the assumption</span>
+        <span class="c1"># of same dtypes in the future.</span>
+        <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
         <span class="c1"># Force casting per_sample_weights to float</span>
         <span class="k">if</span> <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">per_sample_weights</span> <span class="o">=</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">float</span><span class="p">()</span>

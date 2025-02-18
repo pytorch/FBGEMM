@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.13.2"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>fbgemm_gpu: Quantize Data CPU Operators</title>
+<title>fbgemm_gpu: /__w/FBGEMM/FBGEMM/fbgemm_gpu/experimental/gen_ai/src/quantize/ck_extensions/fused_moe/instances Directory Reference</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -55,8 +55,6 @@ $(function() {
 /* @license-end */
 </script>
 <div id="main-nav"></div>
-</div><!-- top -->
-<div id="doc-content">
 <script type="text/javascript">
 /* @license magnet:?xt=urn:btih:d3d9a9a6595521f9666a5e94cc830dab83b65699&amp;dn=expat.txt MIT */
 $(function(){ initResizable(false); });
@@ -83,58 +81,16 @@ $(function(){ initResizable(false); });
 </div>
 </div>
 
+<div id="nav-path" class="navpath">
+  <ul>
+<li class="navelem"><a class="el" href="dir_3564159197d660dd468988083a59c7ac.html">experimental</a></li><li class="navelem"><a class="el" href="dir_d0c69fd2abdd01678e72de86d9296855.html">gen_ai</a></li><li class="navelem"><a class="el" href="dir_34e8510f39fc35193d2c335cf69ac2ab.html">src</a></li><li class="navelem"><a class="el" href="dir_eeec9268f042d03f7c71bb4638973da8.html">quantize</a></li><li class="navelem"><a class="el" href="dir_2902c573b413ec83d59a9547e78824cc.html">ck_extensions</a></li><li class="navelem"><a class="el" href="dir_d66991871a25b4ae9bf754b5c0e26f12.html">fused_moe</a></li><li class="navelem"><a class="el" href="dir_b1b5f5deec4e5620d02c38014a2816c4.html">instances</a></li>  </ul>
+</div>
+</div><!-- top -->
+<div id="doc-content">
 <div class="header">
-  <div class="summary">
-<a href="#func-members">Functions</a>  </div>
-  <div class="headertitle"><div class="title">Quantize Data CPU Operators</div></div>
+  <div class="headertitle"><div class="title">instances Directory Reference</div></div>
 </div><!--header-->
 <div class="contents">
-<table class="memberdecls">
-<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
-Functions</h2></td></tr>
-<tr class="memitem:ga18fbbbcd643061657cf2575a816435cc" id="r_ga18fbbbcd643061657cf2575a816435cc"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga18fbbbcd643061657cf2575a816435cc">fusednbitrowwise_sbfront_to_float_cpu</a> (const Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype)</td></tr>
-<tr class="separator:ga18fbbbcd643061657cf2575a816435cc"><td class="memSeparator" colspan="2">&#160;</td></tr>
-</table>
-<a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<p>The following are CPU Operators </p>
-<h2 class="groupheader">Function Documentation</h2>
-<a id="ga18fbbbcd643061657cf2575a816435cc" name="ga18fbbbcd643061657cf2575a816435cc"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga18fbbbcd643061657cf2575a816435cc">&#9670;&#160;</a></span>fusednbitrowwise_sbfront_to_float_cpu()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">Tensor fusednbitrowwise_sbfront_to_float_cpu </td>
-          <td>(</td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>bit_rate</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Dequantize int4/int2 rows with scale and bias stored in the front into float32/float16/Bfloat16. </p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">input</td><td>Tensor of int4/int2 rows with scale and bias stored in the front. </td></tr>
-    <tr><td class="paramname">bit_rate</td><td>Bit rate of each element. Should be 4 or 2. </td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>Tensor of float32, holding dequantized numbers.</dd></dl>
-<p>Dequantize int4/int2 rows with scale and bias stored in the front into float32. The input tensor should have torch.quint4x2 or torch.quint2x4 dtype and QuantizedCPU backend. This operator is only recommended for testing purpose because its kernel is reference implementation and not optimized. </p>
-
-</div>
-</div>
 </div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
