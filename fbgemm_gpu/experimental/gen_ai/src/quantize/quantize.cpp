@@ -104,7 +104,8 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor zero_start_index_M);
+    at::Tensor zero_start_index_M,
+    bool zeroing_output_tensor = true);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -221,7 +222,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_rowwise_grouped_stacked(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor(a!)? output=None) -> Tensor");
   m.def(
-      "f8f8bf16_rowwise_grouped_dynamic(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor zero_start_index_M) -> Tensor");
+      "f8f8bf16_rowwise_grouped_dynamic(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor zero_start_index_M, bool zeroing_output_tensor=True) -> Tensor");
   m.def(
       "f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
   m.def("per_tensor_quantize_i8(Tensor X, float scale) -> Tensor");
