@@ -1031,6 +1031,14 @@
 <span class="sd">            are not enabled by default.</span>
 <span class="sd">            - `use_rowwise_bias_correction` is used in Adam to enable rowwise</span>
 <span class="sd">                bias correction computation</span>
+
+<span class="sd">        embedding_table_index_type (torch.dtype = torch.int64): The data type of</span>
+<span class="sd">            the embedding table index tensor. Options are `torch.int32` and</span>
+<span class="sd">            `torch.int64`</span>
+
+<span class="sd">        embedding_table_offset_type (torch.dtype = torch.int64): The data type of</span>
+<span class="sd">            the embedding table offset tensor. Options are `torch.int32` and</span>
+<span class="sd">            `torch.int64`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="n">embedding_specs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">EmbeddingLocation</span><span class="p">,</span> <span class="n">ComputeDevice</span><span class="p">]]</span>
@@ -1099,8 +1107,11 @@
         <span class="n">uvm_host_mapped</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
         <span class="n">extra_optimizer_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">UserEnabledConfigDefinition</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">tbe_input_multiplexer_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">TBEInputMultiplexerConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">embedding_table_index_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
+        <span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SplitTableBatchedEmbeddingBagsCodegen Arguments: </span><span class="si">{</span><span class="nb">locals</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
@@ -1125,9 +1136,23 @@
             <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">=</span> <span class="n">weights_precision</span>
-        <span class="n">cache_precision</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">weights_precision</span> <span class="k">if</span> <span class="n">cache_precision</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">cache_precision</span>
-        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">hip</span><span class="p">:</span>
+            <span class="c1"># NOTE: It was discovered that FP16 cache precision caused a 500x</span>
+            <span class="c1"># slowdown in performance of split_embedding_nobag_backward_codegen_rowwise_adagrad_unweighted_kernel_warp_per_row_1</span>
+            <span class="c1"># kernel on ROCm, so to work around this, we fix cache precision to</span>
+            <span class="c1"># be FP32 always for the ROCm environment case.</span>
+            <span class="c1">#</span>
+            <span class="c1"># See:</span>
+            <span class="c1">#   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/</span>
+            <span class="n">cache_precision</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># NOTE: The changes from D65865527 are retained here until we can</span>
+            <span class="c1"># test that the the hack also works for non-ROCm environments.</span>
+            <span class="n">cache_precision</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">weights_precision</span> <span class="k">if</span> <span class="n">cache_precision</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">cache_precision</span>
+            <span class="p">)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">output_dtype</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">output_dtype</span><span class="o">.</span><span class="n">as_int</span><span class="p">()</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="ow">not</span> <span class="n">prefetch_pipeline</span> <span class="ow">or</span> <span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LRU</span>
@@ -1711,9 +1736,8 @@
                     <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">),</span>
                     <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                 <span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
-                <span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span>
-            <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">iter_cpu</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">)</span>
 
         <span class="n">cache_state</span> <span class="o">=</span> <span class="n">construct_cache_state</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">locations</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">)</span>
 
@@ -1787,6 +1811,17 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">use_bounds_check_v2</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span>
             <span class="n">FeatureGateName</span><span class="o">.</span><span class="n">BOUNDS_CHECK_INDICES_V2</span>
         <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">embedding_table_index_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;embedding_table_index_type must be torch.int32 or torch.int64, but got </span><span class="si">{</span><span class="n">embedding_table_index_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">embedding_table_index_type</span>
+        <span class="k">if</span> <span class="n">embedding_table_offset_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;embedding_table_offset_type must be torch.int32 or torch.int64, but got </span><span class="si">{</span><span class="n">embedding_table_offset_type</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">embedding_table_offset_type</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
@@ -3854,6 +3889,15 @@
             <span class="c1"># NOTE: Force offsets to have the same dtype as indices since the</span>
             <span class="c1"># kernels assume same dtype.  We might need to revisit the assumption</span>
             <span class="c1"># of same dtypes in the future.</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+                    <span class="s2">&quot;Casting indices to int32 based on embedding_table_index_type input.&quot;</span>
+                <span class="p">)</span>
+                <span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_offset_type</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Force casting offsets to </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">embedding_table_index_type</span><span class="si">}</span><span class="s2"> so that it is the same as the indices type.&quot;</span>
+                <span class="p">)</span>
             <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">indices</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
             <span class="c1"># Force casting per_sample_weights to float</span>
