@@ -93,6 +93,7 @@ __install_check_operator_registrations () {
     local test_operators=(
       "torch.ops.fbgemm.nccl_init"
       "torch.ops.fbgemm.gqa_attn_splitk"
+      "torch.ops.fbgemm.rope_qkv_decoding"
     )
   else
     local test_operators=(
