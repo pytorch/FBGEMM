@@ -3,8 +3,8 @@
 
 #include <ck_tile/core.hpp>
 #include "fused_moegemm.hpp"
-#include "fused_moegemm_api_internal.hpp"
 #include "fused_moegemm_api_traits.hpp"
+#include "fused_moegemm_api_internal.hpp"
 
 // clang-format off
 template float fused_moegemm_<
