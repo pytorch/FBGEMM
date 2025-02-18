@@ -682,14 +682,20 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor zero_start_index_M) {
+    at::Tensor zero_start_index_M,
+    bool zeroing_output_tensor = true) {
   at::Tensor Y;
   int group_count = XQ.size(0);
   int M = XQ.size(1);
   int N = WQ.size(1);
   int K = XQ.size(0);
   int total_output_size = group_count * M * N;
-  Y = at::zeros(total_output_size, XQ.options().dtype(at::kBFloat16));
+  if (zeroing_output_tensor) {
+    Y = at::zeros(total_output_size, XQ.options().dtype(at::kBFloat16));
+  } else {
+    Y = at::empty(total_output_size, XQ.options().dtype(at::kBFloat16));
+  }
+
   // Return continuous view of output.
   at::Tensor output = dispatch_fp8_grouped_kernel<at::Tensor>(
       XQ, WQ, x_scale, w_scale, Y, zero_start_index_M);
@@ -724,7 +730,8 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor zero_start_index_M) {
+    at::Tensor zero_start_index_M,
+    bool zeroing_output_tensor = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
