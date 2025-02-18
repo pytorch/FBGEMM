@@ -18,11 +18,12 @@ __set_cuda_symlinks_envvars () {
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
 
-  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+  if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
     # CUDA 12.6 installation has a very different package layout than previous
     # CUDA versions - notably, NVTX has been moved elsewhere, which causes
     # PyTorch CMake scripts to complain.
-    echo "[INSTALL] Fixing file placements for CUDA 12.6+ ..."
+    echo "[INSTALL] Fixing file placements for CUDA ${BUILD_CUDA_VERSION}+ ..."
 
     echo "[INSTALL] Creating symlinks: libnvToolsExt.so"
     print_exec ln -sf "${conda_prefix}/lib/libnvToolsExt.so.1" "${conda_prefix}/lib/libnvToolsExt.so"
@@ -89,7 +90,8 @@ __set_nvcc_prepend_flags () {
   # which overrides whatever `-ccbin` flag we set manually, so remove this
   # unwanted hook
   print_exec ls -la "${conda_prefix}/etc/conda/activate.d"
-  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+  if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
     echo "[INSTALL] Removing the -ccbin=CXX hook from NVCC activation scripts ..."
     print_exec sed -i '/-ccbin=/d' "${conda_prefix}/etc/conda/activate.d/*cuda-nvcc_activate.sh"
   fi
@@ -192,7 +194,8 @@ install_cuda () {
   # in the future, we will be using conda-forge for installing all CUDA versions
   # (except for versions 11.8 and below, which are only available through
   # nvidia/label/cuda-*)
-  if [[ "$cuda_version" =~ ^12.6.*$ ]]; then
+  if  [[ "$cuda_version" =~ ^12.6.*$ ]] ||
+      [[ "$cuda_version" =~ ^12.8.*$ ]]; then
     # shellcheck disable=SC2086
     (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
       cuda=${cuda_version}) || return 1

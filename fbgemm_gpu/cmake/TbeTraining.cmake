@@ -30,12 +30,14 @@ get_tbe_sources_list(gen_gpu_files_training_pt2)
 get_tbe_sources_list(gen_gpu_files_training_dense)
 get_tbe_sources_list(gen_gpu_files_training_split_host)
 get_tbe_sources_list(gen_gpu_files_training_gwd)
+get_tbe_sources_list(gen_gpu_files_training_vbe)
 handle_genfiles_rocm(gen_cpu_files_training)
 handle_genfiles_rocm(gen_gpu_files_training)
 handle_genfiles_rocm(gen_gpu_files_training_pt2)
 handle_genfiles_rocm(gen_gpu_files_training_dense)
 handle_genfiles_rocm(gen_gpu_files_training_split_host)
 handle_genfiles_rocm(gen_gpu_files_training_gwd)
+handle_genfiles_rocm(gen_gpu_files_training_vbe)
 
 # Index Select
 get_tbe_sources_list(static_cpu_files_index_select)
@@ -204,7 +206,6 @@ gpu_cpp_library(
   DESTINATION
     fbgemm_gpu)
 
-
 gpu_cpp_library(
   PREFIX
     fbgemm_gpu_tbe_training_backward_gwd
@@ -221,6 +222,21 @@ gpu_cpp_library(
   DESTINATION
     fbgemm_gpu)
 
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward_vbe
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${gen_gpu_files_training_vbe}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_training_backward
+  DESTINATION
+    fbgemm_gpu)
 
 gpu_cpp_library(
   PREFIX
