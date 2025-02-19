@@ -22,6 +22,9 @@ Tensor permute_pooled_embs_cpu_impl(
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list,
     const bool& allow_duplicates) {
+  if (pooled_embs.numel() == 0) {
+    return pooled_embs;
+  }
   TORCH_CHECK(
       offset_dim_list.scalar_type() == at::ScalarType::Long,
       "offset_dim_list needs to have long/int64 type")
