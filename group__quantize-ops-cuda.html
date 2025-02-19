@@ -124,8 +124,8 @@ Functions</h2></td></tr>
 <tr class="separator:ga802490706abaca9d86d780bbdc0922cc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga756a59a6b84321e9b91af3e5f3334c31" id="r_ga756a59a6b84321e9b91af3e5f3334c31"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga756a59a6b84321e9b91af3e5f3334c31">_fusednbitrowwise_to_half_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate)</td></tr>
 <tr class="separator:ga756a59a6b84321e9b91af3e5f3334c31"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga3c4470ccad29f964a31ac68490f10d90" id="r_ga3c4470ccad29f964a31ac68490f10d90"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga3c4470ccad29f964a31ac68490f10d90">_fusednbitrowwise_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype, const bool scale_bias_last)</td></tr>
-<tr class="separator:ga3c4470ccad29f964a31ac68490f10d90"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5ee877a3c135bd5160991c77ed170b23" id="r_ga5ee877a3c135bd5160991c77ed170b23"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga5ee877a3c135bd5160991c77ed170b23">_fusednbitrowwise_to_single_or_half_precision_gpu</a> (const at::Tensor &amp;input, const int64_t bit_rate, const int64_t output_dtype)</td></tr>
+<tr class="separator:ga5ee877a3c135bd5160991c77ed170b23"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga4050ec86de055f06ad3a89c8b9cd24e9" id="r_ga4050ec86de055f06ad3a89c8b9cd24e9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga4050ec86de055f06ad3a89c8b9cd24e9">_float_to_hfp8_gpu</a> (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias, const double max_pos)</td></tr>
 <tr class="separator:ga4050ec86de055f06ad3a89c8b9cd24e9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga1dd6b70398b542022b236f4c576609a2" id="r_ga1dd6b70398b542022b236f4c576609a2"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga1dd6b70398b542022b236f4c576609a2">_hfp8_to_float_gpu</a> (const at::Tensor &amp;input, const int64_t ebits, const int64_t exponent_bias)</td></tr>
@@ -666,8 +666,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ga3c4470ccad29f964a31ac68490f10d90" name="ga3c4470ccad29f964a31ac68490f10d90"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga3c4470ccad29f964a31ac68490f10d90">&#9670;&#160;</a></span>_fusednbitrowwise_to_single_or_half_precision_gpu()</h2>
+<a id="ga5ee877a3c135bd5160991c77ed170b23" name="ga5ee877a3c135bd5160991c77ed170b23"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga5ee877a3c135bd5160991c77ed170b23">&#9670;&#160;</a></span>_fusednbitrowwise_to_single_or_half_precision_gpu()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -685,12 +685,7 @@ Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>scale_bias_last</em></span>&#160;)</td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>output_dtype</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
