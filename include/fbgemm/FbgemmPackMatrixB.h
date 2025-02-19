@@ -108,7 +108,7 @@ class PackedGemmMatrixB {
       const int nbcol,
       const uint64_t size,
       const int kernel_ncol_blocks,
-      const void* pmat)
+      void* pmat)
       : nrow_(nrow),
         ncol_(ncol),
         brow_(brow),
@@ -118,10 +118,9 @@ class PackedGemmMatrixB {
         nbcol_(nbcol),
         size_(size),
         kernel_ncol_blocks_(kernel_ncol_blocks) {
-    pmat_ =
-        static_cast<T*>(fbgemmAlignedAlloc(PMAT_ALIGNMENT, size * sizeof(T)));
-    memcpy(pmat_, pmat, size * sizeof(T));
+    pmat_ = static_cast<T*>(pmat);
     packed_ = true;
+    pmat_passed_in = true;
   }
 
   void initializeParam() {
@@ -166,7 +165,9 @@ class PackedGemmMatrixB {
   }
 
   ~PackedGemmMatrixB() {
-    fbgemmAlignedFree(pmat_);
+    if (pmat_passed_in == false) {
+      fbgemmAlignedFree(pmat_);
+    }
   }
 
   void unpackFromSrc(const matrix_op_t trans, T* src_mat) {
@@ -293,6 +294,7 @@ class PackedGemmMatrixB {
   int kernel_ncol_blocks_;
   T* pmat_;
   bool packed_{false};
+  bool pmat_passed_in{false};
 };
 
 } // namespace fbgemm
