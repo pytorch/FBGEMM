@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Build Instructions &mdash; FBGEMM 1.0.0 documentation</title>
+  <title>Build Instructions &mdash; FBGEMM 1.1.0 documentation</title>
   
 
   
@@ -287,7 +287,7 @@
               
               
                 <div class="version">
-                  1.0
+                  1.1
                 </div>
               
             
@@ -497,7 +497,7 @@ inside a Conda environment.</p>
 <h3>Set Up the Conda Environment<a class="headerlink" href="#set-up-the-conda-environment" title="Permalink to this heading">¶</a></h3>
 <p>Create a Conda environment with the specified Python version:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="nv">env_name</span><span class="o">=</span>&lt;ENV<span class="w"> </span>NAME&gt;
-<span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.12
+<span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.13
 
 <span class="c1"># Create the environment</span>
 conda<span class="w"> </span>create<span class="w"> </span>-y<span class="w"> </span>--name<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_version</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -613,7 +613,7 @@ guide</a>:</p>
 apt<span class="w"> </span>update
 
 <span class="c1"># Download the installer</span>
-wget<span class="w"> </span>-q<span class="w"> </span>https://repo.radeon.com/amdgpu-install/5.6.1/ubuntu/focal/amdgpu-install_5.6.50601-1_all.deb<span class="w"> </span>-O<span class="w"> </span>amdgpu-install.deb
+wget<span class="w"> </span>-q<span class="w"> </span>https://repo.radeon.com/amdgpu-install/6.3.1/ubuntu/focal/amdgpu-install_6.3.60301-1_all.deb<span class="w"> </span>-O<span class="w"> </span>amdgpu-install.deb
 
 <span class="c1"># Run the installer</span>
 apt<span class="w"> </span>install<span class="w"> </span>./amdgpu-install.deb
@@ -647,7 +647,9 @@ symbols with <code class="docutils literal notranslate"><span class="pre">GLIBCX
 <span class="c1"># appropriate updated version of the sysroot_linux package.</span>
 <span class="nv">gcc_version</span><span class="o">=</span><span class="m">10</span>.4.0
 
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>gxx_linux-64<span class="o">=</span><span class="si">${</span><span class="nv">gcc_version</span><span class="si">}</span><span class="w"> </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>gxx_linux-64<span class="o">=</span><span class="si">${</span><span class="nv">gcc_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>sysroot_linux-64<span class="o">=</span><span class="m">2</span>.17
 </pre></div>
 </div>
 <p>While newer versions of GCC can be used, binaries compiled under newer versions
@@ -675,7 +677,7 @@ toolchain <strong>that supports C++20</strong>:</p>
 
 <span class="c1"># NOTE: libcxx from conda-forge is outdated for linux-aarch64, so we cannot</span>
 <span class="c1"># explicitly specify the version number</span>
-conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span><span class="nv">clangxx</span><span class="o">=</span><span class="si">${</span><span class="nv">llvm_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>libcxx<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>llvm-openmp<span class="o">=</span><span class="si">${</span><span class="nv">llvm_version</span><span class="si">}</span><span class="w"> </span><span class="se">\</span>
@@ -715,7 +717,7 @@ ln<span class="w"> </span>-sf<span class="w"> </span><span class="s2">&quot;</sp
 <section id="other-build-tools">
 <h3>Other Build Tools<a class="headerlink" href="#other-build-tools" title="Permalink to this heading">¶</a></h3>
 <p>Install the other necessary build tools such as <code class="docutils literal notranslate"><span class="pre">ninja</span></code>, <code class="docutils literal notranslate"><span class="pre">cmake</span></code>, etc:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>--override-channels<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>click<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>cmake<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>hypothesis<span class="w"> </span><span class="se">\</span>
@@ -767,13 +769,13 @@ more deterministic and thus reliable:</p>
 conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/cpu/
 
 <span class="c1"># Install the latest test (RC), CUDA variant</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/test/cu121/
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/test/cu126/
 
 <span class="c1"># Install a specific version, CUDA variant</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">torch</span><span class="o">==</span><span class="m">2</span>.1.0+cu121<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu121/
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">torch</span><span class="o">==</span><span class="m">2</span>.6.0+cu126<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu126/
 
 <span class="c1"># Install the latest nightly, ROCm variant</span>
-conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm5.6/
+conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>torch<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/nightly/rocm6.3/
 </pre></div>
 </div>
 <p>For installing the ROCm variant of PyTorch, PyTorch PIP is the only available
@@ -857,14 +859,14 @@ Python platform name must first be properly set:</p>
 <span class="nb">export</span><span class="w"> </span><span class="nv">package_name</span><span class="o">=</span>fbgemm_gpu_<span class="o">{</span>cpu,<span class="w"> </span>cuda,<span class="w"> </span>rocm<span class="o">}</span>
 
 <span class="c1"># Set the Python version tag.  It should follow the convention `py&lt;major&gt;&lt;minor&gt;`,</span>
-<span class="c1"># e.g. Python 3.12 --&gt; py312</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">python_tag</span><span class="o">=</span>py312
+<span class="c1"># e.g. Python 3.13 --&gt; py313</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_tag</span><span class="o">=</span>py313
 
 <span class="c1"># Determine the processor architecture</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">ARCH</span><span class="o">=</span><span class="k">$(</span>uname<span class="w"> </span>-m<span class="k">)</span>
 
 <span class="c1"># Set the Python platform name for the Linux case</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">python_plat_name</span><span class="o">=</span><span class="s2">&quot;manylinux2014_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">python_plat_name</span><span class="o">=</span><span class="s2">&quot;manylinux_2_28_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
 <span class="c1"># For the macOS (x86_64) case</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">python_plat_name</span><span class="o">=</span><span class="s2">&quot;macosx_10_9_</span><span class="si">${</span><span class="nv">ARCH</span><span class="si">}</span><span class="s2">&quot;</span>
 <span class="c1"># For the macOS (arm64) case</span>
@@ -1026,8 +1028,8 @@ presuming the toolchains have been properly installed.</p>
 <span class="c1"># [OPTIONAL] Enable verbose HIPCC logs</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">HIPCC_VERBOSE</span><span class="o">=</span><span class="m">1</span>
 
-<span class="c1"># Build for the target architecture of the ROCm device installed on the machine (e.g. &#39;gfx906;gfx908;gfx90a&#39;)</span>
-<span class="c1"># See https://wiki.gentoo.org/wiki/ROCm for list</span>
+<span class="c1"># Build for the target architecture of the ROCm device installed on the machine (e.g. &#39;gfx908,gfx90a,gfx942&#39;)</span>
+<span class="c1"># See https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html for list</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">PYTORCH_ROCM_ARCH</span><span class="o">=</span><span class="k">$(</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span>/bin/rocminfo<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-o<span class="w"> </span>-m<span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="s1">&#39;gfx.*&#39;</span><span class="k">)</span>
 
 <span class="c1"># Build the wheel artifact only</span>
@@ -1035,6 +1037,7 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="w">    </span>--package_variant<span class="o">=</span>rocm<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--python-tag<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_tag</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--plat-name<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_plat_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DAMDGPU_TARGETS<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">PYTORCH_ROCM_ARCH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span>
@@ -1042,6 +1045,7 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="c1"># Build and install the library into the Conda environment</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>rocm<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>-DAMDGPU_TARGETS<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">PYTORCH_ROCM_ARCH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DHIP_ROOT_DIR<span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">ROCM_PATH</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DCMAKE_C_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-DCMAKE_CXX_FLAGS<span class="o">=</span><span class="s2">&quot;-DTORCH_USE_HIP_DSA&quot;</span>
