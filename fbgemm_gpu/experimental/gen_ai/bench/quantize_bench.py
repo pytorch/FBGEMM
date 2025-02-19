@@ -133,6 +133,7 @@ def benchmark_grouped(
     use_rotating_buffer_bench: bool = False,
     use_cuda_graph: bool = True,
     trace: bool = False,
+    num_iters: int = 1,
 ) -> Dict[str, Any]:
     num_groups = len(m)
     # Create input tensors.
@@ -171,40 +172,47 @@ def benchmark_grouped(
             metrics.sim += float(
                 torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
             )
+        for _ in range(num_iters):
+            # Now perform benchmark.
+            if bench_quantize:
+                # Benchmark both quantize and compute.
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *preprocessed_args,
+                        bench_quantize=True,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
+            else:
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *quantized_vals,
+                        bench_quantize=False,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
 
-        # Now perform benchmark.
-        if bench_quantize:
-            # Benchmark both quantize and compute.
-            with profiler_or_nullcontext(enabled=trace, with_stack=True):
-                metrics.ms = quantize_op.benchmark(
-                    *preprocessed_args,
-                    bench_quantize=True,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
+            # Print out results for this op.
+            for i in range(num_groups):
+                metrics.tflops += (
+                    2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 )
-        else:
-            with profiler_or_nullcontext(enabled=trace, with_stack=True):
-                metrics.ms = quantize_op.benchmark(
-                    *quantized_vals,
-                    bench_quantize=False,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
+                metrics.gbps += (
+                    (
+                        quantized_vals[0][i][: m[i]].numel()
+                        * quantized_vals[0][i][: m[i]].element_size()
+                        + quantized_vals[1][i].numel()
+                        * quantized_vals[1][i].element_size()
+                        + output[i].numel() * output[i].element_size()
+                    )
+                    / (ms_runtime / 1e3)
+                    / 1e9
                 )
-
-        # Print out results for this op.
-        for i in range(num_groups):
-            metrics.tflops += 2 * b[i] * m[i] * n[i] * k[i] / (metrics.ms / 1e3) / 1e12
-            metrics.gbps += (
-                (
-                    quantized_vals[0][i][: m[i]].numel()
-                    * quantized_vals[0][i][: m[i]].element_size()
-                    + quantized_vals[1][i].numel() * quantized_vals[1][i].element_size()
-                    + output[i].numel() * output[i].element_size()
-                )
-                / (metrics.ms / 1e3)
-                / 1e9
-            )
-        print(metrics)
+            metrics.ms += ms_runtime
+        metrics.ms /= num_iters
+        metrics.tflops /= num_iters
+        metrics.gbps /= num_iters
+        print(f"Average metrics over {num_iters} iterations: \n{metrics}")
 
         # Save results for this operator.
         results[f"{quantize_op.name}_sim"] = metrics.sim
@@ -225,6 +233,7 @@ def benchmark(
     use_rotating_buffer_bench: bool = False,
     use_cuda_graph: bool = True,
     trace: bool = False,
+    num_iters: int = 1,
 ) -> Dict[str, Any]:
     # Create input tensors.
     if b > 1:
@@ -250,37 +259,43 @@ def benchmark(
         # Compare the quantize op output to reference as a sanity check.
         metrics.sim = torch.mean(torch.pow(output - out_ref, 2)).item()
 
-        # Now perform benchmark.
-        if bench_quantize:
-            # Benchmark both quantize and compute.
-            with profiler_or_nullcontext(enabled=trace, with_stack=True):
-                metrics.ms = quantize_op.benchmark(
-                    *preprocessed_args,
-                    bench_quantize=True,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
-        else:
-            with profiler_or_nullcontext(enabled=trace, with_stack=True):
-                metrics.ms = quantize_op.benchmark(
-                    *quantized_vals,
-                    bench_quantize=False,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+        for _ in range(num_iters):
+            # Now perform benchmark.
+            if bench_quantize:
+                # Benchmark both quantize and compute.
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *preprocessed_args,
+                        bench_quantize=True,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
+            else:
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *quantized_vals,
+                        bench_quantize=False,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
 
-        # Print out results for this op.
-        metrics.tflops = 2 * b * m * n * k / (metrics.ms / 1e3) / 1e12
-        metrics.gbps = (
-            (
-                quantized_vals[0].numel() * quantized_vals[0].element_size()
-                + quantized_vals[1].numel() * quantized_vals[1].element_size()
-                + output.numel() * output.element_size()
+            # Print out results for this op.
+            metrics.tflops += 2 * b * m * n * k / (ms_runtime / 1e3) / 1e12
+            metrics.gbps += (
+                (
+                    quantized_vals[0].numel() * quantized_vals[0].element_size()
+                    + quantized_vals[1].numel() * quantized_vals[1].element_size()
+                    + output.numel() * output.element_size()
+                )
+                / (ms_runtime / 1e3)
+                / 1e9
             )
-            / (metrics.ms / 1e3)
-            / 1e9
-        )
-        print(metrics)
+            metrics.ms += ms_runtime
+        # Print out results for this op.
+        metrics.ms /= num_iters
+        metrics.tflops /= num_iters
+        metrics.gbps /= num_iters
+        print(f"Average metrics over {num_iters}: \n{metrics}")
 
         # Save results for this operator.
         results[f"{quantize_op.name}_sim"] = metrics.sim
@@ -332,6 +347,13 @@ def main(args: Any):
     quantize_ops = collect_kernels_to_profile(
         args.kernels.strip().split(",") if args.kernels else None
     )
+
+    if len(quantize_ops) == 0:
+        raise Exception("No valid kernels to benchmark.")
+
+    if args.num_iters < 1:
+        print("Number of iterations must be at least 1.")
+        args.num_iters = 1
 
     # Enumerate shapes to benchmark.
     if args.grouped and not args.groups:
@@ -397,6 +419,7 @@ def main(args: Any):
             args.use_rotating_buffer_bench,
             not args.no_cuda_graph,
             args.trace,
+            args.num_iters,
         )
         benchmark_results.append(quantize_measurements)
     if args.export_csv or args.plot:
@@ -415,6 +438,12 @@ def invoke_main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output_dir", default="/tmp", help="Directory to save plots and csvs to"
+    )
+    parser.add_argument(
+        "--num_iters",
+        default=1,
+        type=int,
+        help="Number of iterations to run each benchmark for",
     )
     parser.add_argument(
         "--export_csv",

@@ -9,9 +9,14 @@ on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
+
+  # Manual Trigger (for testing only)
+  #
+  workflow_dispatch:
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed

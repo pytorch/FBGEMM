@@ -15,6 +15,7 @@ struct fused_moe_args {
   const void* d_scale_ptr; // [e, 1, k], down scale
   const void*
       y_smooth_scale_ptr; // [e, 1, n], smooth-quant-scale for 2nd gemm input
+  const void* local_expert_mask_ptr; // [e], local_expert_mask_ptr for EP
   void* o_ptr; // [m, k], output token (no need to do zeroing)
 
   const void* topk_ids_ptr; // [tokens, topk]
@@ -50,6 +51,8 @@ struct fused_moe_traits {
   int activation; // 0:gelu, 1:silu
   int gate_only; // 0:g1u0, 1:g1u1
   int fused_quant; // 0:no-sweep, 1:smooth-dynamic-quant, 2:dynamic-quant
+
+  bool local_expert_masking; // if mask experts as local expert
 };
 
 float fused_moe(

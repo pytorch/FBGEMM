@@ -100,6 +100,7 @@ at::Tensor fused_moe_impl(
       gate_up_scales.has_value() ? gate_up_scales->data_ptr() : nullptr,
       down_scales.has_value() ? down_scales->data_ptr() : nullptr,
       smooth_scales.has_value() ? smooth_scales->data_ptr() : nullptr,
+      nullptr,
       output.data_ptr(),
       topk_ids.data_ptr(),
       topk_weights.data_ptr(),

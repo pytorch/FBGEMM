@@ -1831,12 +1831,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         torch.cuda.current_stream().wait_stream(self.ssd_eviction_stream)
 
+        torch.cuda.synchronize()
         self.ssd_db.set(
             active_ids_cpu,
             active_weights_cpu,
             torch.tensor([active_ids_cpu.numel()]),
         )
-
         self.ssd_db.flush()
 
     def prepare_inputs(
