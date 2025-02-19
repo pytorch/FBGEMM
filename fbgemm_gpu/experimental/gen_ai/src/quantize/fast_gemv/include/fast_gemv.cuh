@@ -46,6 +46,7 @@
 
 #include "utility.cuh"
 
+#define MAX_M_SIZE 4
 #define WARP_SIZE 32
 #define SHARED_MEM_MAX_ROWS 64
 #define MAX_THREADS_PER_BLOCK 1024
@@ -55,14 +56,18 @@ __global__ void gemv_bf16(
     __nv_bfloat16* mat,
     __nv_bfloat16* vec,
     __nv_bfloat16* res,
-    unsigned int n,
+    const unsigned int k,
+    const unsigned int m,
+    const unsigned int n,
     unsigned int num_per_thread);
 
 __global__ void gemv_quantized_bf16_fp8(
     cutlass::float_e4m3_t* mat,
     __nv_bfloat16* vec,
     __nv_bfloat16* res,
-    unsigned int n,
+    const unsigned int k,
+    const unsigned int m,
+    const unsigned int n,
     half scale,
     half zero_point,
     unsigned int num_per_thread);
@@ -71,7 +76,9 @@ __global__ void gemv_quantized_fp8_fp8(
     cutlass::float_e4m3_t* mat,
     cutlass::float_e4m3_t* vec,
     __nv_bfloat16* res,
-    unsigned int n,
+    const unsigned int k,
+    const unsigned int m,
+    const unsigned int n,
     half scale,
     half zero_point,
     unsigned int num_per_thread);

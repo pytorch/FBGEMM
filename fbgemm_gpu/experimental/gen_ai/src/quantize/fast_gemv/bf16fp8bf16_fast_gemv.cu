@@ -23,13 +23,13 @@ namespace fbgemm_gpu {
 // deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai/src/quantize/fast_gemv/sweep_utils.py
 namespace {
 dim3 get_best_block_dim(int m, int n, int k) {
-  if (m == 1 && n == 1280 && k == 8192) {
+  if (n == 1280 && k == 8192) {
     return dim3(128, 1);
-  } else if (m == 1 && n == 8192 && k == 1024) {
+  } else if (n == 8192 && k == 1024) {
     return dim3(32, 4);
-  } else if (m == 1 && n == 7168 && k == 8192) {
+  } else if (n == 7168 && k == 8192) {
     return dim3(128, 1);
-  } else if (m == 1 && n == 8192 && k == 3584) {
+  } else if (n == 8192 && k == 3584) {
     return dim3(64, 2);
   } else {
     // Default block dimensions
@@ -65,6 +65,8 @@ bf16fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, double w_scale, double w_zp) {
       reinterpret_cast<__nv_bfloat16*>(X.data_ptr()), // vec
       reinterpret_cast<__nv_bfloat16*>(Y.data_ptr()), // res
       k,
+      m,
+      n,
       __float2half(float(w_scale)),
       __float2half(float(w_zp)),
       num_per_thread);
