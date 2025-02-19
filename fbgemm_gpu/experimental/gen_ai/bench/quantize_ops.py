@@ -232,6 +232,7 @@ class ScaledMMBaseline(QuantizeOpBase):
         self.E5M2_MAX_POS: float = torch.finfo(torch.float8_e5m2).max
         self.FP16_MAX_POS: float = torch.finfo(torch.float16).max
         self.EPS: float = 1e-12
+        self.fast_accum = True
 
     def _amax_to_scale(
         self, amax: torch.Tensor, float8_dtype: torch.dtype, orig_dtype: torch.dtype
@@ -278,7 +279,7 @@ class ScaledMMBaseline(QuantizeOpBase):
             scale_a=x_scale,
             scale_b=w_scale,
             scale_result=None,
-            use_fast_accum=True,
+            use_fast_accum=self.fast_accum,
         )
         return output
 
@@ -300,6 +301,9 @@ class ScaledMMBaseline(QuantizeOpBase):
 
 @register_quantize_op
 class ScaledMMRowwise(QuantizeOpBase):
+    def __init__(self):
+        self.fast_accum = True
+
     def quantize(self, x, w):
         xq, x_scale = quantize_fp8_row(x)
         wq, w_scale = quantize_fp8_row(w)
@@ -315,7 +319,7 @@ class ScaledMMRowwise(QuantizeOpBase):
             scale_a=dummy_scale,
             scale_b=dummy_scale,
             scale_result=None,
-            use_fast_accum=True,
+            use_fast_accum=self.fast_accum,
         )
         # Apply separate rowwise scaling.
         output = scale_fp8_row(output, x_scale, w_scale)
@@ -542,6 +546,9 @@ class FP8RowwiseGemm(QuantizeOpBase):
     FP8 matmul with rowwise scaling.
     """
 
+    def __init__(self):
+        self.fast_accum = True
+
     def preprocess(self, x, w):
         # Prequantize weights.
         if isinstance(w, (list, tuple)):
@@ -571,7 +578,11 @@ class FP8RowwiseGemm(QuantizeOpBase):
             for i in range(len(xq)):
                 output.append(
                     torch.ops.fbgemm.f8f8bf16_rowwise(
-                        xq[i], wq[i], x_scale[i], w_scale[i]
+                        xq[i],
+                        wq[i],
+                        x_scale[i],
+                        w_scale[i],
+                        use_fast_accum=self.fast_accum,
                     )
                 )
             return output
@@ -582,11 +593,13 @@ class FP8RowwiseGemm(QuantizeOpBase):
             y = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
             for i in range(B):
                 y[i] = torch.ops.fbgemm.f8f8bf16_rowwise(
-                    xq[i], wq[i], x_scale[i], w_scale[i]
+                    xq[i], wq[i], x_scale[i], w_scale[i], use_fast_accum=self.fast_accum
                 )
             return y
         # Otherwise return normal gemm result.
-        return torch.ops.fbgemm.f8f8bf16_rowwise(xq, wq, x_scale, w_scale)
+        return torch.ops.fbgemm.f8f8bf16_rowwise(
+            xq, wq, x_scale, w_scale, use_fast_accum=self.fast_accum
+        )
 
     def quantize_and_compute(self, x, wq, w_scale):
         xq, wq, x_scale, w_scale = self.quantize(x, wq, w_scale)
@@ -840,6 +853,9 @@ class TritonFP8RowwiseGemm(QuantizeOpBase):
     FP8 matmul with rowwise scaling implemented with Triton.
     """
 
+    def __init__(self):
+        self.fast_accum = True
+
     def quantize(self, x, w):
         # Quantize both input tensors.
         xq, x_scale = quantize_fp8_row(x)
@@ -848,7 +864,9 @@ class TritonFP8RowwiseGemm(QuantizeOpBase):
         return xq, wq, x_scale, w_scale, bias
 
     def compute(self, xq, wq, x_scale, w_scale, bias):
-        return matmul_fp8_row(xq, wq, x_scale, w_scale, bias=bias)
+        return matmul_fp8_row(
+            xq, wq, x_scale, w_scale, bias=bias, fp8_fast_accum=self.fast_accum
+        )
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale = self.quantize(x, w)
