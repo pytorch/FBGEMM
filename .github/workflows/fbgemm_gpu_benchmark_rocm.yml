@@ -3,9 +3,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# This workflow is used for FBGEMM_GPU-ROCm CI as well as nightly builds of
-# FBGEMM_GPU-ROCm against PyTorch-ROCm Nightly.
-name: FBGEMM_GPU-ROCm CI
+# This workflow is used for FBGEMM_GPU-ROCm Benchmarking
+name: FBGEMM_GPU-ROCm Benchmark
 
 on:
   # PR Trigger (enabled for regression checks and debugging)
@@ -20,14 +19,6 @@ on:
     branches:
       - main
 
-  # Cron Trigger (UTC)
-  #
-  # Based on the Conda page for PyTorch-nightly, the GPU nightly releases appear
-  # around 02:30 PST every day (roughly 2 hours after the CPU releases)
-  #
-  schedule:
-    - cron:  '45 12 * * *'
-
   # Manual Trigger
   #
   workflow_dispatch:
@@ -37,11 +28,6 @@ on:
         type: string
         required: false
         default: ""
-      publish_to_pypi:
-        description: Publish Artifact to PyPI
-        type: boolean
-        required: false
-        default: false
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
@@ -51,7 +37,7 @@ concurrency:
 jobs:
   # Build on CPU hosts and upload to GHA
   build_artifact:
-    if: false # ${{ github.repository_owner == 'pytorch' }}
+    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: ${{ matrix.container-image }}
@@ -70,11 +56,12 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         container-image: [ "ubuntu:22.04" ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.13" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
-        rocm-version: [ "6.2.4", "6.3" ]
+        rocm-version: [ "6.2.4" ]
         compiler: [ "gcc", "clang" ]
+
 
     steps:
     - name: Setup Build Container
@@ -132,8 +119,8 @@ jobs:
 
 
   # Download the built artifact from GHA, test on GPU, and push to PyPI
-  test_and_publish_artifact:
-    if: false # ${{ github.repository_owner == 'pytorch' }}
+  benchmark_artifact:
+    if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
       image: "rocm/dev-ubuntu-22.04:${{ matrix.rocm-version }}-complete"
@@ -154,7 +141,7 @@ jobs:
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.13" ]
-        rocm-version: [ "6.2.4", "6.3" ]
+        rocm-version: [ "6.2.4" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
@@ -188,6 +175,9 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
     - name: Install ROCm AMD-SMI
       run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
 
@@ -204,6 +194,6 @@ jobs:
     - name: Install FBGEMM_GPU Wheel
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
-    - name: Test with PyTest
+    - name: Run FBGEMM_GPU Benchmark
       timeout-minutes: 40
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
+      run: . $PRELUDE; run_tbe_microbench_for_amd $BUILD_ENV
