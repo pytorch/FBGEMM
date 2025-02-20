@@ -44,7 +44,7 @@ def _kernel_grouped_gemm(
     b_desc_ptr,
     c_ptr,
     workspace,
-    m_offsets,
+    m_sizes,
     # problem sizes
     G: tl.constexpr,
     M_BUCKET: tl.constexpr,
@@ -68,8 +68,8 @@ def _kernel_grouped_gemm(
     for g in tl.range(G):
         # Move across groups
         M_start_offset = M_end_offset
-        M_end_offset = tl.load(m_offsets + g)
-        m_size = M_end_offset - M_start_offset
+        m_size = tl.load(m_sizes + g)
+        M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
             N_start_offset = g * N
@@ -170,7 +170,7 @@ def _kernel_grouped_gemm_fp8_rowwise(
     b_scale_ptr,
     c_ptr,
     workspace,
-    m_offsets,
+    m_sizes,
     # problem sizes
     G: tl.constexpr,
     M_BUCKET: tl.constexpr,
@@ -194,8 +194,8 @@ def _kernel_grouped_gemm_fp8_rowwise(
     for g in tl.range(G):
         # Move across groups
         M_start_offset = M_end_offset
-        M_end_offset = tl.load(m_offsets + g)
-        m_size = M_end_offset - M_start_offset
+        m_size = tl.load(m_sizes + g)
+        M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
             N_start_offset = g * N
@@ -278,18 +278,18 @@ def _kernel_grouped_gemm_fp8_rowwise(
 def _grouped_gemm(
     x: torch.Tensor,
     w: torch.Tensor,
-    m_offsets: torch.Tensor,
+    m_sizes: torch.Tensor,
     x_scale: Optional[torch.Tensor] = None,
     w_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     if not utils.HAS_TMA_DESC:
         raise NotImplementedError("Grouped GEMM without TMA is not supported yet")
 
-    G = m_offsets.shape[0]
+    G = m_sizes.shape[0]
 
     assert x.is_contiguous()
     assert w.is_contiguous()
-    assert m_offsets.is_contiguous()
+    assert m_sizes.is_contiguous()
 
     M, K = x.shape
     N = w.shape[0] // G
@@ -348,7 +348,7 @@ def _grouped_gemm(
             w_scale,
             y,
             workspace,
-            m_offsets,
+            m_sizes,
             G,
             M_BUCKET,
             N,
@@ -364,7 +364,7 @@ def _grouped_gemm(
             desc_w,
             y,
             workspace,
-            m_offsets,
+            m_sizes,
             G,
             M_BUCKET,
             N,
@@ -377,16 +377,16 @@ def _grouped_gemm(
 
 
 def grouped_gemm(
-    x: torch.Tensor, w: torch.Tensor, m_offsets: torch.Tensor
+    x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor
 ) -> torch.Tensor:
-    return _grouped_gemm(x, w, m_offsets)
+    return _grouped_gemm(x, w, m_sizes)
 
 
 def grouped_gemm_fp8_rowwise(
     x: torch.Tensor,
     w: torch.Tensor,
-    m_offsets: torch.Tensor,
+    m_sizes: torch.Tensor,
     x_scale: torch.Tensor,
     w_scale: torch.Tensor,
 ) -> torch.Tensor:
-    return _grouped_gemm(x, w, m_offsets, x_scale, w_scale)
+    return _grouped_gemm(x, w, m_sizes, x_scale, w_scale)
