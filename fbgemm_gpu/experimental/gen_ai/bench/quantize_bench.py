@@ -134,6 +134,7 @@ def benchmark_grouped(
     use_cuda_graph: bool = True,
     trace: bool = False,
     num_iters: int = 1,
+    fast_accum: bool = True,
 ) -> Dict[str, Any]:
     num_groups = len(m)
     # Create input tensors.
@@ -159,6 +160,9 @@ def benchmark_grouped(
     # Benchmark each operator.
     for quantize_op in quantize_ops:
         metrics = Metrics(op_name=quantize_op.name)
+        # Set fast accum mode if applicable.
+        if hasattr(quantize_op, "fast_accum"):
+            quantize_op.fast_accum = fast_accum
         # Get the quantized tensors for this operator.
         preprocessed_args = quantize_op.preprocess(A, B)
         quantized_vals = quantize_op.quantize(*preprocessed_args)
@@ -234,6 +238,7 @@ def benchmark(
     use_cuda_graph: bool = True,
     trace: bool = False,
     num_iters: int = 1,
+    fast_accum: bool = True,
 ) -> Dict[str, Any]:
     # Create input tensors.
     if b > 1:
@@ -250,6 +255,9 @@ def benchmark(
     # Benchmark each operator.
     for quantize_op in quantize_ops:
         metrics = Metrics(op_name=quantize_op.name)
+        # Set fast accum mode if applicable.
+        if hasattr(quantize_op, "fast_accum"):
+            quantize_op.fast_accum = fast_accum
         # Preprocess data if needed.
         preprocessed_args = quantize_op.preprocess(A, B)
         # Get the quantized tensors for this operator.
@@ -295,7 +303,7 @@ def benchmark(
         metrics.ms /= num_iters
         metrics.tflops /= num_iters
         metrics.gbps /= num_iters
-        print(f"Average metrics over {num_iters}: \n{metrics}")
+        print(f"Average metrics over {num_iters} iterations: \n{metrics}")
 
         # Save results for this operator.
         results[f"{quantize_op.name}_sim"] = metrics.sim
@@ -420,6 +428,7 @@ def main(args: Any):
             not args.no_cuda_graph,
             args.trace,
             args.num_iters,
+            not args.disable_fast_accum,
         )
         benchmark_results.append(quantize_measurements)
     if args.export_csv or args.plot:
@@ -443,7 +452,7 @@ def invoke_main() -> None:
         "--num_iters",
         default=1,
         type=int,
-        help="Number of iterations to run each benchmark for",
+        help="Number of iterations to repeat each benchmark.",
     )
     parser.add_argument(
         "--export_csv",
@@ -528,6 +537,12 @@ def invoke_main() -> None:
         default=False,
         action="store_true",
         help="If set, produce a performance trace of the benchmark.",
+    )
+    parser.add_argument(
+        "--disable_fast_accum",
+        default=False,
+        action="store_true",
+        help="If set, disable fast accumulation for FP8 implementations.",
     )
 
     args = parser.parse_args()
