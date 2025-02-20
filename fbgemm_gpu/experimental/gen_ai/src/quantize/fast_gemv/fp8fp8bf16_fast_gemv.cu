@@ -24,13 +24,37 @@ namespace fbgemm_gpu {
 namespace {
 dim3 get_best_block_dim(int m, int n, int k) {
   if (m == 1 && n == 1280 && k == 8192) {
-    return dim3(128, 1);
+    return dim3(128, 2);
   } else if (m == 1 && n == 8192 && k == 1024) {
     return dim3(32, 32);
   } else if (m == 1 && n == 7168 && k == 8192) {
     return dim3(128, 1);
   } else if (m == 1 && n == 8192 && k == 3584) {
-    return dim3(64, 2);
+    return dim3(32, 8);
+  } else if (m == 2 && n == 1280 && k == 8192) {
+    return dim3(256, 1);
+  } else if (m == 2 && n == 8192 && k == 1024) {
+    return dim3(32, 32);
+  } else if (m == 2 && n == 7168 && k == 8192) {
+    return dim3(128, 2);
+  } else if (m == 2 && n == 8192 && k == 3584) {
+    return dim3(32, 16);
+  } else if (m == 3 && n == 1280 && k == 8192) {
+    return dim3(256, 2);
+  } else if (m == 3 && n == 8192 && k == 1024) {
+    return dim3(32, 32);
+  } else if (m == 3 && n == 7168 && k == 8192) {
+    return dim3(128, 1);
+  } else if (m == 3 && n == 8192 && k == 3584) {
+    return dim3(32, 32);
+  } else if (m == 4 && n == 1280 && k == 8192) {
+    return dim3(256, 1);
+  } else if (m == 4 && n == 8192 && k == 1024) {
+    return dim3(32, 32);
+  } else if (m == 4 && n == 7168 && k == 8192) {
+    return dim3(128, 8);
+  } else if (m == 4 && n == 8192 && k == 3584) {
+    return dim3(32, 32);
   } else {
     // Default block dimensions
     return dim3(32, 4);
@@ -65,6 +89,8 @@ fp8fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, double scale, double zp) {
       reinterpret_cast<cutlass::float_e4m3_t*>(X.data_ptr()), // vec
       reinterpret_cast<__nv_bfloat16*>(Y.data_ptr()), // res
       k,
+      m,
+      n,
       __float2half(scale),
       __float2half(zp),
       num_per_thread);
