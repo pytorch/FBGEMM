@@ -29,7 +29,7 @@
     # Build the code
     cd ..
     prepare_fbgemm_gpu_build    $BUILD_ENV
-    build_fbgemm_gpu_install    $BUILD_ENV cpu
+    build_fbgemm_gpu_install    $BUILD_ENV docs
 
     # Build the docs
     cd docs
