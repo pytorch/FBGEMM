@@ -891,6 +891,9 @@ python<span class="w"> </span>setup.py<span class="w"> </span>bdist_wheel<span c
 <span class="c1"># Build and install the library into the Conda environment (GCC)</span>
 python<span class="w"> </span>setup.py<span class="w"> </span>install<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--package_variant<span class="o">=</span>cpu
+
+<span class="c1"># NOTE: To build the package as part of generating the documentation, use</span>
+<span class="c1"># `--package_variant=docs` flag instead!</span>
 </pre></div>
 </div>
 <p>To build using Clang + <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> instead of GCC, simply append the

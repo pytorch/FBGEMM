@@ -543,6 +543,9 @@ For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
   python setup.py install \
       --package_variant=cpu
 
+  # NOTE: To build the package as part of generating the documentation, use
+  # `--package_variant=docs` flag instead!
+
 To build using Clang + ``libstdc++`` instead of GCC, simply append the
 ``--cxxprefix`` flag:
 
