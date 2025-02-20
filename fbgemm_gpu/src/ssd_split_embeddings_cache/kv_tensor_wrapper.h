@@ -66,6 +66,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
   at::TensorOptions options_;
   std::vector<int64_t> shape_;
+  std::vector<int64_t> strides_;
   int64_t row_offset_;
 };
 
