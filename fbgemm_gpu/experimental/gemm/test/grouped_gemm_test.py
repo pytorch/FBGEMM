@@ -39,10 +39,17 @@ class TestGroupedGEMM(unittest.TestCase):
             G, M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
             b = torch.randn(N * G, K, dtype=torch.bfloat16, device=device)
-            m_offsets, _ = torch.sort(
-                torch.randint(low=0, high=M, size=[G], device=device, dtype=torch.int32)
+            m_ends, _ = torch.sort(
+                torch.randint(
+                    low=0, high=M, size=[G - 1], device=device, dtype=torch.int32
+                )
             )
-            m_offsets[G - 1] = M
+            m_ends = m_ends.tolist()
+            m_starts = [0] + m_ends
+            m_ends = m_ends + [M]
+            m_sizes = torch.tensor(
+                [m_ends[i] - m_starts[i] for i in range(G)], device=device
+            ).to(torch.int32)
 
             a_fp8, a_scale = quantize_fp8_row(a)
             b_fp8, b_scale = quantize_fp8_row(b)
@@ -50,7 +57,7 @@ class TestGroupedGEMM(unittest.TestCase):
             result = grouped_gemm_fp8_rowwise(
                 a_fp8,
                 b_fp8,
-                m_offsets,
+                m_sizes,
                 a_scale,
                 b_scale,
             )
@@ -59,8 +66,8 @@ class TestGroupedGEMM(unittest.TestCase):
             expected_result = torch.zeros(M, N, dtype=torch.bfloat16, device=device)
             # Running baseline with quantization to exclude quantization error from the test as it has nothing to do with the correctness of the kernel implementation.
             for g in range(G):
-                m_start = 0 if g == 0 else m_offsets[g - 1]
-                m_end = m_offsets[g]
+                m_start = m_starts[g]
+                m_end = m_ends[g]
                 n_start = g * N
                 n_end = (g + 1) * N
 
@@ -86,22 +93,29 @@ class TestGroupedGEMM(unittest.TestCase):
             G, M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
             b = torch.randn(N * G, K, dtype=torch.bfloat16, device=device)
-            m_offsets, _ = torch.sort(
-                torch.randint(low=0, high=M, size=[G], device=device, dtype=torch.int32)
+            m_ends, _ = torch.sort(
+                torch.randint(
+                    low=0, high=M, size=[G - 1], device=device, dtype=torch.int32
+                )
             )
-            m_offsets[G - 1] = M
+            m_ends = m_ends.tolist()
+            m_starts = [0] + m_ends
+            m_ends = m_ends + [M]
+            m_sizes = torch.tensor(
+                [m_ends[i] - m_starts[i] for i in range(G)], device=device
+            ).to(torch.int32)
 
             result = grouped_gemm(
                 a,
                 b,
-                m_offsets,
+                m_sizes,
             )
             self.assertTrue(result.shape == (M, N))
 
             expected_result = torch.zeros(M, N, dtype=torch.bfloat16, device=device)
             for g in range(G):
-                m_start = 0 if g == 0 else m_offsets[g - 1]
-                m_end = m_offsets[g]
+                m_start = m_starts[g]
+                m_end = m_ends[g]
                 expected_result[m_start:m_end, :] = (
                     a[m_start:m_end, :] @ b[g * N : (g + 1) * N, :].T
                 )
