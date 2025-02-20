@@ -36,12 +36,7 @@ from ..common import (
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import (
-        additional_decorators,
-        gradcheck,
-        optests,
-        use_cpu_strategy,
-    )
+    from test_utils import additional_decorators, gradcheck, optests, use_cpu_strategy
 else:
     from fbgemm_gpu.test.test_utils import (
         additional_decorators,
@@ -331,8 +326,10 @@ class BackwardDenseTest(unittest.TestCase):
         acc_B = 0
         for t in range(T_):
             B = Bs[t]
-            table_indice_weight_grad_mask = indice_weight_grad_mask[acc_B:acc_B + B * L]
-            table_indice_weight_grad_all = indice_weight_grad_all[acc_B:acc_B + B * L]
+            table_indice_weight_grad_mask = indice_weight_grad_mask[
+                acc_B : acc_B + B * L
+            ]
+            table_indice_weight_grad_all = indice_weight_grad_all[acc_B : acc_B + B * L]
             acc_B += B * L
             if feature_requires_grad[t]:
                 torch.testing.assert_close(
