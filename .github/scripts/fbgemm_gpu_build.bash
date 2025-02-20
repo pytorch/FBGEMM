@@ -145,6 +145,14 @@ __configure_fbgemm_gpu_build_cpu () {
   )
 }
 
+__configure_fbgemm_gpu_build_docs () {
+  # Update the package name and build args depending on if CUDA is specified
+  echo "[BUILD] Setting CPU-only (docs) build args ..."
+  build_args=(
+    --package_variant=docs
+  )
+}
+
 __configure_fbgemm_gpu_build_rocm () {
   local fbgemm_variant_targets="$1"
 
@@ -299,6 +307,10 @@ __configure_fbgemm_gpu_build () {
     echo "[BUILD] Configuring build as CPU variant ..."
     __configure_fbgemm_gpu_build_cpu
 
+  elif [ "$fbgemm_variant" == "docs" ]; then
+    echo "[BUILD] Configuring build as CPU (docs) variant ..."
+    __configure_fbgemm_gpu_build_docs
+
   elif [ "$fbgemm_variant" == "rocm" ]; then
     echo "[BUILD] Configuring build as ROCm variant ..."
     __configure_fbgemm_gpu_build_rocm "${fbgemm_variant_targets}"
@@ -401,9 +413,10 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" g++) || return 1
 
   # Set the default the FBGEMM_GPU variant to be CUDA
-  if [ "$fbgemm_variant" != "cpu" ] &&
-     [ "$fbgemm_variant" != "rocm" ] &&
-     [ "$fbgemm_variant" != "genai" ]; then
+  if  [ "$fbgemm_variant" != "cpu" ] &&
+      [ "$fbgemm_variant" != "docs" ] &&
+      [ "$fbgemm_variant" != "rocm" ] &&
+      [ "$fbgemm_variant" != "genai" ]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM_GPU variant: $fbgemm_variant"
     echo "[BUILD] Defaulting to CUDA"
@@ -501,7 +514,8 @@ __verify_library_symbols () {
 
   # Prepare a sample set of symbols whose existence in the built library should be checked
   # This is by no means an exhaustive set, and should be updated accordingly
-  if [ "${fbgemm_variant}" == "cpu" ]; then
+  if  [ "${fbgemm_variant}" == "cpu" ] ||
+      [ "${fbgemm_variant}" == "docs" ]; then
     local lib_symbols_to_check=(
       fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
       fbgemm_gpu::jagged_2d_to_dense
@@ -539,6 +553,7 @@ run_fbgemm_gpu_postbuild_checks () {
     echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} cpu"
+    echo "    ${FUNCNAME[0]} docs"
     echo "    ${FUNCNAME[0]} cuda"
     echo "    ${FUNCNAME[0]} rocm"
     echo "    ${FUNCNAME[0]} genai"
@@ -590,6 +605,7 @@ build_fbgemm_gpu_package () {
     echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_CHANNEL VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env release cpu                      # CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env release docs                     # CPU-only (docs) variant"
     echo "    ${FUNCNAME[0]} build_env nightly cuda                     # CUDA variant for default target(s)"
     echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'              # CUDA variant for custom target(s)"
     echo "    ${FUNCNAME[0]} build_env test rocm                        # ROCm variant for default target(s)"
@@ -659,6 +675,7 @@ build_fbgemm_gpu_install () {
     echo "Usage: ${FUNCNAME[0]} ENV_NAME VARIANT [TARGETS]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env docs                         # CPU-only (docs) variant"
     echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
     echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
     echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"

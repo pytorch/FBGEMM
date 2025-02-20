@@ -52,7 +52,7 @@ class FbgemmGpuBuild:
         parser.add_argument(
             "--package_variant",
             type=str,
-            choices=["cpu", "cuda", "rocm", "genai"],
+            choices=["docs", "cpu", "cuda", "rocm", "genai"],
             default="cuda",
             help="The FBGEMM_GPU variant to build.",
         )
@@ -270,7 +270,16 @@ class FbgemmGpuBuild:
             # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
             cxx_flags.extend(["-DTORCH_USE_CUDA_DSA", "-DTORCH_USE_HIP_DSA"])
 
-        if self.args.package_variant == "cpu":
+        if self.args.package_variant in ["docs", "cpu"]:
+            # NOTE: The docs variant is a fake variant that is effectively the
+            # cpu variant, but marks __VARIANT__ as "docs" instead of "cpu".
+            #
+            # This minor change lets the library loader know not throw
+            # exceptions on failed load, which is the workaround for a bug in
+            # the Sphinx documentation generation process, see:
+            #
+            #   https://github.com/pytorch/FBGEMM/pull/3477
+            #   https://github.com/pytorch/FBGEMM/pull/3717
             print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
             cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
 
