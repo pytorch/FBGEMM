@@ -227,6 +227,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     constexpr int32_t kWarpsPerBlock = 4;
     const auto device_only = lxu_cache_weights.numel() == 0 && uvm_weights.numel() == 0;
+    /*
+     * Helper macro for run-time packed mode dispatch. Computes maximum number of bags
+     * (num_packed_bags) that fits into NumUint4LoadsPerRow given embeddings' type and 
+     * size. num_packed_bags is to be used for additional bags indexing 
+     *
+     * Current support range: ROCm and output_t != uint8_t and sparse_type != FP32
+     */
     #define PACKED_MODE_SWITCH(dev_only, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
       {%-if is_rocm and not nobag %}
       const int32_t num_uint4_loads_per_row = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_D, sparse_type, row_alignment), sizeof(uint4)); \
