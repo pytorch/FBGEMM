@@ -315,6 +315,11 @@ KVTensorWrapper::KVTensorWrapper(
   if (snapshot_handle.has_value()) {
     snapshot_handle_ = std::move(snapshot_handle.value());
   }
+  // derive strides details assuming contiguous tensor
+  strides_ = std::vector<int64_t>(shape_.size(), 1);
+  for (auto dim = shape_.size() - 1; dim > 0; --dim) {
+    strides_[dim - 1] = strides_[dim] * shape_[dim];
+  }
 }
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
@@ -352,13 +357,7 @@ c10::IntArrayRef KVTensorWrapper::sizes() {
 }
 
 c10::IntArrayRef KVTensorWrapper::strides() {
-  // Assume contiguous tensor.
-  std::vector<int64_t> strides(shape_.size(), 1);
-  for (int i = shape_.size() - 2; i > -1; i--) {
-    int prev = i + 1;
-    strides[i] = strides[prev] * std::max<int64_t>(shape_[prev], 1);
-  }
-  return strides;
+  return strides_;
 }
 
 c10::ScalarType KVTensorWrapper::dtype() {
