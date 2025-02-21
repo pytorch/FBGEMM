@@ -318,13 +318,13 @@ static_cpu_files_training = [
 static_cpu_files_common = [
     "codegen/utils/embedding_bounds_check_host_cpu.cpp",
     "codegen/training/forward/embedding_forward_split_cpu.cpp",
+    "codegen/training/pt2/pt2_autograd_utils.cpp",
 ]
 
 static_gpu_files_common = [
     "codegen/utils/embedding_bounds_check_v1.cu",
     "codegen/utils/embedding_bounds_check_v2.cu",
     "codegen/utils/embedding_bounds_check_host.cpp",
-    "codegen/training/pt2/pt2_autograd_utils.cpp",
 ]
 
 gen_cpu_files_training = (
@@ -336,16 +336,12 @@ gen_cpu_files_training = (
         for optimizer in ALL_OPTIMIZERS
     ]
     + [
-        "gen_embedding_backward_split_{}_pt2_cpu_wrapper.cpp".format(optimizer)
-        for optimizer in ALL_OPTIMIZERS
-    ]
-    + [
         "gen_embedding_backward_{}_split_cpu.cpp".format(optimizer)
         for optimizer in CPU_OPTIMIZERS
     ]
 )
 
-gen_gpu_files_training_pt2 = (
+gen_cpu_files_training_pt2 = (
     [
         "gen_embedding_split_{}_pt2_autograd.cpp".format(optimizer)
         for optimizer in ALL_OPTIMIZERS
@@ -355,14 +351,18 @@ gen_gpu_files_training_pt2 = (
         for optimizer in SSD_OPTIMIZERS
     ]
     + [
-        "gen_embedding_backward_split_{}_pt2_cuda_wrapper.cpp".format(optimizer)
+        "gen_embedding_backward_split_{}_pt2_cpu_wrapper.cpp".format(optimizer)
         for optimizer in ALL_OPTIMIZERS
     ]
-    + [
-        "gen_embedding_backward_ssd_{}_pt2_cuda_wrapper.cpp".format(optimizer)
-        for optimizer in SSD_OPTIMIZERS
-    ]
 )
+
+gen_gpu_files_training_pt2 = [
+    "gen_embedding_backward_split_{}_pt2_cuda_wrapper.cpp".format(optimizer)
+    for optimizer in ALL_OPTIMIZERS
+] + [
+    "gen_embedding_backward_ssd_{}_pt2_cuda_wrapper.cpp".format(optimizer)
+    for optimizer in SSD_OPTIMIZERS
+]
 
 gen_gpu_files_training_dense = [
     # Dense host and kernel, and forward-quantized host src files
