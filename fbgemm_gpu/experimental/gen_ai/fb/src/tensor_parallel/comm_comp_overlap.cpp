@@ -112,9 +112,10 @@ class FusedCommComp : public torch::CustomClassHolder {
 
   void avoidInCastCongestion(bool flag);
 
-  cudaStream_t getInternalPutStream();
+  intptr_t getInternalPutStream();
 
-  // Local reduce results from the internal buffer into the final output tensor
+  // Local reduce results from the internal buffer into the final output
+  // tensor
   void localReduceIntoTensor(at::Tensor output, at::Tensor input);
 
   std::tuple<at::Tensor, at::Tensor> splitOverlapAllGather(
@@ -211,8 +212,8 @@ FusedCommComp::FusedCommComp(
       cudaStreamCreateWithPriority(&ctrlStream_, cudaStreamNonBlocking, -1));
   CHECK_CUDA(cudaEventCreate(&waitEvent_));
 
-  // Avoid in-cast congestion can improve the memcpy bandwidth. However, it also
-  // brings additional syncs between ranks. Thus this flag needs to be
+  // Avoid in-cast congestion can improve the memcpy bandwidth. However, it
+  // also brings additional syncs between ranks. Thus this flag needs to be
   // explicitly turned on.
   avoidInCastCongestion_ = false;
 };
@@ -229,8 +230,8 @@ FusedCommComp::~FusedCommComp() {
   }
 }
 
-cudaStream_t FusedCommComp::getInternalPutStream() {
-  return putStream_;
+intptr_t FusedCommComp::getInternalPutStream() {
+  return reinterpret_cast<intptr_t>(putStream_);
 }
 
 void FusedCommComp::internalBarrier_(cudaStream_t stream) {
