@@ -26,6 +26,7 @@ handle_genfiles_rocm(gen_gpu_files_forward_split)
 get_tbe_sources_list(static_cpu_files_training)
 get_tbe_sources_list(gen_cpu_files_training)
 get_tbe_sources_list(gen_gpu_files_training)
+get_tbe_sources_list(gen_cpu_files_training_pt2)
 get_tbe_sources_list(gen_gpu_files_training_pt2)
 get_tbe_sources_list(gen_gpu_files_training_dense)
 get_tbe_sources_list(gen_gpu_files_training_split_host)
@@ -33,6 +34,7 @@ get_tbe_sources_list(gen_gpu_files_training_gwd)
 get_tbe_sources_list(gen_gpu_files_training_vbe)
 handle_genfiles_rocm(gen_cpu_files_training)
 handle_genfiles_rocm(gen_gpu_files_training)
+handle_genfiles_rocm(gen_cpu_files_training_pt2)
 handle_genfiles_rocm(gen_gpu_files_training_pt2)
 handle_genfiles_rocm(gen_gpu_files_training_dense)
 handle_genfiles_rocm(gen_gpu_files_training_split_host)
@@ -166,6 +168,8 @@ gpu_cpp_library(
     SHARED
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    ${gen_cpu_files_training_pt2}
   GPU_SRCS
     ${gen_gpu_files_training_pt2}
   NVCC_FLAGS

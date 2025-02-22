@@ -98,6 +98,7 @@ __install_check_operator_registrations () {
   else
     local test_operators=(
       "torch.ops.fbgemm.asynchronous_inclusive_cumsum"
+      "torch.ops.fbgemm.split_embedding_codegen_lookup_sgd_function_pt2"
     )
   fi
 
