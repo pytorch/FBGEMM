@@ -22,30 +22,32 @@ namespace fbgemm_gpu {
 
 namespace {
 
-template <int kBlkN, class DataType, class SmemLayout>
+template <int kBlkNOrM, class DataType, class IndexType, class SmemLayout>
 struct SharedStorage {
   static constexpr int kPipeMax = cute::size<0>(SmemLayout{});
   static constexpr int kTmaAlignment = 128;
   static constexpr int kMbarAlignemnt = 8;
 
-  cute::array_aligned<int32_t, kBlkN> index;
+  cute::array_aligned<IndexType, kBlkNOrM> index;
   cute::array_aligned<DataType, cute::cosize_v<SmemLayout>, kTmaAlignment> data;
 
   CUTE_ALIGNAS(kMbarAlignemnt) uint64_t tma_load_barrier[kPipeMax];
 };
 
 template <
+    bool IsGather,
     class ProblemShape,
     class TileShape,
     class DataType,
+    class IndexType,
     class SmemLayout,
     class TmaLoad,
     class TmaStore>
-__global__ static void gather_along_first_dim_kernel(
+__global__ static void gather_or_scatter_along_first_dim_kernel(
     ProblemShape problem_shape,
     TileShape tile_shape,
     CUTLASS_GRID_CONSTANT TmaLoad const tma_load_input,
-    const int32_t* index,
+    const IndexType* index,
     CUTLASS_GRID_CONSTANT TmaStore const tma_store_output) {
   // Input shape: A [M, K]
   // Output shape: B [N, K]
@@ -54,23 +56,24 @@ __global__ static void gather_along_first_dim_kernel(
   int K = cute::get<2>(problem_shape);
 
   static_assert(cute::is_static<TileShape>::value);
-  constexpr int kBlkN = cute::size<0>(tile_shape);
+  constexpr int kBlkNOrM = cute::size<0>(tile_shape);
   constexpr int kBlkK = cute::size<1>(tile_shape);
 
-  using SmemT = SharedStorage<kBlkN, DataType, SmemLayout>;
+  using SmemT = SharedStorage<kBlkNOrM, DataType, IndexType, SmemLayout>;
   constexpr int kPipeMax = SmemT::kPipeMax;
 
   extern __shared__ char smem_raw[];
   SmemT& smem = *reinterpret_cast<SmemT*>(smem_raw);
 
-  const int n_offset = blockIdx.x * kBlkN;
-  if (n_offset >= N) {
+  int indexing_dim = IsGather ? N : M;
+  const int n_or_m_offset = blockIdx.x * kBlkNOrM;
+  if (n_or_m_offset >= indexing_dim) {
     return;
   }
 
   // Straight-forward direct global read of indices.
-  if (threadIdx.x < kBlkN && n_offset + threadIdx.x < N) {
-    smem.index[threadIdx.x] = index[n_offset + threadIdx.x];
+  if (threadIdx.x < kBlkNOrM && n_or_m_offset + threadIdx.x < indexing_dim) {
+    smem.index[threadIdx.x] = index[n_or_m_offset + threadIdx.x];
   }
   __syncthreads();
 
@@ -84,17 +87,24 @@ __global__ static void gather_along_first_dim_kernel(
 
     constexpr int kTmaTransactionBytes = kBlkK * sizeof(DataType);
     const int kNumKTiles = ((K + kBlkK - 1) / kBlkK);
-    const int kNumNKTiles = kBlkN * kNumKTiles;
-    const int kNumIterations = kNumNKTiles + kPipeMax - 1;
+    const int kNumNOrMKTiles = kBlkNOrM * kNumKTiles;
+    const int kNumIterations = kNumNOrMKTiles + kPipeMax - 1;
 
     for (int iteration = 0; iteration < kNumIterations; ++iteration) {
       // Load.
-      if (iteration < kNumNKTiles) {
+      if (iteration < kNumNOrMKTiles) {
         int load_pipe = iteration % kPipeMax;
 
-        int n = iteration / kNumKTiles;
-        int k = iteration % kNumKTiles;
-        int m = smem.index[n];
+        int m, n, k;
+        if constexpr (IsGather) {
+          n = iteration / kNumKTiles;
+          k = iteration % kNumKTiles;
+          m = smem.index[n];
+        } else {
+          m = iteration / kNumKTiles + n_or_m_offset;
+          k = iteration % kNumKTiles;
+          // n is not needed here
+        }
 
         cute::tma_store_wait<kPipeMax - 1>();
 
@@ -124,15 +134,23 @@ __global__ static void gather_along_first_dim_kernel(
         int processing_index = iteration - kPipeMax + 1;
         int store_pipe = processing_index % kPipeMax;
 
-        int n = processing_index / kNumKTiles;
-        int k = processing_index % kNumKTiles;
+        int m, n, k;
+        if constexpr (IsGather) {
+          n = processing_index / kNumKTiles + n_or_m_offset;
+          k = processing_index % kNumKTiles;
+          // m is not needed here
+        } else {
+          m = processing_index / kNumKTiles;
+          k = processing_index % kNumKTiles;
+          n = smem.index[m];
+        }
 
         cute::wait_barrier(smem.tma_load_barrier[store_pipe], 0);
 
         cute::Tensor tAgB = cute::local_tile(
             gB,
             cute::Tile<cute::_1, cute::Int<kBlkK>>{},
-            cute::make_coord(n + n_offset, k));
+            cute::make_coord(n, k));
         cute::Tensor tAsA = cute::local_tile(
             sA,
             cute::Tile<cute::_1, cute::Int<kBlkK>>{},
@@ -150,45 +168,60 @@ __global__ static void gather_along_first_dim_kernel(
   cute::tma_store_wait<0>();
 }
 
-} // namespace
+template <class T>
+struct TorchDTypeTrait {};
 
-// TODO(shikaili): Templatize it and make it supports more configurations.
-at::Tensor gather_along_first_dim(at::Tensor data, at::Tensor index) {
-  using DataType = cutlass::bfloat16_t;
-  constexpr auto kDataTypeEnum = at::kBFloat16;
-  using IndexType = int32_t;
-  constexpr auto kIndexTypeEnum = at::kInt;
-  constexpr int kTmaGmemAlignment = 16;
+template <>
+struct TorchDTypeTrait<cutlass::bfloat16_t> {
+  static auto dtype() {
+    return at::kBFloat16;
+  };
+};
 
-  bool compatible = (data.dtype() == kDataTypeEnum && data.is_contiguous() &&
-                     data.dim() == 2) &&
-      (index.dtype() == kIndexTypeEnum && index.is_contiguous() &&
-       index.dim() == 1) &&
-      (data.size(1) * sizeof(DataType) % kTmaGmemAlignment == 0);
+template <>
+struct TorchDTypeTrait<int32_t> {
+  static auto dtype() {
+    return at::kInt;
+  };
+};
 
-  if (!compatible) {
-    return at::index_select(data, 0, index);
-  }
+template <>
+struct TorchDTypeTrait<int64_t> {
+  static auto dtype() {
+    return at::kLong;
+  };
+};
 
-  const int M = data.size(0);
-  const int K = data.size(1);
-  const int N = index.size(0);
+template <
+    bool IsGather,
+    class DataType,
+    class IndexType,
+    class TMAStoreInst = cute::SM90_TMA_STORE>
+void gather_or_scatter_along_first_dim(
+    at::Tensor src,
+    at::Tensor index,
+    at::Tensor dst) {
+  assert(src.dtype() == TorchDTypeTrait<DataType>::dtype());
+  assert(dst.dtype() == TorchDTypeTrait<DataType>::dtype());
+  assert(index.dtype() == TorchDTypeTrait<IndexType>::dtype());
+
+  const int M = src.size(0);
+  const int K = src.size(1);
+  const int N = dst.size(0);
 
   auto src_gmem_layout =
       cute::make_layout(cute::make_shape(M, K), cute::make_stride(K, 1));
   auto src_gmem_tensor = cute::make_tensor(
-      cute::make_gmem_ptr(reinterpret_cast<DataType*>(data.data_ptr())),
+      cute::make_gmem_ptr(reinterpret_cast<DataType*>(src.data_ptr())),
       src_gmem_layout);
 
-  at::Tensor output = at::empty(
-      {N, K}, at::TensorOptions().dtype(at::kBFloat16).device(data.device()));
   auto dst_gmem_layout =
       cute::make_layout(cute::make_shape(N, K), cute::make_stride(K, 1));
   auto dst_gmem_tensor = cute::make_tensor(
-      cute::make_gmem_ptr(reinterpret_cast<DataType*>(output.data_ptr())),
+      cute::make_gmem_ptr(reinterpret_cast<DataType*>(dst.data_ptr())),
       dst_gmem_layout);
 
-  constexpr int kBlkN = 1;
+  constexpr int kBlkNOrM = 1;
   constexpr int kBlkK = 256;
   constexpr int kPipeMax = 4;
 
@@ -198,16 +231,15 @@ at::Tensor gather_along_first_dim(at::Tensor data, at::Tensor index) {
   auto tma_load = cute::make_tma_copy(
       cute::SM90_TMA_LOAD{}, src_gmem_tensor, smem_layout(0, cute::_, cute::_));
   auto tma_store = cute::make_tma_copy(
-      cute::SM90_TMA_STORE{},
-      dst_gmem_tensor,
-      smem_layout(0, cute::_, cute::_));
+      TMAStoreInst{}, dst_gmem_tensor, smem_layout(0, cute::_, cute::_));
 
   auto problem_shape = cute::make_shape(M, N, K);
-  auto tile_shape = cute::make_shape(cute::Int<kBlkN>{}, cute::Int<kBlkK>{});
+  auto tile_shape = cute::make_shape(cute::Int<kBlkNOrM>{}, cute::Int<kBlkK>{});
 
-  using SmemT = SharedStorage<kBlkN, DataType, decltype(smem_layout)>;
+  using SmemT =
+      SharedStorage<kBlkNOrM, DataType, IndexType, decltype(smem_layout)>;
 
-  int num_ctas = (N + kBlkN - 1) / kBlkN;
+  int num_ctas = ((IsGather ? N : M) + kBlkNOrM - 1) / kBlkNOrM;
   dim3 grid_dims(num_ctas, 1, 1);
   dim3 block_dims(32, 1, 1);
   dim3 cluster_dims(1, 1, 1);
@@ -216,10 +248,12 @@ at::Tensor gather_along_first_dim(at::Tensor data, at::Tensor index) {
 
   cutlass::ClusterLaunchParams launch_params{
       grid_dims, block_dims, cluster_dims, smem_size, stream};
-  void* kernel = (void*)gather_along_first_dim_kernel<
+  void* kernel = (void*)gather_or_scatter_along_first_dim_kernel<
+      IsGather,
       decltype(problem_shape),
       decltype(tile_shape),
       DataType,
+      IndexType,
       decltype(smem_layout),
       decltype(tma_load),
       decltype(tma_store)>;
@@ -241,8 +275,79 @@ at::Tensor gather_along_first_dim(at::Tensor data, at::Tensor index) {
     cudaError_t error = cudaGetLastError();
     CUTE_ERROR_EXIT(error);
   }
+}
 
-  return output;
+} // namespace
+
+at::Tensor gather_along_first_dim(at::Tensor data, at::Tensor index) {
+  constexpr int kTmaGmemAlignment = 16;
+
+  if (data.is_contiguous() && data.dim() == 2 && index.is_contiguous() &&
+      index.dim() == 1) {
+    const int M = data.size(0);
+    const int K = data.size(1);
+    const int N = index.size(0);
+    // TODO(shikaili): Make it supports more configurations.
+    if (data.dtype() == at::kBFloat16 &&
+        (K * sizeof(cutlass::bfloat16_t) % kTmaGmemAlignment == 0)) {
+      at::Tensor output = at::empty(
+          {N, K},
+          at::TensorOptions().dtype(at::kBFloat16).device(data.device()));
+      if (index.dtype() == at::kInt) {
+        gather_or_scatter_along_first_dim<
+            true,
+            cutlass::bfloat16_t,
+            int32_t,
+            cute::SM90_TMA_STORE>(data, index, output);
+        return output;
+      } else if (index.dtype() == at::kLong) {
+        gather_or_scatter_along_first_dim<
+            true,
+            cutlass::bfloat16_t,
+            int64_t,
+            cute::SM90_TMA_STORE>(data, index, output);
+        return output;
+      }
+    }
+  }
+  return at::index_select(data, 0, index);
+}
+
+void scatter_add_along_first_dim(
+    at::Tensor dst,
+    at::Tensor src,
+    at::Tensor index) {
+  constexpr int kTmaGmemAlignment = 16;
+
+  if (dst.is_contiguous() && dst.dim() == 2 && src.is_contiguous() &&
+      src.dim() == 2 && index.is_contiguous() && index.dim() == 1) {
+    const int M = src.size(0);
+    const int K = src.size(1);
+    const int N = index.size(0);
+    assert(dst.size(1) == K);
+    // TODO(shikaili): Make it supports more configurations.
+    if (dst.dtype() == at::kBFloat16 && src.dtype() == at::kBFloat16 &&
+        (K * sizeof(cutlass::bfloat16_t) % kTmaGmemAlignment == 0)) {
+      if (index.dtype() == at::kInt) {
+        gather_or_scatter_along_first_dim<
+            false,
+            cutlass::bfloat16_t,
+            int32_t,
+            cute::SM90_TMA_REDUCE_ADD>(src, index, dst);
+        return;
+      } else if (index.dtype() == at::kLong) {
+        gather_or_scatter_along_first_dim<
+            false,
+            cutlass::bfloat16_t,
+            int64_t,
+            cute::SM90_TMA_REDUCE_ADD>(src, index, dst);
+        return;
+      }
+    }
+  }
+
+  const int K = src.size(1);
+  dst.scatter_add_(0, index.to(at::kLong).unsqueeze(1).expand({-1, K}), src);
 }
 
 } // namespace fbgemm_gpu
