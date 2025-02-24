@@ -90,7 +90,7 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
 
 .. code:: sh
 
-  conda install -n ${env_name} -y \
+  conda install -n ${env_name} -c conda-forge --override-channels -y \
       bazel \
       cmake \
       doxygen \
