@@ -192,9 +192,9 @@ class KVCacheTests(unittest.TestCase):
             torch.version.cuda
             and torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9
         )
-        or (torch.version.hip and torch.version.hip < "6.2")
+        or (torch.version.hip)
         or not HAS_XFORMERS,
-        "Skip when H100 is not available or MI300 is not available",
+        "Skip when H100 is not available",
     )
     def test_fp8_kv_cache(self, MAX_T: int, N_KVH_L: int) -> None:
         N_H_L = 2
