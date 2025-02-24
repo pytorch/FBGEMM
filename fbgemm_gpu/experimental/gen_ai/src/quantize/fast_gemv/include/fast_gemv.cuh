@@ -63,8 +63,7 @@ __global__ void gemv_quantized_bf16_fp8(
     __nv_bfloat16* vec,
     __nv_bfloat16* res,
     unsigned int n,
-    half scale,
-    half zero_point,
+    float const* scale,
     unsigned int num_per_thread);
 
 __global__ void gemv_quantized_fp8_fp8(
@@ -72,8 +71,7 @@ __global__ void gemv_quantized_fp8_fp8(
     cutlass::float_e4m3_t* vec,
     __nv_bfloat16* res,
     unsigned int n,
-    half scale,
-    half zero_point,
+    float const* scale,
     unsigned int num_per_thread);
 
 __global__ void gemv_quantized_int4(

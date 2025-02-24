@@ -123,10 +123,8 @@ at::Tensor f8f8bf16_cublas(
     std::optional<at::Tensor> output = std::nullopt);
 at::Tensor bf16_fast_gemv(at::Tensor X, at::Tensor W);
 at::Tensor
-bf16fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, double w_scale, double w_zp);
-
-at::Tensor
-fp8fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, double scale, double zp);
+bf16fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, at::Tensor w_scale);
+at::Tensor fp8fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, at::Tensor scale);
 
 at::Tensor f8i4bf16_rowwise(
     at::Tensor XQ,
@@ -192,10 +190,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def("bf16_fast_gemv(Tensor X, Tensor W) -> Tensor");
-  m.def(
-      "bf16fp8bf16_fast_gemv(Tensor X, Tensor W, float w_scale, float w_zp) -> Tensor");
-  m.def(
-      "fp8fp8bf16_fast_gemv(Tensor X, Tensor W, float scale, float zp) -> Tensor");
+  m.def("bf16fp8bf16_fast_gemv(Tensor X, Tensor W, Tensor w_scale) -> Tensor");
+  m.def("fp8fp8bf16_fast_gemv(Tensor X, Tensor W, Tensor scale) -> Tensor");
   m.def("f8f8bf16_lite(Tensor XQ, Tensor WQ, Tensor scale) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
@@ -424,19 +420,15 @@ at::Tensor bf16_fast_gemv_meta(at::Tensor X, at::Tensor W) {
 at::Tensor bf16fp8bf16_fast_gemv_meta(
     at::Tensor X,
     at::Tensor W,
-    double /*w_scale*/,
-    double /*w_zp*/) {
+    at::Tensor /* w_scale */) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
 
-at::Tensor fp8fp8bf16_fast_gemv_meta(
-    at::Tensor X,
-    at::Tensor W,
-    double /*scale*/,
-    double /*zp*/) {
+at::Tensor
+fp8fp8bf16_fast_gemv_meta(at::Tensor X, at::Tensor W, at::Tensor /* scale */) {
   const at::SymInt M = X.sym_size(0);
   const at::SymInt N = W.sym_size(0);
   auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
