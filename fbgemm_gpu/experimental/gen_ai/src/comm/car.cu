@@ -345,7 +345,111 @@ static DEVICE_INLINE void ld_flag_acquire(int32_t& flag, int32_t* flag_addr) {
 #endif
 }
 
-template <int32_t kWorldSize, bool has_acc, bool reduce_scatter>
+template <int32_t kWorldSize, bool split_last_dim>
+#if defined(USE_ROCM)
+__launch_bounds__(512) __global__ void reduce_scatter(
+#else
+__launch_bounds__(1024) __global__ void reduce_scatter(
+#endif
+    int32_t rank,
+    int32_t world_size,
+    int32_t flag,
+    std::array<int32_t*, 8> barriers,
+    std::array<at::BFloat16*, 8> inputs,
+#if defined(USE_ROCM)
+    at::BFloat16* __restrict__ output,
+#else
+    at::BFloat16* output,
+#endif
+    int32_t last_dim,
+    int32_t N) {
+  int32_t N_per_rank = N / kWorldSize;
+  int32_t N_start = N_per_rank * rank;
+  int32_t N_last_dim = last_dim / kWorldSize;
+
+  if constexpr (split_last_dim) {
+    N_start = last_dim / kWorldSize * rank;
+  }
+
+  // Synchronize the ranks.
+  volatile int32_t* barrier_d = barriers[rank];
+  if (threadIdx.x < kWorldSize) {
+    // The 1st block notifies the other ranks.
+    if (blockIdx.x == 0) {
+#if defined(USE_ROCM)
+      __atomic_store_n(barriers[threadIdx.x] + rank, flag, __ATOMIC_RELEASE);
+#else
+      barriers[threadIdx.x][rank] = flag;
+#endif
+    }
+
+    // Busy-wait until all ranks are ready.
+#if defined(USE_ROCM)
+    while (__atomic_load_n(barrier_d + threadIdx.x, __ATOMIC_ACQUIRE) != flag) {
+    }
+#else
+    while (barrier_d[threadIdx.x] != flag) {
+    }
+#endif
+  }
+
+  __syncthreads();
+
+  at::BFloat16* src_d[kWorldSize];
+
+#pragma unroll kWorldSize
+  for (int ii = 0; ii < kWorldSize; ++ii) {
+    int d_rank = (rank + ii) % kWorldSize;
+    src_d[ii] = inputs[d_rank];
+  }
+
+  // Each block accumulates the values from the different GPUs on the same
+  // node.
+  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+       i += gridDim.x * blockDim.x * 8) {
+    bf16x8 vals[kWorldSize];
+    size_t idx = i;
+    if constexpr (split_last_dim) {
+      idx = i / N_last_dim * last_dim + i % N_last_dim;
+    }
+#pragma unroll kWorldSize
+    for (int ii = 0; ii < kWorldSize; ++ii) {
+      *reinterpret_cast<uint4*>(
+          &vals[(ii + kWorldSize - rank) & (kWorldSize - 1)]) =
+          reinterpret_cast<const uint4*>(&src_d[ii][idx + N_start])[0];
+    }
+
+    bf16x8 sums;
+    *reinterpret_cast<uint4*>(&sums) = uint4{0};
+
+#pragma unroll kWorldSize
+    for (int ii = 0; ii < kWorldSize; ++ii) {
+      sums = add_bf16x8(sums, vals[ii]);
+    }
+
+    // Store to the local buffer.
+    *reinterpret_cast<uint4*>(&output[i]) =
+        *reinterpret_cast<const uint4*>(&sums);
+  }
+
+  __syncthreads();
+
+  // barriers among the blocks with the same idx (release-acuqire semantics)
+  if (threadIdx.x < kWorldSize) {
+    // The all blocks notifies the other ranks.
+    int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
+
+    // Busy-wait until all ranks are ready.
+    int32_t rank_barrier = 0;
+    int32_t* peer_barrier_d = barriers[rank] + flag_block_offset + threadIdx.x;
+    do {
+      ld_flag_acquire(rank_barrier, peer_barrier_d);
+    } while (rank_barrier != flag);
+  }
+}
+
+template <int32_t kWorldSize, bool has_acc>
 #if defined(USE_ROCM)
 __launch_bounds__(512) __global__ void two_shot_all_reduce(
 #else
@@ -425,13 +529,8 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
     }
 
     // Store to the local buffer.
-    if constexpr (reduce_scatter) {
-      *reinterpret_cast<uint4*>(&output[i]) =
-          *reinterpret_cast<const uint4*>(&sums);
-    } else {
-      *reinterpret_cast<uint4*>(&src_d[0][i + N_start]) =
-          *reinterpret_cast<const uint4*>(&sums);
-    }
+    *reinterpret_cast<uint4*>(&src_d[0][i + N_start]) =
+        *reinterpret_cast<const uint4*>(&sums);
   }
 
   __syncthreads();
@@ -448,11 +547,6 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
     do {
       ld_flag_acquire(rank_barrier, peer_barrier_d);
     } while (rank_barrier != flag);
-  }
-
-  if constexpr (reduce_scatter) {
-    // reduce scatter we can stop here and skip the allgather below
-    return;
   }
 
   __syncthreads();
@@ -638,7 +732,7 @@ void two_shot_car_allreduce(
 #define X(kWorldSize)                                                          \
   if (state->world_size_ == kWorldSize) {                                      \
     if (z) {                                                                   \
-      two_shot_all_reduce<kWorldSize, true, false>                             \
+      two_shot_all_reduce<kWorldSize, true>                                    \
           <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                                    \
               state->world_size_,                                              \
@@ -651,7 +745,7 @@ void two_shot_car_allreduce(
       C10_CUDA_KERNEL_LAUNCH_CHECK();                                          \
       return;                                                                  \
     } else {                                                                   \
-      two_shot_all_reduce<kWorldSize, false, false>                            \
+      two_shot_all_reduce<kWorldSize, false>                                   \
           <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                                    \
               state->world_size_,                                              \
@@ -680,7 +774,7 @@ void two_shot_car_allreduce(
 void car_reducescatter(
     at::Tensor dst,
     at::Tensor src,
-    std::optional<at::Tensor> bias,
+    bool split_last_dim,
     int64_t comm_idx) { // match the API with nccl_allreduce in
                         // https://fburl.com/code/v538vig9
   auto state = get_car_state();
@@ -695,8 +789,9 @@ void car_reducescatter(
       state->world_size_ == 8);
 
   const auto N = src.numel();
-  if (bias) {
-    TORCH_CHECK(bias->numel() == src.numel());
+
+  if (N == 0) {
+    return;
   }
   ++state->flag_;
 
@@ -737,40 +832,41 @@ void car_reducescatter(
 
 #define X(kWorldSize)                                                          \
   if (state->world_size_ == kWorldSize) {                                      \
-    if (bias) {                                                                \
-      two_shot_all_reduce<kWorldSize, true, true>                              \
+    if (split_last_dim) {                                                      \
+      reduce_scatter<kWorldSize, true>                                         \
           <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                                    \
               state->world_size_,                                              \
               state->flag_ * state->world_size_,                               \
               barriers,                                                        \
               inputs,                                                          \
-              bias->data_ptr<at::BFloat16>(),                                  \
               dst.data_ptr<at::BFloat16>(),                                    \
+              src.size(-1),                                                    \
               N);                                                              \
       C10_CUDA_KERNEL_LAUNCH_CHECK();                                          \
       return;                                                                  \
     } else {                                                                   \
-      two_shot_all_reduce<kWorldSize, false, true>                             \
+      reduce_scatter<kWorldSize, false>                                        \
           <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                                    \
               state->world_size_,                                              \
               state->flag_ * state->world_size_,                               \
               barriers,                                                        \
               inputs,                                                          \
-              nullptr,                                                         \
               dst.data_ptr<at::BFloat16>(),                                    \
+              src.size(-1),                                                    \
               N);                                                              \
       C10_CUDA_KERNEL_LAUNCH_CHECK();                                          \
       return;                                                                  \
     }                                                                          \
   }
+
   X(2);
   X(4);
   X(8);
 
 #undef X
   return;
-}
+} // namespace fbgemm_gpu
 
 } // namespace fbgemm_gpu
