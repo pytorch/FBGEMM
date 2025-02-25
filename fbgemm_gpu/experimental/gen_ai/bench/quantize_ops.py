@@ -410,7 +410,7 @@ class BF16OSSFastGemv(QuantizeOpBase):
 @register_quantize_op
 class BF16Fp8OSSFastGemv(QuantizeOpBase):
     """
-    FP8 OSS fast gemv kernel.
+    BF16FP8 OSS fast gemv kernel.
     """
 
     def quantize(self, x, w):
@@ -418,12 +418,12 @@ class BF16Fp8OSSFastGemv(QuantizeOpBase):
         return x, wq, w_scale
 
     def compute(self, x, wq, w_scale):
-        out = torch.ops.fbgemm.bf16fp8bf16_fast_gemv(x, wq, w_scale, 0.0)
+        out = torch.ops.fbgemm.bf16fp8bf16_fast_gemv(x, wq, w_scale)
         return out
 
     def quantize_and_compute(self, x, w):
         x, wq, w_scale = self.quantize(x, w)
-        return self.compute(x, wq, w_scale.item())
+        return self.compute(x, wq, w_scale)
 
     @property
     def name(self) -> str:
@@ -451,12 +451,12 @@ class Fp8Fp8OSSFastGemv(QuantizeOpBase):
         return xq, wq, w_scale, x_scale
 
     def compute(self, xq, wq, w_scale, x_scale):
-        out = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(xq, wq, w_scale * x_scale, 0.0)
+        out = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(xq, wq, w_scale * x_scale)
         return out
 
     def quantize_and_compute(self, x, w):
         xq, wq, w_scale, x_scale = self.quantize(x, w)
-        return self.compute(xq, wq, w_scale.item(), x_scale.item())
+        return self.compute(xq, wq, w_scale, x_scale)
 
     @property
     def name(self) -> str:
