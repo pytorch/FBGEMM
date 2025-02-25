@@ -1139,10 +1139,10 @@ _block_bucketize_sparse_features_cpu(
   const auto new_lengths_size = lengths_size * my_size;
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
   auto new_indices = native_empty_like(indices);
-  Tensor new_weights;
-  Tensor new_pos;
-  Tensor unbucketize_permute;
-  Tensor bucket_mapping;
+  std::optional<Tensor> new_weights;
+  std::optional<Tensor> new_pos;
+  std::optional<Tensor> unbucketize_permute;
+  std::optional<Tensor> bucket_mapping;
   if (bucketize_pos) {
     new_pos = native_empty_like(indices);
   }

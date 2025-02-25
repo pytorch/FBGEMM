@@ -525,6 +525,7 @@ class BlockBucketizeTest(unittest.TestCase):
         torch.testing.assert_close(
             new_indices.cpu(), new_indices_ref, msg=f"{new_indices=}"
         )
+        assert new_weights is None and new_pos is None
         if unbucketize_permute is not None:
             torch.testing.assert_close(
                 unbucketize_permute.cpu(),
