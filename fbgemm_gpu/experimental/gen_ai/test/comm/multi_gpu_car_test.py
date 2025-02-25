@@ -404,11 +404,11 @@ class LLamaMultiGpuTests(unittest.TestCase):
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_reducescatter_inner)(path)
 
