@@ -938,8 +938,6 @@ Tensor {{ embedding_cuda_op }}(
             Tensor grad_output_mean;
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
                 grad_output_mean = at::empty_like(grad_output_reshaped);
-                {%- if not dense or not vbe %}
-
 #ifdef FBGEMM_GPU_MEMCHECK
                 const auto func_name1 = "grad_mean{{ vdesc }}_kernel";
 #endif
@@ -965,7 +963,6 @@ Tensor {{ embedding_cuda_op }}(
                     );
 
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
-                {%- endif %} // if not dense or not vbe
 
                 grad_output_accessor = MAKE_PTA_WITH_NAME("{{ embedding_cuda_op }}.2", grad_output_mean, grad_t, 2, 64);
             }
