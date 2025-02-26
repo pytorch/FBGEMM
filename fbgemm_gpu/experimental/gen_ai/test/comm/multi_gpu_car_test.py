@@ -400,7 +400,7 @@ class LLamaMultiGpuTests(unittest.TestCase):
             )
 
     def test_reducescatter(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
