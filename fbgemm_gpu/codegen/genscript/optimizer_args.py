@@ -48,6 +48,41 @@ OptimItem = OptimizerArgsSetItem
 
 
 ######################################################################
+## Data Dict for the code generator script                   ##
+######################################################################
+# a dict of tensor name and annotation to mark whether the tensor is mutable.
+# this is use to annotate the tensor in the defintion schema.
+annotation_dict: Dict[str, str] = {
+    "weights": "(a!)",
+    "weights_host": "(a!)",
+    "weights_dev": "(b!)",
+    "weights_uvm": "(c!)",
+    "weights_lxu_cache": "(d!)",
+    "aux_tensor": "(e!)",
+    "uvm_cache_stats": "(f!)",
+    "momentum1": "(g!)",
+    "momentum1_host": "(g!)",
+    "momentum1_dev": "(h!)",
+    "momentum1_uvm": "(i!)",
+    "momentum2": "(j!)",
+    "momentum2_host": "(j!)",
+    "momentum2_dev": "(k!)",
+    "momentum2_uvm": "(l!)",
+    "prev_iter": "(m!)",
+    "prev_iter_host": "(m!)",
+    "prev_iter_dev": "(n!)",
+    "prev_iter_uvm": "(o!)",
+    "row_counter": "(p!)",
+    "row_counter_host": "(p!)",
+    "row_counter_dev": "(q!)",
+    "row_counter_uvm": "(r!)",
+    "optim_tensor": "(s!)",
+    "delta_weights_host": "(t!)",
+    "delta_weights_dev": "(u!)",
+    "delta_weights_uvm": "(v!)",
+}
+
+######################################################################
 ## Helper functions for the code generator script                   ##
 ######################################################################
 
@@ -146,6 +181,11 @@ def tensor_arg(name: str) -> str:
     return f"Tensor {name}"
 
 
+def tensor_arg_annotate(name: str) -> str:
+    annotate = annotation_dict[name] if name in annotation_dict else ""
+    return f"Tensor{annotate} {name}"
+
+
 def double_arg(name: str, default: float = 0.0) -> str:
     return f"double {name} = {default}"
 
@@ -191,7 +231,8 @@ def schema_sym_int_arg_no_default(name: str) -> str:
 
 
 def schema_tensor_list_arg_no_default(name: str) -> str:
-    return f"Tensor[] {name}"
+    annotate = annotation_dict[name] if name in annotation_dict else ""
+    return f"Tensor[]{annotate} {name}"
 
 
 def bool_arg(name: str, default: bool = False) -> str:
@@ -409,7 +450,7 @@ def make_function_arg(
 
 def make_function_schema_arg(ty: ArgType, name: str, default: Union[int, float]) -> str:
     return {
-        ArgType.TENSOR: tensor_arg,
+        ArgType.TENSOR: tensor_arg_annotate,
         ArgType.INT_TENSOR: tensor_arg,
         ArgType.LONG_TENSOR: tensor_arg,
         ArgType.PLACEHOLDER_TENSOR: tensor_arg,
