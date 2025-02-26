@@ -15,9 +15,13 @@ from typing import List
 
 try:
     from .common import CodeTemplate
+    from .optimizer_args import annotation_dict
 except ImportError:
     # pyre-ignore[21]
     from common import CodeTemplate
+
+    # pyre-ignore[21]
+    from optimizer_args import annotation_dict
 
 
 class ForwardSplitGenerator:
@@ -74,6 +78,7 @@ class ForwardSplitGenerator:
             has_gpu_support=True,
             is_forward=True,
             has_vbe_support=True,
+            schema_annotation=annotation_dict,
         )
 
         # Generate PT2 forward wrapper (CPU)
@@ -84,9 +89,10 @@ class ForwardSplitGenerator:
             has_cpu_support=True,
             is_forward=True,
             has_vbe_support=True,
+            schema_annotation=annotation_dict,
         )
 
-        # Generate PT2 forward wrapper (CUDA)
+        # Generate SSD PT2 forward wrapper (CUDA)
         CodeTemplate.load(
             "training/pt2/embedding_split_host_pt2_cuda_wrapper_template.cpp",
         ).write(
@@ -95,6 +101,7 @@ class ForwardSplitGenerator:
             is_forward=True,
             has_vbe_support=True,
             ssd=True,
+            schema_annotation=annotation_dict,
         )
 
     @staticmethod

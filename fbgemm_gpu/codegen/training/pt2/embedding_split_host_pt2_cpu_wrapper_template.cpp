@@ -286,7 +286,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor indice_weights, "
         {%- endif %}
         "    Tensor lxu_cache_locations, "
-        "    Tensor uvm_cache_stats, "
+        "    Tensor{{ schema_annotation['uvm_cache_stats'] }} uvm_cache_stats, "
         {%- if vbe %}
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
@@ -312,10 +312,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     %}
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
-        "    Tensor(a!) host_weights, "
-        "    Tensor(b!) dev_weights, "
-        "    Tensor(c!) uvm_weights, "
-        "    Tensor lxu_cache_weights, "
+        "    Tensor{{ schema_annotation['weights_host'] }} host_weights, "
+        "    Tensor{{ schema_annotation['weights_dev'] }} dev_weights, "
+        "    Tensor{{ schema_annotation['weights_uvm'] }} uvm_weights, "
+        "    Tensor{{ schema_annotation['weights_lxu_cache'] }} lxu_cache_weights, "
         "    Tensor weights_placements, "
         "    Tensor weights_offsets, "
         {%- if nobag %}

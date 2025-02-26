@@ -1213,7 +1213,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor weights_offsets, "
         {%- else %}
         "    Tensor placeholder_autograd_tensor, "
-        "    Tensor[] weights, "
+        "    Tensor[]{{ schema_annotation['weights'] }} weights, "
         {%- endif %}
         "    Tensor D_offsets, "
         "    SymInt total_D, "
@@ -1227,7 +1227,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor? feature_requires_grad, "
         "    int output_dtype, "
         {%- if not dense %}
-        "    Tensor?[] aux_tensor, "
+        "    Tensor?[]{{ schema_annotation['aux_tensor'] }} aux_tensor, "
         "    int[] aux_int, "
         "    float[] aux_float, "
         "    bool[] aux_bool, "
