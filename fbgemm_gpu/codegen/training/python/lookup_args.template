@@ -49,6 +49,7 @@ class CommonArgs(NamedTuple):
     {%- if ssd %}
     ssd_tensors: Dict[str, torch.Tensor]
     {%- endif %}
+    mixed_D: bool
 
 
 class OptimizerArgs(NamedTuple):
