@@ -140,8 +140,7 @@ __global__ void gemv_quantized_bf16_fp8(
     __nv_bfloat16* vec,
     __nv_bfloat16* res,
     unsigned int n,
-    half scale,
-    half zero_point,
+    float const* scale,
     unsigned int num_per_thread) {
   float sum = 0;
   // each thread load num_per_thread elements from global
@@ -150,9 +149,6 @@ __global__ void gemv_quantized_bf16_fp8(
   unsigned int start_idx = threadIdx.x;
   half4* mat4 = reinterpret_cast<half4*>(mat);
   float4* vec4 = reinterpret_cast<float4*>(vec);
-
-  float zero_point_f = static_cast<float>(zero_point);
-  float scale_f = static_cast<float>(scale);
 
 #pragma unroll
   for (int iter = 0; iter < num_per_thread >> 3; iter++) {
@@ -170,48 +166,40 @@ __global__ void gemv_quantized_bf16_fp8(
       const fp8_2* mat_h4 = (fp8_2*)&mat_val.w;
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h1->x) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h1->x) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h1->x);
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h1->y) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h1->y) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h1->y);
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h2->x) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h2->x) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h2->x);
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h2->y) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h2->y) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h2->y);
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h3->x) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h3->x) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h3->x);
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h3->y) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h3->y) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h3->y);
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h4->x) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h4->x) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h4->x);
       sum +=
           cutlass::NumericConverter<float, __nv_bfloat16>::convert(vec_h4->y) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h4->y) -
-           zero_point_f);
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+              mat_h4->y);
     }
   }
 
-  sum *= scale_f;
+  sum *= (*scale);
 
   sum = warpReduceSum(sum, blockDim.x);
 
@@ -248,8 +236,7 @@ __global__ void gemv_quantized_fp8_fp8(
     cutlass::float_e4m3_t* vec,
     __nv_bfloat16* res,
     unsigned int n,
-    half scale,
-    half zero_point,
+    float const* scale,
     unsigned int num_per_thread) {
   float sum = 0;
   // each thread load num_per_thread elements from global
@@ -258,10 +245,6 @@ __global__ void gemv_quantized_fp8_fp8(
   unsigned int start_idx = threadIdx.x;
   half4* mat4 = reinterpret_cast<half4*>(mat);
   half4* vec4 = reinterpret_cast<half4*>(vec);
-
-  float zero_point_f = static_cast<float>(
-      zero_point); // so far, we use a default 0 value zero_point
-  float scale_f = static_cast<float>(scale);
 
 #pragma unroll
   for (int iter = 0; iter < num_per_thread >> 3; iter++) {
@@ -277,58 +260,42 @@ __global__ void gemv_quantized_fp8_fp8(
       const fp8_2* mat_h2 = (fp8_2*)&mat_val.y;
       const fp8_2* mat_h3 = (fp8_2*)&mat_val.z;
       const fp8_2* mat_h4 = (fp8_2*)&mat_val.w;
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h1->x) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h1->x) -
-           zero_point_f);
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h1->y) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h1->y) -
-           zero_point_f);
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h2->x) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h2->x) -
-           zero_point_f);
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h2->y) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h2->y) -
-           zero_point_f);
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h3->x) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h3->x) -
-           zero_point_f);
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h3->y) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h3->y) -
-           zero_point_f);
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h4->x) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h4->x) -
-           zero_point_f);
-      sum += (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-                  vec_h4->y) -
-              zero_point_f) *
-          (cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
-               mat_h4->y) -
-           zero_point_f);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h1->x) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h1->x);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h1->y) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h1->y);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h2->x) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h2->x);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h2->y) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h2->y);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h3->x) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h3->x);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h3->y) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h3->y);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h4->x) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h4->x);
+      sum += cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 vec_h4->y) *
+          cutlass::NumericConverter<float, cutlass::float_e4m3_t>::convert(
+                 mat_h4->y);
     }
   }
 
-  sum *= (scale_f);
+  sum *= (*scale);
 
   sum = warpReduceSum(sum, blockDim.x);
 

@@ -27,7 +27,9 @@ class GatherScatterTests(unittest.TestCase):
     """Test Gathers."""
 
     def test_gather_along_first_dim(self) -> None:
-        def _test_gather_along_first_dim(M: int, N: int, K: int) -> None:
+        def _test_gather_along_first_dim(
+            M: int, N: int, K: int, compile: bool = False
+        ) -> None:
             logger.info(f"Running test_gather_along_first_dim: {M=}, {N=}, {K=}")
             src = torch.randn([M, K], device="cuda", dtype=torch.bfloat16).abs()
             if M == N:
@@ -36,7 +38,10 @@ class GatherScatterTests(unittest.TestCase):
                 indices = torch.randint(0, M, [N], device="cuda", dtype=torch.int32)
 
             def fn():
-                return torch.ops.fbgemm.gather_along_first_dim(src, indices)
+                op = torch.ops.fbgemm.gather_along_first_dim
+                if compile:
+                    op = torch.compile(op, backend="inductor", fullgraph=True)
+                return op(src, indices)
 
             def ref_fn():
                 return torch.index_select(src, 0, indices)
@@ -71,38 +76,41 @@ class GatherScatterTests(unittest.TestCase):
         _test_gather_along_first_dim(255, 129, 2049)
         _test_gather_along_first_dim(255, 129, 2048)
         _test_gather_along_first_dim(1024, 1024, 1024)
+        _test_gather_along_first_dim(1024, 1024, 1024, compile=True)
 
     def test_scatter_add_along_first_dim(self) -> None:
-        def _test_scatter_add_along_first_dim(M: int, N: int, K: int) -> None:
+        def _test_scatter_add_along_first_dim(
+            M: int, N: int, K: int, compile: bool = False
+        ) -> None:
             logger.info(f"Running test_scatter_add_along_first_dim: {M=}, {N=}, {K=}")
             src = torch.randn([M, K], device="cuda", dtype=torch.bfloat16).abs()
             dst = torch.randn([N, K], device="cuda", dtype=torch.bfloat16).abs()
             if M == N:
-                indices = torch.randperm(N, device="cuda", dtype=torch.int32)
+                indices_1d = torch.randperm(N, device="cuda", dtype=torch.int64)
             else:
-                indices = torch.randint(0, N, [M], device="cuda", dtype=torch.int32)
+                indices_1d = torch.randint(0, N, [M], device="cuda", dtype=torch.int64)
 
-            indices_int32 = indices.to(torch.int32)
-            indices_int64 = indices.to(torch.int64).unsqueeze(1).expand(-1, K)
+            indices_2d = indices_1d.to(torch.int64).unsqueeze(1).expand(-1, K)
 
             test_dst = dst.clone()
             ref_dst = dst.clone()
 
             logger.info("Running FBGMM")
-            torch.ops.fbgemm.scatter_add_along_first_dim(test_dst, src, indices_int32)
+            torch.ops.fbgemm.scatter_add_along_first_dim(test_dst, src, indices_1d)
 
             logger.info("Running PyTorch")
-            ref_dst.scatter_add_(0, indices_int64, src)
+            ref_dst.scatter_add_(0, indices_2d, src)
 
             torch.testing.assert_close(test_dst, ref_dst, atol=1e-3, rtol=2e-2)
 
             def fn():
-                torch.ops.fbgemm.scatter_add_along_first_dim(
-                    test_dst, src, indices_int32
-                )
+                op = torch.ops.fbgemm.scatter_add_along_first_dim
+                if compile:
+                    op = torch.compile(op, backend="inductor", fullgraph=True)
+                op(test_dst, src, indices_1d)
 
             def ref_fn():
-                ref_dst.scatter_add_(0, indices_int64, src)
+                ref_dst.scatter_add_(0, indices_2d, src)
 
             # Load src, load dst, store dst. x3.
             data_size_in_terabytes = N * K * 2 * 3 / 1e12
@@ -127,6 +135,7 @@ class GatherScatterTests(unittest.TestCase):
         _test_scatter_add_along_first_dim(255, 129, 2049)
         _test_scatter_add_along_first_dim(255, 129, 2048)
         _test_scatter_add_along_first_dim(1024, 1024, 1024)
+        _test_scatter_add_along_first_dim(1024, 1024, 1024, compile=True)
 
 
 if __name__ == "__main__":

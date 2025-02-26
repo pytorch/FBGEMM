@@ -1128,11 +1128,11 @@ class FP8Tests(unittest.TestCase):
             w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
             if quantize_w and not quantize_x:
                 wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-                z = gemv_op(x, wq, w_scale.item(), 0.0)
+                z = gemv_op(x, wq, w_scale)
             elif quantize_w and quantize_x:
                 xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
                 wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-                z = gemv_op(xq, wq, x_scale.item() * w_scale.item(), 0.0)
+                z = gemv_op(xq, wq, x_scale * w_scale)
             else:
                 z = gemv_op(x, w)
             z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")

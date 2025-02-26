@@ -177,11 +177,7 @@ void nccl_alltoall(
   torch::cuda::nccl::all2all(dsts, srcs, *get_nccl_comm(comm_idx), stream);
 }
 
-void nccl_reducescatter(
-    at::Tensor dst,
-    at::Tensor src,
-    std::optional<at::Tensor> bias,
-    int64_t comm_idx) {
+void nccl_reducescatter(at::Tensor dst, at::Tensor src, int64_t comm_idx) {
   using namespace c10d;
   TORCH_CHECK(src.is_contiguous());
   TORCH_CHECK(dst.is_contiguous());
@@ -198,10 +194,6 @@ void nccl_reducescatter(
           *get_nccl_comm(comm_idx),
           at::cuda::getCurrentCUDAStream()),
       "ncclReduceScatter");
-
-  if (bias) {
-    dst.add_(*bias);
-  }
 }
 
 void nccl_allreduce(
@@ -270,7 +262,7 @@ void two_shot_car_allreduce(
 void car_reducescatter(
     at::Tensor dst,
     at::Tensor src,
-    std::optional<at::Tensor> bias,
+    bool split_last_dim,
     int64_t comm_idx);
 
 at::Tensor car_tensor();
@@ -295,8 +287,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "nccl_alltoall_single(Tensor(a!) dst, Tensor src, int world_size, int comm_idx=0) -> ()");
   m.def("nccl_alltoall(Tensor(a!)[] dst, Tensor[] src, int comm_idx=0) -> ()");
 
-  m.def(
-      "nccl_reducescatter(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+  m.def("nccl_reducescatter(Tensor(a!) dst, Tensor src, int comm_idx=0) -> ()");
 
   m.def(
       "nccl_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
@@ -318,7 +309,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "two_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
 
   m.def(
-      "car_reducescatter(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+      "car_reducescatter(Tensor(a!) dst, Tensor src, bool split_last_dim=False, int comm_idx=0) -> ()");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -379,7 +370,6 @@ void nccl_alltoall_meta(
 void nccl_reducescatter_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
-    std::optional<at::Tensor> /* bias */,
     int64_t /* comm_idx */) {
   return;
 }
@@ -403,7 +393,7 @@ void two_shot_car_allreduce_meta(
 void car_reducescatter_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
-    std::optional<at::Tensor> /* bias */,
+    bool /* split_last_dim */,
     int64_t /* comm_idx */) {
   return;
 }

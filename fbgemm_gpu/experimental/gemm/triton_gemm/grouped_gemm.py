@@ -16,26 +16,49 @@ import triton.language as tl
 from fbgemm_gpu.experimental.gemm.triton_gemm import utils
 
 
+_NV_CONFIGS = [
+    triton.Config(
+        {
+            "BLOCK_SIZE_M": block_size_m,
+            "BLOCK_SIZE_N": block_size_n,
+            "BLOCK_SIZE_K": block_size_k,
+        },
+        num_stages=num_stages,
+        num_warps=num_warps,
+        num_ctas=num_ctas,
+    )
+    for block_size_m in [64, 128]
+    for block_size_n in [128, 256]
+    for block_size_k in [128, 256]
+    for num_stages in [3, 4]
+    for num_warps in [4, 8]
+    for num_ctas in [1]
+    if not (block_size_m == 64 and num_warps == 8)
+]
+
+_AMD_CONFIGS = [
+    triton.Config(
+        {
+            "BLOCK_SIZE_M": block_size_m,
+            "BLOCK_SIZE_N": block_size_n,
+            "BLOCK_SIZE_K": block_size_k,
+            "waves_per_eu": waves_per_cu,
+            "matrix_instr_nonkdim": matrix_instr_nonkdim,
+        },
+        num_stages=num_stages,
+        num_warps=num_warps,
+    )
+    for block_size_m in [32, 64, 128]
+    for block_size_n in [128, 256]
+    for block_size_k in [128, 256]
+    for num_stages in [1, 2]
+    for num_warps, waves_per_cu in [(4, 1), (8, 2), (16, 4)]
+    for matrix_instr_nonkdim in [16, 32]
+]
+
+
 @triton.autotune(
-    configs=[
-        triton.Config(
-            {
-                "BLOCK_SIZE_M": block_size_m,
-                "BLOCK_SIZE_N": block_size_n,
-                "BLOCK_SIZE_K": block_size_k,
-            },
-            num_stages=num_stages,
-            num_warps=num_warps,
-            num_ctas=num_ctas,
-        )
-        for block_size_m in [64, 128]
-        for block_size_n in [128, 256]
-        for block_size_k in [128, 256]
-        for num_stages in [3, 4]
-        for num_warps in [4, 8]
-        for num_ctas in [1]
-        if not (block_size_m == 64 and num_warps == 8)
-    ],
+    configs=_AMD_CONFIGS if torch.version.hip else _NV_CONFIGS,
     key=["G", "M_BUCKET", "N", "K"],
 )
 @triton.jit
@@ -51,6 +74,7 @@ def _kernel_grouped_gemm(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    USE_TMA_LOAD: tl.constexpr,
     USE_TMA_STORE: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
@@ -61,7 +85,10 @@ def _kernel_grouped_gemm(
 
     dtype: tl.dtype = c_ptr.dtype.element_ty
     TMA_SIZE: tl.constexpr = tl.constexpr(128)
-    c_desc_ptr = workspace + tidx * TMA_SIZE
+    if USE_TMA_STORE:
+        c_desc_ptr = workspace + tidx * TMA_SIZE
+    else:
+        c_desc_ptr = None
 
     M_end_offset = 0
     iterated_tiles = 0
@@ -99,22 +126,43 @@ def _kernel_grouped_gemm(
 
                 accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
                 tl.static_assert(K % BLOCK_SIZE_K == 0)
-                m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
-                for k_offset in range(0, K, BLOCK_SIZE_K):
-                    a = tl._experimental_descriptor_load(
-                        a_desc_ptr,
-                        [m_offset, k_offset],
-                        [BLOCK_SIZE_M, BLOCK_SIZE_K],
-                        dtype,
+                if USE_TMA_LOAD:
+                    m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                    n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                    for k_offset in range(0, K, BLOCK_SIZE_K):
+                        a = tl._experimental_descriptor_load(
+                            a_desc_ptr,
+                            [m_offset, k_offset],
+                            [BLOCK_SIZE_M, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        b = tl._experimental_descriptor_load(
+                            b_desc_ptr,
+                            [n_offset, k_offset],
+                            [BLOCK_SIZE_N, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        accumulator += tl.dot(a, b.T)
+                else:
+                    offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                    offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                    offs_k = tl.arange(0, BLOCK_SIZE_K)
+                    a_ptrs = (
+                        a_desc_ptr
+                        + (M_start_offset + offs_am[:, None]) * K
+                        + offs_k[None, :]
                     )
-                    b = tl._experimental_descriptor_load(
-                        b_desc_ptr,
-                        [n_offset, k_offset],
-                        [BLOCK_SIZE_N, BLOCK_SIZE_K],
-                        dtype,
+                    b_ptrs = (
+                        b_desc_ptr
+                        + (N_start_offset + offs_bn[:, None]) * K
+                        + offs_k[None, :]
                     )
-                    accumulator += tl.dot(a, b.T)
+                    for k_offset in range(0, K, BLOCK_SIZE_K):
+                        a = tl.load(a_ptrs, mask=offs_am[:, None] < m_size)
+                        b = tl.load(b_ptrs, mask=offs_bn[:, None] < n_size)
+                        accumulator += tl.dot(a, b.T)
+                        a_ptrs += BLOCK_SIZE_K
+                        b_ptrs += BLOCK_SIZE_K
 
                 if USE_TMA_STORE:
                     m_offset = (tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
@@ -140,26 +188,11 @@ def _kernel_grouped_gemm(
             iterated_tiles += num_tiles
 
 
+TT_FP8_DTYPE = tl.float8e4b8 if torch.version.hip else tl.float8e4nv
+
+
 @triton.autotune(
-    configs=[
-        triton.Config(
-            {
-                "BLOCK_SIZE_M": block_size_m,
-                "BLOCK_SIZE_N": block_size_n,
-                "BLOCK_SIZE_K": block_size_k,
-            },
-            num_stages=num_stages,
-            num_warps=num_warps,
-            num_ctas=num_ctas,
-        )
-        for block_size_m in [64, 128]
-        for block_size_n in [128, 256]
-        for block_size_k in [128, 256]
-        for num_stages in [3, 4]
-        for num_warps in [4, 8]
-        for num_ctas in [1]
-        if not (block_size_m == 64 and num_warps == 8)
-    ],
+    configs=_AMD_CONFIGS if torch.version.hip else _NV_CONFIGS,
     key=["G", "M_BUCKET", "N", "K"],
 )
 @triton.jit
@@ -177,6 +210,7 @@ def _kernel_grouped_gemm_fp8_rowwise(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    USE_TMA_LOAD: tl.constexpr,
     USE_TMA_STORE: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
@@ -185,9 +219,12 @@ def _kernel_grouped_gemm_fp8_rowwise(
 ) -> None:
     tidx = tl.program_id(0)
 
-    dtype = tl.float8e4nv
+    dtype = TT_FP8_DTYPE
     TMA_SIZE: tl.constexpr = tl.constexpr(128)
-    c_desc_ptr = workspace + tidx * TMA_SIZE
+    if USE_TMA_STORE:
+        c_desc_ptr = workspace + tidx * TMA_SIZE
+    else:
+        c_desc_ptr = None
 
     M_end_offset = 0
     iterated_tiles = 0
@@ -225,22 +262,43 @@ def _kernel_grouped_gemm_fp8_rowwise(
 
                 accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
                 tl.static_assert(K % BLOCK_SIZE_K == 0)
-                m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
-                n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
-                for k_offset in range(0, K, BLOCK_SIZE_K):
-                    a = tl._experimental_descriptor_load(
-                        a_desc_ptr,
-                        [m_offset, k_offset],
-                        [BLOCK_SIZE_M, BLOCK_SIZE_K],
-                        dtype,
+                if USE_TMA_LOAD:
+                    m_offset = (M_start_offset + tile_m_idx * BLOCK_SIZE_M).to(tl.int32)
+                    n_offset = (N_start_offset + tile_n_idx * BLOCK_SIZE_N).to(tl.int32)
+                    for k_offset in range(0, K, BLOCK_SIZE_K):
+                        a = tl._experimental_descriptor_load(
+                            a_desc_ptr,
+                            [m_offset, k_offset],
+                            [BLOCK_SIZE_M, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        b = tl._experimental_descriptor_load(
+                            b_desc_ptr,
+                            [n_offset, k_offset],
+                            [BLOCK_SIZE_N, BLOCK_SIZE_K],
+                            dtype,
+                        )
+                        accumulator += tl.dot(a, b.T)
+                else:
+                    offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                    offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                    offs_k = tl.arange(0, BLOCK_SIZE_K)
+                    a_ptrs = (
+                        a_desc_ptr
+                        + (M_start_offset + offs_am[:, None]) * K
+                        + offs_k[None, :]
                     )
-                    b = tl._experimental_descriptor_load(
-                        b_desc_ptr,
-                        [n_offset, k_offset],
-                        [BLOCK_SIZE_N, BLOCK_SIZE_K],
-                        dtype,
+                    b_ptrs = (
+                        b_desc_ptr
+                        + (N_start_offset + offs_bn[:, None]) * K
+                        + offs_k[None, :]
                     )
-                    accumulator += tl.dot(a, b.T)
+                    for k_offset in range(0, K, BLOCK_SIZE_K):
+                        a = tl.load(a_ptrs, mask=offs_am[:, None] < m_size)
+                        b = tl.load(b_ptrs, mask=offs_bn[:, None] < n_size)
+                        accumulator += tl.dot(a, b.T)
+                        a_ptrs += BLOCK_SIZE_K
+                        b_ptrs += BLOCK_SIZE_K
 
                 offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
                 offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
@@ -297,47 +355,55 @@ def _grouped_gemm(
 
     y = torch.empty((M, N), device=x.device, dtype=torch.bfloat16)
 
-    desc_helper = utils.TmaAutoTuneHelper()
-    desc_helper.init_tma_descriptor("x")
-    desc_helper.init_tma_descriptor("w")
-
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
+    USE_TMA_LOAD = not torch.version.hip
+    USE_TMA_STORE = False
 
-    workspace = torch.empty(
-        NUM_SMS * utils.TmaAutoTuneHelper.TMA_SIZE,
-        device=x.device,
-        dtype=torch.uint8,
-    )
+    desc_helper = None
+    desc_x = x
+    desc_w = w
+    workspace = None
+
+    if USE_TMA_LOAD:
+        desc_helper = utils.TmaAutoTuneHelper()
+        desc_helper.init_tma_descriptor("x")
+        desc_helper.init_tma_descriptor("w")
+        desc_x = desc_helper.get_tma_descriptor_kernel_param("x")
+        desc_w = desc_helper.get_tma_descriptor_kernel_param("w")
+
+    if USE_TMA_STORE:
+        workspace = torch.empty(
+            NUM_SMS * utils.TmaAutoTuneHelper.TMA_SIZE,
+            device=x.device,
+            dtype=torch.uint8,
+        )
 
     def grid(META):
-        nonlocal desc_helper
-        desc_helper.fill_2d_tma_descriptor(
-            "x",
-            x.data_ptr(),
-            M,
-            K,
-            META["BLOCK_SIZE_M"],
-            META["BLOCK_SIZE_K"],
-            x.element_size(),
-        )
+        if USE_TMA_LOAD:
+            nonlocal desc_helper
+            desc_helper.fill_2d_tma_descriptor(
+                "x",
+                x.data_ptr(),
+                M,
+                K,
+                META["BLOCK_SIZE_M"],
+                META["BLOCK_SIZE_K"],
+                x.element_size(),
+            )
 
-        desc_helper.fill_2d_tma_descriptor(
-            "w",
-            w.data_ptr(),
-            N * G,
-            K,
-            META["BLOCK_SIZE_N"],
-            META["BLOCK_SIZE_K"],
-            w.element_size(),
-        )
+            desc_helper.fill_2d_tma_descriptor(
+                "w",
+                w.data_ptr(),
+                N * G,
+                K,
+                META["BLOCK_SIZE_N"],
+                META["BLOCK_SIZE_K"],
+                w.element_size(),
+            )
 
         return (NUM_SMS,)
 
-    desc_x = desc_helper.get_tma_descriptor_kernel_param("x")
-    desc_w = desc_helper.get_tma_descriptor_kernel_param("w")
-
     M_BUCKET = triton.next_power_of_2(M)
-    USE_TMA_STORE = False
     if x_scale is not None and w_scale is not None:
         assert x_scale.is_contiguous()
         assert w_scale.is_contiguous()
@@ -354,6 +420,7 @@ def _grouped_gemm(
             N,
             K,
             NUM_SMS,
+            USE_TMA_LOAD,
             USE_TMA_STORE,
         )
     else:
@@ -370,6 +437,7 @@ def _grouped_gemm(
             N,
             K,
             NUM_SMS,
+            USE_TMA_LOAD,
             USE_TMA_STORE,
         )
 
