@@ -99,17 +99,22 @@ at::Tensor f8f8bf16_tensorwise_impl(
       KernelScheduleAuto; // Kernel to launch based on the default setting in
                           // the Collective Builder
 
-  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
+  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecializedCooperative;
   using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
   using FastDefaultSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum;
+      cutlass::gemm::KernelTmaWarpSpecializedCooperativeFP8FastAccum;
   using FastPongSchedule =
       cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum;
   using SlowAccum = cute::conditional_t<PONG, PongSchedule, DefaultSchedule>;
   using FastAccum =
       cute::conditional_t<PONG, FastPongSchedule, FastDefaultSchedule>;
+  using CooperativeEpilogueSchedule =
+      cutlass::epilogue::TmaWarpSpecializedCooperative;
+  using PongEpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
   using MainLoopSchedule =
       cute::conditional_t<FAST_ACCUM, FastAccum, SlowAccum>;
+  using EpilogueSchedule = cute::
+      conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
 
   using Scale_ =
       cutlass::epilogue::fusion::Sm90ScalarBroadcast<ElementComputeEpilogue>;
@@ -140,7 +145,7 @@ at::Tensor f8f8bf16_tensorwise_impl(
           ElementOutput,
           LayoutOutput,
           AlignmentOutput,
-          cutlass::epilogue::TmaWarpSpecialized,
+          EpilogueSchedule,
           EpilogueEVT>::CollectiveOp;
 
   using CollectiveMainloop =
@@ -239,10 +244,10 @@ at::Tensor f8f8bf16_tensorwise(
     return f8f8bf16_tensorwise_impl<64, 128, 128, 2, 1, 1, true, true>(
         XQ, WQ, scale);
   } else if (kernel == KernelMode::Large) {
-    return f8f8bf16_tensorwise_impl<128, 128, 128, 2, 1, 1, true, true>(
+    return f8f8bf16_tensorwise_impl<128, 256, 128, 2, 1, 1, false, true>(
         XQ, WQ, scale);
   } else {
-    return f8f8bf16_tensorwise_impl<128, 128, 128, 1, 2, 1, false, true>(
+    return f8f8bf16_tensorwise_impl<128, 128, 128, 1, 2, 1, true, true>(
         XQ, WQ, scale);
   }
 }
