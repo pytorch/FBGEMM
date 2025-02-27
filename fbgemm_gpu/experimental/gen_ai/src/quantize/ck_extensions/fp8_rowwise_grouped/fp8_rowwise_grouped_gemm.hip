@@ -195,7 +195,7 @@ void set_static_kernel_args(
   }
 }
 
-__global__ void set_kernel_args_fixed_nk_kernel(
+__global__ void set_kernel_args_fixed_nk_kernel_only(
     KernelArguments* kernel_args,
     ADataType* XQ,
     BDataType* WQ,
@@ -206,8 +206,7 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     int M,
     int N,
     int K,
-    int group_count,
-    bool zeroing_output_tensor) {
+    int group_count) {
   int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each thread is responsible for setting up the arguments for one group.
   if (thread_idx < group_count) {
@@ -228,7 +227,40 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     // Write kernel args to memory.
     kernel_args[thread_idx] = kernel_group_args;
   }
-  if (!zeroing_output_tensor) return;
+}
+
+__global__ void set_kernel_args_fixed_nk_kernel_zeroing(
+    KernelArguments* kernel_args,
+    ADataType* XQ,
+    BDataType* WQ,
+    D0DataType* w_scale,
+    D1DataType* x_scale,
+    EDataType* output,
+    int64_t* prepad_M,
+    int M,
+    int N,
+    int K,
+    int group_count) {
+  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  // Each thread is responsible for setting up the arguments for one group.
+  if (thread_idx < group_count) {
+    // Compute offsets for this group.
+    int group_M = prepad_M[thread_idx];
+    KernelArguments kernel_group_args = {
+        XQ + (thread_idx * M * K),
+        WQ + (thread_idx * N * K),
+        {w_scale + (thread_idx * N), x_scale + (thread_idx * M)},
+        output + (thread_idx * M * N),
+        group_M,
+        N,
+        K,
+        K,
+        K,
+        {0, 0},
+        N};
+    // Write kernel args to memory.
+    kernel_args[thread_idx] = kernel_group_args;
+  }
 
   // Figure out where in memory we are.
   // Each thread sets one float 4 which corresponds to 8 bf16 values.
@@ -284,19 +316,33 @@ void set_dynamic_kernel_args(
   int block_factor = std::max(group_count, (group_count * M * N) / BLOCK_SIZE);
   int blockSize = std::min(512, block_factor);
   int numBlocks = (block_factor + blockSize - 1) / blockSize;
-  set_kernel_args_fixed_nk_kernel<<<numBlocks, blockSize, 0, stream>>>(
-      reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
-      reinterpret_cast<ADataType*>(XQ.data_ptr()),
-      reinterpret_cast<BDataType*>(WQ.data_ptr()),
-      reinterpret_cast<D0DataType*>(w_scale.data_ptr()),
-      reinterpret_cast<D1DataType*>(x_scale.data_ptr()),
-      reinterpret_cast<EDataType*>(output.data_ptr()),
-      reinterpret_cast<int64_t*>(zero_start_index_M.data_ptr()),
-      M,
-      N,
-      K,
-      group_count,
-      zeroing_output_tensor);
+  if (zeroing_output_tensor) {
+    set_kernel_args_fixed_nk_kernel_zeroing<<<numBlocks, blockSize, 0, stream>>>(
+        reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
+        reinterpret_cast<ADataType*>(XQ.data_ptr()),
+        reinterpret_cast<BDataType*>(WQ.data_ptr()),
+        reinterpret_cast<D0DataType*>(w_scale.data_ptr()),
+        reinterpret_cast<D1DataType*>(x_scale.data_ptr()),
+        reinterpret_cast<EDataType*>(output.data_ptr()),
+        reinterpret_cast<int64_t*>(zero_start_index_M.data_ptr()),
+        M,
+        N,
+        K,
+        group_count);
+  } else {
+    set_kernel_args_fixed_nk_kernel_only<<<1, group_count, 0, stream>>>(
+        reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
+        reinterpret_cast<ADataType*>(XQ.data_ptr()),
+        reinterpret_cast<BDataType*>(WQ.data_ptr()),
+        reinterpret_cast<D0DataType*>(w_scale.data_ptr()),
+        reinterpret_cast<D1DataType*>(x_scale.data_ptr()),
+        reinterpret_cast<EDataType*>(output.data_ptr()),
+        reinterpret_cast<int64_t*>(zero_start_index_M.data_ptr()),
+        M,
+        N,
+        K,
+        group_count);
+  }
 }
 
 template <typename OutputType>
