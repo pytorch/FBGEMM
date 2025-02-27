@@ -73,6 +73,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/QuantUtils.h",
         "include/fbgemm/QuantUtilsAvx2.h",
         "include/fbgemm/QuantUtilsAvx512.h",
+        "include/fbgemm/QuantUtilsNeon.h",
         "include/fbgemm/spmmUtils.h",
         "include/fbgemm/spmmUtilsAvx2.h",
         "include/fbgemm/SimdUtils.h",
@@ -153,6 +154,7 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
     intrinsics_srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
+        "src/QuantUtilsNeon.cc",
         "src/UtilsSve.cc",
     ] + select({
         "DEFAULT": [],
@@ -165,6 +167,7 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
     asm_srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
+        "src/QuantUtilsNeon.cc",
         "src/UtilsSve.cc",
     ] + select({
         "DEFAULT": [],
