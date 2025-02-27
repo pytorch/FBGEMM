@@ -10,6 +10,7 @@
 
 #include "./FbgemmBuild.h"
 #include "./QuantUtilsAvx2.h"
+#include "./QuantUtilsNeon.h"
 #include "./Types.h"
 #include "./Utils.h"
 

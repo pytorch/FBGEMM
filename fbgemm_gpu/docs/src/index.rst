@@ -47,6 +47,7 @@ Table of Contents
    fbgemm_gpu-development/BuildInstructions.rst
    fbgemm_gpu-development/InstallationInstructions.rst
    fbgemm_gpu-development/TestInstructions.rst
+   fbgemm_gpu-development/FeatureGates.rst
 
 .. _fbgemm-gpu.toc.overview:
 
@@ -90,6 +91,7 @@ Table of Contents
    fbgemm_gpu-cpp-api/embedding_ops.rst
    fbgemm_gpu-cpp-api/ssd_embedding_ops.rst
    fbgemm_gpu-cpp-api/experimental_ops.rst
+   fbgemm_gpu-cpp-api/feature_gates.rst
 
 .. _fbgemm-gpu.toc.api.python.ops:
 
@@ -111,3 +113,4 @@ Table of Contents
    fbgemm_gpu-python-api/tbe_ops_training.rst
    fbgemm_gpu-python-api/tbe_ops_inference.rst
    fbgemm_gpu-python-api/pooled_embedding_modules.rst
+   fbgemm_gpu-python-api/feature_gates.rst

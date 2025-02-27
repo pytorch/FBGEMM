@@ -25,7 +25,7 @@ class FeatureGateName(Enum):
 
     .. code-block:: python
 
-        from deeplearning.fbgemm.fbgemm_gpu.config import FeatureGateName
+        from fbgemm_gpu.config import FeatureGateName
 
         def foo():
             if FeatureGateName.TBE_V2.is_enabled():
