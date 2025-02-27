@@ -239,11 +239,13 @@ def generate_indices_uniform(
     # each bag is usually sorted
     (indices, _) = torch.sort(indices)
     if use_variable_L:
+        # 1D layout, where row offsets are determined by L_offsets
         indices = torch.ops.fbgemm.bottom_k_per_row(
             indices.to(torch.long), L_offsets, False
         )
         indices = indices.to(get_device()).int()
     else:
+        # 2D layout
         indices = indices.reshape(iters, total_B * L)
     return indices
 
