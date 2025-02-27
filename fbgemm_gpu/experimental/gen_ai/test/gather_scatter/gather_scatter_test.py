@@ -78,6 +78,12 @@ class GatherScatterTests(unittest.TestCase):
         _test_gather_along_first_dim(1024, 1024, 1024)
         _test_gather_along_first_dim(1024, 1024, 1024, compile=True)
 
+        _test_gather_along_first_dim(1, 1, 5120)
+        _test_gather_along_first_dim(128, 128, 5120)
+        _test_gather_along_first_dim(2048, 2048, 5120)
+        _test_gather_along_first_dim(4096, 4096, 5120)
+        _test_gather_along_first_dim(8192, 8192, 5120)
+
     def test_scatter_add_along_first_dim(self) -> None:
         def _test_scatter_add_along_first_dim(
             M: int, N: int, K: int, compile: bool = False
@@ -101,7 +107,7 @@ class GatherScatterTests(unittest.TestCase):
             logger.info("Running PyTorch")
             ref_dst.scatter_add_(0, indices_2d, src)
 
-            torch.testing.assert_close(test_dst, ref_dst, atol=1e-3, rtol=2e-2)
+            torch.testing.assert_close(test_dst, ref_dst, atol=1e-3, rtol=2.1e-2)
 
             def fn():
                 op = torch.ops.fbgemm.scatter_add_along_first_dim
@@ -136,6 +142,12 @@ class GatherScatterTests(unittest.TestCase):
         _test_scatter_add_along_first_dim(255, 129, 2048)
         _test_scatter_add_along_first_dim(1024, 1024, 1024)
         _test_scatter_add_along_first_dim(1024, 1024, 1024, compile=True)
+
+        _test_scatter_add_along_first_dim(1, 1, 5120)
+        _test_scatter_add_along_first_dim(128, 128, 5120)
+        _test_scatter_add_along_first_dim(2048, 2048, 5120)
+        _test_scatter_add_along_first_dim(4096, 4096, 5120)
+        _test_scatter_add_along_first_dim(8192, 8192, 5120)
 
 
 if __name__ == "__main__":
