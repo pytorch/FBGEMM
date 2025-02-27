@@ -10,7 +10,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Experimental Operators &mdash; FBGEMM 1.1.0 documentation</title>
+  <title>Feature Gates (C++) &mdash; FBGEMM 1.1.0 documentation</title>
   
 
   
@@ -33,8 +33,8 @@
   <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Feature Gates (C++)" href="feature_gates.html" />
-    <link rel="prev" title="SSD Embedding Operators" href="ssd_embedding_ops.html" />
+    <link rel="next" title="Sparse Operators" href="../fbgemm_gpu-python-api/sparse_ops.html" />
+    <link rel="prev" title="Experimental Operators" href="experimental_ops.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -358,8 +358,8 @@
 <li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="ssd_embedding_ops.html">SSD Embedding Operators</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Experimental Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="feature_gates.html">Feature Gates (C++)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="experimental_ops.html">Experimental Operators</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Feature Gates (C++)</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Operators API</span></p>
 <ul>
@@ -414,13 +414,13 @@
       </li>
 
         
-      <li>Experimental Operators</li>
+      <li>Feature Gates (C++)</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/fbgemm_gpu-cpp-api/experimental_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/fbgemm_gpu-cpp-api/feature_gates.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -450,36 +450,74 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="experimental-operators">
-<h1>Experimental Operators<a class="headerlink" href="#experimental-operators" title="Permalink to this heading">¶</a></h1>
-<section id="attention-operators">
-<h2>Attention Operators<a class="headerlink" href="#attention-operators" title="Permalink to this heading">¶</a></h2>
-<dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv415gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t">
-<span id="_CPPv315gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t"></span><span id="_CPPv215gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t"></span><span id="gqa_attn_splitk__at::TensorCR.at::TensorCR.at::TensorCR.at::TensorCR.doubleC.int64_tC.int64_tC.bC.int64_tC"></span><span class="target" id="group__experimental-gen-ai-attention_1ga7c191ffd262e5e5fcedfeabfe38c9453"></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">tuple</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">gqa_attn_splitk</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">XQ</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cache_K</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cache_V</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">seq_positions</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">qk_scale</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">num_split_ks</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">kv_cache_quant_num_groups</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">use_tensor_cores</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">cache_logical_dtype_int</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv415gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Decoding Grouped Query Attention Split-K w/ BF16/INT4 KV. </p>
-<p>The CUDA implementation of decoding Grouped Query Attention (GQA) that supports BF16 and INT4 KV cache and BF16 input query. It currently only supports the max context length of 16384, the fixed head dimension of 128, and only one KV cache head. It supports an arbitrary number of query heads.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>XQ</strong> – Input query; shape = (B, 1, H_Q, D), where B = batch size, H_Q = num query heads, D = head dimension (fixed to 128) </p></li>
-<li><p><strong>cache_K</strong> – K cache; shape = (B, MAX_T, H_KV, D), where MAX_T = max context length (fixed to 16384), and H_KV = num KV cache heads (fixed to 1) </p></li>
-<li><p><strong>cache_V</strong> – V cache; shape = (B, MAX_T, H_KV, D) </p></li>
-<li><p><strong>seq_positions</strong> – Sequence position (contains the actual length of each token); shape = (B) </p></li>
-<li><p><strong>qk_scale</strong> – The scale that is applied after QK^T </p></li>
-<li><p><strong>num_split_ks</strong> – The number of split Ks (controlling the amount of parallelism in the context length dimension (MAX_T)) </p></li>
-<li><p><strong>kv_cache_quant_num_groups</strong> – The number of groups for group-wise INT4 and FP8 quantization for each KV token (each group uses the same scale and bias for quantization). FP8 supports a single group for now.</p></li>
-<li><p><strong>use_tensor_cores</strong> – Whether to use tensor core wmma instructions for fast implementations </p></li>
-<li><p><strong>cache_logical_dtype_int</strong> – Specifies the quantization data type for kv_cache: {BF16:0 , FP8:1, INT4:2} </p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A tuple of the combined split-K output, the non-combined split-K output, and the split-K metadata (containing max QK^T, and softmax(QK^T) head sum) </p>
-</dd>
-</dl>
+  <section id="feature-gates-c">
+<span id="fbgemm-gpu-dev-config-cpp"></span><h1>Feature Gates (C++)<a class="headerlink" href="#feature-gates-c" title="Permalink to this heading">¶</a></h1>
+<dl class="cpp enum-class">
+<dt class="sig sig-object cpp" id="_CPPv415FeatureGateName">
+<span id="_CPPv315FeatureGateName"></span><span id="_CPPv215FeatureGateName"></span><span class="target" id="group__fbgemm-gpu-config_1gad33a2827298233d7e9954d00d0cc4ce7"></span><span class="k"><span class="pre">enum</span></span><span class="w"> </span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FeatureGateName</span></span></span><a class="headerlink" href="#_CPPv415FeatureGateName" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Enum class definition for feature gates, generated using the X-macro pattern. </p>
+<p><em>Values:</em></p>
+<dl class="cpp enumerator">
+<dt class="sig sig-object cpp" id="_CPPv4N15FeatureGateName1XE">
+<span id="_CPPv3N15FeatureGateName1XE"></span><span id="_CPPv2N15FeatureGateName1XE"></span><span class="target" id="group__fbgemm-gpu-config_1ggad33a2827298233d7e9954d00d0cc4ce7a453df1f860c26180ca96c50a8437f21f"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">X</span></span></span><a class="headerlink" href="#_CPPv4N15FeatureGateName1XE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp enumerator">
+<dt class="sig sig-object cpp" id="_CPPv4N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE">
+<span id="_CPPv3N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE"></span><span id="_CPPv2N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE"></span><span class="target" id="group__fbgemm-gpu-config_1ggad33a2827298233d7e9954d00d0cc4ce7aced6b8050372701fe6b0c9f7c525e4c6"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">ENUMERATE_ALL_FEATURE_FLAGS</span></span></span><a class="headerlink" href="#_CPPv4N15FeatureGateName27ENUMERATE_ALL_FEATURE_FLAGSE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
 </dd></dl>
 
-</section>
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv49to_stringRK15FeatureGateName">
+<span id="_CPPv39to_stringRK15FeatureGateName"></span><span id="_CPPv29to_stringRK15FeatureGateName"></span><span id="to_string__FeatureGateNameCR"></span><span class="target" id="group__fbgemm-gpu-config_1ga672fec616b4d6976f9d43c23b548e0ac"></span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">to_string</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><a class="reference internal" href="#_CPPv415FeatureGateName" title="FeatureGateName"><span class="n"><span class="pre">FeatureGateName</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">value</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv49to_stringRK15FeatureGateName" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Get the string value of the <code class="docutils literal notranslate"><a class="reference internal" href="#group__fbgemm-gpu-config_1gad33a2827298233d7e9954d00d0cc4ce7"><span class="std std-ref"><span class="pre">FeatureGateName</span></span></a></code> enum. </p>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv422check_feature_gate_keyRKNSt6stringE">
+<span id="_CPPv322check_feature_gate_keyRKNSt6stringE"></span><span id="_CPPv222check_feature_gate_keyRKNSt6stringE"></span><span id="check_feature_gate_key__ssCR"></span><span class="target" id="group__fbgemm-gpu-config_1ga13ba2a931bdb7f335fcddd88e9c44115"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">check_feature_gate_key</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">key</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv422check_feature_gate_keyRKNSt6stringE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Look up the feature gate value for the given key. </p>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv418is_feature_enabledRK15FeatureGateName">
+<span id="_CPPv318is_feature_enabledRK15FeatureGateName"></span><span id="_CPPv218is_feature_enabledRK15FeatureGateName"></span><span id="is_feature_enabled__FeatureGateNameCR"></span><span class="target" id="group__fbgemm-gpu-config_1ga3547999edc6946fb9a6180a2c10f85bd"></span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">is_feature_enabled</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><a class="reference internal" href="#_CPPv415FeatureGateName" title="FeatureGateName"><span class="n"><span class="pre">FeatureGateName</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">feature</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418is_feature_enabledRK15FeatureGateName" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>For the given <code class="docutils literal notranslate"><a class="reference internal" href="#group__fbgemm-gpu-config_1gad33a2827298233d7e9954d00d0cc4ce7"><span class="std std-ref"><span class="pre">FeatureGateName</span></span></a></code>, check if the corresponding feature is enabled. </p>
+</dd></dl>
+
+<dl class="cpp macro">
+<dt class="sig sig-object cpp" id="c.ENUMERATE_ALL_FEATURE_FLAGS">
+<span class="target" id="group__fbgemm-gpu-config_1gac42b789c9026f13d4c8bc000f5bd5edc"></span><span class="sig-name descname"><span class="n"><span class="pre">ENUMERATE_ALL_FEATURE_FLAGS</span></span></span><a class="headerlink" href="#c.ENUMERATE_ALL_FEATURE_FLAGS" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>FBGEMM_GPU feature gates enum (C++). </p>
+<p>Feature gates are used to enable/disable experimental features based on environment settings.</p>
+<p>ENUMs are defined using the X-macro pattern. To add a feature gate, simply append <code class="docutils literal notranslate"><span class="pre">X(FEATURE_NAME)</span></code> to the <code class="docutils literal notranslate"><span class="pre">ENUMERATE_ALL_FEATURE_FLAGS</span></code> macro. Then, to use the feature gate, see example below.</p>
+<p><strong>Example:</strong> <div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">namespace</span><span class="w"> </span><span class="nn">config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nn">fbgemm_gpu</span><span class="o">::</span><span class="nn">config</span><span class="p">;</span>
+
+<span class="kt">void</span><span class="w"> </span><span class="nf">foo</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">config</span><span class="o">::</span><span class="n">is_feature_enabled</span><span class="p">(</span><span class="n">config</span><span class="o">::</span><span class="n">FeatureGateName</span><span class="o">::</span><span class="n">FEATURE_NAME</span><span class="p">))</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Do something if feature is enabled</span>
+<span class="w">    </span><span class="p">...</span>
+<span class="w">  </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Do something different if feature is disabled</span>
+<span class="w">    </span><span class="p">...</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</p>
+<p>
+While not required, it is best to mirror the enum values in Python, in <code class="docutils literal notranslate"><a class="reference internal" href="#group__fbgemm-gpu-config_1gad33a2827298233d7e9954d00d0cc4ce7"><span class="std std-ref"><span class="pre">fbgemm_gpu.config.FeatureGateName</span></span></a></code></p>
+<p>For fbcode: The ENUM name must match EXACTLY with the JK knob name in the UI.</p>
+<p>For OSS: The environment variable will be evaluated as f”FBGEMM_{ENUM}” </p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p></p>
+</div>
+</dd></dl>
+
 </section>
 
 
@@ -490,10 +528,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="feature_gates.html" class="btn btn-neutral float-right" title="Feature Gates (C++)" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="../fbgemm_gpu-python-api/sparse_ops.html" class="btn btn-neutral float-right" title="Sparse Operators" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="ssd_embedding_ops.html" class="btn btn-neutral" title="SSD Embedding Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="experimental_ops.html" class="btn btn-neutral" title="Experimental Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -525,10 +563,7 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">Experimental Operators</a><ul>
-<li><a class="reference internal" href="#attention-operators">Attention Operators</a></li>
-</ul>
-</li>
+<li><a class="reference internal" href="#">Feature Gates (C++)</a></li>
 </ul>
 
             </div>

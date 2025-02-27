@@ -6,11 +6,10 @@
 <!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
 <head>
   <meta charset="utf-8">
-  <meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
-
+  
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Experimental Operators &mdash; FBGEMM 1.1.0 documentation</title>
+  <title>fbgemm_gpu.config.feature_list &mdash; FBGEMM 1.1.0 documentation</title>
   
 
   
@@ -26,15 +25,13 @@
 
   
 
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <!-- <link rel="stylesheet" href="../_static/pygments.css" type="text/css" /> -->
-  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
-    <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Feature Gates (C++)" href="feature_gates.html" />
-    <link rel="prev" title="SSD Embedding Operators" href="ssd_embedding_ops.html" />
+  <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  <!-- <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" /> -->
+  <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../../_static/graphviz.css" type="text/css" />
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -45,16 +42,16 @@
   
 
   
-  <script src="../_static/js/modernizr.min.js"></script>
+  <script src="../../../_static/js/modernizr.min.js"></script>
 
   <!-- Preload the theme fonts -->
 
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
-<link rel="preload" href="../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-book.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/IBMPlexMono/IBMPlexMono-Medium.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/FreightSans/freight-sans-medium-italic.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+<link rel="preload" href="../../../_static/fonts/IBMPlexMono/IBMPlexMono-SemiBold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
 
 <!-- Preload the katex fonts -->
 
@@ -299,7 +296,7 @@
 
 
 <div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
     <input type="text" name="q" placeholder="Search Docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
@@ -317,63 +314,63 @@
             
               <p class="caption" role="heading"><span class="caption-text">General Info</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../general/Contributing.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../general/documentation/Overview.html">Documentation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../general/ContactUs.html">Contact Us</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../general/License.html">License</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../general/Contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../general/documentation/Overview.html">Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../general/ContactUs.html">Contact Us</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../general/License.html">License</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm-development/BuildInstructions.html">Build Instructions</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Development</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-development/FeatureGates.html">Feature Gates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-development/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-development/TestInstructions.html">Test Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-development/FeatureGates.html">Feature Gates</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Overview</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-overview/jagged-tensor-ops/JaggedTensorOps.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM Stable API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-stable-api/python_api.html">FBGEMM_GPU Stable Python API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-stable-api/python_api.html">FBGEMM_GPU Stable Python API</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM C++ API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm-cpp-api/tbe_cpu_autovec.html">TBE CPU Autovectorization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm-cpp-api/QuantUtils.html">Quantization Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm-cpp-api/tbe_cpu_autovec.html">TBE CPU Autovectorization</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU C++ API</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="sparse_ops.html">Sparse Data Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="memory_utils.html">CUDA Memory Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="input_combine.html">Combine Input Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="layout_transform_ops.html">Layout Transformation Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="embedding_ops.html">Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ssd_embedding_ops.html">SSD Embedding Operators</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Experimental Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="feature_gates.html">Feature Gates (C++)</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/sparse_ops.html">Sparse Data Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/merge_pooled_embeddings.html">Pooled Embeddings Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/split_table_batched_embeddings.html">Table Batched Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/memory_utils.html">CUDA Memory Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/input_combine.html">Combine Input Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/layout_transform_ops.html">Layout Transformation Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/embedding_ops.html">Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/ssd_embedding_ops.html">SSD Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/experimental_ops.html">Experimental Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-cpp-api/feature_gates.html">Feature Gates (C++)</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Operators API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/sparse_ops.html">Sparse Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/quantize_ops.html">Quantization Operators</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/sparse_ops.html">Sparse Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/pooled_embedding_ops.html">Pooled Embedding Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/quantize_ops.html">Quantization Operators</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/jagged_tensor_ops.html">Jagged Tensor Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python Modules API</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/tbe_ops_training.html">Table Batched Embedding (TBE) Training Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/tbe_ops_inference.html">Table Batched Embedding (TBE) Inference Module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../fbgemm_gpu-python-api/feature_gates.html">Feature Gates (Python)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/tbe_ops_training.html">Table Batched Embedding (TBE) Training Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/tbe_ops_inference.html">Table Batched Embedding (TBE) Inference Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../fbgemm_gpu-python-api/feature_gates.html">Feature Gates (Python)</a></li>
 </ul>
 
             
@@ -406,7 +403,7 @@
   <ul class="pytorch-breadcrumbs">
     
       <li>
-        <a href="../index.html">
+        <a href="../../../index.html">
           
             Docs
           
@@ -414,14 +411,12 @@
       </li>
 
         
-      <li>Experimental Operators</li>
+          <li><a href="../../index.html">Module code</a> &gt;</li>
+        
+      <li>fbgemm_gpu.config.feature_list</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
-        
-            
-            <a href="../_sources/fbgemm_gpu-cpp-api/experimental_ops.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
-          
         
       </li>
     
@@ -450,52 +445,92 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="experimental-operators">
-<h1>Experimental Operators<a class="headerlink" href="#experimental-operators" title="Permalink to this heading">¶</a></h1>
-<section id="attention-operators">
-<h2>Attention Operators<a class="headerlink" href="#attention-operators" title="Permalink to this heading">¶</a></h2>
-<dl class="cpp function">
-<dt class="sig sig-object cpp" id="_CPPv415gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t">
-<span id="_CPPv315gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t"></span><span id="_CPPv215gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t"></span><span id="gqa_attn_splitk__at::TensorCR.at::TensorCR.at::TensorCR.at::TensorCR.doubleC.int64_tC.int64_tC.bC.int64_tC"></span><span class="target" id="group__experimental-gen-ai-attention_1ga7c191ffd262e5e5fcedfeabfe38c9453"></span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">tuple</span></span><span class="p"><span class="pre">&lt;</span></span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="p"><span class="pre">&gt;</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">gqa_attn_splitk</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">XQ</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cache_K</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">cache_V</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">at</span></span><span class="p"><span class="pre">::</span></span><a class="reference external" href="https://pytorch.org/cppdocs/api/classat_1_1_tensor.html#_CPPv4N2at6TensorE" title="(in PyTorch vmain)"><span class="n"><span class="pre">Tensor</span></span></a><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">seq_positions</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">double</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">qk_scale</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">num_split_ks</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">kv_cache_quant_num_groups</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">use_tensor_cores</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">cache_logical_dtype_int</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv415gqa_attn_splitkRKN2at6TensorERKN2at6TensorERKN2at6TensorERKN2at6TensorEKdK7int64_tK7int64_tKbK7int64_t" title="Permalink to this definition">¶</a><br /></dt>
-<dd><p>Decoding Grouped Query Attention Split-K w/ BF16/INT4 KV. </p>
-<p>The CUDA implementation of decoding Grouped Query Attention (GQA) that supports BF16 and INT4 KV cache and BF16 input query. It currently only supports the max context length of 16384, the fixed head dimension of 128, and only one KV cache head. It supports an arbitrary number of query heads.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>XQ</strong> – Input query; shape = (B, 1, H_Q, D), where B = batch size, H_Q = num query heads, D = head dimension (fixed to 128) </p></li>
-<li><p><strong>cache_K</strong> – K cache; shape = (B, MAX_T, H_KV, D), where MAX_T = max context length (fixed to 16384), and H_KV = num KV cache heads (fixed to 1) </p></li>
-<li><p><strong>cache_V</strong> – V cache; shape = (B, MAX_T, H_KV, D) </p></li>
-<li><p><strong>seq_positions</strong> – Sequence position (contains the actual length of each token); shape = (B) </p></li>
-<li><p><strong>qk_scale</strong> – The scale that is applied after QK^T </p></li>
-<li><p><strong>num_split_ks</strong> – The number of split Ks (controlling the amount of parallelism in the context length dimension (MAX_T)) </p></li>
-<li><p><strong>kv_cache_quant_num_groups</strong> – The number of groups for group-wise INT4 and FP8 quantization for each KV token (each group uses the same scale and bias for quantization). FP8 supports a single group for now.</p></li>
-<li><p><strong>use_tensor_cores</strong> – Whether to use tensor core wmma instructions for fast implementations </p></li>
-<li><p><strong>cache_logical_dtype_int</strong> – Specifies the quantization data type for kv_cache: {BF16:0 , FP8:1, INT4:2} </p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>A tuple of the combined split-K output, the non-combined split-K output, and the split-K metadata (containing max QK^T, and softmax(QK^T) head sum) </p>
-</dd>
-</dl>
-</dd></dl>
+  <h1>Source code for fbgemm_gpu.config.feature_list</h1><div class="highlight"><pre>
+<span></span><span class="c1"># Copyright (c) Meta Platforms, Inc. and affiliates.</span>
+<span class="c1"># All rights reserved.</span>
+<span class="c1">#</span>
+<span class="c1"># This source code is licensed under the BSD-style license found in the</span>
+<span class="c1"># LICENSE file in the root directory of this source tree.</span>
 
-</section>
-</section>
+<span class="c1"># pyre-strict</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">auto</span><span class="p">,</span> <span class="n">Enum</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">load_library</span><span class="p">(</span><span class="s2">&quot;//deeplearning/fbgemm/fbgemm_gpu:config_cpp&quot;</span><span class="p">)</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">fbgemm_gpu</span>  <span class="c1"># noqa F401</span>
+
+
+<span class="c1"># Note: ENUM name must match EXACTLY with the JK knob name in the UI</span>
+<div class="viewcode-block" id="FeatureGateName"><a class="viewcode-back" href="../../../fbgemm_gpu-python-api/feature_gates.html#fbgemm_gpu.config.FeatureGateName">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FeatureGateName</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    FBGEMM_GPU feature gates enum (Python).</span>
+
+<span class="sd">    **Code Example:**</span>
+
+<span class="sd">    .. code-block:: python</span>
+
+<span class="sd">        from fbgemm_gpu.config import FeatureGateName</span>
+
+<span class="sd">        def foo():</span>
+<span class="sd">            if FeatureGateName.TBE_V2.is_enabled():</span>
+
+<span class="sd">                # Do something if feature is enabled</span>
+<span class="sd">                ...</span>
+<span class="sd">            else:</span>
+<span class="sd">                # Do something different if feature is disabled</span>
+<span class="sd">                ...</span>
+
+<span class="sd">    Note:</span>
+<span class="sd">        While not required, it is best to mirror the enum values in C++,</span>
+<span class="sd">        in `fbgemm_gpu/config/feature_gates.h`.</span>
+
+<span class="sd">        For fbcode: The ENUM name must match EXACTLY with the JK knob name in the UI</span>
+<span class="sd">        For OSS: The environment variable will be evaluated as f&quot;FBGEMM_{ENUM}&quot;</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Enable TBE V2 APIs</span>
+    <span class="n">TBE_V2</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
+    <span class="c1"># Enable Ensemble Rowwise Adagrad (D60189486 stack)</span>
+    <span class="n">TBE_ENSEMBLE_ROWWISE_ADAGRAD</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
+    <span class="c1"># Enable bounds_check_indices_v2</span>
+    <span class="n">BOUNDS_CHECK_INDICES_V2</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="FeatureGate"><a class="viewcode-back" href="../../../fbgemm_gpu-python-api/feature_gates.html#fbgemm_gpu.config.FeatureGate">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">FeatureGate</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    FBGEMM_GPU feature gate.</span>
+
+<span class="sd">    This class exists because methods defined on enums cannot be invoked when</span>
+<span class="sd">    the enum is packaged into a model (the mechanism is unclear).</span>
+
+<span class="sd">    **Code Example:**</span>
+
+<span class="sd">    .. code-block:: python</span>
+
+<span class="sd">        from deeplearning.fbgemm.fbgemm_gpu.config import FeatureGate, FeatureGateName</span>
+
+<span class="sd">        FeatureGate.is_enabled(FeatureGateName.TBE_V2)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">feature</span><span class="p">:</span> <span class="n">FeatureGateName</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">fbgemm</span><span class="o">.</span><span class="n">check_feature_gate_key</span><span class="p">(</span><span class="n">feature</span><span class="o">.</span><span class="n">name</span><span class="p">)</span></div>
+</pre></div>
 
              </article>
              
             </div>
             <footer>
-  
-    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-      
-        <a href="feature_gates.html" class="btn btn-neutral float-right" title="Feature Gates (C++)" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
-      
-      
-        <a href="ssd_embedding_ops.html" class="btn btn-neutral" title="SSD Embedding Operators" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
-      
-    </div>
   
 
   
@@ -524,13 +559,7 @@
         <div class="pytorch-content-right" id="pytorch-content-right">
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
-              <ul>
-<li><a class="reference internal" href="#">Experimental Operators</a><ul>
-<li><a class="reference internal" href="#attention-operators">Attention Operators</a></li>
-</ul>
-</li>
-</ul>
-
+              
             </div>
           </div>
         </div>
@@ -543,18 +572,18 @@
   
 
      
-       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-         <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
-         <script src="../_static/doctools.js"></script>
-         <script src="../_static/sphinx_highlight.js"></script>
+       <script type="text/javascript" id="documentation_options" data-url_root="../../../" src="../../../_static/documentation_options.js"></script>
+         <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
+         <script src="../../../_static/doctools.js"></script>
+         <script src="../../../_static/sphinx_highlight.js"></script>
      
 
   
 
-  <script type="text/javascript" src="../_static/js/vendor/popper.min.js"></script>
-  <script type="text/javascript" src="../_static/js/vendor/bootstrap.min.js"></script>
+  <script type="text/javascript" src="../../../_static/js/vendor/popper.min.js"></script>
+  <script type="text/javascript" src="../../../_static/js/vendor/bootstrap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/list.js/1.5.0/list.min.js"></script>
-  <script type="text/javascript" src="../_static/js/theme.js"></script>
+  <script type="text/javascript" src="../../../_static/js/theme.js"></script>
 
   <script type="text/javascript">
       jQuery(function () {
@@ -659,7 +688,7 @@
   <div class="cookie-banner-wrapper">
   <div class="container">
     <p class="gdpr-notice">To analyze traffic and optimize your experience, we serve cookies on this site. By clicking or navigating, you agree to allow our usage of cookies. As the current maintainers of this site, Facebook’s Cookies Policy applies. Learn more, including about available controls: <a href="https://www.facebook.com/policies/cookies/">Cookies Policy</a>.</p>
-    <img class="close-button" src="../_static/images/pytorch-x.svg">
+    <img class="close-button" src="../../../_static/images/pytorch-x.svg">
   </div>
 </div>
 
@@ -810,7 +839,7 @@
 
   <!-- End Mobile Menu -->
 
-  <script type="text/javascript" src="../_static/js/vendor/anchor.min.js"></script>
+  <script type="text/javascript" src="../../../_static/js/vendor/anchor.min.js"></script>
 
   <script type="text/javascript">
     $(document).ready(function() {
