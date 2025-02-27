@@ -112,6 +112,8 @@ __configure_fbgemm_gpu_test_rocm () {
   print_exec conda env config vars set ${env_prefix} FBGEMM_TEST_WITH_ROCM=1
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} HIP_LAUNCH_BLOCKING=1
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} FBGEMM_TBE_ROCM_INFERENCE_PACKED_BAGS=1
 
   # Starting from MI250 AMD GPUs support per process XNACK mode change
   # shellcheck disable=SC2155

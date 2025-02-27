@@ -69,5 +69,6 @@ gpu_cpp_library(
     asmjit
     fbgemm
     fbgemm_gpu_tbe_cache
+    fbgemm_gpu_config
   DESTINATION
     fbgemm_gpu)
