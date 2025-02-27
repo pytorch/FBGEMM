@@ -836,6 +836,10 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     size_t input_rows,
     int input_columns,
     OutputType* output) {
+#if HAVE_SVE
+  Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon<OutputType>(
+      input, input_rows, input_columns, output);
+#else
   if (cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2<OutputType>(
@@ -845,6 +849,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
     Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef<OutputType>(
         input, input_rows, input_columns, output);
   }
+#endif
 }
 
 #define INSTANTIATE_QuantizationFunctions(type)                                \
