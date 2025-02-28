@@ -169,9 +169,13 @@ def benchmark_grouped(
         # Compute the output given quantized values.
         output = quantize_op.compute(*quantized_vals)
         # Some kernels may pad output, just take the first m values of each row.
-        output = [o[: m[i]] for i, o in enumerate(output)]
+        if isinstance(output, torch.Tensor) and output.ndim == 2:
+            # Output is stacked and needs to be split.
+            output = torch.split(output, m, dim=0)
+        else:
+            # Otherwise output may be padded or require unbinding.
+            output = [o[: m[i]] for i, o in enumerate(output)]
         # Compare the quantize op output to reference as a sanity check.
-
         for i in range(num_groups):
             metrics.sim += float(
                 torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
