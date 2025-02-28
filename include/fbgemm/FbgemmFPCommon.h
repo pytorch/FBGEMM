@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2024-2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -198,7 +199,7 @@ void cblas_gemm_compute(
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (std::is_same<T, float16>::value) {
+              if constexpr (std::is_same<T, float16>::value || std::is_same<T, float>::value) {
                 kernels[kernel_nrows](&gp);
               } else {
                 ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
@@ -218,7 +219,7 @@ void cblas_gemm_compute(
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-                if constexpr (std::is_same<T, float16>::value) {
+                if constexpr (std::is_same<T, float16>::value || std::is_same<T, float>::value) {
                   kernels[kernel_nrows](&gp);
                 } else {
                   ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
@@ -249,7 +250,7 @@ void cblas_gemm_compute(
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (std::is_same<T, float16>::value) {
+              if constexpr (std::is_same<T, float16>::value || std::is_same<T, float>::value) {
                 kernels[kernel_nrows](&gp);
               } else {
                 ref_kernel<T>(
