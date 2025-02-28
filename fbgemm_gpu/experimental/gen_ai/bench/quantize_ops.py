@@ -39,7 +39,10 @@ except ImportError:
     MARLIN_ENABLED = False
 
 try:
-    from deep_gemm import m_grouped_gemm_fp8_fp8_bf16_nt_contiguous
+    from deep_gemm import (
+        gemm_fp8_fp8_bf16_nt,
+        m_grouped_gemm_fp8_fp8_bf16_nt_contiguous,
+    )
 
     DEEPGEMM_ENABLED = True
 except ImportError:
@@ -821,6 +824,47 @@ class DeepGemmStacked(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return DEEPGEMM_ENABLED
+
+
+@register_quantize_op
+class DeepGemmBlockwise(QuantizeOpBase):
+    """
+    FP8 matmul with blockwise scaling implemented with DeepGemm.
+    """
+
+    def preprocess(self, x, w):
+        # Quantize weights.
+        wq, w_scale = quantize_fp8_block(w, block_m=128, block_k=128)
+        # allocate output.
+        out = torch.empty(
+            x.shape[0], wq.shape[0], device=x.device, dtype=torch.bfloat16
+        )
+        # Return processed tensors.
+        return x, wq, w_scale, out
+
+    def quantize(self, x, wq, w_scale, out):
+        xq, x_scale = quantize_fp8_block(x, block_m=1, block_k=128)
+        return xq, wq, x_scale, w_scale, out
+
+    def compute(self, xq, wq, x_scale, w_scale, out):
+        gemm_fp8_fp8_bf16_nt((xq, x_scale), (wq, w_scale), out)
+        return out
+
+    def quantize_and_compute(self, x, wq, w_scale, out):
+        xq, wq, x_scale, w_scale, out = self.quantize(x, wq, w_scale, out)
+        return self.compute(xq, wq, x_scale, w_scale, out)
+
+    @property
+    def name(self) -> str:
+        return "deepgemm_blockwise"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
 
 
 @register_quantize_op
