@@ -17,9 +17,9 @@ from hypothesis import given, settings
 from .backward_adagrad_common import (
     additional_decorators,
     adjust_mixed_B_st,
+    BackwardAdagradTestCommon,
     common_settings,
     common_strategy,
-    execute_backward_adagrad,
     gpu_unavailable,
     optests,
     PoolingMode,
@@ -33,7 +33,7 @@ test_st["D"] = st.integers(min_value=2, max_value=128)
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
-class BackwardAdagradTest(unittest.TestCase):
+class BackwardAdagradTest(BackwardAdagradTestCommon):
     @unittest.skipIf(*gpu_unavailable)
     @given(mixed_B=st.booleans(), **test_st)
     @settings(**common_settings)
@@ -42,7 +42,7 @@ class BackwardAdagradTest(unittest.TestCase):
         **kwargs: Any,
     ) -> None:
         kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
+        self.execute_backward_adagrad(
             weights_precision=SparseType.FP16,
             pooling_mode=PoolingMode.SUM,
             compile=False,  # FIXME: make compilation work for fp16
@@ -61,7 +61,7 @@ class BackwardAdagradTest(unittest.TestCase):
         **kwargs: Any,
     ) -> None:
         kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
+        self.execute_backward_adagrad(
             weights_precision=SparseType.FP16,
             pooling_mode=PoolingMode.MEAN,
             **kwargs,
@@ -77,7 +77,7 @@ class BackwardAdagradTest(unittest.TestCase):
         self,
         **kwargs: Any,
     ) -> None:
-        execute_backward_adagrad(
+        self.execute_backward_adagrad(
             weights_precision=SparseType.FP16,
             pooling_mode=PoolingMode.NONE,
             mixed_B=False,
@@ -95,7 +95,7 @@ class BackwardAdagradTest(unittest.TestCase):
         **kwargs: Any,
     ) -> None:
         kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
+        self.execute_backward_adagrad(
             weights_precision=SparseType.FP32,
             pooling_mode=PoolingMode.SUM,
             **kwargs,
@@ -112,7 +112,7 @@ class BackwardAdagradTest(unittest.TestCase):
         **kwargs: Any,
     ) -> None:
         kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
+        self.execute_backward_adagrad(
             weights_precision=SparseType.FP32,
             pooling_mode=PoolingMode.MEAN,
             **kwargs,
@@ -128,7 +128,7 @@ class BackwardAdagradTest(unittest.TestCase):
         self,
         **kwargs: Any,
     ) -> None:
-        execute_backward_adagrad(
+        self.execute_backward_adagrad(
             weights_precision=SparseType.FP32,
             mixed_B=False,
             pooling_mode=PoolingMode.NONE,
@@ -151,7 +151,7 @@ class BackwardAdagradTest(unittest.TestCase):
         for key, val in fixed_strategy.items():
             assert key in kwargs
             kwargs[key] = val
-        execute_backward_adagrad(
+        self.execute_backward_adagrad(
             weights_precision=SparseType.FP16,
             pooling_mode=PoolingMode.SUM,
             **kwargs,
