@@ -50,6 +50,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch import Tensor
+from torch.multiprocessing import Barrier, Pool
 from torch.profiler import profile
 
 logger: logging.Logger = logging.getLogger()
@@ -988,6 +989,87 @@ def cache(  # noqa C901
     )
 
 
+class BMBarrier:
+
+    def create_barrier(self, party_size: int) -> None:
+        if hasattr(self, "bar"):
+            self.bar.reset()
+            del self.bar
+        self.bar = Barrier(party_size)
+
+    def wait(self) -> None:
+        self.bar.wait()
+
+
+cpu_bm_barrier = BMBarrier()
+
+
+def cpu_tbe_worker(
+    requests_: List[TBERequest],
+    func_: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    use_barrier: bool = False,
+) -> float:
+    import time
+
+    if use_barrier:
+        cpu_bm_barrier.wait()
+
+    start_time = time.perf_counter()
+    for req in requests_:
+        func_(*(req.unpack_3()))
+    end_time = time.perf_counter()
+
+    return (end_time - start_time) / len(requests_)
+
+
+def benchmark_cpu_requests_mp(
+    requests: List[TBERequest],
+    emb_module: IntNBitTableBatchedEmbeddingBagsCodegen,
+    num_warmups: int = 0,
+    num_copies: int = 1,
+) -> float:
+    cpu_bm_barrier.create_barrier(num_copies)
+    worker_pool = Pool(num_copies)
+
+    if num_warmups > 0:
+        asyncres = []
+        warmup_reqs = [requests[0]] * num_warmups
+        for _ in range(num_copies):
+            asyncres.append(
+                worker_pool.apply_async(
+                    cpu_tbe_worker,
+                    args=(
+                        warmup_reqs,
+                        emb_module.forward,
+                    ),
+                )
+            )
+        for res in asyncres:
+            res.wait()
+
+    asyncres = []
+    for _ in range(num_copies):
+        asyncres.append(
+            worker_pool.apply_async(
+                cpu_tbe_worker,
+                args=(
+                    requests,
+                    emb_module.forward,
+                    True,
+                ),
+            )
+        )
+    runtime_per_iter = 0.0
+    for res in asyncres:
+        res.wait()
+        runtime_per_iter += res.get()
+    worker_pool.close()
+    worker_pool.join()
+    worker_pool.terminate()
+
+    return runtime_per_iter / num_copies
+
+
 def benchmark_cpu_requests(
     requests: List[TBERequest],
     func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
@@ -1029,6 +1111,8 @@ def benchmark_cpu_requests(
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 @click.option("--pooling", type=str, default="sum")
+@click.option("--copies", default=1, help="number of copies of TBEs to run in parallel")
+@click.option("--sweep", default=False, is_flag=True)
 def nbit_cpu(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -1052,6 +1136,8 @@ def nbit_cpu(  # noqa C901
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
     pooling: str,
+    copies: int,
+    sweep: bool,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1139,22 +1225,27 @@ def nbit_cpu(  # noqa C901
         for req in requests
     ]
 
-    time_per_iter = benchmark_cpu_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb.forward(
-            indices,
-            offsets,
-            per_sample_weights,
-        ),
-        num_warmups=warmup_runs,
-    )
+    copies_to_try = []
+    if sweep:
+        copies_to_try = list(range(1, copies + 1))
+    else:
+        copies_to_try = [copies]
 
-    logging.info(
-        f"{weights_precision} Forward, B: {B}, "
-        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-        f"T: {time_per_iter * 1.0e6:.0f}us"
-    )
+    for C in copies_to_try:
+        time_per_iter = benchmark_cpu_requests_mp(
+            requests,
+            emb,
+            num_warmups=warmup_runs,
+            num_copies=C,
+        )
+
+        result_msg = f"{weights_precision} Forward, B: {B}, "
+        result_msg += f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        result_msg += f"BW: {C * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        result_msg += f"T: {time_per_iter * 1.0e6:.0f}us"
+        if copies > 1:
+            result_msg += f", C: {C}"
+        logging.info(result_msg)
 
 
 @cli.command()
@@ -1575,6 +1666,12 @@ def nbit_device(  # noqa C901
     default=None,
     help="Warmup duration in milliseconds. Disables the --run-nums option.",
 )
+@click.option(
+    "--cpu-copies",
+    type=int,
+    default=1,
+    help="number of copies of CPU TBE workloads to run in parallel",
+)
 def nbit_device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -1603,6 +1700,7 @@ def nbit_device_with_spec(  # noqa C901
     trace_url: str,
     warmup_runs: int,
     warmup_ms: Optional[int],
+    cpu_copies: int,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -1614,6 +1712,11 @@ def nbit_device_with_spec(  # noqa C901
     D = np.mean(Ds)
     L = np.mean(Ls)
     T = len(Ds)
+    if not use_cpu and cpu_copies > 1:
+        logging.warning(
+            "--cpu-copies is effective only in CPU mode, will execute 1 copy instead."
+        )
+        cpu_copies = 1
     logging.info("TBE Spec:")
     logging.info("#, E, D, L")
     for i, (e, d, bag_size) in enumerate(zip(Es, Ds, Ls)):
@@ -1774,13 +1877,10 @@ def nbit_device_with_spec(  # noqa C901
 
         # forward
         if use_cpu:
-            time_per_iter = benchmark_cpu_requests(
+            time_per_iter = benchmark_cpu_requests_mp(
                 requests,
-                lambda indices, offsets, per_sample_weights: emb.forward(
-                    indices.int(),
-                    offsets.int(),
-                    per_sample_weights,
-                ),
+                emb,
+                num_copies=cpu_copies,
             )
         else:
             time_per_iter = benchmark_requests(
@@ -1801,20 +1901,23 @@ def nbit_device_with_spec(  # noqa C901
         # free up memory
         del requests
 
-        logging.info(
-            f"Iteration {i}: "
-            f"{weights_precision} Forward, B: {B}, "
-            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-            f"Time: {time_per_iter * 1.0e6:.0f}us, "
-            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
-        )
+        result_msg = f"Iteration {i}: "
+        result_msg += f"{weights_precision} Forward, B: {B}, "
+        result_msg += f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        result_msg += f"BW: {cpu_copies * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        result_msg += f"Time: {time_per_iter * 1.0e6:.0f}us, "
+        result_msg += f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+
+        if use_cpu and cpu_copies > 1:
+            result_msg += f", Parallel Copies: {cpu_copies}"
+
+        logging.info(result_msg)
 
         if i >= warmup_runs:
             times.append(time_per_iter)
 
     time_per_iter = statistics.mean(times)
-    bandwidth = read_write_bytes / time_per_iter / 1.0e9
+    bandwidth = cpu_copies * read_write_bytes / time_per_iter / 1.0e9
 
     logging.info(
         f"Average of all iterations: "
