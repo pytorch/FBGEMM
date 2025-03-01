@@ -17,9 +17,9 @@ from hypothesis import given, settings
 from .backward_adagrad_common import (
     additional_decorators,
     adjust_mixed_B_st,
-    BackwardAdagradTestCommon,
     common_settings,
     common_strategy,
+    execute_backward_adagrad,
     gpu_unavailable,
     optests,
     PoolingMode,
@@ -34,7 +34,7 @@ test_st["D"] = st.integers(min_value=128, max_value=512)
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
-class BackwardAdagradLargeDimTest(BackwardAdagradTestCommon):
+class BackwardAdagradLargeDimTest(unittest.TestCase):
     @skipIfRocm("Unblock large dim enablement on other GPUs")
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -52,7 +52,7 @@ class BackwardAdagradLargeDimTest(BackwardAdagradTestCommon):
         Test large embedding dimensions [512, 2048] with Adagrad optimizers
         """
         kwargs = adjust_mixed_B_st(kwargs)
-        self.execute_backward_adagrad(
+        execute_backward_adagrad(
             compile=False,
             **kwargs,
         )
