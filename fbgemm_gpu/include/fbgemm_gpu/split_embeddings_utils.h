@@ -22,6 +22,7 @@ std::tuple<int64_t, int64_t>
 get_infos_metadata(at::Tensor unused, int64_t B, int64_t T);
 
 std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(int32_t B, int32_t T);
+std::tuple<int32_t, uint32_t> get_info_B_num_bits_from_T(int32_t T, int32_t B);
 
 std::tuple<at::Tensor /*row_output_offsets*/, at::Tensor /*b_t_map*/>
 generate_vbe_metadata(
