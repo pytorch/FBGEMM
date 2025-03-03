@@ -13,6 +13,53 @@
 
 using Tensor = at::Tensor;
 
+/// Find number of bits to accommodate this value
+///
+/// num_bits           number of bits to needed to accommodate
+///                    e.g., the function returns 3 if `n` is between 4 (100)
+///                    and 7 (111) as 3 bits are required to represent the
+///                    number.
+///
+/// @param n           positive decimal number
+///
+DLL_PUBLIC int32_t get_num_bits(int32_t n) {
+  TORCH_CHECK(n > 0, "Expect n to be positive but got ", n);
+  return static_cast<int32_t>(std::floor(std::log2(n) + 1));
+}
+
+/// Calculates number of bits to accommodate batch size (B) and table (T) from
+/// T. We first calculate how many bits needed for T and the rest is for B,
+/// since T does not change once TBE is initialized but B can change.
+///
+/// info_B_num_bits     Number of bits needed for accommodate batch size
+/// info_B_mask         Bit mask for information of B
+/// @param T            Number of tables (features)
+/// @param B            Batch size
+///
+DLL_PUBLIC std::tuple<int32_t, uint32_t> get_info_B_num_bits_from_T(
+    int32_t T,
+    int32_t B = 1) {
+  TORCH_CHECK(B > 0, "B must be positive. Got B = ", B);
+  TORCH_CHECK(T > 0, "T must be positive. Got T = ", T);
+  const int32_t info_T_num_bits = get_num_bits(T);
+  const int32_t info_B_num_bits = DEFAULT_INFO_NUM_BITS - info_T_num_bits;
+  const uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
+  TORCH_CHECK(
+      B <= info_B_mask,
+      "Not enough infos bits to accommodate T and B. T = ",
+      T,
+      " takes ",
+      info_T_num_bits,
+      " and info_B_num_bits is ",
+      info_B_num_bits,
+      ". Expect max_B = ",
+      info_B_mask,
+      "but got B ",
+      B);
+
+  return {info_B_num_bits, info_B_mask};
+}
+
 DLL_PUBLIC std::tuple<int32_t, uint32_t> adjust_info_B_num_bits(
     int32_t B,
     int32_t T) {
@@ -79,7 +126,7 @@ generate_vbe_metadata_cpu(
 
 std::tuple<int64_t, int64_t>
 get_infos_metadata_cpu(Tensor unused, int64_t B, int64_t T) {
-  return adjust_info_B_num_bits(B, T);
+  return get_info_B_num_bits_from_T(T, B);
 }
 
 } // namespace
