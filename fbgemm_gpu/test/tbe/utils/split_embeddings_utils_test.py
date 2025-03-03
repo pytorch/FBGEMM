@@ -190,7 +190,8 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         self.assertTrue(
             torch.equal(linear_indices_sorted.cpu(), linear_indices_sorted_ref)
         )
-        self.assertTrue(torch.equal(infos_sorted.cpu(), infos_sorted_ref))
+        infos_sorted = infos_sorted.cpu()
+        self.assertTrue(torch.equal(infos_sorted, infos_sorted_ref.to(torch.int32)))
 
         # fbgemm impl has padding so we need slice
         num = sorted_linear_indices_run_ref.numel()

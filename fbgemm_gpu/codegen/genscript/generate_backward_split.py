@@ -413,6 +413,8 @@ class BackwardSplitGenerator:
             ],
             "aux_int": [
                 "iter",  # 0
+                "info_B_num_bits",  # 1
+                "info_B_mask",  # 2
             ],
             "aux_float": [
                 "gwd_lower_bound",  # 0

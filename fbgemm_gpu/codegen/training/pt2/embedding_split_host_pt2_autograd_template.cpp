@@ -685,19 +685,8 @@ class {{ autograd_func }} :
     // Default values for Dynamo tracing
     // SymInt does not support bitshifts operator
     // Constanting info_B_num_bits, info_B_mask for Dynamo for now.
-    int32_t info_B_num_bits = DEFAULT_INFO_B_NUM_BITS;
-    uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
-    if (max_B_.is_symbolic()) {
-      // int32_t info_B_num_bits = 22;
-      // uint32_t info_B_mask = (1u << info_B_num_bits) - 1;
-
-      // TODO(ivankobzarev): Guarding Dynamo that T and B fits in constanted number of bits.
-      // TORCH_CHECK(max_B_ < 1u << info_B_num_bits)
-      // TORCH_CHECK(T < 1u << (DEFAULT_INFO_NUM_BITS - info_B_num_bits))
-    } else {
-      // TODO: don't guard here
-      std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(max_B_.guard_int(__FILE__, __LINE__), T.guard_int(__FILE__, __LINE__));
-    }
+    const auto info_B_num_bits = static_cast<int32_t>(aux_int[IDX_INFO_B_NUM_BITS]);
+    const auto info_B_mask = static_cast<uint32_t>(aux_int[IDX_INFO_B_MASK]);
 
     {%- if vbe %}
     static auto generate_vbe_metadata_op =
