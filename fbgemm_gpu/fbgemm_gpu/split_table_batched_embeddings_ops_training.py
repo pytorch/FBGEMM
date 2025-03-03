@@ -1363,8 +1363,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
 
         # Check if bounds_check_indices_v2 is enabled via the feature gate
-        self.use_bounds_check_v2: bool = self._feature_is_enabled(
-            FeatureGateName.BOUNDS_CHECK_INDICES_V2
+        self.use_bounds_check_v2: bool = (
+            self._feature_is_enabled(FeatureGateName.BOUNDS_CHECK_INDICES_V2)
+            or self.bounds_check_version == 2
         )
 
         if embedding_table_index_type not in [torch.int32, torch.int64]:
