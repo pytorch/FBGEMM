@@ -69,7 +69,7 @@ AdjacencyMatrix<Links> get_nvlink_matrix() {
     } else {
       // flush the last error - this can occur when e.g. we set
       // HIP_VISIBLE_DEVICES to a subset of the available GPUs in the system.
-      hipGetLastError();
+      std::ignore = hipGetLastError();
     }
   }
 

@@ -77,6 +77,36 @@ class OptimizerArgs(NamedTuple):
     regularization_mode: int
     use_rowwise_bias_correction: bool # Used for OptimType.ADAM
 
+class CommonArgsPT2(NamedTuple):
+    placeholder_autograd_tensor: torch.Tensor
+    dev_weights: torch.Tensor
+    host_weights: torch.Tensor
+    uvm_weights: torch.Tensor
+    lxu_cache_weights: torch.Tensor
+    weights_placements: torch.Tensor
+    weights_offsets: torch.Tensor
+    D_offsets: torch.Tensor
+    total_D: int
+    max_D: int
+    hash_size_cumsum: torch.Tensor
+    total_hash_size_bits: int
+    indices: torch.Tensor
+    offsets: torch.Tensor
+    pooling_mode: int
+    indice_weights: Optional[torch.Tensor]
+    feature_requires_grad: Optional[torch.Tensor]
+    lxu_cache_locations: torch.Tensor
+    uvm_cache_stats: Optional[torch.Tensor]
+    output_dtype: int
+    vbe_metadata: VBEMetadata
+    is_experimental: bool
+    use_uniq_cache_locations_bwd: bool
+    use_homogeneous_placements: bool
+    info_B_num_bits: int
+    info_B_mask: int
+    {%- if ssd %}
+    ssd_tensors: Dict[str, torch.Tensor]
+    {%- endif %}
 
 class OptimizerArgsPT2(NamedTuple):
     """
