@@ -569,3 +569,123 @@ fp8_rowwise_256x64x16x512_16x16_1x1_32x8x1_32x8x1_1x64x1x4_4x4x1_1x1_intrawave_v
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x192x224x128_16x16_6x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x160x256x128_16x16_5x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x160x96x128_16x16_5x3_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x192x192x128_16x16_6x6_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x96x128x128_16x16_3x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x128x96x128_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x192x256x128_16x16_6x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x128x128x128_16x16_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x224x160x128_16x16_7x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x128x64x256_32x32_2x1_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x80x128x256_16x16_5x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_intrawave_v2(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x160x128x128_16x16_5x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x224x192x128_16x16_7x6_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
+
+at::Tensor
+fp8_rowwise_256x128x160x128_16x16_4x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y);
