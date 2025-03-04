@@ -546,13 +546,7 @@ DEVICE_INLINE fx4 rope_xpos(
     double hi_freq_factor = 32) {
   fx4 dst; // read 4 bf16 from src and store in 4 float registers
   if (head == QKV::V) {
-    auto r0 = bf1622float2(src.vals[0]);
-    auto r1 = bf1622float2(src.vals[1]);
-    dst.x = r0.x;
-    dst.y = r0.y;
-    dst.z = r1.x;
-    dst.w = r1.y;
-    return dst;
+    return bfx4_to_fx4(src);
   }
   int32_t offset_0 = ((4 * threadIdx.x) / 2 + 0);
   int32_t offset_1 = ((4 * threadIdx.x) / 2 + 1);
