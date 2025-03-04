@@ -38,8 +38,7 @@ dim3 get_best_block_dim(int m, int n, int k) {
 }
 } // namespace
 
-at::Tensor
-fp8fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, double scale, double zp) {
+at::Tensor fp8fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, at::Tensor scale) {
   // X: M x K
   // W: N x K
   auto m = X.size(0);
@@ -65,8 +64,7 @@ fp8fp8bf16_fast_gemv(at::Tensor X, at::Tensor W, double scale, double zp) {
       reinterpret_cast<cutlass::float_e4m3_t*>(X.data_ptr()), // vec
       reinterpret_cast<__nv_bfloat16*>(Y.data_ptr()), // res
       k,
-      __float2half(scale),
-      __float2half(zp),
+      reinterpret_cast<float const*>(scale.data_ptr()),
       num_per_thread);
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();

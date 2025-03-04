@@ -23,7 +23,7 @@ try:
     #  in `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
     from .optimizers import *
     from .common import CodeTemplate
-    from .optimizer_args import OptimizerArgsSet
+    from .optimizer_args import annotation_dict, OptimizerArgsSet
     from .scripts_argsparse import args
 except ImportError:
     from optimizers import *
@@ -32,7 +32,7 @@ except ImportError:
     from common import CodeTemplate
 
     # pyre-ignore[21]
-    from optimizer_args import OptimizerArgsSet
+    from optimizer_args import annotation_dict, OptimizerArgsSet
 
     # pyre-ignore[21]
     from scripts_argsparse import args
@@ -187,7 +187,11 @@ class BackwardSplitGenerator:
                     ),
                 ]:
                     CodeTemplate.load(template_filepath).write(
-                        filename, is_forward=False, ssd=ssd, **kwargs
+                        filename,
+                        is_forward=False,
+                        ssd=ssd,
+                        schema_annotation=annotation_dict,
+                        **kwargs,
                     )
 
                 if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
@@ -242,7 +246,10 @@ class BackwardSplitGenerator:
                 ),
             ]:
                 CodeTemplate.load(template_filepath).write(
-                    filename, is_forward=False, **kwargs
+                    filename,
+                    is_forward=False,
+                    schema_annotation=annotation_dict,
+                    **kwargs,
                 )
 
     @staticmethod
@@ -406,6 +413,8 @@ class BackwardSplitGenerator:
             ],
             "aux_int": [
                 "iter",  # 0
+                "info_B_num_bits",  # 1
+                "info_B_mask",  # 2
             ],
             "aux_float": [
                 "gwd_lower_bound",  # 0

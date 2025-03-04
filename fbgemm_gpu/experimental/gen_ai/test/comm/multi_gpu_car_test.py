@@ -14,7 +14,7 @@ import os
 import tempfile
 import unittest
 import uuid
-from typing import Callable, Tuple
+from typing import Callable, Dict, List, Tuple, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -126,8 +126,13 @@ def _run_reducescatter_inner(path: str) -> None:
     def round_up(a: int, b: int) -> int:
         return int(math.ceil(a / b)) * b
 
-    # pyre-ignore
-    def _test_fn(fn: Callable, W: int, rank: int, roundup: int, skip_bias) -> None:
+    def _test_fn(
+        fn: Callable,  # pyre-ignore
+        W: int,
+        rank: int,
+        roundup: int,
+        split_last_dim: bool = False,
+    ) -> None:
         for N in np.logspace(10, 24, num=20, base=2).tolist():
             N = round_up(int(N), roundup)
             y = torch.zeros(size=(N,), dtype=torch.bfloat16, device="cuda")
@@ -137,33 +142,31 @@ def _run_reducescatter_inner(path: str) -> None:
             )
             rank_start = N // W * rank
             rank_end = N // W * (rank + 1)
-            fn(y_reducescatter, y)
-            torch.testing.assert_close(
-                y_reducescatter,
-                torch.full(
-                    size=(N,),
-                    fill_value=(W * (W - 1) // 2),
-                    dtype=torch.bfloat16,
-                    device=y.device,
-                )[rank_start:rank_end],
+            args: List[torch.Tensor] = [y_reducescatter, y]
+            kwargs: Dict[str, Union[bool, torch.Tensor]] = {}
+
+            if split_last_dim:
+                kwargs["split_last_dim"] = True
+
+            fn(*args, **kwargs)
+            target = torch.full(
+                size=(N,),
+                fill_value=(W * (W - 1) // 2),
+                dtype=torch.bfloat16,
+                device=y.device,
             )
 
-            if not skip_bias:
-                z = torch.ones(size=(N,), dtype=torch.bfloat16, device="cuda")
-                fn(y_reducescatter, y, z)
-                torch.testing.assert_close(
-                    y_reducescatter,
-                    torch.full(
-                        size=(N,),
-                        fill_value=(W * (W - 1) // 2),
-                        dtype=torch.bfloat16,
-                        device=y.device,
-                    )[rank_start:rank_end]
-                    + 1,
-                )
+            torch.testing.assert_close(
+                y_reducescatter,
+                target[rank_start:rank_end],
+            )
 
-    _test_fn(reducescatter_compiled, W, rank, W, True)
+    # nccl allreduce doesn't support split_last_dim
+    _test_fn(reducescatter_compiled, W, rank, W)
+    _test_fn(reducescatter_compiled, W, rank, W)
+
     _test_fn(car_reducescatter_compiled, W, rank, 1024, False)
+    _test_fn(car_reducescatter_compiled, W, rank, 1024, True)
 
 
 def _run_allreduce_inner(path: str) -> None:
@@ -397,18 +400,18 @@ class LLamaMultiGpuTests(unittest.TestCase):
             )
 
     def test_reducescatter(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_reducescatter_inner)(path)
 

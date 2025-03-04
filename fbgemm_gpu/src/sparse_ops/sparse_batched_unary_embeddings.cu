@@ -186,7 +186,7 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
 
   int32_t info_B_num_bits;
   uint32_t info_B_mask;
-  std::tie(info_B_num_bits, info_B_mask) = adjust_info_B_num_bits(B, T);
+  std::tie(info_B_num_bits, info_B_mask) = get_info_B_num_bits_from_T(B, T);
 
   // weight: [N, sum_E]
   // total_hash_size_bits = log2(sum_E)

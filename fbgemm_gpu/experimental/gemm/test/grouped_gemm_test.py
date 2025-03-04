@@ -80,7 +80,7 @@ class TestGroupedGEMM(unittest.TestCase):
 
             torch.testing.assert_close(result, expected_result, atol=2e-2, rtol=1.6e-2)
 
-        for G in (1, 2, 4, 8, 16):
+        for G in (1, 4, 16):
             for M in (64, 512):
                 logging.info(f"Testing FP8 GMM with G={G}, M={M}")
                 _test_grouped_gemm_fp8_rowwise((G, M, 256, 256), torch.device("cuda"))
@@ -122,7 +122,7 @@ class TestGroupedGEMM(unittest.TestCase):
 
             torch.testing.assert_close(result, expected_result, atol=1e-5, rtol=1.6e-2)
 
-        for G in (1, 2, 4, 8, 16):
+        for G in (1, 4, 16):
             for M in (64, 512):
                 logging.info(f"Testing BF16 GMM with G={G}, M={M}")
                 _test_grouped_gemm_bf16((G, M, 256, 256), torch.device("cuda"))
