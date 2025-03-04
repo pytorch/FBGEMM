@@ -301,12 +301,18 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         constexpr auto sparse_type = SparseType::INT4;
         auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_D, sparse_type, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 16);
+        {%- if is_rocm %}
+        if (max_int4_128b_rows > 0) {
+          Y(2, 8, 0, 2);
+        }
+        {%- else %}
         if (max_int4_128b_rows > 0) {
           Y(4, 8, 0, 1);
         }
         if (max_int4_128b_rows > 1) {
           Y(2, 8, 1, 2);
         }
+        {%- endif %}
         if (max_int4_128b_rows > 2) {
           Y(1, 4, 2, 4);
         }
@@ -333,12 +339,18 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         constexpr auto sparse_type = SparseType::INT8;
         auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_D, sparse_type, row_alignment), 128);
         TORCH_CHECK(max_int8_128b_rows <= 32);
+        {%- if is_rocm %}
+        if (max_int8_128b_rows > 0) {
+          Y(2, 4, 0, 2);
+        }
+        {%- else %}
         if (max_int8_128b_rows > 0) {
           Y(2, 8, 0, 1);
         }
         if (max_int8_128b_rows > 1) {
           Y(2, 4, 1, 2);
         }
+        {%- endif %}
         if (max_int8_128b_rows > 2) {
           Y(2, 4, 2, 4);
         }

@@ -84,6 +84,7 @@ ELEM_TYPES = [
         [
             TemplateParams(2, 8, 0, 1),
             TemplateParams(2, 4, 1, 2),
+            TemplateParams(2, 4, 0, 2),
             TemplateParams(2, 4, 2, 4),
             TemplateParams(2, 4, 4, 8),
             TemplateParams(2, 2, 8, 16),
@@ -97,6 +98,7 @@ ELEM_TYPES = [
         [
             TemplateParams(4, 8, 0, 1),
             TemplateParams(2, 8, 1, 2),
+            TemplateParams(2, 8, 0, 2),
             TemplateParams(1, 4, 2, 4),
             TemplateParams(1, 4, 4, 8),
             TemplateParams(1, 4, 8, 16),
