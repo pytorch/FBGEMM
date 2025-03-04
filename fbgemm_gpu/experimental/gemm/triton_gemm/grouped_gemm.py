@@ -165,7 +165,7 @@ def _kernel_grouped_gemm(
         M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
-            N_start_offset = g * N
+            N_start_offset = g.to(tl.int64) * N
             n_size = N
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
@@ -306,7 +306,7 @@ def _kernel_grouped_gemm_fp8_rowwise(
         M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
-            N_start_offset = g * N
+            N_start_offset = g.to(tl.int64) * N
             n_size = N
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
