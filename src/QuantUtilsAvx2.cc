@@ -19,6 +19,7 @@
 #include <cstring> //for memcpy
 #include <limits> //for numeric_limits
 #include "./MaskAvx2.h"
+#include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
 
 namespace fbgemm {

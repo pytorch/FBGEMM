@@ -13,6 +13,7 @@
 
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
+#include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
 
 namespace fbgemm {

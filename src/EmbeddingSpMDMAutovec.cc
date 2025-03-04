@@ -12,6 +12,7 @@
 #include "./EmbeddingSpMDMAutovec.h"
 #include "./RefImplementations.h"
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/FloatConversion.h"
 
 #include <algorithm>
 #include <array>
