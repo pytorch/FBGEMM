@@ -15,16 +15,9 @@ fp8_rowwise_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
-  // A kernel that seems to work well on mid sized tensors.
-
-  // Check if this input needs to be padded.
-  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
-  int N = WQ.size(0);
   int K = WQ.size(1);
-  bool pad = (K % 64 != 0);
-
-  // Dispatch based on whether padding is needed or not.
-  if (pad) {
+  bool kpad = (K % 64 != 0);
+  if (kpad) {
     using DeviceGemmInstance = DeviceGemmHelper<
         256,
         256,
@@ -44,9 +37,8 @@ fp8_rowwise_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_
         ck::BlockGemmPipelineVersion::v4,
         ck::tensor_operation::device::GemmSpecialization::KPadding>;
     // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, Y);
-  } else {
+    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
+  } else {        
     using DeviceGemmInstance = DeviceGemmHelper<
         256,
         256,
@@ -66,7 +58,7 @@ fp8_rowwise_256x256x256x64_32x32_4x4_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_
         ck::BlockGemmPipelineVersion::v4,
         ck::tensor_operation::device::GemmSpecialization::Default>;
     // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, Y);
+    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
   }
 }
+
