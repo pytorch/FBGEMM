@@ -93,9 +93,8 @@ at::Tensor f8i4bf16_rowwise_impl(
                          // threadblocks in a
                          // cluster
   using CooperativeSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedCooperativeMixedInput;
-  using PongSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedPingpongMixedInput;
+      cutlass::gemm::KernelTmaWarpSpecializedCooperative;
+  using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
   using CooperativeEpilogueSchedule =
       cutlass::epilogue::TmaWarpSpecializedCooperative;
   using PongEpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
@@ -260,7 +259,7 @@ at::Tensor dispatch_f8i4bf16_rowwise_kernel(
     return f8i4bf16_rowwise_impl<
         128,
         256,
-        64,
+        128,
         2,
         1,
         1,
@@ -271,7 +270,7 @@ at::Tensor dispatch_f8i4bf16_rowwise_kernel(
     return f8i4bf16_rowwise_impl<
         128,
         256,
-        64,
+        128,
         2,
         1,
         1,
