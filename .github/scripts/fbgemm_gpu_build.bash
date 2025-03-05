@@ -84,16 +84,16 @@ __configure_fbgemm_gpu_build_nvcc () {
 
   # Only NVCC 12+ supports C++20
   if [[ ${cuda_version_arr[0]} -lt 12 ]]; then
-    local cppstd_ver=17
+    local nvcc_cppstd_ver=17
   else
-    local cppstd_ver=20
+    local nvcc_cppstd_ver=20
   fi
 
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
-    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
+    local nvcc_prepend_flags="-std=c++${nvcc_cppstd_ver} -Xcompiler -std=c++${nvcc_cppstd_ver} -Xcompiler -stdlib=libstdc++ -ccbin ${cxx_path} -allow-unsupported-compiler"
   else
     # NOTE: The `-stdlib=libstdc++` flag doesn't exist for GCC
-    local nvcc_prepend_flags="-std=c++${cppstd_ver} -Xcompiler -std=c++${cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
+    local nvcc_prepend_flags="-std=c++${nvcc_cppstd_ver} -Xcompiler -std=c++${nvcc_cppstd_ver} -ccbin ${cxx_path} -allow-unsupported-compiler"
   fi
 
   # Explicitly set whatever $CONDA_PREFIX/bin/c++ points to as the the host
@@ -109,12 +109,12 @@ __configure_fbgemm_gpu_build_nvcc () {
   # shellcheck disable=SC2086
   print_exec conda run ${env_prefix} printenv NVCC_PREPEND_FLAGS
 
-  echo "[BUILD] Setting CUDA build args ..."
-  # shellcheck disable=SC2206
-  build_args+=(
-    # Override CMake configuration
-    -DCMAKE_CXX_STANDARD="${cppstd_ver}"
-  )
+  # echo "[BUILD] Setting CUDA build args ..."
+  # # shellcheck disable=SC2206
+  # build_args+=(
+  #   # Override CMake configuration
+  #   -DCMAKE_CXX_STANDARD=20
+  # )
 }
 
 __configure_fbgemm_gpu_cuda_home () {
