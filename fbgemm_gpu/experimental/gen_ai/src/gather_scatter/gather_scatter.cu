@@ -11,10 +11,15 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 
+#include "cute/algorithm/functional.hpp"
+#include "cute/algorithm/gemm.hpp"
 #include "cute/atom/copy_atom.hpp"
 #include "cute/atom/copy_traits_sm90_tma.hpp"
+#include "cute/atom/mma_atom.hpp"
+#include "cute/numeric/arithmetic_tuple.hpp"
 #include "cute/numeric/integral_constant.hpp"
 #include "cute/tensor.hpp"
+#include "cute/tensor_predicate.hpp"
 #include "cutlass/cluster_launch.hpp"
 #include "cutlass/device_kernel.h"
 
