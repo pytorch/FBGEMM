@@ -51,6 +51,9 @@ class FeatureGateName(Enum):
     # Enable Ensemble Rowwise Adagrad (D60189486 stack)
     TBE_ENSEMBLE_ROWWISE_ADAGRAD = auto()
 
+    # Enable ROCm packed bags optimization in inference
+    TBE_ROCM_INFERENCE_PACKED_BAGS = auto()
+
     # Enable bounds_check_indices_v2
     BOUNDS_CHECK_INDICES_V2 = auto()
 
