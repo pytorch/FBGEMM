@@ -37,3 +37,5 @@
 . "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_lint.bash"
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_test.bash"
+# shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_benchmarks.bash"
