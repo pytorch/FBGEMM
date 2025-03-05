@@ -786,7 +786,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
   for (int i = 0; i < input.dim(); i++) {
     quantized_input_shape.push_back(input.size(i));
   }
-  std::vector<long int> scale_shape = {1};
+  std::vector<long int> scale_shape = {};
   input = input.cuda();
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
