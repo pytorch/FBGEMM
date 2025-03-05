@@ -9,9 +9,11 @@ var searchData=
   ['requantizeoutputprocessingavx2_6',['requantizeOutputProcessingAvx2',['../group__fbgemm-quant-utils-avx2.html#ga92e2b96889b039f101e24855e163021b',1,'fbgemm']]],
   ['requantizeoutputprocessinggconvavx512_7',['requantizeOutputProcessingGConvAvx512',['../group__fbgemm-quant-utils-avx512.html#gab1b2ed3537f97d130f8ed039bc9aa463',1,'fbgemm']]],
   ['reset_5feviction_5fstates_8',['reset_eviction_states',['../classl2__cache_1_1_cache_lib_cache.html#a59d4800235bf477ae8b2da78001519dd',1,'l2_cache::CacheLibCache']]],
-  ['roundtofloat16_9',['RoundToFloat16',['../namespacefbgemm.html#a3bf47d3d99c8b3cb2af625d90c5494ab',1,'fbgemm']]],
-  ['row_5foffsets_5fu8acc32_5fref_10',['row_offsets_u8acc32_ref',['../namespacefbgemm.html#a0a160cf468a51c4634688b4f43851324',1,'fbgemm']]],
-  ['rowoffsetbuffersize_11',['rowOffsetBufferSize',['../classfbgemm_1_1_pack_a_with_im2_col.html#aa77e3ad795b908ab26006e954e19fa19',1,'fbgemm::PackAWithIm2Col::rowOffsetBufferSize()'],['../classfbgemm_1_1_pack_a_with_row_offset.html#aa77e3ad795b908ab26006e954e19fa19',1,'fbgemm::PackAWithRowOffset::rowOffsetBufferSize()'],['../classfbgemm_1_1_pack_a_with_quant_row_offset.html#aa77e3ad795b908ab26006e954e19fa19',1,'fbgemm::PackAWithQuantRowOffset::rowOffsetBufferSize()']]],
-  ['rowoffsetbuffersizegconv_12',['rowOffsetBufferSizeGConv',['../namespacefbgemm.html#a8f972dca3254066120f58af5cf3b304c',1,'fbgemm']]],
-  ['rowwise_5fsparse_5fadagrad_5fref_13',['rowwise_sparse_adagrad_ref',['../namespacefbgemm.html#a3bee8daea3756d030209a6815db314d9',1,'fbgemm']]]
+  ['reshape_5fvbe_5foffsets_9',['reshape_vbe_offsets',['../namespacefbgemm__gpu.html#a3938a59b8e908b5f89ad740ee02b3874',1,'fbgemm_gpu']]],
+  ['reshape_5fvbe_5foutput_10',['reshape_vbe_output',['../namespacefbgemm__gpu.html#aa4972a7deb2400d482f055776b2627f0',1,'fbgemm_gpu']]],
+  ['roundtofloat16_11',['RoundToFloat16',['../namespacefbgemm.html#a3bf47d3d99c8b3cb2af625d90c5494ab',1,'fbgemm']]],
+  ['row_5foffsets_5fu8acc32_5fref_12',['row_offsets_u8acc32_ref',['../namespacefbgemm.html#a0a160cf468a51c4634688b4f43851324',1,'fbgemm']]],
+  ['rowoffsetbuffersize_13',['rowOffsetBufferSize',['../classfbgemm_1_1_pack_a_with_im2_col.html#aa77e3ad795b908ab26006e954e19fa19',1,'fbgemm::PackAWithIm2Col::rowOffsetBufferSize()'],['../classfbgemm_1_1_pack_a_with_row_offset.html#aa77e3ad795b908ab26006e954e19fa19',1,'fbgemm::PackAWithRowOffset::rowOffsetBufferSize()'],['../classfbgemm_1_1_pack_a_with_quant_row_offset.html#aa77e3ad795b908ab26006e954e19fa19',1,'fbgemm::PackAWithQuantRowOffset::rowOffsetBufferSize()']]],
+  ['rowoffsetbuffersizegconv_14',['rowOffsetBufferSizeGConv',['../namespacefbgemm.html#a8f972dca3254066120f58af5cf3b304c',1,'fbgemm']]],
+  ['rowwise_5fsparse_5fadagrad_5fref_15',['rowwise_sparse_adagrad_ref',['../namespacefbgemm.html#a3bee8daea3756d030209a6815db314d9',1,'fbgemm']]]
 ];

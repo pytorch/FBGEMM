@@ -142,6 +142,12 @@ Functions</h2></td></tr>
 <tr class="memitem:ae86238f4ca864fb4ea41318ece747ab4" id="r_ae86238f4ca864fb4ea41318ece747ab4"><td class="memTemplParams" colspan="2">template&lt;typename scalar_t, int ITEMS_PER_THREAD, int NUM_THREADS_PER_BLOCK&gt; </td></tr>
 <tr class="memitem:ae86238f4ca864fb4ea41318ece747ab4"><td class="memTemplItemLeft" align="right" valign="top">__inline__ __device__ void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ae86238f4ca864fb4ea41318ece747ab4">inclusive_sum_scan_kernel</a> (scalar_t(&amp;arr)[ITEMS_PER_THREAD], typename cub::BlockScan&lt; scalar_t, NUM_THREADS_PER_BLOCK &gt;::TempStorage &amp;temp_storage, int *block_flags, volatile scalar_t *block_sums, scalar_t *block_prev, const int num_entries_per_block, const int block_id, const bool is_multi_block, const int signal)</td></tr>
 <tr class="separator:ae86238f4ca864fb4ea41318ece747ab4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa4972a7deb2400d482f055776b2627f0" id="r_aa4972a7deb2400d482f055776b2627f0"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa4972a7deb2400d482f055776b2627f0">reshape_vbe_output</a> (const Tensor &amp;grad_output, const int64_t max_B, const Tensor &amp;B_offsets_rank_per_feature, const Tensor &amp;D_offsets)</td></tr>
+<tr class="separator:aa4972a7deb2400d482f055776b2627f0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3938a59b8e908b5f89ad740ee02b3874" id="r_a3938a59b8e908b5f89ad740ee02b3874"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3938a59b8e908b5f89ad740ee02b3874">reshape_vbe_offsets</a> (const Tensor &amp;offsets, const Tensor &amp;B_offsets_rank_per_feature, const int64_t max_B, const int32_t T)</td></tr>
+<tr class="separator:a3938a59b8e908b5f89ad740ee02b3874"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa918bd02809bf42ba7d396c18add690f" id="r_aa918bd02809bf42ba7d396c18add690f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa918bd02809bf42ba7d396c18add690f">checked_memcpy</a> (void *dst, size_t dst_buffer, const void *src, size_t src_buffer, size_t copy_size)</td></tr>
+<tr class="separator:aa918bd02809bf42ba7d396c18add690f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ace574b23fe99327816839526e99298ac" id="r_ace574b23fe99327816839526e99298ac"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ace574b23fe99327816839526e99298ac">per_tensor_quantize_i8</a> (at::Tensor X, double scale)</td></tr>
 <tr class="separator:ace574b23fe99327816839526e99298ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af01b4023830652f0cc3e99c87f7b4526" id="r_af01b4023830652f0cc3e99c87f7b4526"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, Tensor, Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af01b4023830652f0cc3e99c87f7b4526">padding_fused_tbe_input_combine_with_length_cpu</a> (const std::vector&lt; Tensor &gt; &amp;indices_list, const std::vector&lt; Tensor &gt; &amp;lengths_list, const std::vector&lt; Tensor &gt; &amp;per_sample_weights, int64_t batch_size)</td></tr>
@@ -304,6 +310,55 @@ template&lt;int NUM_JAGGED_DIM, typename index_t, typename scalar_t, typename F&
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The sumed embeddings. </dd></dl>
+
+</div>
+</div>
+<a id="aa918bd02809bf42ba7d396c18add690f" name="aa918bd02809bf42ba7d396c18add690f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa918bd02809bf42ba7d396c18add690f">&#9670;&#160;</a></span>checked_memcpy()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void checked_memcpy </td>
+          <td>(</td>
+          <td class="paramtype">void *</td>          <td class="paramname"><span class="paramname"><em>dst</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>dst_buffer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const void *</td>          <td class="paramname"><span class="paramname"><em>src</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>src_buffer</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">size_t</td>          <td class="paramname"><span class="paramname"><em>copy_size</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Bounds checking to ensure there's no buffer overflow for memcpy.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">dst</td><td>Pointer to the destination. </td></tr>
+    <tr><td class="paramname">dst_index</td><td>Starting index where the content is to be copied to </td></tr>
+    <tr><td class="paramname">dst_size</td><td>Max number of bytes to modify in the destination. </td></tr>
+    <tr><td class="paramname">src</td><td>Pointer to the source. </td></tr>
+    <tr><td class="paramname">src_index</td><td>Starting index where the content is to be copied from </td></tr>
+    <tr><td class="paramname">src_size</td><td>Max number of bytes to copy from the source </td></tr>
+    <tr><td class="paramname">copy_size</td><td>Number of bytes to copy. </td></tr>
+  </table>
+  </dd>
+</dl>
 
 </div>
 </div>
@@ -1369,6 +1424,88 @@ template&lt;typename IndexType, typename OffsetType&gt; </div>
       </table>
 </div><div class="memdoc">
 <p>report error from fbgemm cpu embedding lookup kernels @params allow_minus_one true for embedding kernels generated with scale_bias_last == false that can take -1 indices (output from pruned embedding id mapping) </p>
+
+</div>
+</div>
+<a id="a3938a59b8e908b5f89ad740ee02b3874" name="a3938a59b8e908b5f89ad740ee02b3874"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3938a59b8e908b5f89ad740ee02b3874">&#9670;&#160;</a></span>reshape_vbe_offsets()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor reshape_vbe_offsets </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>offsets</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>B_offsets_rank_per_feature</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_B</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int32_t</td>          <td class="paramname"><span class="paramname"><em>T</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Pad VBE offsets to work with non-VBE CPU kernel.</p>
+<p>reshaped_offsets A 1D tensor that contains the offsets in a fixed-batch-size format </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">offsets</td><td>A 1D tensor of VBE offsets for indices </td></tr>
+    <tr><td class="paramname">B_offsets_rank_per_feature</td><td>A 2D tensor that contains batch size offsets for all ranks for each feature. size(0) is number of features size(1) is number of ranks </td></tr>
+    <tr><td class="paramname">max_B</td><td>Maximum batch size </td></tr>
+    <tr><td class="paramname">T</td><td>Number of embedding tables (features) </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
+<a id="aa4972a7deb2400d482f055776b2627f0" name="aa4972a7deb2400d482f055776b2627f0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa4972a7deb2400d482f055776b2627f0">&#9670;&#160;</a></span>reshape_vbe_output()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Tensor reshape_vbe_output </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>grad_output</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const int64_t</td>          <td class="paramname"><span class="paramname"><em>max_B</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>B_offsets_rank_per_feature</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>D_offsets</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Reshape VBE output (or grad_output) to be in a fixed-batch size format to work with non-VBE CPU kernel.</p>
+<p>reshaped_grad_output A 2D tensor that contains the grad output of shape [max_B, total_D] where max_B is maximum batch size and total_D is the accumulated embedding dimensions </p><dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">grad_output</td><td>A 1D tensor that contains the grad_output in a VBE output format </td></tr>
+    <tr><td class="paramname">max_B</td><td>Maximum batch size </td></tr>
+    <tr><td class="paramname">B_offsets_rank_per_feature</td><td>A 2D tensor that contains batch size offsets for all ranks for each feature size(0) is number of features size(1) is number of ranks </td></tr>
+    <tr><td class="paramname">D_offsets</td><td>Embedding dimension offsets. Dimension of feature t = D_offsets[t-1] - D_offsets[t] </td></tr>
+  </table>
+  </dd>
+</dl>
 
 </div>
 </div>
