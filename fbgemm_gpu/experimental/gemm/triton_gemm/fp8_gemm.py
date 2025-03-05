@@ -2911,10 +2911,54 @@ def get_full_non_persistent_tuning_space():
 
 
 MATMUL_CONFIGS_NON_PERSISTENT: List[Config] = get_full_non_persistent_tuning_space()
+MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
+    triton.Config(
+        {
+            "BLOCK_M": 16,
+            "BLOCK_N": 16,
+            "BLOCK_K": 256,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 8,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=2,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 16,
+            "BLOCK_N": 16,
+            "BLOCK_K": 256,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=2,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 256,
+            "BLOCK_N": 256,
+            "BLOCK_K": 128,
+            "GROUP_M": 32,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 1,
+        },
+        num_warps=8,
+        num_stages=2,
+    ),
+]
 
 
 @triton.autotune(
-    configs=MATMUL_CONFIGS_NON_PERSISTENT,
+    configs=MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K,
     key=["M", "N", "K"],
     prune_configs_by={
         "early_config_prune": prune_configs,
