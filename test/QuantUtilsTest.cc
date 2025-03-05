@@ -14,6 +14,7 @@
 #include <type_traits>
 
 #include "TestUtils.h"
+#include "fbgemm/FloatConversion.h"
 #include "fbgemm/QuantUtils.h"
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"

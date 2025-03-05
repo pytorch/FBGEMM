@@ -21,6 +21,7 @@
 #include <cmath> //for nearbyint
 #include <cstring> //for memcpy
 #include <limits> //for numeric_limits
+#include "fbgemm/FloatConversion.h"
 #include "fbgemm/QuantUtilsNeon.h"
 #include "fbgemm/Types.h"
 
