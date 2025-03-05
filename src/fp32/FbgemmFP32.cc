@@ -17,7 +17,7 @@
 #include "./FbgemmFP32UKernelsAvx512.h"
 #include "./FbgemmFP32UKernelsAvx512_256.h"
 #else
-#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+#ifdef FBGEMM_ENABLE_KLEIDIAI
 #include "./KleidiAIFP32UKernelsNeon.h"
 #endif
 #endif
@@ -88,7 +88,7 @@ constexpr kernel_array_t<float> kernel_f32_avx512_256 = {
 #endif
 
 #ifdef __aarch64__
-#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+#ifdef FBGEMM_ENABLE_KLEIDIAI
 constexpr kernel_array_t<float> kernel_fp32_neon = {
     nullptr,
     kleidiai::gemmkernel_1x2_Neon_fp32_fA0fB0fC0,
@@ -111,7 +111,7 @@ const isa_descriptor<float>& getIsaHandlers(inst_set_t isa, float) {
   static isa_descriptor<float> avx512_256_descriptor =
       std::make_tuple(kernel_f32_avx512_256, partition_avx512);
 #ifdef __aarch64__
-#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+#ifdef FBGEMM_ENABLE_KLEIDIAI
   static isa_descriptor<float> neon_descriptor =
       std::make_tuple(kernel_fp32_neon, partition_sve128);
 #endif
@@ -119,7 +119,7 @@ const isa_descriptor<float>& getIsaHandlers(inst_set_t isa, float) {
 
   switch (isa) {
     case inst_set_t::sve:
-#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+#ifdef FBGEMM_ENABLE_KLEIDIAI
       return neon_descriptor;
 #endif
     case inst_set_t::anyarch:

@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+#ifdef FBGEMM_ENABLE_KLEIDIAI
 
 #include "./KleidiAIFP32UKernelsNeon.h"
 

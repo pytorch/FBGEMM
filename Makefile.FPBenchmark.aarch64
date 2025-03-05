@@ -9,7 +9,7 @@ KLEIDIAI_FP16_DIR := external/kleidiai/kai/ukernels/matmul/matmul_f32_f32_f16p
 KLEIDIAI_FP32_DIR := external/kleidiai/kai/ukernels/matmul/matmul_f32_f32_f32p
 
 CFLAGS    := -O3 -mcpu=native -std=c++20 -fvisibility=hidden -fopenmp
-CDEFINES  := -DFBGEMM_ENABLE_FP32_KLEIDIAI=1 -DCPUINFO_SUPPORTED_PLATFORM=1 -DFBGEMM_FP16_FALLBACK_TO_REF_KERNEL=1 -DFBGEMM_FP32_FALLBACK_TO_REF_KERNEL=1
+CDEFINES  := -DFBGEMM_ENABLE_KLEIDIAI=1 -DCPUINFO_SUPPORTED_PLATFORM=1 -DFBGEMM_FP16_FALLBACK_TO_REF_KERNEL=1 -DFBGEMM_FP32_FALLBACK_TO_REF_KERNEL=1
 INCLUDES  := -I./include -I./ -I./external/cpuinfo/include -I./external/asmjit/src -I./external/googletest/googletest/include -I./src
 
 SRC_DIR  := src

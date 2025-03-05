@@ -3,7 +3,7 @@
  * <open-source-office@arm.com> SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+#ifdef FBGEMM_ENABLE_KLEIDIAI
 
 #pragma once
 #include <cstdint>
