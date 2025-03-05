@@ -1120,7 +1120,7 @@ class FP8Tests(unittest.TestCase):
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
     )
-    def test_gemv(
+    def run_gemv(
         self, test_cases, gemv_op, atol, rtol, quantize_w=False, quantize_x=False
     ):
         for M, N, K in test_cases:
@@ -1150,7 +1150,7 @@ class FP8Tests(unittest.TestCase):
             (1, 7168, 8192),
             (1, 8192, 3584),
         ]
-        self.test_gemv(test_cases, torch.ops.fbgemm.bf16_fast_gemv, 9.0e-3, 9.0e-3)
+        self.run_gemv(test_cases, torch.ops.fbgemm.bf16_fast_gemv, 9.0e-3, 9.0e-3)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
@@ -1164,7 +1164,7 @@ class FP8Tests(unittest.TestCase):
             (1, 7168, 8192),
             (1, 8192, 3584),
         ]
-        self.test_gemv(
+        self.run_gemv(
             test_cases,
             torch.ops.fbgemm.bf16fp8bf16_fast_gemv,
             1.0e-2,
@@ -1182,7 +1182,7 @@ class FP8Tests(unittest.TestCase):
             (1, 7168, 8192),
             (1, 8192, 3584),
         ]
-        self.test_gemv(
+        self.run_gemv(
             test_cases,
             torch.ops.fbgemm.fp8fp8bf16_fast_gemv,
             9.0e-2,
