@@ -25,7 +25,13 @@ namespace fbgemm_gpu {
 
 Tensor reshape_vbe_output(
     const Tensor& grad_output,
-    const Tensor& B_offsets,
+    const int64_t max_B,
     const Tensor& B_offsets_rank_per_feature,
     const Tensor& D_offsets);
+
+Tensor reshape_vbe_offsets(
+    const Tensor& offsets,
+    const Tensor& B_offsets_rank_per_feature,
+    const int64_t max_B,
+    const int32_t T);
 } // namespace fbgemm_gpu
