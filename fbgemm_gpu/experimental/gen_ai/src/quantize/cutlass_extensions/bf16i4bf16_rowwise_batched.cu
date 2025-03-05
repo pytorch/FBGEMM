@@ -103,9 +103,8 @@ at::Tensor bf16i4bf16_rowwise_batched_impl(
                          // threadblocks in a
                          // cluster
   using CooperativeSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedCooperativeMixedInput;
-  using PongSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedPingpongMixedInput;
+      cutlass::gemm::KernelTmaWarpSpecializedCooperative;
+  using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
   using CooperativeEpilogueSchedule =
       cutlass::epilogue::TmaWarpSpecializedCooperative;
   using PongEpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
