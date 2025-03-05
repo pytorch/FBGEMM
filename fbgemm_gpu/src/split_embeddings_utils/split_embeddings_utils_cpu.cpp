@@ -10,6 +10,7 @@
 #include <torch/library.h>
 #include "fbgemm_gpu/split_embeddings_utils.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -119,8 +120,52 @@ generate_vbe_metadata_cpu(
     const c10::SymInt max_B_feature_rank,
     const int64_t info_B_num_bits,
     const c10::SymInt total_B) {
-  Tensor row_output_offsets = output_offsets_feature_rank;
-  Tensor b_t_map = B_offsets_rank_per_feature;
+  TENSOR_ON_CPU(B_offsets);
+  TENSORS_ON_SAME_DEVICE(B_offsets, B_offsets_rank_per_feature);
+  TENSORS_ON_SAME_DEVICE(B_offsets, output_offsets_feature_rank);
+  TENSORS_ON_SAME_DEVICE(B_offsets, D_offsets);
+  TENSOR_NDIM_EQUALS(B_offsets, 1);
+  TENSOR_NDIM_EQUALS(B_offsets_rank_per_feature, 2);
+  TENSOR_NDIM_EQUALS(output_offsets_feature_rank, 1);
+  const auto T = B_offsets.numel() - 1;
+  TORCH_CHECK(T > 0, "generate_vbe_metadata: Invalid T ", T);
+  TORCH_CHECK(D_offsets.numel() == T + 1)
+  const auto num_ranks = B_offsets_rank_per_feature.size(1) - 1;
+  TORCH_CHECK(
+      num_ranks > 0, "generate_vbe_metadata: Invalid num_ranks ", num_ranks);
+  TORCH_CHECK(B_offsets_rank_per_feature.size(0) == T);
+  TORCH_CHECK(output_offsets_feature_rank.numel() == num_ranks * T + 1);
+  const int32_t total_B_ = total_B.guard_int(__FILE__, __LINE__);
+  Tensor row_output_offsets =
+      at::empty({total_B_}, output_offsets_feature_rank.options());
+  TORCH_CHECK(B_offsets.dtype() == at::kInt, "B_offsets should be int32");
+  Tensor b_t_map = at::empty({total_B_}, B_offsets.options());
+  auto B_offsets_acc = B_offsets.accessor<int32_t, 1>();
+  auto D_offsets_acc = D_offsets.accessor<int32_t, 1>();
+  auto B_offsets_rank_per_feature_acc =
+      B_offsets_rank_per_feature.accessor<int32_t, 2>();
+  uint32_t* b_t_map_ = reinterpret_cast<uint32_t*>(b_t_map.data_ptr());
+  for (const uint32_t t : c10::irange(T)) {
+    // Get batch offset per table
+    const auto B_start_t = B_offsets_acc[t];
+    const auto D_ = D_offsets_acc[t + 1] - D_offsets[t];
+    for (const auto r : c10::irange(num_ranks)) {
+      // Get start index of batch offset
+      const auto B_start_r_t = B_offsets_rank_per_feature_acc[t][r];
+      // Get batch size
+      const auto batch_size_r_t =
+          B_offsets_rank_per_feature_acc[t][r + 1] - B_start_r_t;
+      for (const auto b : c10::irange(batch_size_r_t)) {
+        // serialize batch id as index for the outputs
+        const auto b_t = B_start_t + B_start_r_t + b;
+        row_output_offsets[b_t] =
+            output_offsets_feature_rank[r * T + t] + b * D_;
+        // batch ID per table
+        const uint32_t b_ = B_start_r_t + b;
+        b_t_map_[b_t] = (t << info_B_num_bits) | b_;
+      }
+    }
+  }
   return {row_output_offsets, b_t_map};
 }
 

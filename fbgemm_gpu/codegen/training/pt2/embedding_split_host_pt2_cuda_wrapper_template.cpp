@@ -93,6 +93,9 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
     const c10::SymInt vbe_output_size,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const Tensor& vbe_output_offsets_feature_rank,
+    const int64_t max_B,
     {%- endif %}
     {%- if is_gwd %}
     const Tensor& prev_iter_dev,
@@ -241,6 +244,8 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     const Tensor& B_offsets,
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const int64_t max_B,
     {%- endif %}
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
@@ -403,7 +408,9 @@ Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_{{ d
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
     const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64
+    const int64_t info_B_mask_int64,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const int64_t max_B
     {%- else %}
     const Tensor& feature_requires_grad
     {%- endif %}
@@ -529,6 +536,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    SymInt vbe_output_size, "
         "    int info_B_num_bits, "
         "    int info_B_mask_int64, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    Tensor vbe_output_offsets_feature_rank, "
+        "    int max_B, "
         {%- endif %}
         {%- if is_gwd %}
         "    Tensor{{ schema_annotation['prev_iter_dev'] }} prev_iter_dev, "
@@ -599,6 +609,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor B_offsets, "
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    int max_B, "
         {%- endif %}
         "    bool use_uniq_cache_locations, "
         "    bool use_homogeneous_placements,"
@@ -656,7 +668,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
         "    int info_B_num_bits, "
-        "    int info_B_mask_int64"
+        "    int info_B_mask_int64, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    int max_B "
         {%- else %}
         "    Tensor feature_requires_grad"
         {%- endif %}

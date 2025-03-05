@@ -384,10 +384,6 @@
       "ForwardTest.test_faketensor__test_forward_cpu_fp32": {
         "comment": "",
         "status": "xfail"
-      },
-      "ForwardTest.test_schema__test_forward_cpu_fp32": {
-        "comment": "",
-        "status": "xfail"
       }
     },
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_with_counter_function": {},
