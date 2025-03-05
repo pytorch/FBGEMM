@@ -1,6 +1,7 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright 2024-2025 Arm Limited and/or its affiliates
+ * <open-source-office@arm.com> All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -25,7 +26,7 @@ using partition_array_t = std::array<std::array<std::array<int, 2>, 2>, 121>;
 extern partition_array_t partition_avx2;
 extern partition_array_t partition_avx512;
 extern partition_array_t partition_sve128;
-#ifdef FBGEMM_ENABLE_KLEIDIAI
+#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
 extern partition_array_t partition_neon;
 #endif
 
@@ -38,7 +39,19 @@ struct GemmParams {
   float* C;
   uint64_t ldc;
   uint64_t b_block_cols;
-#ifdef FBGEMM_ENABLE_KLEIDIAI
+  uint64_t b_block_size;
+};
+
+template <>
+struct GemmParams<float> {
+  uint64_t k;
+  float* A;
+  const float* B;
+  float beta;
+  float* C;
+  uint64_t ldc;
+  uint64_t b_block_cols;
+#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
   uint64_t lda;
 #else
   uint64_t b_block_size;
@@ -162,11 +175,16 @@ void cblas_gemm_compute(
         for (auto m2 = m_start; m2 < m_end; m2 += kernel_nrows) {
           assert(kernel_nrows * kb < static_cast<int64_t>(scratchpad->size()));
           if (m != 1) {
-#ifdef FBGEMM_ENABLE_KLEIDIAI
-            gp.A = const_cast<float*>(&A[m2 * k + k_ind]);
-#else
-            PackA(kernel_nrows, kb, &A[m2 * k + k_ind], k, scratchpad->data());
-            gp.A = scratchpad->data();
+#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+            if constexpr (std::is_same<T, float>::value) {
+              gp.A = const_cast<float*>(&A[m2 * k + k_ind]);
+            } else {
+#endif
+              PackA(
+                  kernel_nrows, kb, &A[m2 * k + k_ind], k, scratchpad->data());
+              gp.A = scratchpad->data();
+#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+            }
 #endif
           } else {
             // When m == 1, it is actually vector matrix multiplication. We
@@ -183,10 +201,14 @@ void cblas_gemm_compute(
           gp.C = &C[m2 * ldc];
           gp.ldc = ldc * sizeof(C[0]);
           gp.b_block_cols = nbcol;
-#ifdef FBGEMM_ENABLE_KLEIDIAI
-          gp.lda = k * sizeof(A[0]);
-#else
-          gp.b_block_size = gp.k * Bp.blockColSize() * sizeof(gp.B[0]);
+#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+          if constexpr (std::is_same<T, float>::value) {
+            gp.lda = k * sizeof(A[0]);
+          } else {
+#endif
+            gp.b_block_size = gp.k * Bp.blockColSize() * sizeof(gp.B[0]);
+#ifdef FBGEMM_ENABLE_FP32_KLEIDIAI
+          }
 #endif
 
           if ((n % Bp.blockColSize()) == 0) {
@@ -198,7 +220,9 @@ void cblas_gemm_compute(
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (std::is_same<T, float16>::value) {
+              if constexpr (
+                  std::is_same<T, float16>::value ||
+                  std::is_same<T, float>::value) {
                 kernels[kernel_nrows](&gp);
               } else {
                 ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
@@ -218,7 +242,9 @@ void cblas_gemm_compute(
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-                if constexpr (std::is_same<T, float16>::value) {
+                if constexpr (
+                    std::is_same<T, float16>::value ||
+                    std::is_same<T, float>::value) {
                   kernels[kernel_nrows](&gp);
                 } else {
                   ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
@@ -249,7 +275,9 @@ void cblas_gemm_compute(
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (std::is_same<T, float16>::value) {
+              if constexpr (
+                  std::is_same<T, float16>::value ||
+                  std::is_same<T, float>::value) {
                 kernels[kernel_nrows](&gp);
               } else {
                 ref_kernel<T>(
