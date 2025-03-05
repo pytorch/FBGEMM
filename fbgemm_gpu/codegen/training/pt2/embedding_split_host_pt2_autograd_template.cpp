@@ -42,10 +42,6 @@
 #include "torch/csrc/autograd/record_function_ops.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 
-{%- if has_vbe_support %}
-#include "fbgemm_gpu/utils/pt2_autograd_utils.h"
-{%- endif %}
-
 #include "pt2_arg_utils.h"
 
 using Tensor = at::Tensor;
@@ -124,6 +120,9 @@ enum SSDTensor {
                 const c10::SymInt /*vbe_output_size*/,
                 const int64_t /*info_B_num_bits*/,
                 const int64_t /*info_B_mask_int64*/,
+                const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu offsets and output
+                const Tensor& /*vbe_output_offsets_feature_rank*/, // for reshaping vbe cpu output
+                const int64_t /*max_B_int*/, // for reshaping vbe cpu offsets
                 {%- endif %}
                 {%- if is_gwd %}
                 const Tensor& /*prev_iter_dev*/,
@@ -168,6 +167,9 @@ enum SSDTensor {
       vbe_output_size,
       info_B_num_bits,
       info_B_mask_int64,
+      vbe_B_offsets_rank_per_feature_, // for reshaping vbe cpu offsets and output
+      vbe_output_offsets_feature_rank_, // for reshaping vbe cpu output
+      max_B_int, // for reshaping vbe cpu offsets
       {%- endif %} {# /* if vbe */ #}
       {%- if is_gwd %}
       prev_iter_dev_,
@@ -244,6 +246,8 @@ enum SSDTensor {
                 const Tensor& /*B_offsets*/,
                 const Tensor& /*vbe_row_output_offsets*/,
                 const Tensor& /*vbe_b_t_map*/,
+                const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu offsets and grad output
+                const int64_t /*max_B*/, // for reshaping vbe cpu offsets
                 {%- endif %}
                 const bool /*use_uniq_cache_locations_bwd*/,
                 const bool /*use_homogeneous_placements*/,
@@ -309,6 +313,8 @@ enum SSDTensor {
           B_offsets,
           vbe_row_output_offsets,
           vbe_b_t_map,
+          vbe_B_offsets_rank_per_feature, // for reshaping vbe cpu offsets and grad output
+          max_B, // for reshaping vbe cpu offsets
           {%- endif %} {# /* if vbe */ #}
           {%- if not dense %}
           use_uniq_cache_locations_bwd,
@@ -689,6 +695,7 @@ class {{ autograd_func }} :
     const auto info_B_mask = static_cast<uint32_t>(aux_int[IDX_INFO_B_MASK]);
 
     {%- if vbe %}
+    const int64_t max_B_int = max_B_.guard_int(__FILE__, __LINE__); // for reshaping vbe cpu offsets and grad_output
     static auto generate_vbe_metadata_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::generate_vbe_metadata", "")
@@ -766,6 +773,7 @@ class {{ autograd_func }} :
         B_offsets_,
         vbe_row_output_offsets,
         vbe_b_t_map,
+        vbe_B_offsets_rank_per_feature_, // for reshaping vbe cpu grad_output
         {%- endif %}
         {%- if is_gwd and "prev_iter_dev" not in args_pt2.split_function_arg_names %}
         prev_iter_dev_,
@@ -807,6 +815,9 @@ class {{ autograd_func }} :
     {%- endif %}
     {%- if not nobag %}
     ctx->saved_data["output_dtype"] = output_dtype;
+    {%- endif %}
+    {%- if vbe %}
+    ctx->saved_data["max_B"] = max_B_int; // for reshaping vbe cpu offsets and grad_output 
     {%- endif %}
 
     {%- if not dense %}
@@ -894,6 +905,7 @@ static torch::autograd::variable_list backward(
     auto B_offsets = *savedItr++;
     auto vbe_row_output_offsets = *savedItr++;
     auto vbe_b_t_map = *savedItr++;
+    auto vbe_B_offsets_rank_per_feature = *savedItr++; // for reshaping vbe cpu grad_output
     {%- endif %}
     {%- if is_gwd and "prev_iter_dev" not in args_pt2.split_function_arg_names %}
     auto prev_iter_dev = *savedItr++;
@@ -939,6 +951,10 @@ static torch::autograd::variable_list backward(
     auto output_dtype = ctx->saved_data["output_dtype"].toInt();
     {%- endif %}
     {%- if not dense %}
+    {%- if vbe %}
+    auto max_B = ctx->saved_data["max_B"].toInt(); // for reshaping vbe cpu offsets and grad_output
+    {%- endif %}
+
     {%- for (var, _ , ivalue_cast, type) in args_pt2.unified_pt2.split_saved_data %}
     auto {{ var }} = ctx->saved_data["{{ var }}"].{{ ivalue_cast }}();
     {%- endfor %}
@@ -976,19 +992,6 @@ static torch::autograd::variable_list backward(
     // {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cuda)
     weights_dev = weights_dev.flatten();
     {%- endif %}
-    {%- if vbe %}
-    // TODO: remove this once vbe_metadata for cpu is implemented
-    // MTIA kernel uses weights_host but follows CUDA implementation, 
-    // so grad_output is already in a correct shape and must not be reshaped
-    // Reshaping on weights_host here causes MTIA kernel to fail.
-    // As a hotfix to unblock MTIA, we add condition check dimension so that reshpaing would skip on MTIA
-    // CUDA and MTIA vbe_b_t_map is size of {total_B} - should be 1 dim
-    // CPU vbe_b_t_map is B_offsets_rank_per_feature, so shape should be {num_features, batch_offsets}
-    // This will be removed totally once vbe_metadata for cpu is implemented
-    if (weights_host.numel() > 1 && vbe_b_t_map.dim() > 1){
-      grad_output = reshape_vbe_output(grad_output, B_offsets, vbe_b_t_map, D_offsets);
-    }
-    {%- endif %}
 
     {%- set grad_indice_weights_op =
         "{}_embedding_codegen_grad_indice_weights{}_pt2_wrapper".format(fwd_mdesc, vdesc)
@@ -1023,7 +1026,9 @@ static torch::autograd::variable_list backward(
                 const Tensor& /*vbe_row_output_offsets*/,
                 const Tensor& /*vbe_b_t_map*/,
                 const int64_t /*info_B_num_bits*/,
-                const int64_t /*info_B_mask_int64*/
+                const int64_t /*info_B_mask_int64*/,
+                const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu grad_output
+                const int64_t /*max_B*/ // for reshaping vbe cpu offsets and grad_output
                 {%- else %}
                 const Tensor& /*feature_requires_grad*/
                 {%- endif %}
@@ -1053,7 +1058,9 @@ static torch::autograd::variable_list backward(
         vbe_row_output_offsets,
         vbe_b_t_map,
         info_B_num_bits,
-        info_B_mask_int64
+        info_B_mask_int64,
+        vbe_B_offsets_rank_per_feature,
+        max_B
         {%- else %}
         feature_requires_grad
         {%- endif %}
