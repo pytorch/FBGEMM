@@ -67,17 +67,17 @@ struct GroupedGemmConfigs {
       conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
 
   // Implement rowwise scaling epilogue.
-  using XScale = cutlass::epilogue::fusion::Sm90ColBroadcastPtrArray<
+  using XScale = cutlass::epilogue::fusion::Sm90ColBroadcast<
       0,
       TileShape,
-      ElementComputeEpilogue,
+      ElementComputeEpilogue*,
       ElementComputeEpilogue,
       cute::Stride<cute::Int<1>, cute::Int<0>, cute::Int<0>>>;
 
-  using WScale = cutlass::epilogue::fusion::Sm90RowBroadcastPtrArray<
+  using WScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
       0,
       TileShape,
-      ElementComputeEpilogue,
+      ElementComputeEpilogue*,
       ElementComputeEpilogue,
       cute::Stride<cute::Int<0>, cute::Int<1>, cute::Int<0>>>;
 
