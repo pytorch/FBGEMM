@@ -76,6 +76,9 @@ additional_decorators.update(
         "test_faketensor__test_forward_gpu_uvm_cache_int8": [
             unittest.skip("Operator not implemented for Meta tensors"),
         ],
+        "test_faketensor__test_forward_cpu_fp32": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
         # TODO: Make it compatible with opcheck tests
         "test_faketensor__test_forward_gpu_uvm_cache_fp16": [
             unittest.skip(

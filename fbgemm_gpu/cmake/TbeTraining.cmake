@@ -158,6 +158,8 @@ gpu_cpp_library(
     ${gen_gpu_files_forward_split}
   NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_common
   DESTINATION
     fbgemm_gpu)
 
