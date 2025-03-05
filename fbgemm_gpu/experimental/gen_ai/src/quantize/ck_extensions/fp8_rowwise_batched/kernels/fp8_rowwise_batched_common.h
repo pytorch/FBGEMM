@@ -132,7 +132,7 @@ at::Tensor f8f8bf16_rowwise_batched_impl(
   int B = XQ.size(0);
   int M = XQ.size(1);
   int N = WQ.size(1);
-  int K = XQ.size(2);
+  int K = WQ.size(2);
 
   int StrideA = K;
   int StrideB = K;
