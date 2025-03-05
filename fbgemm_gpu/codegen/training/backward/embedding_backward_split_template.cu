@@ -601,6 +601,7 @@ Tensor {{ embedding_cuda_op }}(
 
     {%- if "learning_rate" in args.split_kernel_arg_names %}
     // convert `learning rate` to float since `learning rate` is float in kernels
+    TORCH_CHECK(learning_rate_tensor.is_cpu(), "learning_rate_tensor tensor needs to be on CPU. Ensure learning_rate_tensor is on CPU or contact FBGEMM team if you get this error.")
     const float learning_rate = learning_rate_tensor.item<float>();
     {%- endif %}
 
