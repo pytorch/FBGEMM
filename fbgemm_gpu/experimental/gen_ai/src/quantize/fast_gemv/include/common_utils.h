@@ -14,6 +14,12 @@ namespace {
 
 void check_if_valid_block_dimensions(int m, int n, int k, dim3 block_dim) {
   TORCH_CHECK(
+      m <= 4,
+      "Invalid value for m: m (",
+      m,
+      ") must not be greater than 4. The kernel cannot be run with the current value of m."
+      " Please use an `m` smaller or equal to 4.")
+  TORCH_CHECK(
       n % block_dim.y == 0,
       "Invalid block dimensions: n (",
       n,
