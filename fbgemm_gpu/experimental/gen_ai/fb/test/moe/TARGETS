@@ -1,0 +1,45 @@
+load("@fbcode_macros//build_defs:gpu_python_unittest.bzl", "gpu_python_unittest")
+load("@fbcode_macros//build_defs/lib:re_test_utils.bzl", "re_test_utils")
+
+oncall("fbgemm_dev")
+
+[
+    gpu_python_unittest(
+        name = testname,
+        cuda_srcs = (
+            [
+                "{}_test.py".format(testname),
+            ] + [
+                "{}.py".format(f)
+                for f in helper_files
+            ]
+        ),
+        keep_gpu_sections = True,
+        par_style = "xar",
+        remote_execution = select({
+            "DEFAULT": re_test_utils.remote_execution(
+                gpu_generation_or_newer = "H100",
+                mig = "false",
+                platform = "gpu-remote-execution",
+                resource_units = 2,
+            ),
+        }),
+        visibility = [
+            "//deeplearning/fbgemm/fbgemm_gpu/...",
+        ],
+        deps = [
+            "fbsource//third-party/pypi/hypothesis:hypothesis",
+            "fbsource//third-party/pypi/numpy:numpy",
+            "//caffe2:torch",
+            "//deeplearning/fbgemm/fbgemm_gpu:test_utils",
+            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:fb_gen_ai_ops_py",
+            "//gen_ai/llm_inference:utils",
+        ],
+    )
+    for (testname, helper_files) in [
+        (
+            "index_shuffling",
+            [],
+        ),
+    ]
+]
