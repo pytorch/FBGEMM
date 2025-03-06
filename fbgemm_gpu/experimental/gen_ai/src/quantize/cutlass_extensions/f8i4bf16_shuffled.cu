@@ -41,6 +41,11 @@ at::Tensor _f8i4bf16_shuffled(
   int num_groups = w_scale_group.size(0);
   int group_size = K / num_groups;
 
+  if (M == 0 || N == 0 || K == 0) {
+    // Use zeros instead of empty for special case where K=0.
+    return at::zeros({M, N}, XQ.options().dtype(at::kBFloat16));
+  }
+
   // Define input types.
   using MmaType = cutlass::float_e4m3_t;
   using QuantType = cutlass::int4b_t;
