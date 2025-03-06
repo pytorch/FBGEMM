@@ -228,6 +228,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
 
+        (self.info_B_num_bits, self.info_B_mask) = torch.ops.fbgemm.get_infos_metadata(
+            self.D_offsets,  # unused tensor
+            1,  # max_B
+            T,  # T
+        )
+
         assert cache_sets > 0
         element_size = weights_precision.bit_rate() // 8
         assert (
@@ -544,12 +550,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         cowclip_regularization = CowClipDefinition()
 
-        self.optimizer_args = invokers.lookup_args_ssd.OptimizerArgs(
+        learning_rate_tensor = torch.tensor(
+            learning_rate, device=torch.device("cpu"), dtype=torch.float
+        )
+        self.optimizer_args = invokers.lookup_args_ssd.OptimizerArgsPT2(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
             max_norm=max_norm,
-            learning_rate=learning_rate,
+            learning_rate_tensor=learning_rate_tensor,
             eps=eps,
             beta1=beta1,
             beta2=beta2,
@@ -1630,7 +1639,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             vbe_metadata.max_B,
         )
 
-        common_args = invokers.lookup_args_ssd.CommonArgs(
+        common_args = invokers.lookup_args_ssd.CommonArgsPT2(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
             output_dtype=self.output_dtype,
             dev_weights=self.weights_dev,
@@ -1665,6 +1674,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             },
             # pyre-fixme[6]: Expected `lookup_args_ssd.VBEMetadata` but got `lookup_args.VBEMetadata`
             vbe_metadata=vbe_metadata,
+            info_B_num_bits=self.info_B_num_bits,
+            info_B_mask=self.info_B_mask,
         )
 
         self.timesteps_prefetched.pop(0)
