@@ -33,7 +33,73 @@ using ADataType = ck::bhalf_t;
 using BDataType = ck::bhalf_t;
 using CDataType = ck::bhalf_t;
 
-GroupedKernel grouped_heuristic_dispatch(int M, int N, int K) {
+// Define a custom hash function for std::tuple<int, int, int>
+struct IntTupleHash {
+  size_t operator()(const std::tuple<int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    return hash1 ^ hash2;
+  }
+  size_t operator()(const std::tuple<int, int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    auto hash3 = std::hash<int>{}(std::get<2>(t));
+    return hash1 ^ hash2 ^ hash3;
+  }
+  size_t operator()(const std::tuple<int, int, int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    auto hash3 = std::hash<int>{}(std::get<2>(t));
+    auto hash4 = std::hash<int>{}(std::get<3>(t));
+    return hash1 ^ hash2 ^ hash3 ^ hash4;
+  }
+};
+
+// For certain high priority shapes, we directly map to the best kernel rather
+// than use heuristics.
+static const std::unordered_map<std::tuple<int, int, int, int>, GroupedKernel, IntTupleHash> rowwise_grouped_lookup_dispatch = {
+    {{16, 2048, 2048, 5120},
+     bf16_grouped_256x128x128x64_32x32_2x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+    {{16, 2048, 5120, 1024},
+     bf16_grouped_256x128x160x64_32x32_1x5_8x32x1_8x32x1_1x64x1x4_8x8x1_1x1_intrawave_v3},
+    {{16, 2048, 16384, 5120},
+     bf16_grouped_256x128x128x64_32x32_2x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
+    {{16, 2048, 5120, 8192},
+     bf16_grouped_256x128x160x64_32x32_1x5_8x32x1_8x32x1_1x64x1x4_8x8x1_1x1_intrawave_v3},
+    {{128, 2048, 2048, 5120},
+     bf16_grouped_128x16x128x64_16x16_1x4_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+    {{128, 2048, 5120, 1024},
+     bf16_grouped_128x16x64x64_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+    {{128, 2048, 16384, 5120},
+     bf16_grouped_128x16x128x64_16x16_1x4_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2},
+    {{128, 2048, 5120, 8192},
+     bf16_grouped_128x16x64x64_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2}
+};
+
+GroupedKernel grouped_heuristic_dispatch(int G, int M, int N, int K) {
+
+  // For a given shape, either find the best kernel via lookup or heuristic.
+  // For many small M shapes, we bucket them to the next largest kernel.
+  // This is fine since kernels are padded anyway.
+
+  // First check if this shape is available in the direct lookup.
+  // assume M_sum = 2048
+  auto it = rowwise_grouped_lookup_dispatch.find({G, 2048, N, K});
+  // If we found an optimal kernel, use it.
+  if (it != rowwise_grouped_lookup_dispatch.end()) {
+    return it->second;
+  }
+
+  if(G == 16)
+  {
+      return bf16_grouped_256x128x128x64_32x32_2x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v3; 
+  }
+
+  if(G == 128)
+  {
+      return bf16_grouped_128x16x64x128_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2;
+  }
+
   // We use shape heuristics to find the best kernel.
   // To do this, we divide by the size of M and find the best
   // option within that grouping.
@@ -343,7 +409,7 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
     MaxN = max(MaxN, B[i].size(0));
     MaxK = max(MaxK, A[i].size(1));
   }
-  GroupedKernel selected_kernel = grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
+  GroupedKernel selected_kernel = grouped_heuristic_dispatch(group_count, MaxM, MaxN, MaxK);
   return selected_kernel(A, B, kernel_args, Y);
 }
 
@@ -418,7 +484,7 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
     MaxN = max(MaxN, B[i].size(0));
     MaxK = max(MaxK, A[i].size(1));
   }
-  GroupedKernel selected_kernel = grouped_heuristic_dispatch(MaxM, MaxN, MaxK);
+  GroupedKernel selected_kernel = grouped_heuristic_dispatch(group_count, MaxM, MaxN, MaxK);
   // Run kernel to populate output.
   selected_kernel(A, B, kernel_args, Y);
   // Return coalesced view of output tensor.

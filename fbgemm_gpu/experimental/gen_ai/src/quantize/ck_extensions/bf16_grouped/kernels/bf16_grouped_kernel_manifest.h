@@ -56,6 +56,27 @@ bf16_grouped_256x128x128x64_32x32_2x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave
     std::vector<at::Tensor> Y);
 
 std::vector<at::Tensor>
+bf16_grouped_256x128x160x64_32x32_1x5_8x32x1_8x32x1_1x64x1x4_8x8x1_1x1_intrawave_v3(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::Tensor kernel_args,
+    std::vector<at::Tensor> Y);
+
+std::vector<at::Tensor>
+bf16_grouped_256x128x128x64_32x32_2x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v5(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::Tensor kernel_args,
+    std::vector<at::Tensor> Y);
+
+std::vector<at::Tensor>
+bf16_grouped_256x128x128x64_32x32_2x2_4x64x1_4x64x1_1x32x1x8_8x8x1_1x1_intrawave_v3(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::Tensor kernel_args,
+    std::vector<at::Tensor> Y);
+
+std::vector<at::Tensor>
 bf16_grouped_256x256x256x64_16x16_8x8_4x64x1_4x64x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
     at::TensorList XQ,
     at::TensorList WQ,
@@ -245,7 +266,21 @@ bf16_grouped_128x16x64x128_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_
     std::vector<at::Tensor> Y);
 
 std::vector<at::Tensor>
+bf16_grouped_128x16x64x64_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::Tensor kernel_args,
+    std::vector<at::Tensor> Y);
+
+std::vector<at::Tensor>
 bf16_grouped_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::Tensor kernel_args,
+    std::vector<at::Tensor> Y);
+
+std::vector<at::Tensor>
+bf16_grouped_128x16x128x64_16x16_1x4_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2(
     at::TensorList XQ,
     at::TensorList WQ,
     at::Tensor kernel_args,
