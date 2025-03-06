@@ -129,6 +129,30 @@ class GenerateVBEMetadataTest(unittest.TestCase):
         assert torch.equal(row_output_offsets.cpu(), row_output_offsets_ref)
         assert torch.equal(b_t_map.cpu(), b_t_map_ref)
 
+        # Run CPU test
+        assert (
+            vbe_metadata.B_offsets_rank_per_feature is not None
+            and vbe_metadata.output_offsets_feature_rank is not None
+        )
+        row_output_offsets_cpu, b_t_map_cpu = torch.ops.fbgemm.generate_vbe_metadata(
+            B_offsets.cpu(),
+            vbe_metadata.B_offsets_rank_per_feature.cpu(),
+            vbe_metadata.output_offsets_feature_rank.cpu(),
+            D_offsets=torch.tensor(
+                [0] + list(accumulate(feature_dims.tolist())),
+                device=torch.device("cpu"),
+                dtype=torch.int,
+            ),
+            D=-1,
+            nobag=False,
+            max_B_feature_rank=vbe_metadata.max_B_feature_rank,
+            info_B_num_bits=info_B_num_bits,
+            total_B=dummy_offsets.numel() - 1,
+        )
+        # Compare results
+        assert torch.equal(row_output_offsets.cpu(), row_output_offsets_cpu)
+        assert torch.equal(b_t_map.cpu(), b_t_map_cpu)
+
     @unittest.skipIf(*gpu_unavailable)
     def test_generate_vbe_metadata_kernel(self):
         self.execute_generate_vbe_metadata_kernel(
