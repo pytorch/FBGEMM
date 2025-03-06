@@ -30,6 +30,10 @@ from .backward_adagrad_common import (
 # Set up test strategy
 test_st: Dict[str, Any] = common_strategy.copy()
 test_st["D"] = st.integers(min_value=2, max_value=128)
+test_st_cpu: Dict[str, Any] = test_st.copy()
+test_st_cpu["use_cpu"] = st.just(True)
+test_st_cpu["row_wise"] = st.just(True)
+test_st_cpu["output_dtype"] = st.sampled_from([SparseType.FP32, SparseType.FP16])
 
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
@@ -98,6 +102,28 @@ class BackwardAdagradTest(unittest.TestCase):
         execute_backward_adagrad(
             weights_precision=SparseType.FP32,
             pooling_mode=PoolingMode.SUM,
+            **kwargs,
+        )
+
+    @given(
+        compile=st.booleans(),
+        pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
+        **test_st_cpu,
+    )
+    @settings(**common_settings)
+    def test_backward_adagrad_fp32_cpu(  # noqa C901
+        self,
+        pooling_mode: PoolingMode,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Test VBE support for CPU on rowwise adagrad
+        """
+        kwargs = adjust_mixed_B_st(kwargs)
+        execute_backward_adagrad(
+            weights_precision=SparseType.FP32,
+            pooling_mode=pooling_mode,
+            mixed_B=True,
             **kwargs,
         )
 
