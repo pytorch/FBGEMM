@@ -99,6 +99,7 @@ class CounterWeightDecayMode(enum.IntEnum):
     NONE = 0
     L2 = 1
     DECOUPLE = 2
+    SQRT = 3
 
 
 class StepMode(enum.IntEnum):
