@@ -179,6 +179,17 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
   }
 }
 
+void check_weights_dim_matches_indices(
+    const std::optional<Tensor>& weights,
+    int64_t num_indices) {
+  if (weights.has_value() && weights->numel() != 0) {
+    TORCH_CHECK(
+        weights.value().size(0) == num_indices,
+        "weights size " + std::to_string(weights.value().size(0)) +
+            " is not equal to indices size " + std::to_string(num_indices));
+  }
+}
+
 void _bounds_check_indices_cuda_v1(
     Tensor& rows_per_table,
     Tensor& indices,
@@ -227,12 +238,7 @@ void _bounds_check_indices_cuda_v1(
             " is not equal to B (" + std::to_string(B) + ") * T (" +
             std::to_string(T) + ") + 1");
   }
-  if (weights.has_value()) {
-    TORCH_CHECK(
-        weights.value().size(0) == num_indices,
-        "weights size " + std::to_string(weights.value().size(0)) +
-            " is not equal to indices size " + std::to_string(num_indices));
-  }
+  check_weights_dim_matches_indices(weights, num_indices);
 
   constexpr size_t kNumThreads = 256;
   const auto max_B_ = vbe ? max_B : B;

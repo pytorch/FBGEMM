@@ -46,6 +46,17 @@ void adjust_offset_cpu(
   *offsets_acc_end = indices_end;
 }
 
+void check_weights_dim_matches_indices(
+    const std::optional<Tensor>& weights,
+    int64_t num_indices) {
+  if (weights.has_value() && weights->numel() != 0) {
+    TORCH_CHECK(
+        weights.value().size(0) == num_indices,
+        "weights size " + std::to_string(weights.value().size(0)) +
+            " is not equal to indices size " + std::to_string(num_indices));
+  }
+}
+
 ///@addtogroup embedding-cpu
 void bounds_check_indices_cpu(
     Tensor& rows_per_table,
@@ -96,12 +107,7 @@ void bounds_check_indices_cpu(
               " is not equal to B (" + std::to_string(B) + ") * T (" +
               std::to_string(T) + ") + 1");
     }
-    if (weights.has_value()) {
-      TORCH_CHECK(
-          weights.value().size(0) == num_indices,
-          "weights size " + std::to_string(weights.value().size(0)) +
-              " is not equal to indices size " + std::to_string(num_indices));
-    }
+    check_weights_dim_matches_indices(weights, num_indices);
 
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
       TORCH_CHECK(num_indices == offsets_acc[total_B]);
