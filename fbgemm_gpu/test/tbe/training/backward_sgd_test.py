@@ -399,6 +399,66 @@ class BackwardSGDTest(unittest.TestCase):
         )
 
     @given(
+        T=st.integers(min_value=1, max_value=5),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
+        long_segments=st.booleans(),
+        pooling_mode=st.sampled_from(
+            [
+                PoolingMode.SUM,
+                PoolingMode.MEAN,
+            ]
+        ),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_sgd_vbe_cpu(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        use_cache: bool,
+        cache_algorithm: CacheAlgorithm,
+        long_segments: bool,
+        pooling_mode: PoolingMode,
+    ) -> None:
+        use_cpu = True
+        mixed_B = True
+        self.execute_backward_sgd_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B if not use_cpu else False,
+            use_cache,
+            cache_algorithm,
+            long_segments,
+            pooling_mode,
+            use_cpu,
+            SparseType.FP32,  # output_dtype
+        )
+
+    @given(
         D=st.integers(min_value=2, max_value=10),
         # 128 * 1024 is to exercise a case num_ctas_for_run needs to be capped
         # at the number of SMs (H100 SXM5 has 132 SMs and the default seglen
