@@ -62,15 +62,12 @@ class PackedGemmMatrixB {
       const float alpha,
       const float* smat,
       const int brow = 512)
-      : nrow_(nrow),
-        ncol_(ncol),
-        brow_(brow),
+      : nrow_(nrow), ncol_(ncol), brow_(brow), kernel_ncol_blocks_(2) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-        kernel_ncol_blocks_(1)
-#else
-        kernel_ncol_blocks_(2)
+    if (std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
 #endif
-  {
     initializeParam();
     initializeMemory();
     // copy source matrix into packed matrix
@@ -95,6 +92,11 @@ class PackedGemmMatrixB {
         nbcol_(nbcol),
         size_(size),
         kernel_ncol_blocks_(2) {
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+    if (std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
+#endif
     initializeMemory();
   }
 
