@@ -15,7 +15,6 @@ from contextlib import nullcontext
 from typing import Any, Callable, Dict, Optional
 
 import click
-import fbgemm_gpu
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
@@ -31,26 +30,17 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     DenseTableBatchedEmbeddingBagsCodegen,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
-
-from fbgemm_gpu.tbe.bench import TBEBenchmarkingConfigLoader, TBEDataConfigLoader
+from fbgemm_gpu.tbe.bench import (
+    benchmark_requests,
+    TBEBenchmarkingConfigLoader,
+    TBEDataConfigLoader,
+)
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import get_device
 from torch.profiler import profile
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
-
-
-# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
-open_source: bool = getattr(fbgemm_gpu, "open_source", False)
-
-if open_source:
-    # pyre-ignore[21]
-    from bench_utils import benchmark_requests
-else:
-    from fbgemm_gpu.bench.bench_utils import benchmark_requests
-
-
 logging.basicConfig(level=logging.DEBUG)
 
 
