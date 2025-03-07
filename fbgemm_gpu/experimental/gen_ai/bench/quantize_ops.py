@@ -24,6 +24,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
 from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
     grouped_gemm_fp8_rowwise,
 )
+from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 from tinygemm.utils import group_quantize_tensor
 
 if torch.cuda.is_available() and torch.version.cuda:
@@ -1265,6 +1266,54 @@ class F8I4RowwiseGemm(QuantizeOpBase):
     @property
     def name(self) -> str:
         return "cutlass_f8i4_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        # Not yet supported on AMD.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class F8I4ShuffledGemm(QuantizeOpBase):
+    def preprocess(self, x, w):
+        # Prequantize and pack weights.
+        wq, row_scale, group_scale = quantize_int4_preshuffle(w)
+        return x, wq, row_scale, group_scale
+
+    def quantize(self, x, wq, row_scale, group_scale):
+        # Quantize both input tensors.
+        xq, x_scale = quantize_fp8_row(x)
+        return xq, wq, x_scale, row_scale, group_scale
+
+    def compute(self, xq, wq, x_scale, row_scale, group_scale):
+        # Handle batched cases by looping over each batch.
+        if xq.dim() == 3:
+            B, M, _ = xq.shape
+            _, N, _ = wq.shape
+            y = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
+            for i in range(B):
+                y[i] = torch.ops.fbgemm.f8i4bf16_shuffled(
+                    xq[i], wq[i], x_scale[i], row_scale[i], group_scale[i]
+                )
+            return y
+        # Otherwise run gemm normally.
+        return torch.ops.fbgemm.f8i4bf16_shuffled(
+            xq, wq, x_scale, row_scale, group_scale
+        )
+
+    def quantize_and_compute(self, x, wq, row_scale, group_scale):
+        xq, wq, x_scale, row_scale, group_scale = self.quantize(
+            x, wq, row_scale, group_scale
+        )
+        return self.compute(xq, wq, x_scale, row_scale, group_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_f8i4_preshuffle"
 
     @property
     def hip(self) -> bool:
