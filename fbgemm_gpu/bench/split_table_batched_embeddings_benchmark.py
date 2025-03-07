@@ -47,6 +47,15 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
     generate_vbe_metadata,
 )
+from fbgemm_gpu.tbe.bench import (
+    bench_warmup,
+    benchmark_eval_compression,
+    benchmark_pipelined_requests,
+    benchmark_requests,
+    benchmark_requests_refer,
+    benchmark_vbe,
+    fill_random_scale_bias,
+)
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
 from torch import Tensor
@@ -69,26 +78,9 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 
 if open_source:
     # pyre-ignore[21]
-    from bench_utils import (
-        benchmark_pipelined_requests,
-        benchmark_requests,
-        benchmark_requests_refer,
-        benchmark_torch_function,
-        benchmark_vbe,
-        warmup,
-    )
+    from bench_utils import benchmark_torch_function
 else:
-    from fbgemm_gpu.bench.bench_utils import (
-        benchmark_pipelined_requests,
-        benchmark_requests,
-        benchmark_requests_refer,
-        benchmark_torch_function,
-        benchmark_vbe,
-        warmup,
-    )
-
-
-from fbgemm_gpu.tbe.bench import benchmark_eval_compression, fill_random_scale_bias
+    from fbgemm_gpu.bench.bench_utils import benchmark_torch_function
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -1409,7 +1401,7 @@ def nbit_device(  # noqa C901
     # warm-up right before profiling
     # warmup_ms prioritized over warmup_runs
     if warmup_ms or warmup_runs:
-        warmup(
+        bench_warmup(
             requests[0],
             # pyre-ignore[6]
             warmup_ms,
@@ -1836,7 +1828,7 @@ def nbit_device_with_spec(  # noqa C901
         # warm-up right before profiling
         # warmup_ms prioritized over warmup_runs
         if warmup_ms or warmup_runs:
-            warmup(
+            bench_warmup(
                 kineto_request[0],
                 # pyre-ignore[6]
                 warmup_ms,
@@ -2827,7 +2819,6 @@ def hashtable(  # noqa C901
     )
 
     if use_cpu:
-        # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
         ht = torch.classes.fbgemm.PrunedMapCPU()
         ht.insert(chosen_indices, dense_indices, offsets, T)
 

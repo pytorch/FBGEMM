@@ -13,13 +13,6 @@ from dataclasses import dataclass
 from typing import Callable, List, Tuple
 
 import torch
-from fbgemm_gpu.tbe.utils import (  # noqa: F401
-    b_indices,
-    generate_requests,  # noqa: F401
-    get_device,  # noqa: F401
-    round_up,  # noqa: F401
-    TBERequest,
-)
 
 logging.basicConfig(level=logging.DEBUG)
 
