@@ -597,7 +597,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
     """
 
     embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]]
-    optimizer_args: invokers.lookup_args.OptimizerArgs
+    optimizer_args: invokers.lookup_args.OptimizerArgsPT2
     lxu_cache_locations_list: List[Tensor]
     lxu_cache_locations_empty: Tensor
     timesteps_prefetched: List[int]
@@ -926,6 +926,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "feature_dims",
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
+        (self.info_B_num_bits, self.info_B_mask) = torch.ops.fbgemm.get_infos_metadata(
+            self.D_offsets,  # unused tensor
+            1,  # max_B
+            T,  # T
+        )
 
         # A flag for indicating whether all embedding tables are placed in the
         # same locations
@@ -1070,6 +1075,9 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # which should not be effective when CounterBasedRegularizationDefinition
             # and CowClipDefinition are not used
             counter_halflife = -1
+        learning_rate_tensor = torch.tensor(
+            learning_rate, device=torch.device("cpu"), dtype=torch.float
+        )
 
         # TO DO: Enable this on the new interface
         # learning_rate_tensor = torch.tensor(
@@ -1085,12 +1093,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 "`use_rowwise_bias_correction` is only supported for OptimType.ADAM",
             )
 
-        self.optimizer_args = invokers.lookup_args.OptimizerArgs(
+        self.optimizer_args = invokers.lookup_args.OptimizerArgsPT2(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
             max_norm=max_norm,
-            learning_rate=learning_rate,
+            learning_rate_tensor=learning_rate_tensor,
             eps=eps,
             beta1=beta1,
             beta2=beta2,
@@ -1873,7 +1881,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             if len(self.lxu_cache_locations_list) == 0
             else self.lxu_cache_locations_list.pop(0)
         )
-        common_args = invokers.lookup_args.CommonArgs(
+        common_args = invokers.lookup_args.CommonArgsPT2(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
             # pyre-fixme[6]: For 2nd argument expected `Tensor` but got
             #  `Union[Module, Tensor]`.
@@ -1920,6 +1928,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             is_experimental=self.is_experimental,
             use_uniq_cache_locations_bwd=self.use_uniq_cache_locations_bwd,
             use_homogeneous_placements=self.use_homogeneous_placements,
+            info_B_num_bits=self.info_B_num_bits,
+            info_B_mask=self.info_B_mask,
         )
 
         if self.optimizer == OptimType.NONE:
@@ -2032,7 +2042,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     momentum1,
                     momentum2,
                     iter_int,
-                    self.use_rowwise_bias_correction,
                     row_counter=(
                         row_counter if self.use_rowwise_bias_correction else None
                     ),
@@ -2918,7 +2927,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Helper function to script `set_learning_rate`.
         Note that returning None does not work.
         """
-        self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
+        self.optimizer_args.learning_rate_tensor.fill_(lr)
         return 0.0
 
     @torch.jit.ignore
@@ -3433,6 +3442,22 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             offsets, batch_size_per_feature_per_rank
         )
 
+        vbe = vbe_metadata.B_offsets is not None
+        # TODO: assert vbe_metadata.B_offsets.numel() - 1 == T
+        # T = self.D_offsets.numel() - 1
+        # vbe_metadata.B_offsets causes jit to fail for cogwheel forward compatibility test
+        # max_B = int(vbe_metadata.max_B) if vbe else int(offsets.numel() - 1 / T)
+
+        # TODO:  max_B <= self.info_B_mask
+        # cannot use assert as it breaks pt2 compile for dynamic shape
+        # Need to use torch._check for dynamic shape and cannot construct fstring, use constant string.
+        # cannot use lambda as it fails jit script.
+        # torch._check is not supported in jitscript
+        # torch._check(
+        #     max_B <= self.info_B_mask,
+        #     "Not enough infos bits to accommodate T and B.",
+        # )
+
         # TODO: remove this and add an assert after updating
         # bounds_check_indices to support different indices type and offset
         # type
@@ -3460,7 +3485,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 per_sample_weights = per_sample_weights.float()
 
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
-            vbe = vbe_metadata.B_offsets is not None
             # Compute B info and VBE metadata for bounds_check_indices only if
             # VBE and bounds check indices v2 are used
             if vbe and self.use_bounds_check_v2:
@@ -3474,11 +3498,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 assert isinstance(
                     output_offsets_feature_rank, Tensor
                 ), "output_offsets_feature_rank must be tensor"
-                info_B_num_bits, info_B_mask = torch.ops.fbgemm.get_infos_metadata(
-                    B_offsets,  # unused tensor
-                    vbe_metadata.max_B,
-                    B_offsets.numel() - 1,  # T
-                )
+
                 row_output_offsets, b_t_map = torch.ops.fbgemm.generate_vbe_metadata(
                     B_offsets,
                     B_offsets_rank_per_feature,
@@ -3487,13 +3507,11 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.max_D,
                     self.is_nobag,
                     vbe_metadata.max_B_feature_rank,
-                    info_B_num_bits,
+                    self.info_B_num_bits,
                     offsets.numel() - 1,  # total_B
                 )
             else:
                 b_t_map = None
-                info_B_num_bits = -1
-                info_B_mask = -1
 
             torch.ops.fbgemm.bounds_check_indices(
                 self.rows_per_table,
@@ -3505,8 +3523,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 B_offsets=vbe_metadata.B_offsets,
                 max_B=vbe_metadata.max_B,
                 b_t_map=b_t_map,
-                info_B_num_bits=info_B_num_bits,
-                info_B_mask=info_B_mask,
+                info_B_num_bits=self.info_B_num_bits,
+                info_B_mask=self.info_B_mask,
                 bounds_check_version=self.bounds_check_version,
             )
 

@@ -82,8 +82,10 @@ common_strategy: Dict[str, Any] = {
     "use_cache": st.booleans(),
     "cache_algorithm": st.sampled_from(CacheAlgorithm),
     "use_cpu": use_cpu_strategy(),
-    "output_dtype": st.sampled_from(
-        [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+    "output_dtype": (
+        st.sampled_from([SparseType.FP32, SparseType.FP16, SparseType.BF16])
+        if gpu_available
+        else st.sampled_from([SparseType.FP32, SparseType.FP16])
     ),
 }
 
