@@ -61,7 +61,7 @@ class TBEDataConfigLoaderTest(unittest.TestCase):
                 torch.int64,
             ),
             PoolingParams(rand_int(10, 100), rand_int(10, 100), "normal"),
-            random.random() < 0.5,
+            not torch.cuda.is_available(),
         )
 
         args = clean_command(
