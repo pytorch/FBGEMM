@@ -146,7 +146,7 @@ __launch_bounds__(512)
     bf16x8 vals[kWorldSize];
 #pragma unroll kWorldSize
     for (int ii = 0; ii < kWorldSize; ++ii) {
-      *reinterpret_cast<uint4*>(&vals[ii]) =
+      *reinterpret_cast<uint4*>(&vals[(ii + kWorldSize - rank) % kWorldSize]) =
           reinterpret_cast<const uint4*>(&src_d[ii][i])[0];
     }
 
@@ -510,7 +510,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
     bf16x8 vals[kWorldSize];
 #pragma unroll kWorldSize
     for (int ii = 0; ii < kWorldSize; ++ii) {
-      *reinterpret_cast<uint4*>(&vals[ii]) =
+      *reinterpret_cast<uint4*>(&vals[(ii + kWorldSize - rank) % kWorldSize]) =
           reinterpret_cast<const uint4*>(&src_d[ii][i + N_start])[0];
     }
 
