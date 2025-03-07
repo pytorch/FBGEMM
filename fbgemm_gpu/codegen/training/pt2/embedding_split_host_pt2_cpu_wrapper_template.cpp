@@ -26,6 +26,9 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
+// #include <ATen/ATen.h>
+#include <ATen/Dispatch.h>
+#include <ATen/TensorUtils.h>
 {%- if has_vbe_support %}
 #include "fbgemm_gpu/utils/pt2_autograd_utils.h"
 {%- endif %}
@@ -64,12 +67,15 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cpu_wrapper(
     {%- endif %}
 ) {
     {%- if vbe %}
-    const auto offsets_ = reshape_vbe_offsets(
-        offsets,
-        vbe_B_offsets_rank_per_feature,
-        max_B,
-        D_offsets.numel() - 1
-    );
+    Tensor offsets_;
+    AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_grad_indices", [&]() {
+        offsets_ = reshape_vbe_offsets<index_t>(
+            offsets,
+            vbe_B_offsets_rank_per_feature,
+            max_B,
+            D_offsets.numel() - 1
+        );
+    });
     const auto grad_output_ = reshape_vbe_output(
         grad_output,
         max_B,
@@ -126,8 +132,11 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
     {%- endif %}
     const bool /*is_experimental = false*/,
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+    Tensor offsets_;
     {%- if vbe %}
-    const auto offsets_ = reshape_vbe_offsets(offsets, vbe_B_offsets_rank_per_feature, max_B, D_offsets.numel() - 1);
+    AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_forward", [&]() {
+        offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B, D_offsets.numel() - 1);
+    });
     {%- endif %}
     static auto op =
         torch::Dispatcher::singleton()
@@ -226,7 +235,10 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     {%- endif %})
     {
         {%- if vbe %}
-        const auto offsets_ = reshape_vbe_offsets(offsets, vbe_B_offsets_rank_per_feature, max_B, D_offsets.numel() - 1);
+        Tensor offsets_;
+        AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_backward", [&]() {
+            offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B, D_offsets.numel() - 1);
+        });
         const auto grad_output_ = reshape_vbe_output(grad_output, max_B, vbe_B_offsets_rank_per_feature, D_offsets);
         {%- endif %}
         {%- set backward_op = "split_embedding_backward_codegen_{}_cpu".format(
