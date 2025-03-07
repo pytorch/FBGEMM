@@ -16,64 +16,72 @@ fp8_rowwise_grouped_256x256x256x64_16x16_8x8_4x64x1_4x64x1_1x32x1x8_8x8x1_1x2_in
     InputType x_scale,
     InputType w_scale,
     at::Tensor kernel_args,
-    OutputType Y) {
-  // Check if this input needs to be padded.
-  bool pad = false;
-  if constexpr (std::is_same_v<InputType, at::Tensor>) {
-    int K = XQ.size(2);
-    pad = K % 64 != 0;
-  } else {
-    for (int i = 0; i < XQ.size(); i++) {
-      int K = XQ[i].size(1);
-      pad = K % 64 != 0;
+    OutputType Y)
+{
+    // Check if this input needs to be padded.
+#if 0
+    int M = XQ.size(1);
+    int N = WQ.size(1);
+    int K = WQ.size(2);
+    bool pad = (M % 256 != 0) || (N % 256 != 0) || (K % (64 * KBatch) != 0);
+#else
+    // disable padding for packed tensor
+    bool pad = false;
+#endif
+    if (pad)
+    {
+        // pad
+        using DeviceGemmInstance = DeviceGemmHelper<
+            256,
+            256,
+            256,
+            64,
+            16,
+            16,
+            8,
+            8,
+            S<4, 64, 1>,
+            S<4, 64, 1>,
+            S<1, 32, 1, 8>,
+            S<8, 8, 1>,
+            1,
+            2,
+            ck::BlockGemmPipelineScheduler::Intrawave,
+            ck::BlockGemmPipelineVersion::v3,
+            ck::tensor_operation::device::GemmSpecialization::MNKPadding>;
+        // Run kernel instance.
+        return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+
+        // pad
     }
-  }
-  if (pad) {
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        256,
-        256,
-        64,
-        16,
-        16,
-        8,
-        8,
-        S<4, 64, 1>,
-        S<4, 64, 1>,
-        S<1, 32, 1, 8>,
-        S<8, 8, 1>,
-        1,
-        2,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3,
-        ck::tensor_operation::device::GemmSpecialization::KPadding>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, kernel_args, Y);
-  } else {
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        256,
-        256,
-        64,
-        16,
-        16,
-        8,
-        8,
-        S<4, 64, 1>,
-        S<4, 64, 1>,
-        S<1, 32, 1, 8>,
-        S<8, 8, 1>,
-        1,
-        2,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3,
-        ck::tensor_operation::device::GemmSpecialization::Default>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, kernel_args, Y);
-  }
+    else
+    {
+        // no pad
+        using DeviceGemmInstance = DeviceGemmHelper<
+            256,
+            256,
+            256,
+            64,
+            16,
+            16,
+            8,
+            8,
+            S<4, 64, 1>,
+            S<4, 64, 1>,
+            S<1, 32, 1, 8>,
+            S<8, 8, 1>,
+            1,
+            2,
+            ck::BlockGemmPipelineScheduler::Intrawave,
+            ck::BlockGemmPipelineVersion::v3,
+            ck::tensor_operation::device::GemmSpecialization::Default>;
+        // Run kernel instance.
+        return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+
+        // no pad
+    }
 }
+
 
 template std::vector<at::Tensor>
 fp8_rowwise_grouped_256x256x256x64_16x16_8x8_4x64x1_4x64x1_1x32x1x8_8x8x1_1x2_intrawave_v3(
