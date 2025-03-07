@@ -14,3 +14,8 @@ from .bench_config import (  # noqa F401
 from .config import TBEDataConfig  # noqa F401
 from .config_loader import TBEDataConfigLoader  # noqa F401
 from .config_param_models import BatchParams, IndicesParams, PoolingParams  # noqa F401
+from .eval_compression import (  # noqa F401
+    benchmark_eval_compression,
+    EvalCompressionBenchmarkOutput,
+)
+from .utils import fill_random_scale_bias  # noqa F401
