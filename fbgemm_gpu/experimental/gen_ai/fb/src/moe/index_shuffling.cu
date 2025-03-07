@@ -7,10 +7,13 @@
 
 namespace fbgemm_gpu {
 
-#ifndef USE_ROCM
 namespace {
 
+#ifdef USE_ROCM
+constexpr int kNumThreadsPerWarp = 64;
+#else
 constexpr int kNumThreadsPerWarp = 32;
+#endif
 constexpr int kNumWarps = 4;
 constexpr int kNumThreads = kNumThreadsPerWarp * kNumWarps;
 
@@ -19,6 +22,27 @@ static int num_sms = -1;
 __inline__ constexpr int ceil_of_ratio(int a, int b) {
   return (a + b - 1) / b;
 };
+
+#ifdef USE_ROCM
+__device__ __forceinline__ int atomic_add(int* addr, int inc) {
+  return __hip_atomic_fetch_add(
+      addr, inc, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_AGENT);
+};
+
+__device__ __forceinline__ int load_aquire(int* addr) {
+  return __hip_atomic_load(addr, __ATOMIC_ACQUIRE, __HIP_MEMORY_SCOPE_AGENT);
+};
+#else
+__device__ __forceinline__ int atomic_add(int* addr, int inc) {
+  return atomicAdd(addr, inc);
+};
+
+__device__ __forceinline__ int load_aquire(int* addr) {
+  int val;
+  asm volatile("ld.global.acquire.gpu.b32 %0, [%1];\n" : "=r"(val) : "l"(addr));
+  return val;
+};
+#endif
 
 template <class DataType, class IndexType, int NumExperts, int NumTokensPerTile>
 struct SharedStorage {
@@ -112,11 +136,15 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
               lhs_larger ? lhs_expert_index : rhs_expert_index;
         }
       }
+#ifdef USE_ROCM
+      __syncthreads();
+#else
       if constexpr (kNumParallelReductionThreads <= kNumThreadsPerWarp) {
         __syncwarp();
       } else {
         __syncthreads();
       }
+#endif
     }
     if constexpr (kNumParallelReductionThreads > kNumThreadsPerWarp) {
       __syncthreads();
@@ -129,7 +157,8 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       int token_index = token_index_offset + i;
       if (token_index < params.num_tokens) {
         auto expert_index = smem.expert_indices[local_token_index * NumExperts];
-        auto token_index_in_expert = atomicAdd(&params.counts[expert_index], 1);
+        auto token_index_in_expert =
+            atomic_add(&params.counts[expert_index], 1);
         params.expert_indices[token_index] = expert_index;
         params.token_indices[token_index] = token_index_in_expert;
       }
@@ -137,7 +166,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
     __syncthreads();
 
     if (tidx == 0) {
-      atomicAdd(
+      atomic_add(
           &params.counts[NumExperts],
           std::min(
               NumTokensPerTile, token_index_offset_end - token_index_offset));
@@ -145,13 +174,11 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   }
 
   int processed_tokens = 0;
-  int* processed_tokens_counter = &params.counts[NumExperts];
+  int* processed_tokens_addr = &params.counts[NumExperts];
 
   if (tidx == 0) {
     do {
-      asm volatile("ld.global.acquire.gpu.b32 %0, [%1];\n"
-                   : "=r"(processed_tokens)
-                   : "l"(processed_tokens_counter));
+      processed_tokens = load_aquire(processed_tokens_addr);
     } while (processed_tokens != params.num_tokens);
   }
   __syncthreads();
@@ -221,8 +248,11 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     num_sms = deviceProp.multiProcessorCount;
   }
 
+#ifdef USE_ROCM
+  constexpr int kNumTokensPerTile = 32;
+#else
   constexpr int kNumTokensPerTile = 16;
-  int num_tokens_per_tile = kNumTokensPerTile;
+#endif
 
   void* kernel;
   int smem_size;
@@ -231,6 +261,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
   kernel = (void*)index_shuffling_kernel<DataType, IndexType, E, B>; \
   smem_size = sizeof(SharedStorage<DataType, IndexType, E, B>);
 
+  int num_tokens_per_tile;
   if (num_experts == 16) {
     DISPATCH(16, kNumTokensPerTile);
   } else {
@@ -238,14 +269,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     DISPATCH(128, kNumTokensPerTile);
   }
 
-  const int num_tiles = ceil_of_ratio(num_tokens, num_tokens_per_tile);
+  const int num_tiles = ceil_of_ratio(num_tokens, kNumTokensPerTile);
   const int num_ctas = std::min(num_tiles, num_sms);
 
   int num_tokens_per_cta = ceil_of_ratio(num_tokens, num_ctas);
   const int num_tiles_per_cta =
-      ceil_of_ratio(num_tokens_per_cta, num_tokens_per_tile);
-
-  num_tokens_per_cta = num_tiles_per_cta * num_tokens_per_tile;
+      ceil_of_ratio(num_tokens_per_cta, kNumTokensPerTile);
+  num_tokens_per_cta = num_tiles_per_cta * kNumTokensPerTile;
 
   Params<DataType, IndexType> params = {
       reinterpret_cast<DataType*>(scores.data_ptr()),
@@ -262,12 +292,16 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
   void* args[] = {(void*)&params};
   auto stream = at::cuda::getCurrentCUDAStream();
 
+#ifdef USE_ROCM
+  C10_CUDA_CHECK(
+      hipLaunchKernel((void*)kernel, grids, blocks, args, smem_size, stream));
+#else
   C10_CUDA_CHECK(
       cudaLaunchKernel((void*)kernel, grids, blocks, args, smem_size, stream));
+#endif
 
   return std::make_tuple(
       counts, shuffled_expert_indices, shuffled_token_indices);
 }
-#endif
 
 } // namespace fbgemm_gpu

@@ -5,8 +5,6 @@
 
 namespace fbgemm_gpu {
 
-#ifndef USE_ROCM
-
 std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     const at::Tensor& scores);
 
@@ -32,6 +30,5 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("index_shuffling", index_shuffling_torch_meta);
 }
-#endif
 
 } // namespace fbgemm_gpu

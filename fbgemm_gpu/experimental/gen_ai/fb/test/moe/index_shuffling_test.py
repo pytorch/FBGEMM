@@ -126,8 +126,8 @@ class IndexShufflingTests(unittest.TestCase):
                         with record_function_or_nullcontext("torch", benchmark):
                             torch_time = do_bench(ref_fn) * 1e3
                 print(
-                    f"num_tokens={num_tokens}, num_experts={num_experts}, "
-                    f"fbgemm_time={fbgemm_time:.3f}us, torch_time={torch_time:.3f}us",
+                    f"num_tokens={num_tokens:4}, num_experts={num_experts:4}, "
+                    f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us",
                     file=sys.stderr,
                 )
 

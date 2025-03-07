@@ -14,6 +14,14 @@ oncall("fbgemm_dev")
                 for f in helper_files
             ]
         ),
+        hip_srcs = (
+            [
+                "{}_test.py".format(testname),
+            ] + [
+                "{}.py".format(f)
+                for f in helper_files
+            ]
+        ),
         keep_gpu_sections = True,
         par_style = "xar",
         remote_execution = select({
