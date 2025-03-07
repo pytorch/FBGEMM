@@ -70,27 +70,25 @@ open_source: bool = getattr(fbgemm_gpu, "open_source", False)
 if open_source:
     # pyre-ignore[21]
     from bench_utils import (
-        benchmark_eval_compression,
         benchmark_pipelined_requests,
         benchmark_requests,
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
-        fill_random_scale_bias,
         warmup,
     )
 else:
     from fbgemm_gpu.bench.bench_utils import (
-        benchmark_eval_compression,
         benchmark_pipelined_requests,
         benchmark_requests,
         benchmark_requests_refer,
         benchmark_torch_function,
         benchmark_vbe,
-        fill_random_scale_bias,
         warmup,
     )
 
+
+from fbgemm_gpu.tbe.bench import benchmark_eval_compression, fill_random_scale_bias
 
 logging.basicConfig(level=logging.DEBUG)
 
