@@ -1277,6 +1277,54 @@ class F8I4RowwiseGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class F8I4ShuffledGemm(F8I4RowwiseGemm):
+    def _int4_row_quantize(
+        self,
+        x: torch.Tensor,
+        group_size: int = 128,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        n_bit = 4  # Number of target bits.
+        to_quant = x.reshape(-1, group_size).to(torch.float)
+
+        max_val = torch.abs(to_quant).amax(dim=1, keepdim=True)
+        max_int = 2 ** (n_bit - 1)
+        min_int = -(2 ** (n_bit - 1))
+        scales = max_val.clamp(min=1e-6) / max_int
+
+        out = to_quant.div(scales).round().clamp_(min_int, max_int - 1)
+
+        # Cast to int8 and restore shape.
+        out = out.to(dtype=torch.int8).reshape(x.shape)
+
+        # Scales should be in [num_groups, N] layout.
+        scales = scales.view(x.shape[0], -1).t().contiguous()
+
+        return out, scales
+
+    def quantize(self, x, w):
+        # Quantize both input tensors.
+        xq, x_scale = quantize_fp8_row(x)
+        wq, w_scale = self._int4_row_quantize(w)
+        # Pack int4 values together.
+        wq = self._pack_int4(wq)
+        # Shuffle weights and scales for faster compute.
+        wq, w_scale = torch.ops.fbgemm.preshuffle_i4(wq, w_scale)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        out = torch.ops.fbgemm.f8i4bf16_shuffled(xq, wq, x_scale, w_scale)
+        return out
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_f8i4_preshuffle"
+
+
+@register_quantize_op
 class BF16I4RowwiseGemm(F8I4RowwiseGemm):
     """
     Mixed Precision BF16 Activations with Int4 Weights.
