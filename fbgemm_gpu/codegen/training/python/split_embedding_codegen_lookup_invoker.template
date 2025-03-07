@@ -213,7 +213,7 @@ def invoke(
     {%- if "prev_iter" not in args_pt2.unified_pt2.split_unpacked_arg_names %}
     dict_aux_tensor["prev_iter_dev"] = prev_iter_dev
     {%- else %}
-    dict_aux_tensor["prev_iter_dev"] = prev_iter.prev_iter_dev
+    dict_aux_tensor["prev_iter_dev"] = prev_iter.dev
     {%- endif %}
 
     # optimizer_args
