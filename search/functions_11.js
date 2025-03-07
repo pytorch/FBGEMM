@@ -9,7 +9,7 @@ var searchData=
   ['requantizeoutputprocessingavx2_6',['requantizeOutputProcessingAvx2',['../group__fbgemm-quant-utils-avx2.html#ga92e2b96889b039f101e24855e163021b',1,'fbgemm']]],
   ['requantizeoutputprocessinggconvavx512_7',['requantizeOutputProcessingGConvAvx512',['../group__fbgemm-quant-utils-avx512.html#gab1b2ed3537f97d130f8ed039bc9aa463',1,'fbgemm']]],
   ['reset_5feviction_5fstates_8',['reset_eviction_states',['../classl2__cache_1_1_cache_lib_cache.html#a59d4800235bf477ae8b2da78001519dd',1,'l2_cache::CacheLibCache']]],
-  ['reshape_5fvbe_5foffsets_9',['reshape_vbe_offsets',['../namespacefbgemm__gpu.html#a3938a59b8e908b5f89ad740ee02b3874',1,'fbgemm_gpu']]],
+  ['reshape_5fvbe_5foffsets_9',['reshape_vbe_offsets',['../namespacefbgemm__gpu.html#a738c254065d754b5398c4a9c33e61ae7',1,'fbgemm_gpu']]],
   ['reshape_5fvbe_5foutput_10',['reshape_vbe_output',['../namespacefbgemm__gpu.html#aa4972a7deb2400d482f055776b2627f0',1,'fbgemm_gpu']]],
   ['roundtofloat16_11',['RoundToFloat16',['../namespacefbgemm.html#a3bf47d3d99c8b3cb2af625d90c5494ab',1,'fbgemm']]],
   ['row_5foffsets_5fu8acc32_5fref_12',['row_offsets_u8acc32_ref',['../namespacefbgemm.html#a0a160cf468a51c4634688b4f43851324',1,'fbgemm']]],

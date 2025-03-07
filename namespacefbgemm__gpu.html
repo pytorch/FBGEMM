@@ -144,8 +144,9 @@ Functions</h2></td></tr>
 <tr class="separator:ae86238f4ca864fb4ea41318ece747ab4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa4972a7deb2400d482f055776b2627f0" id="r_aa4972a7deb2400d482f055776b2627f0"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa4972a7deb2400d482f055776b2627f0">reshape_vbe_output</a> (const Tensor &amp;grad_output, const int64_t max_B, const Tensor &amp;B_offsets_rank_per_feature, const Tensor &amp;D_offsets)</td></tr>
 <tr class="separator:aa4972a7deb2400d482f055776b2627f0"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3938a59b8e908b5f89ad740ee02b3874" id="r_a3938a59b8e908b5f89ad740ee02b3874"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3938a59b8e908b5f89ad740ee02b3874">reshape_vbe_offsets</a> (const Tensor &amp;offsets, const Tensor &amp;B_offsets_rank_per_feature, const int64_t max_B, const int32_t T)</td></tr>
-<tr class="separator:a3938a59b8e908b5f89ad740ee02b3874"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a738c254065d754b5398c4a9c33e61ae7" id="r_a738c254065d754b5398c4a9c33e61ae7"><td class="memTemplParams" colspan="2">template&lt;typename index_t&gt; </td></tr>
+<tr class="memitem:a738c254065d754b5398c4a9c33e61ae7"><td class="memTemplItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a738c254065d754b5398c4a9c33e61ae7">reshape_vbe_offsets</a> (const Tensor &amp;offsets, const Tensor &amp;B_offsets_rank_per_feature, const int64_t max_B, const int32_t T)</td></tr>
+<tr class="separator:a738c254065d754b5398c4a9c33e61ae7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa918bd02809bf42ba7d396c18add690f" id="r_aa918bd02809bf42ba7d396c18add690f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa918bd02809bf42ba7d396c18add690f">checked_memcpy</a> (void *dst, size_t dst_buffer, const void *src, size_t src_buffer, size_t copy_size)</td></tr>
 <tr class="separator:aa918bd02809bf42ba7d396c18add690f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ace574b23fe99327816839526e99298ac" id="r_ace574b23fe99327816839526e99298ac"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ace574b23fe99327816839526e99298ac">per_tensor_quantize_i8</a> (at::Tensor X, double scale)</td></tr>
@@ -1427,11 +1428,13 @@ template&lt;typename IndexType, typename OffsetType&gt; </div>
 
 </div>
 </div>
-<a id="a3938a59b8e908b5f89ad740ee02b3874" name="a3938a59b8e908b5f89ad740ee02b3874"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3938a59b8e908b5f89ad740ee02b3874">&#9670;&#160;</a></span>reshape_vbe_offsets()</h2>
+<a id="a738c254065d754b5398c4a9c33e61ae7" name="a738c254065d754b5398c4a9c33e61ae7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a738c254065d754b5398c4a9c33e61ae7">&#9670;&#160;</a></span>reshape_vbe_offsets()</h2>
 
 <div class="memitem">
 <div class="memproto">
+<div class="memtemplate">
+template&lt;typename index_t&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">Tensor reshape_vbe_offsets </td>
