@@ -1826,7 +1826,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Helper function to script `set_learning_rate`.
         Note that returning None does not work.
         """
-        self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
+        self.optimizer_args.learning_rate_tensor.fill_(lr)
         return 0.0
 
     def flush(self) -> None:
