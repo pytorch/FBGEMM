@@ -15,13 +15,16 @@
 backports.tarfile
 build
 cmake
+click
 hypothesis
 jinja2
 mpmath==1.3.0
 ninja
 numpy
 pyre-extensions
+pyyaml
 scikit-build
 setuptools
 setuptools_git_versioning
 tabulate
+patchelf
