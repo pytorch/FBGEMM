@@ -67,6 +67,32 @@ DEVICE_INLINE bf16x8 add_bf16x8(bf16x8 a, bf16x8 b) {
   return c;
 }
 
+static DEVICE_INLINE void st_flag_release(int32_t& flag, int32_t* flag_addr) {
+#if defined(USE_ROCM)
+  __atomic_store_n(flag_addr, flag, __ATOMIC_RELEASE);
+#elif __CUDA_ARCH__ >= 700
+  asm volatile(
+      "st.global.release.sys.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
+#else
+  __threadfence_system();
+  asm volatile("st.global.volatile.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
+#endif
+}
+
+static DEVICE_INLINE void ld_flag_acquire(int32_t& flag, int32_t* flag_addr) {
+#if defined(USE_ROCM)
+  flag = __atomic_load_n(flag_addr, __ATOMIC_ACQUIRE);
+#elif __CUDA_ARCH__ >= 700
+  asm volatile("ld.global.acquire.sys.b32 %0, [%1];"
+               : "=r"(flag)
+               : "l"(flag_addr));
+#else
+  asm volatile("ld.global.volatile.b32 %0, [%1];"
+               : "=r"(flag)
+               : "l"(flag_addr));
+#endif
+}
+
 template <int32_t kWorldSize, bool has_acc>
 #if defined(USE_ROCM)
 __launch_bounds__(512)
@@ -106,25 +132,17 @@ __launch_bounds__(512)
 #endif
   }
   // Synchronize the ranks.
-  volatile int32_t* barrier_d = barriers[rank];
   if (threadIdx.x < kWorldSize) {
     // The 1st block notifies the other ranks.
     if (blockIdx.x == 0) {
-#if defined(USE_ROCM)
-      __atomic_store_n(barriers[threadIdx.x] + rank, flag, __ATOMIC_RELEASE);
-#else
-      barriers[threadIdx.x][rank] = flag;
-#endif
+      st_flag_release(flag, barriers[threadIdx.x] + rank);
     }
 
     // Busy-wait until all ranks are ready.
-#if defined(USE_ROCM)
-    while (__atomic_load_n(barrier_d + threadIdx.x, __ATOMIC_ACQUIRE) != flag) {
-    }
-#else
-    while (barrier_d[threadIdx.x] != flag) {
-    }
-#endif
+    int32_t rank_barrier = 0;
+    do {
+      ld_flag_acquire(rank_barrier, barriers[rank] + threadIdx.x);
+    } while (rank_barrier != flag);
   }
 
   // Make sure we can move on...
@@ -179,25 +197,15 @@ __launch_bounds__(512)
     // notify all other blocks this blockIdx is ready
     const int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
 
-#if defined(USE_ROCM)
-    __atomic_store_n(
-        barriers[threadIdx.x] + flag_block_offset + rank,
-        flag,
-        __ATOMIC_RELEASE);
-#else
-    barriers[threadIdx.x][flag_block_offset + rank] = flag;
-#endif
+    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
+
+    int32_t rank_barrier = 0;
 
     // busy-wait until all ranks are ready
-#if defined(USE_ROCM)
-    while (__atomic_load_n(
-               barrier_d + flag_block_offset + threadIdx.x, __ATOMIC_ACQUIRE) !=
-           flag) {
-    }
-#else
-    while (barrier_d[flag_block_offset + threadIdx.x] != flag) {
-    }
-#endif
+    do {
+      ld_flag_acquire(
+          rank_barrier, barriers[rank] + flag_block_offset + threadIdx.x);
+    } while (rank_barrier != flag);
   }
 }
 
@@ -317,32 +325,6 @@ at::Tensor car_tensor() {
       ptr,
       {kMaxCAR},
       at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA));
-}
-
-static DEVICE_INLINE void st_flag_release(int32_t& flag, int32_t* flag_addr) {
-#if defined(USE_ROCM)
-  __atomic_store_n(flag_addr, flag, __ATOMIC_RELEASE);
-#elif __CUDA_ARCH__ >= 700
-  asm volatile(
-      "st.global.release.sys.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
-#else
-  __threadfence_system();
-  asm volatile("st.global.volatile.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
-#endif
-}
-
-static DEVICE_INLINE void ld_flag_acquire(int32_t& flag, int32_t* flag_addr) {
-#if defined(USE_ROCM)
-  flag = __atomic_load_n(flag_addr, __ATOMIC_ACQUIRE);
-#elif __CUDA_ARCH__ >= 700
-  asm volatile("ld.global.acquire.sys.b32 %0, [%1];"
-               : "=r"(flag)
-               : "l"(flag_addr));
-#else
-  asm volatile("ld.global.volatile.b32 %0, [%1];"
-               : "=r"(flag)
-               : "l"(flag_addr));
-#endif
 }
 
 template <int32_t kWorldSize, bool split_last_dim>
@@ -472,25 +454,17 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   int32_t N_start = N_per_rank * rank;
 
   // Synchronize the ranks.
-  volatile int32_t* barrier_d = barriers[rank];
   if (threadIdx.x < kWorldSize) {
     // The 1st block notifies the other ranks.
     if (blockIdx.x == 0) {
-#if defined(USE_ROCM)
-      __atomic_store_n(barriers[threadIdx.x] + rank, flag, __ATOMIC_RELEASE);
-#else
-      barriers[threadIdx.x][rank] = flag;
-#endif
+      st_flag_release(flag, barriers[threadIdx.x] + rank);
     }
 
     // Busy-wait until all ranks are ready.
-#if defined(USE_ROCM)
-    while (__atomic_load_n(barrier_d + threadIdx.x, __ATOMIC_ACQUIRE) != flag) {
-    }
-#else
-    while (barrier_d[threadIdx.x] != flag) {
-    }
-#endif
+    int32_t rank_flag = 0;
+    do {
+      ld_flag_acquire(rank_flag, barriers[rank] + threadIdx.x);
+    } while (rank_flag != flag);
   }
 
   __syncthreads();
