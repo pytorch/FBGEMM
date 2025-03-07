@@ -11,21 +11,10 @@ import logging
 import statistics
 import threading
 import time
-from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
-import numpy as np
-
 import torch
-from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.tbe.utils import (  # noqa: F401
-    b_indices,
-    generate_requests,  # noqa: F401
-    get_device,  # noqa: F401
-    round_up,  # noqa: F401
-    TBERequest,
-)
-from torch import nn
+from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -425,108 +414,6 @@ def benchmark_pipelined_requests(
     return median_time if check_median else avg_time
 
 
-@dataclass
-class EvalCompressionBenchmarkOutput:
-    avg: float
-    fwd: float
-    bwd: float
-    compressed_avg: float
-    compressed_fwd: float
-    reindex: float
-    compressed_bwd: float
-
-
-def benchmark_eval_compression(
-    baseline_requests: List[Tuple[torch.Tensor, torch.Tensor]],
-    compressed_requests: List[Tuple[torch.Tensor, torch.Tensor]],
-    baseline_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    compressed_func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    reindex: torch.Tensor,
-    embedding_dim: int,
-) -> EvalCompressionBenchmarkOutput:
-    times = []
-    fwd_times = []
-    bwd_times = []
-    torch.cuda.synchronize()
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-    for indices, offsets in baseline_requests:
-        time = 0.0
-        start_event.record()
-        # forward
-        out = baseline_func(indices, offsets)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
-        fwd_times.append(it_time)
-        time += it_time
-
-        grad = torch.rand_like(out)
-        start_event.record()
-        # backward
-        out.backward(grad)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
-        bwd_times.append(it_time)
-        time += it_time
-        times.append(time)
-
-    avg = statistics.median(times)
-    fwd = statistics.median(fwd_times)
-    bwd = statistics.median(bwd_times)
-
-    times.clear()
-    fwd_times.clear()
-    bwd_times.clear()
-    reindex_times = []
-
-    torch.cuda.synchronize()
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-
-    for indices, offsets in compressed_requests:
-        time = 0.0
-        start_event.record()
-        # forward
-        out = compressed_func(indices, offsets)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
-        fwd_times.append(it_time)
-        time += it_time
-
-        start_event.record()
-        # reindex
-        out = out.reshape(-1, embedding_dim)
-        out = torch.ops.fbgemm.index_select_dim0(out, reindex)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
-        reindex_times.append(it_time)
-        time += it_time
-
-        grad = torch.rand_like(out)
-        start_event.record()
-        # backward
-        out.backward(grad)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
-        bwd_times.append(it_time)
-        time += it_time
-        times.append(time)
-
-    compressed_avg = statistics.median(times)
-    compressed_fwd = statistics.median(fwd_times)
-    reindex = statistics.median(reindex_times)
-    compressed_bwd = statistics.median(bwd_times)
-
-    return EvalCompressionBenchmarkOutput(
-        avg, fwd, bwd, compressed_avg, compressed_fwd, reindex, compressed_bwd
-    )
-
-
 def benchmark_vbe(
     requests: List[Tuple[torch.Tensor, torch.Tensor]],
     func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
@@ -579,35 +466,3 @@ def benchmark_vbe(
     bwd_time_sec = statistics.median(bwd_times)
 
     return fwd_time_sec, bwd_time_sec
-
-
-def fill_random_scale_bias(
-    emb: nn.Module,
-    T: int,
-    weights_precision: SparseType,
-) -> None:
-    for t in range(T):
-        # pyre-fixme[29]: `Union[Module, Tensor]` is not a function.
-        (weights, scale_shift) = emb.split_embedding_weights()[t]
-        if scale_shift is not None:
-            (E, R) = scale_shift.shape
-            assert R == 4
-            scales = None
-            shifts = None
-            if weights_precision == SparseType.INT8:
-                scales = np.random.uniform(0.001, 0.01, size=(E,)).astype(np.float16)
-                shifts = np.random.normal(-2, 2, size=(E,)).astype(np.float16)
-            elif weights_precision == SparseType.INT4:
-                scales = np.random.uniform(0.01, 0.1, size=(E,)).astype(np.float16)
-                shifts = np.random.normal(-2, 2, size=(E,)).astype(np.float16)
-            elif weights_precision == SparseType.INT2:
-                scales = np.random.uniform(0.1, 1, size=(E,)).astype(np.float16)
-                shifts = np.random.normal(-2, 2, size=(E,)).astype(np.float16)
-            scale_shift.copy_(
-                torch.tensor(
-                    np.stack([scales, shifts], axis=1)
-                    .astype(np.float16)
-                    .view(np.uint8),
-                    device=scale_shift.device,
-                )
-            )
