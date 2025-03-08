@@ -49,6 +49,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
 )
 from fbgemm_gpu.tbe.bench import (
     bench_warmup,
+    benchmark_cpu_requests,
     benchmark_eval_compression,
     benchmark_pipelined_requests,
     benchmark_requests,
@@ -976,24 +977,6 @@ def cache(  # noqa C901
         f"{3 * param_size_multiplier * B * sum(Ds) * L / forward_backward_time / 1.0e9: .2f} GB/s, "
         f"Te2e: {e2e_time * 1.0e6:.0f}us, "
     )
-
-
-def benchmark_cpu_requests(
-    requests: List[TBERequest],
-    func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
-    num_warmups: int = 0,
-) -> float:
-    import time
-
-    if num_warmups > 0:
-        for _ in range(num_warmups):
-            func(*(requests[0].unpack_3()))
-
-    start_time = time.perf_counter()
-    for req in requests:
-        func(*(req.unpack_3()))
-    end_time = time.perf_counter()
-    return (end_time - start_time) / len(requests)
 
 
 @cli.command()
