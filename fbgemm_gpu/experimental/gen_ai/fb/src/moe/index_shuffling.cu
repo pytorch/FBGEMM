@@ -54,6 +54,8 @@ struct SharedStorage {
 template <class DataType, class IndexType>
 struct Params {
   const DataType* scores;
+  int stride_t_;
+  int stride_e_;
   int num_tokens;
   int num_tokens_per_cta;
   IndexType* counts;
@@ -84,6 +86,9 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
     return;
   }
 
+  const int stride_t_ = params.stride_t_;
+  const int stride_e_ = params.stride_e_;
+
   for (int token_index_offset = token_index_offset_start;
        token_index_offset < token_index_offset_end;
        token_index_offset += NumTokensPerTile) {
@@ -95,7 +100,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       int expert_index = i % NumExperts;
 
       smem.scores[i] = token_index < params.num_tokens
-          ? params.scores[token_index * NumExperts + expert_index]
+          ? params.scores[token_index * stride_t_ + expert_index * stride_e_]
           : static_cast<DataType>(0.0f);
       smem.expert_indices[i] = expert_index;
     }
@@ -279,6 +284,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
 
   Params<DataType, IndexType> params = {
       reinterpret_cast<DataType*>(scores.data_ptr()),
+      static_cast<int>(scores.stride(0)),
+      static_cast<int>(scores.stride(1)),
       num_tokens,
       num_tokens_per_cta,
       reinterpret_cast<IndexType*>(counts.data_ptr()),

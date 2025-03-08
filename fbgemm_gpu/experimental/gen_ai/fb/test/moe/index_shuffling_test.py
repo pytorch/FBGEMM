@@ -5,7 +5,6 @@
 # pyre-ignore-all-errors[56]
 
 import logging
-import sys
 import unittest
 from typing import Tuple
 
@@ -15,7 +14,7 @@ import torch
 import triton  # noqa: F401
 from llm_inference.utils import profiler_or_nullcontext, record_function_or_nullcontext
 
-from triton.testing import do_bench
+from triton.testing import do_bench_cudagraph
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -32,18 +31,19 @@ class IndexShufflingTests(unittest.TestCase):
         def _test_top1_index_shuffling(
             num_tokens: int,
             num_experts: int,
+            rowmajor: bool,
             benchmark: bool = False,
             compile: bool = False,
         ) -> None:
-            print(
-                f"num_tokens={num_tokens}, num_experts={num_experts}, ",
-                file=sys.stderr,
-            )
+            logger.info(f"num_tokens={num_tokens}, num_experts={num_experts}, ")
             torch.manual_seed(0)
 
             scores = torch.randn(
                 num_tokens, num_experts, device="cuda", dtype=torch.bfloat16
             )
+            scores = scores.contiguous()
+            if not rowmajor:
+                scores = scores.transpose(0, 1).contiguous().transpose(0, 1)
 
             def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
                 op = torch.ops.fbgemm.index_shuffling
@@ -122,24 +122,29 @@ class IndexShufflingTests(unittest.TestCase):
                         f"{num_tokens=},{num_experts=}", benchmark
                     ):
                         with record_function_or_nullcontext("fbgemm", benchmark):
-                            fbgemm_time = do_bench(fn) * 1e3
+                            fbgemm_time = do_bench_cudagraph(fn) * 1e3
                         with record_function_or_nullcontext("torch", benchmark):
-                            torch_time = do_bench(ref_fn) * 1e3
-                print(
-                    f"num_tokens={num_tokens:4}, num_experts={num_experts:4}, "
-                    f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us",
-                    file=sys.stderr,
+                            torch_time = do_bench_cudagraph(ref_fn) * 1e3
+                logger.info(
+                    f"num_tokens={num_tokens:4}, num_experts={num_experts:4}, rowmajor={int(rowmajor)}, "
+                    f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us"
                 )
 
         # Correctness check on random shapes
         for num_tokens in [3, 123, 1234, 4567, 7891]:
             for num_experts in [16, 128]:
-                _test_top1_index_shuffling(num_tokens, num_experts, benchmark=False)
+                for rowmajor in [True, False]:
+                    _test_top1_index_shuffling(
+                        num_tokens, num_experts, rowmajor=rowmajor, benchmark=False
+                    )
 
         # Performance check on regular shapes
         for num_tokens in [1, 128, 2048, 4096, 8192]:
             for num_experts in [16, 128]:
-                _test_top1_index_shuffling(num_tokens, num_experts, benchmark=True)
+                for rowmajor in [True, False]:
+                    _test_top1_index_shuffling(
+                        num_tokens, num_experts, rowmajor=rowmajor, benchmark=True
+                    )
 
 
 if __name__ == "__main__":
