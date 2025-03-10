@@ -10,6 +10,7 @@
 # pyre-ignore-all-errors[56]
 
 import logging
+import uuid
 from itertools import accumulate
 from typing import List, Optional, Tuple, Union
 
@@ -17,6 +18,7 @@ import fbgemm_gpu  # noqa: F401
 import torch  # usort:skip
 from torch import nn, Tensor  # usort:skip
 
+from fbgemm_gpu.config import FeatureGateName
 from fbgemm_gpu.split_embedding_configs import sparse_type_to_int, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
@@ -369,6 +371,10 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         indices_dtype: torch.dtype = torch.int32,  # Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(IntNBitTableBatchedEmbeddingBagsCodegen, self).__init__()
+        self.uuid = str(uuid.uuid4())
+        self.log(
+            f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
+        )
 
         # 64 for AMD
         if cache_assoc == 32 and torch.version.hip is not None:
@@ -624,6 +630,20 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.fp8_exponent_bits = -1
             self.fp8_exponent_bias = -1
 
+    @torch.jit.ignore
+    def log(self, msg: str) -> None:
+        """
+        Log with TBE id prefix to distinguish between multiple TBE instances
+        per process
+
+        Args:
+            msg (str): The message to print
+
+        Returns:
+            None
+        """
+        logging.info(f"[TBE={self.uuid}] {msg}")
+
     def get_cache_miss_counter(self) -> Tensor:
         # cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss
         # cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses
@@ -672,17 +692,17 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         assert (
             self.record_cache_metrics.record_cache_miss_counter
         ), "record_cache_miss_counter should be true to access counter values"
-        logging.info(
+        self.log(
             f"\n"
             f"Miss counter value [0] - # of miss occured iters : {self.cache_miss_counter[0]}, \n"
             f"Miss counter value [1] - # of unique misses : {self.cache_miss_counter[1]}, \n"
             f"Miss counter value [2] - # of unique requested indices : {self.cache_miss_counter[2]}, \n"
             f"Miss counter value [3] - # of total requested indices : {self.cache_miss_counter[3]}, "
         )
-        logging.info(
+        self.log(
             f"unique_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[2]}, \n"
         )
-        logging.info(
+        self.log(
             f"total_miss_rate using counter : {self.cache_miss_counter[1] / self.cache_miss_counter[3]}, \n"
         )
 
@@ -697,7 +717,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.gather_uvm_cache_stats
         ), "gather_uvm_cache_stats should be set to true to access uvm cache stats."
         uvm_cache_stats = self.uvm_cache_stats.tolist()
-        logging.info(
+        self.log(
             f"N_called: {uvm_cache_stats[0]}\n"
             f"N_requested_indices: {uvm_cache_stats[1]}\n"
             f"N_unique_indices: {uvm_cache_stats[2]}\n"
@@ -706,7 +726,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             f"N_conflict_misses: {uvm_cache_stats[5]}\n"
         )
         if uvm_cache_stats[1]:
-            logging.info(
+            self.log(
                 f"unique indices / requested indices: {uvm_cache_stats[2] / uvm_cache_stats[1]}\n"
                 f"unique misses / requested indices: {uvm_cache_stats[3] / uvm_cache_stats[1]}\n"
             )
@@ -1212,7 +1232,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             assert not self.use_cpu
             if enforce_hbm:
                 if not torch.jit.is_scripting():
-                    logging.info("Enforce hbm for the cache location")
+                    self.log("Enforce hbm for the cache location")
                 self.weights_uvm = torch.zeros(
                     uvm_size,
                     device=self.current_device,
@@ -1352,7 +1372,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if cache_algorithm == CacheAlgorithm.LFU:
             assert cache_sets < 2**24 - 1
         cache_size = cache_sets * self.cache_assoc * self.max_D_cache
-        logging.info(
+        self.log(
             f"Using on-device cache with admission algorithm "
             f"{cache_algorithm}, {cache_sets} sets, "
             f"cache_load_factor: {cache_load_factor : .3f}, "
