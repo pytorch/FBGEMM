@@ -14,6 +14,7 @@ from typing import Callable, List, Optional, Tuple
 import torch
 
 from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
+
 from torch import Tensor
 
 logging.basicConfig(level=logging.DEBUG)
