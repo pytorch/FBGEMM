@@ -12,7 +12,9 @@ import time
 from typing import Callable, List, Optional, Tuple
 
 import torch
+
 from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
+from torch import Tensor
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -37,6 +39,24 @@ def bench_warmup(
             out = func(indices, offsets, weights)
             if bwd_only:
                 out.backward(grad)
+
+
+def benchmark_cpu_requests(
+    requests: List[TBERequest],
+    func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    num_warmups: int = 0,
+) -> float:
+    import time
+
+    if num_warmups > 0:
+        for _ in range(num_warmups):
+            func(*(requests[0].unpack_3()))
+
+    start_time = time.perf_counter()
+    for req in requests:
+        func(*(req.unpack_3()))
+    end_time = time.perf_counter()
+    return (end_time - start_time) / len(requests)
 
 
 def benchmark_requests(  # noqa: C901
