@@ -10,7 +10,7 @@
 
 import random
 import unittest
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import hypothesis.strategies as st
 import numpy as np
@@ -24,8 +24,17 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
     IntNBitTableBatchedEmbeddingBagsCodegen,
 )
-from fbgemm_gpu.split_table_batched_embeddings_ops_training import DEFAULT_ASSOC
-from fbgemm_gpu.tbe.utils import generate_requests, quantize_embs, round_up
+from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
+    ComputeDevice,
+    DEFAULT_ASSOC,
+    SplitTableBatchedEmbeddingBagsCodegen,
+)
+from fbgemm_gpu.tbe.utils import (
+    dequantize_embs,
+    generate_requests,
+    quantize_embs,
+    round_up,
+)
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
@@ -111,6 +120,240 @@ additional_decorators: Dict[str, List[Callable]] = {
 
 @optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class NBitFowardTest(NBitFowardTestCommon):
+    def execute_nbit_forward_fused_pooled_emb_quant_(
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_ty: SparseType,
+        output_dtype: SparseType,
+        weighted: bool,
+        ref_module: Union[
+            IntNBitTableBatchedEmbeddingBagsCodegen,
+            SplitTableBatchedEmbeddingBagsCodegen,
+        ],
+    ) -> None:
+        D_alignment = max(weights_ty.align_size() for t in range(T))
+        D_alignment = max(D_alignment, output_dtype.align_size())
+        D = round_up(D, D_alignment)
+        # BF16 output only works for CUDA device sm80+ (e.g., A100)
+        assume(
+            torch.cuda.is_available()
+            and torch.cuda.get_device_capability() >= (8, 0)
+            or not output_dtype == SparseType.BF16
+        )
+        Ds = [
+            round_up(
+                np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
+                D_alignment,
+            )
+            for _ in range(T)
+        ]
+
+        if ref_module == SplitTableBatchedEmbeddingBagsCodegen:
+            # SplitTableBatchedEmbeddingBagsCodegen only supports D % 4 == 0
+            # and D <= 2048
+            D = min(round_up(D, 4), 2048)
+
+        Ds = [D] * T
+        E = int(10**log_E)
+        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
+
+        weights_ty_list = [weights_ty] * T
+        managed = [EmbeddingLocation.DEVICE] * T
+        op = IntNBitTableBatchedEmbeddingBagsCodegen(
+            embedding_specs=[
+                (
+                    "",
+                    E,
+                    D,
+                    W_TY,
+                    EmbeddingLocation(M),
+                )
+                for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+            ],
+            output_dtype=output_dtype,
+            device=torch.cuda.current_device(),
+        )
+        # Initialize the random weights for int nbit table split embedding bag
+        op.fill_random_weights()
+
+        use_quant_ref = False
+        if ref_module == SplitTableBatchedEmbeddingBagsCodegen:
+            op_ref = SplitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (
+                        E,
+                        D,
+                        EmbeddingLocation.DEVICE,
+                        ComputeDevice.CUDA,
+                    )
+                    for (E, D) in zip(Es, Ds)
+                ],
+                weights_precision=SparseType.FP32,
+                output_dtype=SparseType.FP32,
+                device=torch.cuda.current_device(),
+            )
+        else:
+            op_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
+                embedding_specs=[
+                    (
+                        "",
+                        E,
+                        D,
+                        W_TY,
+                        EmbeddingLocation(M),
+                    )
+                    for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
+                ],
+                output_dtype=SparseType.FP32,
+                device=torch.cuda.current_device(),
+            )
+            # Initialize the random weights for int nbit table split embedding bag
+            op_ref.fill_random_weights()
+            use_quant_ref = True
+
+        # sync weights between two ops
+        split_weights = op.split_embedding_weights()
+        ref_split_weights = op_ref.split_embedding_weights()
+        for t in range(T):
+            (weights, scale_shift) = split_weights[t]
+            if use_quant_ref:
+                (ref_weights, ref_scale_shift) = ref_split_weights[t]
+                self.assertEqual(weights.size(), ref_weights.size())
+            else:
+                ref_weights = ref_split_weights[t]
+                ref_scale_shift = None
+            element_size = weights_ty_list[t].bit_rate() / 8.0
+            rand_tensor = torch.rand(
+                weights.shape[0], int(weights.shape[1] / element_size)
+            )
+            rand_weights, rand_scale_shift = quantize_embs(
+                rand_tensor, weights_ty_list[t]
+            )
+            weights.copy_(rand_weights)
+            if use_quant_ref:
+                ref_weights.copy_(rand_weights)
+            else:
+                deq_rand_weights = dequantize_embs(
+                    rand_weights, rand_scale_shift, weights_ty_list[t], use_cpu=False
+                )
+                assert deq_rand_weights.dtype == torch.float32
+                ref_weights.copy_(deq_rand_weights)
+
+            if rand_scale_shift is not None:
+                self.assertIsNotNone(scale_shift)
+                scale_shift.copy_(rand_scale_shift)
+                if use_quant_ref:
+                    self.assertIsNotNone(ref_scale_shift)
+                    ref_scale_shift.copy_(rand_scale_shift)
+
+        requests = generate_requests(1, B, T, L, min(Es), reuse=0.1, weighted=weighted)
+        for req in requests:
+            if weighted:
+                indices, offsets, per_sample_weights = req.unpack_3()
+            else:
+                indices, offsets = req.unpack_2()
+                per_sample_weights = None
+            lowp_pooled_output = op(
+                indices=indices.int(),
+                offsets=offsets.int(),
+                per_sample_weights=per_sample_weights,
+            )
+            fp32_pooled_output = op_ref(
+                indices=indices.int(),
+                offsets=offsets.int(),
+                per_sample_weights=per_sample_weights,
+            )
+            lowp_pooled_emb_split = [
+                d + 8 if output_dtype == SparseType.INT8 else d for d in Ds
+            ]
+            lowp_pooled_output_per_table = torch.split(
+                lowp_pooled_output, lowp_pooled_emb_split, dim=1
+            )
+            deq_lowp_pooled_output_per_table = [
+                (
+                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(t.contiguous())
+                    if output_dtype == SparseType.INT8
+                    else t.float()
+                )
+                for t in lowp_pooled_output_per_table
+            ]
+            fp32_pooled_output_per_table = torch.split(fp32_pooled_output, Ds, dim=1)
+            dq_fp32_pooled_output_per_table = [
+                (
+                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
+                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
+                            t.contiguous()
+                        ).contiguous()
+                    ).contiguous()
+                    if output_dtype == SparseType.INT8
+                    else t.half().float()
+                )
+                for t in fp32_pooled_output_per_table
+            ]
+            cat_deq_lowp_pooled_output = torch.cat(
+                deq_lowp_pooled_output_per_table, dim=1
+            )
+            cat_dq_fp32_pooled_output = torch.cat(
+                dq_fp32_pooled_output_per_table, dim=1
+            )
+            torch.testing.assert_close(
+                cat_deq_lowp_pooled_output,
+                cat_dq_fp32_pooled_output,
+                rtol=1e-2,
+                atol=1e-2,
+                equal_nan=True,
+            )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        T=st.integers(min_value=1, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        B=st.integers(min_value=1, max_value=128),
+        log_E=st.integers(min_value=3, max_value=5),
+        L=st.integers(min_value=0, max_value=20),
+        weights_ty=st.sampled_from(
+            [
+                SparseType.FP32,
+            ]
+        ),
+        output_dtype=(
+            st.sampled_from(
+                [
+                    SparseType.FP32,
+                ]
+            )
+            if not TEST_WITH_ROCM
+            else st.sampled_from(
+                [
+                    SparseType.FP16,
+                ]
+            )
+        ),
+        weighted=st.booleans(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much],
+    )
+    def test_nbit_forward_fused_pooled_emb_quant_against_ref(
+        self,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Test IntNBitTableBatchedEmbeddingBagsCodegen against another
+        implementation
+        """
+        self.execute_nbit_forward_fused_pooled_emb_quant_(
+            ref_module=SplitTableBatchedEmbeddingBagsCodegen,
+            **kwargs,
+        )
+
     @unittest.skipIf(*gpu_unavailable)
     @given(
         T=st.integers(min_value=1, max_value=10),
@@ -156,143 +399,13 @@ class NBitFowardTest(NBitFowardTestCommon):
     )
     def test_nbit_forward_fused_pooled_emb_quant(
         self,
-        T: int,
-        D: int,
-        B: int,
-        log_E: int,
-        L: int,
-        weights_ty: SparseType,
-        output_dtype: SparseType,
+        **kwargs: Any,
     ) -> None:
-        D_alignment = max(weights_ty.align_size() for t in range(T))
-        D_alignment = max(D_alignment, output_dtype.align_size())
-        D = round_up(D, D_alignment)
-        # BF16 output only works for CUDA device sm80+ (e.g., A100)
-        assume(
-            torch.cuda.is_available()
-            and torch.cuda.get_device_capability() >= (8, 0)
-            or not output_dtype == SparseType.BF16
+        self.execute_nbit_forward_fused_pooled_emb_quant_(
+            weighted=False,
+            ref_module=IntNBitTableBatchedEmbeddingBagsCodegen,
+            **kwargs,
         )
-        Ds = [
-            round_up(
-                np.random.randint(low=int(max(0.25 * D, 1)), high=int(1.0 * D)),
-                D_alignment,
-            )
-            for _ in range(T)
-        ]
-        Ds = [D] * T
-        E = int(10**log_E)
-        Es = [np.random.randint(low=int(0.5 * E), high=int(2.0 * E)) for _ in range(T)]
-
-        weights_ty_list = [weights_ty] * T
-        managed = [EmbeddingLocation.DEVICE] * T
-        op = IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    "",
-                    E,
-                    D,
-                    W_TY,
-                    EmbeddingLocation(M),
-                )
-                for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
-            ],
-            output_dtype=output_dtype,
-            device=torch.cuda.current_device(),
-        )
-        # Initialize the random weights for int nbit table split embedding bag
-        op.fill_random_weights()
-
-        op_ref = IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    "",
-                    E,
-                    D,
-                    W_TY,
-                    EmbeddingLocation(M),
-                )
-                for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
-            ],
-            output_dtype=SparseType.FP32,
-            device=torch.cuda.current_device(),
-        )
-        # Initialize the random weights for int nbit table split embedding bag
-        op_ref.fill_random_weights()
-
-        # sync weights between two ops
-        split_weights = op.split_embedding_weights()
-        ref_split_weights = op_ref.split_embedding_weights()
-        for t in range(T):
-            (weights, scale_shift) = split_weights[t]
-            (ref_weights, ref_scale_shift) = ref_split_weights[t]
-            self.assertEqual(weights.size(), ref_weights.size())
-            element_size = weights_ty_list[t].bit_rate() / 8.0
-            rand_tensor = torch.rand(
-                ref_weights.shape[0], int(ref_weights.shape[1] / element_size)
-            )
-            rand_weights, rand_scale_shift = quantize_embs(
-                rand_tensor, weights_ty_list[t]
-            )
-            ref_weights.copy_(rand_weights)
-            weights.copy_(ref_weights)
-            if rand_scale_shift is not None:
-                self.assertIsNotNone(scale_shift)
-                self.assertIsNotNone(ref_scale_shift)
-                ref_scale_shift.copy_(rand_scale_shift)
-                scale_shift.copy_(ref_scale_shift)
-
-        requests = generate_requests(1, B, T, L, min(Es), reuse=0.1)
-        for req in requests:
-            indices, offsets = req.unpack_2()
-            lowp_pooled_output = op(
-                indices=indices.int(),
-                offsets=offsets.int(),
-            )
-            fp32_pooled_output = op_ref(
-                indices=indices.int(),
-                offsets=offsets.int(),
-            )
-            lowp_pooled_emb_split = [
-                d + 8 if output_dtype == SparseType.INT8 else d for d in Ds
-            ]
-            lowp_pooled_output_per_table = torch.split(
-                lowp_pooled_output, lowp_pooled_emb_split, dim=1
-            )
-            deq_lowp_pooled_output_per_table = [
-                (
-                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(t.contiguous())
-                    if output_dtype == SparseType.INT8
-                    else t.float()
-                )
-                for t in lowp_pooled_output_per_table
-            ]
-            fp32_pooled_output_per_table = torch.split(fp32_pooled_output, Ds, dim=1)
-            dq_fp32_pooled_output_per_table = [
-                (
-                    torch.ops.fbgemm.Fused8BitRowwiseQuantizedToFloat(
-                        torch.ops.fbgemm.FloatToFused8BitRowwiseQuantized(
-                            t.contiguous()
-                        ).contiguous()
-                    ).contiguous()
-                    if output_dtype == SparseType.INT8
-                    else t.half().float()
-                )
-                for t in fp32_pooled_output_per_table
-            ]
-            cat_deq_lowp_pooled_output = torch.cat(
-                deq_lowp_pooled_output_per_table, dim=1
-            )
-            cat_dq_fp32_pooled_output = torch.cat(
-                dq_fp32_pooled_output_per_table, dim=1
-            )
-            torch.testing.assert_close(
-                cat_deq_lowp_pooled_output,
-                cat_dq_fp32_pooled_output,
-                rtol=1e-2,
-                atol=1e-2,
-                equal_nan=True,
-            )
 
     @unittest.skipIf(
         TEST_WITH_ROCM,
