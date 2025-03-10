@@ -1,6 +1,6 @@
 // @lint-ignore-every LICENSELINT
 //
-// SPDX-FileCopyrightText: Copyright 2024 Arm Limited and/or its affiliates
+// SPDX-FileCopyrightText: Copyright 2024-2025 Arm Limited and/or its affiliates
 // <open-source-office@arm.com>
 //
 // SPDX-License-Identifier: Apache-2.0
@@ -15,15 +15,15 @@ namespace kleidiai {
 void NOINLINE gemmkernel_1x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x25, #0x1\n"
       "fmov v29.8h, #1.0\n"
       "ldr x24, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x23, [%x[gp], %[offsetof_B]]\n"
       "ldr x22, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x25, XZR, x25, EQ\n"
+      "csel x25, XZR, x25, VS\n"
       "1:" // Height 1: Column loop
       "tbz x25, #0, 2f\n"
       "ldr q30, [x22, #0x0]\n"
@@ -177,15 +177,15 @@ void NOINLINE gemmkernel_1x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 void NOINLINE gemmkernel_2x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x26, #0x1\n"
       "fmov v27.8h, #1.0\n"
       "ldr x25, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x24, [%x[gp], %[offsetof_B]]\n"
       "ldr x23, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x26, XZR, x26, EQ\n"
+      "csel x26, XZR, x26, VS\n"
       "1:" // Height 2: Column loop
       "tbz x26, #0, 2f\n"
       "ldr q28, [x23, #0x0]\n"
@@ -384,15 +384,15 @@ void NOINLINE gemmkernel_2x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 void NOINLINE gemmkernel_3x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x27, #0x1\n"
       "fmov v25.8h, #1.0\n"
       "ldr x26, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x25, [%x[gp], %[offsetof_B]]\n"
       "ldr x24, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x27, XZR, x27, EQ\n"
+      "csel x27, XZR, x27, VS\n"
       "1:" // Height 3: Column loop
       "tbz x27, #0, 2f\n"
       "ldr q26, [x24, #0x0]\n"
@@ -632,15 +632,15 @@ void NOINLINE gemmkernel_3x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 void NOINLINE gemmkernel_4x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x28, #0x1\n"
       "fmov v23.8h, #1.0\n"
       "ldr x27, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x26, [%x[gp], %[offsetof_B]]\n"
       "ldr x25, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x28, XZR, x28, EQ\n"
+      "csel x28, XZR, x28, VS\n"
       "1:" // Height 4: Column loop
       "tbz x28, #0, 2f\n"
       "ldr q24, [x25, #0x0]\n"
@@ -921,15 +921,15 @@ void NOINLINE gemmkernel_4x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 void NOINLINE gemmkernel_5x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x9, #0x1\n"
       "fmov v21.8h, #1.0\n"
       "ldr x28, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x27, [%x[gp], %[offsetof_B]]\n"
       "ldr x26, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x9, XZR, x9, EQ\n"
+      "csel x9, XZR, x9, VS\n"
       "1:" // Height 5: Column loop
       "tbz x9, #0, 2f\n"
       "ldr q22, [x26, #0x0]\n"
@@ -1251,15 +1251,15 @@ void NOINLINE gemmkernel_5x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 void NOINLINE gemmkernel_6x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x10, #0x1\n"
       "fmov v19.8h, #1.0\n"
       "ldr x9, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x28, [%x[gp], %[offsetof_B]]\n"
       "ldr x27, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x10, XZR, x10, EQ\n"
+      "csel x10, XZR, x10, VS\n"
       "1:" // Height 6: Column loop
       "tbz x10, #0, 2f\n"
       "ldr q20, [x27, #0x0]\n"
@@ -1620,15 +1620,15 @@ void NOINLINE gemmkernel_6x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 void NOINLINE gemmkernel_7x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x11, #0x1\n"
       "fmov v17.8h, #1.0\n"
       "ldr x10, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x9, [%x[gp], %[offsetof_B]]\n"
       "ldr x28, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x11, XZR, x11, EQ\n"
+      "csel x11, XZR, x11, VS\n"
       "1:" // Height 7: Column loop
       "tbz x11, #0, 2f\n"
       "ldr q18, [x28, #0x0]\n"
@@ -2027,15 +2027,15 @@ void NOINLINE gemmkernel_7x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 void NOINLINE gemmkernel_8x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 #ifdef __aarch64__
   __asm__ __volatile__(
-      "ldr w20, [%x[gp], %[offsetof_beta]]\n"
+      "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x12, #0x1\n"
       "fmov v15.8h, #1.0\n"
       "ldr x11, [%x[gp], %[offsetof_b_block_cols]]\n"
       "ldr x10, [%x[gp], %[offsetof_B]]\n"
       "ldr x9, [%x[gp], %[offsetof_C]]\n"
-      "bic x20, x20, #0x80000000\n"
-      "cmp x20, #0x0\n"
+      "fcmp s16, #0.0\n"
       "csel x12, XZR, x12, EQ\n"
+      "csel x12, XZR, x12, VS\n"
       "1:" // Height 8: Column loop
       "tbz x12, #0, 2f\n"
       "ldr q16, [x9, #0x0]\n"

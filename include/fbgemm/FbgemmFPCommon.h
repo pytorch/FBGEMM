@@ -38,6 +38,18 @@ struct GemmParams {
   float* C;
   uint64_t ldc;
   uint64_t b_block_cols;
+  uint64_t b_block_size;
+};
+
+template <>
+struct GemmParams<float16> {
+  uint64_t k;
+  float* A;
+  const float16* B;
+  float beta;
+  float* C;
+  uint64_t ldc;
+  uint64_t b_block_cols;
 #ifdef FBGEMM_ENABLE_KLEIDIAI
   uint64_t lda;
 #else
@@ -163,10 +175,15 @@ void cblas_gemm_compute(
           assert(kernel_nrows * kb < static_cast<int64_t>(scratchpad->size()));
           if (m != 1) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-            gp.A = const_cast<float*>(&A[m2 * k + k_ind]);
-#else
-            PackA(kernel_nrows, kb, &A[m2 * k + k_ind], k, scratchpad->data());
-            gp.A = scratchpad->data();
+            if constexpr (std::is_same<T, float16>::value) {
+              gp.A = const_cast<float*>(&A[m2 * k + k_ind]);
+            } else {
+#endif
+              PackA(
+                  kernel_nrows, kb, &A[m2 * k + k_ind], k, scratchpad->data());
+              gp.A = scratchpad->data();
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+            }
 #endif
           } else {
             // When m == 1, it is actually vector matrix multiplication. We
@@ -184,11 +201,14 @@ void cblas_gemm_compute(
           gp.ldc = ldc * sizeof(C[0]);
           gp.b_block_cols = nbcol;
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-          gp.lda = k * sizeof(A[0]);
-#else
-          gp.b_block_size = gp.k * Bp.blockColSize() * sizeof(gp.B[0]);
+          if constexpr (std::is_same<T, float16>::value) {
+            gp.lda = k * sizeof(A[0]);
+          } else {
 #endif
-
+            gp.b_block_size = gp.k * Bp.blockColSize() * sizeof(gp.B[0]);
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+          }
+#endif
           if ((n % Bp.blockColSize()) == 0) {
             int64_t jb_begin, jb_end;
             fbgemmPartition1D(
