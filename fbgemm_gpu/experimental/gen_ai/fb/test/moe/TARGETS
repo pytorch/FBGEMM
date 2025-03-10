@@ -40,7 +40,7 @@ oncall("fbgemm_dev")
             "fbsource//third-party/pypi/numpy:numpy",
             "//caffe2:torch",
             "//deeplearning/fbgemm/fbgemm_gpu:test_utils",
-            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:fb_gen_ai_ops_py",
+            "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:fb_internal_gen_ai_ops_py",
             "//gen_ai/llm_inference:utils",
         ],
     )
