@@ -3097,3 +3097,62 @@ def _kernel_matmul_fp8_row_non_persistent(
         tl.store(C, acc, mask=mask)
     else:
         tl.atomic_add(C, acc, mask=mask)
+
+
+@triton.jit
+def _kernel_dequantize_fp8_block(
+    xq_ptr, x_scale_ptr, x_dequant_ptr, M, N, BLOCK_SIZE: tl.constexpr
+):
+    """
+    Dequantize FP8 tensor to BF16 tensor.
+
+    Args:
+        xq_ptr (tl.constexpr): Pointer to FP8 tensor.
+        x_scale_ptr (tl.constexpr): Pointer to FP8 scale tensor.
+        x_dequant_ptr (tl.constexpr): Pointer to BF16 tensor.
+        M (tl.constexpr): M dimension of input tensor.
+        N (tl.constexpr): N dimension of input tensor.
+        BLOCK_SIZE (tl.constexpr): Block size for reduction.
+    """
+    pid_m = tl.program_id(axis=0)
+    pid_n = tl.program_id(axis=1)
+    n = tl.cdiv(N, BLOCK_SIZE)
+    offs_m = pid_m * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    offs_n = pid_n * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    offs = offs_m[:, None] * N + offs_n[None, :]
+    mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
+    xq = tl.load(xq_ptr + offs, mask=mask).to(tl.bfloat16)
+    x_scale = tl.load(x_scale_ptr + pid_m * n + pid_n)
+    x_dequant = xq * x_scale
+    tl.store(x_dequant_ptr + offs, x_dequant, mask=mask)
+
+
+def dequantize_fp8_block(
+    xq: torch.Tensor, x_scale: torch.Tensor, block_size: int = 128
+) -> torch.Tensor:
+    """
+    Dequantize FP8 tensor to BF16 tensor.
+
+    Args:
+        xq (torch.Tensor): FP8 tensor to be dequantized.
+        x_scale (torch.Tensor): FP8 scale tensor.
+        block_size (int): Block size for dequantization.
+
+    Returns:
+        torch.Tensor: Dequantized BF16 tensor.
+    """
+
+    assert (
+        xq.is_contiguous() and x_scale.is_contiguous()
+    ), "Input tensors must be contiguous"
+    assert xq.dim() == 2 and x_scale.dim() == 2, "Input tensors must have 2 dimensions"
+    M, N = xq.size()
+    x_dequant = torch.empty_like(xq, dtype=torch.bfloat16)
+    grid = lambda meta: (
+        triton.cdiv(M, meta["BLOCK_SIZE"]),
+        triton.cdiv(N, meta["BLOCK_SIZE"]),
+    )
+    _kernel_dequantize_fp8_block[grid](
+        xq, x_scale, x_dequant, M, N, BLOCK_SIZE=block_size  # pyre-ignore[6]
+    )
+    return x_dequant
