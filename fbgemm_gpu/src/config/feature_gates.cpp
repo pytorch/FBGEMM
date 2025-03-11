@@ -48,16 +48,20 @@ bool ev_check_key(const std::string& key) {
 DLL_PUBLIC bool check_feature_gate_key(const std::string& key) {
   // Cache feature flags to avoid repeated JK and env var checks
   static std::map<std::string, bool> feature_flags_cache;
+#ifdef FBGEMM_FBCODE
+  static const auto no_jk = ev_check_key("NO_JK");
+#endif
 
   if (const auto search = feature_flags_cache.find(key);
       search != feature_flags_cache.end()) {
     return search->second;
 
   } else {
+    const auto value =
 #ifdef FBGEMM_FBCODE
-    const auto value = jk_check_key(key);
+        (no_jk) ? ev_check_key(key) : jk_check_key(key);
 #else
-    const auto value = ev_check_key(key);
+        ev_check_key(key);
 #endif
 
     feature_flags_cache.insert({key, value});
