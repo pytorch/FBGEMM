@@ -13,13 +13,12 @@ import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.utils import TBERequest  # noqa: F401
-from torch import nn
 
 logging.basicConfig(level=logging.DEBUG)
 
 
 def fill_random_scale_bias(
-    emb: nn.Module,
+    emb: torch.nn.Module,
     T: int,
     weights_precision: SparseType,
 ) -> None:
