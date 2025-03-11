@@ -926,11 +926,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             "feature_dims",
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
-        (self.info_B_num_bits, self.info_B_mask) = torch.ops.fbgemm.get_infos_metadata(
+        (_info_B_num_bits, _info_B_mask) = torch.ops.fbgemm.get_infos_metadata(
             self.D_offsets,  # unused tensor
             1,  # max_B
             T,  # T
         )
+        self.info_B_num_bits: int = _info_B_num_bits
+        self.info_B_mask: int = _info_B_mask
 
         # A flag for indicating whether all embedding tables are placed in the
         # same locations
@@ -1374,6 +1376,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.use_bounds_check_v2: bool = self._feature_is_enabled(
             FeatureGateName.BOUNDS_CHECK_INDICES_V2
         )
+        if self.bounds_check_version == 2:
+            self.use_bounds_check_v2 = True
 
         if embedding_table_index_type not in [torch.int32, torch.int64]:
             raise ValueError(
