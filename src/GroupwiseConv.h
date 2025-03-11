@@ -124,8 +124,12 @@ class GenConvKernelBase {
     H_PAD_ = conv_param.pad[0];
     W_PAD_ = conv_param.pad[1];
 
-    use_bottom_padding_ =
-        !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 2] % 2 == 0);
+    if constexpr (SPATIAL_DIM >= 2) {
+      use_bottom_padding_ =
+          !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 2] % 2 == 0);
+    } else {
+      use_bottom_padding_ = false;
+    }
     use_right_padding_ =
         !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 1] % 2 == 0);
   }
