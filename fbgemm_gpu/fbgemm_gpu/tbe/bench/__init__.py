@@ -26,4 +26,5 @@ from .eval_compression import (  # noqa F401
     benchmark_eval_compression,
     EvalCompressionBenchmarkOutput,
 )
+from .reporter import BenchmarkReporter  # noqa F401
 from .utils import fill_random_scale_bias  # noqa F401
