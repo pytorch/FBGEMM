@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2024-2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -65,12 +66,13 @@ class PackedGemmMatrixB {
       : nrow_(nrow),
         ncol_(ncol),
         brow_(brow),
-#ifdef FBGEMM_ENABLE_KLEIDIAI
-        kernel_ncol_blocks_(1)
-#else
         kernel_ncol_blocks_(2)
-#endif
   {
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+    if(std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
+#endif
     initializeParam();
     initializeMemory();
     // copy source matrix into packed matrix
