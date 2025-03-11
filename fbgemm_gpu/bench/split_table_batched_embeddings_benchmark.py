@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
@@ -2779,6 +2780,7 @@ def hashtable(  # noqa C901
         E,
         requests_data_file=requests_data_file,
         tables=tables,
+        use_cpu=use_cpu
     )
 
     if not use_cpu:
