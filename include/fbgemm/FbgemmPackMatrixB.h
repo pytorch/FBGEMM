@@ -62,15 +62,12 @@ class PackedGemmMatrixB {
       const float alpha,
       const float* smat,
       const int brow = 512)
-      : nrow_(nrow),
-        ncol_(ncol),
-        brow_(brow),
-#ifdef FBGEMM_ENABLE_KLEIDIAI
-        kernel_ncol_blocks_(1)
-#else
-        kernel_ncol_blocks_(2)
+      : nrow_(nrow), ncol_(ncol), brow_(brow), kernel_ncol_blocks_(2) {
+#if defined(FBGEMM_ENABLE_KLEIDIAI)
+    if (std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
 #endif
-  {
     initializeParam();
     initializeMemory();
     // copy source matrix into packed matrix
@@ -95,6 +92,11 @@ class PackedGemmMatrixB {
         nbcol_(nbcol),
         size_(size),
         kernel_ncol_blocks_(2) {
+#if defined(FBGEMM_ENABLE_KLEIDIAI)
+    if (std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
+#endif
     initializeMemory();
   }
 
@@ -296,5 +298,31 @@ class PackedGemmMatrixB {
   bool packed_{false};
   bool pmat_passed_in{false};
 };
+
+#ifndef FBGEMM_STATIC
+
+template <>
+FBGEMM_API
+PackedGemmMatrixB<float16, TypeConverter<float16>>::PackedGemmMatrixB(
+    const matrix_op_t trans,
+    const int nrow,
+    const int ncol,
+    const float alpha,
+    const float* smat,
+    const int brow);
+
+template <>
+FBGEMM_API
+PackedGemmMatrixB<float16, TypeConverter<float16>>::PackedGemmMatrixB(
+    const int nrow,
+    const int ncol,
+    const int brow,
+    const int last_brow,
+    const int bcol,
+    const int nbrow,
+    const int nbcol,
+    const uint64_t size);
+
+#endif
 
 } // namespace fbgemm
