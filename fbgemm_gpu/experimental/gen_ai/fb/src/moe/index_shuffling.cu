@@ -24,7 +24,12 @@ __inline__ constexpr int ceil_of_ratio(int a, int b) {
 };
 
 #ifdef USE_ROCM
-__device__ __forceinline__ int atomic_add(int* addr, int inc) {
+__device__ __forceinline__ int atomic_add_relaxed(int* addr, int inc) {
+  return __hip_atomic_fetch_add(
+      addr, inc, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_AGENT);
+};
+
+__device__ __forceinline__ int atomic_add_release(int* addr, int inc) {
   return __hip_atomic_fetch_add(
       addr, inc, __ATOMIC_RELEASE, __HIP_MEMORY_SCOPE_AGENT);
 };
@@ -33,8 +38,20 @@ __device__ __forceinline__ int load_aquire(int* addr) {
   return __hip_atomic_load(addr, __ATOMIC_ACQUIRE, __HIP_MEMORY_SCOPE_AGENT);
 };
 #else
-__device__ __forceinline__ int atomic_add(int* addr, int inc) {
-  return atomicAdd(addr, inc);
+__device__ __forceinline__ int atomic_add_relaxed(int* addr, int inc) {
+  int val;
+  asm volatile("atom.relaxed.gpu.global.add.s32 %0, [%1], %2;\n"
+               : "=r"(val)
+               : "l"(addr), "r"(inc));
+  return val;
+};
+
+__device__ __forceinline__ int atomic_add_release(int* addr, int inc) {
+  int val;
+  asm volatile("atom.release.gpu.global.add.s32 %0, [%1], %2;\n"
+               : "=r"(val)
+               : "l"(addr), "r"(inc));
+  return val;
 };
 
 __device__ __forceinline__ int load_aquire(int* addr) {
@@ -163,25 +180,23 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       if (token_index < params.num_tokens) {
         auto expert_index = smem.expert_indices[local_token_index * NumExperts];
         auto token_index_in_expert =
-            atomic_add(&params.counts[expert_index], 1);
+            atomic_add_relaxed(&params.counts[expert_index], 1);
         params.expert_indices[token_index] = expert_index;
         params.token_indices[token_index] = token_index_in_expert;
       }
     }
     __syncthreads();
-
-    if (tidx == 0) {
-      atomic_add(
-          &params.counts[NumExperts],
-          std::min(
-              NumTokensPerTile, token_index_offset_end - token_index_offset));
-    }
   }
 
-  int processed_tokens = 0;
-  int* processed_tokens_addr = &params.counts[NumExperts];
-
   if (tidx == 0) {
+    int processed_tokens = 0;
+    int* processed_tokens_addr = &params.counts[NumExperts];
+
+    int inc = token_index_offset_end - token_index_offset_start;
+    atomic_add_release(
+        processed_tokens_addr,
+        token_index_offset_end - token_index_offset_start);
+
     do {
       processed_tokens = load_aquire(processed_tokens_addr);
     } while (processed_tokens != params.num_tokens);
@@ -300,11 +315,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
   auto stream = at::cuda::getCurrentCUDAStream();
 
 #ifdef USE_ROCM
+  // hipLaunchCooperativeKernel seems to cause incorrect memory order across
+  // kernel launches.
   C10_CUDA_CHECK(
       hipLaunchKernel((void*)kernel, grids, blocks, args, smem_size, stream));
 #else
-  C10_CUDA_CHECK(
-      cudaLaunchKernel((void*)kernel, grids, blocks, args, smem_size, stream));
+  C10_CUDA_CHECK(cudaLaunchCooperativeKernel(
+      (void*)kernel, grids, blocks, args, smem_size, stream));
 #endif
 
   return std::make_tuple(
