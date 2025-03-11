@@ -2639,7 +2639,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 return buffer
         raise ValueError(f"Optimizer buffer {state} not found")
 
-    @torch.jit.export
+    @torch.jit.ignore
     def get_optimizer_state(self) -> List[Dict[str, torch.Tensor]]:
         r"""
         Get the optimizer state dict that matches the OSS Pytorch optims
