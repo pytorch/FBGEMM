@@ -12,7 +12,6 @@ import numpy as np
 import torch
 
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.tbe.utils import TBERequest  # noqa: F401
 
 logging.basicConfig(level=logging.DEBUG)
 

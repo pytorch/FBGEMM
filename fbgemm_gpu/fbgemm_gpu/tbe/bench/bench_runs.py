@@ -14,7 +14,6 @@ from typing import Callable, List, Optional, Tuple
 import torch
 
 from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
-from torch import Tensor
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -43,7 +42,7 @@ def bench_warmup(
 
 def benchmark_cpu_requests(
     requests: List[TBERequest],
-    func: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     num_warmups: int = 0,
 ) -> float:
     import time
