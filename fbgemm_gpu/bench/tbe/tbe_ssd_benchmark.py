@@ -113,7 +113,6 @@ def benchmark_read_write(
     elem_size = 4
 
     with tempfile.TemporaryDirectory(prefix=ssd_prefix) as ssd_directory:
-        # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
         ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
             ssd_directory,
             num_shards,
