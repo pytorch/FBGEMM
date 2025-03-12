@@ -190,7 +190,7 @@ def apply_gwd(
             apply_gwd_per_table(
                 prev_iter_values,
                 weights_values,
-                emb.optimizer_args.learning_rate_tensor.item(),
+                emb.optimizer_args.learning_rate,
                 emb.optimizer_args.weight_decay,
                 step,
                 emb.current_device,
