@@ -447,7 +447,7 @@ class BackwardSplitGenerator:
                     ssd_optimizers.append(optim)
 
             BackwardSplitGenerator.generate_backward_split(
-                ssd_tensors=ssd_tensors, aux_args=aux_args, **optimizer
+                ssd_tensors=ssd_tensors, **optimizer
             )
         BackwardSplitGenerator.generate_rocm_backward_split()
 
