@@ -666,9 +666,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         embedding_table_offset_type: torch.dtype = torch.int64,
     ) -> None:
         super(SplitTableBatchedEmbeddingBagsCodegen, self).__init__()
-        logging.info(f"SplitTableBatchedEmbeddingBagsCodegen Arguments: {locals()}")
-
         self.uuid = str(uuid.uuid4())
+
+        self.log(f"SplitTableBatchedEmbeddingBagsCodegen Arguments: {locals()}")
+        self.log(
+            f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
+        )
+
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.pooling_mode = pooling_mode
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
@@ -1021,7 +1025,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             optimizer == OptimType.EXACT_ROWWISE_ADAGRAD
             and (weight_decay_mode == WeightDecayMode.DECOUPLE_GLOBAL)
         )
-        logging.info(
+        self.log(
             f"Using global weight decay = {self._used_rowwise_adagrad_with_global_weight_decay}"
         )
         # Declare GWD params here to avoid torch.jit.script error
@@ -3674,6 +3678,11 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
         use_mtia: bool = False,
     ) -> None:  # noqa C901  # tuple of (rows, dims,)
         super(DenseTableBatchedEmbeddingBagsCodegen, self).__init__()
+        self.uuid = str(uuid.uuid4())
+
+        self.log(
+            f"Feature Gates: {[(feature.name, feature.is_enabled()) for feature in FeatureGateName]}"
+        )
 
         self.pooling_mode = pooling_mode
         self.weights_precision = weights_precision
@@ -3763,7 +3772,7 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.weights[weights_offsets[t] : weights_offsets[t + 1]].numel()
                 != row * dim
             ):
-                logging.info(
+                self.log(
                     f"row {row} dim {dim} feature {feature} t {t} {self.weights[weights_offsets[t] : weights_offsets[t + 1]].numel()}"
                 )
             assert (
@@ -3782,6 +3791,20 @@ class DenseTableBatchedEmbeddingBagsCodegen(nn.Module):
                 weights_offsets, device=self.current_device, dtype=torch.int64
             ),
         )
+
+    @torch.jit.ignore
+    def log(self, msg: str) -> None:
+        """
+        Log with TBE id prefix to distinguish between multiple TBE instances
+        per process
+
+        Args:
+            msg (str): The message to print
+
+        Returns:
+            None
+        """
+        logging.info(f"[TBE={self.uuid}] {msg}")
 
     @torch.jit.ignore
     def _generate_vbe_metadata(
