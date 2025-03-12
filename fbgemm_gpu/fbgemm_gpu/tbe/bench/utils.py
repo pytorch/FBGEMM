@@ -7,43 +7,17 @@
 # pyre-strict
 
 import logging
-import time
-from typing import Callable, Optional
 
 import numpy as np
-
 import torch
+
 from fbgemm_gpu.split_embedding_configs import SparseType
-from fbgemm_gpu.tbe.utils import TBERequest  # noqa: F401
-from torch import nn
 
 logging.basicConfig(level=logging.DEBUG)
 
 
-def warmup(
-    request: TBERequest,
-    warmup_ms: int,
-    warmup_runs: int,
-    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
-    bwd_only: bool = False,
-    grad: Optional[torch.Tensor] = None,
-) -> None:
-    indices, offsets, weights = request.unpack_3()
-    if warmup_ms:
-        start_time_ms = time.time() * 1000
-        while time.time() * 1000 - start_time_ms < warmup_ms:
-            out = func(indices, offsets, weights)
-            if bwd_only:
-                out.backward(grad)
-    else:
-        for _ in range(warmup_runs):
-            out = func(indices, offsets, weights)
-            if bwd_only:
-                out.backward(grad)
-
-
 def fill_random_scale_bias(
-    emb: nn.Module,
+    emb: torch.nn.Module,
     T: int,
     weights_precision: SparseType,
 ) -> None:

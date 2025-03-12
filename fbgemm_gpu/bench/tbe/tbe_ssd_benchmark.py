@@ -17,7 +17,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import click
 import numpy as np
 import torch
-from fbgemm_gpu.bench.bench_utils import benchmark_requests
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     CacheAlgorithm,
@@ -31,6 +30,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
+from fbgemm_gpu.tbe.bench import benchmark_requests
 from fbgemm_gpu.tbe.ssd import (
     SSDIntNBitTableBatchedEmbeddingBags,
     SSDTableBatchedEmbeddingBags,
@@ -113,7 +113,6 @@ def benchmark_read_write(
     elem_size = 4
 
     with tempfile.TemporaryDirectory(prefix=ssd_prefix) as ssd_directory:
-        # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
         ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
             ssd_directory,
             num_shards,

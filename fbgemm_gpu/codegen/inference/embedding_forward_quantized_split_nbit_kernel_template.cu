@@ -44,6 +44,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   const int exponent_bits,
   const int exponent_bias,
   {% endif %}
+  // The number of bags that one warp/wave is able to process in one go. (NumUint4LoadsPerRow / uint4_loads_per_row)
   const int32_t num_packed_bags,
   pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
   const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
@@ -85,7 +86,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   if (D_bytes <= MinNum128BRows * 128 || D_bytes > MaxNum128BRows * 128) {
     return;
   }
-
+  // Number of requests to row during accumulate and store stages w.r.t. different warp/wave sizes
   constexpr int32_t AccumulateStoreRequests = (kWarpSize == 64) ? (MaxNum128BRows + 1) / 2 : MaxNum128BRows;
   const int64_t weights_offset = weights_offsets[t];
   const int32_t D_total = padded_D(D, weight_ty);
@@ -100,12 +101,19 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   constexpr uint32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4);
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
+  // Index of packed bag during load stage in current warp/wave. Should fit into NumUint4LoadsPerRow (3rd) shared
+  // memory buffer's dimension w.r.t. the actual size of the row in the bag. 
   const uint32_t packed_bag_load_idx = PackedMode ? (threadIdx.x % NumUint4LoadsPerRow) / uint4_loads_per_row : 0;
   constexpr int32_t kUintsInUint4 = 4;
   const int32_t uints_per_row = kUintsInUint4 * uint4_loads_per_row;
+  // Packed bag accumulation index in current warp/wave. Each thread/lane process 1 uint instead of
+  // 4 uints during load stage, so the index should be recomputed accordingly.
   const int32_t packed_bag_acc_idx = PackedMode ? (threadIdx.x / uints_per_row) % num_packed_bags : 0;
 
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+    // In case of PackedMode, b should be offseted with num_packed_bags and indexed with packed_bag_load_idx
+    // to take into account reduced grid size in host kernel call and that the warp/wave may contain several
+    // different bags.
     uint32_t b = PackedMode ? min(static_cast<uint32_t>(bb * num_packed_bags * OutputRowsPerThread + i * num_packed_bags + packed_bag_load_idx), static_cast<uint32_t>(B - 1))
                             : min(static_cast<uint32_t>(bb * OutputRowsPerThread + i), static_cast<uint32_t>(B - 1));
     int32_t indices_start = offsets[t * B + b];
@@ -135,6 +143,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     __shared__ AllBuffers buffers;
 
     {% if weighted %}
+    // In case of PackedMode, overallocate indice weights buffer to store additional per-row weights for
+    // packed bags.
     typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][PackedMode ? NumUint4LoadsPerRow : 1];
     __shared__ AllIndiceWeights buffers_indice_weights;
     {% endif %}
@@ -142,9 +152,12 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * NumUint4LoadsPerRow; load_idx += kWarpSize) {
       uint32_t row_load_idx = load_idx % NumUint4LoadsPerRow;
       if constexpr (PackedMode) {
+        // The actual row index in packed bag w.r.t. the required uint4 loads.
         row_load_idx %= uint4_loads_per_row;
       }
       uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
+      // In case of PackedMode, packed_bag_load_idx already takes into account uint4_loads_per_row,
+      // so only the packed_bag index should be evaluated against total number of packed bags.
       bool load_idx_valid = PackedMode ? packed_bag_load_idx < num_packed_bags : row_load_idx < uint4_loads_per_row;
       {%- if is_rocm %}
       constexpr uint32_t kMaxRowUnroll = 4;
@@ -193,12 +206,17 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           bool valid = load_idx_valid && (L_start + input_row_idx < Ls[i]) && (idx_v[inner_i] != -1);
           uint4 data = valid ? row_data_v[inner_i] : zeros;
           if constexpr (PackedMode) {
+            // Store row data with uint4_loads_per_row offset
             buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx] = data;
           } else {
             buffers[warp_idx][i][input_row_idx][row_load_idx] = data;
           }
           {% if weighted %}
-          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+          if (valid && row_load_idx == 0)  {
+            // Use only one thread to load the index weight to prevent a race
+            // condition when writing to the shared memory
+            buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
+          }
           {% endif %}
         }
       }
@@ -227,12 +245,17 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           row = reinterpret_cast<const uint4*>(&weights[0]);
         }
         if constexpr (PackedMode) {
+          // Load valid packed row data w.r.t. packed_bag offset 
           cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx], &row[row_load_idx], valid);
         } else {
           cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
         }
         {% if weighted %}
-        buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+        if (valid && row_load_idx == 0) {
+          // Use only one thread to load the index weight to prevent a race
+          // condition when writing to the shared memory
+          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
+        }
         {% endif %}
       }
       {%- if is_rocm %}
@@ -244,6 +267,9 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
     syncwarp();
 
     if constexpr (PackedMode) {
+      // Since in PackedMode one warp/wave may contain different bags with different sizes,
+      // the permutation should be done after switching from uint4 processing during load stage
+      // to uint processing during accumulate and store.
       input_rows_in_flight = shfl_sync(input_rows_in_flight, packed_bag_acc_idx * uint4_loads_per_row);
 
       #pragma unroll OutputRowsPerThread
@@ -265,6 +291,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         // rationale: have scale/shift at start since these get loaded first
         // and then broadcasted around so it might speed up the first cache miss.
         {% if emb_weight_type.primitive_type == "INT" %}
+        // In PackedMode, row pointer may contain several rows from different bags, so each thread/lane should
+        // read the certain shift_scale related to the row in the packed_bag.
         half2 shift_scale = reinterpret_cast<const half2*>(row)[PackedMode ? packed_bag_acc_idx * uints_per_row : 0];
         {% endif %}
 
@@ -338,6 +366,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   }
 
   {% if not nobag %}
+  // In case of PackedMode, computes the packed bag index during store stage w.r.t.
+  // the real number of uints in the rows.
   const int32_t packed_bag_store_idx = PackedMode ? threadIdx.x / uints_per_row : 0;
 
   #pragma unroll OutputRowsPerThread
@@ -350,11 +380,14 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
         int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
         if constexpr (PackedMode) {
+          // Offset global output_d index with the size of outputs per bag w.r.t. current
+          // packed bag index 
           output_d -= packed_bag_store_idx * kOutputsPerThread * uints_per_row; 
         }
         accumulators[i][j].mul(inv_L);
 
         if constexpr (PackedMode) {
+          // Take into account the packed bag index overflow
           if (output_d >= 0 && output_d < D && packed_bag_store_idx < num_packed_bags) {
             const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
             accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);

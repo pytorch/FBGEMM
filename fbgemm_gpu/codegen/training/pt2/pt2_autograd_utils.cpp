@@ -113,6 +113,7 @@ void checked_memcpy(
 ///                                    size(1) is number of ranks
 /// @param max_B                      Maximum batch size
 /// @param T                          Number of embedding tables (features)
+template <typename index_t>
 Tensor reshape_vbe_offsets(
     const Tensor& offsets,
     const Tensor& B_offsets_rank_per_feature,
@@ -125,12 +126,8 @@ Tensor reshape_vbe_offsets(
       B_offsets_rank_per_feature.accessor<int32_t, 2>();
   auto reshaped_offsets = at::empty({T * max_B + 1}, offsets.options());
   // TODO: support other types
-  TORCH_CHECK(
-      offsets.dtype() == at::kLong,
-      "Expected offsets to be int64 but got ",
-      offsets.dtype());
-  auto reshaped_offsets_acc = reshaped_offsets.accessor<int64_t, 1>();
-  auto offsets_acc = offsets.accessor<int64_t, 1>();
+  auto reshaped_offsets_acc = reshaped_offsets.accessor<index_t, 1>();
+  auto offsets_acc = offsets.accessor<index_t, 1>();
   auto begin = 0;
   for (int32_t t = 0; t < T; t++) {
     const auto batch_size =
@@ -166,5 +163,17 @@ Tensor reshape_vbe_offsets(
   reshaped_offsets[reshaped_offsets.numel() - 1] = offsets[offsets.numel() - 1];
   return reshaped_offsets;
 }
+
+template Tensor reshape_vbe_offsets<int32_t>(
+    const Tensor& offsets,
+    const Tensor& B_offsets_rank_per_feature,
+    const int64_t max_B,
+    const int32_t T);
+
+template Tensor reshape_vbe_offsets<int64_t>(
+    const Tensor& offsets,
+    const Tensor& B_offsets_rank_per_feature,
+    const int64_t max_B,
+    const int32_t T);
 
 } // namespace fbgemm_gpu
