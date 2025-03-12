@@ -59,6 +59,20 @@ if(SKBUILD)
   BLOCK_PRINT("The project is built using scikit-build")
 endif()
 
+BLOCK_PRINT(
+  "Build Settings"
+  ""
+  "NVCC_VERBOSE           : ${NVCC_VERBOSE}"
+  "CUDNN_INCLUDE_DIR      : ${CUDNN_INCLUDE_DIR}"
+  "CUDNN_LIBRARY          : ${CUDNN_LIBRARY}"
+  "NVML_LIB_PATH          : ${NVML_LIB_PATH}"
+  "TORCH_CUDA_ARCH_LIST   : ${TORCH_CUDA_ARCH_LIST}"
+  ""
+  "HIP_ROOT_DIR           : ${HIP_ROOT_DIR}"
+  "HIPCC_VERBOSE          : ${HIPCC_VERBOSE}"
+  "AMDGPU_TARGETS         : ${AMDGPU_TARGETS}"
+  "PYTORCH_ROCM_ARCH      : ${PYTORCH_ROCM_ARCH}")
+
 if(FBGEMM_CPU_ONLY OR USE_ROCM)
   project(
     fbgemm_gpu
