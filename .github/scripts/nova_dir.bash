@@ -13,6 +13,12 @@ if [[ "$working_dir" == "$FBGEMM_REPO" ]]; then cd fbgemm_gpu || echo "Failed to
 ## Build clean/wheel will be done in pre-script. Set flag such that setup.py will skip these steps in Nova workflow
 export BUILD_FROM_NOVA=1
 
+if [[ "$CU_VERSION" == "cu"* ]]; then
+    echo "Current TORCH_CUDA_ARCH_LIST value: ${TORCH_CUDA_ARCH_LIST}"
+elif [[ "$CU_VERSION" == "rocm"* ]]; then
+    echo "Current PYTORCH_ROCM_ARCH value: ${PYTORCH_ROCM_ARCH}"
+fi
+
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
 
@@ -33,5 +39,21 @@ elif [[ "$CU_VERSION" == "cu"* ]]; then
     echo "unknown or not supported in FBGEMM_GPU: ${CU_VERSION}"
     echo ""
     echo "Will default to the TORCH_CUDA_ARCH_LIST supplied by the environment!!!"
+    echo "################################################################################"
+
+elif [[ "$CU_VERSION" == "rocm6.3"* ]]; then
+    export PYTORCH_ROCM_ARCH="gfx908,gfx90a,gfx942,gfx1201"
+    echo "Set PYTORCH_ROCM_ARCH to: ${PYTORCH_ROCM_ARCH}"
+
+elif [[ "$CU_VERSION" == "rocm6.2"* ]]; then
+    export PYTORCH_ROCM_ARCH="gfx908,gfx90a,gfx942"
+    echo "Set PYTORCH_ROCM_ARCH to: ${PYTORCH_ROCM_ARCH}"
+
+elif [[ "$CU_VERSION" == "rocm"* ]]; then
+    echo "################################################################################"
+    echo "[NOVA] Currently building the ROCm variant, but the supplied CU_VERSION is"
+    echo "unknown or not supported in FBGEMM_GPU: ${CU_VERSION}"
+    echo ""
+    echo "Will default to the PYTORCH_ROCM_ARCH supplied by the environment!!!"
     echo "################################################################################"
 fi

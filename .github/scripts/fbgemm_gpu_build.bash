@@ -171,12 +171,22 @@ __configure_fbgemm_gpu_build_rocm () {
         # cards, in which case the arch_list will be empty.
         echo "[BUILD] rocminfo did not return anything valid!"
 
-        # By default, we build just for MI100 and MI250 to save time.  This list
-        # needs to be updated if the CI ROCm machines have different hardware.
+        # By default, we build for a limited number of architectures to save on
+        # build time.  This list needs to be updated if the CI ROCm machines
+        # have different hardware.
         #
         # Architecture mapping can be found at:
         #   https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html
-        local arch_list="gfx908,gfx90a,gfx942"
+        if [ -z "${BUILD_FROM_NOVA+x}" ]; then
+          # If BUILD_FROM_NOVA is unset, then we are building from AMD host with
+          # sufficient resources, so we can build for more architectures.
+          local arch_list="gfx908,gfx90a,gfx942"
+        else
+          # If BUILD_FROM_NOVA is set (regardless of 0 or 1), we are building in
+          # Nova.  Nova machines take a longer time to build FBGEMM_GPU for
+          # ROCm, so we limit to one architecture.
+          local arch_list="gfx942"
+        fi
       fi
     else
       echo "[BUILD] rocminfo not found in PATH!"
