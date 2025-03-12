@@ -18,6 +18,7 @@
 #include <omp.h>
 #endif
 
+#include <c10/util/irange.h>
 #include <gtest/gtest.h>
 
 #include "./QuantizationHelpers.h"
@@ -151,7 +152,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, Test) {
 
       if (btrans == matrix_op_t::Transpose) {
         aligned_vector<int8_t> Bint8_temp(Bint8.size());
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           transpose_matrix(
               k_per_group,
               n,
@@ -187,7 +188,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, Test) {
 
       // computing column offset
       vector<int32_t> col_offsets(groups * n_adjusted);
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         col_offsets_with_zero_pt_s8acc32_ref(
             k_per_group,
             n_adjusted,
@@ -205,7 +206,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, Test) {
       int32_t C_zero_pt = 5;
 
       int brow = 256;
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         matmul_u8i8acc16_ref(
             m,
             n_adjusted,
@@ -421,7 +422,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
 
         // computing column offset
         vector<int32_t> col_offsets(groups * n_adjusted);
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           col_offsets_with_zero_pt_s8acc32_ref(
               k_per_group,
               n_adjusted,
@@ -442,8 +443,8 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
 
         vector<int> row_indices(k_per_group);
         int total_nnz = 0;
-        for (int g = 0; g < groups; ++g) {
-          for (int j = 0; j < n_adjusted; ++j) {
+        for (const auto g : c10::irange(groups)) {
+          for (const auto j : c10::irange(n_adjusted)) {
             B_csc.ColPtr()[g * n_adjusted + j] = total_nnz;
 
             int nnz_of_j = per_col_nnz_dist(eng);
@@ -453,7 +454,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
             shuffle(row_indices.begin(), row_indices.end(), eng);
             sort(row_indices.begin(), row_indices.begin() + nnz_of_j);
 
-            for (int kidx = 0; kidx < nnz_of_j; ++kidx) {
+            for (const auto kidx : c10::irange(nnz_of_j)) {
               int rowidx = row_indices[kidx];
               B_csc.RowIdx().push_back(rowidx);
               int8_t* bptr = &Bint8[(g * k_per_group + rowidx) * n + j];
@@ -478,7 +479,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
 
         if (btrans == matrix_op_t::Transpose) {
           aligned_vector<int8_t> Bint8_temp(Bint8.size());
-          for (int g = 0; g < groups; ++g) {
+          for (const auto g : c10::irange(groups)) {
             transpose_matrix(
                 k_per_group,
                 n,
@@ -497,7 +498,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
         int32_t C_zero_pt = 5;
 
         int brow = 256;
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           matmul_u8i8acc16_ref(
               m,
               n_adjusted,
@@ -522,7 +523,7 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
             groups * n,
             groups);
 
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           row_offsets_u8acc32_ref(
               m,
               k_per_group,
@@ -727,7 +728,7 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
 
       if (btrans == matrix_op_t::Transpose) {
         aligned_vector<int8_t> Bint8_temp(Bint8.size());
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           transpose_matrix(
               k_per_group,
               n,
@@ -754,7 +755,7 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
 
       // computing column offset
       vector<int32_t> col_offsets(groups * n_adjusted);
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         col_offsets_with_zero_pt_s8acc32_ref(
             k_per_group,
             n_adjusted,
@@ -768,7 +769,7 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
       vector<int32_t> row_offsets(m);
 
       int brow = 256;
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         matmul_u8i8acc16_ref(
             m,
             n_adjusted,
@@ -906,8 +907,8 @@ TEST_P(fbgemmPackUnpackAcc16Test, TestPackUnpack) {
         packedWeights.unpack(unpack_buf.data(), params_ptr);
 
         // Sanity check
-        for (int i = 0; i < k; i++) {
-          for (int j = 0; j < n_adjusted; j++) {
+        for (const auto i : c10::irange(k)) {
+          for (const auto j : c10::irange(n_adjusted)) {
             EXPECT_EQ(unpack_buf.data()[i * n + j], Bint8.data()[i * n + j])
                 << "Pack/Unpack results differ at index (" << i << ", " << j
                 << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])
