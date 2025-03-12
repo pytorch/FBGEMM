@@ -1114,9 +1114,13 @@
         <span class="n">embedding_table_offset_type</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SplitTableBatchedEmbeddingBagsCodegen Arguments: </span><span class="si">{</span><span class="nb">locals</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
         <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;SplitTableBatchedEmbeddingBagsCodegen Arguments: </span><span class="si">{</span><span class="nb">locals</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Feature Gates: </span><span class="si">{</span><span class="p">[(</span><span class="n">feature</span><span class="o">.</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">feature</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">())</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">feature</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">FeatureGateName</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">logging_table_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_table_name_for_logging</span><span class="p">(</span><span class="n">table_names</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">=</span> <span class="n">pooling_mode</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">is_nobag</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">==</span> <span class="n">PoolingMode</span><span class="o">.</span><span class="n">NONE</span>
@@ -1469,7 +1473,7 @@
             <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_ROWWISE_ADAGRAD</span>
             <span class="ow">and</span> <span class="p">(</span><span class="n">weight_decay_mode</span> <span class="o">==</span> <span class="n">WeightDecayMode</span><span class="o">.</span><span class="n">DECOUPLE_GLOBAL</span><span class="p">)</span>
         <span class="p">)</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;Using global weight decay = </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_used_rowwise_adagrad_with_global_weight_decay</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="p">)</span>
         <span class="c1"># Declare GWD params here to avoid torch.jit.script error</span>
@@ -4122,6 +4126,11 @@
         <span class="n">use_mtia</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>  <span class="c1"># noqa C901  # tuple of (rows, dims,)</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">DenseTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Feature Gates: </span><span class="si">{</span><span class="p">[(</span><span class="n">feature</span><span class="o">.</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">feature</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">())</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">feature</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">FeatureGateName</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">=</span> <span class="n">pooling_mode</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">=</span> <span class="n">weights_precision</span>
@@ -4211,7 +4220,7 @@
                 <span class="bp">self</span><span class="o">.</span><span class="n">weights</span><span class="p">[</span><span class="n">weights_offsets</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="p">:</span> <span class="n">weights_offsets</span><span class="p">[</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
                 <span class="o">!=</span> <span class="n">row</span> <span class="o">*</span> <span class="n">dim</span>
             <span class="p">):</span>
-                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
                     <span class="sa">f</span><span class="s2">&quot;row </span><span class="si">{</span><span class="n">row</span><span class="si">}</span><span class="s2"> dim </span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2"> feature </span><span class="si">{</span><span class="n">feature</span><span class="si">}</span><span class="s2"> t </span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">weights</span><span class="p">[</span><span class="n">weights_offsets</span><span class="p">[</span><span class="n">t</span><span class="p">]</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">weights_offsets</span><span class="p">[</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
             <span class="k">assert</span> <span class="p">(</span>
@@ -4230,6 +4239,20 @@
                 <span class="n">weights_offsets</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
             <span class="p">),</span>
         <span class="p">)</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Log with TBE id prefix to distinguish between multiple TBE instances</span>
+<span class="sd">        per process</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (str): The message to print</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[TBE=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_generate_vbe_metadata</span><span class="p">(</span>

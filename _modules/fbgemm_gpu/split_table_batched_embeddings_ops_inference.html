@@ -458,6 +458,7 @@
 <span class="c1"># pyre-ignore-all-errors[56]</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">accumulate</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
 
@@ -465,6 +466,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>  <span class="c1"># usort:skip</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">torch</span><span class="w"> </span><span class="kn">import</span> <span class="n">nn</span><span class="p">,</span> <span class="n">Tensor</span>  <span class="c1"># usort:skip</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">FeatureGateName</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_embedding_configs</span><span class="w"> </span><span class="kn">import</span> <span class="n">sparse_type_to_int</span><span class="p">,</span> <span class="n">SparseType</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.split_table_batched_embeddings_ops_common</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">BoundsCheckMode</span><span class="p">,</span>
@@ -817,6 +819,10 @@
         <span class="n">indices_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span>  <span class="c1"># Used for construction of the remap_indices tensors.  Should match the dtype of the indices passed in the forward() call (INT32 or INT64).</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>  <span class="c1"># noqa C901  # tuple of (rows, dims,)</span>
         <span class="nb">super</span><span class="p">(</span><span class="n">IntNBitTableBatchedEmbeddingBagsCodegen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">uuid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Feature Gates: </span><span class="si">{</span><span class="p">[(</span><span class="n">feature</span><span class="o">.</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="n">feature</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">())</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="n">feature</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">FeatureGateName</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
         <span class="c1"># 64 for AMD</span>
         <span class="k">if</span> <span class="n">cache_assoc</span> <span class="o">==</span> <span class="mi">32</span> <span class="ow">and</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">hip</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -1072,6 +1078,20 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">fp8_exponent_bits</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">fp8_exponent_bias</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
 
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Log with TBE id prefix to distinguish between multiple TBE instances</span>
+<span class="sd">        per process</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (str): The message to print</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[TBE=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">get_cache_miss_counter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
         <span class="c1"># cache_miss_counter[0]: cache_miss_forward_count which records the total number of forwards which has at least one cache miss</span>
         <span class="c1"># cache_miss_counter[1]: unique_cache_miss_count which records to total number of unique (dedup) cache misses</span>
@@ -1120,17 +1140,17 @@
         <span class="k">assert</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">record_cache_metrics</span><span class="o">.</span><span class="n">record_cache_miss_counter</span>
         <span class="p">),</span> <span class="s2">&quot;record_cache_miss_counter should be true to access counter values&quot;</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="sa">f</span><span class="s2">&quot;Miss counter value [0] - # of miss occured iters : </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">, </span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="sa">f</span><span class="s2">&quot;Miss counter value [1] - # of unique misses : </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">, </span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="sa">f</span><span class="s2">&quot;Miss counter value [2] - # of unique requested indices : </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">, </span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="sa">f</span><span class="s2">&quot;Miss counter value [3] - # of total requested indices : </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">, &quot;</span>
         <span class="p">)</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;unique_miss_rate using counter : </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="s2">, </span><span class="se">\n</span><span class="s2">&quot;</span>
         <span class="p">)</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;total_miss_rate using counter : </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="bp">self</span><span class="o">.</span><span class="n">cache_miss_counter</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">, </span><span class="se">\n</span><span class="s2">&quot;</span>
         <span class="p">)</span>
 
@@ -1145,7 +1165,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">gather_uvm_cache_stats</span>
         <span class="p">),</span> <span class="s2">&quot;gather_uvm_cache_stats should be set to true to access uvm cache stats.&quot;</span>
         <span class="n">uvm_cache_stats</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">uvm_cache_stats</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;N_called: </span><span class="si">{</span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="sa">f</span><span class="s2">&quot;N_requested_indices: </span><span class="si">{</span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="sa">f</span><span class="s2">&quot;N_unique_indices: </span><span class="si">{</span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
@@ -1154,7 +1174,7 @@
             <span class="sa">f</span><span class="s2">&quot;N_conflict_misses: </span><span class="si">{</span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
-            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;unique indices / requested indices: </span><span class="si">{</span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
                 <span class="sa">f</span><span class="s2">&quot;unique misses / requested indices: </span><span class="si">{</span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">uvm_cache_stats</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
             <span class="p">)</span>
@@ -1660,7 +1680,7 @@
             <span class="k">assert</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_cpu</span>
             <span class="k">if</span> <span class="n">enforce_hbm</span><span class="p">:</span>
                 <span class="k">if</span> <span class="ow">not</span> <span class="n">torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">is_scripting</span><span class="p">():</span>
-                    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Enforce hbm for the cache location&quot;</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Enforce hbm for the cache location&quot;</span><span class="p">)</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
                     <span class="n">uvm_size</span><span class="p">,</span>
                     <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
@@ -1800,7 +1820,7 @@
         <span class="k">if</span> <span class="n">cache_algorithm</span> <span class="o">==</span> <span class="n">CacheAlgorithm</span><span class="o">.</span><span class="n">LFU</span><span class="p">:</span>
             <span class="k">assert</span> <span class="n">cache_sets</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="o">**</span><span class="mi">24</span> <span class="o">-</span> <span class="mi">1</span>
         <span class="n">cache_size</span> <span class="o">=</span> <span class="n">cache_sets</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_assoc</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_D_cache</span>
-        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
             <span class="sa">f</span><span class="s2">&quot;Using on-device cache with admission algorithm &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">cache_algorithm</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">cache_sets</span><span class="si">}</span><span class="s2"> sets, &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;cache_load_factor: </span><span class="si">{</span><span class="n">cache_load_factor</span><span class="w"> </span><span class="si">:</span><span class="s2"> .3f</span><span class="si">}</span><span class="s2">, &quot;</span>
