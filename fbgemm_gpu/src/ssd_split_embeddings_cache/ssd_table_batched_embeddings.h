@@ -290,6 +290,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     options.memtable_prefix_bloom_size_ratio = 0.05;
     options.memtable_whole_key_filtering = true;
     options.max_background_jobs = num_threads;
+    options.max_background_flushes = num_threads;
+    options.disable_auto_compactions = true;
     options.env->SetBackgroundThreads(4, rocksdb::Env::HIGH);
     options.env->SetBackgroundThreads(1, rocksdb::Env::LOW);
 
@@ -547,6 +549,17 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
     folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
+  }
+
+  void toggle_compaction(bool enable) {
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      auto s = dbs_[shard]->SetOptions(
+          {{"disable_auto_compactions", enable ? "false" : "true"}});
+      if (!s.ok()) {
+        LOG(WARNING) << "Failed to toggle compaction to " << enable
+                     << " for shard " << shard << std::endl;
+      }
+    }
   }
 
   int64_t get_max_D() {
