@@ -867,6 +867,58 @@ class DeepGemmBlockwise(QuantizeOpBase):
         return True
 
 
+class FP8StackedGroupedGemm(QuantizeOpBase):
+    """
+    FP8 grouped matmul with rowwise scaling and stacked inputs.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        # Convert m_values into offsets into grouped tensor.
+        m_offsets = torch.tensor(np.cumsum(m_values)).to(
+            dtype=torch.int64, device=x[0].device
+        )
+        # Quantize weights.
+        wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
+        # Group weights as single tensor.
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, wq, w_scale, m_offsets
+
+    def quantize(self, x, wq, w_scale, m_offsets):
+        B = x.shape[0]
+        xq, x_scale = triton_quantize_fp8_row(x)
+        x_scale = x_scale.view(B, -1)
+        return xq, wq, x_scale, w_scale, m_offsets
+
+    def compute(self, xq, wq, x_scale, w_scale, m_offsets):
+        return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked(
+            xq, wq, x_scale, w_scale, m_offsets
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale, m_offsets):
+        xq, wq, x_scale, w_scale, m_offsets = self.quantize(x, wq, w_scale, m_offsets)
+        return self.compute(xq, wq, x_scale, w_scale, m_offsets)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_grouped_stacked"
+        else:
+            return "ck_grouped_stacked"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
 @register_quantize_op
 class BF16GroupedGemm(QuantizeOpBase):
     """

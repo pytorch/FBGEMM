@@ -20,7 +20,7 @@ fp8_rowwise_grouped_256x224x256x128_16x16_7x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_i
   // Check if this input needs to be padded.
   bool pad = false;
   if constexpr (std::is_same_v<InputType, at::Tensor>) {
-    int K = XQ.size(2);
+    int K = WQ.size(2);
     pad = K % 128 != 0;
   } else {
     for (int i = 0; i < XQ.size(); i++) {
