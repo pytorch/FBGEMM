@@ -874,10 +874,7 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
 
     def preprocess(self, x, w):
         m_values = [i.shape[0] for i in x]
-        # Convert m_values into offsets into grouped tensor.
-        m_offsets = torch.tensor(np.cumsum(m_values)).to(
-            dtype=torch.int64, device=x[0].device
-        )
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
         # Quantize weights.
         wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
         # Group weights as single tensor.
@@ -886,22 +883,22 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
         # Also view input as flattened.
         x = torch.concat(x, dim=0).contiguous()
         # Return processed tensors.
-        return x, wq, w_scale, m_offsets
+        return x, wq, w_scale, m_sizes
 
-    def quantize(self, x, wq, w_scale, m_offsets):
+    def quantize(self, x, wq, w_scale, m_sizes):
         B = x.shape[0]
         xq, x_scale = triton_quantize_fp8_row(x)
         x_scale = x_scale.view(B, -1)
-        return xq, wq, x_scale, w_scale, m_offsets
+        return xq, wq, x_scale, w_scale, m_sizes
 
-    def compute(self, xq, wq, x_scale, w_scale, m_offsets):
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes):
         return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked(
-            xq, wq, x_scale, w_scale, m_offsets
+            xq, wq, x_scale, w_scale, m_sizes
         )
 
-    def quantize_and_compute(self, x, wq, w_scale, m_offsets):
-        xq, wq, x_scale, w_scale, m_offsets = self.quantize(x, wq, w_scale, m_offsets)
-        return self.compute(xq, wq, x_scale, w_scale, m_offsets)
+    def quantize_and_compute(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, wq, w_scale, m_sizes)
+        return self.compute(xq, wq, x_scale, w_scale, m_sizes)
 
     @property
     def name(self) -> str:

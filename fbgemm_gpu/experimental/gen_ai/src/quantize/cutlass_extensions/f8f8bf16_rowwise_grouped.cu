@@ -241,7 +241,7 @@ __global__ void set_dynamic_kernel_args_kernel(
     int group_count,
     int problem_shape_size,
     std::optional<int64_t*> zero_start_index_M,
-    std::optional<int64_t*> M_offsets,
+    std::optional<int64_t*> M_sizes,
     int M,
     int N,
     int K) {
@@ -284,15 +284,13 @@ __global__ void set_dynamic_kernel_args_kernel(
       offset_M = group_index * M;
       kernel_M = zero_start_index_M.value()[group_index];
     } else {
-      // For stacked inputs without padding, M for current group
-      // can be found be found by comparing current and next offset.
-      // The offset we can get directly from M_offsets.
-      if (group_index == 0) {
-        offset_M = 0;
-        kernel_M = M_offsets.value()[group_index];
-      } else {
-        offset_M = M_offsets.value()[group_index - 1];
-        kernel_M = M_offsets.value()[group_index] - offset_M;
+      // M for this group is pulled directly from M_sizes.
+      kernel_M = M_sizes.value()[group_index];
+      // We compute the offset by getting the cumulative sum over
+      // prior groups.
+      offset_M = 0;
+      for (int i = 0; i < group_index; i++) {
+        offset_M += M_sizes.value()[i];
       }
     }
 
@@ -340,7 +338,7 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
     InputType w_scale,
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_offsets) {
+    std::optional<at::Tensor> M_sizes) {
   int group_count;
   at::TensorOptions options;
   if constexpr (std::is_same_v<InputType, at::TensorList>) {
@@ -349,8 +347,8 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
     TORCH_CHECK(WQ.size() == group_count);
   } else {
     TORCH_CHECK(
-        zero_start_index_M.has_value() != M_offsets.has_value(),
-        "One of zero_start_index_M or M_offsets must be provided.");
+        zero_start_index_M.has_value() != M_sizes.has_value(),
+        "One of zero_start_index_M or M_sizes must be provided.");
     group_count = WQ.size(0);
     options = XQ.options();
   }
@@ -455,8 +453,8 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
         "zero_start_index_M must be int64.");
 
     TORCH_CHECK(
-        !M_offsets.has_value() || M_offsets->dtype() == at::kLong,
-        "M_offsets must be int64.");
+        !M_sizes.has_value() || M_sizes->dtype() == at::kLong,
+        "M_sizes must be int64.");
     int const blockSize = std::min(1024, group_count);
     int const numBlocks = (group_count + blockSize - 1) / blockSize;
     // When m_offsets is used, XQ is shape [total_M, K]. When zero_start_index_M
@@ -465,13 +463,13 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
     int N = WQ.size(1);
     int K = WQ.size(2);
     std::optional<int64_t*> zero_start_index_M_ptr = std::nullopt;
-    std::optional<int64_t*> M_offsets_ptr = std::nullopt;
+    std::optional<int64_t*> M_sizes_ptr = std::nullopt;
     if (zero_start_index_M.has_value()) {
       zero_start_index_M_ptr =
           reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr());
     }
-    if (M_offsets.has_value()) {
-      M_offsets_ptr = reinterpret_cast<int64_t*>(M_offsets.value().data_ptr());
+    if (M_sizes.has_value()) {
+      M_sizes_ptr = reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
     }
     set_dynamic_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
         reinterpret_cast<GroupedGemmArgs::ElementInputA*>(XQ.data_ptr()),
@@ -493,7 +491,7 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
         group_count,
         problem_shape_size,
         zero_start_index_M_ptr,
-        M_offsets_ptr,
+        M_sizes_ptr,
         M,
         N,
         K);
@@ -592,7 +590,7 @@ at::Tensor dispatch_fp8_grouped_kernel(
     InputType w_scale,
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
-    std::optional<at::Tensor> M_offsets = std::nullopt) {
+    std::optional<at::Tensor> M_sizes = std::nullopt) {
   KernelMode kernel = get_grouped_kernel_mode(XQ, WQ);
   if (kernel == KernelMode::Small) {
     return f8f8bf16_rowwise_grouped_impl<
@@ -603,7 +601,7 @@ at::Tensor dispatch_fp8_grouped_kernel(
         2,
         1,
         1,
-        true>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_offsets);
+        true>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
   } else if (kernel == KernelMode::Large) {
     return f8f8bf16_rowwise_grouped_impl<
         InputType,
@@ -613,7 +611,7 @@ at::Tensor dispatch_fp8_grouped_kernel(
         2,
         1,
         1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_offsets);
+        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
   } else {
     return f8f8bf16_rowwise_grouped_impl<
         InputType,
@@ -623,7 +621,7 @@ at::Tensor dispatch_fp8_grouped_kernel(
         2,
         1,
         1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_offsets);
+        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
   }
 }
 
@@ -686,14 +684,14 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_offsets,
+    at::Tensor M_sizes,
     std::optional<at::Tensor> output = std::nullopt) {
   int total_M = XQ.size(0);
   int N = WQ.size(1);
-  int group_count = M_offsets.size(0);
+  int group_count = M_sizes.size(0);
   TORCH_CHECK(
-      M_offsets.device() == XQ.device(),
-      "M_offsets must be on same device as inputs.");
+      M_sizes.device() == XQ.device(),
+      "M_sizes must be on same device as inputs.");
   TORCH_CHECK(
       WQ.dim() == 3 && WQ.size(0) == group_count,
       "Weights should be shape [G, N, K].")
@@ -704,7 +702,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
   }
   // Return continuous view of output.
   at::Tensor out = dispatch_fp8_grouped_kernel<at::Tensor>(
-      XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_offsets);
+      XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_sizes);
   return out.view({total_M, N});
 }
 
@@ -754,7 +752,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_offsets,
+    at::Tensor M_sizes,
     std::optional<at::Tensor> output = std::nullopt) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12

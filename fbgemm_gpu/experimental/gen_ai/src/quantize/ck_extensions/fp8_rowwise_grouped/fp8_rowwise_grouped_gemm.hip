@@ -195,14 +195,14 @@ void set_static_kernel_args(
   }
 }
 
-__global__ void set_kernel_args_m_offsets_kernel(
+__global__ void set_kernel_args_m_sizes_kernel(
     KernelArguments* kernel_args,
     ADataType* XQ,
     BDataType* WQ,
     D0DataType* w_scale,
     D1DataType* x_scale,
     EDataType* output,
-    int64_t* M_offsets,
+    int64_t* M_sizes,
     int M,
     int N,
     int K,
@@ -210,15 +210,12 @@ __global__ void set_kernel_args_m_offsets_kernel(
   int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each thread is responsible for setting up the arguments for one group.
   if (thread_idx < group_count) {
-    // Compute offsets for this group.
-    int offset_M;
-    int kernel_M;
-    if (thread_idx == 0) {
-      offset_M = 0;
-      kernel_M = M_offsets[thread_idx];
-    } else {
-      offset_M = M_offsets[thread_idx - 1];
-      kernel_M = M_offsets[thread_idx] - offset_M;
+    // Get M information for this group.
+    int kernel_M = M_sizes[thread_idx];
+    int offset_M = 0;
+    // Offset is computed by finding the sum of previous group Ms.
+    for (int i = 0; i < thread_idx; i++) {
+      offset_M += M_sizes[i];
     }
     KernelArguments kernel_group_args = {
         XQ + (offset_M * K),
@@ -329,15 +326,15 @@ void set_dynamic_kernel_args(
     at::Tensor w_scale,
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
-    std::optional<at::Tensor> M_offsets,
+    std::optional<at::Tensor> M_sizes,
     bool zeroing_output_tensor) {
   // Get current cuda stream.
   auto stream = at::cuda::getCurrentHIPStream().stream();
   int group_count;
   // Check provided tensors are valid.
   TORCH_CHECK(
-      zero_start_index_M.has_value() != M_offsets.has_value(),
-      "One of zero_start_index_M or M_offsets must be provided.");
+      zero_start_index_M.has_value() != M_sizes.has_value(),
+      "One of zero_start_index_M or M_sizes must be provided.");
   if (zero_start_index_M.has_value()) {
     group_count = zero_start_index_M.value().size(0);
     TORCH_CHECK(
@@ -347,51 +344,69 @@ void set_dynamic_kernel_args(
         zero_start_index_M.value().dtype() == at::kLong,
         "zero_start_index_M must be int64.");
   }
-  if (M_offsets.has_value()) {
-    group_count = M_offsets.value().size(0);
+  if (M_sizes.has_value()) {
+    group_count = M_sizes.value().size(0);
     TORCH_CHECK(
-        XQ.device() == M_offsets.value().device(),
-        "M_offsets and inputs must be on the same device.");
-    TORCH_CHECK(
-        M_offsets.value().dtype() == at::kLong, "M_offsets must be int64.");
+        XQ.device() == M_sizes.value().device(),
+        "M_sizes and inputs must be on the same device.");
+    TORCH_CHECK(M_sizes.value().dtype() == at::kLong, "M_sizes must be int64.");
   }
 
-  // When m_offsets is used XQ is shape [tota_M, K]. When zero_start_index_M is
+  // When m_sizes is used XQ is shape [tota_M, K]. When zero_start_index_M is
   // used it is shape [G, M, K].
   int M = XQ.size(XQ.dim() - 2);
   int K = WQ.size(2);
   int N = WQ.size(1);
 
-  // Launch a kernel that sets kernel argument memory.
-  // Each thread sets one float4 which corresponds to 8 bf16 values.
-  const int BLOCK_SIZE = 8;
-  TORCH_CHECK(
-      N % BLOCK_SIZE == 0, "N must be divisible 8 for dynamic grouped gemm.");
-  int block_factor = std::max(group_count, (group_count * M * N) / BLOCK_SIZE);
-  int blockSize = std::min(512, block_factor);
-  int numBlocks = (block_factor + blockSize - 1) / blockSize;
-  if (zeroing_output_tensor) {
-    set_kernel_args_fixed_nk_kernel_zeroing<<<numBlocks, blockSize, 0, stream>>>(
+  // Depending on the mode, use appropriate setup kernel.
+  if (M_sizes.has_value()) {
+    set_kernel_args_m_sizes_kernel<<<1, group_count, 0, stream>>>(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
         reinterpret_cast<BDataType*>(WQ.data_ptr()),
         reinterpret_cast<D0DataType*>(w_scale.data_ptr()),
         reinterpret_cast<D1DataType*>(x_scale.data_ptr()),
         reinterpret_cast<EDataType*>(output.data_ptr()),
-        reinterpret_cast<int64_t*>(zero_start_index_M.data_ptr()),
+        reinterpret_cast<int64_t*>(M_sizes.value().data_ptr()),
+        M,
+        N,
+        K,
+        group_count);
+  } else if (zeroing_output_tensor) {
+    // Launch a kernel that sets kernel argument memory and zeros the output.
+    // Each thread sets one float4 which corresponds to 8 bf16 values.
+    const int BLOCK_SIZE = 8;
+    TORCH_CHECK(
+        N % BLOCK_SIZE == 0, "N must be divisible 8 for dynamic grouped gemm.");
+    int block_factor =
+        std::max(group_count, (group_count * M * N) / BLOCK_SIZE);
+    int blockSize = std::min(512, block_factor);
+    int numBlocks = (block_factor + blockSize - 1) / blockSize;
+    set_kernel_args_fixed_nk_kernel_zeroing<<<
+        numBlocks,
+        blockSize,
+        0,
+        stream>>>(
+        reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
+        reinterpret_cast<ADataType*>(XQ.data_ptr()),
+        reinterpret_cast<BDataType*>(WQ.data_ptr()),
+        reinterpret_cast<D0DataType*>(w_scale.data_ptr()),
+        reinterpret_cast<D1DataType*>(x_scale.data_ptr()),
+        reinterpret_cast<EDataType*>(output.data_ptr()),
+        reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
         M,
         N,
         K,
         group_count);
   } else {
-    set_kernel_args_fixed_nk_kernel_only<<<1, group_count, 0, stream>>>(
+    set_kernel_args_fixed_nk_kernel<<<1, group_count, 0, stream>>>(
         reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
         reinterpret_cast<ADataType*>(XQ.data_ptr()),
         reinterpret_cast<BDataType*>(WQ.data_ptr()),
         reinterpret_cast<D0DataType*>(w_scale.data_ptr()),
         reinterpret_cast<D1DataType*>(x_scale.data_ptr()),
         reinterpret_cast<EDataType*>(output.data_ptr()),
-        reinterpret_cast<int64_t*>(zero_start_index_M.data_ptr()),
+        reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
         M,
         N,
         K,
@@ -494,11 +509,11 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_offsets,
+    at::Tensor M_sizes,
     std::optional<at::Tensor> output = std::nullopt) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
-  int group_count = M_offsets.size(0);
+  int group_count = M_sizes.size(0);
   // XQ is expected to be shape [total_M, K].
   int total_M = XQ.size(0);
   // WQ is expected to be shape [G, N, K].
@@ -541,7 +556,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
       {static_cast<long>(group_count * sizeof(KernelArguments))},
       XQ.options().dtype(at::kByte));
   set_dynamic_kernel_args(
-      kernel_args, XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_offsets, false);
+      kernel_args, XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_sizes, false);
 
   RowwiseGroupedKernel<at::Tensor, at::Tensor> selected_kernel =
       rowwise_grouped_heuristic_dispatch<at::Tensor, at::Tensor>(
@@ -595,7 +610,15 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
       {static_cast<long>(group_count * sizeof(KernelArguments))},
       XQ.options().dtype(at::kByte));
   set_dynamic_kernel_args(
-      kernel_args, XQ, WQ, x_scale, w_scale, Y, zero_start_index_M, std::nullopt, zeroing_output_tensor);
+      kernel_args,
+      XQ,
+      WQ,
+      x_scale,
+      w_scale,
+      Y,
+      zero_start_index_M,
+      std::nullopt,
+      zeroing_output_tensor);
 
   RowwiseGroupedKernel<at::Tensor, at::Tensor> selected_kernel =
       rowwise_grouped_heuristic_dispatch<at::Tensor, at::Tensor>(M, N, K);

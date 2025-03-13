@@ -823,7 +823,7 @@ class FP8Tests(unittest.TestCase):
             ]
         elif return_stacked:
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
-            M_offsets = torch.cumsum(ms, dim=0).to(device="cuda", dtype=torch.int64)
+            M_offsets = ms.to(device="cuda", dtype=torch.int64)
             fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_offsets]
         else:
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped
