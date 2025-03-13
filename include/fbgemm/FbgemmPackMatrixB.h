@@ -299,7 +299,7 @@ class PackedGemmMatrixB {
   bool pmat_passed_in{false};
 };
 
-#ifndef FBGEMM_STATIC
+#ifndef _M_X64
 
 template <>
 FBGEMM_API

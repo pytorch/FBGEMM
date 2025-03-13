@@ -28,7 +28,7 @@ namespace fbgemm {
 // register layouts), 2 (with kernels of 1x2~6x2 register layout), or 3 (with
 // kernels of 1x3~4x3 register layout).
 
-#ifndef FBGEMM_STATIC
+#ifndef _M_X64
 
 template <>
 FBGEMM_API
