@@ -61,10 +61,33 @@ __conda_install_glibc () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
+  # shellcheck disable=SC2155
+  local gcc_version="${GCC_VERSION:-11.4.0}"
+
   echo "[INSTALL] Installing GLIBC (architecture = ${COMPILER_ARCHNAME}) ..."
-  # shellcheck disable=SC2086
-  (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
-    "sysroot_linux-${COMPILER_ARCHNAME}"=2.17) || return 1
+  # shellcheck disable=SC2206
+  local gcc_version_arr=(${gcc_version//./ })
+
+  # NOTE: It appears that only the package libstdcxx will substantially bring
+  # new libstdc++.so.6 file to the Conda environment, while other packages such
+  # as gcc, gcc_linux-64, and libgcc-ng don't.  So for lower versions of gcc, we
+  # install sysroot_linux, while for newer versions of gcc, we install
+  # libstdcxx-ng
+  #
+  #   https://gcc.gnu.org/onlinedocs/libstdc++/manual/abi.html
+  #   https://stackoverflow.com/questions/72540359/glibcxx-3-4-30-not-found-for-librosa-in-conda-virtual-environment-after-tryin
+  if [[ ${gcc_version_arr[0]} -lt 12 ]]; then
+    # shellcheck disable=SC2155
+    local glibc_version="${GLIBC_VERSION:-2.17}"
+    # shellcheck disable=SC2086
+    (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+      "sysroot_linux-${COMPILER_ARCHNAME}=${glibc_version}") || return 1
+
+  else
+    # shellcheck disable=SC2086
+    (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
+      "libstdcxx-ng=${gcc_version}") || return 1
+  fi
 
   echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
   # Ensure libstdc++.so.6 is found
