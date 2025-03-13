@@ -920,6 +920,9 @@ static inline void transpose_contiguous_16x2_block(
     int64_t ld_dst,
     int mrem = 16) {
   __m512i r[2], d[2];
+  // Zero out r[] to avoid `may be used uninitialized` compilation error
+  r[0] = _mm512_setzero_si512();
+  r[1] = _mm512_setzero_si512();
   int i = 0;
   for (; (i + 1) * 16 <= mrem * 2; i++) {
     // normal load
