@@ -186,7 +186,6 @@ at::Tensor _f8i4bf16_shuffled(
   auto shape_B = cute::make_shape(N, K, 1);
   StrideA stride_A =
       cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(M, K, 1));
-  StrideB stride_B = cutlass::make_cute_packed_stride(StrideB{}, shape_B);
   StrideC stride_C =
       cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(N, M, 1));
   LayoutB_Reordered layout_B_reordered =
