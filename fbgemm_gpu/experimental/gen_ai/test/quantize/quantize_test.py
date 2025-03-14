@@ -1115,9 +1115,12 @@ class FP8Tests(unittest.TestCase):
                 block_scale[0],
             )
             # test bf16_fast_gemv is torch compileable
-            X_bf16 = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
             W_bf16 = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-            torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X_bf16, W_bf16)
+            torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X, W_bf16)
+            # test fp8fp8bf16_fast_gemv is torch compileable
+            torch.compile(torch.ops.fbgemm.fp8fp8bf16_fast_gemv)(XQ, WQ, tensor_scale)
+            # test bf16bf16bf16_fast_gemv is torch compileable
+            torch.compile(torch.ops.fbgemm.bf16fp8bf16_fast_gemv)(X, WQ, tensor_scale)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."
