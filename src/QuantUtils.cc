@@ -18,6 +18,7 @@
 
 #include "fbgemm/Fbgemm.h"
 
+#include "fbgemm/FloatConversion.h"
 #include "fbgemm/Types.h"
 
 namespace fbgemm {

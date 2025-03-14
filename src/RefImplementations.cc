@@ -11,6 +11,7 @@
 
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/FloatConversion.h"
 
 #include <algorithm>
 #include <cassert>
