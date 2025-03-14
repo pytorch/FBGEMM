@@ -134,7 +134,7 @@ OutputType f8f8bf16_rowwise_grouped_impl(
   // Get input information.
   int group_count;
   if constexpr (std::is_same_v<InputType, at::Tensor>) {
-    group_count = XQ.size(0);
+    group_count = WQ.size(0);
   } else {
     group_count = XQ.size();
   }
@@ -168,13 +168,16 @@ OutputType f8f8bf16_rowwise_grouped_impl(
     // Compute appropriate data pointers.
     // Set the shape arguments for this gemm.
     if constexpr (std::is_same_v<InputType, at::Tensor>) {
-      M = XQ.size(1);
+      M = XQ.size(XQ.dim() - 2);
       N = WQ.size(1);
-      K = XQ.size(2);
-      a_ptr = reinterpret_cast<ADataType*>(XQ.data_ptr()) + (i * M * K);
-      b_ptr = reinterpret_cast<BDataType*>(WQ.data_ptr()) + (i * N * K);
-      d0_ptr = reinterpret_cast<D0DataType*>(w_scale.data_ptr()) + (i * N);
-      d1_ptr = reinterpret_cast<D1DataType*>(x_scale.data_ptr()) + (i * M);
+      K = WQ.size(2);
+      // These pointers dont seem to actually be used since the kernel arguments
+      // contains the correct version. For simplicity, we just point to the
+      // start of the tensor.
+      a_ptr = reinterpret_cast<ADataType*>(XQ.data_ptr());
+      b_ptr = reinterpret_cast<BDataType*>(WQ.data_ptr());
+      d0_ptr = reinterpret_cast<D0DataType*>(w_scale.data_ptr());
+      d1_ptr = reinterpret_cast<D1DataType*>(x_scale.data_ptr());
     } else {
       M = XQ[i].size(0);
       N = WQ[i].size(0);
