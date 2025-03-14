@@ -3,9 +3,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# This workflow is used for FBGEMM_GPU-CPU CI as well as nightly builds of
-# FBGEMM_GPU-CPU against PyTorch-CPU Nightly.
-name: FBGEMM_GPU-CPU CI
+# This workflow is used for FBGEMM_GPU-ROCm Benchmarking
+name: FBGEMM_GPU-ROCm Benchmark
 
 on:
   # PR Trigger (enabled for regression checks and debugging)
@@ -13,20 +12,6 @@ on:
   pull_request:
     branches:
       - main
-
-  # Push Trigger (enable to catch errors coming out of multiple merges)
-  #
-  push:
-    branches:
-      - main
-
-  # Cron Trigger (UTC)
-  #
-  # Based on the Conda page for PyTorch-nightly, the CPU nightly releases appear
-  # around 00:30 PST every day
-  #
-  schedule:
-    - cron:  '45 12 * * *'
 
   # Manual Trigger
   #
@@ -37,25 +22,19 @@ on:
         type: string
         required: false
         default: ""
-      publish_to_pypi:
-        description: Publish Artifact to PyPI
-        type: boolean
-        required: false
-        default: false
 
 concurrency:
   # Cancel previous runs in the PR if a new commit is pushed
-  # https://stackoverflow.com/questions/66335225/how-to-cancel-previous-runs-in-the-pr-when-you-push-new-commitsupdate-the-curre
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Build on CPU hosts, run tests, and upload to GHA
+  # Build on CPU hosts and upload to GHA
   build_artifact:
     if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: amazonlinux:2023
+      image: ${{ matrix.container-image }}
       options: --user root
     defaults:
       run:
@@ -63,22 +42,27 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
-      BUILD_VARIANT: cpu
-    continue-on-error: true
+      BUILD_VARIANT: rocm
     strategy:
-      # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.4xlarge" },
-          { arch: arm, instance: "linux.arm64.2xlarge" },
+          { arch: x86, instance: "linux.24xlarge" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        compiler: [ "gcc", "clang" ]
+        container-image: [ "ubuntu:22.04" ]
+        python-version: [ "3.13" ]
+        # NOTE: PyTorch releases for ROCm include the ROCm patch version,
+        # unlike releases for CUDA
+        rocm-version: [ "6.2.4" ]
+        compiler: [ "gcc" ]
+
 
     steps:
     - name: Setup Build Container
-      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
+      run: |
+        apt update -y
+        apt install -y binutils git pciutils sudo wget
+        git config --global --add safe.directory '*'
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
@@ -88,6 +72,9 @@ jobs:
 
     - name: Display GPU Info
       run: . $PRELUDE; print_gpu_info
+
+    - name: Free Disk Space
+      run: . $PRELUDE; free_disk_space
 
     - name: Setup Miniconda
       run: . $PRELUDE; setup_miniconda $HOME/miniconda
@@ -101,8 +88,11 @@ jobs:
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
-    - name: Install PyTorch-CPU Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cpu
+    - name: Install ROCm
+      run: . $PRELUDE; install_rocm_ubuntu $BUILD_ENV ${{ matrix.rocm-version }}
+
+    - name: Install PyTorch-ROCm Nightly
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} rocm/${{ matrix.rocm-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -112,44 +102,49 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU Wheel
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly cpu
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly rocm
 
     - name: Upload Built Wheel as GHA Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_cpu_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}.whl
+        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
         path: fbgemm_gpu/dist/*.whl
         if-no-files-found: error
 
 
-  # Download the built artifact from GHA, test on GPU, and push to PyPI
-  test_and_publish_artifact:
+  # Download the built artifact from GHA and test on GPU
+  benchmark_artifact:
     if: ${{ github.repository_owner == 'pytorch' }}
     runs-on: ${{ matrix.host-machine.instance }}
     container:
-      image: amazonlinux:2023
-      options: --user root
+      image: "rocm/dev-ubuntu-22.04:${{ matrix.rocm-version }}-complete"
+      options: --user root --device=/dev/kfd --device=/dev/dri --ipc=host --shm-size 16G --group-add video --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
     defaults:
       run:
         shell: bash
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
-      BUILD_VARIANT: cpu
+      BUILD_VARIANT: rocm
+      ENFORCE_ROCM_DEVICE: 1
     strategy:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.4xlarge", timeout: 20 },
-          { arch: arm, instance: "linux.arm64.2xlarge", timeout: 30 },
+          { arch: x86, instance: "rocm" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        compiler: [ "gcc", "clang" ]
+        # ROCm machines are limited, so we only test a subset of Python versions
+        python-version: [ "3.13" ]
+        rocm-version: [ "6.2.4" ]
+        compiler: [ "gcc" ]
     needs: build_artifact
 
     steps:
     - name: Setup Build Container
-      run: yum update -y; yum install -y binutils findutils git pciutils sudo wget which
+      run: |
+        apt update -y
+        apt install -y git wget
+        git config --global --add safe.directory '*'
 
     - name: Checkout the Repository
       uses: actions/checkout@v4
@@ -157,13 +152,16 @@ jobs:
     - name: Download Wheel Artifact from GHA
       uses: actions/download-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_cpu_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}.whl
+        name: fbgemm_gpu_nightly_rocm_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.whl
 
     - name: Display System Info
-      run: . $PRELUDE; print_system_info; print_ec2_info
+      run: . $PRELUDE; print_system_info
 
     - name: Display GPU Info
       run: . $PRELUDE; print_gpu_info
+
+    - name: Free Disk Space
+      run: . $PRELUDE; free_disk_space
 
     - name: Setup Miniconda
       run: . $PRELUDE; setup_miniconda $HOME/miniconda
@@ -171,11 +169,14 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
-    - name: Install C/C++ Compilers for Updated LIBGCC
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
 
-    - name: Install PyTorch-CPU Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cpu
+    - name: Install ROCm AMD-SMI
+      run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
+
+    - name: Install PyTorch-ROCm Nightly
+      run:  . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} rocm/${{ matrix.rocm-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -187,12 +188,6 @@ jobs:
     - name: Install FBGEMM_GPU Wheel
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
-    - name: Test with PyTest
-      timeout-minutes: ${{ matrix.host-machine.timeout }}
-      run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
-
-    - name: Push Wheel to PyPI
-      if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true')) && matrix.compiler == 'gcc' }}
-      env:
-        PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-      run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl
+    - name: Run FBGEMM_GPU Benchmark
+      timeout-minutes: 40
+      run: . $PRELUDE; run_tbe_microbench $BUILD_ENV
