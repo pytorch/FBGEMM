@@ -20,7 +20,7 @@ fp8_rowwise_grouped_64x16x16x64_16x16_1x1_4x16x1_4x16x1_1x16x1x4_4x4x1_1x1_intra
   // Check if this input needs to be padded.
   bool pad = false;
   if constexpr (std::is_same_v<InputType, at::Tensor>) {
-    int K = XQ.size(2);
+    int K = WQ.size(2);
     pad = K % 64 != 0;
   } else {
     for (int i = 0; i < XQ.size(); i++) {

@@ -805,28 +805,30 @@ class FP8Tests(unittest.TestCase):
             wq_group = torch.stack(wq_group, dim=0).contiguous()
             x_scale_group = torch.stack(x_scale_group, dim=0).contiguous()
             w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
+        elif return_stacked:
+            xq_group = torch.cat(xq_group, dim=0).contiguous()
+            wq_group = torch.stack(wq_group, dim=0).contiguous()
+            x_scale_group = torch.cat(x_scale_group, dim=0).contiguous()
+            w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
 
         # FP8 grouped gemm kernel
-        fp8_args = (
-            [
+        if use_padding_zeros:
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
+            fp8_args = [
                 xq_group,
                 wq_group,
                 x_scale_group,
                 w_scale_group,
                 zero_start_index_M,
             ]
-            if use_padding_zeros
-            else [xq_group, wq_group, x_scale_group, w_scale_group]
-        )
-        fp8_op = (
-            torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
-            if use_padding_zeros
-            else (
-                torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
-                if return_stacked
-                else torch.ops.fbgemm.f8f8bf16_rowwise_grouped
-            )
-        )
+        elif return_stacked:
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
+            M_offsets = ms.to(device="cuda", dtype=torch.int64)
+            fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_offsets]
+        else:
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped
+            fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group]
+
         if use_cudagraph:
             # warmup
             fp8_op(*fp8_args)
