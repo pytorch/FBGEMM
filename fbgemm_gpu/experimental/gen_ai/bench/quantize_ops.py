@@ -1346,27 +1346,33 @@ class F8I4ShuffledGemm(F8I4RowwiseGemm):
         out = out.to(dtype=torch.int8).reshape(x.shape)
 
         # Scales should be in [num_groups, N] layout.
-        scales = scales.view(x.shape[0], -1).t().contiguous()
+        scales = scales.view(x.shape[0], -1).t().contiguous().to(torch.float8_e4m3fn)
 
         return out, scales
 
     def quantize(self, x, w):
         # Quantize both input tensors.
         xq, x_scale = quantize_fp8_row(x)
-        wq, w_scale = self._int4_row_quantize(w)
+        # Weight quantization happens in two steps. First we quantize to fp8
+        # then to int4.
+        wq, w_scale = quantize_fp8_row(w)
+        # Now quantize to int4 with group scaling.
+        wq, w_scale_group = self._int4_row_quantize(wq)
         # Pack int4 values together.
         wq = self._pack_int4(wq)
         # Shuffle weights and scales for faster compute.
-        wq, w_scale = torch.ops.fbgemm.preshuffle_i4(wq, w_scale)
-        return xq, wq, x_scale, w_scale
+        wq, w_scale_group = torch.ops.fbgemm.preshuffle_i4(wq, w_scale_group)
+        return xq, wq, x_scale, w_scale, w_scale_group
 
-    def compute(self, xq, wq, x_scale, w_scale):
-        out = torch.ops.fbgemm.f8i4bf16_shuffled(xq, wq, x_scale, w_scale)
+    def compute(self, xq, wq, x_scale, w_scale, w_scale_group):
+        out = torch.ops.fbgemm.f8i4bf16_shuffled(
+            xq, wq, x_scale, w_scale, w_scale_group
+        )
         return out
 
     def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale, w_scale)
+        xq, wq, x_scale, w_scale, w_scale_group = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, w_scale_group)
 
     @property
     def name(self) -> str:
