@@ -19,12 +19,17 @@ from .bench_runs import (  # noqa F401
     benchmark_requests_refer,
     benchmark_vbe,
 )
-from .config import TBEDataConfig  # noqa F401
-from .config_loader import TBEDataConfigLoader  # noqa F401
-from .config_param_models import BatchParams, IndicesParams, PoolingParams  # noqa F401
+from .embedding_ops_common_config import EmbeddingOpsCommonConfigLoader  # noqa F401
 from .eval_compression import (  # noqa F401
     benchmark_eval_compression,
     EvalCompressionBenchmarkOutput,
 )
 from .reporter import BenchmarkReporter  # noqa F401
+from .tbe_data_config import TBEDataConfig  # noqa F401
+from .tbe_data_config_loader import TBEDataConfigLoader  # noqa F401
+from .tbe_data_config_param_models import (  # noqa F401
+    BatchParams,
+    IndicesParams,
+    PoolingParams,
+)
 from .utils import fill_random_scale_bias  # noqa F401

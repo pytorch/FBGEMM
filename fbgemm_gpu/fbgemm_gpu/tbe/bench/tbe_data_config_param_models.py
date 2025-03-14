@@ -74,7 +74,6 @@ class IndicesParams:
 
     # pyre-ignore [3]
     def validate(self):
-        assert self.heavy_hitters.numel() > 0, "heavy_hitters must be non-empty"
         assert self.zipf_q > 0, "zipf_q must be positive"
         assert self.zipf_s > 0, "zipf_s must be positive"
         assert self.index_dtype is None or self.index_dtype in [

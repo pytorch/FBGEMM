@@ -33,19 +33,20 @@ class EmbeddingLocation(enum.IntEnum):
     HOST = 3
     MTIA = 4
 
-
-def str_to_embedding_location(key: str) -> EmbeddingLocation:
-    lookup = {
-        "device": EmbeddingLocation.DEVICE,
-        "managed": EmbeddingLocation.MANAGED,
-        "managed_caching": EmbeddingLocation.MANAGED_CACHING,
-        "host": EmbeddingLocation.HOST,
-        "mtia": EmbeddingLocation.MTIA,
-    }
-    if key in lookup:
-        return lookup[key]
-    else:
-        raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "device": EmbeddingLocation.DEVICE,
+            "managed": EmbeddingLocation.MANAGED,
+            "managed_caching": EmbeddingLocation.MANAGED_CACHING,
+            "host": EmbeddingLocation.HOST,
+            "mtia": EmbeddingLocation.MTIA,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
 
 
 class CacheAlgorithm(enum.Enum):
@@ -74,17 +75,18 @@ class PoolingMode(enum.IntEnum):
     def do_pooling(self) -> bool:
         return self is not PoolingMode.NONE
 
-
-def str_to_pooling_mode(key: str) -> PoolingMode:
-    lookup = {
-        "sum": PoolingMode.SUM,
-        "mean": PoolingMode.MEAN,
-        "none": PoolingMode.NONE,
-    }
-    if key in lookup:
-        return lookup[key]
-    else:
-        raise ValueError(f"Cannot parse value into PoolingMode: {key}")
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "sum": PoolingMode.SUM,
+            "mean": PoolingMode.MEAN,
+            "none": PoolingMode.NONE,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into PoolingMode: {key}")
 
 
 class BoundsCheckMode(enum.IntEnum):

@@ -11,8 +11,8 @@ import click
 import torch
 import yaml
 
-from .config import TBEDataConfig
-from .config_param_models import BatchParams, IndicesParams, PoolingParams
+from .tbe_data_config import TBEDataConfig
+from .tbe_data_config_param_models import BatchParams, IndicesParams, PoolingParams
 
 
 class TBEDataConfigLoader:
@@ -92,7 +92,7 @@ class TBEDataConfigLoader:
             click.option(
                 "--tbe-indices-hitters",
                 type=str,
-                default="3.14,2.71",
+                default="",
                 help="TBE heavy hitter indices (comma-delimited list of floats)",
             ),
             click.option(
@@ -168,8 +168,10 @@ class TBEDataConfigLoader:
         batch_params = BatchParams(B, sigma_B, vbe_distribution, vbe_num_ranks)
 
         # Read indices parameters
-        heavy_hitters = torch.tensor(
-            [float(x) for x in params["tbe_indices_hitters"].split(",")]
+        heavy_hitters = (
+            torch.tensor([float(x) for x in params["tbe_indices_hitters"].split(",")])
+            if params["tbe_indices_hitters"]
+            else torch.tensor([])
         )
         zipf_q, zipf_s = params["tbe_indices_zipf"]
         index_dtype = (

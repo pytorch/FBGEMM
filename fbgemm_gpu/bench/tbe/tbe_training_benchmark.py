@@ -19,11 +19,8 @@ import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import EmbOptimType as OptimType, SparseType
 from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
-    BoundsCheckMode,
     CacheAlgorithm,
     EmbeddingLocation,
-    str_to_embedding_location,
-    str_to_pooling_mode,
 )
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
@@ -32,6 +29,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
 )
 from fbgemm_gpu.tbe.bench import (
     benchmark_requests,
+    EmbeddingOpsCommonConfigLoader,
     TBEBenchmarkingConfigLoader,
     TBEDataConfigLoader,
 )
@@ -50,50 +48,39 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--weights-precision", type=SparseType, default=SparseType.FP32)
-@click.option("--cache-precision", type=SparseType, default=None)
-@click.option("--stoc", is_flag=True, default=False)
-@click.option(
-    "--managed",
-    default="device",
-    type=click.Choice(["device", "managed", "managed_caching"], case_sensitive=False),
-)
 @click.option(
     "--emb-op-type",
     default="split",
     type=click.Choice(["split", "dense", "ssd"], case_sensitive=False),
-)
-@click.option("--row-wise/--no-row-wise", default=True)
-@click.option("--pooling", type=str, default="sum")
-@click.option("--weighted-num-requires-grad", type=int, default=None)
-@click.option("--bounds-check-mode", type=int, default=BoundsCheckMode.NONE.value)
-@click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
-@click.option(
-    "--uvm-host-mapped",
-    is_flag=True,
-    default=False,
-    help="Use host mapped UVM buffers in SSD-TBE (malloc+cudaHostRegister)",
+    help="The type of the embedding op to benchmark",
 )
 @click.option(
-    "--ssd-prefix", type=str, default="/tmp/ssd_benchmark", help="SSD directory prefix"
+    "--row-wise/--no-row-wise",
+    default=True,
+    help="Whether to use row-wise adagrad optimzier or not",
+)
+@click.option(
+    "--weighted-num-requires-grad",
+    type=int,
+    default=None,
+    help="The number of weighted tables that require gradient",
+)
+@click.option(
+    "--ssd-prefix",
+    type=str,
+    default="/tmp/ssd_benchmark",
+    help="SSD directory prefix",
 )
 @click.option("--cache-load-factor", default=0.2)
 @TBEBenchmarkingConfigLoader.options
 @TBEDataConfigLoader.options
+@EmbeddingOpsCommonConfigLoader.options
 @click.pass_context
 def device(  # noqa C901
     context: click.Context,
     emb_op_type: click.Choice,
-    weights_precision: SparseType,
-    cache_precision: Optional[SparseType],
-    stoc: bool,
-    managed: click.Choice,
     row_wise: bool,
-    pooling: str,
     weighted_num_requires_grad: Optional[int],
-    bounds_check_mode: int,
-    output_dtype: SparseType,
-    uvm_host_mapped: bool,
     cache_load_factor: float,
     # SSD params
     ssd_prefix: str,
@@ -110,6 +97,9 @@ def device(  # noqa C901
     # Load TBE data configuration from cli arguments
     tbeconfig = TBEDataConfigLoader.load(context)
 
+    # Load common embedding op configuration from cli arguments
+    embconfig = EmbeddingOpsCommonConfigLoader.load(context)
+
     # Generate feature_requires_grad
     feature_requires_grad = (
         tbeconfig.generate_feature_requires_grad(weighted_num_requires_grad)
@@ -123,22 +113,8 @@ def device(  # noqa C901
     # Determine the optimizer
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
 
-    # Determine the embedding location
-    embedding_location = str_to_embedding_location(str(managed))
-    if embedding_location is EmbeddingLocation.DEVICE and not torch.cuda.is_available():
-        embedding_location = EmbeddingLocation.HOST
-
-    # Determine the pooling mode
-    pooling_mode = str_to_pooling_mode(pooling)
-
     # Construct the common split arguments for the embedding op
-    common_split_args: Dict[str, Any] = {
-        "weights_precision": weights_precision,
-        "stochastic_rounding": stoc,
-        "output_dtype": output_dtype,
-        "pooling_mode": pooling_mode,
-        "bounds_check_mode": BoundsCheckMode(bounds_check_mode),
-        "uvm_host_mapped": uvm_host_mapped,
+    common_split_args: Dict[str, Any] = embconfig.split_args() | {
         "optimizer": optimizer,
         "learning_rate": 0.1,
         "eps": 0.1,
@@ -154,7 +130,7 @@ def device(  # noqa C901
                 )
                 for d in Ds
             ],
-            pooling_mode=pooling_mode,
+            pooling_mode=embconfig.pooling_mode,
             use_cpu=not torch.cuda.is_available(),
         )
     elif emb_op_type == "ssd":
@@ -177,7 +153,7 @@ def device(  # noqa C901
                 (
                     tbeconfig.E,
                     d,
-                    embedding_location,
+                    embconfig.embedding_location,
                     (
                         ComputeDevice.CUDA
                         if torch.cuda.is_available()
@@ -187,7 +163,9 @@ def device(  # noqa C901
                 for d in Ds
             ],
             cache_precision=(
-                weights_precision if cache_precision is None else cache_precision
+                embconfig.weights_dtype
+                if embconfig.cache_dtype is None
+                else embconfig.cache_dtype
             ),
             cache_algorithm=CacheAlgorithm.LRU,
             cache_load_factor=cache_load_factor,
@@ -195,7 +173,7 @@ def device(  # noqa C901
         )
     embedding_op = embedding_op.to(get_device())
 
-    if weights_precision == SparseType.INT8:
+    if embconfig.weights_dtype == SparseType.INT8:
         # pyre-fixme[29]: `Union[(self: DenseTableBatchedEmbeddingBagsCodegen,
         #  min_val: float, max_val: float) -> None, (self:
         #  SplitTableBatchedEmbeddingBagsCodegen, min_val: float, max_val: float) ->
@@ -203,9 +181,9 @@ def device(  # noqa C901
         embedding_op.init_embedding_weights_uniform(-0.0003, 0.0003)
 
     nparams = sum(d * tbeconfig.E for d in Ds)
-    param_size_multiplier = weights_precision.bit_rate() / 8.0
-    output_size_multiplier = output_dtype.bit_rate() / 8.0
-    if pooling_mode.do_pooling():
+    param_size_multiplier = embconfig.weights_dtype.bit_rate() / 8.0
+    output_size_multiplier = embconfig.output_dtype.bit_rate() / 8.0
+    if embconfig.pooling_mode.do_pooling():
         read_write_bytes = (
             output_size_multiplier * tbeconfig.batch_params.B * sum(Ds)
             + param_size_multiplier
@@ -225,7 +203,7 @@ def device(  # noqa C901
             * tbeconfig.pooling_params.L
         )
 
-    logging.info(f"Managed option: {managed}")
+    logging.info(f"Managed option: {embconfig.embedding_location}")
     logging.info(
         f"Embedding parameters: {nparams / 1.0e9: .2f} GParam, "
         f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
@@ -274,11 +252,11 @@ def device(  # noqa C901
         f"T: {time_per_iter * 1.0e6:.0f}us"
     )
 
-    if output_dtype == SparseType.INT8:
+    if embconfig.output_dtype == SparseType.INT8:
         # backward bench not representative
         return
 
-    if pooling_mode.do_pooling():
+    if embconfig.pooling_mode.do_pooling():
         grad_output = torch.randn(tbeconfig.batch_params.B, sum(Ds)).to(get_device())
     else:
         grad_output = torch.randn(
