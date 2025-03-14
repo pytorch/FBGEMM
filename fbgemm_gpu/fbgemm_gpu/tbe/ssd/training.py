@@ -150,6 +150,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         enable_async_update: bool = True,  # whether enable L2/rocksdb write to async background thread
         # if > 0, insert all kv pairs to rocksdb at init time, in chunks of *bulk_init_chunk_size* rows
         bulk_init_chunk_size: int = 0,
+        lazy_bulk_init_enabled: bool = False,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -437,7 +438,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
                 f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
                 f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},rate_limit_mbps={ssd_rate_limit_mbps},"
-                f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger},"
+                f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger}, lazy_bulk_init_enabled={lazy_bulk_init_enabled},"
                 f"write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size},max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num},"
                 f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
                 f"row_storage_bitwidth={weights_precision.bit_rate()},block_cache_size_per_tbe={ssd_block_cache_size_per_tbe},"
@@ -470,7 +471,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
                 self.ssd_uniform_init_upper: float = ssd_uniform_init_upper
-                self._lazy_initialize_ssd_tbe()
+                if lazy_bulk_init_enabled:
+                    self._lazy_initialize_ssd_tbe()
+                else:
+                    self._insert_all_kv()
         else:
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
