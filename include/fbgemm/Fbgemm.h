@@ -22,6 +22,7 @@
 #include "./FbgemmI8DepthwiseAvx2.h"
 #include "./FbgemmI8DirectconvAvx2.h"
 #include "./FbgemmI8Spmdm.h"
+#include "./FloatConversion.h"
 #include "./QuantUtilsAvx2.h"
 #include "./Types.h"
 #include "./Utils.h"
