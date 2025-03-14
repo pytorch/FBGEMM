@@ -24,6 +24,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
 from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
     grouped_gemm_fp8_rowwise,
 )
+from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 from tinygemm.utils import group_quantize_tensor
 
 if torch.cuda.is_available() and torch.version.cuda:
@@ -1326,57 +1327,51 @@ class F8I4RowwiseGemm(QuantizeOpBase):
 
 
 @register_quantize_op
-class F8I4ShuffledGemm(F8I4RowwiseGemm):
-    def _int4_row_quantize(
-        self,
-        x: torch.Tensor,
-        group_size: int = 128,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        n_bit = 4  # Number of target bits.
-        to_quant = x.reshape(-1, group_size).to(torch.float)
+class F8I4ShuffledGemm(QuantizeOpBase):
+    def preprocess(self, x, w):
+        # Prequantize and pack weights.
+        wq, row_scale, group_scale = quantize_int4_preshuffle(w)
+        return x, wq, row_scale, group_scale
 
-        max_val = torch.abs(to_quant).amax(dim=1, keepdim=True)
-        max_int = 2 ** (n_bit - 1)
-        min_int = -(2 ** (n_bit - 1))
-        scales = max_val.clamp(min=1e-6) / max_int
-
-        out = to_quant.div(scales).round().clamp_(min_int, max_int - 1)
-
-        # Cast to int8 and restore shape.
-        out = out.to(dtype=torch.int8).reshape(x.shape)
-
-        # Scales should be in [num_groups, N] layout.
-        scales = scales.view(x.shape[0], -1).t().contiguous().to(torch.float8_e4m3fn)
-
-        return out, scales
-
-    def quantize(self, x, w):
+    def quantize(self, x, wq, row_scale, group_scale):
         # Quantize both input tensors.
         xq, x_scale = quantize_fp8_row(x)
-        # Weight quantization happens in two steps. First we quantize to fp8
-        # then to int4.
-        wq, w_scale = quantize_fp8_row(w)
-        # Now quantize to int4 with group scaling.
-        wq, w_scale_group = self._int4_row_quantize(wq)
-        # Pack int4 values together.
-        wq = self._pack_int4(wq)
-        # Shuffle weights and scales for faster compute.
-        wq, w_scale_group = torch.ops.fbgemm.preshuffle_i4(wq, w_scale_group)
-        return xq, wq, x_scale, w_scale, w_scale_group
+        return xq, wq, x_scale, row_scale, group_scale
 
-    def compute(self, xq, wq, x_scale, w_scale, w_scale_group):
-        out = torch.ops.fbgemm.f8i4bf16_shuffled(
-            xq, wq, x_scale, w_scale, w_scale_group
+    def compute(self, xq, wq, x_scale, row_scale, group_scale):
+        # Handle batched cases by looping over each batch.
+        if xq.dim() == 3:
+            B, M, _ = xq.shape
+            _, N, _ = wq.shape
+            y = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
+            for i in range(B):
+                y[i] = torch.ops.fbgemm.f8i4bf16_shuffled(
+                    xq[i], wq[i], x_scale[i], row_scale[i], group_scale[i]
+                )
+            return y
+        # Otherwise run gemm normally.
+        return torch.ops.fbgemm.f8i4bf16_shuffled(
+            xq, wq, x_scale, row_scale, group_scale
         )
-        return out
 
-    def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale, w_scale_group = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale, w_scale, w_scale_group)
+    def quantize_and_compute(self, x, wq, row_scale, group_scale):
+        xq, wq, x_scale, row_scale, group_scale = self.quantize(
+            x, wq, row_scale, group_scale
+        )
+        return self.compute(xq, wq, x_scale, row_scale, group_scale)
 
     @property
     def name(self) -> str:
         return "cutlass_f8i4_preshuffle"
+
+    @property
+    def hip(self) -> bool:
+        # Not yet supported on AMD.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
 
 
 @register_quantize_op
