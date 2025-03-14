@@ -22,6 +22,9 @@
 #endif
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
+#ifdef FBGEMM_FP16_FALLBACK_TO_REF_KERNEL
+#include "fbgemm/FloatConversion.h"
+#endif
 
 namespace fbgemm {
 

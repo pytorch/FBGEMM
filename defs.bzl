@@ -70,6 +70,7 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmI8Spmdm.h",
         "include/fbgemm/FbgemmPackMatrixB.h",
         "include/fbgemm/FbgemmSparse.h",
+        "include/fbgemm/FloatConversion.h",
         "include/fbgemm/OutputProcessing-inl.h",
         "include/fbgemm/PackingTraits-inl.h",
         "include/fbgemm/QuantUtils.h",

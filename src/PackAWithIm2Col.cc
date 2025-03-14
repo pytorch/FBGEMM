@@ -10,6 +10,7 @@
 #include <cpuinfo.h>
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <numeric>

@@ -9,6 +9,7 @@
 #include "./TestUtils.h"
 #include <gtest/gtest.h>
 #include "fbgemm/Fbgemm.h"
+#include "fbgemm/FloatConversion.h"
 
 namespace fbgemm {
 

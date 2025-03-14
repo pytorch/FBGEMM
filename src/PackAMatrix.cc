@@ -9,6 +9,7 @@
 #define FBGEMM_EXPORTS
 #include <cpuinfo.h>
 #include <cassert>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include "fbgemm/Fbgemm.h"
