@@ -1,6 +1,7 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright 2024-2025 Arm Limited and/or its affiliates
+ * <open-source-office@arm.com> All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -46,6 +47,22 @@ struct GemmParams<float16> {
   uint64_t k;
   float* A;
   const float16* B;
+  float beta;
+  float* C;
+  uint64_t ldc;
+  uint64_t b_block_cols;
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+  uint64_t lda;
+#else
+  uint64_t b_block_size;
+#endif
+};
+
+template <>
+struct GemmParams<float> {
+  uint64_t k;
+  float* A;
+  const float* B;
   float beta;
   float* C;
   uint64_t ldc;
@@ -175,7 +192,9 @@ void cblas_gemm_compute(
           assert(kernel_nrows * kb < static_cast<int64_t>(scratchpad->size()));
           if (m != 1) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-            if constexpr (std::is_same<T, float16>::value) {
+            if constexpr (
+                std::is_same<T, float16>::value ||
+                std::is_same<T, float>::value) {
               gp.A = const_cast<float*>(&A[m2 * k + k_ind]);
             } else {
 #endif
@@ -201,7 +220,9 @@ void cblas_gemm_compute(
           gp.ldc = ldc * sizeof(C[0]);
           gp.b_block_cols = nbcol;
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-          if constexpr (std::is_same<T, float16>::value) {
+          if constexpr (
+              std::is_same<T, float16>::value ||
+              std::is_same<T, float>::value) {
             gp.lda = k * sizeof(A[0]);
           } else {
 #endif
@@ -218,7 +239,9 @@ void cblas_gemm_compute(
             gp.b_block_cols = jb_end - jb_begin;
             if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (std::is_same<T, float16>::value) {
+              if constexpr (
+                  std::is_same<T, float16>::value ||
+                  std::is_same<T, float>::value) {
                 kernels[kernel_nrows](&gp);
               } else {
                 ref_kernel<T>(kernel_nrows, &gp, C, m, n, simd_width);
@@ -238,7 +261,9 @@ void cblas_gemm_compute(
               gp.b_block_cols = jb_end - jb_begin;
               if (gp.b_block_cols) {
 #ifdef FBGEMM_USE_REF_KERNEL
-                if constexpr (std::is_same<T, float16>::value) {
+                if constexpr (
+                    std::is_same<T, float16>::value ||
+                    std::is_same<T, float>::value) {
                   kernels[kernel_nrows](&gp);
                 } else {
                   ref_kernel(kernel_nrows, &gp, C, m, n, simd_width);
@@ -269,7 +294,9 @@ void cblas_gemm_compute(
               gp.ldc = Bp.blockColSize() * sizeof(C[0]);
               gp.b_block_cols = 1;
 #ifdef FBGEMM_USE_REF_KERNEL
-              if constexpr (std::is_same<T, float16>::value) {
+              if constexpr (
+                  std::is_same<T, float16>::value ||
+                  std::is_same<T, float>::value) {
                 kernels[kernel_nrows](&gp);
               } else {
                 ref_kernel<T>(
