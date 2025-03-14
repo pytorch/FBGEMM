@@ -23,7 +23,7 @@ from fbgemm_gpu.tbe.utils.requests import (
     TBERequest,
 )
 
-from .config_param_models import BatchParams, IndicesParams, PoolingParams
+from .tbe_data_config_param_models import BatchParams, IndicesParams, PoolingParams
 
 try:
     torch.ops.load_library(
