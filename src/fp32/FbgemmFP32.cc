@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Copyright 2025 Arm Limited and/or its affiliates <open-source-office@arm.com>
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -11,9 +12,15 @@
 #include <cmath>
 #include <utility>
 
+#ifndef __aarch64__
 #include "./FbgemmFP32UKernelsAvx2.h"
 #include "./FbgemmFP32UKernelsAvx512.h"
 #include "./FbgemmFP32UKernelsAvx512_256.h"
+#else
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+#include "./KleidiAIFP32UKernelsNeon.h"
+#endif
+#endif
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmFPCommon.h"
 
@@ -80,6 +87,19 @@ constexpr kernel_array_t<float> kernel_f32_avx512_256 = {
     nullptr};
 #endif
 
+#ifdef __aarch64__
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+constexpr kernel_array_t<float> kernel_fp32_neon = {
+    nullptr,
+    kleidiai::gemmkernel_1x2_Neon_fp32_fA0fB0fC0,
+    kleidiai::gemmkernel_2x2_Neon_fp32_fA0fB0fC0,
+    kleidiai::gemmkernel_3x2_Neon_fp32_fA0fB0fC0,
+    kleidiai::gemmkernel_4x2_Neon_fp32_fA0fB0fC0,
+    kleidiai::gemmkernel_5x2_Neon_fp32_fA0fB0fC0,
+    kleidiai::gemmkernel_6x2_Neon_fp32_fA0fB0fC0,
+};
+#endif
+#endif
 } // namespace
 
 template <>
@@ -90,9 +110,18 @@ const isa_descriptor<float>& getIsaHandlers(inst_set_t isa, float) {
       std::make_tuple(kernel_f32_avx512, partition_avx512);
   static isa_descriptor<float> avx512_256_descriptor =
       std::make_tuple(kernel_f32_avx512_256, partition_avx512);
+#ifdef __aarch64__
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+  static isa_descriptor<float> neon_descriptor =
+      std::make_tuple(kernel_fp32_neon, partition_sve128);
+#endif
+#endif
 
   switch (isa) {
     case inst_set_t::sve:
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+      return neon_descriptor;
+#endif
     case inst_set_t::anyarch:
     case inst_set_t::avx2:
       return avx2_descriptor;
