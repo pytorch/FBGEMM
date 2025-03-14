@@ -14,6 +14,7 @@ import torch
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        dequantize_fp8_block,
         matmul_fp8_block,
         matmul_fp8_row,
         quantize_fp8_block,
@@ -273,6 +274,34 @@ class TestFp8Matmul(unittest.TestCase):
         _test_quantize_fp8_block((2, 4), (1, 2))
         _test_quantize_fp8_block((3, 6), (2, 8))
         _test_quantize_fp8_block((3, 6), (2, 8), use_scale_ub=True)
+
+    def test_dequantize_fp8_block(self) -> None:
+        def _test_dequantize_fp8_block(
+            shape: Tuple[int, int],
+            block_shape: Tuple[int, int],
+            use_scale_ub: bool = False,
+        ) -> None:
+            M, K = shape
+            BLOCK_M, BLOCK_K = block_shape
+            a = torch.randn(M, K, dtype=torch.bfloat16, device="cuda")
+
+            scale_ub = (
+                torch.tensor([1200], dtype=torch.float, device="cuda")
+                if use_scale_ub
+                else None
+            )
+
+            a_fp8, a_scale = quantize_fp8_block(
+                a, block_m=BLOCK_M, block_k=BLOCK_K, scale_ub=scale_ub
+            )
+            a_dequant = dequantize_fp8_block(
+                a_fp8, a_scale, block_m=BLOCK_M, block_k=BLOCK_K
+            )
+            self.assertTrue(torch.allclose(a, a_dequant, atol=2e-1, rtol=5e-2))
+
+        _test_dequantize_fp8_block((3, 1024), (1, 256))
+        _test_dequantize_fp8_block((11, 128), (1, 128))
+        _test_dequantize_fp8_block((11, 256), (1, 256), use_scale_ub=True)
 
     def test_matmul_fp8_block(self) -> None:
         def _test_matmul_fp8_block(
