@@ -82,6 +82,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->set_range_to_storage(weights, start, length);
   }
 
+  void toggle_compaction(bool enable) {
+    impl_->toggle_compaction(enable);
+  }
+
   void get(
       at::Tensor indices,
       at::Tensor weights,
