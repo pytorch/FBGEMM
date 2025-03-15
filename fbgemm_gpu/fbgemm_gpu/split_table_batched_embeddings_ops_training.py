@@ -704,7 +704,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             #
             # See:
             #   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/
-            cache_precision = SparseType.FP32
+            cache_precision = SparseType.FP16
         else:
             # NOTE: The changes from D65865527 are retained here until we can
             # test that the the hack also works for non-ROCm environments.
