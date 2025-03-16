@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include <c10/util/irange.h>
 #include "./QuantizationHelpers.h"
 #include "./TestUtils.h"
 #include "bench/BenchUtils.h"
@@ -349,7 +350,7 @@ void runRequantizeTest(matrix_op_t /* unused */,
       transposeConvWeights(conv_p, Bint8.data(), Bint8_tr.data());
       rightBData = Bint8_tr.data();
     }
-    for (int g = 0; g < G; ++g) {
+    for (const auto g : c10::irange(G)) {
       col_offsets_with_zero_pt_s8acc32_ref(
           R * S * IC_per_G,
           OC_per_G,
@@ -362,7 +363,7 @@ void runRequantizeTest(matrix_op_t /* unused */,
     conv_ref(
         conv_p, Aint8.data(), Aint8_zero_point, rightBData, Cint32_ref.data());
 
-    for (int g = 0; g < G; ++g) {
+    for (const auto g : c10::irange(G)) {
       row_offsets_u8acc32_ref(
           MDim,
           KDim,
@@ -626,7 +627,7 @@ void runPackUnpackTest(matrix_op_t btrans) {
     // END actual pack-unpack operations
 
     // Sanity check
-    for (int i = 0; i < weight_len; ++i) {
+    for (const auto i : c10::irange(weight_len)) {
       EXPECT_EQ(unpack_buf.data()[i], Bint8.data()[i])
         << "Pack/Unpack results differ at index " << i
         << ", Reference: " << static_cast<int>(Bint8.data()[i])

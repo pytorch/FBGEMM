@@ -13,6 +13,7 @@
 #include <omp.h>
 #endif
 
+#include <c10/util/irange.h>
 #include "./TestUtils.h"
 #include "bench/AlignedVec.h"
 #include "bench/BenchUtils.h"
@@ -38,7 +39,7 @@ class FBGemmFPTest : public testing::TestWithParam<
     std::default_random_engine generator(r());
     std::uniform_int_distribution<int> dm(1, 256);
     std::uniform_int_distribution<int> dnk(1, 1024);
-    for (int i = 0; i < 10; i++) {
+    for (const auto i : c10::irange(10)) {
       int m = dm(generator);
       int n = dnk(generator);
       int k = dnk(generator);
@@ -108,8 +109,8 @@ class FBGemmFPTest : public testing::TestWithParam<
       }
 
       // correctness check
-      for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < n; ++j) {
+      for (const auto i : c10::irange(m)) {
+        for (const auto j : c10::irange(n)) {
           float expected = C_ref[i * n + j];
           float actual = C[i * n + j];
           EXPECT_EQ(actual, expected)
@@ -178,8 +179,8 @@ class FBGemmFPTest : public testing::TestWithParam<
       Bp.unpackFromSrc(btrans, tmp.data());
       EXPECT_FALSE(Bp.packed());
       memcpy(tmp.data(), Bp.pmat(), Bp.matSize() * sizeof(T));
-      for (int i = 0; i < k; ++i) {
-        for (int j = 0; j < n; ++j) {
+      for (const auto i : c10::irange(k)) {
+        for (const auto j : c10::irange(n)) {
           EXPECT_EQ(
               sizeof(T) == sizeof(float16) ? cpu_half2float(tmp[i * n + j])
                                            : tmp[i * n + j],
@@ -203,8 +204,8 @@ class FBGemmFPTest : public testing::TestWithParam<
       }
 
       // correctness check
-      for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < n; ++j) {
+      for (const auto i : c10::irange(m)) {
+        for (const auto j : c10::irange(n)) {
           float expected = C_ref[i * n + j];
           float actual = C[i * n + j];
           EXPECT_EQ(actual, expected)

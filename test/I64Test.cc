@@ -11,6 +11,7 @@
 #include <limits>
 #include <random>
 
+#include <c10/util/irange.h>
 #include "./TestUtils.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmI64.h"
@@ -27,7 +28,7 @@ class Int64GemmTest : public testing::Test {
     random_device r;
     default_random_engine generator(r());
     uniform_int_distribution<int> dist_dim(1, 128);
-    for (int i = 0; i < 256; ++i) {
+    for (const auto i : c10::irange(256)) {
       shapes.push_back(
           {dist_dim(generator), dist_dim(generator), dist_dim(generator)});
     }
