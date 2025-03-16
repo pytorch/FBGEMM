@@ -112,7 +112,7 @@ def invoke(
         row_counter_placements = row_counter.placements    
     {%- endif %}
     {%- if has_cpu_support and not ssd %}
-    if (common_args.host_weights.numel() > 0):
+    if (common_args.host_weights.numel() > 0 or common_args.indices.device.type in ["cpu", "mtia"]):
         T = common_args.D_offsets.numel() - 1
         vbe: bool = vbe_metadata.B_offsets is not None
         if vbe:
