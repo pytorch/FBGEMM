@@ -17,6 +17,9 @@ struct fused_moe_args {
       y_smooth_scale_ptr; // [e, 1, n], smooth-quant-scale for 2nd gemm input
   const void* local_expert_mask_ptr; // [e], local_expert_mask_ptr for EP
   void* o_ptr; // [m, k], output token (no need to do zeroing)
+  void* ws_ptr; // size is moe_sorting_get_workspace_size()
+                // if return zero, then could be nullptr
+                // must be cleard before use
 
   const void* topk_ids_ptr; // [tokens, topk]
   const void* topk_weight_ptr; // [tokens, topk]
