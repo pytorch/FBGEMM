@@ -23,6 +23,7 @@ if torch.cuda.is_available():
         quantize_fp8_block,
         quantize_fp8_row,
     )
+    from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 
 from hypothesis import given, settings, strategies as st
 
@@ -445,7 +446,7 @@ class FP8Tests(unittest.TestCase):
     )
     @settings(deadline=None)
     @given(
-        B_T=st.sampled_from([2048, 4096]),
+        B_T=st.sampled_from([0, 2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
         QType=st.sampled_from([torch.float8_e4m3fn, torch.float8_e5m2]),
@@ -462,23 +463,34 @@ class FP8Tests(unittest.TestCase):
         x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
 
+        # Standard i4 weight format.
         wq, w_scale, w_zp = int4_row_quantize(w, 128)
         wq = pack_int4(wq).contiguous().to(device="cuda")
         w_scale = w_scale.contiguous().to(device="cuda")
         w_zp = w_zp.contiguous().to(device="cuda")
+
+        # Preshuffled i4 weight format.
+        wq_shuffled, w_scale_row, w_scale_group = quantize_int4_preshuffle(w, 128)
 
         if CudaGraph:
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
                 xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
                 zq = torch.ops.fbgemm.f8i4bf16_rowwise(xq, wq, x_scale, w_scale, w_zp)
+                zq_shuffled = torch.ops.fbgemm.f8i4bf16_shuffled(
+                    xq, wq_shuffled, x_scale, w_scale_row, w_scale_group
+                )
             g.replay()
         else:
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
             zq = torch.ops.fbgemm.f8i4bf16_rowwise(xq, wq, x_scale, w_scale, w_zp)
+            zq_shuffled = torch.ops.fbgemm.f8i4bf16_shuffled(
+                xq, wq_shuffled, x_scale, w_scale_row, w_scale_group
+            )
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=8.0e-2, rtol=8.0e-2)
+        torch.testing.assert_close(zq_shuffled, zq_ref, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
