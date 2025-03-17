@@ -22,10 +22,12 @@
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/config/feature_gates.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/barrier_isolation.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_accessor.h"
+
 {%- if is_rocm %}
 #include "fbgemm_gpu/rocm/cdna_guard.h"
 {%- endif %}
@@ -1218,14 +1220,18 @@ Tensor {{ embedding_cuda_op }}(
 #ifdef USE_ROCM
                     {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and
                         not dense and not is_gwd_kernel and not vbe and not ssd and not nobag %}
-                    const bool isSupportedWeightsType = dev_weights.scalar_type() == at::ScalarType::Half
+
+                    const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
+
+                    const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
                                                       || dev_weights.scalar_type() == at::ScalarType::Float;
-                    if(isSupportedWeightsType && !mixed_D && rocm::is_supported_cdna())
+
+                    if (use_hip_kernel && supported_weights_type && !mixed_D && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256] %}
                         {%- for kWeightDecayMode in [0, 1, 2] %}
-                        if(max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
+                        if (max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
                         {
                             warp_per_row_grid_size = div_round_up(sorted_linear_indices_num_runs[0].item<int32_t>(), segments_per_workgroup);
                             blockSize = dim3(256);
