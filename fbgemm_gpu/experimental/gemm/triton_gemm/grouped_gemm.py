@@ -142,6 +142,7 @@ def _kernel_grouped_gemm(
     NUM_SMS: tl.constexpr,
     USE_TMA_LOAD: tl.constexpr,
     USE_TMA_STORE: tl.constexpr,
+    USE_FAST_ACCUM: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
@@ -208,7 +209,10 @@ def _kernel_grouped_gemm(
                             [BLOCK_SIZE_N, BLOCK_SIZE_K],
                             dtype,
                         )
-                        accumulator += tl.dot(a, b.T)
+                        if USE_FAST_ACCUM:
+                            accumulator = tl.dot(a, b.T, accumulator)
+                        else:
+                            accumulator += tl.dot(a, b.T)
                 else:
                     offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
                     offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
@@ -283,6 +287,7 @@ def _kernel_grouped_gemm_fp8_rowwise(
     NUM_SMS: tl.constexpr,
     USE_TMA_LOAD: tl.constexpr,
     USE_TMA_STORE: tl.constexpr,
+    USE_FAST_ACCUM: tl.constexpr,
     # tile sizes
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
@@ -349,7 +354,10 @@ def _kernel_grouped_gemm_fp8_rowwise(
                             [BLOCK_SIZE_N, BLOCK_SIZE_K],
                             dtype,
                         )
-                        accumulator += tl.dot(a, b.T)
+                        if USE_FAST_ACCUM:
+                            accumulator = tl.dot(a, b.T, accumulator)
+                        else:
+                            accumulator += tl.dot(a, b.T)
                 else:
                     offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
                     offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
@@ -410,6 +418,7 @@ def _grouped_gemm(
     m_sizes: torch.Tensor,
     x_scale: Optional[torch.Tensor] = None,
     w_scale: Optional[torch.Tensor] = None,
+    use_fast_accum: bool = False,
 ) -> torch.Tensor:
     if not utils.HAS_TMA_DESC:
         raise NotImplementedError("Grouped GEMM without TMA is not supported yet")
@@ -493,6 +502,7 @@ def _grouped_gemm(
             NUM_SMS,
             USE_TMA_LOAD,
             USE_TMA_STORE,
+            use_fast_accum,
         )
     else:
         assert x_scale is None
@@ -510,15 +520,19 @@ def _grouped_gemm(
             NUM_SMS,
             USE_TMA_LOAD,
             USE_TMA_STORE,
+            use_fast_accum,
         )
 
     return y
 
 
 def grouped_gemm(
-    x: torch.Tensor, w: torch.Tensor, m_sizes: torch.Tensor
+    x: torch.Tensor,
+    w: torch.Tensor,
+    m_sizes: torch.Tensor,
+    use_fast_accum: bool = False,
 ) -> torch.Tensor:
-    return _grouped_gemm(x, w, m_sizes)
+    return _grouped_gemm(x, w, m_sizes, use_fast_accum=use_fast_accum)
 
 
 def grouped_gemm_fp8_rowwise(
@@ -527,5 +541,6 @@ def grouped_gemm_fp8_rowwise(
     m_sizes: torch.Tensor,
     x_scale: torch.Tensor,
     w_scale: torch.Tensor,
+    use_fast_accum: bool = False,
 ) -> torch.Tensor:
-    return _grouped_gemm(x, w, m_sizes, x_scale, w_scale)
+    return _grouped_gemm(x, w, m_sizes, x_scale, w_scale, use_fast_accum=use_fast_accum)
