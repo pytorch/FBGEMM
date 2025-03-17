@@ -51,7 +51,7 @@ __global__ void set_kernel_args(
     int N,
     int K,
     int num_scale_groups,
-    int64_t* M_offsets,
+    int64_t* M_sizes,
     ProblemShape* problem_shape_ptr,
     ElementA* xq,
     const ElementA** xq_ptr,
@@ -74,14 +74,12 @@ __global__ void set_kernel_args(
   // If this is a valid group, write kernel args to device.
   if (group_index < G) {
     // First get the M value for this group.
-    int offset_M;
-    int M;
-    if (group_index == 0) {
-      offset_M = 0;
-      M = M_offsets[group_index];
-    } else {
-      offset_M = M_offsets[group_index - 1];
-      M = M_offsets[group_index] - offset_M;
+    int M = M_sizes[group_index];
+    // Compute offset into tensor where this group begins.
+    int offset_M = 0;
+    // Compute cumulative sum of prior groups to find offset.
+    for (int i = 0; i < group_index; i++) {
+      offset_M += M_sizes[i];
     }
     // Set the problem shape for this group.
     problem_shape_ptr[group_index] = ProblemShape(N, M, K);
@@ -115,10 +113,10 @@ void _f8i4bf16_shuffled_grouped(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_scale_group,
-    at::Tensor M_offsets,
+    at::Tensor M_sizes,
     at::Tensor Y) {
   // Get basic shape information.
-  int G = M_offsets.size(0);
+  int G = M_sizes.size(0);
   // XQ is shape [total_M, K]
   int K = XQ.size(-1);
   // WQ is shape [G, N, K/2]
@@ -374,7 +372,7 @@ void _f8i4bf16_shuffled_grouped(
       N,
       K,
       num_scale_groups,
-      reinterpret_cast<int64_t*>(M_offsets.data_ptr()),
+      reinterpret_cast<int64_t*>(M_sizes.data_ptr()),
       problem_shape_ptr,
       reinterpret_cast<ElementA*>(XQ.data_ptr()),
       xq_ptr,
@@ -463,15 +461,15 @@ at::Tensor f8i4bf16_shuffled_grouped(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_scale_group,
-    at::Tensor M_offsets) {
+    at::Tensor M_sizes) {
   // X should be shape [total_M, K], W should be shape [G, N, K/2]
   int total_M = XQ.size(0);
   int K = XQ.size(1);
   int N = WQ.size(1);
-  int group_count = M_offsets.size(0);
+  int group_count = M_sizes.size(0);
   TORCH_CHECK(
-      M_offsets.device() == XQ.device() && M_offsets.dtype() == at::kLong,
-      "M_offsets must be int64 and on the same device as inputs.");
+      M_sizes.device() == XQ.device() && M_sizes.dtype() == at::kLong,
+      "M_sizes must be int64 and on the same device as inputs.");
   TORCH_CHECK(
       WQ.dim() == 3 && WQ.size(0) == group_count && WQ.size(2) == K / 2,
       "Weights should be shape [G, N, K / 2]");
@@ -482,22 +480,22 @@ at::Tensor f8i4bf16_shuffled_grouped(
     // Use heuristics to pick best kernel implementation.
     if (total_M <= 16) {
       _f8i4bf16_shuffled_grouped<128, 16, 1, 1, 1>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, M_offsets, Y);
+          XQ, WQ, x_scale, w_scale, w_scale_group, M_sizes, Y);
     } else if (total_M <= 32) {
       _f8i4bf16_shuffled_grouped<128, 32, 1, 1, 1>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, M_offsets, Y);
+          XQ, WQ, x_scale, w_scale, w_scale_group, M_sizes, Y);
     } else if (total_M <= 64) {
       _f8i4bf16_shuffled_grouped<128, 64, 1, 1, 1>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, M_offsets, Y);
+          XQ, WQ, x_scale, w_scale, w_scale_group, M_sizes, Y);
     } else if (total_M <= 128) {
       _f8i4bf16_shuffled_grouped<128, 128, 1, 1, 1>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, M_offsets, Y);
+          XQ, WQ, x_scale, w_scale, w_scale_group, M_sizes, Y);
     } else if (total_M <= 512) {
       _f8i4bf16_shuffled_grouped<256, 128, 2, 1, 1>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, M_offsets, Y);
+          XQ, WQ, x_scale, w_scale, w_scale_group, M_sizes, Y);
     } else {
       _f8i4bf16_shuffled_grouped<128, 256, 2, 1, 1>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, M_offsets, Y);
+          XQ, WQ, x_scale, w_scale, w_scale_group, M_sizes, Y);
     }
   }
   return Y;
@@ -511,7 +509,7 @@ at::Tensor f8i4bf16_shuffled_grouped(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_scale_group,
-    at::Tensor M_offsets) {
+    at::Tensor M_sizes) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
