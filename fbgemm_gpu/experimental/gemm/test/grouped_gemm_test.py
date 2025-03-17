@@ -35,6 +35,7 @@ class TestGroupedGEMM(unittest.TestCase):
         def _test_grouped_gemm_fp8_rowwise(
             shape: Tuple[int, int, int, int],
             device: torch.device,
+            fast_accu: bool,
         ) -> None:
             G, M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -60,6 +61,7 @@ class TestGroupedGEMM(unittest.TestCase):
                 m_sizes,
                 a_scale,
                 b_scale,
+                use_fast_accum=fast_accu,
             )
             self.assertTrue(result.shape == (M, N))
 
@@ -82,8 +84,13 @@ class TestGroupedGEMM(unittest.TestCase):
 
         for G in (1, 4, 16):
             for M in (64, 512):
-                logging.info(f"Testing FP8 GMM with G={G}, M={M}")
-                _test_grouped_gemm_fp8_rowwise((G, M, 256, 256), torch.device("cuda"))
+                for fast_accu in (True, False):
+                    logging.info(
+                        f"Testing FP8 GMM with G={G}, M={M}, FastAccu={fast_accu}"
+                    )
+                    _test_grouped_gemm_fp8_rowwise(
+                        (G, M, 256, 256), torch.device("cuda"), fast_accu=fast_accu
+                    )
 
     def test_grouped_gemm_bf16(self) -> None:
         def _test_grouped_gemm_bf16(
