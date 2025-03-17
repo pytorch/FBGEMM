@@ -1375,6 +1375,70 @@ class F8I4ShuffledGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class F8I4ShuffledGroupedGemm(QuantizeOpBase):
+    """
+    FP8 x Int4 mixed dtype grouped gemm with preshuffling.
+    """
+
+    def preprocess(self, x, w):
+        assert isinstance(x, list) and isinstance(
+            w, list
+        ), "Only supported for grouped inputs."
+        m_values = [i.shape[0] for i in x]
+        # Convert m_values into offsets into grouped tensor.
+        m_offsets = torch.tensor(np.cumsum(m_values)).to(
+            dtype=torch.int64, device=x[0].device
+        )
+        # Quantize weights.
+        # TODO Only rowwise scaling is currently supported. This needs to be fixed.
+        K = x[0].shape[-1]
+        wq, row_scale, group_scale = zip(
+            *[quantize_int4_preshuffle(i, group_size=K) for i in w]
+        )
+        # Group weights as single tensor.
+        wq = torch.stack(wq, dim=0).contiguous()
+        row_scale = torch.stack(row_scale, dim=0).contiguous()
+        group_scale = torch.stack(group_scale, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, wq, row_scale, group_scale, m_offsets
+
+    def quantize(self, x, wq, row_scale, group_scale, m_offsets):
+        B = x.shape[0]
+        xq, x_scale = triton_quantize_fp8_row(x)
+        x_scale = x_scale.view(B, -1)
+        return xq, wq, x_scale, row_scale, group_scale, m_offsets
+
+    def compute(self, xq, wq, x_scale, row_scale, group_scale, m_offsets):
+        out = torch.ops.fbgemm.f8i4bf16_shuffled_grouped(
+            xq, wq, x_scale, row_scale, group_scale, m_offsets
+        )
+        return out
+
+    def quantize_and_compute(self, x, wq, row_scale, group_scale, m_offsets):
+        xq, wq, x_scale, row_scale, group_scale, m_offsets = self.quantize(
+            x, wq, row_scale, group_scale, m_offsets
+        )
+        return self.compute(xq, wq, x_scale, row_scale, group_scale, m_offsets)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_f8i4_grouped_preshuffle"
+        else:
+            return "ck_f8i4_grouped_preshuffle"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class BF16I4RowwiseGemm(F8I4RowwiseGemm):
     """
     Mixed Precision BF16 Activations with Int4 Weights.
