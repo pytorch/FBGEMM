@@ -23,6 +23,7 @@ if torch.cuda.is_available():
         quantize_fp8_block,
         quantize_fp8_row,
     )
+    from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 
 from hypothesis import given, settings, strategies as st
 
@@ -445,7 +446,7 @@ class FP8Tests(unittest.TestCase):
     )
     @settings(deadline=None)
     @given(
-        B_T=st.sampled_from([2048, 4096]),
+        B_T=st.sampled_from([0, 2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
         QType=st.sampled_from([torch.float8_e4m3fn, torch.float8_e5m2]),
@@ -462,23 +463,34 @@ class FP8Tests(unittest.TestCase):
         x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
 
+        # Standard i4 weight format.
         wq, w_scale, w_zp = int4_row_quantize(w, 128)
         wq = pack_int4(wq).contiguous().to(device="cuda")
         w_scale = w_scale.contiguous().to(device="cuda")
         w_zp = w_zp.contiguous().to(device="cuda")
+
+        # Preshuffled i4 weight format.
+        wq_shuffled, w_scale_row, w_scale_group = quantize_int4_preshuffle(w, 128)
 
         if CudaGraph:
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
                 xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
                 zq = torch.ops.fbgemm.f8i4bf16_rowwise(xq, wq, x_scale, w_scale, w_zp)
+                zq_shuffled = torch.ops.fbgemm.f8i4bf16_shuffled(
+                    xq, wq_shuffled, x_scale, w_scale_row, w_scale_group
+                )
             g.replay()
         else:
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
             zq = torch.ops.fbgemm.f8i4bf16_rowwise(xq, wq, x_scale, w_scale, w_zp)
+            zq_shuffled = torch.ops.fbgemm.f8i4bf16_shuffled(
+                xq, wq_shuffled, x_scale, w_scale_row, w_scale_group
+            )
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=8.0e-2, rtol=8.0e-2)
+        torch.testing.assert_close(zq_shuffled, zq_ref, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: built in quantize ops not yet suported."
@@ -805,28 +817,30 @@ class FP8Tests(unittest.TestCase):
             wq_group = torch.stack(wq_group, dim=0).contiguous()
             x_scale_group = torch.stack(x_scale_group, dim=0).contiguous()
             w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
+        elif return_stacked:
+            xq_group = torch.cat(xq_group, dim=0).contiguous()
+            wq_group = torch.stack(wq_group, dim=0).contiguous()
+            x_scale_group = torch.cat(x_scale_group, dim=0).contiguous()
+            w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
 
         # FP8 grouped gemm kernel
-        fp8_args = (
-            [
+        if use_padding_zeros:
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
+            fp8_args = [
                 xq_group,
                 wq_group,
                 x_scale_group,
                 w_scale_group,
                 zero_start_index_M,
             ]
-            if use_padding_zeros
-            else [xq_group, wq_group, x_scale_group, w_scale_group]
-        )
-        fp8_op = (
-            torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
-            if use_padding_zeros
-            else (
-                torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
-                if return_stacked
-                else torch.ops.fbgemm.f8f8bf16_rowwise_grouped
-            )
-        )
+        elif return_stacked:
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
+            M_offsets = ms.to(device="cuda", dtype=torch.int64)
+            fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_offsets]
+        else:
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped
+            fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group]
+
         if use_cudagraph:
             # warmup
             fp8_op(*fp8_args)
@@ -1113,9 +1127,12 @@ class FP8Tests(unittest.TestCase):
                 block_scale[0],
             )
             # test bf16_fast_gemv is torch compileable
-            X_bf16 = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
             W_bf16 = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
-            torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X_bf16, W_bf16)
+            torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X, W_bf16)
+            # test fp8fp8bf16_fast_gemv is torch compileable
+            torch.compile(torch.ops.fbgemm.fp8fp8bf16_fast_gemv)(XQ, WQ, tensor_scale)
+            # test bf16bf16bf16_fast_gemv is torch compileable
+            torch.compile(torch.ops.fbgemm.bf16fp8bf16_fast_gemv)(X, WQ, tensor_scale)
 
     @unittest.skipIf(
         not torch.version.cuda, "Skip on AMD: fast gemv op is not yet supported."

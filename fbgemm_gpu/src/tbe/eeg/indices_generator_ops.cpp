@@ -28,10 +28,6 @@ at::Tensor generate_indices_from_distribution(
       "heavy_hitters dtype is ",
       heavy_hitters.dtype(),
       "(!= F32 or F64)");
-  TORCH_CHECK(
-      heavy_hitters.numel() > 1,
-      "heavy_hitters numel is ",
-      heavy_hitters.dim());
 
   // Convert to std::vector<double>
   auto tmp = heavy_hitters.cpu().to(at::kDouble).contiguous();

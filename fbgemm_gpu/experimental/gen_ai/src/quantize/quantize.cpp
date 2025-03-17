@@ -94,10 +94,11 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList w_scale,
     std::optional<std::vector<at::Tensor>> output = std::nullopt);
 at::Tensor f8f8bf16_rowwise_grouped_stacked(
-    at::TensorList XQ,
-    at::TensorList WQ,
-    at::TensorList x_scale,
-    at::TensorList w_scale,
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor M_sizes,
     std::optional<at::Tensor> output = std::nullopt);
 at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor XQ,
@@ -136,7 +137,8 @@ at::Tensor f8i4bf16_shuffled(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale);
+    at::Tensor w_scale,
+    at::Tensor w_scale_group);
 std::tuple<at::Tensor, at::Tensor> preshuffle_i4(
     at::Tensor WQ,
     at::Tensor w_scale);
@@ -198,7 +200,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
-      "f8i4bf16_shuffled(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale) -> Tensor");
+      "f8i4bf16_shuffled(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_scale_group) -> Tensor");
   m.def("preshuffle_i4(Tensor WQ, Tensor w_scale) -> (Tensor, Tensor)");
   m.def("bf16_fast_gemv(Tensor X, Tensor W) -> Tensor");
   m.def("bf16fp8bf16_fast_gemv(Tensor X, Tensor W, Tensor w_scale) -> Tensor");
@@ -227,7 +229,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None) -> Tensor[]");
   m.def(
-      "f8f8bf16_rowwise_grouped_stacked(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor(a!)? output=None) -> Tensor");
+      "f8f8bf16_rowwise_grouped_stacked(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor M_sizes, Tensor(a!)? output=None) -> Tensor");
   m.def(
       "f8f8bf16_rowwise_grouped_dynamic(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor zero_start_index_M, bool zeroing_output_tensor=True) -> Tensor");
   m.def(

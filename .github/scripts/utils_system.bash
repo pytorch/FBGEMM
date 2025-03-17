@@ -165,22 +165,22 @@ print_gpu_info () {
   if [[ "${ENFORCE_ROCM_DEVICE}" ]]; then
     # Ensure that rocm-smi is available and returns GPU entries
     if ! rocm-smi; then
-      echo "[CHECK] ROCm drivers and ROCm device are required for this workflow, but does not appear to be installed or available!"
+      echo "[CHECK] ROCm drivers and ROCm device(s) are required for this workflow, but does not appear to be installed or available!"
       return 1
     fi
   else
-    if which rocminfo; then
-      # If rocminfo is installed on a machine without GPUs, this will return error
-      (print_exec rocminfo) || true
-    else
-      echo "[CHECK] rocminfo not found"
-    fi
-    if which rocm-smi; then
-      # If rocm-smi is installed on a machine without GPUs, this will return error
-      (print_exec rocm-smi) || true
-    else
-      echo "[CHECK] rocm-smi not found"
-    fi
+    local smi_programs=( rocminfo rocm-smi )
+
+    for smi_program in "${smi_programs[@]}"; do
+      # shellcheck disable=SC2086
+      if which $smi_program; then
+        # If the program is installed on a machine without GPUs, invoking it will return error
+        # shellcheck disable=SC2086
+        (print_exec $smi_program) || true
+      else
+        echo "[CHECK] $smi_program not found"
+      fi
+    done
   fi
 }
 

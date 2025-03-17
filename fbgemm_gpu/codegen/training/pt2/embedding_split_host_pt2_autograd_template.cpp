@@ -122,7 +122,7 @@ enum SSDTensor {
                 const int64_t /*info_B_mask_int64*/,
                 const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu offsets and output
                 const Tensor& /*vbe_output_offsets_feature_rank*/, // for reshaping vbe cpu output
-                const int64_t /*max_B_int*/, // for reshaping vbe cpu offsets
+                const c10::SymInt /*max_B*/, // for reshaping vbe cpu offsets
                 {%- endif %}
                 {%- if is_gwd %}
                 const Tensor& /*prev_iter_dev*/,
@@ -169,7 +169,7 @@ enum SSDTensor {
       info_B_mask_int64,
       vbe_B_offsets_rank_per_feature_, // for reshaping vbe cpu offsets and output
       vbe_output_offsets_feature_rank_, // for reshaping vbe cpu output
-      max_B_int, // for reshaping vbe cpu offsets
+      max_B_, // for reshaping vbe cpu offsets
       {%- endif %} {# /* if vbe */ #}
       {%- if is_gwd %}
       prev_iter_dev_,
@@ -247,7 +247,7 @@ enum SSDTensor {
                 const Tensor& /*vbe_row_output_offsets*/,
                 const Tensor& /*vbe_b_t_map*/,
                 const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu offsets and grad output
-                const int64_t /*max_B*/, // for reshaping vbe cpu offsets
+                const c10::SymInt /*max_B*/, // for reshaping vbe cpu offsets
                 {%- endif %}
                 const bool /*use_uniq_cache_locations_bwd*/,
                 const bool /*use_homogeneous_placements*/,
@@ -695,7 +695,6 @@ class {{ autograd_func }} :
     const auto info_B_mask = static_cast<uint32_t>(aux_int[IDX_INFO_B_MASK]);
 
     {%- if vbe %}
-    const int64_t max_B_int = max_B_.guard_int(__FILE__, __LINE__); // for reshaping vbe cpu offsets and grad_output
     static auto generate_vbe_metadata_op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::generate_vbe_metadata", "")
@@ -817,7 +816,7 @@ class {{ autograd_func }} :
     ctx->saved_data["output_dtype"] = output_dtype;
     {%- endif %}
     {%- if vbe %}
-    ctx->saved_data["max_B"] = max_B_int; // for reshaping vbe cpu offsets and grad_output 
+    ctx->saved_data["max_B"] = max_B_; // for reshaping vbe cpu offsets and grad_output 
     {%- endif %}
 
     {%- if not dense %}
@@ -921,7 +920,7 @@ static torch::autograd::variable_list backward(
     {%- endfor %}
 
     {%- if not nobag %}
-    auto max_D = ctx->saved_data["max_D"].toInt();
+    auto max_D = ctx->saved_data["max_D"].toSymInt();
     const auto mixed_D = ctx->saved_data["mixed_D"].toBool();
     auto pooling_mode = ctx->saved_data["pooling_mode"].toInt();
     {%- else %}
@@ -952,7 +951,7 @@ static torch::autograd::variable_list backward(
     {%- endif %}
     {%- if not dense %}
     {%- if vbe %}
-    auto max_B = ctx->saved_data["max_B"].toInt(); // for reshaping vbe cpu offsets and grad_output
+    auto max_B = ctx->saved_data["max_B"].toSymInt(); // for reshaping vbe cpu offsets and grad_output
     {%- endif %}
 
     {%- for (var, _ , ivalue_cast, type) in args_pt2.unified_pt2.split_saved_data %}
@@ -1013,7 +1012,7 @@ static torch::autograd::variable_list backward(
                 const Tensor& /*weights_offsets*/,
                  {%- endif %}
                 const Tensor& /*D_offsets*/,
-                const int64_t /*max_D*/,
+                const c10::SymInt /*max_D*/,
                 const Tensor& /*indices*/,
                 const Tensor& /*offsets*/,
                 {%- if ssd %}
@@ -1028,7 +1027,7 @@ static torch::autograd::variable_list backward(
                 const int64_t /*info_B_num_bits*/,
                 const int64_t /*info_B_mask_int64*/,
                 const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu grad_output
-                const int64_t /*max_B*/ // for reshaping vbe cpu offsets and grad_output
+                const c10::SymInt /*max_B*/ // for reshaping vbe cpu offsets and grad_output
                 {%- else %}
                 const Tensor& /*feature_requires_grad*/
                 {%- endif %}

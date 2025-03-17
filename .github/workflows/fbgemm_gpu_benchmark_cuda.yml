@@ -1,0 +1,201 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# This workflow is used for FBGEMM_GPU-CUDA Benchmarking
+name: FBGEMM_GPU-CUDA Benchmark
+
+on:
+  # PR Trigger (enabled for regression checks and debugging)
+  #
+  pull_request:
+    branches:
+      - main
+
+  # Manual Trigger
+  #
+  workflow_dispatch:
+    inputs:
+      pytorch_channel_version:
+        description: Package Channel + Version to Use for PyTorch Installation, in `<channel>[/<version>]` Format
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  # Cancel previous runs in the PR if a new commit is pushed
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build on CPU hosts and upload to GHA
+  build_artifact:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    runs-on: ${{ matrix.host-machine.instance }}
+    container:
+      image: amazonlinux:2023
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+      BUILD_VARIANT: cuda
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
+    continue-on-error: true
+    strategy:
+      # Don't fast-fail all the other builds if one of the them fails
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.24xlarge" },
+        ]
+        python-version: [ "3.13" ]
+        cuda-version: [ "12.8.0" ]
+        compiler: [ "gcc" ]
+
+    steps:
+    - name: Setup Build Container
+      run: yum update -y; yum install -y binutils findutils git pciutils sudo tar wget which
+
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install C/C++ Compilers
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install CUDA
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+
+    # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
+    - name: Install PyTorch Nightly
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run: if . $PRELUDE && which conda; then collect_pytorch_env_info $BUILD_ENV; fi
+
+    - name: Install cuDNN
+      run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Build FBGEMM_GPU Wheel
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly cuda
+
+    - name: Upload Built Wheel as GHA Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
+        path: fbgemm_gpu/dist/*.whl
+        if-no-files-found: error
+
+
+  # Download the built artifact from GHA and test on GPU
+  benchmark_artifact:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    # runs-on: linux.4xlarge.nvidia.gpu
+    # Use available instance types - https://github.com/pytorch/test-infra/blob/main/.github/scale-config.yml
+    runs-on: ${{ matrix.host-machine.instance }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PRELUDE: .github/scripts/setup_env.bash
+      BUILD_ENV: build_binary
+      BUILD_VARIANT: cuda
+      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
+      ENFORCE_CUDA_DEVICE: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        host-machine: [
+          { arch: x86, instance: "linux.g5.4xlarge.nvidia.gpu" },
+          # TODO: Enable when A100 machine queues are reasonably small enough for doing per-PR CI
+          # https://hud.pytorch.org/metrics
+          # { arch: x86, instance: "linux.gcp.a100" },
+        ]
+        python-version: [ "3.13" ]
+        cuda-version: [ "12.8.0" ]
+        compiler: [ "gcc" ]
+    needs: build_artifact
+
+    steps:
+    # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
+    - name: Checkout the Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: Download Wheel Artifact from GHA
+      # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
+      uses: actions/download-artifact@v4
+      with:
+        name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
+
+    # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
+    - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
+      uses: pytorch/test-infra/.github/actions/setup-nvidia@main
+
+    - name: Display System Info
+      run: . $PRELUDE; print_system_info; print_ec2_info
+
+    - name: Display GPU Info
+      run: . $PRELUDE; print_gpu_info
+
+    - name: Setup Miniconda
+      run: . $PRELUDE; setup_miniconda $HOME/miniconda
+
+    - name: Create Conda Environment
+      run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
+
+    - name: Install Build Tools
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
+    - name: Install C/C++ Compilers for Updated LIBGCC
+      # NOTE: gcc is required for torch dynamo to work properly, as some of
+      # the compilation flags used by torch dynamo are gcc-specific:
+      #
+      #   clang-16: error: unknown argument: '-fno-tree-loop-vectorize'
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
+
+    - name: Install CUDA
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+
+    # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
+    - name: Install PyTorch Nightly
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
+
+    - name: Collect PyTorch Environment Info
+      if: ${{ success() || failure() }}
+      run: if . $PRELUDE && which conda; then collect_pytorch_env_info $BUILD_ENV; fi
+
+    - name: Prepare FBGEMM_GPU Build
+      run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
+
+    - name: Install FBGEMM_GPU Wheel
+      run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
+
+    - name: Run FBGEMM_GPU Benchmark
+      timeout-minutes: 40
+      run: . $PRELUDE; run_tbe_microbench $BUILD_ENV

@@ -24,6 +24,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
 from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
     grouped_gemm_fp8_rowwise,
 )
+from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 from tinygemm.utils import group_quantize_tensor
 
 if torch.cuda.is_available() and torch.version.cuda:
@@ -867,6 +868,55 @@ class DeepGemmBlockwise(QuantizeOpBase):
         return True
 
 
+class FP8StackedGroupedGemm(QuantizeOpBase):
+    """
+    FP8 grouped matmul with rowwise scaling and stacked inputs.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        # Quantize weights.
+        wq, w_scale = zip(*[quantize_fp8_row(i) for i in w])
+        # Group weights as single tensor.
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, wq, w_scale, m_sizes
+
+    def quantize(self, x, wq, w_scale, m_sizes):
+        B = x.shape[0]
+        xq, x_scale = triton_quantize_fp8_row(x)
+        x_scale = x_scale.view(B, -1)
+        return xq, wq, x_scale, w_scale, m_sizes
+
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes):
+        return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked(
+            xq, wq, x_scale, w_scale, m_sizes
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, wq, w_scale, m_sizes)
+        return self.compute(xq, wq, x_scale, w_scale, m_sizes)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_grouped_stacked"
+        else:
+            return "ck_grouped_stacked"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
 @register_quantize_op
 class BF16GroupedGemm(QuantizeOpBase):
     """
@@ -1277,51 +1327,51 @@ class F8I4RowwiseGemm(QuantizeOpBase):
 
 
 @register_quantize_op
-class F8I4ShuffledGemm(F8I4RowwiseGemm):
-    def _int4_row_quantize(
-        self,
-        x: torch.Tensor,
-        group_size: int = 128,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        n_bit = 4  # Number of target bits.
-        to_quant = x.reshape(-1, group_size).to(torch.float)
+class F8I4ShuffledGemm(QuantizeOpBase):
+    def preprocess(self, x, w):
+        # Prequantize and pack weights.
+        wq, row_scale, group_scale = quantize_int4_preshuffle(w)
+        return x, wq, row_scale, group_scale
 
-        max_val = torch.abs(to_quant).amax(dim=1, keepdim=True)
-        max_int = 2 ** (n_bit - 1)
-        min_int = -(2 ** (n_bit - 1))
-        scales = max_val.clamp(min=1e-6) / max_int
-
-        out = to_quant.div(scales).round().clamp_(min_int, max_int - 1)
-
-        # Cast to int8 and restore shape.
-        out = out.to(dtype=torch.int8).reshape(x.shape)
-
-        # Scales should be in [num_groups, N] layout.
-        scales = scales.view(x.shape[0], -1).t().contiguous()
-
-        return out, scales
-
-    def quantize(self, x, w):
+    def quantize(self, x, wq, row_scale, group_scale):
         # Quantize both input tensors.
         xq, x_scale = quantize_fp8_row(x)
-        wq, w_scale = self._int4_row_quantize(w)
-        # Pack int4 values together.
-        wq = self._pack_int4(wq)
-        # Shuffle weights and scales for faster compute.
-        wq, w_scale = torch.ops.fbgemm.preshuffle_i4(wq, w_scale)
-        return xq, wq, x_scale, w_scale
+        return xq, wq, x_scale, row_scale, group_scale
 
-    def compute(self, xq, wq, x_scale, w_scale):
-        out = torch.ops.fbgemm.f8i4bf16_shuffled(xq, wq, x_scale, w_scale)
-        return out
+    def compute(self, xq, wq, x_scale, row_scale, group_scale):
+        # Handle batched cases by looping over each batch.
+        if xq.dim() == 3:
+            B, M, _ = xq.shape
+            _, N, _ = wq.shape
+            y = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
+            for i in range(B):
+                y[i] = torch.ops.fbgemm.f8i4bf16_shuffled(
+                    xq[i], wq[i], x_scale[i], row_scale[i], group_scale[i]
+                )
+            return y
+        # Otherwise run gemm normally.
+        return torch.ops.fbgemm.f8i4bf16_shuffled(
+            xq, wq, x_scale, row_scale, group_scale
+        )
 
-    def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale, w_scale)
+    def quantize_and_compute(self, x, wq, row_scale, group_scale):
+        xq, wq, x_scale, row_scale, group_scale = self.quantize(
+            x, wq, row_scale, group_scale
+        )
+        return self.compute(xq, wq, x_scale, row_scale, group_scale)
 
     @property
     def name(self) -> str:
         return "cutlass_f8i4_preshuffle"
+
+    @property
+    def hip(self) -> bool:
+        # Not yet supported on AMD.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
 
 
 @register_quantize_op

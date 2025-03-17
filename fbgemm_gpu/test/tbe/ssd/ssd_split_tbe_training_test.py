@@ -218,6 +218,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         share_table: bool = False,
         prefetch_pipeline: bool = False,
         bulk_init_chunk_size: int = 0,
+        lazy_bulk_init_enabled: bool = False,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -295,9 +296,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             bounds_check_mode=BoundsCheckMode.WARNING,
             l2_cache_size=8,
             bulk_init_chunk_size=bulk_init_chunk_size,
+            lazy_bulk_init_enabled=lazy_bulk_init_enabled,
         ).cuda()
 
-        if bulk_init_chunk_size > 0:
+        if bulk_init_chunk_size > 0 and lazy_bulk_init_enabled:
             self.assertIsNotNone(
                 emb.lazy_init_thread,
                 "if bulk_init_chunk_size > 0, lazy_init_thread must be set and it should not be force-synchronized yet",
@@ -696,9 +698,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(
         bulk_init_chunk_size=st.sampled_from([0, 100]),
+        lazy_bulk_init_enabled=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_ssd_emb_state_dict(self, bulk_init_chunk_size: int) -> None:
+    def test_ssd_emb_state_dict(
+        self, bulk_init_chunk_size: int, lazy_bulk_init_enabled: bool
+    ) -> None:
         # Constants
         lr = 0.5
         eps = 0.2
@@ -732,6 +737,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             share_table=True,
             bulk_init_chunk_size=bulk_init_chunk_size,
+            lazy_bulk_init_enabled=lazy_bulk_init_enabled,
         )
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]

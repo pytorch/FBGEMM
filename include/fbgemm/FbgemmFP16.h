@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "./FbgemmPackMatrixB.h"
+#include "./FloatConversion.h"
 #include "./Types.h"
 #include "./Utils.h"
 

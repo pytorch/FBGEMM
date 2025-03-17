@@ -22,8 +22,6 @@
 #include "cutlass/util/mixed_dtype_utils.hpp"
 #include "cutlass/util/packed_stride.hpp"
 
-#include "cutlass_extensions/include/kernel_mode.h"
-
 namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
@@ -33,19 +31,15 @@ at::Tensor _f8i4bf16_shuffled(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale) {
+    at::Tensor w_scale,
+    at::Tensor w_scale_group,
+    at::Tensor Y) {
   // Get shape information from input tensors.
-  int M = XQ.size(0);
-  int K = XQ.size(1);
-  int N = WQ.size(0);
-  // Make sure w_scale is in proper format.
-  TORCH_CHECK(
-      w_scale.size(1) == 8,
-      "Weights and scales must be prepacked with preshuffle_i4.");
-  int num_groups = w_scale.size(0);
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
+  int num_groups = w_scale_group.size(0);
   int group_size = K / num_groups;
-  // Allocate output.
-  at::Tensor Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
 
   // Define input types.
   using MmaType = cutlass::float_e4m3_t;
@@ -108,7 +102,15 @@ at::Tensor _f8i4bf16_shuffled(
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
 
   // Define EVT for rowwise scaling.
-  using XScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
+  // Implement rowwise scaling epilogue.
+  using XScale = cutlass::epilogue::fusion::Sm90ColBroadcast<
+      0,
+      TileShape,
+      ElementAccumulator,
+      ElementAccumulator,
+      cute::Stride<cute::Int<1>, cute::Int<0>, cute::Int<0>>>;
+
+  using WScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
       0,
       TileShape,
       ElementAccumulator,
@@ -119,12 +121,21 @@ at::Tensor _f8i4bf16_shuffled(
 
   using Compute0 = cutlass::epilogue::fusion::Sm90Compute<
       cutlass::multiplies,
-      ElementC, // First stage output type.
+      ElementAccumulator, // First stage output type.
       ElementAccumulator, // First stage input types.
       cutlass::FloatRoundStyle::round_to_nearest>;
 
+  using EVTCompute0 =
+      cutlass::epilogue::fusion::Sm90EVT<Compute0, WScale, Accum>;
+
+  using Compute1 = cutlass::epilogue::fusion::Sm90Compute<
+      cutlass::multiplies,
+      ElementC,
+      ElementAccumulator, // Second stage input types.
+      cutlass::FloatRoundStyle::round_to_nearest>;
+
   using EpilogueEVT =
-      cutlass::epilogue::fusion::Sm90EVT<Compute0, XScale, Accum>;
+      cutlass::epilogue::fusion::Sm90EVT<Compute1, XScale, EVTCompute0>;
 
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
@@ -192,7 +203,8 @@ at::Tensor _f8i4bf16_shuffled(
        layout_B_reordered,
        reinterpret_cast<ElementA*>(XQ.data_ptr()),
        stride_A,
-       reinterpret_cast<cutlass::Array<ElementScale, 8>*>(w_scale.data_ptr()),
+       reinterpret_cast<cutlass::Array<ElementScale, 8>*>(
+           w_scale_group.data_ptr()),
        stride_S,
        group_size},
       {{},
@@ -202,8 +214,14 @@ at::Tensor _f8i4bf16_shuffled(
        stride_C}};
 
   arguments.epilogue.thread = {
-      {reinterpret_cast<ElementAccumulator*>(x_scale.data_ptr())}, // x_scale
-      {}, // Accumulator
+      {reinterpret_cast<ElementAccumulator*>(w_scale.data_ptr())}, // w_scale
+      // compute_0
+      {
+          {reinterpret_cast<ElementAccumulator*>(
+              x_scale.data_ptr())}, // w_scale
+          {}, // Accumulator
+          {} // Multiplies
+      },
       {}, // Multiplies
   };
 
@@ -212,10 +230,11 @@ at::Tensor _f8i4bf16_shuffled(
 
   // Using the arguments, query for extra workspace required for matrix
   // multiplication computation
-  size_t workspace_size = GemmShuffled::get_workspace_size(arguments);
+  int workspace_size = GemmShuffled::get_workspace_size(arguments);
 
   // Allocate workspace memory
-  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+  at::Tensor workspace =
+      at::empty(workspace_size, XQ.options().dtype(at::kByte));
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm.can_implement(arguments);
@@ -224,7 +243,7 @@ at::Tensor _f8i4bf16_shuffled(
   }
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.get());
+  status = gemm.initialize(arguments, workspace.data_ptr());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }
@@ -245,54 +264,124 @@ at::Tensor f8i4bf16_shuffled(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale) {
-  int M = XQ.size(0);
-  int K = XQ.size(1);
-  int N = WQ.size(0);
+    at::Tensor w_scale,
+    at::Tensor w_scale_group) {
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
+  // Check input types and shapes.
+  TORCH_CHECK(
+      XQ.is_cuda() && XQ.is_contiguous() && XQ.dtype() == at::kFloat8_e4m3fn,
+      "XQ must be FP8 and contiguous on GPU.");
+  TORCH_CHECK(
+      WQ.size(-1) == K / 2 && WQ.is_cuda() && WQ.is_contiguous() &&
+          WQ.dtype() == at::kChar,
+      "WQ should be int8 (which represent two int4 values), have shape [..., N, K/2], "
+      "and be contiguous on GPU.");
+  TORCH_CHECK(
+      x_scale.numel() == M && x_scale.dtype() == at::kFloat &&
+          x_scale.is_cuda(),
+      "x_scale must be fp32 and have M total elements.");
+  TORCH_CHECK(
+      w_scale.numel() == N && w_scale.dtype() == at::kFloat &&
+          w_scale.is_cuda(),
+      "Weight row scale should have N elements and be on GPU.");
+  // Make sure w_scale_group is in proper format.
+  TORCH_CHECK(
+      w_scale_group.dtype() == at::kFloat8_e4m3fn && w_scale_group.dim() == 3 &&
+          w_scale_group.size(1) == 8 && w_scale_group.size(2) == N,
+      "Weights and group scales must be prepacked with preshuffle_i4. "
+      "Group scales are expected to be FP8 and have shape [num_groups, 8, N].");
+
+  // Allocate output or return an empty tensor if input is empty.
+  if (M == 0 || N == 0 || K == 0) {
+    return at::zeros({M, N}, XQ.options().dtype(at::kBFloat16));
+  }
+  at::Tensor Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+
   // Use shape heuristics to dispatch to optimized kernel configuration.
   if (M <= 16) {
-    return _f8i4bf16_shuffled<64, 16, 2, 1, 1, false>(XQ, WQ, x_scale, w_scale);
+    return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+        XQ, WQ, x_scale, w_scale, w_scale_group, Y);
   } else if (M <= 32) {
-    return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(XQ, WQ, x_scale, w_scale);
-  } else if (M <= 64) {
-    return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(XQ, WQ, x_scale, w_scale);
-  } else if (M <= 128) {
-    return _f8i4bf16_shuffled<64, 128, 2, 1, 1, false>(
-        XQ, WQ, x_scale, w_scale);
-  } else if (M <= 256) {
     if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 128, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale);
+      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    }
+  } else if (M <= 64) {
+    if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    }
+  } else if (M <= 128) {
+    if (N <= 1024) {
+      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else {
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    }
+  } else if (M <= 256) {
+    if (N <= 1024) {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
       return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   } else if (M <= 512) {
-    if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 256, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale);
+    if (N <= 1024) {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
       return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   } else if (M <= 1024) {
     if (N <= 1024) {
-      return _f8i4bf16_shuffled<64, 128, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale);
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else if (N <= 2048) {
-      return _f8i4bf16_shuffled<64, 256, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale);
+      return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
-      return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale);
+      return _f8i4bf16_shuffled<128, 256, 1, 1, 1, true>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   } else {
-    if (N <= 1024) {
+    if (M <= 2048 && N <= 1024) {
       return _f8i4bf16_shuffled<64, 256, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
       return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   }
 }
@@ -303,7 +392,8 @@ at::Tensor f8i4bf16_shuffled(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale) {
+    at::Tensor w_scale,
+    at::Tensor w_scale_group) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

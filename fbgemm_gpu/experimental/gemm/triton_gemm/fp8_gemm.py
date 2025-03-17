@@ -3097,3 +3097,75 @@ def _kernel_matmul_fp8_row_non_persistent(
         tl.store(C, acc, mask=mask)
     else:
         tl.atomic_add(C, acc, mask=mask)
+
+
+@triton.jit
+def _kernel_dequantize_fp8_block(
+    xq_ptr,
+    x_scale_ptr,
+    x_dequant_ptr,
+    M,
+    K,
+    BLOCK_M: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+):
+    """
+    Kernel to dequantize FP8 tensor to BF16 tensor.
+    Args:
+        xq_ptr (tl.constexpr): Pointer to FP8 tensor.
+        x_scale_ptr (tl.constexpr): Pointer to FP8 scale tensor.
+        x_dequant_ptr (tl.constexpr): Pointer to BF16 tensor.
+        M (tl.constexpr): M dimension of input tensor.
+        K (tl.constexpr): K dimension of input tensor.
+        BLOCK_M (tl.constexpr): Block size for the M dimension.
+        BLOCK_K (tl.constexpr): Block size for the K dimension.
+    """
+    pid_m = tl.program_id(axis=0)
+    pid_k = tl.program_id(axis=1)
+    k = tl.cdiv(K, BLOCK_K)
+    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_k = pid_k * BLOCK_K + tl.arange(0, BLOCK_K)
+    offs = offs_m[:, None] * K + offs_k[None, :]
+    mask = (offs_m[:, None] < M) & (offs_k[None, :] < K)
+    xq = tl.load(xq_ptr + offs, mask=mask).to(tl.bfloat16)
+    x_scale = tl.load(x_scale_ptr + pid_m * k + pid_k)
+    x_dequant = xq * x_scale
+    tl.store(x_dequant_ptr + offs, x_dequant, mask=mask)
+
+
+def dequantize_fp8_block(
+    xq: torch.Tensor,
+    x_scale: torch.Tensor,
+    block_m: int = 256,
+    block_k: int = 256,
+) -> torch.Tensor:
+    """
+    Dequantize FP8 tensor to BF16 tensor.
+
+    Args:
+        xq (torch.Tensor): FP8 tensor to be dequantized.
+        x_scale (torch.Tensor): FP8 scale tensor.
+        block_m (int): Block size for the M dimension.
+        block_k (int): Block size for the K dimension.
+
+    Returns:
+        torch.Tensor: Dequantized BF16 tensor.
+    """
+
+    assert (
+        xq.is_contiguous() and x_scale.is_contiguous()
+    ), "Input tensors must be contiguous"
+    assert xq.dim() == 2 and x_scale.dim() == 2, "Input tensors must have 2 dimensions"
+    M, K = xq.size()
+    x_dequant = torch.empty_like(xq, dtype=torch.bfloat16)
+
+    def grid(meta):
+        return (
+            triton.cdiv(M, meta["BLOCK_M"]),
+            triton.cdiv(K, meta["BLOCK_K"]),
+        )
+
+    _kernel_dequantize_fp8_block[grid](
+        xq, x_scale, x_dequant, M, K, BLOCK_M=block_m, BLOCK_K=block_k  # pyre-ignore[6]
+    )
+    return x_dequant
