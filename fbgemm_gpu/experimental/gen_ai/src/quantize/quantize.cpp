@@ -137,7 +137,8 @@ at::Tensor f8i4bf16_shuffled(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale);
+    at::Tensor w_scale,
+    at::Tensor w_scale_group);
 std::tuple<at::Tensor, at::Tensor> preshuffle_i4(
     at::Tensor WQ,
     at::Tensor w_scale);
@@ -199,7 +200,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
-      "f8i4bf16_shuffled(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale) -> Tensor");
+      "f8i4bf16_shuffled(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_scale_group) -> Tensor");
   m.def("preshuffle_i4(Tensor WQ, Tensor w_scale) -> (Tensor, Tensor)");
   m.def("bf16_fast_gemv(Tensor X, Tensor W) -> Tensor");
   m.def("bf16fp8bf16_fast_gemv(Tensor X, Tensor W, Tensor w_scale) -> Tensor");
