@@ -22,8 +22,6 @@
 #include "cutlass/util/mixed_dtype_utils.hpp"
 #include "cutlass/util/packed_stride.hpp"
 
-#include "cutlass_extensions/include/kernel_mode.h"
-
 namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
@@ -34,19 +32,14 @@ at::Tensor _f8i4bf16_shuffled(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor w_scale_group) {
+    at::Tensor w_scale_group,
+    at::Tensor Y) {
   // Get shape information from input tensors.
-  int M = XQ.size(0);
-  int K = XQ.size(1);
-  int N = WQ.size(0);
-  // Make sure w_scale_group is in proper format.
-  TORCH_CHECK(
-      w_scale_group.size(1) == 8,
-      "Weights and group scales must be prepacked with preshuffle_i4.");
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
   int num_groups = w_scale_group.size(0);
   int group_size = K / num_groups;
-  // Allocate output.
-  at::Tensor Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
 
   // Define input types.
   using MmaType = cutlass::float_e4m3_t;
@@ -273,56 +266,122 @@ at::Tensor f8i4bf16_shuffled(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_scale_group) {
-  int M = XQ.size(0);
-  int K = XQ.size(1);
-  int N = WQ.size(0);
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
+  // Check input types and shapes.
+  TORCH_CHECK(
+      XQ.is_cuda() && XQ.is_contiguous() && XQ.dtype() == at::kFloat8_e4m3fn,
+      "XQ must be FP8 and contiguous on GPU.");
+  TORCH_CHECK(
+      WQ.size(-1) == K / 2 && WQ.is_cuda() && WQ.is_contiguous() &&
+          WQ.dtype() == at::kChar,
+      "WQ should be int8 (which represent two int4 values), have shape [..., N, K/2], "
+      "and be contiguous on GPU.");
+  TORCH_CHECK(
+      x_scale.numel() == M && x_scale.dtype() == at::kFloat &&
+          x_scale.is_cuda(),
+      "x_scale must be fp32 and have M total elements.");
+  TORCH_CHECK(
+      w_scale.numel() == N && w_scale.dtype() == at::kFloat &&
+          w_scale.is_cuda(),
+      "Weight row scale should have N elements and be on GPU.");
+  // Make sure w_scale_group is in proper format.
+  TORCH_CHECK(
+      w_scale_group.dtype() == at::kFloat8_e4m3fn && w_scale_group.dim() == 3 &&
+          w_scale_group.size(1) == 8 && w_scale_group.size(2) == N,
+      "Weights and group scales must be prepacked with preshuffle_i4. "
+      "Group scales are expected to be FP8 and have shape [num_groups, 8, N].");
+
+  // Allocate output or return an empty tensor if input is empty.
+  if (M == 0 || N == 0 || K == 0) {
+    return at::zeros({M, N}, XQ.options().dtype(at::kBFloat16));
+  }
+  at::Tensor Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+
   // Use shape heuristics to dispatch to optimized kernel configuration.
   if (M <= 16) {
-    return _f8i4bf16_shuffled<64, 16, 2, 1, 1, false>(
-        XQ, WQ, x_scale, w_scale, w_scale_group);
+    return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+        XQ, WQ, x_scale, w_scale, w_scale_group, Y);
   } else if (M <= 32) {
-    return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
-        XQ, WQ, x_scale, w_scale, w_scale_group);
-  } else if (M <= 64) {
-    return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
-        XQ, WQ, x_scale, w_scale, w_scale_group);
-  } else if (M <= 128) {
-    return _f8i4bf16_shuffled<64, 128, 2, 1, 1, false>(
-        XQ, WQ, x_scale, w_scale, w_scale_group);
-  } else if (M <= 256) {
     if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 128, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    }
+  } else if (M <= 64) {
+    if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    }
+  } else if (M <= 128) {
+    if (N <= 1024) {
+      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else {
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    }
+  } else if (M <= 256) {
+    if (N <= 1024) {
+      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
       return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   } else if (M <= 512) {
-    if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 256, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+    if (N <= 1024) {
+      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 2048) {
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    } else if (N <= 4096) {
+      return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
       return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   } else if (M <= 1024) {
     if (N <= 1024) {
-      return _f8i4bf16_shuffled<64, 128, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else if (N <= 2048) {
-      return _f8i4bf16_shuffled<64, 256, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+      return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
-      return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+      return _f8i4bf16_shuffled<128, 256, 1, 1, 1, true>(
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   } else {
-    if (N <= 1024) {
+    if (M <= 2048 && N <= 1024) {
       return _f8i4bf16_shuffled<64, 256, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     } else {
       return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale, w_scale_group);
+          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
     }
   }
 }
