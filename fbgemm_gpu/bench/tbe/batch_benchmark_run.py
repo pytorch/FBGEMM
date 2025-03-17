@@ -13,7 +13,8 @@ import subprocess
 
 import click
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 
 @click.command()

@@ -47,7 +47,8 @@ from fbgemm_gpu.tbe.bench import (
 from fbgemm_gpu.tbe.utils import generate_requests, round_up, TBERequest
 from torch.profiler import profile
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 
 def kineto_trace_profiler(p: profile, trace_info: tuple[str, str, str, str]) -> float:

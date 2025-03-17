@@ -41,7 +41,8 @@ from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBEReq
 from torch import Tensor
 from torch.profiler import profile
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 
 @click.group()
