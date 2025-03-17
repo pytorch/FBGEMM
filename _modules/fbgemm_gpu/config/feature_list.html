@@ -499,8 +499,11 @@
     <span class="c1"># Enable Ensemble Rowwise Adagrad (D60189486 stack)</span>
     <span class="n">TBE_ENSEMBLE_ROWWISE_ADAGRAD</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
-    <span class="c1"># Enable ROCm packed bags optimization in inference</span>
+    <span class="c1"># Enable ROCm packed bags optimization in TBE inference</span>
     <span class="n">TBE_ROCM_INFERENCE_PACKED_BAGS</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
+    <span class="c1"># Enable HIP-based backward kernels in TBE training</span>
+    <span class="n">TBE_ROCM_HIP_BACKWARD_KERNEL</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
     <span class="c1"># Enable bounds_check_indices_v2</span>
     <span class="n">BOUNDS_CHECK_INDICES_V2</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
