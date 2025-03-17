@@ -1386,9 +1386,7 @@ class F8I4ShuffledGroupedGemm(QuantizeOpBase):
         ), "Only supported for grouped inputs."
         m_values = [i.shape[0] for i in x]
         # Convert m_values into offsets into grouped tensor.
-        m_offsets = torch.tensor(np.cumsum(m_values)).to(
-            dtype=torch.int64, device=x[0].device
-        )
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
         # Quantize weights.
         # TODO Only rowwise scaling is currently supported. This needs to be fixed.
         K = x[0].shape[-1]
@@ -1402,25 +1400,25 @@ class F8I4ShuffledGroupedGemm(QuantizeOpBase):
         # Also view input as flattened.
         x = torch.concat(x, dim=0).contiguous()
         # Return processed tensors.
-        return x, wq, row_scale, group_scale, m_offsets
+        return x, wq, row_scale, group_scale, m_sizes
 
-    def quantize(self, x, wq, row_scale, group_scale, m_offsets):
+    def quantize(self, x, wq, row_scale, group_scale, m_sizes):
         B = x.shape[0]
         xq, x_scale = triton_quantize_fp8_row(x)
         x_scale = x_scale.view(B, -1)
-        return xq, wq, x_scale, row_scale, group_scale, m_offsets
+        return xq, wq, x_scale, row_scale, group_scale, m_sizes
 
-    def compute(self, xq, wq, x_scale, row_scale, group_scale, m_offsets):
+    def compute(self, xq, wq, x_scale, row_scale, group_scale, m_sizes):
         out = torch.ops.fbgemm.f8i4bf16_shuffled_grouped(
-            xq, wq, x_scale, row_scale, group_scale, m_offsets
+            xq, wq, x_scale, row_scale, group_scale, m_sizes
         )
         return out
 
-    def quantize_and_compute(self, x, wq, row_scale, group_scale, m_offsets):
-        xq, wq, x_scale, row_scale, group_scale, m_offsets = self.quantize(
-            x, wq, row_scale, group_scale, m_offsets
+    def quantize_and_compute(self, x, wq, row_scale, group_scale, m_sizes):
+        xq, wq, x_scale, row_scale, group_scale, m_sizes = self.quantize(
+            x, wq, row_scale, group_scale, m_sizes
         )
-        return self.compute(xq, wq, x_scale, row_scale, group_scale, m_offsets)
+        return self.compute(xq, wq, x_scale, row_scale, group_scale, m_sizes)
 
     @property
     def name(self) -> str:
