@@ -228,6 +228,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
 
     constexpr int32_t kWarpsPerBlock = 4;
     const auto device_only = lxu_cache_weights.numel() == 0 && uvm_weights.numel() == 0;
+    // PackedMode is only available for ROCm devices
+    constexpr bool kIsRocm = {{ "true" if is_rocm else "false" }};
+    const static bool use_rocm_packed_bag_mode = kIsRocm && fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_INFERENCE_PACKED_BAGS);
     /*
      * Helper macro for run-time packed mode dispatch. Computes maximum number of bags
      * (num_packed_bags) that fits into NumUint4LoadsPerRow given embeddings' type and 
@@ -303,20 +306,34 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         constexpr auto sparse_type = SparseType::INT4;
         auto max_int4_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_D, sparse_type, row_alignment), 128);
         TORCH_CHECK(max_int4_128b_rows <= 16);
-        if (max_int4_128b_rows > 0) {
-          Y(4, 8, 0, 1);
-        }
-        if (max_int4_128b_rows > 1) {
-          Y(2, 8, 1, 2);
+        if(use_rocm_packed_bag_mode) {
+          if (max_int4_128b_rows > 0) {
+            Y(2, 4, 0, 2);
+          }
+        } else {
+          if (max_int4_128b_rows > 0) {
+            Y(4, 8, 0, 1);
+          }
+          if (max_int4_128b_rows > 1) {
+            Y(2, 8, 1, 2);
+          }
         }
         if (max_int4_128b_rows > 2) {
           Y(1, 4, 2, 4);
         }
         if (max_int4_128b_rows > 4) {
-          Y(1, 4, 4, 8);
+          if(use_rocm_packed_bag_mode) {
+            Y(1, 2, 4, 8);
+          } else {
+            Y(1, 4, 4, 8);
+          }
         }
         if (max_int4_128b_rows > 8) {
-          Y(1, 4, 8, 16);
+          if(use_rocm_packed_bag_mode) {
+            Y(1, 1, 8, 16);
+          } else { 
+            Y(1, 4, 8, 16);
+          } 
         }
       }
     }));
@@ -335,23 +352,45 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         constexpr auto sparse_type = SparseType::INT8;
         auto max_int8_128b_rows = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_D, sparse_type, row_alignment), 128);
         TORCH_CHECK(max_int8_128b_rows <= 32);
-        if (max_int8_128b_rows > 0) {
-          Y(2, 8, 0, 1);
-        }
-        if (max_int8_128b_rows > 1) {
-          Y(2, 4, 1, 2);
+        if(use_rocm_packed_bag_mode) {
+          if (max_int8_128b_rows > 0) {
+            Y(2, 4, 0, 2);
+          }
+        } else {
+          if (max_int8_128b_rows > 0) {
+            Y(2, 8, 0, 1);
+          }
+          if (max_int8_128b_rows > 1) {
+            Y(2, 4, 1, 2);
+          }
         }
         if (max_int8_128b_rows > 2) {
-          Y(2, 4, 2, 4);
+          if(use_rocm_packed_bag_mode) {
+            Y(2, 2, 2, 4);
+          } else {
+            Y(2, 4, 2, 4);
+          }
         }
         if (max_int8_128b_rows > 4) {
-          Y(2, 4, 4, 8);
+          if(use_rocm_packed_bag_mode) {
+            Y(2, 1, 4, 8);
+          } else {
+            Y(2, 4, 4, 8);
+          }
         }
         if (max_int8_128b_rows > 8) {
-          Y(2, 2, 8, 16);
+          if(use_rocm_packed_bag_mode) {
+            Y(1, 1, 8, 16);
+          } else {
+            Y(2, 2, 8, 16);
+          }
         }
         if (max_int8_128b_rows > 16) {
-          Y(1, 2, 16, 32);
+          if(use_rocm_packed_bag_mode) {
+            Y(1, 1, 16, 32);
+          } else {
+            Y(1, 2, 16, 32);
+          }   
         }
       }
     }));
