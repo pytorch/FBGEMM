@@ -2,5 +2,10 @@
 
 # pyre-unsafe
 
+import torch
 
-from .shuffling import combine_shuffling, index_shuffling  # noqa F401
+torch.ops.load_library(
+    "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:index_shuffling_ops_gpu"
+)
+
+from fbgemm_gpu.experimental.gen_ai.moe import index_shuffling  # noqa F401
