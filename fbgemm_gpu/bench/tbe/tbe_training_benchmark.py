@@ -28,6 +28,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.bench import (
+    benchmark_pipelined_requests,
     benchmark_requests,
     EmbeddingOpsCommonConfigLoader,
     TBEBenchmarkingConfigLoader,
@@ -74,7 +75,7 @@ def cli() -> None:
 @click.option("--cache-load-factor", default=0.2)
 @TBEBenchmarkingConfigLoader.options
 @TBEDataConfigLoader.options
-@EmbeddingOpsCommonConfigLoader.options
+@EmbeddingOpsCommonConfigLoader.options(True)
 @click.pass_context
 def device(  # noqa C901
     context: click.Context,
@@ -285,6 +286,178 @@ def device(  # noqa C901
         f"Backward, B: {tbeconfig.batch_params.B}, E: {tbeconfig.E}, T: {tbeconfig.T}, D: {effective_D}, L: {tbeconfig.pooling_params.L}, "
         f"BW: {2 * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "
         f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+
+@cli.command()
+@click.option("--cache-algorithm", default="lru")
+@click.option("--cache-load-factor", default=0.2)
+@TBEBenchmarkingConfigLoader.options
+@TBEDataConfigLoader.options
+@EmbeddingOpsCommonConfigLoader.options(False)
+@click.pass_context
+def cache(  # noqa C901
+    context: click.Context,
+    cache_algorithm: str,
+    cache_load_factor: float,
+    # pyre-ignore[2]
+    **kwargs,
+) -> None:
+    # Initialize random seeds
+    np.random.seed(42)
+    torch.manual_seed(42)
+
+    # Load general TBE benchmarking configuration from cli arguments
+    benchconfig = TBEBenchmarkingConfigLoader.load(context)
+
+    # Load TBE data configuration from cli arguments
+    tbeconfig = TBEDataConfigLoader.load(context)
+
+    # Load common embedding op configuration from cli arguments
+    embconfig = EmbeddingOpsCommonConfigLoader.load(context)
+
+    E = tbeconfig.E
+    T = tbeconfig.T
+    D = tbeconfig.D
+    L = tbeconfig.pooling_params.L
+    B = tbeconfig.batch_params.B
+
+    # Generate embedding dims
+    effective_D, Ds = tbeconfig.generate_embedding_dims()
+
+    optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
+
+    cache_alg = CacheAlgorithm.LRU if cache_algorithm == "lru" else CacheAlgorithm.LFU
+
+    embedding_op_nocache = SplitTableBatchedEmbeddingBagsCodegen(
+        [
+            (
+                tbeconfig.E,
+                d,
+                EmbeddingLocation.MANAGED,
+                ComputeDevice.CUDA,
+            )
+            for d in Ds
+        ],
+        optimizer=optimizer,
+        **(embconfig.split_args()),
+    ).cuda()
+
+    if embconfig.weights_dtype == SparseType.INT8:
+        embedding_op_nocache.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+    embedding_op = SplitTableBatchedEmbeddingBagsCodegen(
+        [
+            (
+                tbeconfig.E,
+                d,
+                EmbeddingLocation.MANAGED_CACHING,
+                ComputeDevice.CUDA,
+            )
+            for d in Ds
+        ],
+        optimizer=optimizer,
+        cache_load_factor=cache_load_factor,
+        cache_algorithm=cache_alg,
+        **(embconfig.split_args()),
+    ).cuda()
+
+    if embconfig.weights_dtype == SparseType.INT8:
+        embedding_op.init_embedding_weights_uniform(-0.0003, 0.0003)
+
+    nparams = sum(w.numel() for w in embedding_op.split_embedding_weights())
+    param_size_multiplier = embconfig.weights_dtype.bit_rate() / 8.0
+    logging.info(
+        f"Embedding tables: {E * T} rows, {nparams / 1.0e9: .2f} GParam, "
+        f"{nparams * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+    logging.info(
+        f"Accessed weights per batch: {B * T * L} rows, "
+        f"{B * T * L * D * param_size_multiplier / 1.0e9: .2f} GB"
+    )
+
+    requests = tbeconfig.generate_requests(2 * benchconfig.iterations)
+
+    warmup_requests, requests = (
+        requests[: benchconfig.iterations],
+        requests[benchconfig.iterations :],
+    )
+    grad_output = torch.randn(tbeconfig.batch_params.B, sum(Ds)).cuda()
+
+    time_per_iter = benchmark_requests(
+        requests,
+        lambda indices, offsets, per_sample_weights: embedding_op_nocache(
+            indices, offsets, per_sample_weights
+        ).backward(grad_output),
+        flush_gpu_cache_size_mb=benchconfig.flush_gpu_cache_size_mb,
+        num_warmups=benchconfig.warmup_iterations,
+    )
+    logging.info(
+        f"ForwardBackward (UVM), B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
+        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / time_per_iter / 1.0e9: .2f} GB/s, "
+        f"T: {time_per_iter * 1.0e6:.0f}us"
+    )
+
+    # warm up
+    for req in warmup_requests:
+        indices, offsets = req.unpack_2()
+        embedding_op.forward(indices, offsets)
+    # get cache miss rate (forward and backward) and exchanged cache lines (prefetch)
+    cache_misses = []
+    exchanged_cache_lines = []
+    NOT_FOUND = -1
+    for req in requests:
+        indices, offsets = req.unpack_2()
+        # pyre-fixme[29]: `Union[(self: TensorBase, memory_format:
+        #  Optional[memory_format] = ...) -> Tensor, Tensor, Module]` is not a
+        #  function.
+        old_lxu_cache_state = embedding_op.lxu_cache_state.clone()
+        embedding_op.prefetch(indices, offsets)
+        exchanged_cache_lines.append(
+            # pyre-fixme[16]: Item `bool` of `bool | Tensor` has no attribute `sum`.
+            (embedding_op.lxu_cache_state != old_lxu_cache_state)
+            .sum()
+            .item()
+        )
+        cache_misses.append(
+            (embedding_op.lxu_cache_locations_list[0] == NOT_FOUND).sum().item()
+        )
+        embedding_op.forward(indices, offsets)
+    logging.info(
+        f"Exchanged cache lines -- mean: {sum(exchanged_cache_lines) / len(requests): .2f}, "
+        f"max: {max(exchanged_cache_lines)}, min: {min(exchanged_cache_lines)}"
+    )
+    logging.info(
+        f"Cache miss -- mean: {sum(cache_misses) / len(requests)}, "
+        f"max: {max(cache_misses)}, min: {min(cache_misses)}"
+    )
+
+    # benchmark prefetch
+    embedding_op.reset_cache_states()
+    for req in warmup_requests:
+        indices, offsets = req.unpack_2()
+        embedding_op.forward(indices, offsets)
+    # TODO: Add warmup_runs
+    prefetch_time, forward_backward_time = benchmark_pipelined_requests(
+        requests,
+        lambda indices, offsets, indices_weights: embedding_op.prefetch(
+            indices, offsets
+        ),
+        lambda indices, offsets, indices_weights: embedding_op.forward(
+            indices, offsets, indices_weights
+        ).backward(grad_output),
+        flush_gpu_cache_size_mb=benchconfig.flush_gpu_cache_size_mb,
+    )
+    e2e_time = prefetch_time + forward_backward_time
+
+    logging.info(
+        f"ForwardBackward (LXU) B: {B}, E: {E}, T: {T}, D: {D}, L: {L}, "
+        f"BW: {3 * param_size_multiplier * B * sum(Ds) * L / e2e_time / 1.0e9: .2f} GB/s, "
+        f"Tprefetch: {prefetch_time * 1.0e6:.0f}us, "
+        f"{2 * sum(exchanged_cache_lines) * param_size_multiplier * D / prefetch_time / len(requests) / 1.0e9: .2f} GB/s, "
+        f"Tfwdbwd: {forward_backward_time * 1.0e6:.0f}us, "
+        f"{3 * param_size_multiplier * B * sum(Ds) * L / forward_backward_time / 1.0e9: .2f} GB/s, "
+        f"Te2e: {e2e_time * 1.0e6:.0f}us, "
     )
 
 

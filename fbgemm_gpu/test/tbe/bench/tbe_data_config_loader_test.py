@@ -35,15 +35,15 @@ def clean_command(command: str) -> List[str]:
 @TBEDataConfigLoader.options
 @click.pass_context
 # pyre-ignore [2]
-def read_tbe_config(context: click.Context, **kwargs) -> None:
+def read_config(context: click.Context, **kwargs) -> None:
     config = TBEDataConfigLoader.load(context)
     # NOTE: This is a hack to pass the parsed config from inside the click CLI
     # runtime back to the test harness
-    raise Exception(f"{config.json()}")
+    raise Exception(config.json())
 
 
 class TBEDataConfigLoaderTest(unittest.TestCase):
-    def test_read_tbe_config_options(self) -> None:
+    def test_config_load(self) -> None:
         config = TBEDataConfig(
             rand_int(10, 100),
             rand_int(10, 100),
@@ -86,7 +86,7 @@ class TBEDataConfigLoaderTest(unittest.TestCase):
         )
 
         runner = CliRunner()
-        result = runner.invoke(read_tbe_config, args)
+        result = runner.invoke(read_config, args)
         print(str(result.stderr_bytes))
         print(str(result.exception))
         assert TBEDataConfig.from_json(str(result.exception)) == config
