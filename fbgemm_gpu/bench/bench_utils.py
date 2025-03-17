@@ -14,7 +14,8 @@ from typing import List, Tuple
 
 import torch
 
-logging.basicConfig(level=logging.DEBUG)
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 
 def benchmark_torch_function(  # noqa: C901
