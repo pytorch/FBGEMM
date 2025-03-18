@@ -461,17 +461,18 @@ class Fp8Fp8OSSFastGemv(QuantizeOpBase):
     """
 
     def quantize(self, x, w):
-        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-        return xq, wq, w_scale, x_scale
+        # rowwise quantize
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+        return xq, wq, x_scale, w_scale
 
-    def compute(self, xq, wq, w_scale, x_scale):
-        out = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(xq, wq, w_scale * x_scale)
+    def compute(self, xq, wq, x_scale, w_scale):
+        out = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(xq, wq, x_scale, w_scale)
         return out
 
     def quantize_and_compute(self, x, w):
-        xq, wq, w_scale, x_scale = self.quantize(x, w)
-        return self.compute(xq, wq, w_scale, x_scale)
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
 
     @property
     def name(self) -> str:
