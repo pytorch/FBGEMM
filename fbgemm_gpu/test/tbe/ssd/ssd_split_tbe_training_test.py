@@ -697,7 +697,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
     @given(
-        bulk_init_chunk_size=st.sampled_from([0, 100]),
+        bulk_init_chunk_size=st.sampled_from([0, 204800]),
         lazy_bulk_init_enabled=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
