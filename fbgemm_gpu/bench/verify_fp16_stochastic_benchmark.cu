@@ -66,7 +66,7 @@ __device__ half float_to_sto_half_assemblefloat(float w, uint8_t rand) {
 }
 
 __global__ void convert_float_to_half_direct(half* dst, float* src, int size) {
-  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_direct(src[idx]);
   }
@@ -74,7 +74,7 @@ __global__ void convert_float_to_half_direct(half* dst, float* src, int size) {
 
 __global__ void
 convert_float_to_half_bitcarry(half* dst, float* src, int size) {
-  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_bitcarry(src[idx]);
   }
@@ -82,7 +82,7 @@ convert_float_to_half_bitcarry(half* dst, float* src, int size) {
 
 __global__ void
 convert_float_to_half_shortrand(half* dst, float* src, uint8_t* r, int size) {
-  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_shortrand(src[idx], r[idx]);
   }
@@ -93,7 +93,7 @@ __global__ void convert_float_to_half_assemblefloat(
     float* src,
     uint8_t* r,
     int size) {
-  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < size) {
     dst[idx] = float_to_sto_half_assemblefloat(src[idx], r[idx]);
   }
@@ -128,7 +128,7 @@ void gen_8bit_random(uint8_t* d_random_number, int test_size) {
 }
 
 __global__ void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
-  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   const char val = d_flush[idx];
   if (do_write * val) {
     d_flush2[idx] = val;

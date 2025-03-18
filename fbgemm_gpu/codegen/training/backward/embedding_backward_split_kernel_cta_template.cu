@@ -173,8 +173,8 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
   constexpr auto kIsInt8 = std::is_same<emb_t, uint8_t>::value;
   int32_t T = weights_offsets.size(0);
   const int32_t num_long_runs = num_long_run_ids[0];
-  const int32_t warp_id = threadIdx.y;
-  const int32_t lane_id = threadIdx.x;
+  const auto warp_id = threadIdx.y;
+  const auto lane_id = threadIdx.x;
 
   // Copy value to max_vecs to make max_vecs_per_thread known at compile time
   // when kUseVecBlocking == false
@@ -187,7 +187,7 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
   {%- if is_gwd_kernel %}
   const float weight_decay_base = 1 - learning_rate * weight_decay;
   {%- endif %}
-  for (int32_t long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
+  for (auto long_run_id = blockIdx.x; long_run_id < num_long_runs; long_run_id += gridDim.x) {
         // The first thread block in the really long run has run_id in long_run_ids
         // and the rest have the negative of its offset (see find_long_segments kernel).
         int32_t cta_rank_on_current_run = 0;
