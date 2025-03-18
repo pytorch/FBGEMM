@@ -611,18 +611,23 @@
     <span class="n">indices</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">offsets</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
-    <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+    <span class="n">bounds_check_warning</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]]:</span>
-    <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;meta&quot;</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s2">&quot;meta&quot;</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span>
 
-    <span class="n">non_blocking</span> <span class="o">=</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">!=</span> <span class="s2">&quot;cpu&quot;</span>
-    <span class="k">if</span> <span class="n">indices</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">device</span><span class="p">:</span>
-        <span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="n">non_blocking</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">offsets</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">device</span><span class="p">:</span>
-        <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="n">non_blocking</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">device</span><span class="p">:</span>
-        <span class="n">per_sample_weights</span> <span class="o">=</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="n">non_blocking</span><span class="p">)</span>
+    <span class="n">non_blocking</span> <span class="o">=</span> <span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">!=</span> <span class="s2">&quot;cpu&quot;</span>
+    <span class="k">if</span> <span class="n">indices</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
+        <span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="n">non_blocking</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">offsets</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span><span class="p">:</span>
+        <span class="n">offsets</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="n">non_blocking</span><span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span>
+        <span class="n">per_sample_weights</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="ow">and</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">device</span> <span class="o">!=</span> <span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span>
+    <span class="p">):</span>
+        <span class="n">per_sample_weights</span> <span class="o">=</span> <span class="n">per_sample_weights</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span><span class="p">,</span> <span class="n">non_blocking</span><span class="o">=</span><span class="n">non_blocking</span>
+        <span class="p">)</span>
     <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span>
 
 
@@ -1398,7 +1403,7 @@
         <span class="p">),</span> <span class="s2">&quot;weight needs to be initialized before forward function&quot;</span>
 
         <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span> <span class="o">=</span> <span class="n">inputs_to_device</span><span class="p">(</span>
-            <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_warning</span><span class="o">.</span><span class="n">device</span>
+            <span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_warning</span>
         <span class="p">)</span>
 
         <span class="c1"># First bound check: check if the indices/offsets are within the boundary</span>
