@@ -16,7 +16,7 @@ import os
 import tempfile
 import threading
 import time
-from math import log2
+from math import floor, log2
 from typing import Any, Callable, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 
@@ -148,7 +148,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Set to False to use cudaMallocManaged
         uvm_host_mapped: bool = False,
         enable_async_update: bool = True,  # whether enable L2/rocksdb write to async background thread
-        # if > 0, insert all kv pairs to rocksdb at init time, in chunks of *bulk_init_chunk_size* rows
+        # if > 0, insert all kv pairs to rocksdb at init time, in chunks of *bulk_init_chunk_size* bytes
+        # number of rows will be decided by bulk_init_chunk_size / size_of_each_row
         bulk_init_chunk_size: int = 0,
         lazy_bulk_init_enabled: bool = False,
     ) -> None:
@@ -245,7 +246,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
             f"weights precision: {weights_precision}, "
             f"output dtype: {output_dtype}, "
-            f"chunk size in bulk init: {bulk_init_chunk_size} rows"
+            f"chunk size in bulk init: {bulk_init_chunk_size} bytes"
         )
         self.register_buffer(
             "lxu_cache_state",
@@ -766,21 +767,24 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         initailization time.
         """
         row_offset = 0
-        chunk_size = self.bulk_init_chunk_size
+        row_count = floor(
+            self.bulk_init_chunk_size
+            / (self.max_D * self.weights_precision.as_dtype().itemsize)
+        )
         total_dim0 = 0
         for dim0, _ in self.embedding_specs:
             total_dim0 += dim0
 
         start_ts = time.time()
         chunk_tensor = torch.empty(
-            chunk_size,
+            row_count,
             self.max_D,
             dtype=self.weights_precision.as_dtype(),
             device="cuda",
         )
         cpu_tensor = torch.empty_like(chunk_tensor, device="cpu")
-        for row_offset in range(0, total_dim0, chunk_size):
-            actual_dim0 = min(total_dim0 - row_offset, chunk_size)
+        for row_offset in range(0, total_dim0, row_count):
+            actual_dim0 = min(total_dim0 - row_offset, row_count)
             chunk_tensor.uniform_(
                 self.ssd_uniform_init_lower, self.ssd_uniform_init_upper
             )
@@ -789,9 +793,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # This code is intentionally not calling through the getter property
             # to avoid the lazy initialization thread from joining with itself.
             self._ssd_db.set_range_to_storage(rand_val, row_offset, actual_dim0)
+        self.ssd_db.toggle_compaction(True)
         end_ts = time.time()
         elapsed = int((end_ts - start_ts) * 1e6)
-        logging.info(f"TBE bulk initialization took {elapsed:_} us")
+        logging.info(
+            f"TBE bulk initialization took {elapsed:_} us, bulk_init_chunk_size={self.bulk_init_chunk_size}, each batch of {row_count} rows, total rows of {total_dim0}"
+        )
 
     @torch.jit.ignore
     def _report_duration(

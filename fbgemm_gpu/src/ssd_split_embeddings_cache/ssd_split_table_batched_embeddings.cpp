@@ -460,6 +460,7 @@ static auto embedding_rocks_db_wrapper =
         .def(
             "set_range_to_storage",
             &EmbeddingRocksDBWrapper::set_range_to_storage)
+        .def("toggle_compaction", &EmbeddingRocksDBWrapper::toggle_compaction)
         .def(
             "get",
             &EmbeddingRocksDBWrapper::get,
