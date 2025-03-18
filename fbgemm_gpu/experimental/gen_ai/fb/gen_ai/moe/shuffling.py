@@ -2,7 +2,7 @@
 
 # pyre-unsafe
 
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 import torch
 import triton
@@ -12,30 +12,46 @@ import triton.language as tl
 def combine_shuffling(
     tokens: torch.Tensor,
     token_counts: torch.Tensor,
-    balanced: bool = False,
+    expert_start: Optional[int] = None,
+    expert_end: Optional[int] = None,
+    is_balanced: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # pyre-ignore
     return _combine_or_split_shuffling(
-        is_combine=True, tokens=tokens, token_counts=token_counts, balanced=balanced
+        tokens=tokens,
+        token_counts=token_counts,
+        expert_start=expert_start,
+        expert_end=expert_end,
+        is_balanced=is_balanced,
+        is_combine=True,
     )
 
 
 def split_shuffling(
     tokens: torch.Tensor,
     token_counts: torch.Tensor,
-    balanced: bool = False,
+    expert_start: Optional[int] = None,
+    expert_end: Optional[int] = None,
+    is_balanced: bool = False,
 ) -> torch.Tensor:
     # pyre-ignore
     return _combine_or_split_shuffling(
-        is_combine=False, tokens=tokens, token_counts=token_counts, balanced=balanced
+        tokens=tokens,
+        token_counts=token_counts,
+        expert_start=expert_start,
+        expert_end=expert_end,
+        is_balanced=is_balanced,
+        is_combine=False,
     )
 
 
 def _combine_or_split_shuffling(
-    is_combine: bool,
     tokens: torch.Tensor,
     token_counts: torch.Tensor,
-    balanced: bool = False,
+    expert_start: Optional[int],
+    expert_end: Optional[int],
+    is_balanced: bool,
+    is_combine: bool,
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     # T is intentionally ignored in kernel interface to avoid recompilation
     assert tokens.is_contiguous()
@@ -44,21 +60,27 @@ def _combine_or_split_shuffling(
     T, D = tokens.shape
     EP, E = token_counts.shape
 
+    if expert_start is None:
+        expert_start = 0
+    if expert_end is None:
+        expert_end = E
+
+    EG: int = expert_end - expert_start
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
-    SPLIT_D = max(NUM_SMS // (EP * E), 1)
+    SPLIT_D = max(NUM_SMS // (EP * EG), 1)
     SPLIT_D = triton.next_power_of_2(SPLIT_D + 1)
     if T <= 1024:
         SPLIT_D //= 2
 
     if is_combine:
-        grid = (EP * E * SPLIT_D + 1,)
+        grid = (EP * EG * SPLIT_D + 1,)
     else:
-        grid = (EP * E * SPLIT_D,)
+        grid = (EP * EG * SPLIT_D,)
 
     output_tokens = torch.empty_like(tokens)
     if is_combine:
         output_token_counts = torch.empty(
-            E, dtype=token_counts.dtype, device=token_counts.device
+            EG + 1, dtype=token_counts.dtype, device=token_counts.device
         )
     else:
         output_token_counts = None
@@ -70,11 +92,13 @@ def _combine_or_split_shuffling(
         output_tokens,
         output_token_counts,
         is_combine,
-        balanced,
+        is_balanced,
         T_BUCKET,
         EP,
         E,
         D,
+        expert_start,
+        expert_end,
         SPLIT_D,
     )
 
@@ -121,7 +145,16 @@ _AMD_CONFIGS = [
 
 @triton.autotune(
     configs=_AMD_CONFIGS if torch.version.hip else _NV_CONFIGS,
-    key=["COMBINE", "BALANCED", "T_BUCKET", "EP", "E", "D"],
+    key=[
+        "COMBINE",
+        "BALANCED",
+        "T_BUCKET",
+        "EP",
+        "E",
+        "D",
+        "EG_START",
+        "EG_END",
+    ],
 )
 @triton.heuristics(
     values={
@@ -142,6 +175,8 @@ def _fbgemm_combine_or_split_shuffling(
     EP: tl.constexpr,
     E: tl.constexpr,
     D: tl.constexpr,
+    EG_START: tl.constexpr,
+    EG_END: tl.constexpr,
     SPLIT_D: tl.constexpr,
     BLOCK_T: tl.constexpr,
     BLOCK_D: tl.constexpr,
@@ -155,9 +190,14 @@ def _fbgemm_combine_or_split_shuffling(
     """
     tidx = tl.program_id(0)
 
-    rank = tidx // (E * SPLIT_D)
-    expert = (tidx % (E * SPLIT_D)) // SPLIT_D
+    tl.static_assert(EG_END > EG_START)
+    EG: tl.constexpr = EG_END - EG_START
+
+    rank = tidx // (EG * SPLIT_D)
+    local_expert = (tidx % (EG * SPLIT_D)) // SPLIT_D
     didx = tidx % SPLIT_D
+
+    global_expert = local_expert + EG_START
 
     input_token_counts = tl.load(
         input_token_counts_ptr
@@ -166,24 +206,56 @@ def _fbgemm_combine_or_split_shuffling(
         eviction_policy="evict_last",
     )  # [EP, E]
 
-    LAST_TILE: tl.constexpr = EP * E * SPLIT_D
+    input_token_counts_eg = tl.load(
+        input_token_counts_ptr
+        + tl.arange(0, EP)[:, None] * E
+        + EG_START
+        + tl.arange(0, EG)[None, :],
+        eviction_policy="evict_last",
+    )  # [EP, EG]
+
     if COMBINE:
+        LAST_TILE: tl.constexpr = EP * EG * SPLIT_D
+
         if tidx == LAST_TILE:
-            output_token_counts = tl.sum(input_token_counts, axis=0)
-            tl.store(output_token_counts_ptr + tl.arange(0, E)[:], output_token_counts)
+            if EG == E:
+                output_token_counts = tl.sum(input_token_counts, axis=0)
+                tl.store(
+                    output_token_counts_ptr + tl.arange(0, E)[:], output_token_counts
+                )
+                output_token_counts = tl.sum(output_token_counts)
+                tl.store(output_token_counts_ptr + E, output_token_counts)
+            else:
+                output_token_counts_eg = tl.sum(input_token_counts_eg, axis=0)
+                tl.store(
+                    output_token_counts_ptr + tl.arange(0, EG)[:],
+                    output_token_counts_eg,
+                )
+                output_token_counts_eg = tl.sum(output_token_counts_eg)
+                tl.store(output_token_counts_ptr + EG, output_token_counts_eg)
             return
 
     cond0 = tl.arange(0, EP)[:, None] < rank
     cond1 = tl.arange(0, EP)[:, None] == rank
-    cond2 = tl.arange(0, E)[None, :] < expert
-    cond3 = tl.arange(0, E)[None, :] == expert
+
+    cond2 = tl.arange(0, E)[None, :] < global_expert
+    cond3 = tl.arange(0, E)[None, :] == global_expert
 
     # r < rank || (r == rank && e < expert)
     ep_first_order = tl.sum(tl.where(cond0 or (cond1 and cond2), input_token_counts, 0))
-    # e < expert || (e == expert && r < rank)
-    expert_first_order = tl.sum(
-        tl.where(cond2 or (cond3 and cond0), input_token_counts, 0)
-    )
+    if EG == E:
+        # e < expert || (e == expert && r < rank)
+        expert_first_order = tl.sum(
+            tl.where(cond2 or (cond3 and cond0), input_token_counts, 0)
+        )
+    else:
+        # e < expert || (e == expert && r < rank)
+        cond4 = tl.arange(0, EG)[None, :] < local_expert
+        cond5 = tl.arange(0, EG)[None, :] == local_expert
+
+        expert_first_order = tl.sum(
+            tl.where(cond4 or (cond5 and cond0), input_token_counts_eg, 0)
+        )
 
     if COMBINE:
         input_offset = ep_first_order
@@ -192,7 +264,7 @@ def _fbgemm_combine_or_split_shuffling(
         input_offset = expert_first_order
         output_offset = ep_first_order
 
-    num_copy_tokens = tl.load(input_token_counts_ptr + rank * E + expert)
+    num_copy_tokens = tl.load(input_token_counts_ptr + rank * E + global_expert)
     if num_copy_tokens == 0:
         return
 

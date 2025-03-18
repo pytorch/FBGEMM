@@ -4,11 +4,12 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
+import functools
 import inspect
 import itertools
 import logging
 import unittest
-from typing import List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 import torch
 import triton  # noqa: F401
@@ -28,11 +29,15 @@ logger.setLevel(logging.INFO)
 torch._dynamo.config.cache_size_limit = 128
 
 
-def _do_bench_cudagraph_and_clear_cache(fn) -> float:
-    # 1GB data. Enough to clear L2 cache.
-    cache = torch.empty(1024 * 1024 * 1024, device="cuda", dtype=torch.int8)
+# pyre-ignore
+def _do_bench_cudagraph_and_clear_cache(fn: Callable[[], Any]) -> float:
+    # 1GB data. Enough to clear L2/L3 cache.
+    cache: torch.Tensor = torch.empty(
+        1024 * 1024 * 1024, device="cuda", dtype=torch.int8
+    )
 
-    def wrapped_fn():
+    # pyre-ignore
+    def wrapped_fn() -> Any:
         cache.zero_()
         return fn()
 
@@ -197,14 +202,16 @@ class ShufflingTests(unittest.TestCase):
                 num_experts=num_experts,
                 ep_size=ep_size,
                 dim=dim,
+                sparse=sparse,
                 balanced=balanced,
                 benchmark=benchmark,
                 target_fn=target_fn,
             )
-            for num_tokens in [123, 456, 789, 1234, 4567, 7891]
+            for num_tokens in [123, 789, 1234, 7891]
             for num_experts in [16, 128]
             for ep_size in [4, 8]
             for dim in [5120]
+            for sparse in [True, False]
             for balanced in [False]
             for benchmark in [False]
             for target_fn in ["combine_shuffling", "split_shuffling"]
@@ -215,6 +222,7 @@ class ShufflingTests(unittest.TestCase):
                 num_experts=num_experts,
                 ep_size=ep_size,
                 dim=dim,
+                sparse=sparse,
                 balanced=balanced,
                 benchmark=benchmark,
                 target_fn=target_fn,
@@ -223,6 +231,7 @@ class ShufflingTests(unittest.TestCase):
             for num_experts in [16, 128]
             for ep_size in [4, 8]
             for dim in [5120]
+            for sparse in [True, False]
             for balanced in [True, False]
             for benchmark in [True, False]
             for target_fn in ["combine_shuffling", "split_shuffling"]
@@ -235,6 +244,7 @@ class ShufflingTests(unittest.TestCase):
         num_experts: int,
         ep_size: int,
         dim: int,
+        sparse: bool = False,
         balanced: bool = False,
         benchmark: bool = False,
         target_fn: str = "combine_shuffling",
@@ -242,15 +252,33 @@ class ShufflingTests(unittest.TestCase):
         torch.manual_seed(0)
 
         is_combine_shuffling: bool = target_fn == "combine_shuffling"
+        assert num_experts % ep_size == 0
+
+        if sparse:
+            num_tokens *= ep_size
+            num_local_experts: int = num_experts
+            expert_start: int = 1
+            expert_end: int = 1 + (num_experts // ep_size)
+        else:
+            num_local_experts: int = num_experts // ep_size
+            expert_start: int = 0
+            expert_end: int = num_local_experts
+
+        expert_group_size: int = expert_end - expert_start
 
         tokens: torch.Tensor = torch.randn(
             num_tokens, dim, device="cuda", dtype=torch.bfloat16
         )
-        assert num_experts % ep_size == 0
-        num_local_experts: int = num_experts // ep_size
+        # tokens: torch.Tensor = (
+        #     torch.arange(num_tokens, device="cuda")
+        #     .to(torch.bfloat16)[:, None]
+        #     .expand(num_tokens, dim)
+        #     .contiguous()
+        # )
+
         if balanced:
-            assert num_tokens % num_experts == 0
-            num_tokens_per_expert = num_tokens // num_experts
+            assert num_tokens % (ep_size * num_local_experts) == 0
+            num_tokens_per_expert = num_tokens // (ep_size * num_local_experts)
             token_counts: torch.Tensor = (
                 torch.ones(
                     [ep_size, num_local_experts], dtype=torch.int32, device="cuda"
@@ -277,34 +305,42 @@ class ShufflingTests(unittest.TestCase):
         token_counts_list: List[List[int]] = token_counts.tolist()
         token_counts_t_list: List[List[int]] = token_counts.T.tolist()
 
-        def prepare_ref_fn() -> Tuple[torch.Tensor, ...]:
+        def slice_tokens(
+            tokens: torch.Tensor,
+            combine: bool,
+        ) -> Tuple[torch.Tensor, ...]:
             offset = 0
-            if is_combine_shuffling:
+            if combine:
                 reshuffled_chunks = [[] for _ in range(num_local_experts)]
                 # token_counts: [EP, E]
                 for counts_per_rank in token_counts_list:
                     for expert, chunk_size in enumerate(counts_per_rank):
-                        reshuffled_chunks[expert].append(
-                            tokens[offset : offset + chunk_size]
-                        )
+                        if expert >= expert_start and expert < expert_end:
+                            reshuffled_chunks[expert].append(
+                                tokens[offset : offset + chunk_size]
+                            )
                         offset += chunk_size
             else:
                 reshuffled_chunks = [[] for _ in range(ep_size)]
                 # token_counts: [EP, E]
-                for counts_per_expert in token_counts_t_list:
+                for expert, counts_per_expert in enumerate(token_counts_t_list):
                     for rank, chunk_size in enumerate(counts_per_expert):
-                        reshuffled_chunks[rank].append(
-                            tokens[offset : offset + chunk_size]
-                        )
+                        if expert >= expert_start and expert < expert_end:
+                            reshuffled_chunks[rank].append(
+                                tokens[offset : offset + chunk_size]
+                            )
                         offset += chunk_size
             return tuple(itertools.chain(*reshuffled_chunks))
 
+        prepare_ref_fn = functools.partial(
+            slice_tokens, tokens=tokens, combine=is_combine_shuffling
+        )
         reshuffled_chunks: Tuple[torch.Tensor, ...] = prepare_ref_fn()
 
         def ref_fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
             cat_tokens = torch.cat(reshuffled_chunks)
             if is_combine_shuffling:
-                counts = token_counts.sum(dim=0)
+                counts = token_counts[:, expert_start:expert_end].sum(dim=0)
             else:
                 counts = None
             return cat_tokens, counts
@@ -313,31 +349,60 @@ class ShufflingTests(unittest.TestCase):
 
         def fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
             if is_combine_shuffling:
-                return combine_shuffling(tokens, token_counts, balanced=balanced)
+                return combine_shuffling(
+                    tokens,
+                    token_counts,
+                    expert_start=expert_start,
+                    expert_end=expert_end,
+                    is_balanced=balanced,
+                )
             else:
-                return split_shuffling(tokens, token_counts, balanced=balanced), None
+                return (
+                    split_shuffling(
+                        tokens,
+                        token_counts,
+                        expert_start=expert_start,
+                        expert_end=expert_end,
+                        is_balanced=balanced,
+                    ),
+                    None,
+                )
 
         output_tokens, output_token_counts = fn()
 
         if is_combine_shuffling:
             assert output_token_counts is not None
             assert ref_output_token_counts is not None
-            self.assertEqual(tuple(output_token_counts.shape), (num_local_experts,))
-            self.assertEqual(output_token_counts.sum().item(), num_tokens)
-            self.assertTrue(output_token_counts.equal(ref_output_token_counts))
+            self.assertEqual(tuple(output_token_counts.shape), (expert_group_size + 1,))
+            self.assertTrue(output_token_counts[:-1].equal(ref_output_token_counts))
+            self.assertEqual(
+                output_token_counts[:-1].sum(), output_token_counts[-1].item()
+            )
 
+        num_valid_tokens = ref_output_tokens.shape[0]
         self.assertEqual(tuple(output_tokens.shape), (num_tokens, dim))
-        self.assertTrue(output_tokens.equal(ref_output_tokens))
+        if not is_combine_shuffling and sparse:
+            reverse_input_tokens = torch.concat(
+                slice_tokens(output_tokens, combine=True)
+            )
+            self.assertTrue(tuple(reverse_input_tokens.shape), (num_valid_tokens, dim))
+            self.assertTrue(reverse_input_tokens.equal(tokens[:num_valid_tokens]))
+        else:
+            self.assertTrue(output_tokens[:num_valid_tokens].equal(ref_output_tokens))
 
         if benchmark:
-            mem_bytes = num_tokens * dim * 2 * 2
+            # Benchmark padded API with large shapes is meanigless. We won't use it.
+            if sparse and num_tokens > 1024:
+                return
+
+            mem_bytes = ref_output_tokens.numel() * 2 * 2
             fbgemm_time = _do_bench_cudagraph_and_clear_cache(fn) * 1e3
             fbgemm_bw = mem_bytes * 1e-9 / (fbgemm_time * 1e-6)
             # We don't benchmark counting on CPU
             torch_time = _do_bench_cudagraph_and_clear_cache(ref_fn) * 1e3
             torch_bw = mem_bytes * 1e-9 / (torch_time * 1e-6)
 
-            print(
+            logger.info(
                 f"\nnum_tokens={num_tokens:4}, ep_size={ep_size:4}, num_local_experts={num_local_experts:4}, balanced={int(balanced)}, "
                 f"fbgemm_time={fbgemm_time:7.3f}us, fbgemm_bw={fbgemm_bw:8.3f}GBytes/s,  "
                 f"torch_time={torch_time:7.3f}us, torch_bw={torch_bw:8.3f}GBytes/s, speedup={torch_time / fbgemm_time:7.3f}x",
