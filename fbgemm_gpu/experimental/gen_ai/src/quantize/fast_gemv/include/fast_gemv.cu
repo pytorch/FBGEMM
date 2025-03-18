@@ -68,7 +68,7 @@ __global__ void gemv_bf16(
 
 #pragma unroll
   for (int iter = 0; iter < num_per_thread >> 3; iter++) {
-    unsigned int j = start_idx + iter * blockDim.x;
+    auto j = start_idx + iter * blockDim.x;
     if (j < k >> 3) {
       const auto mat_val = mat4[row * (k >> 3) + j];
       const bfloat16_2* mat_h1 = (bfloat16_2*)&mat_val.x;
@@ -133,8 +133,8 @@ __global__ void gemv_bf16(
 
   // Shared mem for partial sums (one per warp in the block)
   static __shared__ float warpLevelSums[SHARED_MEM_MAX_ROWS][WARP_SIZE];
-  const int laneId = threadIdx.x % WARP_SIZE;
-  const int warpId = threadIdx.x / WARP_SIZE;
+  const auto laneId = threadIdx.x % WARP_SIZE;
+  const auto warpId = threadIdx.x / WARP_SIZE;
 #pragma unroll
   for (int col = 0; col < m; col++) {
     if (laneId == 0)
@@ -175,7 +175,7 @@ __global__ void gemv_quantized_bf16_fp8(
 
 #pragma unroll
   for (int iter = 0; iter < num_per_thread >> 3; iter++) {
-    unsigned int j = start_idx + iter * blockDim.x;
+    auto j = start_idx + iter * blockDim.x;
     if (j < k >> 3) {
       const auto mat_val = mat4[row * (k >> 3) + j];
       const fp8_2* mat_h1 = (fp8_2*)&mat_val.x;
@@ -250,8 +250,8 @@ __global__ void gemv_quantized_bf16_fp8(
 
   // Shared mem for partial sums (one per warp in the block)
   static __shared__ float warpLevelSums[SHARED_MEM_MAX_ROWS][WARP_SIZE];
-  const int laneId = threadIdx.x % WARP_SIZE;
-  const int warpId = threadIdx.x / WARP_SIZE;
+  const auto laneId = threadIdx.x % WARP_SIZE;
+  const auto warpId = threadIdx.x / WARP_SIZE;
 #pragma unroll
   for (int col = 0; col < m; col++) {
     if (laneId == 0)
@@ -283,9 +283,9 @@ __global__ void gemv_quantized_int4(
     unsigned int num_per_thread) {
   float sum = 0;
   // each thread load num_per_thread elements from global
-  unsigned int tid = threadIdx.x;
-  unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
-  unsigned int start_idx = threadIdx.x;
+  auto tid = threadIdx.x;
+  auto row = blockIdx.y * blockDim.y + threadIdx.y;
+  auto start_idx = threadIdx.x;
   uint4_2_4* mat4 = reinterpret_cast<uint4_2_4*>(mat);
   float4* vec4 = reinterpret_cast<float4*>(vec);
 
@@ -366,8 +366,8 @@ __global__ void gemv_quantized_int4(
 
   // Shared mem for partial sums (one per warp in the block)
   static __shared__ float warpLevelSums[SHARED_MEM_MAX_ROWS][WARP_SIZE];
-  const int laneId = threadIdx.x % WARP_SIZE;
-  const int warpId = threadIdx.x / WARP_SIZE;
+  const auto laneId = threadIdx.x % WARP_SIZE;
+  const auto warpId = threadIdx.x / WARP_SIZE;
   if (laneId == 0)
     warpLevelSums[threadIdx.y][warpId] = sum;
   __syncthreads();
