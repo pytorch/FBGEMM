@@ -354,6 +354,15 @@ def apply_split_helper(
         )
 
 
+def get_available_compute_device() -> ComputeDevice:
+    if torch.cuda.is_available():
+        return ComputeDevice.CUDA
+    elif torch.mtia.is_available():
+        return ComputeDevice.MTIA
+    else:
+        return ComputeDevice.CPU
+
+
 # pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.
 # pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.
 class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):

@@ -20,15 +20,23 @@ def round_up(a: int, b: int) -> int:
 
 
 def get_device() -> torch.device:
-    # pyre-fixme[7]: Expected `device` but got `Union[int, device]`.
-    return (
-        torch.cuda.current_device()
-        if torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    if torch.cuda.is_available():
+        # pyre-fixme[7]: Expected `device` but got `Union[int, device]`.
+        return torch.cuda.current_device()
+    elif torch.mtia.is_available():
+        # pyre-fixme[7]: Expected `device` but got `Union[int, device]`.
+        return torch.mtia.current_device()
+    else:
+        return torch.device("cpu")
 
 
 def to_device(t: Deviceable, use_cpu: bool) -> Deviceable:
-    # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor,
-    #  torch.nn.EmbeddingBag]`.
-    return t.cpu() if use_cpu else t.cuda()
+    if use_cpu:
+        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor, torch.nn.EmbeddingBag]`.
+        return t.cpu()
+    elif torch.cuda.is_available():
+        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor, torch.nn.EmbeddingBag]`.
+        return t.cuda()
+    else:
+        # pyre-fixme[7]: Expected `Deviceable` but got `Union[Tensor, torch.nn.EmbeddingBag]`.
+        return t.to(device="mtia")
