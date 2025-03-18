@@ -103,7 +103,8 @@ __global__ void gemv_quantized_fp8_fp8(
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
-    float const* scale,
+    float const* mat_scale, // N x 1
+    float const* vec_scale, // M x 1
     unsigned int num_iter_per_thread) {
   float sum[TILE_N][TILE_M] = {{0.0f}, {0.0f}};
   const auto tid = threadIdx.x;
@@ -173,7 +174,7 @@ __global__ void gemv_quantized_fp8_fp8(
   for (SizeType32 i = 0; i < TILE_N; i++) {
 #pragma unroll
     for (SizeType32 col = 0; col < TILE_M; col++) {
-      sum[i][col] *= (*scale);
+      sum[i][col] *= (mat_scale[TILE_N * blockIdx.y + i] * vec_scale[col]);
       sum[i][col] = warpReduceSum(sum[i][col], BLOCK_DIM_X);
       if (laneId == 0)
         warpLevelSums[i * TILE_M + col][warpId] = sum[i][col];

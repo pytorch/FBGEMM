@@ -72,7 +72,8 @@ void fp8fp8FastGemvKernel(
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
-    float const* scale) {
+    float const* mat_scale,
+    float const* vec_scale) {
   // each threadblock handles TILE_M * TILE_N dot products in the resulting
   // matrix.
   // block_size is represented as (block_dim.x, block_dim.y).
@@ -90,22 +91,22 @@ void fp8fp8FastGemvKernel(
   if (block_dim.x == 128) {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 128>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, scale, num_iter_per_thread);
+            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (block_dim.x == 64) {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 64>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, scale, num_iter_per_thread);
+            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (block_dim.x == 256) {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 256>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, scale, num_iter_per_thread);
+            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 32>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, scale, num_iter_per_thread);
+            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 }
@@ -118,15 +119,17 @@ bool fastGemvTemplateCaller(
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
-    float const* scale) {
+    float const* mat_scale,
+    float const* vec_scale) {
   if (m == TILE_M) {
-    fp8fp8FastGemvKernel<TILE_M, TILE_N>(mat, vec, res, k, m, n, scale);
+    fp8fp8FastGemvKernel<TILE_M, TILE_N>(
+        mat, vec, res, k, m, n, mat_scale, vec_scale);
     return true;
   }
 
   if constexpr (TILE_M < MAX_M_SIZE) {
     return fastGemvTemplateCaller<TILE_M + 1, TILE_N>(
-        mat, vec, res, k, m, n, scale);
+        mat, vec, res, k, m, n, mat_scale, vec_scale);
   }
   return false;
 }
@@ -138,16 +141,20 @@ bool fastGemvLauncher(
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
-    float const* scale) {
+    float const* mat_scale,
+    float const* vec_scale) {
   // Note: based on sweeping result, heuristic TILE_N = 2 here gives best
   // performance over larger TILE_N value. this is potentially because smaller
   // tile_n leads to more threadblocks and thus increase the block concurrency.
   return fastGemvTemplateCaller</* TILE_M=*/1, /* TILE_N=*/2>(
-      mat, vec, res, k, m, n, scale);
+      mat, vec, res, k, m, n, mat_scale, vec_scale);
 }
 
-at::Tensor
-fp8fp8bf16_fast_gemv(at::Tensor XQ, at::Tensor WQ, at::Tensor scale) {
+at::Tensor fp8fp8bf16_fast_gemv(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale) {
   const unsigned int m = XQ.size(0);
   const unsigned int n = WQ.size(0);
   const unsigned int k = WQ.size(1);
@@ -165,7 +172,8 @@ fp8fp8bf16_fast_gemv(at::Tensor XQ, at::Tensor WQ, at::Tensor scale) {
       k,
       m,
       n,
-      reinterpret_cast<float const*>(scale.data_ptr()));
+      reinterpret_cast<float const*>(w_scale.data_ptr()),
+      reinterpret_cast<float const*>(x_scale.data_ptr()));
 
   if (!dispatched) {
     throw std::runtime_error("f8f8bf16_fast_gemv cannot run.");
