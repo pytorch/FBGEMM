@@ -802,6 +802,15 @@
         <span class="p">)</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">get_available_compute_device</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">ComputeDevice</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">ComputeDevice</span><span class="o">.</span><span class="n">CUDA</span>
+    <span class="k">elif</span> <span class="n">torch</span><span class="o">.</span><span class="n">mtia</span><span class="o">.</span><span class="n">is_available</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">ComputeDevice</span><span class="o">.</span><span class="n">MTIA</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">ComputeDevice</span><span class="o">.</span><span class="n">CPU</span>
+
+
 <span class="c1"># pyre-fixme[13]: Attribute `uvm_cache_stats` is never initialized.</span>
 <span class="c1"># pyre-fixme[13]: Attribute `local_uvm_cache_stats` is never initialized.</span>
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen">[docs]</a><span class="k">class</span><span class="w"> </span><span class="nc">SplitTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
