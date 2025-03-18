@@ -8,4 +8,5 @@ torch.ops.load_library(
     "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:index_shuffling_ops_gpu"
 )
 
-from fbgemm_gpu.experimental.gen_ai.moe import index_shuffling  # noqa F401
+index_shuffling = torch.ops.fbgemm.index_shuffling  # noqa F401
+from .shuffling import combine_shuffling  # noqa F401

@@ -32,6 +32,7 @@ oncall("fbgemm_dev")
                 resource_units = 2,
             ),
         }),
+        supports_static_listing = False,
         visibility = [
             "//deeplearning/fbgemm/fbgemm_gpu/...",
         ],
@@ -46,7 +47,7 @@ oncall("fbgemm_dev")
     )
     for (testname, helper_files) in [
         (
-            "index_shuffling",
+            "shuffling",
             [],
         ),
     ]
