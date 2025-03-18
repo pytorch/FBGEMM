@@ -8,15 +8,19 @@ import inspect
 import itertools
 import logging
 import unittest
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import triton  # noqa: F401
-from fbgemm_gpu.experimental.fb.gen_ai.moe import combine_shuffling, index_shuffling
+from fbgemm_gpu.experimental.fb.gen_ai.moe import (
+    combine_shuffling,
+    index_shuffling,
+    split_shuffling,
+)
 from llm_inference.utils import profiler_or_nullcontext, record_function_or_nullcontext
 from parameterized import param, parameterized
 
-from triton.testing import do_bench, do_bench_cudagraph
+from triton.testing import do_bench_cudagraph
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -24,11 +28,29 @@ logger.setLevel(logging.INFO)
 torch._dynamo.config.cache_size_limit = 128
 
 
+def _do_bench_cudagraph_and_clear_cache(fn) -> float:
+    # 1GB data. Enough to clear L2 cache.
+    cache = torch.empty(1024 * 1024 * 1024, device="cuda", dtype=torch.int8)
+
+    def wrapped_fn():
+        cache.zero_()
+        return fn()
+
+    time_with_clear_cache = do_bench_cudagraph(wrapped_fn, rep=100)
+    time_only_clear_cache = do_bench_cudagraph(lambda: cache.zero_(), rep=100)
+
+    return time_with_clear_cache - time_only_clear_cache
+
+
 # pyre-ignore
 def _name_test_func(fn, _, p) -> str:
     name = fn.__name__
     args = inspect.getfullargspec(fn).args
+    if "target_fn" in p.kwargs:
+        name = f"test_{p.kwargs['target_fn']}"
     for arg_name in args[1:]:
+        if arg_name == "target_fn":
+            continue
         name += f"_{arg_name}={p.kwargs[arg_name]}"
     return name
 
@@ -177,6 +199,7 @@ class ShufflingTests(unittest.TestCase):
                 dim=dim,
                 balanced=balanced,
                 benchmark=benchmark,
+                target_fn=target_fn,
             )
             for num_tokens in [123, 456, 789, 1234, 4567, 7891]
             for num_experts in [16, 128]
@@ -184,6 +207,7 @@ class ShufflingTests(unittest.TestCase):
             for dim in [5120]
             for balanced in [False]
             for benchmark in [False]
+            for target_fn in ["combine_shuffling", "split_shuffling"]
         ]
         + [
             param(
@@ -193,6 +217,7 @@ class ShufflingTests(unittest.TestCase):
                 dim=dim,
                 balanced=balanced,
                 benchmark=benchmark,
+                target_fn=target_fn,
             )
             for num_tokens in [128, 2048, 4096, 8192]
             for num_experts in [16, 128]
@@ -200,10 +225,11 @@ class ShufflingTests(unittest.TestCase):
             for dim in [5120]
             for balanced in [True, False]
             for benchmark in [True, False]
+            for target_fn in ["combine_shuffling", "split_shuffling"]
         ],
         name_func=_name_test_func,
     )
-    def test_combine_shuffling(
+    def test_combine_or_split_shuffling(
         self,
         num_tokens: int,
         num_experts: int,
@@ -211,8 +237,11 @@ class ShufflingTests(unittest.TestCase):
         dim: int,
         balanced: bool = False,
         benchmark: bool = False,
+        target_fn: str = "combine_shuffling",
     ) -> None:
         torch.manual_seed(0)
+
+        is_combine_shuffling: bool = target_fn == "combine_shuffling"
 
         tokens: torch.Tensor = torch.randn(
             num_tokens, dim, device="cuda", dtype=torch.bfloat16
@@ -246,50 +275,70 @@ class ShufflingTests(unittest.TestCase):
         assert token_counts.sum().item() == num_tokens
 
         token_counts_list: List[List[int]] = token_counts.tolist()
+        token_counts_t_list: List[List[int]] = token_counts.T.tolist()
 
         def prepare_ref_fn() -> Tuple[torch.Tensor, ...]:
             offset = 0
-            reshuffled_chunks = [[] for _ in range(num_local_experts)]
-            # token_counts: [EP, E]
-            for counts_per_rank in token_counts_list:
-                for expert, chunk_size in enumerate(counts_per_rank):
-                    reshuffled_chunks[expert].append(
-                        tokens[offset : offset + chunk_size]
-                    )
-                    offset += chunk_size
+            if is_combine_shuffling:
+                reshuffled_chunks = [[] for _ in range(num_local_experts)]
+                # token_counts: [EP, E]
+                for counts_per_rank in token_counts_list:
+                    for expert, chunk_size in enumerate(counts_per_rank):
+                        reshuffled_chunks[expert].append(
+                            tokens[offset : offset + chunk_size]
+                        )
+                        offset += chunk_size
+            else:
+                reshuffled_chunks = [[] for _ in range(ep_size)]
+                # token_counts: [EP, E]
+                for counts_per_expert in token_counts_t_list:
+                    for rank, chunk_size in enumerate(counts_per_expert):
+                        reshuffled_chunks[rank].append(
+                            tokens[offset : offset + chunk_size]
+                        )
+                        offset += chunk_size
             return tuple(itertools.chain(*reshuffled_chunks))
 
         reshuffled_chunks: Tuple[torch.Tensor, ...] = prepare_ref_fn()
 
-        def ref_fn() -> Tuple[torch.Tensor, torch.Tensor]:
-            tokens = torch.cat(reshuffled_chunks)
-            counts = token_counts.sum(dim=0)
-            return tokens, counts
+        def ref_fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+            cat_tokens = torch.cat(reshuffled_chunks)
+            if is_combine_shuffling:
+                counts = token_counts.sum(dim=0)
+            else:
+                counts = None
+            return cat_tokens, counts
 
         ref_output_tokens, ref_output_token_counts = ref_fn()
 
-        def fn() -> Tuple[torch.Tensor, torch.Tensor]:
-            return combine_shuffling(tokens, token_counts, balanced=balanced)
+        def fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+            if is_combine_shuffling:
+                return combine_shuffling(tokens, token_counts, balanced=balanced)
+            else:
+                return split_shuffling(tokens, token_counts, balanced=balanced), None
 
         output_tokens, output_token_counts = fn()
 
-        self.assertEqual(tuple(output_tokens.shape), (num_tokens, dim))
-        self.assertEqual(tuple(output_token_counts.shape), (num_local_experts,))
-        self.assertEqual(output_token_counts.sum().item(), num_tokens)
+        if is_combine_shuffling:
+            assert output_token_counts is not None
+            assert ref_output_token_counts is not None
+            self.assertEqual(tuple(output_token_counts.shape), (num_local_experts,))
+            self.assertEqual(output_token_counts.sum().item(), num_tokens)
+            self.assertTrue(output_token_counts.equal(ref_output_token_counts))
 
-        self.assertTrue(output_token_counts.equal(ref_output_token_counts.cuda()))
+        self.assertEqual(tuple(output_tokens.shape), (num_tokens, dim))
         self.assertTrue(output_tokens.equal(ref_output_tokens))
 
         if benchmark:
             mem_bytes = num_tokens * dim * 2 * 2
-            fbgemm_time = do_bench(fn) * 1e3
+            fbgemm_time = _do_bench_cudagraph_and_clear_cache(fn) * 1e3
             fbgemm_bw = mem_bytes * 1e-9 / (fbgemm_time * 1e-6)
             # We don't benchmark counting on CPU
-            torch_time = do_bench(ref_fn) * 1e3
+            torch_time = _do_bench_cudagraph_and_clear_cache(ref_fn) * 1e3
             torch_bw = mem_bytes * 1e-9 / (torch_time * 1e-6)
 
-            logger.info(
-                f"num_tokens={num_tokens:4}, ep_size={ep_size:4}, num_local_experts={num_local_experts:4}, balanced={int(balanced)}, "
+            print(
+                f"\nnum_tokens={num_tokens:4}, ep_size={ep_size:4}, num_local_experts={num_local_experts:4}, balanced={int(balanced)}, "
                 f"fbgemm_time={fbgemm_time:7.3f}us, fbgemm_bw={fbgemm_bw:8.3f}GBytes/s,  "
                 f"torch_time={torch_time:7.3f}us, torch_bw={torch_bw:8.3f}GBytes/s, speedup={torch_time / fbgemm_time:7.3f}x",
             )

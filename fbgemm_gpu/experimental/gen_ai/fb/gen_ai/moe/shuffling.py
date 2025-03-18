@@ -2,7 +2,7 @@
 
 # pyre-unsafe
 
-from typing import Tuple
+from typing import Tuple, Union
 
 import torch
 import triton
@@ -10,8 +10,33 @@ import triton.language as tl
 
 
 def combine_shuffling(
-    tokens: torch.Tensor, token_counts: torch.Tensor, balanced: bool = False
+    tokens: torch.Tensor,
+    token_counts: torch.Tensor,
+    balanced: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    # pyre-ignore
+    return _combine_or_split_shuffling(
+        is_combine=True, tokens=tokens, token_counts=token_counts, balanced=balanced
+    )
+
+
+def split_shuffling(
+    tokens: torch.Tensor,
+    token_counts: torch.Tensor,
+    balanced: bool = False,
+) -> torch.Tensor:
+    # pyre-ignore
+    return _combine_or_split_shuffling(
+        is_combine=False, tokens=tokens, token_counts=token_counts, balanced=balanced
+    )
+
+
+def _combine_or_split_shuffling(
+    is_combine: bool,
+    tokens: torch.Tensor,
+    token_counts: torch.Tensor,
+    balanced: bool = False,
+) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     # T is intentionally ignored in kernel interface to avoid recompilation
     assert tokens.is_contiguous()
     assert token_counts.is_contiguous()
@@ -21,20 +46,30 @@ def combine_shuffling(
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
     SPLIT_D = max(NUM_SMS // (EP * E), 1)
-    SPLIT_D = triton.next_power_of_2(SPLIT_D + 1) // 2
-    grid = (EP * E * SPLIT_D + 1,)
+    SPLIT_D = triton.next_power_of_2(SPLIT_D + 1)
+    if T <= 1024:
+        SPLIT_D //= 2
+
+    if is_combine:
+        grid = (EP * E * SPLIT_D + 1,)
+    else:
+        grid = (EP * E * SPLIT_D,)
 
     output_tokens = torch.empty_like(tokens)
-    output_token_counts = torch.empty(
-        E, dtype=token_counts.dtype, device=token_counts.device
-    )
+    if is_combine:
+        output_token_counts = torch.empty(
+            E, dtype=token_counts.dtype, device=token_counts.device
+        )
+    else:
+        output_token_counts = None
     T_BUCKET = triton.next_power_of_2(T)
 
-    _fbgemm_combine_shuffling[grid](
+    _fbgemm_combine_or_split_shuffling[grid](
         tokens,
         token_counts,
         output_tokens,
         output_token_counts,
+        is_combine,
         balanced,
         T_BUCKET,
         EP,
@@ -43,7 +78,11 @@ def combine_shuffling(
         SPLIT_D,
     )
 
-    return output_tokens, output_token_counts
+    if is_combine:
+        assert output_token_counts is not None
+        return output_tokens, output_token_counts
+    else:
+        return output_tokens
 
 
 _NV_CONFIGS = [
@@ -82,7 +121,7 @@ _AMD_CONFIGS = [
 
 @triton.autotune(
     configs=_AMD_CONFIGS if torch.version.hip else _NV_CONFIGS,
-    key=["BALANCED", "T_BUCKET", "EP", "E", "D"],
+    key=["COMBINE", "BALANCED", "T_BUCKET", "EP", "E", "D"],
 )
 @triton.heuristics(
     values={
@@ -92,11 +131,12 @@ _AMD_CONFIGS = [
     }
 )
 @triton.jit
-def _fbgemm_combine_shuffling(
+def _fbgemm_combine_or_split_shuffling(
     input_tokens_ptr,
     input_token_counts_ptr,
     output_tokens_ptr,
     output_token_counts_ptr,
+    COMBINE: tl.constexpr,
     BALANCED: tl.constexpr,
     T_BUCKET: tl.constexpr,
     EP: tl.constexpr,
@@ -127,10 +167,11 @@ def _fbgemm_combine_shuffling(
     )  # [EP, E]
 
     LAST_TILE: tl.constexpr = EP * E * SPLIT_D
-    if tidx == LAST_TILE:
-        output_token_counts = tl.sum(input_token_counts, axis=0)
-        tl.store(output_token_counts_ptr + tl.arange(0, E)[:], output_token_counts)
-        return
+    if COMBINE:
+        if tidx == LAST_TILE:
+            output_token_counts = tl.sum(input_token_counts, axis=0)
+            tl.store(output_token_counts_ptr + tl.arange(0, E)[:], output_token_counts)
+            return
 
     cond0 = tl.arange(0, EP)[:, None] < rank
     cond1 = tl.arange(0, EP)[:, None] == rank
@@ -138,9 +179,18 @@ def _fbgemm_combine_shuffling(
     cond3 = tl.arange(0, E)[None, :] == expert
 
     # r < rank || (r == rank && e < expert)
-    input_offset = tl.sum(tl.where(cond0 or (cond1 and cond2), input_token_counts, 0))
+    ep_first_order = tl.sum(tl.where(cond0 or (cond1 and cond2), input_token_counts, 0))
     # e < expert || (e == expert && r < rank)
-    output_offset = tl.sum(tl.where(cond2 or (cond3 and cond0), input_token_counts, 0))
+    expert_first_order = tl.sum(
+        tl.where(cond2 or (cond3 and cond0), input_token_counts, 0)
+    )
+
+    if COMBINE:
+        input_offset = ep_first_order
+        output_offset = expert_first_order
+    else:
+        input_offset = expert_first_order
+        output_offset = ep_first_order
 
     num_copy_tokens = tl.load(input_token_counts_ptr + rank * E + expert)
     if num_copy_tokens == 0:
