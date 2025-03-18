@@ -109,8 +109,8 @@ class GenEmbeddingSpMDMLookup {
       int output_stride,
       int input_stride,
       bool scale_bias_last,
-      bool is_bf16_out,
-      bool is_bf16_in);
+      FloatFormat out_format,
+      FloatFormat in_format);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -127,7 +127,18 @@ class GenEmbeddingSpMDMLookup {
   // positional weights, normalize by lenths, prefetch distance, use_offsets,
   // output_stride, input_stride, and scale_bias_last
   static CodeCache<
-      std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
+      std::tuple<
+          int,
+          bool,
+          bool,
+          bool,
+          int,
+          bool,
+          int,
+          int,
+          bool,
+          FloatFormat,
+          FloatFormat>,
       typename ReturnFunctionSignature<
           inType,
           indxType,
@@ -164,7 +175,18 @@ template <
     bool ROWWISE_SPARSE,
     bool THREAD_LOCAL>
 CodeCache<
-    std::tuple<int, bool, bool, bool, int, bool, int, int, bool, bool, bool>,
+    std::tuple<
+        int,
+        bool,
+        bool,
+        bool,
+        int,
+        bool,
+        int,
+        int,
+        bool,
+        FloatFormat,
+        FloatFormat>,
     typename ReturnFunctionSignature<
         inType,
         indxType,
@@ -213,8 +235,8 @@ GenEmbeddingSpMDMLookup<
         int output_stride,
         int input_stride,
         bool scale_bias_last,
-        bool is_bf16_out,
-        bool is_bf16_in) {
+        FloatFormat out_format,
+        FloatFormat in_format) {
   auto kernelSig = std::make_tuple(
       block_size,
       has_weight,
@@ -225,8 +247,8 @@ GenEmbeddingSpMDMLookup<
       output_stride,
       input_stride,
       scale_bias_last,
-      is_bf16_out,
-      is_bf16_in);
+      out_format,
+      in_format);
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -239,8 +261,15 @@ GenEmbeddingSpMDMLookup<
         bool is_8bit_in = std::is_same<inType, uint8_t>::value;
         bool is_16bit_in = std::is_same<inType, uint16_t>::value;
         bool is_16bit_out = std::is_same<outType, uint16_t>::value;
-        bool is_fp16_in = is_16bit_in && !is_bf16_in;
-        bool is_fp16_out = is_16bit_out && !is_bf16_out;
+        bool is_fp16_in = is_16bit_in && in_format == FloatFormat::FLOAT16;
+        bool is_bf16_in = is_16bit_in && in_format == FloatFormat::BFLOAT16;
+        bool is_fp16_out = is_16bit_out && out_format == FloatFormat::FLOAT16;
+        bool is_bf16_out = is_16bit_out && out_format == FloatFormat::BFLOAT16;
+        assert(
+            !is_16bit_in ||
+            (in_format == FloatFormat::FLOAT16 ||
+             in_format == FloatFormat::BFLOAT16));
+        assert(is_16bit_in || in_format == FloatFormat::DEFAULT);
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
@@ -1030,10 +1059,11 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         int64_t input_stride /*=-1*/,
         bool scale_bias_last /*=true*/,
         bool no_bag /*=false*/,
-        bool is_bf16_out /*=false*/,
-        bool is_bf16_in /*=false*/) {
+        FloatFormat out_format /*=FloatFormat::DEFAULT*/,
+        FloatFormat in_format /*=FloatFormat::DEFAULT*/) {
 #if defined(__APPLE__) || defined(_WIN32)
-  if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
+  if (std::is_same<inType, uint16_t>::value &&
+      in_format == FloatFormat::BFLOAT16 &&
       std::is_same<outType, float>::value) {
     throw std::runtime_error(
         "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
@@ -1084,7 +1114,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
             reinterpret_cast<float*>(out),
             is_weight_positional,
             use_offsets,
-            is_bf16_out);
+            out_format);
       };
     }
     if (isZmm(isa) && !is_asmjit_disabled()) {
@@ -1107,8 +1137,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           output_stride,
           input_stride,
           scale_bias_last,
-          is_bf16_out,
-          is_bf16_in);
+          out_format,
+          in_format);
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
@@ -1149,8 +1179,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
           output_stride,
           input_stride,
           scale_bias_last,
-          is_bf16_out,
-          is_bf16_in);
+          out_format,
+          in_format);
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
@@ -1192,8 +1222,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         /*input_stride=*/input_stride,
         /*scale_bias_last=*/scale_bias_last,
         /*no_bag=*/no_bag,
-        /*is_bf16_out=*/is_bf16_out,
-        /*is_bf16_in=*/is_bf16_in);
+        /*out_format=*/out_format,
+        /*in_format=*/in_format);
   }
 #endif
 
@@ -1225,8 +1255,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         input_stride,
         scale_bias_last,
         no_bag,
-        is_bf16_out,
-        is_bf16_in);
+        out_format,
+        in_format);
   };
 }
 
@@ -1245,8 +1275,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         int prefetch,
         bool is_weight_positional,
         bool use_offsets,
-        bool is_bf16_out,
-        bool is_bf16_in) {
+        FloatFormat out_format,
+        FloatFormat in_format) {
   return GenerateEmbeddingSpMDMWithStrides<
       inType,
       indxType,
@@ -1263,8 +1293,8 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       /*input_stride=*/-1,
       /*scale_bias_last=*/true,
       /*no_bag=*/false,
-      is_bf16_out,
-      is_bf16_in);
+      out_format,
+      in_format);
 }
 
 template <typename indxType, typename offsetType, typename outType>
@@ -1279,7 +1309,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         int64_t input_stride /*=-1*/,
         int exponent_bits,
         int exponent_bias,
-        bool is_bf16_out) {
+        FloatFormat out_format) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1302,7 +1332,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         /*input_stride=*/input_stride,
         /*exponent_bits=*/exponent_bits,
         /*exponent_bias=*/exponent_bias,
-        /*is_bf16_out=*/is_bf16_out);
+        /*out_format=*/out_format);
   }
 #endif
 
@@ -1332,7 +1362,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         input_stride,
         exponent_bits,
         exponent_bias,
-        is_bf16_out);
+        out_format);
   };
 }
 
@@ -1349,6 +1379,9 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     bool is_weight_positional,
     bool use_offsets) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
+  FloatFormat in_format = std::is_same<inType, float16>::value
+      ? FloatFormat::FLOAT16
+      : FloatFormat::DEFAULT;
   int64_t input_stride = block_size;
   if (std::is_same<inType, uint8_t>::value) {
     const auto scale_bias_offset = 2 * sizeof(float);
@@ -1377,8 +1410,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
         /*output_stride=*/block_size,
         input_stride,
         /*scale_bias_last=*/true,
-        /*is_bf16_out=*/false,
-        /*is_bf16_in=*/false);
+        /*out_format=*/FloatFormat::DEFAULT,
+        /*in_format=*/in_format);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t uncompressed_data_size,
@@ -1420,8 +1453,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
         /*output_stride=*/block_size,
         input_stride,
         /*scale_bias_last=*/true,
-        /*is_bf16_out=*/false,
-        /*is_bf16_in=*/false);
+        /*out_format=*/FloatFormat::DEFAULT,
+        /*in_format=*/in_format);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t uncompressed_data_size,
@@ -1515,8 +1548,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int64_t input_stride,                                   \
       bool scale_bias_last,                                   \
       bool no_bag,                                            \
-      bool is_bf16_out,                                       \
-      bool is_bf16_in);
+      FloatFormat out_format,                                 \
+      FloatFormat in_format);
 
 #define INSTANTIATE_SPMDMFP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE)       \
   template FBGEMM_API typename EmbeddingSpMDMKernelSignature<              \
@@ -1533,7 +1566,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int64_t input_stride,                                                \
       int exponent_bits,                                                   \
       int exponent_bias,                                                   \
-      bool is_bf16_out);
+      FloatFormat out_format);
 
 #define INSTANTIATE_SPMDM_NOSTRIDE_BASE(                      \
     IN_TYPE, INDEX_TYPE, OFFSET_TYPE, OUT_TYPE, THREAD_LOCAL) \
@@ -1554,8 +1587,8 @@ GenerateEmbeddingSpMDMRowWiseSparse(
       int prefetch,                                           \
       bool is_weight_positional,                              \
       bool use_offsets,                                       \
-      bool is_bf16_out,                                       \
-      bool is_bf16_in);
+      FloatFormat out_format,                                 \
+      FloatFormat in_format);
 
 #define INSTANTIATE_SPMDM_ROWWISE_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)   \
   template FBGEMM_API typename EmbeddingSpMDMRowWiseSparseKernelSignature< \

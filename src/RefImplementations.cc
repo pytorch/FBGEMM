@@ -1181,10 +1181,10 @@ void transposeConvWeights(
   }
 }
 
-template float convert_to_float_ref(float src, bool is_bf16_out);
-template float convert_to_float_ref(uint16_t src, bool is_bf16_out);
-template float convert_from_float_ref(float src, bool is_bf16_out);
-template uint16_t convert_from_float_ref(float bfloat16, bool is_bf16_out);
+template float convert_to_float_ref(float src, FloatFormat format);
+template float convert_to_float_ref(uint16_t src, FloatFormat format);
+template float convert_from_float_ref(float src, FloatFormat format);
+template uint16_t convert_from_float_ref(float bfloat16, FloatFormat format);
 
 template <
     typename InType,
@@ -1208,8 +1208,8 @@ bool EmbeddingSpMDM_ref(
     int64_t input_stride /*=-1*/,
     bool scale_bias_last /*=true*/,
     bool no_bag /*=false*/,
-    bool is_bf16_out /*=false*/,
-    bool is_bf16_in /*=false*/) {
+    FloatFormat out_format /*=FloatFormat::DEFAULT*/,
+    FloatFormat in_format /*=FloatFormat::DEFAULT*/) {
   const bool isWeight8bit = is_same<InType, uint8_t>::value;
   const bool isOutput8bit = is_same<OutType, uint8_t>::value;
   if (output_stride == -1) {
@@ -1272,7 +1272,7 @@ bool EmbeddingSpMDM_ref(
                 buf[j] + bias);
           }
           for (int j = 0; j < block_size; ++j) {
-            out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+            out[j] = convert_from_float_ref<OutType>(buf[j], out_format);
           }
         }
         out += output_stride;
@@ -1332,7 +1332,7 @@ bool EmbeddingSpMDM_ref(
         }
       }
       for (int j = 0; j < block_size; ++j) {
-        out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+        out[j] = convert_from_float_ref<OutType>(buf[j], out_format);
       }
       out += output_stride;
     }
@@ -1357,11 +1357,10 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] =
-              std::fma(w, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
+          buf[j] = std::fma(w, convert_to_float_ref(*inptr, in_format), buf[j]);
         }
         for (int j = 0; j < block_size; ++j) {
-          out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+          out[j] = convert_from_float_ref<OutType>(buf[j], out_format);
         }
         out += output_stride;
       } // m
@@ -1390,8 +1389,7 @@ bool EmbeddingSpMDM_ref(
 
         for (int j = 0; j < block_size; ++j) {
           const InType* inptr = input + input_stride * idx + j;
-          buf[j] =
-              std::fma(w, convert_to_float_ref(*inptr, is_bf16_in), buf[j]);
+          buf[j] = std::fma(w, convert_to_float_ref(*inptr, in_format), buf[j]);
         }
 
         ++current;
@@ -1403,7 +1401,7 @@ bool EmbeddingSpMDM_ref(
         }
       }
       for (int j = 0; j < block_size; ++j) {
-        out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+        out[j] = convert_from_float_ref<OutType>(buf[j], out_format);
       }
       out += output_stride;
     }
@@ -1429,7 +1427,7 @@ bool EmbeddingSpMDMNBit_ref(
     int64_t output_stride /*=-1*/,
     int64_t input_stride /*=-1*/,
     const bool scale_bias_last /*=true*/,
-    const bool is_bf16_out /*=false*/,
+    const FloatFormat out_format /*=FloatFormat::DEFAULT*/,
     const bool no_bag /*=false*/,
     int output_bit_rate /*=-1*/) {
   if (output_bit_rate == -1) {
@@ -1520,7 +1518,7 @@ bool EmbeddingSpMDMNBit_ref(
       }
     }
     for (int j = 0; j < block_size; ++j) {
-      out[j] = convert_from_float_ref<OutType>(buf[j], is_bf16_out);
+      out[j] = convert_from_float_ref<OutType>(buf[j], out_format);
     }
     out += output_stride;
   }
@@ -1545,7 +1543,7 @@ bool EmbeddingSpMDMFP8_ref(
     int64_t input_stride,
     int exponent_bits,
     int exponent_bias,
-    bool is_bf16_out /*=false*/) {
+    FloatFormat out_format /*=FloatFormat::DEFAULT*/) {
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1595,7 +1593,7 @@ bool EmbeddingSpMDMFP8_ref(
     }
     for (int j = 0; j < block_size; ++j) {
       out[j] = is_same<OutType, uint16_t>::value
-          ? convert_from_float_ref<OutType>(buf[j], is_bf16_out)
+          ? convert_from_float_ref<OutType>(buf[j], out_format)
           : buf[j];
     }
     out += output_stride;
@@ -2092,8 +2090,8 @@ template FBGEMM_API void transposeConvWeights(
       int64_t output_stride,                                               \
       bool scale_bias_last,                                                \
       bool no_bag,                                                         \
-      bool is_bf16_out,                                                    \
-      bool is_bf16_in);
+      FloatFormat out_format,                                              \
+      FloatFormat in_format);
 
 #define INSTANTIATE_SPMDM_OUT_T(IN_TYPE, INDEX_TYPE, OFFSET_TYPE)        \
   INSTANTIATE_SPMDM_BASE(IN_TYPE, INDEX_TYPE, OFFSET_TYPE, float)        \
@@ -2149,7 +2147,7 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       int64_t output_stride,                                           \
       int64_t input_stride,                                            \
       const bool scale_bias_last,                                      \
-      const bool is_bf16_out,                                          \
+      const FloatFormat out_format,                                    \
       const bool no_bag,                                               \
       int output_bit_rate);
 #define INSTANTIATE_SPMDM_FP8_BASE(INDEX_TYPE, OFFSET_TYPE, OUT_TYPE) \
@@ -2170,7 +2168,7 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
       int64_t input_stride,                                           \
       int exponent_bits,                                              \
       int exponent_bias,                                              \
-      bool is_bf16_out);
+      FloatFormat out_format);
 
 #define INSTANTIATE_SPMDM_OUT_T(INDEX_TYPE, OFFSET_TYPE)        \
   INSTANTIATE_SPMDM_NBIT_BASE(INDEX_TYPE, OFFSET_TYPE, float)   \

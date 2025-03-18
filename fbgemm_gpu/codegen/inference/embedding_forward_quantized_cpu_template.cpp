@@ -197,7 +197,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor output;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT4);
-    bool output_is_bf16 = o_dtype == SparseType::BF16;
+    fbgemm::FloatFormat out_format =
+      o_dtype == SparseType::FP16 ? fbgemm::FloatFormat::FLOAT16 :
+      (o_dtype == SparseType::BF16 ? fbgemm::FloatFormat::BFLOAT16 :
+       fbgemm::FloatFormat::DEFAULT);
     bool output_is_int8 = o_dtype == SparseType::INT8;
     bool output_is_int4 = o_dtype == SparseType::INT4;
     {% if not nobag %}
@@ -357,7 +360,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     {% if use_base %}
                     /*no_bag=*/nobag_op,
                     {% endif %}
-                    /*is_bf16_out=*/output_is_bf16
+                    /*out_format=*/out_format
                     {% if use_nbit %}
                     ,/*no_bag=*/nobag_op,
                     /*output_bit_rate=*/output_bit_rate
