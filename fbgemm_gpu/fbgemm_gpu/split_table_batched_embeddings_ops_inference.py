@@ -163,18 +163,23 @@ def inputs_to_device(
     indices: torch.Tensor,
     offsets: torch.Tensor,
     per_sample_weights: Optional[torch.Tensor],
-    device: torch.device,
+    bounds_check_warning: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
-    if device.type == "meta":
+    if bounds_check_warning.device.type == "meta":
         return indices, offsets, per_sample_weights
 
-    non_blocking = device.type != "cpu"
-    if indices.device != device:
-        indices = indices.to(device, non_blocking=non_blocking)
-    if offsets.device != device:
-        offsets = offsets.to(device, non_blocking=non_blocking)
-    if per_sample_weights is not None and per_sample_weights.device != device:
-        per_sample_weights = per_sample_weights.to(device, non_blocking=non_blocking)
+    non_blocking = bounds_check_warning.device.type != "cpu"
+    if indices.device != bounds_check_warning.device:
+        indices = indices.to(bounds_check_warning.device, non_blocking=non_blocking)
+    if offsets.device != bounds_check_warning.device:
+        offsets = offsets.to(bounds_check_warning.device, non_blocking=non_blocking)
+    if (
+        per_sample_weights is not None
+        and per_sample_weights.device != bounds_check_warning.device
+    ):
+        per_sample_weights = per_sample_weights.to(
+            bounds_check_warning.device, non_blocking=non_blocking
+        )
     return indices, offsets, per_sample_weights
 
 
@@ -950,7 +955,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ), "weight needs to be initialized before forward function"
 
         indices, offsets, per_sample_weights = inputs_to_device(
-            indices, offsets, per_sample_weights, self.bounds_check_warning.device
+            indices, offsets, per_sample_weights, self.bounds_check_warning
         )
 
         # First bound check: check if the indices/offsets are within the boundary
