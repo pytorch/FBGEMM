@@ -1147,9 +1147,10 @@ class FP8Tests(unittest.TestCase):
                 wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
                 z = gemv_op(x, wq, w_scale)
             elif quantize_w and quantize_x:
-                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-                z = gemv_op(xq, wq, x_scale * w_scale)
+                # row-wise scaling
+                xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+                wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+                z = gemv_op(xq, wq, x_scale, w_scale)
             else:
                 z = gemv_op(x, w)
             z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
@@ -1220,7 +1221,10 @@ class FP8Tests(unittest.TestCase):
             (2, 8192, 1024),
             (2, 7168, 8192),
             (2, 8192, 3584),
+            (3, 1280, 8192),
             (3, 8192, 1024),
+            (3, 7168, 8192),
+            (3, 8192, 3584),
             (4, 1280, 8192),
             (4, 8192, 1024),
             (4, 7168, 8192),
