@@ -7,6 +7,8 @@
 
 # pyre-unsafe
 
+import torch
+
 from .bench_config import (  # noqa F401
     TBEBenchmarkingConfig,
     TBEBenchmarkingConfigLoader,
@@ -33,3 +35,14 @@ from .tbe_data_config_param_models import (  # noqa F401
     PoolingParams,
 )
 from .utils import fill_random_scale_bias  # noqa F401
+
+try:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/src/tbe/eeg:indices_estimator"
+    )
+except Exception:
+    pass
+
+#: The max number of heavy heavy hitters, as defined in
+#: fbgemm_gpu/src/tbe/eeg/indices_estimator.h
+EEG_MAX_HEAVY_HITTERS: int = 20
