@@ -26,6 +26,8 @@ class IndicesEstimator {
  public:
   explicit IndicesEstimator(const std::filesystem::path& tensorPath);
 
+  explicit IndicesEstimator(const torch::Tensor& indices);
+
   // maximum likelihood estimate of the heavy hitters + Zipf parameters
   // Returns std::nullopt if there is no index data
   std::optional<IndicesDistributionParameters> estimate();
