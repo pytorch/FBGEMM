@@ -11,6 +11,18 @@
 
 namespace fbgemm_gpu::tbe {
 
+/// @ingroup tbe-eeg
+///
+/// @brief Torch interface function for generating TBE indices given the
+/// parameters that describe its distribution
+///
+/// @param heavy_hitters A tensor of probabilities describing the heavy hitters
+/// @param zipf_q The Q parameter of a Zipfian distribution
+/// @param zipf_s The S parameter of a Zipfian distribution
+/// @param max_index The maximum index value
+/// @param num_indices The number of indices to generate
+///
+/// @return A tensor of in64_t TBE indices
 at::Tensor generate_indices_from_distribution(
     at::Tensor heavy_hitters,
     double zipf_q,

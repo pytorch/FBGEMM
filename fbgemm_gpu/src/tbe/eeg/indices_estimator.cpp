@@ -15,8 +15,7 @@
 
 namespace fbgemm_gpu::tbe {
 
-// Helper: log table computation for fast maximum likelihood
-// estimation
+// Helper: log table computation for fast maximum likelihood estimation
 void IndicesEstimator::computeLogTable_() {
   auto maxIndex = freqs_.size();
   logTable_.resize((maxIndex + kMaxQ + 1) * kLevels_);
@@ -27,32 +26,18 @@ void IndicesEstimator::computeLogTable_() {
   }
 }
 
-IndicesEstimator::IndicesEstimator(const std::filesystem::path& tensors_path) {
-  // PyTorch API requires us to use a torch::pickle_load on a
-  // vector<char> (torch::load doesn't work here)
-  // https://fb.workplace.com/groups/1405155842844877/posts/4947064988653927/?comment_id=4947149218645504
-  std::ifstream input(tensors_path, std::ios::binary);
-
-  std::vector<char> bytes(
-      (std::istreambuf_iterator<char>(input)),
-      (std::istreambuf_iterator<char>()));
-
-  input.close();
-  auto ival = torch::pickle_load(bytes);
-  assert((ival.isTensor()) && "Loaded file is not a tensor!");
-  tensor_ = ival.toTensor();
+IndicesEstimator::IndicesEstimator(const torch::Tensor& indices) {
+  tensor_ = indices;
   assert(
       (tensor_.dtype().itemsize() == 8) &&
       "Indices are abnormal, not 8 byte each");
+
   indices_ = std::vector<int64_t>{
       tensor_.data_ptr<int64_t>(),
       tensor_.data_ptr<int64_t>() + tensor_.numel()};
-
-  if (indices_.empty()) {
-    std::cerr
-        << "Warning: No indices found for this tensor, no estimation possible!\n";
-    return;
-  }
+  assert(
+      !indices_.empty() &&
+      "No indices found in the tensor, not possible to run estimation!");
 
   // Setup the frequency data structures
   for (auto idx : indices_) {
@@ -71,6 +56,26 @@ IndicesEstimator::IndicesEstimator(const std::filesystem::path& tensors_path) {
   });
 
   computeLogTable_();
+}
+
+IndicesEstimator::IndicesEstimator(const std::filesystem::path& tensors_path) {
+  // NOTE: PyTorch API requires us to use a torch::pickle_load on a
+  // vector<char> (torch::load doesn't work here)
+  // https://fb.workplace.com/groups/1405155842844877/posts/4947064988653927/?comment_id=4947149218645504
+
+  // Open the file
+  std::ifstream input(tensors_path, std::ios::binary);
+  std::vector<char> bytes(
+      (std::istreambuf_iterator<char>(input)),
+      (std::istreambuf_iterator<char>()));
+  input.close();
+
+  // Load the tensor
+  auto ival = torch::pickle_load(bytes);
+  assert((ival.isTensor()) && "Loaded file is not a tensor!");
+
+  // Pass it to the tensor-based constructor
+  IndicesEstimator(ival.toTensor());
 }
 
 std::vector<double> IndicesEstimator::estimateHeavyHitters_() {

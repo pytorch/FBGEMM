@@ -18,6 +18,7 @@ include(${CMAKEMODULES}/Utilities.cmake)
 set(tbe_eeg_cpu_sources
   src/tbe/eeg/eeg_models.cpp
   src/tbe/eeg/eeg_utils.cpp
+  src/tbe/eeg/indices_estimator_ops.cpp
   src/tbe/eeg/indices_estimator.cpp
   src/tbe/eeg/indices_generator_ops.cpp
   src/tbe/eeg/indices_generator.cpp)
