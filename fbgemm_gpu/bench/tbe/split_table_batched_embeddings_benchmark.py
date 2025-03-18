@@ -29,6 +29,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     DenseTableBatchedEmbeddingBagsCodegen,
+    get_available_compute_device,
     SplitTableBatchedEmbeddingBagsCodegen,
 )
 from fbgemm_gpu.tbe.bench import (
@@ -43,6 +44,13 @@ from torch.profiler import profile
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
+
+try:
+    import mtia.host_runtime.torch_mtia.dynamic_library  # pyright: ignore  # noqa: F401  # pyre-ignore[21]
+
+    torch.mtia.init()
+except Exception:
+    pass
 
 
 @click.group()
@@ -222,7 +230,7 @@ def device(  # noqa C901
                 for d in Ds
             ],
             pooling_mode=pooling_mode,
-            use_cpu=not torch.cuda.is_available(),
+            use_cpu=get_available_compute_device() == ComputeDevice.CPU,
         )
     elif ssd:
         assert (
@@ -246,11 +254,7 @@ def device(  # noqa C901
                     E,
                     d,
                     managed_option,
-                    (
-                        ComputeDevice.CUDA
-                        if torch.cuda.is_available()
-                        else ComputeDevice.CPU
-                    ),
+                    get_available_compute_device(),
                 )
                 for d in Ds
             ],
@@ -301,7 +305,7 @@ def device(  # noqa C901
         weighted=weighted,
         requests_data_file=requests_data_file,
         tables=tables,
-        use_cpu=not torch.cuda.is_available(),
+        use_cpu=get_available_compute_device() == ComputeDevice.CPU,
         index_dtype=torch.long,
         offset_dtype=torch.long,
     )
@@ -446,6 +450,8 @@ def uvm(
     assert (
         T_uvm > 0
     ), f"T_uvm specified {T_uvm} <= 0. If not testing UVM, please use device benchmark."
+    assert torch.cuda.is_available(), "UVM benchmark requires CUDA device"
+
     T_gpu = T - T_uvm
     L_uvm = uvm_bag_size
     eval_conflict_misses: bool = no_conflict_misses or all_conflict_misses
@@ -768,6 +774,8 @@ def cache(  # noqa C901
     E = num_embeddings
     T = num_tables
     cache_alg = CacheAlgorithm.LRU if cache_algorithm == "lru" else CacheAlgorithm.LFU
+
+    assert torch.cuda.is_available(), "Cache benchmark requires CUDA device"
     if mixed:
         Ds = [
             round_up(np.random.randint(low=int(0.5 * D), high=int(1.5 * D)), 4)
@@ -1008,9 +1016,10 @@ def device_with_spec(  # noqa C901
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
 
     if managed == "device":
+        # Currently, we set EmbeddingLocation.HOST for MTIA.
         managed_option = (
             EmbeddingLocation.DEVICE
-            if torch.cuda.is_available()
+            if get_available_compute_device() == ComputeDevice.CUDA
             else EmbeddingLocation.HOST
         )
     else:
@@ -1040,7 +1049,7 @@ def device_with_spec(  # noqa C901
                 e,
                 d,
                 managed_option,
-                ComputeDevice.CUDA if torch.cuda.is_available() else ComputeDevice.CPU,
+                get_available_compute_device(),
             )
             for d, e in zip(Ds, Es)
         ],
@@ -1084,6 +1093,7 @@ def device_with_spec(  # noqa C901
             # pyre-fixme[61]: `sigma_Ls` is undefined, or not always defined.
             sigma_L=sigma_Ls[t] if use_variable_bag_sizes else None,
             zipf_oversample_ratio=3 if Ls[t] > 5 else 5,
+            use_cpu=get_available_compute_device() == ComputeDevice.CPU,
             index_dtype=torch.long,
             offset_dtype=torch.long,
         )
@@ -1247,7 +1257,7 @@ def vbe(
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
     managed_option = (
         EmbeddingLocation.DEVICE
-        if torch.cuda.is_available()
+        if get_available_compute_device() != ComputeDevice.CPU
         else EmbeddingLocation.HOST
     )
     pooling_mode = PoolingMode.SUM
@@ -1258,7 +1268,7 @@ def vbe(
                 E,
                 D,
                 managed_option,
-                ComputeDevice.CUDA,
+                get_available_compute_device(),
             )
             for E, D in zip(Es, Ds)
         ],
