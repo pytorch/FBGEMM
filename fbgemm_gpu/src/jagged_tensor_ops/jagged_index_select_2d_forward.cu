@@ -49,7 +49,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_index_select_2d_kernel(
         (index == 0 ? 0 : input_offsets[index - 1]) + rel_index;
 
     const auto num_cols = input.size(1);
-    for (int i = threadIdx.x; i < num_cols; i += blockDim.x) {
+    for (auto i = threadIdx.x; i < num_cols; i += blockDim.x) {
       output[dense_output_offset][i] = input[input_offset][i];
     }
   }
