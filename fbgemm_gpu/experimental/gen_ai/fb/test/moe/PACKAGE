@@ -1,0 +1,19 @@
+load("@fbcode//compilers/amd:citadel.bzl", "amd_ci")
+load("@fbcode_macros//build_defs:link_group_registry.bzl", "link_group_registry")
+load("@fbsource//tools/target_determinator/macros:ci.bzl", "ci")
+
+ci.package(
+    ci.remove(ci.linux(ci.dev())),
+    ci.remove(ci.linux(ci.opt())),
+    ci.linux(
+        ci.opt(
+            ci.buckconfigs({
+                "fbcode.nvcc_arch": "h100a",
+                "fbcode.platform010_cuda_version": "12.4",
+            }),
+        ),
+    ),
+    amd_ci(),
+)
+
+link_group_registry.use_link_groups(dev = True)
