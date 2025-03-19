@@ -98,7 +98,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   tie(bit_rate, prefetch, weight_choice, corner_case, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
-  bool is_bf16_out = out_type == BFLOAT16;
+  FloatFormat out_format = floatFormatFor(out_type);
 
   if (corner_case != NONE || weight_choice == POSITIONAL_WEIGHTED) {
     // Check corner case only for subset of tests.
@@ -226,7 +226,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       /*output_stride=*/-1,                                             \
       /*input_stride=*/-1,                                              \
       scale_bias_last,                                                  \
-      is_bf16_out);                                                     \
+      out_format);                                                      \
                                                                         \
   auto kernel = GenerateEmbeddingSpMDMNBitWithStrides<                  \
       IndexType,                                                        \
@@ -243,7 +243,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       /*output_stride=*/-1,                                             \
       /*input_stride=*/-1,                                              \
       scale_bias_last,                                                  \
-      is_bf16_out);                                                     \
+      out_format);                                                      \
   success = kernel(                                                     \
       batch_size,                                                       \
       lengths_sum,                                                      \
