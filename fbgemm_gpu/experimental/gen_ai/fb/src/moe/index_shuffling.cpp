@@ -1,15 +1,19 @@
 // (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
 
+#include <optional>
+
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
 namespace fbgemm_gpu {
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
-    const at::Tensor& scores);
+    const at::Tensor& scores,
+    std::optional<at::Tensor> num_valid_tokens);
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch_meta(
-    const at::Tensor& scores) {
+    const at::Tensor& scores,
+    std::optional<at::Tensor> num_valid_tokens) {
   int T = scores.size(0);
   int E = scores.size(1);
   at::Tensor counts = at::empty({E + 1}, scores.options().dtype(at::kInt));
@@ -20,7 +24,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch_meta(
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.set_python_module("fbgemm_gpu.experimental.gen_ai.moe");
-  m.def("index_shuffling(Tensor Scores) -> (Tensor, Tensor, Tensor)");
+  m.def(
+      "index_shuffling(Tensor scores, Tensor? num_valid_tokens= None) -> (Tensor, Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {

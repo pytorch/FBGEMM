@@ -1,5 +1,7 @@
 // (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
 
+#include <optional>
+
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDAStream.h>
 #include <cuda_bf16.h>
@@ -80,6 +82,7 @@ struct Params {
   IndexType* token_indices;
   IndexType* shuffled_expert_indices;
   IndexType* shuffled_token_indices;
+  IndexType* num_valid_tokens;
 };
 
 template <class DataType, class IndexType, int NumExperts, int NumTokensPerTile>
@@ -92,14 +95,18 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   __shared__ SharedStorage<DataType, IndexType, NumExperts, NumTokensPerTile>
       smem;
 
-  const int tidx = threadIdx.x;
-  const int bidx = blockIdx.x;
+  const auto tidx = threadIdx.x;
+  const auto bidx = blockIdx.x;
+
+  const int num_total_tokens = params.num_tokens;
+  const int num_valid_tokens =
+      params.num_valid_tokens ? *params.num_valid_tokens : num_total_tokens;
 
   const int token_index_offset_start = bidx * params.num_tokens_per_cta;
   const int token_index_offset_end = std::min(
-      token_index_offset_start + params.num_tokens_per_cta, params.num_tokens);
+      token_index_offset_start + params.num_tokens_per_cta, num_total_tokens);
 
-  if (token_index_offset_start >= params.num_tokens) {
+  if (token_index_offset_start >= num_total_tokens) {
     return;
   }
 
@@ -116,7 +123,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       int token_index = token_index_offset + i / NumExperts;
       int expert_index = i % NumExperts;
 
-      smem.scores[i] = token_index < params.num_tokens
+      smem.scores[i] = token_index < num_valid_tokens
           ? params.scores[token_index * stride_t_ + expert_index * stride_e_]
           : static_cast<DataType>(0.0f);
       smem.expert_indices[i] = expert_index;
@@ -177,7 +184,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
     for (int i = tidx; i < NumTokensPerTile; i += kNumThreads) {
       int local_token_index = i;
       int token_index = token_index_offset + i;
-      if (token_index < params.num_tokens) {
+      if (token_index < num_valid_tokens) {
         auto expert_index = smem.expert_indices[local_token_index * NumExperts];
         auto token_index_in_expert =
             atomic_add_relaxed(&params.counts[expert_index], 1);
@@ -193,13 +200,11 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
     int* processed_tokens_addr = &params.counts[NumExperts];
 
     int inc = token_index_offset_end - token_index_offset_start;
-    atomic_add_release(
-        processed_tokens_addr,
-        token_index_offset_end - token_index_offset_start);
+    atomic_add_release(processed_tokens_addr, inc);
 
     do {
       processed_tokens = load_aquire(processed_tokens_addr);
-    } while (processed_tokens != params.num_tokens);
+    } while (processed_tokens != num_total_tokens);
   }
   __syncthreads();
 
@@ -224,7 +229,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
        global_token_offset < (bidx + 1) * params.num_tokens_per_cta;
        global_token_offset += kNumThreads) {
     int token_index = global_token_offset + tidx;
-    if (token_index < params.num_tokens) {
+    if (token_index < num_valid_tokens) {
       int expert_index = params.expert_indices[token_index];
       int token_index_in_expert = params.token_indices[token_index];
       int new_token_index =
@@ -233,13 +238,19 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
           token_index_in_expert;
       params.shuffled_expert_indices[new_token_index] = expert_index;
       params.shuffled_token_indices[new_token_index] = token_index;
+    } else if (token_index < num_total_tokens) {
+      // Overwrites to have the padded indices to use the original indices to
+      // avoid illegal memory access.
+      params.shuffled_expert_indices[token_index] = NumExperts - 1;
+      params.shuffled_token_indices[token_index] = token_index;
     }
   }
 }
 } // namespace
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
-    const at::Tensor& scores) {
+    const at::Tensor& scores,
+    std::optional<at::Tensor> num_valid_tokens) {
   TORCH_CHECK(scores.dtype() == torch::kBFloat16);
   using DataType = __nv_bfloat16;
   using IndexType = int32_t;
@@ -307,7 +318,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
       reinterpret_cast<IndexType*>(expert_indices.data_ptr()),
       reinterpret_cast<IndexType*>(token_indices.data_ptr()),
       reinterpret_cast<IndexType*>(shuffled_expert_indices.data_ptr()),
-      reinterpret_cast<IndexType*>(shuffled_token_indices.data_ptr())};
+      reinterpret_cast<IndexType*>(shuffled_token_indices.data_ptr()),
+      reinterpret_cast<IndexType*>(
+          num_valid_tokens.has_value() ? num_valid_tokens->data_ptr()
+                                       : nullptr)};
 
   dim3 grids(num_ctas);
   dim3 blocks(kNumThreads);

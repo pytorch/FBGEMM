@@ -43,12 +43,14 @@ class ShufflingTests(unittest.TestCase):
                 num_tokens=num_tokens,
                 num_experts=num_experts,
                 rowmajor=rowmajor,
+                padded=padded,
                 compile=compile_,
                 benchmark=False,
             )
             for num_tokens in [3, 123, 1234, 4567, 7891]
             for num_experts in [16, 128]
             for rowmajor in [True, False]
+            for padded in [True, False]
             for compile_ in [True, False]
         ]
         + [
@@ -56,12 +58,14 @@ class ShufflingTests(unittest.TestCase):
                 num_tokens=num_tokens,
                 num_experts=num_experts,
                 rowmajor=rowmajor,
+                padded=padded,
                 compile=False,
                 benchmark=True,
             )
             for num_tokens in [1, 128, 2048, 4096, 8192]
             for num_experts in [16, 128]
             for rowmajor in [True, False]
+            for padded in [True, False]
         ],
         name_func=name_test_func,
     )
@@ -70,15 +74,27 @@ class ShufflingTests(unittest.TestCase):
         num_tokens: int,
         num_experts: int,
         rowmajor: bool,
+        padded: bool,
         benchmark: bool = False,
         compile: bool = False,
     ) -> None:
         torch.manual_seed(0)
 
+        num_valid_tokens_tensor: Optional[torch.Tensor] = None
+        num_valid_tokens_scalar: int = num_tokens
+        num_total_tokens = num_tokens
+        if padded:
+            num_valid_tokens_scalar = num_tokens
+            num_valid_tokens_tensor: Optional[torch.Tensor] = torch.tensor(
+                [num_tokens], device="cuda"
+            )
+            num_total_tokens = num_tokens * 2
+
         scores: torch.Tensor = torch.randn(
-            num_tokens, num_experts, device="cuda", dtype=torch.bfloat16
+            num_total_tokens, num_experts, device="cuda", dtype=torch.bfloat16
         )
         scores = scores.contiguous()
+
         if not rowmajor:
             scores = scores.transpose(0, 1).contiguous().transpose(0, 1)
 
@@ -86,10 +102,13 @@ class ShufflingTests(unittest.TestCase):
             op = index_shuffling
             if compile:
                 op = torch.compile(op, backend="inductor", fullgraph=True)
-            return op(scores)
+            return op(scores, num_valid_tokens_tensor)
 
         def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            selected_scores, selected_expert_indices = torch.topk(scores, 1, dim=1)
+            valid_scores = scores[:num_valid_tokens_scalar].contiguous()
+            selected_scores, selected_expert_indices = torch.topk(
+                valid_scores, 1, dim=1
+            )
             expert_indices, token_indices = torch.sort(selected_expert_indices, dim=0)
             router_counts = (
                 expert_indices[:, None]
@@ -106,6 +125,25 @@ class ShufflingTests(unittest.TestCase):
 
         # Correctness check
         self.assertTrue(router_counts[:-1].equal(ref_router_counts))
+        self.assertEqual(router_counts[:-1].sum().item(), num_valid_tokens_scalar)
+        self.assertEqual(expert_indices.shape, (num_total_tokens,))
+        self.assertEqual(token_indices.shape, (num_total_tokens,))
+
+        if padded:
+            assert num_valid_tokens_tensor is not None
+            assert num_valid_tokens_tensor.item() == num_valid_tokens_scalar
+            assert num_valid_tokens_tensor.item() < num_total_tokens
+        else:
+            assert num_valid_tokens_tensor is None
+            assert num_valid_tokens_scalar == num_total_tokens
+
+        # No invalid indices
+        self.assertTrue(
+            (expert_indices >= 0).logical_and(expert_indices < num_experts).all()
+        )
+        self.assertTrue(
+            (token_indices >= 0).logical_and(token_indices < num_total_tokens).all()
+        )
 
         def _assert_indices_equal(
             indices1: torch.Tensor, indices2: torch.Tensor
@@ -134,7 +172,9 @@ class ShufflingTests(unittest.TestCase):
                 ref_token_indices[start_index:end_index],
             )
             start_index = end_index
-        token_indices_unshuffling = torch.sort(token_indices, dim=0)[1]
+        token_indices_unshuffling = torch.sort(
+            token_indices[:num_valid_tokens_tensor], dim=0
+        )[1]
         ref_token_indices_unshuffling = torch.sort(ref_token_indices, dim=0)[1]
         self.assertTrue(
             expert_indices[token_indices_unshuffling].equal(
@@ -160,8 +200,8 @@ class ShufflingTests(unittest.TestCase):
                         fbgemm_time = do_bench_cudagraph(fn) * 1e3
                     with record_function_or_nullcontext("torch", benchmark):
                         torch_time = do_bench_cudagraph(ref_fn) * 1e3
-            logger.info(
-                f"num_tokens={num_tokens:4}, num_experts={num_experts:4}, rowmajor={int(rowmajor)}, "
+            print(
+                f"num_tokens={num_tokens:4}, num_experts={num_experts:4}, rowmajor={int(rowmajor)}, padded={int(padded)}, "
                 f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us"
             )
 
