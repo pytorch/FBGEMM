@@ -1135,6 +1135,10 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">is_nobag</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pooling_mode</span> <span class="o">==</span> <span class="n">PoolingMode</span><span class="o">.</span><span class="n">NONE</span>
         <span class="c1"># If environment variable is set, it overwrites the default bounds check mode.</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">bounds_check_mode</span> <span class="o">=</span> <span class="n">BoundsCheckMode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;V2_&quot;</span><span class="p">):</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_version</span> <span class="o">=</span> <span class="mi">2</span>
             <span class="k">if</span> <span class="n">bounds_check_mode</span> <span class="o">==</span> <span class="n">BoundsCheckMode</span><span class="o">.</span><span class="n">V2_IGNORE</span><span class="p">:</span>
@@ -1148,9 +1152,6 @@
                     <span class="sa">f</span><span class="s2">&quot;Did not recognize V2 bounds check mode: </span><span class="si">{</span><span class="n">bounds_check_mode</span><span class="si">}</span><span class="s2">&quot;</span>
                 <span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
-            <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
-        <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weights_precision</span> <span class="o">=</span> <span class="n">weights_precision</span>
 
         <span class="k">if</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span> <span class="ow">and</span> <span class="n">torch</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">hip</span><span class="p">:</span>
