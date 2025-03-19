@@ -879,8 +879,8 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
 template <typename T>
 __inline__ __device__ T blockAllReduceMax(T val) {
   static __shared__ T shared[32];
-  int lane = threadIdx.x & 0x1f;
-  int wid = threadIdx.x >> 5;
+  auto lane = threadIdx.x & 0x1f;
+  auto wid = threadIdx.x >> 5;
   val = warpReduceMax(val);
   if (lane == 0)
     shared[wid] = val;
