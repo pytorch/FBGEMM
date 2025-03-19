@@ -471,7 +471,6 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         if (counter_halflife > 0) { // decay based on counter_halflife
             // if id occurs multiple times in a batch, iter_delta=1
             const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
-            prev_iter[idx] = iter * 1.0;
             const auto counter_log_rho = logf(2.0) / counter_halflife;
             row_counter[idx] = 1.0 + expf(-iter_delta * counter_log_rho) * row_counter[idx];
         } else if (counter_halflife == 0) { // count only 1 (appear or not)
@@ -552,7 +551,28 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         exp_reg_correction = 1.0;
         if (regularization_mode == 3) { // counter-based regularization (regularization_mode=3)
             if (adjustment_enabled) {
-                if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
+                if (weight_decay_mode == 3) { // AdagradW
+                    freq = prev_iter[idx] == 0 ? 1.0 : iter - max(prev_iter[idx]*1.0, adjustment_iter*1.0); // Gap from last appearance
+                    if (counter_halflife > 0) { // https://docs.google.com/document/d/1f485nYf027zPbESNcFws_Nyod-PSEHT7SsBPoZsM5SY (SQRT)
+                        row_counter[idx] = freq; // Just to pass backward_optimizers_test
+                        exp_reg_correction = 1.0 - weight_decay * learning_rate / sqrtf(iter*1.0);
+                        freq = expf(- weight_decay * learning_rate * 2.0 * (sqrtf(iter*1.0) - sqrtf(iter - freq + 1.0))); // Lazy multiplier
+                    } else { // https://openreview.net/pdf?id=Nh6pXEkZkK  (Learning rate re-scheduling)
+                        const auto local_counter = counter_halflife < 0 ? row_counter[idx]*1.0 : iter*1.0;
+                        if (adjustment_ub >= 0.0 && adjustment_ub < 1.0) { // https://kellerjordan.github.io/posts/muon/ (Momentum decay)
+                            new_sum_square_grads = adjustment_ub * momentum1[idx] + (1.0 - adjustment_ub) * g_avg_square;
+                            adjusted_multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
+                            adjusted_multiplier *= ( sqrtf(1.0 - powf(adjustment_ub, local_counter)) / sqrtf(1.0 - adjustment_ub) );
+                            momentum1[idx] = new_sum_square_grads * powf(adjustment_ub, freq - 1.0);
+                        } else {
+                            adjusted_multiplier *= sqrtf(local_counter);
+                        } 
+                        exp_reg_correction = 1.0 - weight_decay * learning_rate;
+                        freq = powf(exp_reg_correction, freq - 1.0); // Lazy multiplier
+                    }
+                    adjusted_multiplier *= freq; // Lazy update
+                    exp_reg_correction *= freq; // Lazy update
+                } else if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
                     exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
                 } else if (weight_decay_mode == 1) { // L2 regularization (coupled wd)
                     exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
@@ -565,6 +585,7 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 exp_reg_correction = 1.0 - weight_decay * adjusted_multiplier;
             }
         }
+        prev_iter[idx] = iter * 1.0;
     }
     adjusted_multiplier = SHFL_SYNC(adjusted_multiplier, 0);
     exp_reg_correction = SHFL_SYNC(exp_reg_correction, 0);
