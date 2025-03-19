@@ -197,7 +197,10 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor output;
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 || o_dtype == SparseType::INT8 || o_dtype == SparseType::BF16 || o_dtype == SparseType::INT4);
-    bool output_is_bf16 = o_dtype == SparseType::BF16;
+    fbgemm::FloatFormat out_format =
+      o_dtype == SparseType::FP16 ? fbgemm::FloatFormat::FLOAT16 :
+      (o_dtype == SparseType::BF16 ? fbgemm::FloatFormat::BFLOAT16 :
+       fbgemm::FloatFormat::DEFAULT);
     bool output_is_int8 = o_dtype == SparseType::INT8;
     bool output_is_int4 = o_dtype == SparseType::INT4;
     {% if not nobag %}
@@ -309,6 +312,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     if use_base else ("GenerateEmbeddingSpMDMNBitWithStrides"
                     if use_nbit else "GenerateEmbeddingSpMDMFP8WithStrides")
                  %}
+                {% set in_format = "fbgemm::FloatFormat::FLOAT16" if weight_type == "float16" else
+                  "fbgemm::FloatFormat::DEFAULT" if weight_type in ("float", "uint8_t") else
+                  "$INVALID$" %}
                 using fbgemm_out_t = {{ "base_fbgemm_out_t" if use_base or use_nbit else "other_fbgemm_out_t" }};
                 {% if use_nbit %}
                 const int output_bit_rate = output_is_int4 ? 4 : sizeof(fbgemm_out_t) * 8;
@@ -356,11 +362,14 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     {% endif %}
                     {% if use_base %}
                     /*no_bag=*/nobag_op,
-                    {% endif %}
-                    /*is_bf16_out=*/output_is_bf16
-                    {% if use_nbit %}
-                    ,/*no_bag=*/nobag_op,
+                    /*out_format=*/out_format,
+                    /*in_format=*/{{ in_format }}
+                    {% elif use_nbit %}
+                    /*out_format=*/out_format,
+                    /*no_bag=*/nobag_op,
                     /*output_bit_rate=*/output_bit_rate
+                    {% else %}
+                    /*out_format=*/out_format
                     {% endif %}
                 );
                 success = kernel(

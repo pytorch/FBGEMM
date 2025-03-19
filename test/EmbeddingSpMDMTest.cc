@@ -129,15 +129,14 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   tie(prefetch, weight_choice, corner_case, in_type, out_type) = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
-  bool isFp16 = in_type == FLOAT16;
-  bool isBf16 = in_type == BFLOAT16;
-  bool is_output_float = (out_type == FLOAT);
-  bool is_output_bfloat16 = (out_type == BFLOAT16);
+  FloatFormat in_format = floatFormatFor(in_type);
+  FloatFormat out_format = floatFormatFor(out_type);
 
   if (corner_case != NONE || is_wt_positional) {
     // Check corner case only for subset of tests.
-    if (isFp16 || normalize_by_lengths || use_output_input_stride ||
-        !is_output_float || test_thread_local) {
+    if (in_format == FloatFormat::FLOAT16 || normalize_by_lengths ||
+        use_output_input_stride || out_format != FloatFormat::DEFAULT ||
+        test_thread_local) {
       return;
     }
   }
@@ -147,7 +146,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
   }
 
 #if defined(__APPLE__) || defined(_WIN32)
-  if (in_type == BFLOAT16 && out_type == FLOAT) {
+  if (in_format == FloatFormat::BFLOAT16 &&
+      out_format == FloatFormat::DEFAULT) {
     return;
   }
 #endif
@@ -172,7 +172,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       }
     }
     vector<float16> embedding_table_fp16;
-    if (isFp16) {
+    if (in_format == FloatFormat::FLOAT16) {
       embedding_table_fp16.resize(embedding_table.size());
       FloatToFloat16_simd(
           embedding_table.data(),
@@ -181,7 +181,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     }
 
     vector<bfloat16> embedding_table_bf16;
-    if (isBf16) {
+    if (in_format == FloatFormat::BFLOAT16) {
       embedding_table_bf16.resize(embedding_table.size());
       FloatToBfloat16_simd(
           embedding_table.data(),
@@ -258,8 +258,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       input_stride,                                            \
       true,                                                    \
       false,                                                   \
-      is_output_bfloat16,                                      \
-      isBf16);                                                 \
+      /*out_format=*/out_format,                               \
+      /*in_format=*/in_format);                                \
                                                                \
   auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
       InType,                                                  \
@@ -277,8 +277,8 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
       input_stride,                                            \
       true,                                                    \
       false,                                                   \
-      is_output_bfloat16,                                      \
-      isBf16);                                                 \
+      /*out_format=*/out_format,                               \
+      /*in_format=*/in_format);                                \
   success = kernel(                                            \
       batch_size,                                              \
       lengths_sum,                                             \
@@ -327,7 +327,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
 
 #define TEST_OUT_TYPE(                                                 \
     table, indices, offsets_or_lengths, InType, IndexType, OffsetType) \
-  if (is_output_float) {                                               \
+  if (out_format == FloatFormat::DEFAULT) {                            \
     TEST_THREAD_LOCAL(                                                 \
         table,                                                         \
         indices,                                                       \
@@ -338,7 +338,7 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
         IndexType,                                                     \
         OffsetType,                                                    \
         float);                                                        \
-  } else if (is_output_bfloat16) {                                     \
+  } else if (out_format == FloatFormat::BFLOAT16) {                    \
     TEST_THREAD_LOCAL(                                                 \
         table,                                                         \
         indices,                                                       \
@@ -378,12 +378,14 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     TEST_OFFSET_TYPE(table, indices_32, InType, int32_t); \
   }
 
-    if (isFp16) {
+    if (in_format == FloatFormat::FLOAT16) {
       TEST_INDEX_TYPE(embedding_table_fp16, float16);
-    } else if (isBf16) {
+    } else if (in_format == FloatFormat::BFLOAT16) {
       TEST_INDEX_TYPE(embedding_table_bf16, bfloat16);
-    } else {
+    } else if (in_format == FloatFormat::DEFAULT) {
       TEST_INDEX_TYPE(embedding_table, float);
+    } else {
+      std::abort();
     }
 
 #undef TEST_INDEX_TYPE
@@ -401,25 +403,31 @@ TEST_P(EmbeddingSpMDMTest, basicTest) {
     }
 
     auto get_actual = [&](int offset) {
-      if (is_output_float)
+      if (out_format == FloatFormat::DEFAULT) {
         return output[offset];
-      else if (is_output_bfloat16) {
+      } else if (out_format == FloatFormat::BFLOAT16) {
         float v;
         Bfloat16ToFloat_ref(&output_bf16[offset], &v, 1);
         return v;
-      } else
+      } else if (out_format == FloatFormat::FLOAT16) {
         return cpu_half2float(output_fp16[offset]);
+      } else {
+        std::abort();
+      }
     };
 
     auto get_expected = [&](int offset) {
-      if (is_output_float)
+      if (out_format == FloatFormat::DEFAULT) {
         return output_ref[offset];
-      else if (is_output_bfloat16) {
+      } else if (out_format == FloatFormat::BFLOAT16) {
         float v;
         Bfloat16ToFloat_ref(&output_ref_bf16[offset], &v, 1);
         return v;
-      } else
+      } else if (out_format == FloatFormat::FLOAT16) {
         return cpu_half2float(output_ref_fp16[offset]);
+      } else {
+        std::abort();
+      }
     };
 
     if (success) {

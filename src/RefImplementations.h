@@ -239,8 +239,8 @@ FBGEMM_API bool EmbeddingSpMDM_ref(
     std::int64_t input_stride = -1,
     bool scale_bias_last = true,
     bool no_bag = false,
-    bool is_bf16_out = false,
-    bool is_bf16_in = false);
+    FloatFormat out_format = FloatFormat::DEFAULT,
+    FloatFormat in_format = FloatFormat::DEFAULT);
 
 template <
     typename IndexType = std::int64_t,
@@ -263,7 +263,7 @@ FBGEMM_API bool EmbeddingSpMDMNBit_ref(
     std::int64_t output_stride = -1,
     std::int64_t input_stride = -1,
     const bool scale_bias_last = true,
-    const bool is_bf16_out = false,
+    const FloatFormat out_format = FloatFormat::DEFAULT,
     const bool no_bag = false,
     int output_bit_rate = -1);
 
@@ -288,7 +288,7 @@ bool EmbeddingSpMDMFP8_ref(
     int64_t input_stride = -1,
     int exponent_bits = 4,
     int exponent_bias = 7,
-    bool is_bf16_out = false);
+    FloatFormat out_format = FloatFormat::DEFAULT);
 
 template <
     typename InType = std::uint8_t,
@@ -416,10 +416,11 @@ FBGEMM_API void compressed_indices_remap_ref(
     float* out_weights);
 
 template <typename T>
-float convert_to_float_ref(T src, bool is_bf16 = false) {
+float convert_to_float_ref(T src, FloatFormat format = FloatFormat::DEFAULT) {
   float f_value;
   if (std::is_same<T, uint16_t>::value) {
-    f_value = is_bf16 ? cpu_bf162float(src) : cpu_half2float(src);
+    f_value = format == FloatFormat::BFLOAT16 ? cpu_bf162float(src)
+                                              : cpu_half2float(src);
   } else {
     f_value = src;
   }
@@ -427,10 +428,11 @@ float convert_to_float_ref(T src, bool is_bf16 = false) {
 }
 
 template <typename T>
-T convert_from_float_ref(float src, bool is_bf16 = false) {
+T convert_from_float_ref(float src, FloatFormat format = FloatFormat::DEFAULT) {
   T o_value;
   if (std::is_same<T, uint16_t>::value) {
-    o_value = is_bf16 ? cpu_float2bfloat16(src) : cpu_float2half_rn(src);
+    o_value = format == FloatFormat::BFLOAT16 ? cpu_float2bfloat16(src)
+                                              : cpu_float2half_rn(src);
   } else {
     o_value = src;
   }
