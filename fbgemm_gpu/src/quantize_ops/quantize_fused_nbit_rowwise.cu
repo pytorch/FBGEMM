@@ -27,7 +27,7 @@ __global__ inline void _float_to_fusednbitrowwise_cuda_kernel(
       (ncols + num_elem_per_byte - 1) / num_elem_per_byte + 2 * sizeof(__half);
 
   int row = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  const int row_incre = blockDim.x * gridDim.x;
+  const auto row_incre = blockDim.x * gridDim.x;
   for (/*row*/; row < nrows; row += row_incre) {
     const input_t* input_row = input + row * ncols;
     std::uint8_t* output_row = output + row * output_columns;
@@ -85,7 +85,7 @@ __global__ inline void _fusednbitrowwise_to_float_cuda_kernel(
   const int output_columns = (ncols - 2 * sizeof(__half)) * num_elem_per_byte;
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  const int row_incre = blockDim.y * gridDim.y;
+  const auto row_incre = blockDim.y * gridDim.y;
   for (/*row*/; row < nrows; row += row_incre) {
     if (row < nrows && col < output_columns) {
       const std::uint8_t* input_row = input + row * ncols;

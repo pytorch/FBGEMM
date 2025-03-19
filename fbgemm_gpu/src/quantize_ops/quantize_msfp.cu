@@ -76,13 +76,13 @@ __global__ inline void _compute_msfp_shared_exponent_cuda_kernel(
     const int ncols,
     const int bounding_box_size,
     int* __restrict__ shared_exponents) {
-  const int tidy = blockIdx.y * blockDim.y +
+  const auto tidy = blockIdx.y * blockDim.y +
       threadIdx.y; // to get the threadid-y dimension of this thread
-  const int tidx = blockIdx.x * blockDim.x +
+  const auto tidx = blockIdx.x * blockDim.x +
       threadIdx.x; // to get the threadid-x dimension of this thread
 
-  const int row_incre = blockDim.y * gridDim.y;
-  const int col_incre = blockDim.x * gridDim.x;
+  const auto row_incre = blockDim.y * gridDim.y;
+  const auto col_incre = blockDim.x * gridDim.x;
 
   for (int row = tidy; row < nrows; row += row_incre) {
     const float* input_row = input + row * ncols;

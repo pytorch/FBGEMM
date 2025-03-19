@@ -156,7 +156,7 @@ __global__ inline void _PaddedFP8rowwise_to_float_1d_cuda_kernel(
   pad = (pad > 0) ? pad : 0;
   const auto pad_offset = offsets[row];
   output_t* output_row = output + row * row_dim - pad_offset;
-  for (int col = threadIdx.x; col < row_dim - pad; col += blockDim.x) {
+  for (auto col = threadIdx.x; col < row_dim - pad; col += blockDim.x) {
     const auto output_ = hfp8_to_float(input_row[col], ebit, bias) / scale;
     quantize_float_store(&output_row[col], output_);
   }

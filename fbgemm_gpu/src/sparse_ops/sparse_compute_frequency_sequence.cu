@@ -19,7 +19,7 @@ __launch_bounds__(kMaxThreads) void compute_frequency_sequence_kernel(
     int64_t* output,
     index_t start_input,
     const int input_size) {
-  const int i = blockDim.x * blockIdx.x + threadIdx.x;
+  const auto i = blockDim.x * blockIdx.x + threadIdx.x;
 
   if (i >= input_size) {
     return;

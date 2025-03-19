@@ -73,14 +73,14 @@ __global__ inline void _get_8bit_qparam_cuda_kernel(
 
   // always a power of 2 up to size 32. Multiple rows can share the same warp
   // when smaller than 32.
-  const int lane_width = blockDim.x;
+  const auto lane_width = blockDim.x;
 
   // March warp-wise through the row, doing thread local min and max reductions.
   // This loop will only execute once when ncol <= 32
   if (row < nrows) {
     const input_t* const input_row = input + row * ncols;
 
-    for (int col = threadIdx.x; col < ncols; col += lane_width) {
+    for (auto col = threadIdx.x; col < ncols; col += lane_width) {
       // Get thread-local minmax. These are the smallest min and max ever seen
       // by this thread.
       minimum_element = fminf(minimum_element, input_row[col]);
@@ -128,7 +128,7 @@ __global__ inline void _compute_8bit_quantize_cuda_kernel(
 
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  const int row_incre = blockDim.y * gridDim.y;
+  const auto row_incre = blockDim.y * gridDim.y;
   for (/*row*/; row < nrows; row += row_incre) {
     if (col < ncols) {
       // load scale, bias
@@ -164,7 +164,7 @@ __global__ inline void _fused8bitrowwise_to_float_cuda_kernel(
 
   int row = (int)blockIdx.y * blockDim.y + threadIdx.y;
   const int col = (int)blockIdx.x * blockDim.x + threadIdx.x;
-  const int row_incre = blockDim.y * gridDim.y;
+  const auto row_incre = blockDim.y * gridDim.y;
   for (/*row*/; row < nrows; row += row_incre) {
     if (col < output_columns) {
       const std::uint8_t* input_row = input + row * ncols;
@@ -199,7 +199,7 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
     pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output) {
   const int batch_size = input.size(0);
 
-  const int thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto thread_idx = blockIdx.x * blockDim.y + threadIdx.y;
   const int num_tables = D_offsets.size(0) - 1;
   const int qparam_size = 8;
 
@@ -226,7 +226,7 @@ __global__ inline void _fused8bitrowwise_to_float_mixed_dim_cuda_kernel(
       *reinterpret_cast<const float2*>(&input[batch_idx][table_qparam_offset]);
   const int64_t input_offset = D_offsets[table_idx];
   const int64_t output_offset = input_offset - table_idx * qparam_size;
-  for (int i = threadIdx.x; i < table_D; i += kWarpSize) {
+  for (auto i = threadIdx.x; i < table_D; i += kWarpSize) {
     output[batch_idx][i + output_offset] =
         input[batch_idx][i + input_offset] * qparams.x + qparams.y;
   }
@@ -302,7 +302,7 @@ Tensor _float_to_fused8bitrowwise_gpu_t(const Tensor& input) {
         }
       }
 
-      const int rows_per_block = threads_per_block / blockDim_x;
+      const auto rows_per_block = threads_per_block / blockDim_x;
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 

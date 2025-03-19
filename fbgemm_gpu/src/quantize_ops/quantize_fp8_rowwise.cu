@@ -82,7 +82,7 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
   float maximum_element = kEpsilon;
   // always a power of 2 up to size 32. Multiple rows can share the same warp
   // when smaller than 32.
-  const int lane_width = blockDim.x;
+  const auto lane_width = blockDim.x;
 
   // March warp-wise through the row, doing thread local min and max reductions.
   // This loop will only execute once when ncol <= 32
@@ -271,7 +271,7 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
         }
       }
 
-      const int rows_per_block = threads_per_block / blockDim_x;
+      const auto rows_per_block = threads_per_block / blockDim_x;
       const auto num_blocks_warp =
           cuda_calc_xblock_count(nrows, rows_per_block);
 
