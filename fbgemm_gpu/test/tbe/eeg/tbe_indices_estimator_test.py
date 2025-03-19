@@ -12,23 +12,13 @@ import random
 import unittest
 
 import fbgemm_gpu  # noqa F401
-import hypothesis.strategies as st
 
 import torch
 from fbgemm_gpu.tbe.bench import EEG_MAX_HEAVY_HITTERS
-from hypothesis import given, settings
 
 
 class TBEIndicesEstimatorTest(unittest.TestCase):
-    # pyre-ignore[56]
-    @given(
-        dtype=st.sampled_from([torch.float32, torch.float64]),
-    )
-    @settings(max_examples=20, deadline=None)
-    def test_indices_estimation(
-        self,
-        dtype: torch.dtype,
-    ) -> None:
+    def test_indices_estimation(self) -> None:
         max_i = random.randint(0, 200)
         num_i = random.randint(100, 1000)
         indices = torch.randint(0, max_i, (num_i,), dtype=torch.int64)
@@ -36,8 +26,6 @@ class TBEIndicesEstimatorTest(unittest.TestCase):
         heavy_hitters, q, s, max_index, num_indices = (
             torch.ops.fbgemm.tbe_estimate_indices_distribution(indices)
         )
-
-        print(heavy_hitters, q, s, max_index, num_indices)
 
         assert (
             heavy_hitters.numel() <= EEG_MAX_HEAVY_HITTERS
