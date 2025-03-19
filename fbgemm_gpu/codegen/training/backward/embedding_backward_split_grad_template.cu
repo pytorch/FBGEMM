@@ -158,7 +158,7 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
     {% endif %}
 ) {
   int32_t T = D_offsets.size(0) - 1;
-  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   [[maybe_unused]] int32_t b;
   int32_t t;
   const auto total_B = offsets.size(0) - 1;
@@ -194,13 +194,13 @@ __global__ __launch_bounds__(kMaxThreads) void grad_mean{{ vdesc }}_kernel(
   grad_t* shifted_grad_output_mean = &grad_output_mean[grad_outer_offset][grad_offset];
 
   if (L != 0) {
-    for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
+    for (auto d = threadIdx.x; d * 4 < D; d += blockDim.x) {
       Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
       grad_out_vec.mul_(1.0 / L);
       grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
   } else {
-    for (int32_t d = threadIdx.x; d * 4 < D; d += blockDim.x) {
+    for (auto d = threadIdx.x; d * 4 < D; d += blockDim.x) {
       Vec4T<grad_t> grad_out_vec(&shifted_grad_output[d * 4]);
       grad_out_vec.store(&shifted_grad_output_mean[d * 4]);
     }
