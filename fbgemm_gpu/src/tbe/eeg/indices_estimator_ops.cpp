@@ -30,20 +30,24 @@ estimate_indices_distribution(const at::Tensor& indices) {
   TORCH_CHECK(
       indices.numel() > 0, "indices numel is ", indices.numel(), "(< 1)");
   TORCH_CHECK(
-      indices.dtype() == at::kInt || indices.dtype() == at::kLong,
+      indices.dtype() == at::kLong,
       "indices dtype is ",
       indices.dtype(),
-      "(!= I32 or I64)");
+      "(!= I64)");
 
-  const auto params = *(IndicesEstimator(indices).estimate());
+  auto params = *(IndicesEstimator(indices).estimate());
 
-  const auto hitters = torch::from_blob(
-      (void*)params.heavyHitters.data(),
-      params.heavyHitters.size(),
-      torch::TensorOptions().dtype(at::kDouble));
+  // Convert to tensor manually, since torch::from_blob() seems to not work for
+  // std::vector<double>
+  auto heavy_hitters =
+      torch::zeros((params.heavyHitters.size()), torch::kFloat64);
+  std::copy(
+      params.heavyHitters.begin(),
+      params.heavyHitters.end(),
+      heavy_hitters.data_ptr<double>());
 
   return {
-      hitters,
+      heavy_hitters,
       params.zipfParams.q,
       params.zipfParams.s,
       params.maxIndex,
