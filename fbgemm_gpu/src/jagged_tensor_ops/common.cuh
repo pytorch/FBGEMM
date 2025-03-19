@@ -146,8 +146,8 @@ __launch_bounds__(kMaxThreads) void jagged_dense_elementwise_dense_output_kernel
   const int jagged_folded_size = y.size(1);
   const int inner_dense_size = y.size(2);
 
-  const int outer_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int outer_stride = gridDim.x * blockDim.y;
+  const auto outer_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto outer_stride = gridDim.x * blockDim.y;
   for (int outer = outer_begin; outer < outer_dense_size * jagged_folded_size;
        outer += outer_stride) {
     const int oidx = outer / jagged_folded_size;
@@ -319,8 +319,8 @@ __launch_bounds__(kMaxThreads) void jagged_dense_dense_elementwise_jagged_output
   const int inner_dense_size = y_0.size(2);
   const int nnz = x_values.size(0);
 
-  const int offset_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int offset_stride = gridDim.x * blockDim.y;
+  const auto offset_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto offset_stride = gridDim.x * blockDim.y;
   for (int offset = offset_begin; offset < nnz; offset += offset_stride) {
     int offset_temp = offset;
     int jidx = 0;
@@ -405,11 +405,11 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_(
   struct SharedMemory<index_t> smem;
   index_t* offsets_sh = smem.getPointer();
 
-  for (int i = threadIdx.x; i < B + 1; i += blockDim.x) {
+  for (auto i = threadIdx.x; i < B + 1; i += blockDim.x) {
     offsets_sh[i] = offsets[i];
   }
   __syncthreads();
-  int row = threadIdx.x + blockIdx.x * blockDim.x;
+  auto row = threadIdx.x + blockIdx.x * blockDim.x;
   if (row >= nnz)
     return;
   int first = -1;
@@ -546,7 +546,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
     const int nnz,
     const int E,
     F f) {
-  int values_row = threadIdx.y + blockIdx.y * blockDim.y;
+  auto values_row = threadIdx.y + blockIdx.y * blockDim.y;
   if (values_row >= nnz)
     return;
   for (int real_row = values_row; real_row < nnz;
@@ -563,7 +563,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
     if ((dense_col < y0.size(1)) && (dense_row < y0.size(0)) &&
         (dense_col < y1.size(1)) && (dense_row < y1.size(0)) &&
         (dense_col >= 0) && (dense_row >= 0)) {
-      for (int tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
+      for (auto tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
         VecType128 v_x, v_out, v_y0, v_y1;
         v_x.data.mask =
             (reinterpret_cast<const VecType128::TType*>(x_ptr))[tid];
@@ -575,7 +575,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType128::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
+      for (auto tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
            tid += blockDim.x) {
         VecType64 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType64::TType*>(x_ptr))[tid];
@@ -587,7 +587,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType64::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
+      for (auto tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
            tid += blockDim.x) {
         VecType32 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType32::TType*>(x_ptr))[tid];
@@ -599,7 +599,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType32::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int tid = threadIdx.x + (E / 2) * 2; tid < E; tid += blockDim.x) {
+      for (auto tid = threadIdx.x + (E / 2) * 2; tid < E; tid += blockDim.x) {
         __half v_x, v_out, v_y0, v_y1;
         v_x = static_cast<__half>(x_ptr[tid]);
         v_y0 = static_cast<__half>(y0_ptr[tid]);
@@ -608,7 +608,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         values_ptr[tid] = v_out;
       }
     } else {
-      for (int tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
+      for (auto tid = threadIdx.x; tid < E / 8; tid += blockDim.x) {
         VecType128 v_x, v_out, v_y0, v_y1;
         v_x.data.mask =
             (reinterpret_cast<const VecType128::TType*>(x_ptr))[tid];
@@ -616,7 +616,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType128::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
+      for (auto tid = threadIdx.x + (E / 8) * 8; tid < E / 4;
            tid += blockDim.x) {
         VecType64 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType64::TType*>(x_ptr))[tid];
@@ -624,7 +624,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType64::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
+      for (auto tid = threadIdx.x + (E / 4) * 4; tid < E / 2;
            tid += blockDim.x) {
         VecType32 v_x, v_out, v_y0, v_y1;
         v_x.data.mask = (reinterpret_cast<const VecType32::TType*>(x_ptr))[tid];
@@ -632,7 +632,7 @@ __global__ void jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_(
         (reinterpret_cast<VecType32::TType*>(values_ptr))[tid] =
             v_out.data.mask;
       }
-      for (int tid = threadIdx.x + (E / 2) * 2; tid < E; tid += blockDim.x) {
+      for (auto tid = threadIdx.x + (E / 2) * 2; tid < E; tid += blockDim.x) {
         __half v_x, v_out, v_y0, v_y1;
         v_x = static_cast<__half>(x_ptr[tid]);
         fh(v_out, v_x, v_y0, v_y1, f);

@@ -52,7 +52,7 @@ __global__ __launch_bounds__(kMaxThreads) void jagged_index_add_2d_kernel(
     // TODO: Avoid using atoimcAdd (because it could lead to the numerical
     // indeterminism issue)
     const auto num_cols = output.size(1);
-    for (int i = threadIdx.x; i < num_cols; i += blockDim.x) {
+    for (auto i = threadIdx.x; i < num_cols; i += blockDim.x) {
       gpuAtomicAdd(&output[output_offset][i], values[dense_input_offset][i]);
     }
   }

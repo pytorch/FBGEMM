@@ -42,8 +42,8 @@ __global__ void init_address_lookup_kernel(
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         emb_sizes) {
   int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t t_i = blockIdx.x / blocks_per_table;
-  int32_t threads_per_table = blocks_per_table * blockDim.x;
+  auto t_i = blockIdx.x / blocks_per_table;
+  auto threads_per_table = blocks_per_table * blockDim.x;
   int32_t idx_table = idx % threads_per_table;
 
   int64_t rows = buffer_offsets[t_i + 1] - buffer_offsets[t_i];
@@ -96,14 +96,14 @@ __global__ void get_util_samples(
     const at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits>
         row_utils) {
   int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t t_i = blockIdx.x / blocks_per_table;
+  auto t_i = blockIdx.x / blocks_per_table;
   int32_t num_tables = buffer_offsets.size(0) - 1;
 
   if (t_i >= num_tables) {
     return;
   }
 
-  int32_t threads_per_table = blocks_per_table * blockDim.x;
+  auto threads_per_table = blocks_per_table * blockDim.x;
   int32_t idx_table = idx % threads_per_table;
 
   int64_t rows = buffer_offsets[t_i + 1] - buffer_offsets[t_i];
@@ -163,8 +163,8 @@ __global__ void prune_indices_per_table(
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         address_lookups) {
   int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t t_i = blockIdx.x / blocks_per_table;
-  int32_t threads_per_table = blocks_per_table * blockDim.x;
+  auto t_i = blockIdx.x / blocks_per_table;
+  auto threads_per_table = blocks_per_table * blockDim.x;
   int32_t idx_table = idx % threads_per_table;
 
   int64_t rows = buffer_offsets[t_i + 1] - buffer_offsets[t_i];
@@ -217,7 +217,7 @@ __global__ void get_pruning_lengths(
         inserted_row_lengths,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         pruning_lengths) {
-  int32_t t_i = blockIdx.x;
+  auto t_i = blockIdx.x;
   int64_t rows = buffer_offsets[t_i + 1] - buffer_offsets[t_i];
   int64_t segment_length = div_round_up(rows, blockDim.x);
   int64_t segment_start = threadIdx.x * segment_length;
@@ -270,7 +270,7 @@ __global__ void retrieve_pruned_and_inserted_rows(
         buffer_offsets,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         address_lookups) {
-  int32_t t_i = blockIdx.x;
+  auto t_i = blockIdx.x;
   int64_t rows = buffer_offsets[t_i + 1] - buffer_offsets[t_i];
   int64_t segment_length = div_round_up(rows, blockDim.x);
   int64_t segment_start = threadIdx.x * segment_length;
@@ -319,7 +319,7 @@ __global__ void retrieve_pruned_indices(
         buffer_offsets,
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         address_lookups) {
-  int32_t t_i = blockIdx.x;
+  auto t_i = blockIdx.x;
   int64_t rows = pruning_offsets[t_i + 1] - pruning_offsets[t_i];
   int64_t segment_length = div_round_up(rows, blockDim.x);
   int64_t segment_start = threadIdx.x * segment_length;
@@ -357,8 +357,8 @@ __global__ void cleanup_address_lookups(
     at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         address_lookups) {
   int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t t_i = blockIdx.x / blocks_per_table;
-  int32_t threads_per_table = blocks_per_table * blockDim.x;
+  auto t_i = blockIdx.x / blocks_per_table;
+  auto threads_per_table = blocks_per_table * blockDim.x;
   int32_t idx_table = idx % threads_per_table;
 
   int64_t rows = buffer_offsets[t_i + 1] - buffer_offsets[t_i];
@@ -407,7 +407,7 @@ __launch_bounds__(kMaxThreads) void remap_indices_update_utils_per_table_sorted_
     at::PackedTensorAccessor32<float, 1, at::RestrictPtrTraits> row_util,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         buffer_offsets) {
-  const int32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= num_indices) {
     return;
   }
@@ -439,7 +439,7 @@ __global__ __launch_bounds__(kMaxThreads) void remap_indices_per_table_kernel(
         address_lookup,
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         buffer_offsets) {
-  const int32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= num_indices) {
     return;
   }

@@ -85,7 +85,7 @@ inline __device__ void embedding_inplace_update_kernel_impl(
       reinterpret_cast<const uint4*>(&update_weights[update_weight_offset]);
   // Do wider loads/stores so that each 16 Byte segment in the row can be
   // updated in a single memory transaction
-  for (int32_t d = threadIdx.x; d * sizeof(uint4) < D_bytes; d += blockDim.x) {
+  for (auto d = threadIdx.x; d * sizeof(uint4) < D_bytes; d += blockDim.x) {
     vec_weight_row[d] = update_weight_row[d];
   }
 
@@ -96,8 +96,7 @@ inline __device__ void embedding_inplace_update_kernel_impl(
     auto vec_cache_row = reinterpret_cast<uint4*>(
         &lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
 
-    for (int32_t d = threadIdx.x; d * sizeof(uint4) < D_bytes;
-         d += blockDim.x) {
+    for (auto d = threadIdx.x; d * sizeof(uint4) < D_bytes; d += blockDim.x) {
       vec_cache_row[d] = update_weight_row[d];
     }
   }

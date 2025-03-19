@@ -24,8 +24,8 @@ __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
   const int max_L = x.size(1);
   const int D = y.size(1);
 
-  const int b_h_l_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int b_h_l_step = gridDim.x * blockDim.y;
+  const auto b_h_l_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_h_l_step = gridDim.x * blockDim.y;
   for (int b_h_l = b_h_l_begin; b_h_l < B * H * max_L; b_h_l += b_h_l_step) {
     const int b_h = b_h_l / max_L;
     const int b = b_h / H;
@@ -36,7 +36,7 @@ __global__ __launch_bounds__(kMaxThreads) void outer_prod_jagged_2d_output(
     const int row_end = offsets[b + 1];
     const int length = row_end - row_start;
     if (l < length) {
-      for (int d = threadIdx.x; d < D; d += blockDim.x) {
+      for (auto d = threadIdx.x; d < D; d += blockDim.x) {
         output_values[row_start + l][h * D + d] = x[b_h][l] * y[b_h][d];
       }
     }
@@ -55,8 +55,8 @@ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
   const int max_L = output.size(1);
   const int D = v.size(1);
 
-  const int b_h_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int b_h_step = gridDim.x * blockDim.y;
+  const auto b_h_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_h_step = gridDim.x * blockDim.y;
   for (int b_h = b_h_begin; b_h < B * H; b_h += b_h_step) {
     const int b = b_h / H;
     const int h = b_h % H;
@@ -65,7 +65,7 @@ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_transposed_bmm(
     const int row_end = a_offsets[b + 1];
     const int length = std::min(row_end - row_start, max_L);
     if (D == 0) {
-      for (int l = threadIdx.x; l < max_L; ++l) {
+      for (auto l = threadIdx.x; l < max_L; ++l) {
         output[b_h][l] = 0;
       }
     } else {

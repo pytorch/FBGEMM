@@ -34,8 +34,8 @@ __launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kerne
   const int jagged_folded_size = output.size(1);
   const int inner_dense_size = output.size(2);
 
-  const int outer_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int outer_stride = gridDim.x * blockDim.y;
+  const auto outer_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto outer_stride = gridDim.x * blockDim.y;
   for (int outer = outer_begin; outer < outer_dense_size * jagged_folded_size;
        outer += outer_stride) {
     const int oidx = outer / jagged_folded_size;
@@ -46,12 +46,12 @@ __launch_bounds__(kMaxThreads) void jagged_jagged_elementwise_dense_output_kerne
         offset, jidx, jagged_dims, x_offsets);
 
     if (is_zero) {
-      for (int iidx = threadIdx.x; iidx < inner_dense_size;
+      for (auto iidx = threadIdx.x; iidx < inner_dense_size;
            iidx += blockDim.x) {
         output[oidx][jidx][iidx] = padding_value;
       }
     } else {
-      for (int iidx = threadIdx.x; iidx < inner_dense_size;
+      for (auto iidx = threadIdx.x; iidx < inner_dense_size;
            iidx += blockDim.x) {
         output[oidx][jidx][iidx] =
             f(x_values[offset][iidx], y_values[offset][iidx]);

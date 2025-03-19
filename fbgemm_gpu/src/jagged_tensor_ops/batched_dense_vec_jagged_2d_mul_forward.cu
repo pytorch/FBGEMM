@@ -24,8 +24,8 @@ __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
   const int max_L = v.size(1);
   const int D = output.size(1);
 
-  const int b_h_begin = blockIdx.x * blockDim.y + threadIdx.y;
-  const int b_h_step = gridDim.x * blockDim.y;
+  const auto b_h_begin = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_h_step = gridDim.x * blockDim.y;
   for (int b_h = b_h_begin; b_h < B * H; b_h += b_h_step) {
     const int b = b_h / H;
     const int h = b_h % H;
@@ -34,12 +34,12 @@ __global__ __launch_bounds__(kMaxThreads) void dense_vec_jagged_2d_bmm(
     const int row_end = a_offsets[b + 1];
     const int length = std::min(row_end - row_start, max_L);
     if (length == 0) {
-      for (int d = threadIdx.x; d < D; d += blockDim.x) {
+      for (auto d = threadIdx.x; d < D; d += blockDim.x) {
         output[b_h][d] = 0;
       }
     } else {
       // TODO: use shared memory
-      for (int d = threadIdx.x; d < D; d += blockDim.x) {
+      for (auto d = threadIdx.x; d < D; d += blockDim.x) {
         at::acc_type<scalar_t, true> acc =
             v[b_h][0] * a_values[row_start][h * D + d];
         for (int l = 1; l < length; ++l) {
