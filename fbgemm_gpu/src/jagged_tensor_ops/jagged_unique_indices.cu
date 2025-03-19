@@ -37,7 +37,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_wo_infos_kernel(
   const auto hash_offset = valid ? hash_size_cumsum[t] : -1;
   const auto indices_start = valid ? offsets[b_t] : -1;
   const int32_t L = valid ? offsets[b_t + 1] - indices_start : 0;
-  const int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+  const auto lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
     const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
@@ -88,9 +88,9 @@ __global__ __launch_bounds__(kMaxThreads) void unique_indices_length_kernel(
   __shared__ typename BlockReduce::TempStorage temp_storage_min;
   __shared__ index_t block_results[2];
 
-  const int32_t tid = threadIdx.x;
-  const int32_t bid = blockIdx.x;
-  const int32_t num_blocks = gridDim.x;
+  const auto tid = threadIdx.x;
+  const auto bid = blockIdx.x;
+  const auto num_blocks = gridDim.x;
   const int32_t batch_size = (offsets.size(0) - 1) / num_blocks;
 
   const auto offset_begin = hash_size_offsets[bid] * batch_size;
@@ -230,8 +230,8 @@ __global__ __launch_bounds__(kMaxThreads) void compute_hash_size_kernel(
   typedef cub::BlockReduce<index_t, kMaxThreads> BlockReduce;
   __shared__ typename BlockReduce::TempStorage temp_storage_max;
 
-  const int32_t tid = threadIdx.x;
-  const int32_t bid = blockIdx.x;
+  const auto tid = threadIdx.x;
+  const auto bid = blockIdx.x;
 
   const auto offset_begin = bid * batch_size;
   const auto offset_end = (bid + 1) * batch_size;
