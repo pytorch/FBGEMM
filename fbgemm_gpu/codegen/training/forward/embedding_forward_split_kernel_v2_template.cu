@@ -752,7 +752,7 @@ __global__ void split_embedding_codegen_forward_{{ wdesc }}_v2_kernel(
     __shared__ long smem[NUM_PARAMS * NUM_WARPS + kForwardMaxThreads];
     const uint32_t params_offset = NUM_PARAMS * threadIdx.y;
 
-    const int32_t global_warp_id = blockIdx.x * blockDim.y + threadIdx.y;
+    const auto global_warp_id = blockIdx.x * blockDim.y + threadIdx.y;
     int32_t t;
     int32_t table_warp_id;
     fd_num_warps_per_table.DivMod(global_warp_id, &t, &table_warp_id);

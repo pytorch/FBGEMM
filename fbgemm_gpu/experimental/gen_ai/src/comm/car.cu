@@ -195,7 +195,7 @@ __launch_bounds__(512)
 
   if (threadIdx.x < kWorldSize) {
     // notify all other blocks this blockIdx is ready
-    const int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    const auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
 
     st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
 
@@ -419,7 +419,7 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
   // barriers among the blocks with the same idx (release-acuqire semantics)
   if (threadIdx.x < kWorldSize) {
     // The all blocks notifies the other ranks.
-    int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
     st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
 
     // Busy-wait until all ranks are ready.
@@ -512,7 +512,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   // barriers among the blocks with the same idx (release-acuqire semantics)
   if (threadIdx.x < kWorldSize) {
     // The all blocks notifies the other ranks.
-    int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
     st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
 
     // Busy-wait until all ranks are ready.

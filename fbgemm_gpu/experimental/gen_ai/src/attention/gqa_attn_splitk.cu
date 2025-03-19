@@ -100,15 +100,15 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 
   // Each block handles a single query, split-K partition, and max of 8 query
   // heads
-  const int32_t b = blockIdx.x;
+  const auto b = blockIdx.x;
   // Head block
-  const int32_t h_block = blockIdx.y;
+  const auto h_block = blockIdx.y;
   // Split-K block
-  const int32_t s_block = blockIdx.z;
+  const auto s_block = blockIdx.z;
 
   const int32_t H_max = XQ.size(2);
-  const int32_t num_split_ks = gridDim.z;
-  const int32_t warp_idx = threadIdx.y;
+  const auto num_split_ks = gridDim.z;
+  const auto warp_idx = threadIdx.y;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
@@ -293,10 +293,10 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
         // Handle the remainder of T to avoid load_matrix_sync to K will OOB
         // Load 8 bfloat16s at a time for 16B loads
         constexpr int kThreadsPerF_K = F_K / 8;
-        for (int t = t_start + threadIdx.x / kThreadsPerF_K;
+        for (auto t = t_start + threadIdx.x / kThreadsPerF_K;
              t < min(t_start + F_N, t_per_block_end);
              t += kThreadsPerWarp / kThreadsPerF_K) {
-          const int d = d_start + threadIdx.x % kThreadsPerF_K * 8;
+          const auto d = d_start + threadIdx.x % kThreadsPerF_K * 8;
           const auto smem_offset =
               (warp_idx * F_N + t - t_start) * F_K + d - d_start;
           *(reinterpret_cast<uint4*>(smem_staging + smem_offset)) =
@@ -326,14 +326,14 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
       // The number of threads processing each column is 4
       const int col_group = max_col / 8;
       const int cols_in_group = max_col % 8;
-      const int max_elements =
+      const auto max_elements =
           threadIdx.x < cols_in_group * 4 ? (col_group + 1) * 2 : col_group * 2;
       const int h_start = (threadIdx.x % 4) * 2;
 
       const int frag_offset =
           static_cast<int>((t_start - t_per_block_start) / F_N) * C_FRAG_SIZE;
-      const int doub_quad_offset = threadIdx.x % 4 * C_DOUBLE_QUAD_SIZE;
-      const int pos = threadIdx.x >> 2;
+      const auto doub_quad_offset = threadIdx.x % 4 * C_DOUBLE_QUAD_SIZE;
+      const auto pos = threadIdx.x >> 2;
       auto* smem_ = smem + frag_offset + doub_quad_offset + pos;
 
       for (auto i = 0; i < max_elements && i < c_frag.num_elements; i++) {
@@ -357,7 +357,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
     // Scale the results and compute max for each head from shared memory
     const int nThreadsPerH = kThreadsPerWarp / h_total_per_block;
     // Each thread computes only one head
-    const int h = threadIdx.x / nThreadsPerH;
+    const auto h = threadIdx.x / nThreadsPerH;
     if (h < h_total_per_block) {
       for (int t = t_start + (threadIdx.x % nThreadsPerH);
            t < min(t_start + F_N, t_per_block_end);
@@ -444,10 +444,10 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 #else
   // Non-A100/H100 GPUs will store both max and head sum here
   if (h_begin + threadIdx.x / threads_per_h < h_end) {
-    const int h = h_begin + threadIdx.x / threads_per_h;
+    const auto h = h_begin + threadIdx.x / threads_per_h;
     const auto max_qk_ = smem_max[h];
     auto* smem_ = smem + h * ldc;
-    for (int t = threadIdx.x % threads_per_h; t < t_total_per_block;
+    for (auto t = threadIdx.x % threads_per_h; t < t_total_per_block;
          t += threads_per_h) {
       const float p = __expf(smem_[t] * qk_scale - max_qk_);
       // Compute the sum value for each head
@@ -475,9 +475,9 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   // Prefetch V
   if (USE_QUANTIZE) {
     const auto d_start = warp_idx * F_N;
-    const int t_chunk_id = threadIdx.x % 2;
+    const auto t_chunk_id = threadIdx.x % 2;
     const int group_id = d_start / GROUP_SIZE;
-    int t = t_per_block_start + threadIdx.x / 2;
+    auto t = t_per_block_start + threadIdx.x / 2;
     if (t < min(t_per_block_start + F_K, t_per_block_end)) {
       const auto* v_ = cache_V_base + t * D_H_bytes;
       v_scales = reinterpret_cast<const __half2*>(v_)[group_id];
@@ -496,9 +496,9 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
   constexpr int32_t CONV_UNROLLS = 4;
   __nv_bfloat16* smem_bf16 = reinterpret_cast<__nv_bfloat16*>(smem);
   float2 p[CONV_UNROLLS];
-  const int t_stride = blockDim.x * blockDim.y * 2;
+  const auto t_stride = blockDim.x * blockDim.y * 2;
   const int t_rounds = div_round_up(t_total_per_block, t_stride);
-  const int global_tid = warp_idx * blockDim.x + threadIdx.x;
+  const auto global_tid = warp_idx * blockDim.x + threadIdx.x;
 
   // Ensure that all threads finish writing to smem before modifying it in the
   // loop below
@@ -583,13 +583,13 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
 #ifdef USE_WMMA_FRAG
       // A100/H100 GPU reads FP32 from shared memory, convert it into BF16, and
       // writes data directly to the WMMA fragment.
-      const int head = threadIdx.x / 4;
+      const auto head = threadIdx.x / 4;
       constexpr int NUM_COL_VECS = 2;
       constexpr int P_FRAG_SIZE = F_M * F_K;
       constexpr int P_HALF_SIZE = P_FRAG_SIZE / 2;
       const int frag_offset =
           static_cast<int>((t_start - t_per_block_start) / F_K) * P_FRAG_SIZE;
-      const int pos = threadIdx.x * 2;
+      const auto pos = threadIdx.x * 2;
       const auto* smem_ = smem + frag_offset + pos;
       const auto t_start_ = t_start + (threadIdx.x % 4) * 2;
       const auto t_scope = min(t_start + F_K, t_per_block_end);
@@ -631,8 +631,8 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
         // Each thread loads 16 columns (D dim) from one row (T dim).
         // Each row is handled by two threads
         const auto t_scope = min(t_start + F_K, t_per_block_end);
-        const int t = t_start + threadIdx.x / 2;
-        const int t_chunk_id = threadIdx.x % 2;
+        const auto t = t_start + threadIdx.x / 2;
+        const auto t_chunk_id = threadIdx.x % 2;
         if (t < t_scope) {
           const auto smem_offset =
               (warp_idx * F_K + t - t_start) * SMEM_V_STRIDE;
@@ -687,7 +687,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
         const int d_start_next = t_start_next < t_per_block_end
             ? d_start
             : d_start + kSplitKWarpsPerBlock * F_N;
-        const int t_next = t_start_next + threadIdx.x / 2;
+        const auto t_next = t_start_next + threadIdx.x / 2;
 
         if (t_next < min(t_start_next + F_K, t_per_block_end) &&
             d_start_next < D_H) {
@@ -725,7 +725,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
           auto* smem_staging_t_ = smem_staging_ + t * F_N;
           auto* v_ =
               reinterpret_cast<const __nv_bfloat16*>(cache_V_base) + t * D_H;
-          for (int d = d_start + threadIdx.x; d < d_start + F_N;
+          for (auto d = d_start + threadIdx.x; d < d_start + F_N;
                d += kThreadsPerWarp) {
             smem_staging_t_[d] = v_[d];
           }
@@ -733,7 +733,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
         // Need to fill zeros to avoid nan
         for (; t < t_start + F_K; ++t) {
           auto* smem_staging_t_ = smem_staging_ + t * F_N;
-          for (int d = d_start + threadIdx.x; d < d_start + F_N;
+          for (auto d = d_start + threadIdx.x; d < d_start + F_N;
                d += kThreadsPerWarp) {
             smem_staging_t_[d] = 0;
           }
@@ -758,7 +758,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
       for (int h = 0; h < h_total_per_block; ++h) {
         // [B, H, num_split_ks, 1, D_H]
         auto* o_ = &out_splitK[b][s_block][h_per_block_start + h][d_start];
-        for (int d = threadIdx.x; d < F_N; d += kThreadsPerWarp) {
+        for (auto d = threadIdx.x; d < F_N; d += kThreadsPerWarp) {
           o_[d] = smem_out[F_M * d_start + h * F_N + d];
         }
       }
@@ -773,7 +773,7 @@ __global__ void __launch_bounds__(kThreadsPerWarp* kSplitKWarpsPerBlock, 1)
       head_sum += __shfl_sync(FINAL_MASK, head_sum, threadIdx.x + offset);
     }
 
-    const int head = threadIdx.x / 4;
+    const auto head = threadIdx.x / 4;
     if (threadIdx.x % 4 == 0 && head < h_total_per_block) {
       metadata[b][1][s_block][h_per_block_start + head] = head_sum;
     }
@@ -792,8 +792,8 @@ __global__ void gqa_attn_splitk_reduce_wmma_kernel(
         seq_positions,
     // [B, 1, H, D]
     at::PackedTensorAccessor32<at::BFloat16, 4, at::RestrictPtrTraits> O) {
-  const int32_t b = blockIdx.x;
-  const int32_t h = blockIdx.y;
+  const auto b = blockIdx.x;
+  const auto h = blockIdx.y;
   const auto num_split_ks = out_splitK.size(1);
   const auto d = threadIdx.y * kThreadsPerWarp + threadIdx.x;
 
@@ -841,16 +841,16 @@ __global__ void gqa_attn_splitk_qk_kernel(
   static_assert(kWarpsPerBlock <= kThreadsPerWarp, "");
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
-  int32_t split_k = gridDim.z;
-  int32_t z = blockIdx.z;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
+  auto split_k = gridDim.z;
+  auto z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   auto* q_ = &(XQ[b][0][h][0]);
@@ -901,7 +901,7 @@ __global__ void gqa_attn_splitk_qk_kernel(
     }
 
     if (threadIdx.x < kTimeUnroll) {
-      int32_t t = tt + threadIdx.x;
+      auto t = tt + threadIdx.x;
       QK_out[b][h][t] = qk_accs[threadIdx.x];
     }
   }
@@ -943,16 +943,16 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
   static_assert(kWarpsPerBlock <= kThreadsPerWarp, "");
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
-  int32_t split_k = gridDim.z;
-  int32_t z = blockIdx.z;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
+  auto split_k = gridDim.z;
+  auto z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   auto* q_ = &(XQ[b][0][h][0]);
@@ -965,7 +965,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
   if (KVQuantNumGroups > 1) {
     int4_qparam_offset = 4 * KVQuantNumGroups;
     int32_t group_size = D_H / KVQuantNumGroups;
-    int32_t group_idx = threadIdx.x * 2 / group_size;
+    auto group_idx = threadIdx.x * 2 / group_size;
     qparam_offset = 4 * group_idx;
   }
   int32_t D_H_bytes = D_H / 2 + int4_qparam_offset;
@@ -1017,7 +1017,7 @@ __global__ void gqa_attn_splitk_qk_int4_kernel(
     }
 
     if (threadIdx.x < kTimeUnroll) {
-      int32_t t = tt + threadIdx.x;
+      auto t = tt + threadIdx.x;
       QK_out[b][h][t] = qk_accs[threadIdx.x];
     }
   }
@@ -1064,22 +1064,22 @@ __global__ void gqa_attn_splitk_attn_kernel(
   extern __shared__ __align__(16) float smem[];
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
   int32_t split_k = XQ_out.size(0);
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
 
   // Each block handles single batch and head
   // Accumulate over split-k inputs and write into smem
   float max_qk_acc = std::numeric_limits<float>::lowest();
   // each thread handles one T timestep.
   // now, compute the normalization across all threads.
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     float qk_acc = XQ_out[b][h][t];
     qk_acc *= qk_scale;
@@ -1104,7 +1104,7 @@ __global__ void gqa_attn_splitk_attn_kernel(
   max_qk_acc = warpReduceMax(max_qk_acc);
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     softmax_denominator += __expf(smem[t] - max_qk_acc);
   }
@@ -1123,7 +1123,7 @@ __global__ void gqa_attn_splitk_attn_kernel(
   softmax_denominator = warpReduceSum(softmax_denominator);
 
   // now, compute the normalization across all threads.
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     attn_out[b][h][t] = __expf(smem[t] - max_qk_acc) / softmax_denominator;
   }
@@ -1139,16 +1139,16 @@ __global__ void gqa_attn_splitk_v_kernel(
   static_assert(kWarpsPerBlock <= kThreadsPerWarp, "");
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
-  int32_t split_k = gridDim.z;
-  int32_t z = blockIdx.z;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
+  auto split_k = gridDim.z;
+  auto z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
 
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
@@ -1244,16 +1244,16 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
   static_assert(kWarpsPerBlock <= kThreadsPerWarp, "");
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
-  int32_t split_k = gridDim.z;
-  int32_t z = blockIdx.z;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
+  auto split_k = gridDim.z;
+  auto z = blockIdx.z;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
 
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
@@ -1267,7 +1267,7 @@ __global__ void gqa_attn_splitk_v_int4_kernel(
   if (KVQuantNumGroups > 1) {
     int4_qparam_offset = 4 * KVQuantNumGroups;
     int32_t group_size = D_H / KVQuantNumGroups;
-    int32_t group_idx = threadIdx.x * 2 / group_size;
+    auto group_idx = threadIdx.x * 2 / group_size;
     qparam_idx = 4 * group_idx;
   }
   int32_t D_H_bytes = D_H / 2 + int4_qparam_offset;
@@ -1750,14 +1750,14 @@ __global__ void mqa_attn_kernel(
   extern __shared__ __align__(16) float smem[];
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   auto* q_ = &(XQ[b][0][h][0]);
@@ -1851,7 +1851,7 @@ __global__ void mqa_attn_kernel(
   max_qk_acc = warpReduceMax(max_qk_acc);
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     softmax_denominator += __expf(smem[t] - max_qk_acc);
   }
@@ -1870,7 +1870,7 @@ __global__ void mqa_attn_kernel(
   softmax_denominator = warpReduceSum(softmax_denominator);
 
   // now, compute the normalization across all threads.
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     smem[t] = __expf(smem[t] - max_qk_acc) / softmax_denominator;
   }
@@ -1955,14 +1955,14 @@ __global__ void mqa_attn_fp8_kernel(
   extern __shared__ __align__(16) float smem[];
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   int32_t qparam_offset = 4; // 4 bytes
@@ -2077,7 +2077,7 @@ __global__ void mqa_attn_fp8_kernel(
   max_qk_acc = warpReduceMax(max_qk_acc);
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     softmax_denominator += __expf(smem[t] - max_qk_acc);
   }
@@ -2096,7 +2096,7 @@ __global__ void mqa_attn_fp8_kernel(
   softmax_denominator = warpReduceSum(softmax_denominator);
 
   // now, compute the normalization across all threads.
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     smem[t] = __expf(smem[t] - max_qk_acc) / softmax_denominator;
   }
@@ -2190,14 +2190,14 @@ __global__ void mqa_attn_int4_kernel(
   extern __shared__ __align__(16) float smem[];
 
   // Each block handles a single batch and head
-  int32_t b = blockIdx.x;
-  int32_t h = blockIdx.y;
+  auto b = blockIdx.x;
+  auto h = blockIdx.y;
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
   int32_t max_t = seq_positions[b] + 1;
 
-  int32_t warp_idx = threadIdx.y;
+  auto warp_idx = threadIdx.y;
   // need kWarpsPerBlock == blockDim.y;
   // Need D_H == 128
   int32_t int4_qparam_offset = 4;
@@ -2205,7 +2205,7 @@ __global__ void mqa_attn_int4_kernel(
   if (KVQuantNumGroups > 1) {
     int4_qparam_offset = 4 * KVQuantNumGroups;
     int32_t group_size = D_H / KVQuantNumGroups;
-    int32_t group_idx = threadIdx.x * 4 / group_size;
+    auto group_idx = threadIdx.x * 4 / group_size;
     qparam_idx = 4 * group_idx;
   }
   auto* q_ = &(XQ[b][0][h][0]);
@@ -2340,7 +2340,7 @@ __global__ void mqa_attn_int4_kernel(
   max_qk_acc = warpReduceMax(max_qk_acc);
   // each warp computes partial sum of exp.
   float softmax_denominator = 0.0f;
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     softmax_denominator += __expf(smem[t] - max_qk_acc);
   }
@@ -2359,7 +2359,7 @@ __global__ void mqa_attn_int4_kernel(
   softmax_denominator = warpReduceSum(softmax_denominator);
 
   // now, compute the normalization across all threads.
-  for (int32_t t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
+  for (auto t = threadIdx.x + warp_idx * kThreadsPerWarp; t < max_t;
        t += kWarpsPerBlock * kThreadsPerWarp) {
     smem[t] = __expf(smem[t] - max_qk_acc) / softmax_denominator;
   }

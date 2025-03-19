@@ -50,7 +50,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   int32_t B = vbe ? 0 : (total_B / T);
 
   const index_t num_indices = indices.size(0);
-  const int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
   index_t invalid_i = -1, invalid_idx = -1;
   int32_t invalid_b_t = -1;
 
@@ -82,7 +82,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     }
   }
 
-  for (int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B;
+  for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B;
        b_t += blockDim.y * gridDim.x) {
     // Compute b and t
     int32_t b;

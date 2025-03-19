@@ -154,7 +154,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
         for (int32_t vec = 0;
             (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++vec) {
-            const int32_t d_vec = vec * kThreadGroupSize + threadIdx.x;
+            const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
             const int32_t d = d_vec * VEC_WIDTH;
             weight_row_template.store(
                 shared_weight_update_row[d_vec],
