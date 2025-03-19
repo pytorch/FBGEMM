@@ -30,8 +30,8 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
     const offsets_t* __restrict__ output_offsets,
     indices_t* __restrict__ permuted_indices,
     weights_t* __restrict__ permuted_weights) {
-  int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
-  const int stride = gridDim.x * blockDim.y;
+  auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
   for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
     int32_t b = b_t % B;
     int32_t t = b_t / B;
@@ -43,7 +43,7 @@ __global__ __launch_bounds__(kMaxThreads) void permute_2D_data_kernel(
       segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
     }
     offsets_t input_start = input_offsets[permute[t] * B + b];
-    for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
+    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
         permuted_weights[output_start + i] = weights[input_start + i];
@@ -211,15 +211,15 @@ __global__ __launch_bounds__(kMaxThreads) void permute_indices_weights_kernel(
     const index_t* __restrict__ output_offsets,
     index_t* __restrict__ permuted_indices,
     scalar_t* __restrict__ permuted_weights) {
-  int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
-  const int stride = gridDim.x * blockDim.y;
+  auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
   for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
     int32_t b = b_t % B;
     int32_t t = b_t / B;
     index_t output_start = output_offsets[b_t];
     index_t segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
     index_t input_start = input_offsets[permute[t] * B + b];
-    for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
+    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_indices[output_start + i] = indices[input_start + i];
       if (has_weight) {
         permuted_weights[output_start + i] = weights[input_start + i];

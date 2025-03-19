@@ -46,8 +46,8 @@ __global__ __launch_bounds__(kMaxThreads) void _offsets_range_cuda_kernel(
     int64_t range_size,
     const scalar_t* __restrict__ offsets_data,
     scalar_t* __restrict__ range_data) {
-  int start_row_idx = blockIdx.x * blockDim.y + threadIdx.y;
-  const int stride = gridDim.x * blockDim.y;
+  auto start_row_idx = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
   for (int row_idx = start_row_idx; row_idx < N; row_idx += stride) {
     scalar_t row_start = offsets_data[row_idx];
     scalar_t row_end =

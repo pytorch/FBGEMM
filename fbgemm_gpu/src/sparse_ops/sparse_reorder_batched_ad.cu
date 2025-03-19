@@ -29,7 +29,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
 
   const int32_t num_ads_in_batch = batch_offsets[B];
   // warp-per-segment.
-  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t b = b_t % B;
   const int32_t t = b_t / B;
   if (t >= T) {
@@ -41,7 +41,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_lengths_kernel(
       broadcast_lengths ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
   const int32_t output_segment_start = t * num_ads_in_batch + batch_offsets[b];
 
-  for (int32_t i = threadIdx.x; i < num_ads_b; i += blockDim.x) {
+  for (auto i = threadIdx.x; i < num_ads_b; i += blockDim.x) {
     reordered_cat_ad_lengths[output_segment_start + i] = broadcast_lengths
         ? cat_ad_lengths[input_segment_start]
         : cat_ad_lengths[input_segment_start + i];
@@ -202,7 +202,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_ads_in_batch = batch_offsets[B];
   // warp-per-segment.
-  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t b = b_t % B;
   const int32_t t = b_t / B;
   if (t >= T) {
@@ -224,8 +224,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
   const auto num_elements = input_segment_end - input_segment_start;
 
   if (broadcast_indices) {
-    for (int32_t i = threadIdx.x; i < num_ads_b * num_elements;
-         i += blockDim.x) {
+    for (auto i = threadIdx.x; i < num_ads_b * num_elements; i += blockDim.x) {
       reordered_cat_ad_indices[output_segment_start + i] =
           cat_ad_indices[input_segment_start + i % num_elements];
     }
@@ -233,7 +232,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
     // Idea: we want to copy the entire segment of size sum_a(length_{b, t, a})
     // from starting point (given by cat_ad_offsets[b, t])
     // to end point (given by reordered_cat_ad_indices[t][b])
-    for (int32_t i = threadIdx.x; i < input_segment_end - input_segment_start;
+    for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
          i += blockDim.x) {
       reordered_cat_ad_indices[output_segment_start + i] =
           cat_ad_indices[input_segment_start + i];
@@ -412,7 +411,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
   const int32_t B = batch_offsets.size(0) - 1;
   const int32_t num_items_in_batch = batch_offsets[B];
   // warp-per-segment.
-  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t b = b_t % B;
   const int32_t t = b_t / B;
   if (t >= T) {
@@ -437,7 +436,7 @@ __launch_bounds__(kMaxThreads) void reorder_batched_sequence_embeddings_kernel(
   for (size_t i = 0; i < input_segment_end - input_segment_start; i++) {
     const auto output_offset = output_segment_start + i;
     const auto input_offset = input_segment_start + i;
-    for (int32_t d = threadIdx.x; d < D; d += blockDim.x) {
+    for (auto d = threadIdx.x; d < D; d += blockDim.x) {
       reordered_cat_sequence_embeddings[output_offset][d] =
           cat_sequence_embeddings[input_offset][d];
     }
