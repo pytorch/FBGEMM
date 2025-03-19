@@ -99,6 +99,7 @@ class CounterWeightDecayMode(enum.IntEnum):
     NONE = 0
     L2 = 1
     DECOUPLE = 2
+    ADAGRADW = 3
 
 
 class StepMode(enum.IntEnum):
@@ -1073,6 +1074,16 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     counter_based_regularization.counter_weight_decay_mode
                 )
                 counter_halflife = counter_based_regularization.counter_halflife
+                if (
+                    counter_based_regularization.counter_weight_decay_mode
+                    == CounterWeightDecayMode.ADAGRADW
+                ) and (
+                    counter_based_regularization.learning_rate_mode
+                    != LearningRateMode.EQUAL
+                ):
+                    raise AssertionError(
+                        "Learning rate mode is not supported for CounterWeightDecayMode.ADAGRADW for now"
+                    )
             else:
                 opt_arg_weight_decay_mode = (
                     cowclip_regularization.counter_weight_decay_mode
@@ -2656,7 +2667,12 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             list_of_state_dict = [
                 (
-                    {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
+                    {
+                        "sum": states[0],
+                        "prev_iter": states[1],
+                        "row_counter": states[2],
+                        "iter": self.iter,
+                    }
                     if self._used_rowwise_adagrad_with_counter
                     else (
                         {
