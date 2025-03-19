@@ -42,7 +42,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     FixedDivisor fd,
     TORCH_DSA_KERNEL_ARGS) {
   int32_t T = rows_per_table.size(0);
-  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t b;
   int32_t t;
   int32_t B = 0;

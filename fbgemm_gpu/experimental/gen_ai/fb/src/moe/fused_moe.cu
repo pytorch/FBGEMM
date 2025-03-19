@@ -133,7 +133,7 @@ __global__ void moe_align_block_size_kernel(
 
   // For each expert we accumulate the token counts from the different threads.
   tokens_cnts[index(num_experts, 0, threadIdx.x)] = 0;
-  for (int i = 1; i <= blockDim.x; ++i) {
+  for (auto i = 1; i <= blockDim.x; ++i) {
     tokens_cnts[index(num_experts, i, threadIdx.x)] +=
         tokens_cnts[index(num_experts, i - 1, threadIdx.x)];
   }
@@ -299,7 +299,7 @@ __global__ void segmented_max_reduction(
   __syncthreads();
 
   // Now perform parallel reduction within the thread block
-  int ib = blockDim.x / 2;
+  auto ib = blockDim.x / 2;
   while (ib != 0) {
     if (threadIdx.x < ib && cache[threadIdx.x + ib] > cache[threadIdx.x]) {
       cache[threadIdx.x] = cache[threadIdx.x + ib];
@@ -404,7 +404,7 @@ __global__ void scaled_fp8_quant_kernel(
     const scalar_t* __restrict__ input,
     const float* __restrict__ scale,
     int64_t num_elems) {
-  int tid = blockDim.x * blockIdx.x + threadIdx.x;
+  auto tid = blockDim.x * blockIdx.x + threadIdx.x;
 
   // Invert the scale so that we can use multiplications to avoid expensive
   // division.
@@ -450,8 +450,8 @@ __inline__ __device__ T blockReduce(T val, ReduceFnType<T> fn) {
     // warpReduce
     constexpr int maxActiveLanes = (maxBlockSize + WARP_SIZE - 1) / WARP_SIZE;
     static __shared__ T shared[maxActiveLanes];
-    int lane = threadIdx.x % WARP_SIZE;
-    int wid = threadIdx.x / WARP_SIZE;
+    auto lane = threadIdx.x % WARP_SIZE;
+    auto wid = threadIdx.x / WARP_SIZE;
     if (lane == 0)
       shared[wid] = val;
 
@@ -496,7 +496,7 @@ __global__ void dynamic_per_token_scaled_fp8_quant_kernel(
   if (can_vectorize) {
     absmax_val = thread_max_vec(token_input, hidden_size, tid, blockDim.x);
   } else {
-    for (int i = tid; i < hidden_size; i += blockDim.x) {
+    for (auto i = tid; i < hidden_size; i += blockDim.x) {
       float const x = static_cast<float>(token_input[i]);
       absmax_val = max(absmax_val, fabs(x));
     }
@@ -521,7 +521,7 @@ __global__ void dynamic_per_token_scaled_fp8_quant_kernel(
     scaled_fp8_conversion_vec<scalar_t, false>(
         token_output, token_input, token_scale, hidden_size, tid, blockDim.x);
   } else {
-    for (int i = tid; i < hidden_size; i += blockDim.x) {
+    for (auto i = tid; i < hidden_size; i += blockDim.x) {
       token_output[i] = scaled_fp8_conversion<false>(
           static_cast<float>(token_input[i]), token_scale);
     }
@@ -628,7 +628,7 @@ __launch_bounds__(TPB) __global__ void moeSoftmax(
   __shared__ float normalizing_factor;
   __shared__ float float_max;
 
-  const int thread_row_offset = blockIdx.x * num_cols;
+  const auto thread_row_offset = blockIdx.x * num_cols;
 
   cub::Sum sum;
   float threadData(-FLT_MAX);
@@ -638,7 +638,7 @@ __launch_bounds__(TPB) __global__ void moeSoftmax(
     return;
   }
 
-  for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+  for (auto ii = threadIdx.x; ii < num_cols; ii += TPB) {
     const int idx = thread_row_offset + ii;
     threadData = max(static_cast<float>(input[idx]), threadData);
   }
@@ -651,7 +651,7 @@ __launch_bounds__(TPB) __global__ void moeSoftmax(
 
   threadData = 0;
 
-  for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+  for (auto ii = threadIdx.x; ii < num_cols; ii += TPB) {
     const int idx = thread_row_offset + ii;
     threadData += exp((static_cast<float>(input[idx]) - float_max));
   }
@@ -663,7 +663,7 @@ __launch_bounds__(TPB) __global__ void moeSoftmax(
   }
   __syncthreads();
 
-  for (int ii = threadIdx.x; ii < num_cols; ii += TPB) {
+  for (auto ii = threadIdx.x; ii < num_cols; ii += TPB) {
     const int idx = thread_row_offset + ii;
     const float val =
         exp((static_cast<float>(input[idx]) - float_max)) * normalizing_factor;
@@ -689,17 +689,17 @@ __launch_bounds__(TPB) __global__ void moeTopK(
   cub_kvp thread_kvp;
   cub::ArgMax arg_max;
 
-  const int num_rows = gridDim.x;
-  const int block_row = blockIdx.x;
+  const auto num_rows = gridDim.x;
+  const auto block_row = blockIdx.x;
 
   const bool row_is_active = finished ? !finished[block_row] : true;
-  const int thread_read_offset = blockIdx.x * num_experts;
+  const auto thread_read_offset = blockIdx.x * num_experts;
   for (int k_idx = 0; k_idx < k; ++k_idx) {
     thread_kvp.key = 0;
     thread_kvp.value = -1.f; // This is OK because inputs are probabilities
 
     cub_kvp inp_kvp;
-    for (int expert = threadIdx.x; expert < num_experts; expert += TPB) {
+    for (auto expert = threadIdx.x; expert < num_experts; expert += TPB) {
       const int idx = thread_read_offset + expert;
       inp_kvp.key = expert;
       inp_kvp.value = inputs_after_softmax[idx];
@@ -804,14 +804,14 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__ void topkGatingSoftmax(
   // Compute CTA and warp rows. We pack multiple rows into a single warp, and a
   // block contains WARPS_PER_CTA warps. This, each block processes a chunk of
   // rows. We start by computing the start row for each block.
-  const int cta_base_row = blockIdx.x * ROWS_PER_CTA;
+  const auto cta_base_row = blockIdx.x * ROWS_PER_CTA;
 
   // Now, using the base row per thread block, we compute the base row per warp.
-  const int warp_base_row = cta_base_row + threadIdx.y * ROWS_PER_WARP;
+  const auto warp_base_row = cta_base_row + threadIdx.y * ROWS_PER_WARP;
 
   // The threads in a warp are split into sub-groups that will work on a row.
   // We compute row offset for each thread sub-group
-  const int thread_row_in_warp = threadIdx.x / THREADS_PER_ROW;
+  const auto thread_row_in_warp = threadIdx.x / THREADS_PER_ROW;
   const int thread_row = warp_base_row + thread_row_in_warp;
 
   // Threads with indices out of bounds should early exit here.
@@ -826,7 +826,7 @@ __launch_bounds__(WARPS_PER_CTA* WARP_SIZE) __global__ void topkGatingSoftmax(
 
   // Now, we compute the group each thread belong to in order to determine the
   // first column to start loads.
-  const int thread_group_idx = threadIdx.x % THREADS_PER_ROW;
+  const auto thread_group_idx = threadIdx.x % THREADS_PER_ROW;
   const int first_elt_read_by_thread = thread_group_idx * ELTS_PER_LDG;
   const float* thread_read_ptr = thread_row_ptr + first_elt_read_by_thread;
 
