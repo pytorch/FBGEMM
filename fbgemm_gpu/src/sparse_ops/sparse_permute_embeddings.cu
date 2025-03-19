@@ -26,8 +26,8 @@ __global__ void permute_embeddings_kernel(
     const index_t* __restrict__ input_offsets,
     const index_t* __restrict__ output_offsets,
     scalar_t* __restrict__ permuted_embeddings) {
-  int32_t b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
-  const int stride = gridDim.x * blockDim.y;
+  auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
   for (int b_t = b_t_start; b_t < B * T; b_t += stride) {
     int32_t b = b_t % B;
     int32_t t = b_t / B;
@@ -39,7 +39,7 @@ __global__ void permute_embeddings_kernel(
       segment_length = output_offsets[b_t + 1] - output_offsets[b_t];
     }
     index_t input_start = input_offsets[permute[t] * B + b];
-    for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
+    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       permuted_embeddings[output_start + i] = embeddings[input_start + i];
     }
   }

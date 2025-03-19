@@ -28,7 +28,7 @@ __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
   int seg_end = csr_seg_data[blockIdx.x + 1] * batch_size;
   scalar_t sum = 0;
 
-  for (int i = seg_start; i < seg_end; i += blockDim.x) {
+  for (auto i = seg_start; i < seg_end; i += blockDim.x) {
     scalar_t thread_data;
     if (threadIdx.x < seg_end - i) {
       thread_data = values_data[i + threadIdx.x];
