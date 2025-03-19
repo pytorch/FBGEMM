@@ -687,6 +687,10 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
         # If environment variable is set, it overwrites the default bounds check mode.
         self.bounds_check_version: int = 1
+        self.bounds_check_mode_int: int = int(
+            os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
+        )
+        bounds_check_mode = BoundsCheckMode(self.bounds_check_mode_int)
         if bounds_check_mode.name.startswith("V2_"):
             self.bounds_check_version = 2
             if bounds_check_mode == BoundsCheckMode.V2_IGNORE:
@@ -700,9 +704,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     f"Did not recognize V2 bounds check mode: {bounds_check_mode}"
                 )
 
-        self.bounds_check_mode_int: int = int(
-            os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
-        )
         self.weights_precision = weights_precision
 
         if torch.cuda.is_available() and torch.version.hip:
