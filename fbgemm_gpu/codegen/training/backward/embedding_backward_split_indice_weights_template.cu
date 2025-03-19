@@ -98,7 +98,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     constexpr int32_t kVecWidth = 4;
 
     int32_t T = D_offsets.size(0) - 1;
-    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     if (b_t >= offsets.size(0) - 1) {
         return;
     }
@@ -173,7 +173,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
         }
 
         for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-            int32_t l = l_start + threadIdx.x;
+            auto l = l_start + threadIdx.x;
             index_t idx = l < L ? indices[indices_start + l] : 0;
             {%- if not dense %}
             const auto {{ locs_or_addrs_idx }} =

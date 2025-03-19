@@ -30,7 +30,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
   // uint32_t capacity = hash_table.size(0);
-  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t t = b_t / B;
   const int32_t b = b_t % B;
   if (b_t >= B * T) {
@@ -46,7 +46,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
 
   if (capacity == 0) {
     // No pruning applied on the indices associated with this table.
-    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+    for (auto l = threadIdx.x; l < L; l += blockDim.x) {
       dense_indices[indices_start + l] = indices[indices_start + l];
     }
     return;
@@ -115,7 +115,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     const int32_t T,
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
-  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t t = b_t / B;
   const int32_t b = b_t % B;
   if (b_t >= B * T) {

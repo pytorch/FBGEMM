@@ -148,7 +148,7 @@ using namespace fbgemm_gpu;
 
     {%- else %}
     for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
-        const int32_t d = i + threadIdx.x * VEC_WIDTH;
+        const auto d = i + threadIdx.x * VEC_WIDTH;
         if (d < D) {
             // Since there is no pooling, simply copy the weights to output
             const auto weights_slice = weights_row.load(d, qparams);
@@ -253,7 +253,7 @@ using namespace fbgemm_gpu;
 
     {%- else %}
     for (int32_t i = 0; i < D; i += kThreadGroupSize * VEC_WIDTH) {
-        const int32_t d = i + threadIdx.x * VEC_WIDTH;
+        const auto d = i + threadIdx.x * VEC_WIDTH;
         if (d < D) {
             // Since there is no pooling, simply copy the weights to output
             const auto weights_slice = weights_row.load(d, qparams);
@@ -328,7 +328,7 @@ using namespace fbgemm_gpu;
     // Iterate over each kThreadGroupSize-sized subset of L indices in the bag
     for (int32_t l_start = 0; l_start < L; l_start += kThreadGroupSize) {
         // Determine the L index that this thread will load data from in cooperative load
-        int32_t l = l_start + threadIdx.x;
+        auto l = l_start + threadIdx.x;
 
         {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
         // Cooperatively load the indices
@@ -682,7 +682,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endif %}
 
     // Determine the linearized warp ID, and exit early if needed
-    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     {%- if not is_index_select %}
     if (b_t >= offsets.size(0) - 1) {
         return;

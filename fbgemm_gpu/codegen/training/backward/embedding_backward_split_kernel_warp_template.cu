@@ -145,7 +145,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- else %}
     int32_t T = weights_offsets.size(0);
     {%- endif %}
-    const int32_t start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
+    const auto start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
     {%- if is_gwd_kernel %}
     const float weight_decay_base = 1 - learning_rate * weight_decay;
     {%- endif %}
