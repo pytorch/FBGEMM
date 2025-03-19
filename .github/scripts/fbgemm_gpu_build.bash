@@ -233,23 +233,28 @@ __configure_fbgemm_gpu_build_cuda () {
     local arch_list="${TORCH_CUDA_ARCH_LIST}"
 
   else
-    # To keep binary sizes to minimum, build only against the CUDA architectures
-    # that the latest PyTorch supports:
-    #   7.0 (V100), 8.0 (A100), and 9.0,9.0a (H100)
+    # Build only against the CUDA architectures that the latest PyTorch
+    # supports, i.e.:
+    #   7.0 (V100), 8.0 (A100), 9.0,9.0a (H100), 10.0,10.0a,12.0,12.0a (B100)
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
     echo "[BUILD] Using the default architectures for CUDA $cuda_version_nvcc ..."
 
-    if  [[ $cuda_version_nvcc == *"V12.1"* ]] ||
-        [[ $cuda_version_nvcc == *"V12.4"* ]] ||
-        [[ $cuda_version_nvcc == *"V12.6"* ]] ||
-        [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      # sm_90 and sm_90a are only available for CUDA 12.1+
-      # NOTE: CUTLASS kernels for Hopper require sm_90a to be enabled
-      # See:
-      #   https://github.com/NVIDIA/nvbench/discussions/129
-      #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
-      #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
+    # NOTE: CUTLASS kernels for Hopper require sm_90a to be enabled
+    # See:
+    #
+    #   https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
+    #   https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/#gpu-feature-list
+    #   https://github.com/NVIDIA/nvbench/discussions/129
+    #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
+    #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
+    if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
+      local arch_list="7.0;8.0;9.0;9.0a;10.0;10.0a;12.0;12.0a"
+
+    elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
+          [[ $cuda_version_nvcc == *"V12.1"* ]] ||
+          [[ $cuda_version_nvcc == *"V12.4"* ]]; then
       local arch_list="7.0;8.0;9.0;9.0a"
+
     else
       local arch_list="7.0;8.0"
     fi
