@@ -42,6 +42,7 @@ except ImportError:
 try:
     from deep_gemm import (
         gemm_fp8_fp8_bf16_nt,
+        get_col_major_tma_aligned_tensor,
         m_grouped_gemm_fp8_fp8_bf16_nt_contiguous,
     )
 
@@ -799,6 +800,8 @@ class DeepGemmStacked(QuantizeOpBase):
 
     def quantize(self, x, wq, w_scale, m_indices):
         xq, x_scale = quantize_fp8_block(x, block_m=1, block_k=128)
+        # Pretranspose scales to deepgemm format.
+        x_scale = get_col_major_tma_aligned_tensor(x_scale)
         return xq, wq, x_scale, w_scale, m_indices
 
     def compute(self, xq, wq, x_scale, w_scale, m_indices):
@@ -846,6 +849,8 @@ class DeepGemmBlockwise(QuantizeOpBase):
 
     def quantize(self, x, wq, w_scale, out):
         xq, x_scale = quantize_fp8_block(x, block_m=1, block_k=128)
+        # Pretranspose scales to deepgemm format.
+        x_scale = get_col_major_tma_aligned_tensor(x_scale)
         return xq, wq, x_scale, w_scale, out
 
     def compute(self, xq, wq, x_scale, w_scale, out):
@@ -1071,7 +1076,13 @@ class TritonFP8RowwiseGemm(QuantizeOpBase):
 
     def compute(self, xq, wq, x_scale, w_scale, bias):
         return matmul_fp8_row(
-            xq, wq, x_scale, w_scale, bias=bias, fp8_fast_accum=self.fast_accum
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+            bias=bias,
+            fp8_fast_accum=self.fast_accum,
+            use_warp_specialization=True,
         )
 
     def quantize_and_compute(self, x, w):
