@@ -124,7 +124,7 @@ __global__ void set_dynamic_kernel_args_kernel(
     int M,
     int N,
     int K) {
-  int group_index = blockIdx.x * blockDim.x + threadIdx.x;
+  auto group_index = blockIdx.x * blockDim.x + threadIdx.x;
   if (group_index < problem_count) {
     int64_t* x_ptr_ = input_args_ptr + x_ptr_offset;
     int64_t* w_ptr_ = input_args_ptr + w_ptr_offset;
@@ -197,7 +197,7 @@ __global__ void set_static_kernel_args_kernel(
     int M,
     int N,
     int K) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   // We only set one group's information per kernel launch.
   if (idx == 0) {
     int64_t* x_ptr_ = input_args_ptr + x_ptr_offset;

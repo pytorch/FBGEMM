@@ -167,7 +167,7 @@ __global__ void set_kernel_args_kernel(
     int M,
     int N,
     int K) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each kernel annoyingly can only set the kernel args for one group.
   // This could only be avoided with complicated memory management.
   if (idx == 0) {
@@ -245,7 +245,7 @@ __global__ void set_dynamic_kernel_args_kernel(
     int M,
     int N,
     int K) {
-  int group_index = blockIdx.x * blockDim.x + threadIdx.x;
+  auto group_index = blockIdx.x * blockDim.x + threadIdx.x;
   // If this thread corresponds to a valid group, write kernel args to device
   // memory.
   if (group_index < group_count) {
