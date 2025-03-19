@@ -69,9 +69,9 @@ int run_benchmark(
     int embedding_dim,
     int average_len,
     bool normalize_by_lengths,
-    bool use_32_bit_indices = false,
-    bool prefetch = false,
-    bool is_bf16_out = false) {
+    bool use_32_bit_indices,
+    bool prefetch,
+    FloatFormat out_format = FloatFormat::DEFAULT) {
   // Create embedding table
   int num_elem_per_byte = 8 / bit_rate;
   int fused_embedding_dim =
@@ -183,7 +183,7 @@ int run_benchmark(
         /*output_stride=*/-1,
         /*input_stride=*/-1,
         /*scale_bias_last=*/true,
-        /*is_bf16_out=*/is_bf16_out,
+        /*out_format=*/out_format,
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
     auto kernel_64_autovec = GenerateEmbeddingSpMDMNBitWithStrides_autovec<
@@ -200,12 +200,11 @@ int run_benchmark(
         /*output_stride=*/-1,
         /*input_stride=*/-1,
         /*scale_bias_last=*/true,
-        /*is_bf16_out=*/is_bf16_out,
+        /*out_format=*/out_format,
         /*no_bag=*/false,
         /*output_bit_rate=*/-1);
 #endif
 
-    vector<OutType>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
       bool success_ref = false;
       // Reference implementation
@@ -229,7 +228,7 @@ int run_benchmark(
                   -1, // output_stride
                   -1, // input_stride
                   true, // scale_bias_last
-                  is_bf16_out);
+                  out_format);
             } else {
               success_ref = EmbeddingSpMDMNBit_ref(
                   bit_rate,
@@ -248,7 +247,7 @@ int run_benchmark(
                   -1, // output_stride
                   -1, // input_stride
                   true, // scale_bias_last
-                  is_bf16_out);
+                  out_format);
             }
           },
           NUM_WARMUP,
@@ -306,6 +305,7 @@ int run_benchmark(
 #endif
 
 #ifndef OUT_TYPE_FLOAT16
+      vector<OutType>& output = has_weight ? output_slws : output_sls;
       bool success = false;
       // Hand-written AVX2/AVX512 implementation
       double t = measureWithWarmup(
@@ -379,12 +379,14 @@ int run_benchmark(
               tmp1 = output[i];
               tmp2 = output_ref[i];
             } else if (std::is_same<OutType, uint16_t>::value) {
-              if (is_bf16_out) {
+              if (out_format == FloatFormat::BFLOAT16) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
-              } else {
+              } else if (out_format == FloatFormat::FLOAT16) {
                 tmp1 = cpu_half2float(output[i]);
                 tmp2 = cpu_half2float(output_ref[i]);
+              } else {
+                std::abort(); // invalid out_format
               }
             } else {
               assert(false && "ERROR: unsupported output type");
@@ -415,12 +417,14 @@ int run_benchmark(
               tmp1 = output_autovec[i];
               tmp2 = output_ref[i];
             } else if (std::is_same<OutType, uint16_t>::value) {
-              if (is_bf16_out) {
+              if (out_format == FloatFormat::BFLOAT16) {
                 tmp1 = cpu_bf162float(output_autovec[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
-              } else {
+              } else if (out_format == FloatFormat::FLOAT16) {
                 tmp1 = cpu_half2float(output_autovec[i]);
                 tmp2 = cpu_half2float(output_ref[i]);
+              } else {
+                std::abort(); // invalid out_format
               }
             } else {
               assert(false && "ERROR: unsupported output type");
@@ -440,9 +444,9 @@ int run_benchmark(
       if (std::is_same<OutType, float>::value) {
         cout << "out type fp32, ";
       } else if (std::is_same<OutType, uint16_t>::value) {
-        if (is_bf16_out) {
+        if (out_format == FloatFormat::BFLOAT16) {
           cout << "out type bf16, ";
-        } else {
+        } else if (out_format == FloatFormat::FLOAT16) {
           cout << "out type fp16, ";
         }
       } else {
@@ -519,7 +523,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false); // normalize_by_lengths
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/false,
+          /*prefetch=*/false,
+          /*out_format=*/FloatFormat::DEFAULT);
 #else
       run_benchmark<float16>(
           bit_rate,
@@ -527,10 +534,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          false, // use_32_bit_indices
-          false, // prefetch
-          false); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/false,
+          /*prefetch=*/false,
+          /*out_format=*/FloatFormat::FLOAT16);
 
       run_benchmark<float16>(
           bit_rate,
@@ -538,10 +545,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          false, // use_32_bit_indices
-          false, // prefetch
-          true); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/false,
+          /*prefetch=*/false,
+          /*out_format=*/FloatFormat::FFLOAT16);
 #endif // OUT_TYPE_FLOAT16
 
       cout << "64 bit indices with prefetching, ";
@@ -552,9 +559,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          false, // use_32_bit_indices
-          true); // prefetch
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/false,
+          /*prefetch=*/true,
+          /*out_format=*/FloatFormat::DEFAULT);
 #else
       run_benchmark<float16>(
           bit_rate,
@@ -562,10 +570,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          false, // use_32_bit_indices
-          true, // prefetch
-          false); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/false,
+          /*prefetch=*/true,
+          /*out_format=*/FloatFormat::FLOAT16);
 
       run_benchmark<float16>(
           bit_rate,
@@ -573,10 +581,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          false, // use_32_bit_indices
-          true, // prefetch
-          true); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/false,
+          /*prefetch=*/true,
+          /*out_format=*/FloatFormat::BFLOAT16);
 #endif // OUT_TYPE_FLOAT16
 
       cout << "32 bit indices, ";
@@ -587,8 +595,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          true); // use_32_bit_indices
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/true,
+          /*prefetch=*/false,
+          /*out_format=*/FloatFormat::DEFAULT);
 #else
       run_benchmark<float16>(
           bit_rate,
@@ -596,10 +606,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          true, // use_32_bit_indices
-          false, // prefetch
-          false); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/true,
+          /*prefetch=*/false,
+          /*out_format=*/FloatFormat::FLOAT16);
 
       run_benchmark<float16>(
           bit_rate,
@@ -607,10 +617,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          true, // use_32_bit_indices
-          false, // prefetch
-          true); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/true,
+          /*prefetch=*/false,
+          /*out_format=*/FloatFormat::BFLOAT16);
 #endif // OUT_TYPE_FLOAT16
 
       cout << "32 bit indices with prefetching, ";
@@ -621,9 +631,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          true, // use_32_bit_indices
-          true); // prefetch
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/true,
+          /*prefetch=*/true,
+          /*out_format=*/FloatFormat::DEFAULT);
 #else
       run_benchmark<float16>(
           bit_rate,
@@ -631,10 +642,10 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          true, // use_32_bit_indices
-          true, // prefetch
-          false); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/true,
+          /*prefetch=*/true,
+          /*out_format=*/FloatFormat::FLOAT16);
 
       run_benchmark<float16>(
           bit_rate,
@@ -642,25 +653,32 @@ int main() {
           num_rows,
           embedding_dim,
           average_len,
-          false, // normalize_by_lengths
-          true, // use_32_bit_indices
-          true, // prefetch
-          true); // is_bf16_out
+          /*normalize_by_lengths=*/false,
+          /*use_32_bit_indices=*/true,
+          /*prefetch=*/true,
+          /*out_format=*/FloatFormat::BFLOAT16);
 #endif // OUT_TYPE_FLOAT16
 
       // running with normalize by lengths
       // run_benchmark(batch_size, num_rows, embedding_dim, average_len,
-      // true); run_benchmark(
-      //     batch_size, num_rows, embedding_dim, average_len, true,
-      //     true);
+      //     /*normalize_by_lengths=*/true,
+      //     /*use_32_bit_indices=*/false,
+      //     /*prefetch=*/false,
+      //     /*out_format=*/FloatFormat::DEFAULT);
+      // run_benchmark(batch_size, num_rows, embedding_dim, average_len,
+      //     /*normalize_by_lengths=*/true,
+      //     /*use_32_bit_indices=*/true,
+      //     /*prefetch=*/false,
+      //     /*out_format=*/FloatFormat::DEFAULT);
       // run_benchmark(
       //     batch_size,
       //     num_rows,
       //     embedding_dim,
       //     average_len,
-      //     false,
-      //     true,
-      //     true);
+      //     /*normalize_by_lengths=*/false,
+      //     /*use_32_bit_indices=*/true,
+      //     /*prefetch=*/true,
+      //     /*out_format=*/FloatFormat::DEFAULT);
     }
   }
   return 0;

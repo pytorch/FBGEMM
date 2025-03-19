@@ -183,10 +183,10 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
     for (size_t i = output_size_wo_sentries; i < output.size(); ++i) {
       output_ref[i] = sentry_value;
       output[i] = sentry_value;
-      output_ref_16b[i] =
-          convert_from_float_ref<uint16_t>(sentry_value, out_type == BFLOAT16);
-      output_16b[i] =
-          convert_from_float_ref<uint16_t>(sentry_value, out_type == BFLOAT16);
+      output_ref_16b[i] = convert_from_float_ref<uint16_t>(
+          sentry_value, floatFormatFor(out_type));
+      output_16b[i] = convert_from_float_ref<uint16_t>(
+          sentry_value, floatFormatFor(out_type));
     }
 
     bool success, success_ref;
@@ -215,8 +215,9 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       /*output_stride=*/-1,                                    \
       /*input_stride=*/-1,                                     \
       scale_bias_last,                                         \
-      /*is_bf16_out=*/out_type == BFLOAT16,                    \
-      /*is_bf16_in=*/false);                                   \
+      /*no_bag=*/false,                                        \
+      /*out_format=*/floatFormatFor(out_type),                 \
+      /*in_format=*/FloatFormat::DEFAULT);                     \
                                                                \
   auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
       uint8_t,                                                 \
@@ -232,8 +233,9 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       /*output_stride=*/-1,                                    \
       /*input_stride=*/-1,                                     \
       scale_bias_last,                                         \
-      /*is_bf16_out=*/out_type == BFLOAT16,                    \
-      /*is_bf16_in=*/false);                                   \
+      /*no_bag=*/false,                                        \
+      /*out_format=*/floatFormatFor(out_type),                 \
+      /*in_format=*/FloatFormat::DEFAULT);                     \
   success = kernel(                                            \
       batch_size,                                              \
       lengths_sum,                                             \
@@ -293,10 +295,10 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
       for (size_t i = 0; i < output.size(); ++i) {
         float actual = (out_type == FLOAT)
             ? output[i]
-            : convert_to_float_ref(output_16b[i], out_type == BFLOAT16);
+            : convert_to_float_ref(output_16b[i], floatFormatFor(out_type));
         float expected = (out_type == FLOAT)
             ? output_ref[i]
-            : convert_to_float_ref(output_ref_16b[i], out_type == BFLOAT16);
+            : convert_to_float_ref(output_ref_16b[i], floatFormatFor(out_type));
         EXPECT_EQ(actual, expected)
             << "results differ at (" << i << ") reference: " << expected
             << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
@@ -306,11 +308,12 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
            ++offset) {
         float actual = (out_type == FLOAT)
             ? output[offset]
-            : convert_to_float_ref(output_16b[offset], out_type == BFLOAT16);
+            : convert_to_float_ref(
+                  output_16b[offset], floatFormatFor(out_type));
         float expected = (out_type == FLOAT)
             ? output_ref[offset]
             : convert_to_float_ref(
-                  output_ref_16b[offset], out_type == BFLOAT16);
+                  output_ref_16b[offset], floatFormatFor(out_type));
         EXPECT_EQ(actual, expected)
             << "results differ at (" << offset << ") reference: " << expected
             << ", FBGEMM: " << actual << " emb dim :" << embedding_dim;
