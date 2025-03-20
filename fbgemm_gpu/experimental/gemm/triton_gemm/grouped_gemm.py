@@ -128,7 +128,7 @@ def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
     prune_configs_by={"early_config_prune": early_config_prune},
 )
 @triton.jit
-def _kernel_grouped_gemm(
+def _fbgemm_grouped_gemm(
     a_desc_ptr,
     b_desc_ptr,
     c_ptr,
@@ -271,7 +271,7 @@ TT_FP8_DTYPE = tl.float8e4b8 if torch.version.hip else tl.float8e4nv
     },
 )
 @triton.jit
-def _kernel_grouped_gemm_fp8_rowwise(
+def _fbgemm_grouped_gemm_fp8_rowwise(
     a_desc_ptr,
     a_scale_ptr,
     b_desc_ptr,
@@ -487,7 +487,7 @@ def _grouped_gemm(
     if x_scale is not None and w_scale is not None:
         assert x_scale.is_contiguous()
         assert w_scale.is_contiguous()
-        _kernel_grouped_gemm_fp8_rowwise[grid](
+        _fbgemm_grouped_gemm_fp8_rowwise[grid](
             desc_x,
             x_scale,
             desc_w,
@@ -507,7 +507,7 @@ def _grouped_gemm(
     else:
         assert x_scale is None
         assert w_scale is None
-        _kernel_grouped_gemm[grid](
+        _fbgemm_grouped_gemm[grid](
             desc_x,
             desc_w,
             y,
