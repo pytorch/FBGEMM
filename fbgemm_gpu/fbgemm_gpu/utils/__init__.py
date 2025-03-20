@@ -7,4 +7,5 @@
 
 # pyre-unsafe
 
-from fbgemm_gpu.utils.torch_library import TorchLibraryFragment  # noqa F401
+from .filestore import FileStore  # noqa F401
+from .torch_library import TorchLibraryFragment  # noqa F401
