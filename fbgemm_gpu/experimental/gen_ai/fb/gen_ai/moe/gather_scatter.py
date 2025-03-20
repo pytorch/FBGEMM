@@ -13,6 +13,8 @@ def scatter_add_padded_tokens(
     token_indices: torch.Tensor,  # [T]
     out_tokens: torch.Tensor,  # [T, D]
 ) -> None:
+    assert torch.version.cuda >= "12.4", "Requires CUDA version 12.4 or later!"
+
     assert in_tokens.is_contiguous()
     assert token_counts.is_contiguous()
     assert token_indices.is_contiguous()

@@ -20,8 +20,8 @@ logger.setLevel(logging.INFO)
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available(),
-    "Skip when no GPU is available.",
+    not torch.cuda.is_available() or torch.version.cuda < "12.4",
+    "Skip when no GPU is available or CUDA version is older than `12.4`.",
 )
 class GatherScatterTests(unittest.TestCase):
     """Test shuffling kernels."""
