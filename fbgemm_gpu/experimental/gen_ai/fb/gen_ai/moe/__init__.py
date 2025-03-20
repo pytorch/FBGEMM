@@ -9,5 +9,8 @@ torch.ops.load_library(
 )
 
 index_shuffling = torch.ops.fbgemm.index_shuffling  # noqa F401
-from .gather_scatter import scatter_add_padded_tokens  # noqa F401
+from .gather_scatter import (  # noqa F401
+    gather_scale_dense_tokens,
+    scatter_add_padded_tokens,
+)
 from .shuffling import combine_shuffling, split_shuffling  # noqa F401

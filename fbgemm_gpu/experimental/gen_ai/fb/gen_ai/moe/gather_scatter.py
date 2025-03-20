@@ -7,6 +7,141 @@ import triton
 import triton.language as tl
 
 
+@triton.jit
+def _fbgemm_gather_scale_dense_tokens(
+    out,
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+    stride_t,
+    stride_e,
+    E: tl.constexpr,
+    T: tl.constexpr,
+    D: tl.constexpr,
+    BLOCK_D_OUTER: tl.constexpr,
+    BLOCK_D_INNER: tl.constexpr,
+):
+    output_token_index = tl.program_id(0)
+    feature_offset = tl.program_id(1) * BLOCK_D_OUTER
+
+    input_token_index = tl.load(
+        token_indices + output_token_index, None, eviction_policy="evict_last"
+    )
+    input_expert_index = tl.load(
+        expert_indices + output_token_index, None, eviction_policy="evict_last"
+    )
+
+    input_score = tl.load(
+        scores + input_token_index * stride_t + input_expert_index * stride_e,
+        None,
+        eviction_policy="evict_last",
+    ).to(tl.float32)
+
+    for _ in range(0, BLOCK_D_OUTER // BLOCK_D_INNER):
+        input_token_value = tl.load(
+            x + input_token_index * D + feature_offset + tl.arange(0, BLOCK_D_INNER)[:],
+            None,
+        ).to(tl.float32)
+        output_token_value = input_token_value * input_score
+
+        tl.store(
+            out
+            + output_token_index * D
+            + feature_offset
+            + tl.arange(0, BLOCK_D_INNER)[:],
+            output_token_value,
+            None,
+        )
+        feature_offset += BLOCK_D_INNER
+
+
+def gather_scale_dense_tokens(
+    x: torch.Tensor,
+    token_indices: torch.Tensor,
+    expert_indices: torch.Tensor,
+    scores: torch.Tensor,
+):
+    T, D = x.shape
+    E = scores.shape[1]
+    # a = K * T
+    a = token_indices.shape[0]
+
+    assert x.is_contiguous()
+    assert token_indices.is_contiguous()
+    assert expert_indices.is_contiguous()
+
+    assert tuple(token_indices.shape) == (a,)
+    assert tuple(expert_indices.shape) == (a,)
+    assert tuple(scores.shape) == (T, E)
+
+    stride_t = scores.stride(0)
+    stride_e = scores.stride(1)
+
+    out = torch.empty((a, D), device="cuda", dtype=torch.bfloat16)
+
+    NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
+    if a >= NUM_SMS:
+        BLOCK_D_OUTER = D
+        BLOCK_D_INNER = 1024
+        assert D % BLOCK_D_INNER == 0
+    else:
+        BLOCK_D_OUTER = 512
+        BLOCK_D_INNER = 256
+        assert D % BLOCK_D_OUTER == 0
+    grid = (a, D // BLOCK_D_OUTER)
+    _fbgemm_gather_scale_dense_tokens[grid](
+        out,
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+        stride_t,
+        stride_e,
+        E,
+        T,  # pyre-ignore
+        D,  # pyre-ignore
+        BLOCK_D_OUTER,  # pyre-ignore
+        BLOCK_D_INNER,  # pyre-ignore
+    )
+    return out
+
+
+GATHER_SCALE_DENSE_TOKENS = "fbgemm::gather_scale_dense_tokens"
+
+torch.library.define(
+    "fbgemm::gather_scale_dense_tokens",
+    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores) -> Tensor",
+)
+
+
+@torch.library.impl(GATHER_SCALE_DENSE_TOKENS, "Meta")
+def gather_scale_dense_tokens_meta(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+):
+    D = x.shape[1]
+    a = token_indices.shape[0]
+    return x.new_empty((a, D))
+
+
+@torch.library.impl(GATHER_SCALE_DENSE_TOKENS, "CUDA")
+def gather_scale_dense_tokens_cuda(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+):
+    return gather_scale_dense_tokens(
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+    )
+
+
 def scatter_add_padded_tokens(
     in_tokens: torch.Tensor,  # [EP, T, D]
     token_counts: torch.Tensor,  # [E]

@@ -1,0 +1,16 @@
+load("@fbcode_macros//build_defs:gpu_python_binary.bzl", "gpu_python_binary")
+
+oncall("codesign_genai")
+
+gpu_python_binary(
+    # @autodeps-skip
+    name = "bench_gather_scatter",
+    srcs = ["bench_gather_scatter.py"],
+    main_module = "deeplearning.fbgemm.fbgemm_gpu.experimental.gen_ai.fb.bench.bench_gather_scatter",
+    par_style = "xar",
+    deps = [
+        "//caffe2:torch",
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:fb_internal_gen_ai_ops_py",
+        "//triton:triton",  # @manual
+    ],
+)

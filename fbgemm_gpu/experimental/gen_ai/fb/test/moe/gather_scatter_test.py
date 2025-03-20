@@ -8,7 +8,10 @@ import unittest
 
 import torch
 import triton  # noqa: F401
-from fbgemm_gpu.experimental.fb.gen_ai.moe import scatter_add_padded_tokens
+from fbgemm_gpu.experimental.fb.gen_ai.moe import (
+    gather_scale_dense_tokens,
+    scatter_add_padded_tokens,
+)
 
 from parameterized import param, parameterized
 from triton.testing import do_bench
@@ -25,6 +28,53 @@ logger.setLevel(logging.INFO)
 )
 class GatherScatterTests(unittest.TestCase):
     """Test shuffling kernels."""
+
+    @parameterized.expand(
+        [
+            param(
+                E=E,
+                T=T,
+                D=D,
+                rowmajor=rowmajor,
+            )
+            for E in [2, 4, 86]
+            for T in [1, 128, 2048, 4096]
+            for D in [5120, 7168]
+            for rowmajor in [True, False]
+        ],
+        name_func=name_test_func,
+    )
+    def test_gather_scale_dense_tokens(
+        self, E: int, T: int, D: int, rowmajor: bool
+    ) -> None:
+        x: torch.Tensor = torch.randn((T, D), dtype=torch.bfloat16, device="cuda").abs()
+        expert_indices: torch.Tensor = torch.randint(0, E, (T,), device="cuda")
+        token_indices: torch.Tensor = torch.randperm(T, device="cuda")
+        scores: torch.Tensor = torch.rand((E, T), dtype=torch.bfloat16, device="cuda")
+
+        def torch_fn() -> torch.Tensor:
+            shuffled_x = torch.index_select(x, dim=0, index=token_indices)
+            shuffled_scores = torch.index_select(scores, dim=1, index=token_indices)
+            shuffled_selected_scores = torch.gather(
+                shuffled_scores, dim=0, index=expert_indices.view(1, T)
+            )
+            ref_output = shuffled_x * shuffled_selected_scores.view(-1, 1)
+            return ref_output
+
+        torch_output = torch_fn()
+
+        def triton_fn() -> torch.Tensor:
+            scores_ = scores.contiguous().transpose(0, 1)
+            if rowmajor:
+                scores_ = scores_.contiguous()
+            test_output = gather_scale_dense_tokens(
+                x, token_indices, expert_indices, scores_
+            )
+            return test_output
+
+        test_output = triton_fn()
+
+        torch.testing.assert_close(torch_output, test_output)
 
     @parameterized.expand(
         [
