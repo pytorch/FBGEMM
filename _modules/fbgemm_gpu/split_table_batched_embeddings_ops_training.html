@@ -3345,6 +3345,15 @@
             <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_set_learning_rate</span><span class="p">(</span><span class="n">lr</span><span class="p">)</span></div>
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_learning_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets the learning rate.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            lr (float): The learning rate value to set to</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer_args</span><span class="o">.</span><span class="n">learning_rate</span>
+
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters"><a class="viewcode-back" href="../../fbgemm_gpu-python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.update_hyper_parameters">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">update_hyper_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params_dict</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
