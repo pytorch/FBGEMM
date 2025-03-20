@@ -2897,6 +2897,15 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             )
         self._set_learning_rate(lr)
 
+    def get_learning_rate(self) -> float:
+        """
+        Sets the learning rate.
+
+        Args:
+            lr (float): The learning rate value to set to
+        """
+        return self.optimizer_args.learning_rate
+
     @torch.jit.ignore
     def update_hyper_parameters(self, params_dict: Dict[str, float]) -> None:
         """
