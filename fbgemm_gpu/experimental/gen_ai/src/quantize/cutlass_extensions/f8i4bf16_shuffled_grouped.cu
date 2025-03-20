@@ -51,7 +51,7 @@ __global__ void set_kernel_args(
     int N,
     int K,
     int num_scale_groups,
-    int64_t* M_sizes,
+    int32_t* M_sizes,
     ProblemShape* problem_shape_ptr,
     ElementA* xq,
     const ElementA** xq_ptr,
@@ -70,7 +70,7 @@ __global__ void set_kernel_args(
     StrideC* stride_c_ptr,
     StrideS* stride_s_ptr) {
   // Get the group corresponding to this thread.
-  int group_index = blockIdx.x * blockDim.x + threadIdx.x;
+  auto group_index = blockIdx.x * blockDim.x + threadIdx.x;
   // If this is a valid group, write kernel args to device.
   if (group_index < G) {
     // First get the M value for this group.
@@ -372,7 +372,7 @@ void _f8i4bf16_shuffled_grouped(
       N,
       K,
       num_scale_groups,
-      reinterpret_cast<int64_t*>(M_sizes.data_ptr()),
+      reinterpret_cast<int32_t*>(M_sizes.data_ptr()),
       problem_shape_ptr,
       reinterpret_cast<ElementA*>(XQ.data_ptr()),
       xq_ptr,
@@ -468,8 +468,8 @@ at::Tensor f8i4bf16_shuffled_grouped(
   int N = WQ.size(1);
   int group_count = M_sizes.size(0);
   TORCH_CHECK(
-      M_sizes.device() == XQ.device() && M_sizes.dtype() == at::kLong,
-      "M_sizes must be int64 and on the same device as inputs.");
+      M_sizes.device() == XQ.device() && M_sizes.dtype() == at::kInt,
+      "M_sizes must be int32 and on the same device as inputs.");
   TORCH_CHECK(
       WQ.dim() == 3 && WQ.size(0) == group_count && WQ.size(2) == K / 2,
       "Weights should be shape [G, N, K / 2]");

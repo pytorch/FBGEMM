@@ -1398,7 +1398,7 @@ class F8I4ShuffledGroupedGemm(QuantizeOpBase):
         ), "Only supported for grouped inputs."
         m_values = [i.shape[0] for i in x]
         # Convert m_values into offsets into grouped tensor.
-        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int32, device=x[0].device)
         # Quantize weights.
         # TODO Only rowwise scaling is currently supported. This needs to be fixed.
         K = x[0].shape[-1]
