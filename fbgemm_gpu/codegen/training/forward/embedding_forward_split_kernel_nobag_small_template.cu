@@ -68,7 +68,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     ) {
     int32_t T = weights_offsets.size(0);
-    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     {%- if not is_index_select %}
     if (b_t >= offsets.size(0) - 1) {
         return;
@@ -128,12 +128,12 @@ batch_index_select_dim0_codegen_forward_small_kernel(
         D_emb += kINT8QparamsBytes;
     }
 
-    const int32_t group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
+    const auto group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
     const int32_t group_end = group_start + kThreadGroupSize;
-    const int32_t d = threadIdx.x % kThreadGroupSize * 4;
+    const auto d = threadIdx.x % kThreadGroupSize * 4;
 
     for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-        int32_t l = l_start + threadIdx.x;
+        auto l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
         {%- if not dense %}
         const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} =

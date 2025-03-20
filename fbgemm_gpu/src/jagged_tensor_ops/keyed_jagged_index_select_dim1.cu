@@ -32,10 +32,10 @@ __global__ void index_select_scalar_cumsum_kernel(
   typedef cub::BlockScan<acc_t, NUM_THREADS_PER_BLOCK> BlockScan;
   __shared__ typename BlockScan::TempStorage bs_temp_storage;
   __shared__ acc_t smem[MAX_ENTRIES_PER_BLOCK];
-  const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto tid = blockIdx.x * blockDim.x + threadIdx.x;
   const int output_batch_size = indices.size(0);
   const int bid = tid / output_batch_size;
-  const int num_entries_per_block = blockIdx.x == gridDim.x - 1
+  const auto num_entries_per_block = blockIdx.x == gridDim.x - 1
       ? last_block_num_entries
       : MAX_ENTRIES_PER_BLOCK;
 
