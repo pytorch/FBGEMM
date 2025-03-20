@@ -50,7 +50,8 @@ class CommonArgs(NamedTuple):
     ssd_tensors: Dict[str, torch.Tensor]
     {%- endif %}
 
-
+# Do not add a parameter of Type tensor here. It will cause JIT script error due to a bug in PyTorch.
+# See more detail in D71010630.
 class OptimizerArgs(NamedTuple):
     stochastic_rounding: bool
     gradient_clipping: bool
@@ -107,16 +108,13 @@ class CommonArgsPT2(NamedTuple):
     {%- if ssd %}
     ssd_tensors: Dict[str, torch.Tensor]
     {%- endif %}
+    learning_rate_tensor: torch.Tensor
 
 class OptimizerArgsPT2(NamedTuple):
-    """
-    Optimizer arguments for PT2 interface
-    """
     stochastic_rounding: bool
     gradient_clipping: bool
     max_gradient: float
     max_norm: float
-    learning_rate_tensor: torch.Tensor
     eps: float
     beta1: float
     beta2: float
@@ -136,7 +134,6 @@ class OptimizerArgsPT2(NamedTuple):
     lower_bound: float
     regularization_mode: int
     use_rowwise_bias_correction: bool # Used for OptimType.ADAM
-
 
 class Momentum(NamedTuple):
     dev: torch.Tensor
