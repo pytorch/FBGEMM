@@ -227,21 +227,21 @@ Functions</h2></td></tr>
 <tr class="separator:a53a50b113345c09b89b45834f31d52df"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af066434e23720ecd4ddcc51d7a616aef" id="r_af066434e23720ecd4ddcc51d7a616aef"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#af066434e23720ecd4ddcc51d7a616aef">Float16ToFloat_simd</a> (const float16 *src, float *dst, size_t size)</td></tr>
 <tr class="separator:af066434e23720ecd4ddcc51d7a616aef"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a77602a69076f938d21d336a0df00f9c4" id="r_a77602a69076f938d21d336a0df00f9c4"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
-<tr class="memitem:a77602a69076f938d21d336a0df00f9c4"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; InType, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a77602a69076f938d21d336a0df00f9c4">GenerateEmbeddingSpMDM</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, bool is_bf16_out=false, bool is_bf16_in=false)</td></tr>
-<tr class="separator:a77602a69076f938d21d336a0df00f9c4"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a243ed0e4df7bb7b6c08a930ee71a996b" id="r_a243ed0e4df7bb7b6c08a930ee71a996b"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
-<tr class="memitem:a243ed0e4df7bb7b6c08a930ee71a996b"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; InType, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a243ed0e4df7bb7b6c08a930ee71a996b">GenerateEmbeddingSpMDMWithStrides</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, bool scale_bias_last=true, bool no_bag=false, bool is_bf16_out=false, bool is_bf16_in=false)</td></tr>
-<tr class="separator:a243ed0e4df7bb7b6c08a930ee71a996b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a81f30036b7f877827b4fbecddc4088ea" id="r_a81f30036b7f877827b4fbecddc4088ea"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
+<tr class="memitem:a81f30036b7f877827b4fbecddc4088ea"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; InType, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a81f30036b7f877827b4fbecddc4088ea">GenerateEmbeddingSpMDM</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, FloatFormat out_format=FloatFormat::DEFAULT, FloatFormat in_format=FloatFormat::DEFAULT)</td></tr>
+<tr class="separator:a81f30036b7f877827b4fbecddc4088ea"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae4f9d39ad74d24fc90331400d02fdf0b" id="r_ae4f9d39ad74d24fc90331400d02fdf0b"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
+<tr class="memitem:ae4f9d39ad74d24fc90331400d02fdf0b"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; InType, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#ae4f9d39ad74d24fc90331400d02fdf0b">GenerateEmbeddingSpMDMWithStrides</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, bool scale_bias_last=true, bool no_bag=false, FloatFormat out_format=FloatFormat::DEFAULT, FloatFormat in_format=FloatFormat::DEFAULT)</td></tr>
+<tr class="separator:ae4f9d39ad74d24fc90331400d02fdf0b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa4e2948ec5f9097f552de8a0458d49e1" id="r_aa4e2948ec5f9097f552de8a0458d49e1"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float&gt; </td></tr>
 <tr class="memitem:aa4e2948ec5f9097f552de8a0458d49e1"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa4e2948ec5f9097f552de8a0458d49e1">GenerateEmbeddingSpMDMNBit</a> (int bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="separator:aa4e2948ec5f9097f552de8a0458d49e1"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abb324e7decfac14ae817e7200e1a4779" id="r_abb324e7decfac14ae817e7200e1a4779"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
-<tr class="memitem:abb324e7decfac14ae817e7200e1a4779"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#abb324e7decfac14ae817e7200e1a4779">GenerateEmbeddingSpMDMNBitWithStrides</a> (const int input_bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, bool scale_bias_last=true, const bool is_bf16_out=false, const bool no_bag=false, int output_bit_rate=-1)</td></tr>
-<tr class="separator:abb324e7decfac14ae817e7200e1a4779"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a57534e5ede9766d50e536437b499894d" id="r_a57534e5ede9766d50e536437b499894d"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float&gt; </td></tr>
-<tr class="memitem:a57534e5ede9766d50e536437b499894d"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a57534e5ede9766d50e536437b499894d">GenerateEmbeddingSpMDMFP8WithStrides</a> (const std::int64_t block_size, bool normalize_by_lengths, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, int exponent_bits=4, int exponent_bias=7, bool is_bf16_out=false)</td></tr>
-<tr class="separator:a57534e5ede9766d50e536437b499894d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abeb2af310801e53a3ccf8064f7332a56" id="r_abeb2af310801e53a3ccf8064f7332a56"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float, bool THREAD_LOCAL = false&gt; </td></tr>
+<tr class="memitem:abeb2af310801e53a3ccf8064f7332a56"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#abeb2af310801e53a3ccf8064f7332a56">GenerateEmbeddingSpMDMNBitWithStrides</a> (const int input_bit_rate, const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, bool scale_bias_last=true, FloatFormat out_format=FloatFormat::DEFAULT, const bool no_bag=false, int output_bit_rate=-1)</td></tr>
+<tr class="separator:abeb2af310801e53a3ccf8064f7332a56"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a98c969964abd9b15165b883c934f65b2" id="r_a98c969964abd9b15165b883c934f65b2"><td class="memTemplParams" colspan="2">template&lt;typename IndexType, typename OffsetType = std::int32_t, typename OutType = float&gt; </td></tr>
+<tr class="memitem:a98c969964abd9b15165b883c934f65b2"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMKernelSignature&lt; std::uint8_t, IndexType, OffsetType, OutType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a98c969964abd9b15165b883c934f65b2">GenerateEmbeddingSpMDMFP8WithStrides</a> (const std::int64_t block_size, bool normalize_by_lengths, bool is_weight_positional=false, bool use_offsets=true, std::int64_t output_stride=-1, std::int64_t input_stride=-1, int exponent_bits=4, int exponent_bias=7, FloatFormat out_format=FloatFormat::DEFAULT)</td></tr>
+<tr class="separator:a98c969964abd9b15165b883c934f65b2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a6d6fe14c3ad83011adb500625ecbff01" id="r_a6d6fe14c3ad83011adb500625ecbff01"><td class="memTemplParams" colspan="2">template&lt;typename InType, typename IndexType, typename OffsetType = std::int32_t&gt; </td></tr>
 <tr class="memitem:a6d6fe14c3ad83011adb500625ecbff01"><td class="memTemplItemLeft" align="right" valign="top">EmbeddingSpMDMRowWiseSparseKernelSignature&lt; InType, IndexType, OffsetType &gt;::Type&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a6d6fe14c3ad83011adb500625ecbff01">GenerateEmbeddingSpMDMRowWiseSparse</a> (const std::int64_t block_size, bool has_weight, bool normalize_by_lengths, int prefetch=16, bool is_weight_positional=false, bool use_offsets=true)</td></tr>
 <tr class="separator:a6d6fe14c3ad83011adb500625ecbff01"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -1848,8 +1848,8 @@ template&lt;typename T, typename std::enable_if&lt; std::is_same&lt; T, x86::Ymm
 
 </div>
 </div>
-<a id="a77602a69076f938d21d336a0df00f9c4" name="a77602a69076f938d21d336a0df00f9c4"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a77602a69076f938d21d336a0df00f9c4">&#9670;&#160;</a></span>GenerateEmbeddingSpMDM()</h2>
+<a id="a81f30036b7f877827b4fbecddc4088ea" name="a81f30036b7f877827b4fbecddc4088ea"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a81f30036b7f877827b4fbecddc4088ea">&#9670;&#160;</a></span>GenerateEmbeddingSpMDM()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1889,12 +1889,12 @@ template&lt;typename InType, typename IndexType, typename OffsetType = std::int3
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_out</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </td>
+          <td class="paramtype">FloatFormat</td>          <td class="paramname"><span class="paramname"><em>out_format</em></span><span class="paramdefsep"> = </span><span class="paramdefval">FloatFormat::DEFAULT</span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_in</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
+          <td class="paramtype">FloatFormat</td>          <td class="paramname"><span class="paramname"><em>in_format</em></span><span class="paramdefsep"> = </span><span class="paramdefval">FloatFormat::DEFAULT</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -1915,8 +1915,8 @@ template&lt;typename InType, typename IndexType, typename OffsetType = std::int3
 
 </div>
 </div>
-<a id="a57534e5ede9766d50e536437b499894d" name="a57534e5ede9766d50e536437b499894d"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a57534e5ede9766d50e536437b499894d">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMFP8WithStrides()</h2>
+<a id="a98c969964abd9b15165b883c934f65b2" name="a98c969964abd9b15165b883c934f65b2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a98c969964abd9b15165b883c934f65b2">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMFP8WithStrides()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1966,7 +1966,7 @@ template&lt;typename IndexType, typename OffsetType = std::int32_t, typename Out
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_out</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
+          <td class="paramtype">FloatFormat</td>          <td class="paramname"><span class="paramname"><em>out_format</em></span><span class="paramdefsep"> = </span><span class="paramdefval">FloatFormat::DEFAULT</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -2104,8 +2104,8 @@ template&lt;typename IndexType, typename OffsetType = std::int32_t&gt; </div>
 
 </div>
 </div>
-<a id="abb324e7decfac14ae817e7200e1a4779" name="abb324e7decfac14ae817e7200e1a4779"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abb324e7decfac14ae817e7200e1a4779">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMNBitWithStrides()</h2>
+<a id="abeb2af310801e53a3ccf8064f7332a56" name="abeb2af310801e53a3ccf8064f7332a56"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abeb2af310801e53a3ccf8064f7332a56">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMNBitWithStrides()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -2165,7 +2165,7 @@ template&lt;typename IndexType, typename OffsetType = std::int32_t, typename Out
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_out</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </td>
+          <td class="paramtype">FloatFormat</td>          <td class="paramname"><span class="paramname"><em>out_format</em></span><span class="paramdefsep"> = </span><span class="paramdefval">FloatFormat::DEFAULT</span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -2241,8 +2241,8 @@ template&lt;typename InType, typename IndexType, typename OffsetType = std::int3
 
 </div>
 </div>
-<a id="a243ed0e4df7bb7b6c08a930ee71a996b" name="a243ed0e4df7bb7b6c08a930ee71a996b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a243ed0e4df7bb7b6c08a930ee71a996b">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMWithStrides()</h2>
+<a id="ae4f9d39ad74d24fc90331400d02fdf0b" name="ae4f9d39ad74d24fc90331400d02fdf0b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae4f9d39ad74d24fc90331400d02fdf0b">&#9670;&#160;</a></span>GenerateEmbeddingSpMDMWithStrides()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -2302,12 +2302,12 @@ template&lt;typename InType, typename IndexType, typename OffsetType = std::int3
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_out</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>, </td>
+          <td class="paramtype">FloatFormat</td>          <td class="paramname"><span class="paramname"><em>out_format</em></span><span class="paramdefsep"> = </span><span class="paramdefval">FloatFormat::DEFAULT</span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>is_bf16_in</em></span><span class="paramdefsep"> = </span><span class="paramdefval">false</span>&#160;)</td>
+          <td class="paramtype">FloatFormat</td>          <td class="paramname"><span class="paramname"><em>in_format</em></span><span class="paramdefsep"> = </span><span class="paramdefval">FloatFormat::DEFAULT</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
