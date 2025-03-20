@@ -1820,6 +1820,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         self._set_learning_rate(lr)
 
+    def get_learning_rate(self) -> float:
+        """
+        Sets the learning rate.
+
+        Args:
+            lr (float): The learning rate value to set to
+        """
+        return self.optimizer_args.learning_rate
+
     @torch.jit.ignore
     def _set_learning_rate(self, lr: float) -> float:
         """
