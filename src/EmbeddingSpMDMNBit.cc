@@ -104,7 +104,7 @@ class GenEmbeddingSpMDMNBitLookup {
       int output_stride,
       int input_stride,
       bool scale_bias_last,
-      FloatFormat out_format);
+      bool is_bf16_out);
 
  private:
   static asmjit::JitRuntime& runtime() {
@@ -121,7 +121,7 @@ class GenEmbeddingSpMDMNBitLookup {
   // sls, positional weights, normalize by lenths, prefetch distance,
   // use_offsets, output_stride, input_stride, and scale_bias_last
   static CodeCache<
-      tuple<int, int, bool, bool, bool, int, bool, int, int, bool, FloatFormat>,
+      tuple<int, int, bool, bool, bool, int, bool, int, int, bool, bool>,
       typename ReturnFunctionSignature<
           indxType,
           offsetType,
@@ -154,7 +154,7 @@ template <
     bool ROWWISE_SPARSE,
     bool THREAD_LOCAL>
 CodeCache<
-    tuple<int, int, bool, bool, bool, int, bool, int, int, bool, FloatFormat>,
+    tuple<int, int, bool, bool, bool, int, bool, int, int, bool, bool>,
     typename ReturnFunctionSignature<
         indxType,
         offsetType,
@@ -199,7 +199,7 @@ GenEmbeddingSpMDMNBitLookup<
         int output_stride,
         int input_stride,
         bool scale_bias_last,
-        FloatFormat out_format) {
+        bool is_bf16_out) {
   auto kernelSig = make_tuple(
       bit_rate,
       block_size,
@@ -211,7 +211,7 @@ GenEmbeddingSpMDMNBitLookup<
       output_stride,
       input_stride,
       scale_bias_last,
-      out_format);
+      is_bf16_out);
 
   return codeCache_.getOrCreate(
       kernelSig,
@@ -223,8 +223,6 @@ GenEmbeddingSpMDMNBitLookup<
         // TODO: Make this tunable
         int pref_dist = prefetch;
         bool areIndices64b = is_same<indxType, int64_t>::value;
-
-        bool is_bf16_out = out_format == FloatFormat::BFLOAT16;
 
         asmjit::CodeHolder code;
         code.init(runtime().environment());
@@ -1034,7 +1032,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         int64_t output_stride /*=-1*/,
         int64_t input_stride /*=-1*/,
         bool scale_bias_last /*=true*/,
-        const FloatFormat out_format /*=FloatFormat::DEFAULT*/,
+        const bool is_bf16_out /*=false*/,
         const bool no_bag /*=false*/,
         int output_bit_rate /*=-1*/) {
   if (output_bit_rate == -1) {
@@ -1083,7 +1081,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
           output_stride,
           input_stride,
           scale_bias_last,
-          out_format);
+          is_bf16_out);
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
@@ -1124,7 +1122,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
           output_stride,
           input_stride,
           scale_bias_last,
-          out_format);
+          is_bf16_out);
       return [=](int64_t output_size,
                  int64_t index_size,
                  int64_t data_size,
@@ -1165,7 +1163,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         /*output_stride=*/output_stride,
         /*input_stride=*/input_stride,
         /*scale_bias_last=*/scale_bias_last,
-        /*out_format=*/out_format,
+        /*is_bf16_out=*/is_bf16_out,
         /*no_bag=*/no_bag,
         /*output_bit_rate=*/output_bit_rate);
   }
@@ -1200,7 +1198,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         output_stride,
         input_stride,
         scale_bias_last,
-        out_format,
+        is_bf16_out,
         no_bag,
         output_bit_rate);
   };
@@ -1271,7 +1269,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         /*output_stride=*/block_size,
         input_stride,
         /*scale_bias_last=*/true,
-        /*out_format=*/FloatFormat::DEFAULT);
+        /*is_bf16_out=*/false);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t uncompressed_data_size,
@@ -1313,7 +1311,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
         /*output_stride=*/block_size,
         input_stride,
         /*scale_bias_last=*/true,
-        /*out_format=*/FloatFormat::DEFAULT);
+        /*is_bf16_out=*/false);
     return [=](int64_t output_size,
                int64_t index_size,
                int64_t uncompressed_data_size,
@@ -1391,7 +1389,7 @@ GenerateEmbeddingSpMDMNBitRowWiseSparse(
       int64_t output_stride,                                  \
       int64_t input_stride,                                   \
       bool scale_bias_last,                                   \
-      const FloatFormat out_format,                           \
+      const bool is_bf16_out,                                 \
       const bool no_bag,                                      \
       int output_bit_rate);
 
