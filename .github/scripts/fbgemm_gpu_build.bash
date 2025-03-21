@@ -403,16 +403,23 @@ __build_fbgemm_gpu_set_python_plat_name () {
 }
 
 __build_fbgemm_gpu_set_run_multicore () {
-  # shellcheck disable=SC2155
-  local core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
-  # shellcheck disable=SC2155
-  local sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
-  local re='^[0-9]+$'
+  if [[ -v BUILD_PARALLELISM ]]; then
+    # Set manual override if provided.  This is useful for preventing
+    # overlapping compilation error messages when debugging.
+    export run_multicore="-j ${BUILD_PARALLELISM}"
 
-  export run_multicore=""
-  if [[ $core =~ $re && $sockets =~ $re ]] ; then
-    local n_core=$((core * sockets))
-    export run_multicore="-j ${n_core}"
+  else
+    # shellcheck disable=SC2155
+    local core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
+    # shellcheck disable=SC2155
+    local sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
+    local re='^[0-9]+$'
+
+    export run_multicore=""
+    if [[ $core =~ $re && $sockets =~ $re ]]; then
+      local n_core=$((core * sockets))
+      export run_multicore="-j ${n_core}"
+    fi
   fi
 
   echo "[BUILD] Set multicore run option for setup.py: ${run_multicore}"
