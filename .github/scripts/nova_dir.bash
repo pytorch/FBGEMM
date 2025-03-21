@@ -22,10 +22,13 @@ fi
 ## Overwrite existing ENV VAR in Nova
 if [[ "$CONDA_ENV" != "" ]]; then export CONDA_RUN="conda run --no-capture-output -p ${CONDA_ENV}" && echo "$CONDA_RUN"; fi
 
-if  [[ "$CU_VERSION" == "cu121" ]] ||
-    [[ "$CU_VERSION" == "cu124" ]] ||
-    [[ "$CU_VERSION" == "cu126" ]] ||
-    [[ "$CU_VERSION" == "cu128" ]]; then
+if  [[ "$CU_VERSION" == "cu128" ]]; then
+    export TORCH_CUDA_ARCH_LIST="7.0;8.0;9.0;9.0a;10.0;10.0a;12.0;12.0a"
+    echo "Set TORCH_CUDA_ARCH_LIST to: ${TORCH_CUDA_ARCH_LIST}"
+
+elif [[ "$CU_VERSION" == "cu126" ]] ||
+     [[ "$CU_VERSION" == "cu124" ]] ||
+     [[ "$CU_VERSION" == "cu121" ]]; then
     export TORCH_CUDA_ARCH_LIST="7.0;8.0;9.0;9.0a"
     echo "Set TORCH_CUDA_ARCH_LIST to: ${TORCH_CUDA_ARCH_LIST}"
 
