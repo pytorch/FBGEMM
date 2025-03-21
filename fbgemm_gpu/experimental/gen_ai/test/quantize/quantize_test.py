@@ -748,8 +748,7 @@ class FP8Tests(unittest.TestCase):
         N=st.sampled_from([1024, 6144]),
         K=st.sampled_from([512, 3584]),
         use_cudagraph=st.booleans(),
-        use_padding_zeros=st.booleans(),
-        return_stacked=st.booleans(),
+        mode=st.sampled_from(["default", "cat", "padded", "stacked"]),
     )
     def test_fp8_grouped_gemm(
         self,
@@ -758,20 +757,19 @@ class FP8Tests(unittest.TestCase):
         N: int,
         K: int,
         use_cudagraph: bool,
-        use_padding_zeros: bool,
-        return_stacked: bool,
+        mode: str,
     ) -> None:
         ms = (
             torch.randint(
-                (258 // 64) + 1 if use_padding_zeros else 1,
+                (258 // 64) + 1 if mode == "padding" else 1,
                 (M // 64) + 1,
                 (G,),
                 dtype=torch.int,
             )
             * 64
         )
-        # When using padding or the dynamic kernel, Ns and Ks should be fixed.
-        if use_padding_zeros or return_stacked:
+        # Only default supports true dynamism.
+        if mode != "default":
             ns = [N] * G
             ks = [K] * G
         # Otherwise, any value is supported.
@@ -789,14 +787,14 @@ class FP8Tests(unittest.TestCase):
         zero_start_index_M = None
 
         # If padding, mark where zeros start for each input.
-        if use_padding_zeros:
+        if mode == "padded":
             zero_start_index_M = torch.tensor(ms, dtype=torch.long, device="cuda")
 
         for _, (m, n, k) in enumerate(zip(ms, ns, ks)):
             x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
             w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
 
-            if use_padding_zeros:
+            if mode == "padded":
                 # When padding, all x values are made to have the same M.
                 x = torch.nn.functional.pad(x, (0, 0, 0, max(ms) - m), value=0)
 
@@ -810,21 +808,21 @@ class FP8Tests(unittest.TestCase):
             w_scale_group.append(w_scale)
 
         # Make inputs contiguous in memory, this simulates the typical MOE use-case.
-        if use_padding_zeros:
+        if mode == "padded":
             x_group = torch.unbind(torch.stack(x_group, dim=0).contiguous())
             w_group = torch.unbind(torch.stack(w_group, dim=0).contiguous())
             xq_group = torch.stack(xq_group, dim=0).contiguous()
             wq_group = torch.stack(wq_group, dim=0).contiguous()
             x_scale_group = torch.stack(x_scale_group, dim=0).contiguous()
             w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
-        elif return_stacked:
+        elif mode == "stacked":
             xq_group = torch.cat(xq_group, dim=0).contiguous()
             wq_group = torch.stack(wq_group, dim=0).contiguous()
             x_scale_group = torch.cat(x_scale_group, dim=0).contiguous()
             w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
 
         # FP8 grouped gemm kernel
-        if use_padding_zeros:
+        if mode == "padded":
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
             fp8_args = [
                 xq_group,
@@ -833,12 +831,15 @@ class FP8Tests(unittest.TestCase):
                 w_scale_group,
                 zero_start_index_M,
             ]
-        elif return_stacked:
+        elif mode == "stacked":
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
-            M_offsets = ms.to(device="cuda", dtype=torch.int64)
-            fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_offsets]
+            M_sizes = ms.to(device="cuda", dtype=torch.int64)
+            fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_sizes]
         else:
-            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped
+            if mode == "cat":
+                fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_cat
+            else:
+                fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped
             fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group]
 
         if use_cudagraph:
@@ -861,13 +862,13 @@ class FP8Tests(unittest.TestCase):
 
         # BF16 grouped gemm kernel
         bf16_args = (
-            [x_group, w_group, zero_start_index_M if use_padding_zeros else None]
-            if return_stacked
+            [x_group, w_group, zero_start_index_M]
+            if mode == "padded"
             else [x_group, w_group]
         )
         bf16_op = (
             torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
-            if return_stacked
+            if mode == "padded"
             else torch.ops.fbgemm.bf16bf16bf16_grouped
         )
         if use_cudagraph:
