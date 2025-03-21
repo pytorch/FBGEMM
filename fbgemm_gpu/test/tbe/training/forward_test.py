@@ -76,6 +76,9 @@ additional_decorators.update(
         "test_faketensor__test_forward_gpu_uvm_cache_int8": [
             unittest.skip("Operator not implemented for Meta tensors"),
         ],
+        "test_faketensor__test_forward_cpu_fp32": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
         # TODO: Make it compatible with opcheck tests
         "test_faketensor__test_forward_gpu_uvm_cache_fp16": [
             unittest.skip(
@@ -293,6 +296,9 @@ class ForwardTest(unittest.TestCase):
             output_dtype=output_dtype,
             use_experimental_tbe=use_experimental_tbe,
         )
+        # Test torch JIT script compatibility
+        if not use_cpu:
+            cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(
