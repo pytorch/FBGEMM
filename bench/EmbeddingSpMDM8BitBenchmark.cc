@@ -67,10 +67,10 @@ int run_benchmark(
     int embedding_dim,
     int average_len,
     bool normalize_by_lengths,
-    bool use_32_bit_indices,
-    bool prefetch,
-    bool stress_multi_threading,
-    FloatFormat out_format) {
+    bool use_32_bit_indices = false,
+    bool prefetch = false,
+    bool stress_multi_threading = false,
+    bool is_bf16_out = false) {
   // Create embedding table
   default_random_engine generator;
   normal_distribution<float> embedding_distribution;
@@ -190,22 +190,10 @@ int run_benchmark(
 
     auto kernel_32 =
         GenerateEmbeddingSpMDM<uint8_t, int32_t, std::int32_t, OutType>(
-            embedding_dim,
-            has_weight,
-            normalize_by_lengths,
-            prefetch ? 16 : 0,
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*out_format=*/out_format);
+            embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
     auto kernel_64 =
         GenerateEmbeddingSpMDM<uint8_t, int64_t, std::int32_t, OutType>(
-            embedding_dim,
-            has_weight,
-            normalize_by_lengths,
-            prefetch ? 16 : 0,
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*out_format=*/out_format);
+            embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
 
 #ifdef _OPENMP
 #pragma omp barrier
@@ -277,11 +265,10 @@ int run_benchmark(
               tmp1 = output[i];
               tmp2 = output_ref[i];
             } else if (std::is_same<OutType, uint16_t>::value) {
-              if (out_format == FloatFormat::BFLOAT16) {
+              if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
               } else {
-                assert(out_format == FloatFormat::FLOAT16);
                 tmp1 = cpu_half2float(output[i]);
                 tmp2 = cpu_half2float(output_ref[i]);
               }
@@ -304,10 +291,9 @@ int run_benchmark(
         if (std::is_same<OutType, float>::value) {
           cout << "out type fp32";
         } else if (std::is_same<OutType, uint16_t>::value) {
-          if (out_format == FloatFormat::BFLOAT16) {
+          if (is_bf16_out) {
             cout << "out type bf16";
           } else {
-            assert(out_format == FloatFormat::FLOAT16);
             cout << "out type fp16";
           }
         } else {
@@ -386,22 +372,20 @@ int main() {
         num_rows,
         embedding_dim,
         average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/false,
-        /*prefetch=*/false,
-        stress_multi_threading,
-        FloatFormat::FLOAT16);
+        false,
+        false,
+        false,
+        stress_multi_threading);
 #else
     run_benchmark<float>(
         batch_size,
         num_rows,
         embedding_dim,
         average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/false,
-        /*prefetch=*/false,
-        stress_multi_threading,
-        FloatFormat::DEFAULT);
+        false,
+        false,
+        false,
+        stress_multi_threading);
 #endif
     if (stress_multi_threading) {
       return 0;
@@ -410,75 +394,27 @@ int main() {
     cout << "64 bit indices with prefetching, ";
 #if defined(OUT_TYPE_FLOAT16)
     run_benchmark<float16>(
-        batch_size,
-        num_rows,
-        embedding_dim,
-        average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/false,
-        /*prefetch=*/true,
-        /*stress_multi_threading=*/false,
-        FloatFormat::FLOAT16);
+        batch_size, num_rows, embedding_dim, average_len, false, false, true);
 #else
     run_benchmark<float>(
-        batch_size,
-        num_rows,
-        embedding_dim,
-        average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/false,
-        /*prefetch=*/true,
-        /*stress_multi_threading=*/false,
-        FloatFormat::DEFAULT);
+        batch_size, num_rows, embedding_dim, average_len, false, false, true);
 #endif
     cout << "32 bit indices, ";
 #if defined(OUT_TYPE_FLOAT16)
     run_benchmark<float16>(
-        batch_size,
-        num_rows,
-        embedding_dim,
-        average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/true,
-        /*prefetch=*/false,
-        /*stress_multi_threading=*/false,
-        FloatFormat::FLOAT16);
+        batch_size, num_rows, embedding_dim, average_len, false, true);
 #else
     run_benchmark<float>(
-        batch_size,
-        num_rows,
-        embedding_dim,
-        average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/true,
-        /*prefetch=*/false,
-        /*stress_multi_threading=*/false,
-        FloatFormat::DEFAULT);
+        batch_size, num_rows, embedding_dim, average_len, false, true);
 #endif
 
     cout << "32 bit indices with prefetching, ";
 #if defined(OUT_TYPE_FLOAT16)
     run_benchmark<float16>(
-        batch_size,
-        num_rows,
-        embedding_dim,
-        average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/true,
-        /*prefetch=*/true,
-        /*stress_multi_threading=*/false,
-        FloatFormat::FLOAT16);
+        batch_size, num_rows, embedding_dim, average_len, false, true, true);
 #else
     run_benchmark<float>(
-        batch_size,
-        num_rows,
-        embedding_dim,
-        average_len,
-        /*normalize_by_lengths=*/false,
-        /*use_32_bit_indices=*/true,
-        /*prefetch=*/true,
-        /*stress_multi_threading=*/false,
-        FloatFormat::DEFAULT);
+        batch_size, num_rows, embedding_dim, average_len, false, true, true);
 #endif
 
     // running with normalize by lengths
@@ -491,11 +427,9 @@ int main() {
     //     num_rows,
     //     embedding_dim,
     //     average_len,
-    //     /*normalize_by_lengths=*/false,
-    //     /*use_32_bit_indices=*/true,
-    //     /*prefetch=*/true,
-    //     /*stress_multi_threading=*/false,
-    //     FloatFormat::DEFAULT);
+    //     false,
+    //     true,
+    //     true);
   }
   return 0;
 }
