@@ -73,36 +73,55 @@ __global__ void set_kernel_args(
   auto group_index = blockIdx.x * blockDim.x + threadIdx.x;
   // If this is a valid group, write kernel args to device.
   if (group_index < G) {
-    // First get the M value for this group.
-    int M = M_sizes[group_index];
-    // Compute offset into tensor where this group begins.
-    int offset_M = 0;
-    // Compute cumulative sum of prior groups to find offset.
-    for (int i = 0; i < group_index; i++) {
-      offset_M += M_sizes[i];
+    // Since we are only writing a subset of the groups to kernel args,
+    // we need to start by initializing a counter and setting other groups
+    // to empty problems.
+    __shared__ int non_zero_counter;
+    // Initialize counter and problem memory for this group.
+    if (group_index == 0) {
+      non_zero_counter = 0;
     }
-    // Set the problem shape for this group.
-    problem_shape_ptr[group_index] = ProblemShape(N, M, K);
-    // Set pointer to xq.
-    xq_ptr[group_index] = xq + (offset_M * K);
-    // Set pointer to wq, dividing by two as wq is packed into bytes.
-    wq_ptr[group_index] = wq + (group_index * N * K / 2);
-    // Set scale pointers.
-    x_scale_ptr[group_index] = x_scale + offset_M;
-    w_scale_ptr[group_index] = w_scale + (group_index * N);
-    w_scale_group_ptr[group_index] =
-        w_scale_group + (group_index * N * num_scale_groups);
-    // Set output pointer.
-    output_ptr[group_index] = output + (offset_M * N);
-    // Set stride pointers.
-    stride_a_ptr[group_index] =
-        cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(M, K, 1));
-    stride_b_ptr[group_index] = cute::tile_to_shape(
-        LayoutAtomQuant{}, cute::make_shape(N, K, cute::Int<1>{}));
-    stride_c_ptr[group_index] =
-        cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(N, M, 1));
-    stride_s_ptr[group_index] = cutlass::make_cute_packed_stride(
-        StrideS{}, cute::make_shape(N, num_scale_groups, 1));
+    // We set the problem shapes to empty by default to skip over
+    // these groups.
+    problem_shape_ptr[group_index] = ProblemShape(0, 0, 0);
+    // Sync threads to make sure state is shared across the block.
+    __syncthreads();
+
+    // Now check if this is a non-zero group.
+    int M = M_sizes[group_index];
+    // Only proceed if so.
+    if (M > 0) {
+      // Get the non-zero index for this group atomically.
+      int non_zero_idx = atomicAdd(&non_zero_counter, 1);
+      // Compute offset into tensor where this group begins.
+      int offset_M = 0;
+      // Compute cumulative sum of prior groups to find offset.
+      for (int i = 0; i < group_index; i++) {
+        offset_M += M_sizes[i];
+      }
+      // Set the problem shape for this group.
+      problem_shape_ptr[non_zero_idx] = ProblemShape(N, M, K);
+      // Set pointer to xq.
+      xq_ptr[non_zero_idx] = xq + (offset_M * K);
+      // Set pointer to wq, dividing by two as wq is packed into bytes.
+      wq_ptr[non_zero_idx] = wq + (group_index * N * K / 2);
+      // Set scale pointers.
+      x_scale_ptr[non_zero_idx] = x_scale + offset_M;
+      w_scale_ptr[non_zero_idx] = w_scale + (group_index * N);
+      w_scale_group_ptr[non_zero_idx] =
+          w_scale_group + (group_index * N * num_scale_groups);
+      // Set output pointer.
+      output_ptr[non_zero_idx] = output + (offset_M * N);
+      // Set stride pointers.
+      stride_a_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideA{}, cute::make_shape(M, K, 1));
+      stride_b_ptr[non_zero_idx] = cute::tile_to_shape(
+          LayoutAtomQuant{}, cute::make_shape(N, K, cute::Int<1>{}));
+      stride_c_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideC{}, cute::make_shape(N, M, 1));
+      stride_s_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideS{}, cute::make_shape(N, num_scale_groups, 1));
+    }
   }
 }
 
@@ -118,6 +137,8 @@ void _f8i4bf16_shuffled_grouped(
   // Get basic shape information.
   int G = M_sizes.size(0);
   // XQ is shape [total_M, K]
+  int total_M = XQ.size(0);
+  int kernel_groups = std::min(G, total_M);
   int K = XQ.size(-1);
   // WQ is shape [G, N, K/2]
   int N = WQ.size(1);
@@ -394,7 +415,7 @@ void _f8i4bf16_shuffled_grouped(
   // Define GEMM arguments.
   typename GemmShuffled::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGrouped,
-      {G, problem_shape_ptr, nullptr},
+      {kernel_groups, problem_shape_ptr, nullptr},
       {wq_ptr,
        stride_b_ptr,
        xq_ptr,
