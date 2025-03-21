@@ -22,8 +22,6 @@ def main():
     intermediate_size = 8192
     topk = 5
 
-    print("Running fused MoE kernel...")
-
     # Create input tensors on GPU
     input = torch.randn(tokens, hidden_size, dtype=torch.bfloat16, device="cuda")
 
