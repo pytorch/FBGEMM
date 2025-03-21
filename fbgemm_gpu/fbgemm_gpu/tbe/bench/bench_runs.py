@@ -320,6 +320,7 @@ def benchmark_pipelined_requests(
 def benchmark_vbe(
     requests: List[Tuple[torch.Tensor, torch.Tensor]],
     func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    num_warmups: int = 0,
 ) -> Tuple[float, float]:
     """
     A benchmark function to return the average execution time in seconds of
@@ -334,35 +335,65 @@ def benchmark_vbe(
             A function that takes in indices and offsets
             and returns the output of the VBE kernel.
 
+        num_warmups (int):
+            The number of warm-up iterations before measuring performance.
+
     Returns:
         Tuple[float, float]:
             A tuple of average execution time in seconds of forward and
             backward of VBE kernels.
     """
 
+    use_cuda = torch.cuda.is_available()
+
+    # Warm-ups.
+    for _ in range(num_warmups):
+        # Warm-up using the first request as done in benchmark_requests
+        indices, offsets = requests[0]
+        out = func(indices, offsets)
+        grad = torch.rand_like(out)
+        out.backward(grad)
+
+    # Actual measurement in seconds.
     fwd_times = []
     bwd_times = []
 
-    torch.cuda.synchronize()
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
+    if use_cuda:
+        torch.cuda.synchronize()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
 
     for indices, offsets in requests:
         # forward
-        start_event.record()
+        if use_cuda:
+            start_event.record()
+        else:
+            start_time = time.time()
+
         out = func(indices, offsets)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
+        if use_cuda:
+            end_event.record()
+            torch.cuda.synchronize()
+            it_time = start_event.elapsed_time(end_event) * 1.0e-3  # pyre-ignore[61]
+        else:
+            it_time = time.time() - start_time  # pyre-ignore[61]
+
         fwd_times.append(it_time)
 
         grad = torch.rand_like(out)
-        start_event.record()
+
+        if use_cuda:
+            start_event.record()
+        else:
+            start_time = time.time()
         # backward
         out.backward(grad)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
+        if use_cuda:
+            end_event.record()
+            torch.cuda.synchronize()
+            it_time = start_event.elapsed_time(end_event) * 1.0e-3  # pyre-ignore[61]
+        else:
+            it_time = time.time() - start_time  # pyre-ignore[61]
         bwd_times.append(it_time)
 
     fwd_time_sec = statistics.median(fwd_times)
