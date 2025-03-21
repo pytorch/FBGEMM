@@ -229,6 +229,9 @@ class BackwardDenseTest(unittest.TestCase):
             weights_precision=weights_precision,
             output_dtype=output_dtype,
         )
+        # Test torch JIT script compatibility
+        if not use_cpu:
+            cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
