@@ -160,6 +160,7 @@ __configure_fbgemm_gpu_build_rocm () {
   if [ "$fbgemm_variant_targets" != "" ]; then
     echo "[BUILD] ROCm targets have been manually provided: ${fbgemm_variant_targets}"
     local arch_list="${fbgemm_variant_targets}"
+
   else
     if which rocminfo; then
       # shellcheck disable=SC2155
@@ -229,6 +230,8 @@ __configure_fbgemm_gpu_build_cuda () {
     local arch_list="${fbgemm_variant_targets}"
 
   elif [ "$TORCH_CUDA_ARCH_LIST" != "" ]; then
+    # NOTE: This is generally set by Nova CI; see:
+    #   .github/scripts/nova_dir.bash
     echo "[BUILD] Using the environment-supplied TORCH_CUDA_ARCH_LIST as the CUDA targets ..."
     local arch_list="${TORCH_CUDA_ARCH_LIST}"
 
@@ -251,8 +254,8 @@ __configure_fbgemm_gpu_build_cuda () {
       local arch_list="7.0;8.0;9.0;9.0a;10.0;10.0a;12.0;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
-          [[ $cuda_version_nvcc == *"V12.1"* ]] ||
-          [[ $cuda_version_nvcc == *"V12.4"* ]]; then
+          [[ $cuda_version_nvcc == *"V12.4"* ]] ||
+          [[ $cuda_version_nvcc == *"V12.1"* ]]; then
       local arch_list="7.0;8.0;9.0;9.0a"
 
     else
