@@ -149,6 +149,8 @@ class GatherScatterTests(unittest.TestCase):
         _test_scatter_add_along_first_dim(4096, 4096, 5120)
         _test_scatter_add_along_first_dim(8192, 8192, 5120)
 
+        _test_scatter_add_along_first_dim(0, 10, 5120)
+
 
 if __name__ == "__main__":
     unittest.main()
