@@ -9,10 +9,7 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdlib>
 #include <vector>
-
-#include "fbgemm/Types.h"
 
 namespace fbgemm {
 
@@ -61,18 +58,5 @@ int CreateMappingTableForRowWiseSparsity(
     std::vector<std::int32_t>& mapping_table,
     int num_rows,
     float sparsity);
-
-inline FloatFormat floatFormatFor(EmbeddingSpMDMDtypeChoice DTC) {
-  switch (DTC) {
-    case FLOAT:
-      return FloatFormat::DEFAULT;
-    case FLOAT16:
-      return FloatFormat::FLOAT16;
-    case BFLOAT16:
-      return FloatFormat::BFLOAT16;
-  }
-  // unknown/invalid float format.
-  std::abort();
-}
 
 } // namespace fbgemm

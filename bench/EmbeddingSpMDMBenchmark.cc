@@ -55,7 +55,8 @@ void run_benchmark(
     int embedding_dim,
     int average_len,
     bool normalize_by_lengths,
-    FloatFormat in_format,
+    bool use_fp16_inputs = false,
+    bool use_bf16_inputs = false,
     bool use_32_bit_indices = false,
     bool prefetch = false) {
   // Create embedding table
@@ -68,13 +69,14 @@ void run_benchmark(
   }
   vector<float16> embedding_table_fp16;
   vector<bfloat16> embedding_table_bf16;
-  if (in_format == FloatFormat::FLOAT16) {
+  if (use_fp16_inputs) {
     embedding_table_fp16.resize(embedding_table.size());
     FloatToFloat16_simd(
         embedding_table.data(),
         embedding_table_fp16.data(),
         embedding_table.size());
-  } else if (in_format == FloatFormat::BFLOAT16) {
+  }
+  if (use_bf16_inputs) {
     embedding_table_bf16.resize(embedding_table.size());
     FloatToBfloat16_simd(
         embedding_table.data(),
@@ -124,17 +126,7 @@ void run_benchmark(
 
   constexpr int NUM_WARMUP = 4;
   constexpr int NUM_ITER = 10;
-  int elem_bytes = 0;
-  switch (in_format) {
-    case FloatFormat::FLOAT16:
-    case FloatFormat::BFLOAT16:
-      elem_bytes = sizeof(float16);
-      break;
-    case FloatFormat::DEFAULT:
-      elem_bytes = sizeof(float);
-      break;
-  }
-  assert(elem_bytes != 0);
+  int elem_bytes = use_fp16_inputs ? sizeof(float16) : sizeof(float);
   double bytes = lengths_sum *
           (embedding_dim * elem_bytes + (use_32_bit_indices ? 4 : 8)) +
       batch_size * sizeof(int);
@@ -148,7 +140,7 @@ void run_benchmark(
 
     bool success = false, success_ref = false;
 
-    if (in_format == FloatFormat::FLOAT16) {
+    if (use_fp16_inputs) {
       if (use_32_bit_indices) {
         success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
@@ -160,15 +152,7 @@ void run_benchmark(
             offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
-            output_ref.data(),
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*output_stride=*/-1,
-            /*input_stride=*/-1,
-            /*scale_bias_last=*/true,
-            /*no_bag=*/false,
-            /*out_format=*/FloatFormat::DEFAULT,
-            /*in_format=*/in_format);
+            output_ref.data());
       } else {
         success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
@@ -180,17 +164,9 @@ void run_benchmark(
             offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
-            output_ref.data(),
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*output_stride=*/-1,
-            /*input_stride=*/-1,
-            /*scale_bias_last=*/true,
-            /*no_bag=*/false,
-            /*out_format=*/FloatFormat::DEFAULT,
-            /*in_format=*/in_format);
+            output_ref.data());
       }
-    } else if (in_format == FloatFormat::BFLOAT16) {
+    } else if (use_bf16_inputs) {
       if (use_32_bit_indices) {
         success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
@@ -202,15 +178,7 @@ void run_benchmark(
             offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
-            output_ref.data(),
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*output_stride=*/-1,
-            /*input_stride=*/-1,
-            /*scale_bias_last=*/true,
-            /*no_bag=*/false,
-            /*out_format=*/FloatFormat::DEFAULT,
-            /*in_format=*/in_format);
+            output_ref.data());
       } else {
         success_ref = EmbeddingSpMDM_ref(
             embedding_dim,
@@ -222,15 +190,7 @@ void run_benchmark(
             offsets.data(),
             has_weight ? weights.data() : nullptr,
             normalize_by_lengths,
-            output_ref.data(),
-            /*is_weight_positional=*/false,
-            /*use_offsets=*/true,
-            /*output_stride=*/-1,
-            /*input_stride=*/-1,
-            /*scale_bias_last=*/true,
-            /*no_bag=*/false,
-            /*out_format=*/FloatFormat::DEFAULT,
-            /*in_format=*/in_format);
+            output_ref.data());
       }
     } else {
       if (use_32_bit_indices) {
@@ -265,21 +225,9 @@ void run_benchmark(
     auto kernel_fp32_i64 = GenerateEmbeddingSpMDM<float, int64_t>(
         embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
     auto kernel_fp16_i32 = GenerateEmbeddingSpMDM<float16, int32_t>(
-        embedding_dim,
-        has_weight,
-        normalize_by_lengths,
-        prefetch ? 16 : 0,
-        /*is_weight_positional=*/false,
-        /*use_offsets=*/true,
-        /*out_format=*/FloatFormat::FLOAT16);
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
     auto kernel_fp16_i64 = GenerateEmbeddingSpMDM<float16, int64_t>(
-        embedding_dim,
-        has_weight,
-        normalize_by_lengths,
-        prefetch ? 16 : 0,
-        /*is_weight_positional=*/false,
-        /*use_offsets=*/true,
-        /*out_format=*/FloatFormat::FLOAT16);
+        embedding_dim, has_weight, normalize_by_lengths, prefetch ? 16 : 0);
     auto kernel_bf16_i32 = GenerateEmbeddingSpMDM<bfloat16, int32_t>(
         embedding_dim,
         has_weight,
@@ -287,7 +235,7 @@ void run_benchmark(
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
         /*use_offsets=*/true,
-        /*out_format=*/FloatFormat::BFLOAT16);
+        /*isbf16=*/true);
     auto kernel_bf16_i64 = GenerateEmbeddingSpMDM<bfloat16, int64_t>(
         embedding_dim,
         has_weight,
@@ -295,13 +243,13 @@ void run_benchmark(
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
         /*is_weight_positional=*/true,
-        /*out_format=*/FloatFormat::BFLOAT16);
+        /*isbf16=*/true);
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
       double t = measureWithWarmup(
           [&]() {
-            if (in_format == FloatFormat::FLOAT16) {
+            if (use_fp16_inputs) {
               if (use_32_bit_indices) {
                 success = kernel_fp16_i32(
                     batch_size,
@@ -323,7 +271,7 @@ void run_benchmark(
                     has_weight ? weights.data() : nullptr,
                     output.data());
               }
-            } else if (in_format == FloatFormat::BFLOAT16) {
+            } else if (use_bf16_inputs) {
               if (use_32_bit_indices) {
                 success = kernel_bf16_i32(
                     batch_size,
@@ -345,7 +293,7 @@ void run_benchmark(
                     has_weight ? weights.data() : nullptr,
                     output.data());
               }
-            } else if (in_format == FloatFormat::DEFAULT) {
+            } else {
               if (use_32_bit_indices) {
                 success = kernel_fp32_i32(
                     batch_size,
@@ -367,8 +315,6 @@ void run_benchmark(
                     has_weight ? weights.data() : nullptr,
                     output.data());
               }
-            } else {
-              std::abort(); // invalid/unexpected `in_format`
             }
           },
           NUM_WARMUP,
@@ -463,9 +409,8 @@ int main() {
               cout << "Mean ";
             }
             cout << input_dtype << " inputs";
-            FloatFormat in_format = input_dtype == "fp16" ? FloatFormat::FLOAT16
-                : input_dtype == "bf16" ? FloatFormat::BFLOAT16
-                                        : FloatFormat::DEFAULT;
+            bool use_fp16_inputs = input_dtype == "fp16" ? true : false;
+            bool use_bf16_inputs = input_dtype == "fp16" ? true : false;
             cout << (use_32_bit_indices ? " 32" : " 64") << " bit indices";
             if (prefetch) {
               cout << " with prefetching";
@@ -477,12 +422,13 @@ int main() {
                 embedding_dim,
                 average_len,
                 normalize_by_lengths,
-                in_format,
+                use_fp16_inputs,
+                use_bf16_inputs,
                 use_32_bit_indices,
                 prefetch);
           } // prefetch
         } // use_32_bit_indices
-      }
+      } // use_fp16_inputs
     } // normalize_by_length
   } // for each input
   return 0;
