@@ -1,0 +1,82 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#include "bf16_grouped_common.h"
+
+std::vector<at::Tensor>
+bf16_grouped_256x64x160x128_16x16_2x5_16x16x1_16x16x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
+    at::TensorList A,
+    at::TensorList B,
+    at::Tensor kernel_args,
+    std::vector<at::Tensor> Y)
+{
+    // Check if this input needs to be padded.
+#if 0
+    int M = XQ.size(1);
+    int N = WQ.size(1);
+    int K = WQ.size(2);
+    bool pad = (M % 64 != 0) || (N % 160 != 0) || (K % (128 * KBatch) != 0);
+#else
+    // disable padding for packed tensor
+    bool pad = false;
+#endif
+    if (pad)
+    {
+        // pad
+        using DeviceGemmInstance = DeviceGemmHelper<
+            256,
+            64,
+            160,
+            128,
+            16,
+            16,
+            2,
+            5,
+            S<16, 16, 1>,
+            S<16, 16, 1>,
+            S<1, 64, 1, 4>,
+            S<8, 8, 1>,
+            2,
+            1,
+            ck::BlockGemmPipelineScheduler::Intrawave,
+            ck::BlockGemmPipelineVersion::v3,
+            ck::tensor_operation::device::GemmSpecialization::MNKPadding>;
+        // Run kernel instance.
+        return bf16_grouped_impl<DeviceGemmInstance>(A, B, kernel_args, Y);
+
+        // pad
+    }
+    else
+    {
+        // no pad
+        using DeviceGemmInstance = DeviceGemmHelper<
+            256,
+            64,
+            160,
+            128,
+            16,
+            16,
+            2,
+            5,
+            S<16, 16, 1>,
+            S<16, 16, 1>,
+            S<1, 64, 1, 4>,
+            S<8, 8, 1>,
+            2,
+            1,
+            ck::BlockGemmPipelineScheduler::Intrawave,
+            ck::BlockGemmPipelineVersion::v3,
+            ck::tensor_operation::device::GemmSpecialization::Default>;
+        // Run kernel instance.
+        return bf16_grouped_impl<DeviceGemmInstance>(A, B, kernel_args, Y);
+
+        // no pad
+    }
+}
+
+

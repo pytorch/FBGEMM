@@ -88,8 +88,8 @@ using DeviceGemmHelper =
         MBLOCK, // M per Block
         NBLOCK, // N per Block
         KBLOCK, // K per Block
-        8, // AK1
-        8, // BK1
+        KBLOCK / ABLOCK_TRANSFER{}.At(0), // AK1
+        KBLOCK / BBLOCK_TRANSFER{}.At(0), // BK1
         WAVE_TILE_M, // M per Xdl
         WAVE_TILE_N, // N per Xdl
         WAVE_MAP_M, // Mxdl per Wave
@@ -98,15 +98,15 @@ using DeviceGemmHelper =
         S<1, 0, 2>,
         S<1, 0, 2>,
         2,
-        8,
-        8,
+        KBLOCK / ABLOCK_TRANSFER{}.At(0), // AK1
+        KBLOCK / ABLOCK_TRANSFER{}.At(0), // AK1
         0,
         BBLOCK_TRANSFER,
         S<1, 0, 2>,
         S<1, 0, 2>,
         2,
-        8,
-        8,
+        KBLOCK / BBLOCK_TRANSFER{}.At(0), // BK1
+        KBLOCK / BBLOCK_TRANSFER{}.At(0), // BK1
         0,
         CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
         CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
