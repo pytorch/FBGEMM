@@ -403,7 +403,7 @@ __build_fbgemm_gpu_set_python_plat_name () {
 }
 
 __build_fbgemm_gpu_set_run_multicore () {
-  if [[ -v BUILD_PARALLELISM ]]; then
+  if [[ -n "${BUILD_PARALLELISM:-}"  ]]; then
     # Set manual override if provided.  This is useful for preventing
     # overlapping compilation error messages when debugging.
     export run_multicore="-j ${BUILD_PARALLELISM}"
