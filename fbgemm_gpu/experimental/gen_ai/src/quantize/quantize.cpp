@@ -91,8 +91,12 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList XQ,
     at::TensorList WQ,
     at::TensorList x_scale,
-    at::TensorList w_scale,
-    std::optional<std::vector<at::Tensor>> output = std::nullopt);
+    at::TensorList w_scale);
+at::Tensor f8f8bf16_rowwise_grouped_cat(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList x_scale,
+    at::TensorList w_scale);
 at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -242,7 +246,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_rowwise_batched(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
-      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, Tensor[](a!)? output=None) -> Tensor[]");
+      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale) -> Tensor[]");
+  m.def(
+      "f8f8bf16_rowwise_grouped_cat(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale) -> Tensor");
   m.def(
       "f8f8bf16_rowwise_grouped_stacked(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor M_sizes, Tensor(a!)? output=None) -> Tensor");
   m.def(
@@ -288,6 +294,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16_rowwise_out", f8f8bf16_rowwise_out);
   m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched);
   m.impl("f8f8bf16_rowwise_grouped", f8f8bf16_rowwise_grouped);
+  m.impl("f8f8bf16_rowwise_grouped_cat", f8f8bf16_rowwise_grouped_cat);
   m.impl("f8f8bf16_rowwise_grouped_stacked", f8f8bf16_rowwise_grouped_stacked);
   m.impl("f8f8bf16_rowwise_grouped_dynamic", f8f8bf16_rowwise_grouped_dynamic);
   m.impl("quantize_fp8_per_tensor", quantize_fp8_per_tensor);
