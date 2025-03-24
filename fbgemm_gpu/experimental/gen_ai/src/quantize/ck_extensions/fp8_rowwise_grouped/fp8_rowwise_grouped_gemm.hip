@@ -414,12 +414,12 @@ void set_dynamic_kernel_args(
   }
 }
 
-std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
+template <typename OutputType>
+OutputType _f8f8bf16_rowwise_grouped(
     at::TensorList XQ,
     at::TensorList WQ,
     at::TensorList x_scale,
-    at::TensorList w_scale,
-    std::optional<std::vector<at::Tensor>> output = std::nullopt) {
+    at::TensorList w_scale) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   TORCH_CHECK(
@@ -452,40 +452,26 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     TORCH_CHECK(ws.dtype() == at::kFloat, "Scales must be float32.");
   }
 
-  std::vector<at::Tensor> Y;
-  // Need to handle different output modes separately.
-  // First handle tensor list output.
-  if (output.has_value()) {
-    Y = output.value();
-    TORCH_CHECK(
-        Y.size() == group_count,
-        "Output and input must have same number of groups.");
-    // Check that output shapes are correct.
-    for (int i = 0; i < group_count; i++) {
-      int M = XQ[i].size(0);
-      int N = WQ[i].size(0);
-      int out_M = Y[i].size(0);
-      int out_N = Y[i].size(1);
-      TORCH_CHECK(
-          M == out_M && N == out_N,
-          "Output tensors do not have the expected shape.");
-      TORCH_CHECK(
-          Y[i].dtype() == at::kBFloat16, "Output dtype must be bfloat16.");
-    }
-  } else {
-    for (int i = 0; i < group_count; i++) {
-      int M = XQ[i].size(0);
-      int N = WQ[i].size(0);
-      Y.push_back(at::empty({M, N}, XQ[i].options().dtype(at::kBFloat16)));
-    }
+  // Compute the total number of elements in the output.
+  int64_t total_output_size = 0;
+  int64_t total_M = 0;
+  std::vector<int64_t> output_sizes;
+  for (int i = 0; i < group_count; i++) {
+    int M = XQ[i].size(0);
+    int N = WQ[i].size(0);
+    total_M += M;
+    const int64_t output_size = M * N;
+    total_output_size += output_size;
+    output_sizes.push_back(output_size);
   }
+  at::Tensor Y =
+      at::empty({total_output_size}, XQ[0].options().dtype(at::kBFloat16));
 
   // Prepare kernel arguments by copying them to the proper device location.
   at::Tensor kernel_args = at::empty(
       {static_cast<long>(group_count * sizeof(KernelArguments))},
       XQ[0].options().dtype(at::kByte));
-  set_static_kernel_args<std::vector<at::Tensor>>(
-      kernel_args, XQ, WQ, x_scale, w_scale, Y);
+  set_static_kernel_args<at::Tensor>(kernel_args, XQ, WQ, x_scale, w_scale, Y);
 
   // We use the largest of each shape for heuristics.
   int MaxM = 0;
@@ -496,11 +482,37 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     MaxN = max(MaxN, WQ[i].size(0));
     MaxK = max(MaxK, XQ[i].size(1));
   }
-  RowwiseGroupedKernel<at::TensorList, std::vector<at::Tensor>>
-      selected_kernel = rowwise_grouped_heuristic_dispatch<
-          at::TensorList,
-          std::vector<at::Tensor>>(MaxM, MaxN, MaxK);
-  return selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+  RowwiseGroupedKernel<at::TensorList, at::Tensor> selected_kernel =
+      rowwise_grouped_heuristic_dispatch<at::TensorList, at::Tensor>(
+          MaxM, MaxN, MaxK);
+  at::Tensor g_out = selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
+  // Get output in appropriate format.
+  if constexpr (std::is_same_v<OutputType, at::Tensor>) {
+    return g_out.view({total_M, -1});
+  } else {
+    std::vector<at::Tensor> output_groups = g_out.split(output_sizes);
+    for (int i = 0; i < group_count; i++) {
+      output_groups[i] = output_groups[i].view({XQ[i].size(0), WQ[i].size(0)});
+    }
+    return output_groups;
+  }
+}
+
+std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList x_scale,
+    at::TensorList w_scale) {
+  return _f8f8bf16_rowwise_grouped<std::vector<at::Tensor>>(
+      XQ, WQ, x_scale, w_scale);
+}
+
+at::Tensor f8f8bf16_rowwise_grouped_cat(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList x_scale,
+    at::TensorList w_scale) {
+  return _f8f8bf16_rowwise_grouped<at::Tensor>(XQ, WQ, x_scale, w_scale);
 }
 
 // Wrapper function for list input single tensor output.
