@@ -11,10 +11,12 @@ import unittest
 from typing import Optional, Tuple
 
 import torch
+import triton
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
         dequantize_fp8_block,
+        dequantize_fp8_row,
         matmul_fp8_block,
         matmul_fp8_row,
         quantize_fp8_block,
@@ -135,6 +137,41 @@ class TestFp8Matmul(unittest.TestCase):
             transpose_inputs=True,
             use_jagged=True,
         )
+
+    def test_dequantize_fp8_row(self) -> None:
+        def _test_dequantize_fp8_row(
+            shape: Tuple[int, ...],
+        ) -> None:
+            a = torch.randn(shape, dtype=torch.bfloat16, device="cuda")
+            a_fp8, a_scale = quantize_fp8_row(
+                a,
+                use_triton=True,
+            )
+
+            # Undo scaling.
+            a_bf16 = dequantize_fp8_row(a_fp8, a_scale)
+
+            ms = triton.testing.do_bench(
+                lambda: dequantize_fp8_row(a_fp8, a_scale),
+            )
+            print(f"Shape: {a.shape} MS: {ms}")
+            torch.testing.assert_close(a_bf16, a, atol=2e-1, rtol=1e-1)
+            self.assertTrue(
+                torch.allclose(
+                    a,
+                    a_bf16,
+                    atol=2e-1,
+                    rtol=1e-1,
+                )
+            )
+
+        for n_col in [1, 100, 1000]:
+            _test_dequantize_fp8_row((2, n_col))
+        # Test with batched input.
+        _test_dequantize_fp8_row((4, 2, 3))
+        shapes = [(4, 2, 3), (6, 4, 2, 3), (2, 3), (20, 30)]
+        for shape in shapes:
+            _test_dequantize_fp8_row(shape)
 
     def test_scale_fp8_row(self) -> None:
         def _test_scale_fp8_row(
