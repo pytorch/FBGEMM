@@ -107,30 +107,14 @@ __global__ void set_dynamic_kernel_args_kernel(
     StrideA* stride_a_ptr,
     StrideB* stride_b_ptr,
     StrideC* stride_c_ptr,
-    std::optional<int64_t*> zero_start_index_M,
-    std::optional<int64_t*> M_sizes) {
+    int64_t* zero_start_index_M) {
   uint32_t group_index = blockIdx.x * blockDim.x + threadIdx.x;
   // If this thread corresponds to a valid group, write kernel args to device
   // memory.
   if (group_index < G) {
     // Compute shape for this group.
-    int offset_M;
-    int kernel_M;
-    if (zero_start_index_M.has_value()) {
-      // For inputs with padding, M is fixed and the number of rows
-      // to operate on is available in zero_start_index_M.
-      kernel_M = zero_start_index_M.value()[group_index];
-      offset_M = group_index * M;
-    } else {
-      // M for this group is pulled directly from M_sizes.
-      kernel_M = M_sizes.value()[group_index];
-      // We compute the offset by getting the cumulative sum over
-      // prior groups.
-      offset_M = 0;
-      for (int i = 0; i < group_index; i++) {
-        offset_M += M_sizes.value()[i];
-      }
-    }
+    int kernel_M = zero_start_index_M[group_index];
+    int offset_M = group_index * M;
     // Set the problem shape for this group.
     problem_shape_ptr[group_index] = ProblemShape(N, kernel_M, K);
     // Set input pointers.
@@ -145,6 +129,82 @@ __global__ void set_dynamic_kernel_args_kernel(
         cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(N, K, 1));
     stride_c_ptr[group_index] = cutlass::make_cute_packed_stride(
         StrideC{}, cute::make_shape(N, kernel_M, 1));
+  }
+}
+
+template <
+    typename ProblemShape,
+    typename ElementA,
+    typename ElementB,
+    typename ElementC,
+    typename ElementComputeEpilogue,
+    typename StrideA,
+    typename StrideB,
+    typename StrideC>
+__global__ void set_stacked_kernel_args_kernel(
+    int G,
+    int N,
+    int K,
+    ProblemShape* problem_shape_ptr,
+    ElementA* xq,
+    const ElementA** xq_ptr,
+    ElementB* wq,
+    const ElementB** wq_ptr,
+    ElementComputeEpilogue* x_scale,
+    const ElementComputeEpilogue** x_scale_ptr,
+    ElementComputeEpilogue* w_scale,
+    const ElementComputeEpilogue** w_scale_ptr,
+    ElementC* output,
+    ElementC** output_ptr,
+    StrideA* stride_a_ptr,
+    StrideB* stride_b_ptr,
+    StrideC* stride_c_ptr,
+    int64_t* M_sizes) {
+  uint32_t group_index = blockIdx.x * blockDim.x + threadIdx.x;
+  // If this thread corresponds to a valid group, write kernel args to device
+  // memory.
+  if (group_index < G) {
+    // Its possible that we're only writing a subset of the groups to
+    // kernel args. To do this, we need to set all groups initially to empty.
+    // and keep a problem counter for the number of non-empty groups.
+    __shared__ int non_zero_counter;
+    // Initialize counter in first group.
+    if (group_index == 0) {
+      non_zero_counter = 0;
+    }
+    // Set problem shapes to empty by default.
+    problem_shape_ptr[group_index] = ProblemShape(0, 0, 0);
+    // Sync threads to get consistent state in the block.
+    __syncthreads();
+
+    // Compute shape for this group.
+    // M for this group is pulled directly from M_sizes.
+    int M = M_sizes[group_index];
+    // Only proceed to writing kernel args if this group is non-empty.
+    if (M > 0) {
+      // Get the index for this group atomically.
+      int non_zero_idx = atomicAdd(&non_zero_counter, 1);
+      // We compute the offset by getting the cumulative sum over
+      // prior groups.
+      int offset_M = 0;
+      for (int i = 0; i < group_index; i++) {
+        offset_M += M_sizes[i];
+      }
+      // Set the problem shape for this group.
+      problem_shape_ptr[non_zero_idx] = ProblemShape(N, M, K);
+      // Set input pointers.
+      xq_ptr[non_zero_idx] = xq + (offset_M * K);
+      wq_ptr[non_zero_idx] = wq + (group_index * N * K);
+      x_scale_ptr[non_zero_idx] = x_scale + offset_M;
+      w_scale_ptr[non_zero_idx] = w_scale + (group_index * N);
+      output_ptr[non_zero_idx] = output + (offset_M * N);
+      stride_a_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideA{}, cute::make_shape(M, K, 1));
+      stride_b_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideB{}, cute::make_shape(N, K, 1));
+      stride_c_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideC{}, cute::make_shape(N, M, 1));
+    }
   }
 }
 
@@ -178,6 +238,8 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
     G = WQ.size(0);
     options = XQ.options();
   }
+  // The number of groups the kernel uses may vary.
+  int kernel_groups = G;
   // Return early if there are no elements in the output.
   if (output.numel() == 0) {
     return output;
@@ -421,41 +483,60 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
     int M = XQ.size(XQ.dim() - 2);
     int N = WQ.size(1);
     int K = WQ.size(2);
-    std::optional<int64_t*> zero_start_index_M_ptr = std::nullopt;
-    std::optional<int64_t*> M_sizes_ptr = std::nullopt;
     if (zero_start_index_M.has_value()) {
-      zero_start_index_M_ptr =
+      int64_t* zero_start_index_M_ptr =
           reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr());
+      set_dynamic_kernel_args_kernel<<<1, G, 0, stream>>>(
+          G,
+          M,
+          N,
+          K,
+          problem_shape_ptr,
+          reinterpret_cast<ElementA*>(XQ.data_ptr()),
+          xq_ptr,
+          reinterpret_cast<ElementB*>(WQ.data_ptr()),
+          wq_ptr,
+          reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
+          x_scale_ptr,
+          reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
+          w_scale_ptr,
+          reinterpret_cast<ElementC*>(output.data_ptr()),
+          output_ptr,
+          stride_a_ptr,
+          stride_b_ptr,
+          stride_c_ptr,
+          zero_start_index_M_ptr);
+    } else {
+      int64_t* M_sizes_ptr =
+          reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
+      set_stacked_kernel_args_kernel<<<1, G, 0, stream>>>(
+          G,
+          N,
+          K,
+          problem_shape_ptr,
+          reinterpret_cast<ElementA*>(XQ.data_ptr()),
+          xq_ptr,
+          reinterpret_cast<ElementB*>(WQ.data_ptr()),
+          wq_ptr,
+          reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
+          x_scale_ptr,
+          reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
+          w_scale_ptr,
+          reinterpret_cast<ElementC*>(output.data_ptr()),
+          output_ptr,
+          stride_a_ptr,
+          stride_b_ptr,
+          stride_c_ptr,
+          M_sizes_ptr);
+      // Set the number of groups to the kernel to be at most the number of
+      // non-zero rows.
+      kernel_groups = std::min(M, G);
     }
-    if (M_sizes.has_value()) {
-      M_sizes_ptr = reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
-    }
-    set_dynamic_kernel_args_kernel<<<1, G, 0, stream>>>(
-        G,
-        M,
-        N,
-        K,
-        problem_shape_ptr,
-        reinterpret_cast<ElementA*>(XQ.data_ptr()),
-        xq_ptr,
-        reinterpret_cast<ElementB*>(WQ.data_ptr()),
-        wq_ptr,
-        reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
-        x_scale_ptr,
-        reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
-        w_scale_ptr,
-        reinterpret_cast<ElementC*>(output.data_ptr()),
-        output_ptr,
-        stride_a_ptr,
-        stride_b_ptr,
-        stride_c_ptr,
-        zero_start_index_M_ptr,
-        M_sizes_ptr);
   }
 
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGrouped,
-      {G, problem_shape_ptr, nullptr},
+      {kernel_groups, problem_shape_ptr, nullptr},
       {wq_ptr, stride_b_ptr, xq_ptr, stride_a_ptr},
       {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr}};
 
