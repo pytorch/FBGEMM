@@ -32,6 +32,29 @@ except ImportError:
 from .quantize_ops import get_quantize_ops, QuantizeOpBase
 
 
+def generate_group_tensor(G, M):
+    """
+    Generate a tensor with G elements whose integer elements sum to A.
+
+    Args:
+        G (int): Number of elements in the tensor.
+        M (int): Sum of the elements in the tensor.
+
+    Returns:
+        torch.Tensor: A tensor with G elements whose integer elements sum to M.
+    """
+
+    # First, we generate a random tensor with G elements
+    random_tensor = torch.rand(G)
+    # Then, we normalize this tensor so it sums up to 1
+    normalized_tensor = random_tensor / random_tensor.sum()
+    # Finally, we multiply this tensor by M and round to the nearest integer
+    output_tensor = torch.round(normalized_tensor * M).to(torch.int64)
+    # Adjust the last element to ensure the sum is exactly M
+    output_tensor[-1] += M - output_tensor.sum()
+    return output_tensor.tolist()
+
+
 def set_amd_env_vars() -> None:
     print("Setting environment variables for AMD GPU performance")
     os.environ["DISABLE_ADDMM_HIP_LT"] = "0"
@@ -177,9 +200,10 @@ def benchmark_grouped(
             output = [o[: m[i]] for i, o in enumerate(output)]
         # Compare the quantize op output to reference as a sanity check.
         for i in range(num_groups):
-            metrics.sim += float(
-                torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
-            )
+            if m[i] > 0:
+                metrics.sim += float(
+                    torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
+                )
         for _ in range(num_iters):
             # Now perform benchmark.
             if bench_quantize:
@@ -205,17 +229,16 @@ def benchmark_grouped(
                 metrics.tflops += (
                     2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 )
-                metrics.gbps += (
-                    (
-                        quantized_vals[0][i][: m[i]].numel()
-                        * quantized_vals[0][i][: m[i]].element_size()
-                        + quantized_vals[1][i].numel()
-                        * quantized_vals[1][i].element_size()
-                        + output[i].numel() * output[i].element_size()
+                if m[i] > 0:
+                    metrics.gbps += (
+                        (
+                            b[i] * m[i] * k[i] * quantized_vals[0][0].element_size()
+                            + b[i] * n[i] * k[i] * quantized_vals[1][0].element_size()
+                            + b[i] * m[i] * n[i] * output[0].element_size()
+                        )
+                        / (ms_runtime / 1e3)
+                        / 1e9
                     )
-                    / (ms_runtime / 1e3)
-                    / 1e9
-                )
             metrics.ms += ms_runtime
         metrics.ms /= num_iters
         metrics.tflops /= num_iters
@@ -411,10 +434,22 @@ def main(args: Any):
     # When groups is provided transform shapes into grouped format.
     if args.groups:
         groups = int(args.groups)
-        MNK = [
-            [[b] * groups, [m] * groups, [n] * groups, [k] * groups]
-            for b, m, n, k in MNK
-        ]
+        if args.total_M:
+            M = generate_group_tensor(groups, int(args.total_M))
+            MNK = [
+                [
+                    [b] * groups,
+                    generate_group_tensor(groups, int(args.total_M)),
+                    [n] * groups,
+                    [k] * groups,
+                ]
+                for b, _, n, k in MNK
+            ]
+        else:
+            MNK = [
+                [[b] * groups, [m] * groups, [n] * groups, [k] * groups]
+                for b, m, n, k in MNK
+            ]
 
     # Iterate over shapes and benchmark.
     benchmark_results = []
@@ -511,6 +546,12 @@ def invoke_main() -> None:
         "--groups",
         default=None,
         help="If set with grouped mode, repeat input shapes this many times.",
+    )
+    parser.add_argument(
+        "--total_M",
+        default=None,
+        help="If set, Adjusts the M values to sum to this number. "
+        "This can help simulate real grouped workloads.",
     )
     parser.add_argument(
         "--no_cuda_graph",
