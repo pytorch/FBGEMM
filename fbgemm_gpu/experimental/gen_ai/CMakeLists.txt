@@ -8,19 +8,23 @@
 # Target Sources
 ################################################################################
 
-set(experimental_gen_ai_cpp_source_files_gpu
-    # Attention Ops
-    src/attention/attention.cpp
-    src/attention/gqa_attn_splitk.cu
-    # Quantize Ops
-    src/quantize/quantize.cu
-    src/quantize/quantize.cpp
-    # Comm Ops
-    src/comm/car.cu
-    src/comm/car.cpp
-    # KV Cache Ops
-    src/kv_cache/kv_cache.cu
-    src/kv_cache/kv_cache.cpp)
+
+file(GLOB experimental_gen_ai_cpp_source_files_gpu
+  # Attention Ops
+  src/attention/*.cpp
+  src/attention/*.cu
+  # Comm Ops
+  src/comm/*.cpp
+  src/comm/*.cu
+  # Gather Scatter Ops
+  src/gather_scatter/*.cpp
+  src/gather_scatter/*.cu
+  # Quantize Ops
+  src/kv_cache/*.cpp
+  src/kv_cache/*.cu
+  # Quantize Ops
+  src/quantize/*.cpp
+  src/quantize/*.cu)
 
 # Set the source file for FB only CPP
 if(USE_FB_ONLY)
@@ -40,6 +44,8 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_cuda
 
 # HIP-specific sources
 file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
+  src/gemm/gemm.cpp
+  src/gemm/ck_extensions.hip
   src/quantize/ck_extensions/*.hip
   src/quantize/ck_extensions/**/*.hip)
 
