@@ -36,6 +36,8 @@ from fbgemm_gpu.tbe.bench import (
     benchmark_pipelined_requests,
     benchmark_requests,
     benchmark_vbe,
+    EmbeddingOpsCommonConfigLoader,
+    TBEBenchmarkingConfigLoader,
 )
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import generate_requests, get_device, round_up, TBERequest
@@ -1202,56 +1204,118 @@ def device_with_spec(  # noqa C901
 
 
 @cli.command()
-@click.option("--batch-sizes", default="128000,1280")
-@click.option("--embedding-dims", default="1024,16")
-@click.option("--bag-sizes", default="5,2")
-@click.option("--nums-embeddings", default="10000,1000000")
-@click.option("--num-tables", default=2)
-@click.option("--iters", default=100)
+@click.option(
+    "--batch-size-list",
+    type=str,
+    required=True,
+    help="A comma separated list of batch sizes (B) for each table.",
+)
+@click.option(
+    "--embedding-dim-list",
+    type=str,
+    required=True,
+    help="A comma separated list of embedding dimensions (D) for each table.",
+)
+@click.option(
+    "--bag-size-list",
+    type=str,
+    required=True,
+    help="A comma separated list of bag sizes (L) for each table.",
+)
+@click.option(
+    "--bag-size-sigma-list",
+    type=str,
+    default="None",
+    help="A comma separated list of standard deviations for generating bag sizes per table. "
+    "If 'None' is set, bag sizes are fixed per table.",
+)
+@click.option(
+    "--num-embeddings-list",
+    type=str,
+    required=True,
+    help="A comma separated list of number of embeddings (E) for each table.",
+)
+@click.option(
+    "--alpha-list",
+    type=str,
+    default="None",
+    help="A comma separated list of ZipF-alpha values for index distribution for each table. "
+    "If 'None' is set, uniform distribution is used.",
+)
+@click.option(
+    "--num-tables",
+    type=int,
+    required=True,
+    help="The number of tables.",
+)
+@click.option(
+    "--weighted",
+    is_flag=True,
+    default=False,
+    help="Whether the table is weighted or not",
+)
+@TBEBenchmarkingConfigLoader.options
+@EmbeddingOpsCommonConfigLoader.options
+@click.pass_context
 def vbe(
-    batch_sizes: str,
-    embedding_dims: str,
-    bag_sizes: str,
-    nums_embeddings: str,
+    context: click.Context,
+    batch_size_list: str,
+    embedding_dim_list: str,
+    bag_size_list: str,
+    bag_size_sigma_list: str,
+    num_embeddings_list: str,
+    alpha_list: str,
     num_tables: int,
-    iters: int,
+    weighted: bool,
+    # pyre-ignore[2]
+    **kwargs,
 ) -> None:
     """
     A benchmark function to evaluate variable batch-size table-batched
     embedding (VBE) kernels for both forward and backward. Unlike TBE,
     batch sizes can be specified per table for VBE.
-
-    Args:
-        batch_sizes (str):
-            A comma separated list of batch sizes for each table.
-
-        embedding_dims (str):
-            A comma separated list of embedding dimensions for each table.
-
-        bag_sizes (str):
-            A comma separated list of bag sizes for each table.
-
-        num_embeddings (str):
-            A comma separated list of number of embeddings for each table.
-
-        num_tables (int):
-            The number of tables.
-
-        iters (int):
-            The number of iterations to run the benchmark for.
     """
-
+    np.random.seed(42)
     torch.manual_seed(42)
-    Bs = [int(v) for v in batch_sizes.split(",")]
-    Ds = [int(v) for v in embedding_dims.split(",")]
-    Ls = [int(v) for v in bag_sizes.split(",")]
-    Es = [int(v) for v in nums_embeddings.split(",")]
+
+    # Load general TBE benchmarking configuration from cli arguments
+    benchconfig = TBEBenchmarkingConfigLoader.load(context)
+    if benchconfig.num_requests != benchconfig.iterations:
+        raise ValueError("--bench-num-requests is not supported.")
+
+    if benchconfig.flush_gpu_cache_size_mb != 0:
+        raise ValueError("--bench-flush-gpu-cache-size is not supported.")
+
+    if benchconfig.export_trace:
+        raise ValueError("--bench-export-trace is not supported.")
+
+    # Load common embedding op configuration from cli arguments
+    embconfig = EmbeddingOpsCommonConfigLoader.load(context)
+    if embconfig.uvm_host_mapped:
+        raise ValueError("--emb-uvm-host-mapped is not supported.")
+
     T = num_tables
+    alphas = (
+        [float(alpha) for alpha in alpha_list.split(",")]
+        if alpha_list != "None"
+        else [0.0] * T
+    )
+    Bs = [int(v) for v in batch_size_list.split(",")]
+    Ds = [int(v) for v in embedding_dim_list.split(",")]
+    Ls = [int(v) for v in bag_size_list.split(",")]
+    sigma_Ls = (
+        [int(sigma) for sigma in bag_size_sigma_list.split(",")]
+        if bag_size_sigma_list != "None"
+        else [0] * T
+    )
+    Es = [int(v) for v in num_embeddings_list.split(",")]
 
     # All these variables must have the same length.
+    assert T == len(alphas)
     assert T == len(Bs)
     assert T == len(Ds)
     assert T == len(Ls)
+    assert T == len(sigma_Ls)
     assert T == len(Es)
 
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
@@ -1260,7 +1324,6 @@ def vbe(
         if get_available_compute_device() != ComputeDevice.CPU
         else EmbeddingLocation.HOST
     )
-    pooling_mode = PoolingMode.SUM
 
     emb = SplitTableBatchedEmbeddingBagsCodegen(
         [
@@ -1275,66 +1338,67 @@ def vbe(
         optimizer=optimizer,
         learning_rate=0.1,
         eps=0.1,
-        weights_precision=SparseType.FP32,
-        stochastic_rounding=False,
-        output_dtype=SparseType.FP32,
-        pooling_mode=pooling_mode,
-        bounds_check_mode=BoundsCheckMode(BoundsCheckMode.NONE.value),
+        cache_precision=embconfig.cache_dtype,
+        weights_precision=embconfig.weights_dtype,
+        stochastic_rounding=embconfig.stochastic_rounding,
+        output_dtype=embconfig.output_dtype,
+        pooling_mode=embconfig.pooling_mode,
+        bounds_check_mode=embconfig.bounds_check_mode,
     ).to(get_device())
 
-    lengths_list: List[torch.Tensor] = []
-    num_values_per_table: List[int] = []
-    for t, B in enumerate(Bs):
-        L = Ls[t]
-        # Assume a uniformly distributed random number in [0, 2L)
-        # On average it should be L.
-        lengths_list.append(
-            torch.randint(
-                low=0, high=2 * L, size=(B,), dtype=torch.int64, device=get_device()
-            )
+    all_requests = {
+        "indices": [[] for _ in range(benchconfig.iterations)],
+        "offsets": [[] for _ in range(benchconfig.iterations)],
+        "weights": [[] for _ in range(benchconfig.iterations)],
+    }
+    for t, (E, B, L, sigma_L, alpha) in enumerate(zip(Es, Bs, Ls, sigma_Ls, alphas)):
+        # Generate a request for a single table.
+        local_requests = generate_requests(
+            benchconfig.iterations,
+            B,
+            1,
+            L,
+            E,
+            alpha=alpha,
+            weighted=weighted,
+            sigma_L=sigma_L,
+            zipf_oversample_ratio=3 if L > 5 else 5,
+            use_cpu=get_available_compute_device() == ComputeDevice.CPU,
+            index_dtype=torch.long,
+            offset_dtype=torch.long,
         )
 
-        # num_values is used later.
-        # Note: sum().tolist() returns a scalar value.
-        # pyre-ignore
-        num_values: int = torch.sum(lengths_list[-1]).tolist()
-        num_values_per_table.append(num_values)
+        # Store requests for each table in all_requests.
+        for i, req in enumerate(local_requests):
+            indices, offsets, weights = req.unpack_3()
+            all_requests["indices"][i].append(indices)
+            if t > 0:
+                offsets = offsets[1:]  # remove the first element
+                offsets += all_requests["offsets"][i][t - 1][-1]
+            all_requests["offsets"][i].append(offsets)
+            all_requests["weights"][i].append(weights)
 
-    lengths = torch.cat(lengths_list, 0)
-
-    # Convert lengths into offsets.
-    offsets = torch.ops.fbgemm.asynchronous_complete_cumsum(lengths).long()
-
-    # Set up values.
-    values_list: List[torch.Tensor] = []
-    for t, E in enumerate(Es):
-        # Assuming that an index distribution is uniform [0, E)
-        values_list.append(
-            torch.randint(
-                low=0,
-                high=E,
-                size=(num_values_per_table[t],),
-                dtype=torch.int32,
-                device=get_device(),
-            )
-        )
-    values = torch.cat(values_list, 0).long()
-
+    # Combine the requests for all tables by
     requests = [
         (
-            values,
-            offsets,
+            torch.concat(all_requests["indices"][i]),
+            torch.concat(all_requests["offsets"][i]),
+            torch.concat(all_requests["weights"][i]) if weighted else None,
         )
-        for _ in range(iters)
+        for i in range(benchconfig.iterations)
     ]
+
+    del all_requests
 
     fwd_time_sec, bwd_time_sec = benchmark_vbe(
         requests,
-        func=lambda indices, offsets: emb.forward(
+        func=lambda indices, offsets, per_sample_weights: emb.forward(
             indices,
             offsets,
+            per_sample_weights,
             batch_size_per_feature_per_rank=[[B] for B in Bs],
         ),
+        num_warmups=benchconfig.warmup_iterations,
     )
     logging.info(
         f"T: {T}, Bs: {Bs}, Ds: {Ds}, Ls: {Ls}, Es: {Es}\n"
