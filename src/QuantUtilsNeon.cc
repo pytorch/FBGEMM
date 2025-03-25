@@ -45,26 +45,26 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
   svbool_t lastPredB = svwhilelt_b32_u64(4, output_columns_mod);
   svbool_t lastPredC = svwhilelt_b16_u64(0, output_columns_mod);
 
-  for (size_t row = 0; row < input_rows; ++row) {
-    const std::uint8_t* input_row = input + row * input_columns;
-    const float* input_row_scale_bias =
-        reinterpret_cast<const float*>(input_row + output_columns);
-    OutputType* output_row = output + row * output_columns;
+  const uint64_t* input_row_v_0 = reinterpret_cast<const uint64_t*>(input);
+  const uint64_t* input_row_v_1 = reinterpret_cast<const uint64_t*>(input + 4);
+  OutputType* output_row = output;
+
+  for (; input_rows > 0; --input_rows) {
+    const float* input_row_scale_bias = reinterpret_cast<const float*>(
+        reinterpret_cast<const uint8_t*>(input_row_v_0) + output_columns);
 
     float scale = input_row_scale_bias[0];
     float bias = input_row_scale_bias[1];
     svfloat32_t scale_v = svdup_n_f32(scale);
     svfloat32_t bias_v = svdup_n_f32(bias);
 
-    const uint64_t* input_row_v_0 =
-        reinterpret_cast<const uint64_t*>(input_row);
-    const uint64_t* input_row_v_1 =
-        reinterpret_cast<const uint64_t*>(input_row + 4);
     float32x4x2_t* output_row_v = reinterpret_cast<float32x4x2_t*>(output_row);
     float16x8_t* output_row_v_half = reinterpret_cast<float16x8_t*>(output_row);
 
     size_t colIndex = 0;
-    for (size_t colMax = output_columns / 8; colIndex < colMax; ++colIndex) {
+    for (size_t colMax = output_columns / 8;
+         __builtin_expect(colIndex < colMax, 1);
+         ++colIndex) {
       svuint32_t in_v_0 = svld1ub_u32(
           allTruePred,
           reinterpret_cast<const uint8_t*>(input_row_v_0 + colIndex));
@@ -113,6 +113,12 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfNeon(
           (float16_t*)&(output_row_v_half[colIndex]),
           svset_neonq_f16(svundef_f16(), dequantzed_v_half_low));
     }
+
+    input_row_v_0 = reinterpret_cast<const uint64_t*>(
+        reinterpret_cast<const uint8_t*>(input_row_v_0) + input_columns);
+    input_row_v_1 = reinterpret_cast<const uint64_t*>(
+        reinterpret_cast<const uint8_t*>(input_row_v_1) + input_columns);
+    output_row += output_columns;
 
   } // for each row
 }
