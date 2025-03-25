@@ -823,3 +823,9 @@ pta::PackedTensorAccessor64<T, N, PtrTraits> make_packed_tensor_accessor64(
 #define MAKE_PTA_ACC_WITH_NAME(FUNC_NAME, TENSOR, T, N, INDEX_NBITS) \
   MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE(                         \
       FUNC_NAME, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)
+
+// !! Please do not modify the overflow_safe_int_t value unless you absolutely
+// understand what you are doing !!
+//
+// An integer datatype for preventing the integer overflow problem
+using overflow_safe_int_t = int64_t;
