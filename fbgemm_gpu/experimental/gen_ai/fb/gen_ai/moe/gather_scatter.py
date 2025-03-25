@@ -16,8 +16,6 @@ def _fbgemm_gather_scale_dense_tokens(
     scores,
     stride_t,
     stride_e,
-    E: tl.constexpr,
-    T: tl.constexpr,
     D: tl.constexpr,
     BLOCK_D_OUTER: tl.constexpr,
     BLOCK_D_INNER: tl.constexpr,
@@ -98,8 +96,6 @@ def gather_scale_dense_tokens(
         scores,
         stride_t,
         stride_e,
-        E,
-        T,  # pyre-ignore
         D,  # pyre-ignore
         BLOCK_D_OUTER,  # pyre-ignore
         BLOCK_D_INNER,  # pyre-ignore
