@@ -51,7 +51,7 @@ def generate_group_tensor(G, M):
     # Finally, we multiply this tensor by M and round to the nearest integer
     output_tensor = torch.round(normalized_tensor * M).to(torch.int64)
     # Adjust the last element to ensure the sum is exactly M
-    output_tensor[-1] += M - output_tensor.sum()
+    output_tensor[-1] += max(0, M - output_tensor.sum())
     return output_tensor.tolist()
 
 
