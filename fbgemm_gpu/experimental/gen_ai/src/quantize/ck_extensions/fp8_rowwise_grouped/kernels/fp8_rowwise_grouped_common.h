@@ -134,7 +134,15 @@ OutputType f8f8bf16_rowwise_grouped_impl(
   // Get input information.
   int group_count;
   if constexpr (std::is_same_v<InputType, at::Tensor>) {
-    group_count = WQ.size(0);
+    // Two different modes when inputs are tensors.
+    // If XQ is 3D then its shape is [G, M, K].
+    // If its 2D then its shape is [total_M, K].
+    if (XQ.dim() == 2) {
+      // group count is the min of total_M and G.
+      group_count = std::min(XQ.size(0), WQ.size(0));
+    } else {
+      group_count = WQ.size(0);
+    }
   } else {
     group_count = XQ.size();
   }
