@@ -217,7 +217,12 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                             D_emb += kINT8QparamsBytes;
                         }
                         auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-                            const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                            const_cast<emb_t*>(
+                              &weights[
+                                static_cast<overflow_safe_int_t>(idx_j)
+                                * static_cast<overflow_safe_int_t>(D_emb)
+                              ]
+                            ),
                             nullptr,
                             D);
                         float2 qparams;
@@ -237,7 +242,12 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                         D_emb += kINT8QparamsBytes;
                     }
                     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-                        const_cast<emb_t*>(&weights[idx_j * D_emb]),
+                        const_cast<emb_t*>(
+                          &weights[
+                            static_cast<overflow_safe_int_t>(idx_j)
+                            * static_cast<overflow_safe_int_t>(D_emb)
+                          ]
+                        ),
                         nullptr,
                         D);
                     float2 qparams;
