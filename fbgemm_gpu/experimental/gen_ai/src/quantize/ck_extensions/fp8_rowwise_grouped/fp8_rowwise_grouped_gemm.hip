@@ -516,7 +516,8 @@ OutputType _f8f8bf16_rowwise_grouped(
   at::Tensor g_out = selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
   // Get output in appropriate format.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
-    return g_out.view({total_M, -1});
+    int N = WQ[0].size(0);
+    return g_out.view({total_M, N});
   } else {
     std::vector<at::Tensor> output_groups = g_out.split(output_sizes);
     for (int i = 0; i < group_count; i++) {
@@ -644,6 +645,11 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
   // of kernel setup.
   at::Tensor Y =
       at::empty({group_count, M, N}, XQ.options().dtype(at::kBFloat16));
+
+  // Early exit for empty input.
+  if (Y.numel() == 0) {
+    return Y;
+  }
 
   // Prepare kernel arguments by copying them to the proper device location.
   at::Tensor kernel_args = at::empty(
