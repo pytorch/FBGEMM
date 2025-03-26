@@ -744,7 +744,7 @@ class FP8Tests(unittest.TestCase):
     @settings(deadline=None)
     @given(
         G=st.sampled_from([1, 4, 5, 16]),
-        M=st.sampled_from([2048, 3584]),
+        M=st.sampled_from([0, 2048, 3584]),
         N=st.sampled_from([1024, 6144]),
         K=st.sampled_from([512, 3584]),
         use_cudagraph=st.booleans(),
@@ -759,15 +759,18 @@ class FP8Tests(unittest.TestCase):
         use_cudagraph: bool,
         mode: str,
     ) -> None:
-        ms = (
-            torch.randint(
-                (258 // 64) + 1 if mode == "padding" else 1,
-                (M // 64) + 1,
-                (G,),
-                dtype=torch.int,
+        if M > 0:
+            ms = (
+                torch.randint(
+                    (258 // 64) + 1 if mode == "padding" else 1,
+                    (M // 64) + 1,
+                    (G,),
+                    dtype=torch.int,
+                )
+                * 64
             )
-            * 64
-        )
+        else:
+            ms = torch.zeros((G,), dtype=torch.int)
         # Only default supports true dynamism.
         if mode != "default":
             ns = [N] * G

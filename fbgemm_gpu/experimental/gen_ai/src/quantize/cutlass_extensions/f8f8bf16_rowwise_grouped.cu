@@ -689,7 +689,8 @@ OutputType _f8f8bf16_rowwise_grouped(
 
   // Return appropriate output type.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
-    return g_out.view({total_M, -1});
+    int N = WQ[0].size(0);
+    return g_out.view({total_M, N});
   } else {
     // Return grouped view of output.
     std::vector<at::Tensor> output_group = g_out.split(output_sizes);
@@ -769,7 +770,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
   at::Tensor output = dispatch_fp8_grouped_kernel<at::Tensor>(
       G * M, XQ, WQ, x_scale, w_scale, Y, zero_start_index_M);
   // View as proper shape.
-  return output.view({-1, M, N});
+  return output.view({G, M, N});
 }
 
 #else
