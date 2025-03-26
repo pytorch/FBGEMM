@@ -16,6 +16,7 @@ from .bench_config import (  # noqa F401
 from .bench_runs import (  # noqa F401
     bench_warmup,
     benchmark_cpu_requests,
+    benchmark_cpu_requests_mp,
     benchmark_pipelined_requests,
     benchmark_requests,
     benchmark_requests_refer,
