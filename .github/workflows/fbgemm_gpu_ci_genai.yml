@@ -73,7 +73,7 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3", "12.8.0" ]
+        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -108,7 +108,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'release' }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -155,7 +155,7 @@ jobs:
           # { arch: x86, instance: "linux.gcp.a100" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3", "12.8.0" ]
+        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         # Specify exactly ONE CUDA version for artifact publish
         cuda-version-publish: [ "12.4.1" ]
         compiler: [ "gcc", "clang" ]
@@ -202,7 +202,7 @@ jobs:
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'release' }} cuda/${{ matrix.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
