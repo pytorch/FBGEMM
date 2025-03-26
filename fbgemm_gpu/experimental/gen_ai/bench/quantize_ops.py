@@ -1402,10 +1402,7 @@ class F8I4ShuffledGroupedGemm(QuantizeOpBase):
         m_sizes = torch.tensor(m_values).to(dtype=torch.int32, device=x[0].device)
         # Quantize weights.
         # TODO Only rowwise scaling is currently supported. This needs to be fixed.
-        K = x[0].shape[-1]
-        wq, row_scale, group_scale = zip(
-            *[quantize_int4_preshuffle(i, group_size=K) for i in w]
-        )
+        wq, row_scale, group_scale = zip(*[quantize_int4_preshuffle(i) for i in w])
         # Group weights as single tensor.
         wq = torch.stack(wq, dim=0).contiguous()
         row_scale = torch.stack(row_scale, dim=0).contiguous()
