@@ -422,8 +422,11 @@ RowwiseKernel rowwise_nk_lookup(int M, const NKLookupTableType& table) {
 RowwiseKernel rowwise_heuristic_dispatch(int M, int N, int K) {
   // Apply shape heuristics to find a suitable kernel implementation.
 
-  //Fallback of irregular data types
-  if(!((N % 8 == 0) && (K % 16 == 0)))
+  //Fallback for irregular data types: some instances require K to be a multiple
+  //of K Tile.
+  //To-Do: Need a systemic solution for various restrictions from different
+  //instances.
+  if(!((N % 8 == 0) && (K % 256 == 0)))
       return fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1;
 
   if (M < 64 && N < 2048 && K < 2048) {
