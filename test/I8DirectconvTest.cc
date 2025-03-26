@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <c10/util/irange.h>
 #include "bench/AlignedVec.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
@@ -95,10 +96,10 @@ void transposeConvWeights_KwIchO8I4(
       std::multiplies<int>());
   // Transforms weights from  G K/G (T R S C/G) to G (T R S C/G) K/G format.
   // the transposed weight layout: W[oc/8][h][w][ic/4][8][4]
-  for (int g = 0; g < G; ++g) {
-    for (int k = 0; k < OC_per_G; ++k) {
-      for (int f = 0; f < filter_prod; ++f) {
-        for (int c = 0; c < IC_per_G; ++c) {
+  for (const auto g : c10::irange(G)) {
+    for (const auto k : c10::irange(OC_per_G)) {
+      for (const auto f : c10::irange(filter_prod)) {
+        for (const auto c : c10::irange(IC_per_G)) {
           int ocB = k / 8;
           int ocb = k % 8;
           int icB = c / 4;
@@ -129,16 +130,16 @@ void directConvRowSum(
   int stride = conv_p.stride[1];
 
   memset(rowSum, 0, sizeof(int32_t) * OUT0 * OUT1);
-  for (int ih = 0; ih < IN0; ++ih)
-    for (int iw = 0; iw < IN1; ++iw) {
+  for (const auto ih : c10::irange(IN0))
+    for (const auto iw : c10::irange(IN1)) {
       inSum[ih * IN1 + iw] = reduceAvx2(A + ih * IN1 * IC + iw * IC, IC);
   }
 
 
-  for (int ih = 0; ih < IN0; ++ih)
-    for (int iw = 0; iw < IN1; iw++) {
-      for (int r = 0; r < K0; ++r) {
-        for (int s = 0; s < K1; ++s) {
+  for (const auto ih : c10::irange(IN0))
+    for (const auto iw : c10::irange(IN1)) {
+      for (const auto r : c10::irange(K0)) {
+        for (const auto s : c10::irange(K1)) {
           rowSum[(ih + r) * OUT1 + iw * stride + s] += inSum[ih * IN1 + iw];
         }
       }
@@ -174,12 +175,12 @@ void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
 
   std::memset(col_offsets, 0, MDim * NDim);
   vector<int> count(MDim * NDim, 0);
-  for (int oc = 0; oc < OC; oc++) {
-    for (int ih = 0; ih < IN_DIM[0]; ih++) {
-      for (int iw = 0; iw < IN_DIM[1]; iw++) {
-        for (int kh = 0; kh < K[0]; kh++) {
-          for (int kw = 0; kw < K[1]; kw++) {
-            for (int ic = 0; ic < IC; ic++) {
+  for (const auto oc : c10::irange(OC)) {
+    for (const auto ih : c10::irange(IN_DIM[0])) {
+      for (const auto iw : c10::irange(IN_DIM[1])) {
+        for (const auto kh : c10::irange(K[0])) {
+          for (const auto kw : c10::irange(K[1])) {
+            for (const auto ic : c10::irange(IC)) {
               int oh = ih * stride[0] + kh;
               int ow = iw * stride[1] + kw;
               col_offsets[(oh * OUT_DIM[1] + ow) * OC + oc] += Bint8
@@ -196,9 +197,9 @@ void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
     }
   }
 
-  for (int oc = 0; oc < OC; oc++) {
-    for (int oh = 0; oh < OUT_DIM[0]; oh++) {
-      for (int ow = 0; ow < OUT_DIM[1]; ow++) {
+  for (const auto oc : c10::irange(OC)) {
+    for (const auto oh : c10::irange(OUT_DIM[0])) {
+      for (const auto ow : c10::irange(OUT_DIM[1])) {
         col_offsets[(oh * OUT_DIM[1] + ow) * OC + oc] -=
             B_zero_point[oc / ncols_per_quant_group] *
             count[(oh * OUT_DIM[1] + ow) * OC + oc];
@@ -252,7 +253,7 @@ void QuantizeDirectConv_ref(
 
   // computing column offset
   vector<int32_t> col_offsets(conv_p.OC);
-  for (int g = 0; g < conv_p.G; ++g) {
+  for (const auto g : c10::irange(conv_p.G)) {
     col_offsets_with_zero_pt_s8acc32_ref(
         KDimPerGroup,
         OC_per_G,
@@ -263,7 +264,7 @@ void QuantizeDirectConv_ref(
         conv_p.OC);
   }
 
-  for (int g = 0; g < conv_p.G; ++g) {
+  for (const auto g : c10::irange(conv_p.G)) {
     row_offsets_u8acc32_ref(
         MDim,
         KDimPerGroup,
@@ -399,7 +400,7 @@ TEST_P(FBGemmDirectConvTest, Test2D) {
   // computing column offset
   vector<int32_t> col_offsets(conv_p.OC);
   transposeConvWeights<2>(conv_p, bBuf.data(), Bint8_tr.data());
-  for (int g = 0; g < conv_p.G; ++g) {
+  for (const auto g : c10::irange(conv_p.G)) {
     col_offsets_with_zero_pt_s8acc32_ref(
         KDimPerGroup,
         OC_per_G,
@@ -413,7 +414,7 @@ TEST_P(FBGemmDirectConvTest, Test2D) {
   vector<int32_t> row_offsets(MDim);
   vector<uint8_t> Aint8_im2col(MDim * KDim);
   im2col_ref(conv_p, aBuf.data(), Aint8_zero_point, Aint8_im2col.data());
-  for (int g = 0; g < conv_p.G; ++g) {
+  for (const auto g : c10::irange(conv_p.G)) {
     row_offsets_u8acc32_ref(
         MDim,
         KDimPerGroup,
@@ -438,10 +439,10 @@ TEST_P(FBGemmDirectConvTest, Test2D) {
   }
 
     // correctness check
-    for (int n = 0; n < conv_p.MB; ++n) {
-      for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
-        for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
-          for (int k = 0; k < conv_p.OC; ++k) {
+    for (const auto n : c10::irange(conv_p.MB)) {
+      for (const auto h : c10::irange(conv_p.OUT_DIM[0])) {
+        for (const auto w : c10::irange(conv_p.OUT_DIM[1])) {
+          for (const auto k : c10::irange(conv_p.OC)) {
             int H_OUT = conv_p.OUT_DIM[0];
             int W_OUT = conv_p.OUT_DIM[1];
             int OC = conv_p.OC;
@@ -548,7 +549,7 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
 
     // computing column offset
     vector<int32_t> col_offsets(conv_p.OC);
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       col_offsets_with_zero_pt_s8acc32_ref(
           KDimPerGroup,
           OC_per_G,
@@ -559,7 +560,7 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
           conv_p.OC);
     }
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       row_offsets_u8acc32_ref(
           MDim,
           KDimPerGroup,
@@ -585,7 +586,7 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
 
     // computing column offset
     vector<int32_t> col_offsetsT(conv_p.OC * MDim);
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
           conv_p,
           Bint8_tr_vec.data() + g * KDimPerGroup * OC_per_G,
@@ -633,10 +634,10 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
    */
 
     // correctness check
-    for (int n = 0; n < conv_p.MB; ++n) {
-      for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
-        for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
-          for (int k = 0; k < conv_p.OC; ++k) {
+    for (const auto n : c10::irange(conv_p.MB)) {
+      for (const auto h : c10::irange(conv_p.OUT_DIM[0])) {
+        for (const auto w : c10::irange(conv_p.OUT_DIM[1])) {
+          for (const auto k : c10::irange(conv_p.OC)) {
             int H_OUT = conv_p.OUT_DIM[0];
             int W_OUT = conv_p.OUT_DIM[1];
             int OC = conv_p.OC;
@@ -741,7 +742,7 @@ TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
 
     // computing column offset
     vector<int32_t> col_offsets(conv_p.OC);
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       col_offsets_with_zero_pt_s8acc32_ref(
           KDimPerGroup,
           OC_per_G,
@@ -752,7 +753,7 @@ TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
           conv_p.OC);
     }
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       row_offsets_u8acc32_ref(
           MDim,
           KDimPerGroup,
@@ -821,10 +822,10 @@ TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
    */
 
     // correctness check
-    for (int n = 0; n < conv_p.MB; ++n) {
-      for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
-        for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
-          for (int k = 0; k < conv_p.OC; ++k) {
+    for (const auto n : c10::irange(conv_p.MB)) {
+      for (const auto h : c10::irange(conv_p.OUT_DIM[0])) {
+        for (const auto w : c10::irange(conv_p.OUT_DIM[1])) {
+          for (const auto k : c10::irange(conv_p.OC)) {
             int H_OUT = conv_p.OUT_DIM[0];
             int W_OUT = conv_p.OUT_DIM[1];
             int OC = conv_p.OC;

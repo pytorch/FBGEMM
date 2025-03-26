@@ -19,6 +19,7 @@
 #include <omp.h>
 #endif
 
+#include <c10/util/irange.h>
 #include "./TestUtils.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmI8Spmdm.h"
@@ -74,8 +75,8 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
     vector<int32_t> C(M * N);
     vector<int32_t> C_ref(C.size());
 
-    for (int i = 0; i < M; ++i) {
-      for (int j = 0; j < N; ++j) {
+    for (const auto i : c10::irange(M)) {
+      for (const auto j : c10::irange(N)) {
         C_ref[i * N + j] = i + j;
       }
     }
@@ -90,7 +91,7 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
     vector<int> row_indices(K_adjusted);
 
     int total_nnz = 0;
-    for (int j = 0; j < N_adjusted; ++j) {
+    for (const auto j : c10::irange(N_adjusted)) {
       B_csc.ColPtr()[j] = total_nnz;
 
       int nnz_of_j = per_col_nnz_dist(eng);
@@ -100,7 +101,7 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
       shuffle(row_indices.begin(), row_indices.end(), eng);
       sort(row_indices.begin(), row_indices.begin() + nnz_of_j);
 
-      for (int k = 0; k < nnz_of_j; ++k) {
+      for (const auto k : c10::irange(nnz_of_j)) {
         B_csc.RowIdx().push_back(row_indices[k]);
         B_csc.Values().push_back(value_dist(eng));
       }
@@ -116,8 +117,8 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
         C_ref.data() + (test_ld ? N_adjusted : 0),
         N);
 
-    for (int i = 0; i < M; ++i) {
-      for (int j = 0; j < N; ++j) {
+    for (const auto i : c10::irange(M)) {
+      for (const auto j : c10::irange(N)) {
         if (accumulation) {
           C[i * N + j] = i + j;
         } else {

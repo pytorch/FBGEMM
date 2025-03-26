@@ -15,6 +15,7 @@
 #include <omp.h>
 #endif
 
+#include <c10/util/irange.h>
 #include <gtest/gtest.h>
 
 #include "./TestUtils.h"
@@ -118,7 +119,7 @@ static void Im2colTest(bool b_symmetric) {
 
       // computing column offset
       vector<int32_t> col_offsets(conv_p.G * NDim);
-      for (int g = 0; g < conv_p.G; ++g) {
+      for (const auto g : c10::irange(conv_p.G)) {
         col_offsets_with_zero_pt_s8acc32_ref(
             KDimPerGroup,
             NDim,
@@ -136,7 +137,7 @@ static void Im2colTest(bool b_symmetric) {
           Bint8.data(),
           Cint32_ref.data());
 
-      for (int g = 0; g < conv_p.G; ++g) {
+      for (const auto g : c10::irange(conv_p.G)) {
         row_offsets_u8acc32_ref(
             MDim,
             KDimPerGroup,
@@ -212,10 +213,10 @@ static void Im2colTest(bool b_symmetric) {
       } // omp parallel
 
       // correctness check
-      for (int n = 0; n < conv_p.MB; ++n) {
-        for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
-          for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
-            for (int k = 0; k < conv_p.OC; ++k) {
+      for (const auto n : c10::irange(conv_p.MB)) {
+        for (const auto h : c10::irange(conv_p.OUT_DIM[0])) {
+          for (const auto w : c10::irange(conv_p.OUT_DIM[1])) {
+            for (const auto k : c10::irange(conv_p.OC)) {
               int32_t expected = Cint8_ref
                   [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
                        conv_p.OC +
@@ -309,7 +310,7 @@ void SConvTest() {
 
       // computing column offset
       vector<int32_t> col_offsets(conv_p.G * NDim);
-      for (int g = 0; g < conv_p.G; ++g) {
+      for (const auto g : c10::irange(conv_p.G)) {
         col_offsets_with_zero_pt_s8acc32_ref(
             KDimPerGroup,
             NDim,
@@ -327,7 +328,7 @@ void SConvTest() {
           Bint8.data(),
           Cint32_ref.data());
 
-      for (int g = 0; g < conv_p.G; ++g) {
+      for (const auto g : c10::irange(conv_p.G)) {
         row_offsets_u8acc32_ref(
             MDim,
             KDimPerGroup,
@@ -361,8 +362,8 @@ void SConvTest() {
       vector<int> row_indices(KDimPerGroup);
       int total_nnz = 0;
       int ic_per_group = conv_p.IC / conv_p.G;
-      for (int g = 0; g < conv_p.G; ++g) {
-        for (int j = 0; j < NDim; ++j) {
+      for (const auto g : c10::irange(conv_p.G)) {
+        for (const auto j : c10::irange(NDim)) {
           B_csc.ColPtr()[g * NDim + j] = total_nnz;
 
           int nnz_of_j = per_col_nnz_dist(eng);
@@ -372,7 +373,7 @@ void SConvTest() {
           shuffle(row_indices.begin(), row_indices.end(), eng);
           sort(row_indices.begin(), row_indices.begin() + nnz_of_j);
 
-          for (int kidx = 0; kidx < nnz_of_j; ++kidx) {
+          for (const auto kidx : c10::irange(nnz_of_j)) {
             int rowidx = row_indices[kidx];
             int ic = g * ic_per_group + rowidx % ic_per_group;
             int kw = rowidx / ic_per_group % conv_p.K[1];
@@ -447,10 +448,10 @@ void SConvTest() {
       } // omp parallel
 
       // correctness check
-      for (int n = 0; n < conv_p.MB; ++n) {
-        for (int h = 0; h < conv_p.OUT_DIM[0]; ++h) {
-          for (int w = 0; w < conv_p.OUT_DIM[1]; ++w) {
-            for (int k = 0; k < conv_p.OC; ++k) {
+      for (const auto n : c10::irange(conv_p.MB)) {
+        for (const auto h : c10::irange(conv_p.OUT_DIM[0])) {
+          for (const auto w : c10::irange(conv_p.OUT_DIM[1])) {
+            for (const auto k : c10::irange(conv_p.OC)) {
               int32_t expected = Cint8_ref
                   [((n * conv_p.OUT_DIM[0] + h) * conv_p.OUT_DIM[1] + w) *
                        conv_p.OC +
@@ -620,7 +621,7 @@ static void Im2col3DTest(bool b_symmetric) {
 
       // computing column offset
       vector<int32_t> col_offsets(conv_p.G * NDim);
-      for (int g = 0; g < conv_p.G; ++g) {
+      for (const auto g : c10::irange(conv_p.G)) {
         col_offsets_with_zero_pt_s8acc32_ref(
             KDimPerGroup,
             NDim,
@@ -638,7 +639,7 @@ static void Im2col3DTest(bool b_symmetric) {
           Bint8.data(),
           Cint32_ref.data());
 
-      for (int g = 0; g < conv_p.G; ++g) {
+      for (const auto g : c10::irange(conv_p.G)) {
         row_offsets_u8acc32_ref(
             MDim,
             KDimPerGroup,
@@ -714,11 +715,11 @@ static void Im2col3DTest(bool b_symmetric) {
       } // omp parallel
 
       // correctness check
-      for (int n = 0; n < conv_p.MB; ++n) {
-        for (int t = 0; t < conv_p.OUT_DIM[0]; ++t) {
-          for (int h = 0; h < conv_p.OUT_DIM[1]; ++h) {
-            for (int w = 0; w < conv_p.OUT_DIM[2]; ++w) {
-              for (int k = 0; k < conv_p.OC; ++k) {
+      for (const auto n : c10::irange(conv_p.MB)) {
+        for (const auto t : c10::irange(conv_p.OUT_DIM[0])) {
+          for (const auto h : c10::irange(conv_p.OUT_DIM[1])) {
+            for (const auto w : c10::irange(conv_p.OUT_DIM[2])) {
+              for (const auto k : c10::irange(conv_p.OC)) {
                 int32_t expected = Cint8_ref
                     [(((n * conv_p.OUT_DIM[0] + t) * conv_p.OUT_DIM[1] + h) *
                           conv_p.OUT_DIM[2] +

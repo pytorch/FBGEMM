@@ -17,6 +17,7 @@
 #include <omp.h>
 #endif
 
+#include <c10/util/irange.h>
 #include <gtest/gtest.h>
 
 #include "./QuantizationHelpers.h"
@@ -143,7 +144,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
         int32_t Aint8_zero_point = 43;
 
         randFill<int8_t>(Bint8_ref, -128, 127);
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           avoidOverflow(
               m,
               n,
@@ -166,7 +167,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
 
         if (btrans == matrix_op_t::Transpose) {
           aligned_vector<int8_t> Bint8_temp(Bint8.size());
-          for (int g = 0; g < groups; ++g) {
+          for (const auto g : c10::irange(groups)) {
             transpose_matrix(
                 k_per_group,
                 n,
@@ -199,7 +200,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
 
         // computing column offset
         vector<int32_t> col_offsets(groups * n_adjusted);
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           col_offsets_with_zero_pt_s8acc32_ref(
               k_per_group,
               n_adjusted,
@@ -216,7 +217,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
         randFill(C_multiplier, 0.001234f / 2, 0.001234f * 3 / 2);
         int32_t C_zero_pt = 5;
 
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           matmul_u8i8acc32_ref(
               m,
               n_adjusted,
@@ -409,12 +410,12 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
       randFill<uint8_t>(Aint8, 0, 255);
       int32_t Aint8_zero_point = 43;
       float Aint8_scale = 0.11;
-      for (size_t i = 0; i < Afp32.size(); ++i) {
+      for (const auto i : c10::irange(Afp32.size())) {
         Afp32[i] = Aint8_scale * (Aint8[i] - Aint8_zero_point);
       }
 
       randFill<int8_t>(Bint8, -128, 127);
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         avoidOverflow(
             m,
             n,
@@ -445,9 +446,9 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
       randFill(Bint8_zero_point, -50, -10);
       aligned_vector<float> Bint8_scale(Bint8_zero_point.size());
       randFill(Bint8_scale, 0.49f / 2, 0.49f * 3 / 2);
-      for (int i = 0; i < k; ++i) {
+      for (const auto i : c10::irange(k)) {
         int g = i / k_per_group;
-        for (int j = 0; j < n_adjusted; ++j) {
+        for (const auto j : c10::irange(n_adjusted)) {
           int quant_group = (g * n_adjusted + j) / ncols_per_quant_group;
           Bfp32[i * n + j] = Bint8_scale[quant_group] *
               (Bint8[i * n + j] - Bint8_zero_point[quant_group]);
@@ -456,7 +457,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
 
       // computing column offset
       vector<int32_t> col_offsets(groups * n_adjusted);
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         col_offsets_with_zero_pt_s8acc32_ref(
             k_per_group,
             n_adjusted,
@@ -469,7 +470,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
 
       if (btrans == matrix_op_t::Transpose) {
         aligned_vector<int8_t> Bint8_temp(Bint8.size());
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           transpose_matrix(
               k_per_group,
               n,
@@ -481,7 +482,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
         Bint8 = Bint8_temp;
       }
 
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         cblas_sgemm_ref(
             matrix_op_t::NoTranspose,
             matrix_op_t::NoTranspose,
@@ -611,8 +612,8 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
       }
 
       float maximum = 0;
-      for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < groups * n_adjusted; ++j) {
+      for (const auto i : c10::irange(m)) {
+        for (const auto j : c10::irange(groups * n_adjusted)) {
           float c = Cfp32_ref[i * groups * n + j];
           maximum = std::max(maximum, std::abs(c));
         }
@@ -660,7 +661,7 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
 
       // initialize B matrix
       randFill<int8_t>(Bint8, -128, 127);
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         avoidOverflow(
             m,
             n,
@@ -690,7 +691,7 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
 
       if (btrans == matrix_op_t::Transpose) {
         aligned_vector<int8_t> Bint8_temp(Bint8.size());
-        for (int g = 0; g < groups; ++g) {
+        for (const auto g : c10::irange(groups)) {
           transpose_matrix(
               k_per_group,
               n,
@@ -702,7 +703,7 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
         Bint8 = Bint8_temp;
       }
 
-      for (int g = 0; g < groups; ++g) {
+      for (const auto g : c10::irange(groups)) {
         cblas_sgemm_ref(
             matrix_op_t::NoTranspose,
             matrix_op_t::NoTranspose,
@@ -761,8 +762,8 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
       }
 
       // correctness check
-      for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < groups * n_adjusted; ++j) {
+      for (const auto i : c10::irange(m)) {
+        for (const auto j : c10::irange(groups * n_adjusted)) {
           float expected = Cfp32_ref[i * groups * n + j];
           int32_t actual = Cint32_fb[i * groups * n + j];
           EXPECT_EQ(actual, expected)
@@ -836,8 +837,8 @@ TEST_P(fbgemmPackUnpackAcc32Test, TestPackUnpack) {
         packedWeights.unpack(unpack_buf.data(), params_ptr);
 
         // Sanity check
-        for (int i = 0; i < k; i++) {
-          for (int j = 0; j < n_adjusted; j++) {
+        for (const auto i : c10::irange(k)) {
+          for (const auto j : c10::irange(n_adjusted)) {
             EXPECT_EQ(unpack_buf.data()[i * n + j], Bint8.data()[i * n + j])
                 << "Pack/Unpack results differ at index (" << i << ", " << j
                 << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])

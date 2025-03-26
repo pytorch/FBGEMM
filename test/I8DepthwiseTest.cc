@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <c10/util/irange.h>
 #include "bench/AlignedVec.h"
 #include "bench/BenchUtils.h"
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
@@ -195,7 +196,7 @@ TEST_P(FBGemmDepthWiseTest, Test2D) {
     transposeConvWeights(conv_p, B.data(), B_tr.data());
     conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       // Compute row offset
       if (!b_symmetric) {
         row_offsets_u8acc32_ref(
@@ -247,10 +248,10 @@ TEST_P(FBGemmDepthWiseTest, Test2D) {
         1);
 
     // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int h = 0; h < H_OUT; ++h) {
-        for (int w = 0; w < W_OUT; ++w) {
-          for (int k = 0; k < OC; ++k) {
+    for (const auto n : c10::irange(N)) {
+      for (const auto h : c10::irange(H_OUT)) {
+        for (const auto w : c10::irange(W_OUT)) {
+          for (const auto k : c10::irange(OC)) {
             int32_t expected =
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * OC + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * OC + k];
@@ -338,7 +339,7 @@ TEST_P(FBGemmDepthWiseTest, Test3D) {
     transposeConvWeights(conv_p, B.data(), B_tr.data());
     conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       // Compute row offset
       if (!b_symmetric) {
         row_offsets_u8acc32_ref(
@@ -385,11 +386,11 @@ TEST_P(FBGemmDepthWiseTest, Test3D) {
         1);
 
     // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int t = 0; t < T_OUT; ++t) {
-        for (int h = 0; h < H_OUT; ++h) {
-          for (int w = 0; w < W_OUT; ++w) {
-            for (int k = 0; k < OC; ++k) {
+    for (const auto n : c10::irange(N)) {
+      for (const auto t : c10::irange(T_OUT)) {
+        for (const auto h : c10::irange(H_OUT)) {
+          for (const auto w : c10::irange(W_OUT)) {
+            for (const auto k : c10::irange(OC)) {
               int32_t expected = C_uint8_ref
                   [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               int32_t actual =
@@ -451,7 +452,7 @@ TEST_P(
     // Each row of G has a different range to really test per-channel
     // quantization.
     vector<int32_t> B_zero_point(OC);
-    for (auto k = 0; k < OC; ++k) {
+    for (const auto k : c10::irange(OC)) {
       aligned_vector<int8_t> Bk(R * S);
       // limit min, max to int8_t range
       randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
@@ -479,7 +480,7 @@ TEST_P(
     transposeConvWeights(conv_p, B.data(), B_tr.data());
     conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       // Compute row offset
       row_offsets_u8acc32_ref(
           MDim,
@@ -529,10 +530,10 @@ TEST_P(
         1);
 
     // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int h = 0; h < H_OUT; ++h) {
-        for (int w = 0; w < W_OUT; ++w) {
-          for (int k = 0; k < OC; ++k) {
+    for (const auto n : c10::irange(N)) {
+      for (const auto h : c10::irange(H_OUT)) {
+        for (const auto w : c10::irange(W_OUT)) {
+          for (const auto k : c10::irange(OC)) {
             int32_t expected =
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * OC + k];
             int32_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * OC + k];
@@ -596,7 +597,7 @@ TEST_P(
     // Each row of G has a different range to really test per-channel
     // quantization.
     vector<int32_t> B_zero_point(OC);
-    for (auto k = 0; k < OC; ++k) {
+    for (const auto k : c10::irange(OC)) {
       aligned_vector<int8_t> Bk(K_T * K_H * K_W);
       // limit min, max to int8_t range
       randFill<int8_t>(Bk, -16 + k % 112, 16 + k % 112);
@@ -624,7 +625,7 @@ TEST_P(
     transposeConvWeights(conv_p, B.data(), B_tr.data());
     conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       // Compute row offset
       row_offsets_u8acc32_ref(
           MDim,
@@ -669,11 +670,11 @@ TEST_P(
         1);
 
     // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int t = 0; t < T_OUT; ++t) {
-        for (int h = 0; h < H_OUT; ++h) {
-          for (int w = 0; w < W_OUT; ++w) {
-            for (int k = 0; k < OC; ++k) {
+    for (const auto n : c10::irange(N)) {
+      for (const auto t : c10::irange(T_OUT)) {
+        for (const auto h : c10::irange(H_OUT)) {
+          for (const auto w : c10::irange(W_OUT)) {
+            for (const auto k : c10::irange(OC)) {
               int32_t expected = C_uint8_ref
                   [(((n * T_OUT + t) * H_OUT + h) * W_OUT + w) * OC + k];
               int32_t actual =
