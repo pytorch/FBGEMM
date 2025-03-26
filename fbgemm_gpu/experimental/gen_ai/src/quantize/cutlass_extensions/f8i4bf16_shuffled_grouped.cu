@@ -145,10 +145,6 @@ void _f8i4bf16_shuffled_grouped(
   // Group scales should have shape [G, num_scale_groups, 8, N]
   int num_scale_groups = w_scale_group.size(1);
   int group_size = K / num_scale_groups;
-  TORCH_CHECK(
-      num_scale_groups == 1,
-      "Mixed dtype grouped gemm only supports rowwise scaling currently (group_size=K).");
-
   // Define cutlass types.
   using ProblemShape = cutlass::gemm::GroupProblemShape<
       cute::Shape<int, int, int>>; // <M,N,K> per group.
