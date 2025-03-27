@@ -79,7 +79,7 @@ class FbgemmGpuBuild:
         parser.add_argument(
             "--use_fb_only",
             action="store_true",
-            help="Build FB only operators.",
+            help="Build FB-only operators.",
         )
         parser.add_argument(
             "--cxxprefix",
@@ -93,7 +93,7 @@ class FbgemmGpuBuild:
         print(f"[SETUP.PY] Other arguments: {other_args}")
         return FbgemmGpuBuild(setup_py_args, other_args)
 
-    def nova_flag(self) -> Optional[bool]:
+    def nova_flag(self) -> Optional[int]:
         if "BUILD_FROM_NOVA" in os.environ:
             if str(os.getenv("BUILD_FROM_NOVA")) == "0":
                 return 0

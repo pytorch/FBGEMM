@@ -357,8 +357,17 @@ __configure_fbgemm_gpu_build () {
 
   # Set debugging options
   if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
+    echo "[BUILD] Enabling debug features in the build ..."
     build_args+=(
       --debug
+    )
+  fi
+
+  # Set FB-only options
+  if [ "$BUILD_INCLUDE_FB_ONLY" -eq 1 ]; then
+    echo "[BUILD] Enabling build of FB-only code ..."
+    build_args+=(
+      --use_fb_only
     )
   fi
 
