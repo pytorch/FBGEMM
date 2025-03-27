@@ -35,6 +35,122 @@ using RowwiseGroupedKernel = std::function<OutputType(
     at::Tensor,
     OutputType)>;
 
+
+// Define useful types that are needed for various kernels.
+using KernelArguments =
+    ck::tensor_operation::device::GroupedGemmKernelArgument<2>;
+using ADataType = ck::f8_t;
+using BDataType = ck::f8_t;
+using D0DataType = float;
+using D1DataType = float;
+using DsDataType = ck::Tuple<D0DataType, D1DataType>;
+using EDataType = ck::bhalf_t;
+
+// Define a custom hash function for std::tuple<int, int, int>
+struct IntTupleHash {
+  size_t operator()(const std::tuple<int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    return hash1 ^ hash2;
+  }
+  size_t operator()(const std::tuple<int, int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    auto hash3 = std::hash<int>{}(std::get<2>(t));
+    return hash1 ^ hash2 ^ hash3;
+  }
+  size_t operator()(const std::tuple<int, int, int, int>& t) const {
+    auto hash1 = std::hash<int>{}(std::get<0>(t));
+    auto hash2 = std::hash<int>{}(std::get<1>(t));
+    auto hash3 = std::hash<int>{}(std::get<2>(t));
+    auto hash4 = std::hash<int>{}(std::get<3>(t));
+    return hash1 ^ hash2 ^ hash3 ^ hash4;
+  }
+};
+
+
+// For certain high priority shapes, we directly map to the best kernel rather
+// than use heuristics.
+template <typename InputType, typename OutputType>
+static const std::unordered_map<std::tuple<int, int, int, int>, RowwiseGroupedKernel<InputType, OutputType>, IntTupleHash> rowwise_grouped_lookup_dispatch = {
+{{16,16,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{16,16,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,16,16384,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v1<InputType, OutputType>},
+{{16,16,5120,8192},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,32,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{16,32,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,32,16384,5120},fp8_rowwise_grouped_128x16x96x256_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{16,32,5120,8192},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,64,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{16,64,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{16,64,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{16,64,5120,8192},fp8_rowwise_grouped_256x32x32x512_16x16_1x1_32x8x1_32x8x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,128,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{16,128,5120,1024},fp8_rowwise_grouped_64x16x32x256_16x16_1x2_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{16,128,16384,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{16,128,5120,8192},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,256,2048,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v3<InputType, OutputType>},
+{{16,256,5120,1024},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,256,16384,5120},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
+{{16,256,5120,8192},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,512,2048,5120},fp8_rowwise_grouped_128x32x64x256_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v1<InputType, OutputType>},
+{{16,512,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{16,512,16384,5120},fp8_rowwise_grouped_128x32x64x256_16x16_1x4_16x8x1_16x8x1_1x32x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{16,512,5120,8192},fp8_rowwise_grouped_256x32x32x512_16x16_1x1_32x8x1_32x8x1_1x32x1x8_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
+{{16,1024,2048,5120},fp8_rowwise_grouped_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,1024,5120,1024},fp8_rowwise_grouped_256x64x160x128_16x16_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,1024,16384,5120},fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,1024,5120,8192},fp8_rowwise_grouped_128x64x64x256_32x32_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v3<InputType, OutputType>},
+{{16,2048,2048,5120},fp8_rowwise_grouped_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,2048,5120,1024},fp8_rowwise_grouped_256x128x96x128_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,2048,16384,5120},fp8_rowwise_grouped_256x128x224x128_16x16_4x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,2048,5120,8192},fp8_rowwise_grouped_256x128x96x128_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,2048,5120},fp8_rowwise_grouped_256x128x256x128_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,5120,1024},fp8_rowwise_grouped_256x128x96x128_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,16384,5120},fp8_rowwise_grouped_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,5120,8192},fp8_rowwise_grouped_256x256x160x128_32x32_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,2048,5120},fp8_rowwise_grouped_256x256x256x128_32x32_8x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,5120,1024},fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,16384,5120},fp8_rowwise_grouped_256x256x256x128_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,5120,8192},fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{128,128,2048,5120},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,128,5120,1024},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,128,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_interwave_v1<InputType, OutputType>},
+{{128,128,5120,8192},fp8_rowwise_grouped_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x16x1x4_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,256,2048,5120},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
+{{128,256,5120,1024},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{128,256,16384,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{128,256,5120,8192},fp8_rowwise_grouped_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,512,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{128,512,5120,1024},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,512,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_interwave_v1<InputType, OutputType>},
+{{128,512,5120,8192},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,1024,2048,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{128,1024,5120,1024},fp8_rowwise_grouped_256x192x96x128_16x16_6x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{128,1024,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{128,1024,5120,8192},fp8_rowwise_grouped_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,2048,2048,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,2048,5120,1024},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
+{{128,2048,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_interwave_v1<InputType, OutputType>},
+{{128,2048,5120,8192},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{128,4096,2048,5120},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,4096,5120,1024},fp8_rowwise_grouped_256x32x128x128_16x16_1x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{128,4096,16384,5120},fp8_rowwise_grouped_256x32x256x128_16x16_1x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{128,4096,5120,8192},fp8_rowwise_grouped_256x32x64x512_16x16_2x1_32x8x1_32x8x1_1x32x1x8_8x8x1_2x1_intrawave_v2<InputType, OutputType>},
+{{128,8192,2048,5120},fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{128,8192,5120,1024},fp8_rowwise_grouped_256x64x192x128_16x16_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{128,8192,16384,5120},fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{128,8192,5120,8192},fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+};
+
+// Helper function to return the next largest power of 2
+static constexpr int nextPow2(unsigned int num)
+{
+  if (num <= 1)
+    return 1;
+  return 1 << (CHAR_BIT * sizeof(num) - __builtin_clz(num - 1));
+}
+
 // Define useful types that are needed for various kernels.
 using KernelArguments =
     ck::tensor_operation::device::GroupedGemmKernelArgument<2>;
@@ -47,70 +163,18 @@ using EDataType = ck::bhalf_t;
 
 template <typename InputType, typename OutputType>
 RowwiseGroupedKernel<InputType, OutputType>
-rowwise_grouped_heuristic_dispatch(int M, int N, int K) {
-  // We use shape heuristics to find the best kernel.
-  // To do this, we divide by the size of M and find the best
-  // option within that grouping.
-  if (M <= 16) {
-    if (N < 8192 && K <= 8192) {
-      return fp8_rowwise_grouped_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1<
-          InputType,
-          OutputType>;
-    }
-    if (K <= 8192) {
-      return fp8_rowwise_grouped_128x16x64x128_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2<
-          InputType,
-          OutputType>;
-    }
-    return fp8_rowwise_grouped_128x16x32x256_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_interwave_v2<
-        InputType,
-        OutputType>;
+rowwise_grouped_heuristic_dispatch(int G, int total_M, int N, int K) {
+
+// First check if this shape is available in the direct lookup.
+  int padded_m = nextPow2(total_M);
+  padded_m = padded_m < G ? G : padded_m;
+  padded_m = padded_m > 8192 ? 8192 : padded_m;
+  auto it = rowwise_grouped_lookup_dispatch<InputType, OutputType>.find({G, padded_m, N, K});
+  // If we found an optimal kernel, use it.
+  if (it != rowwise_grouped_lookup_dispatch<InputType, OutputType>.end()) {
+    return it->second;
   }
-  if (M <= 32) {
-    if (N < 8192 && K <= 8192) {
-      return fp8_rowwise_grouped_128x32x64x128_32x32_1x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2<
-          InputType,
-          OutputType>;
-    }
-    if (K <= 8192) {
-      return fp8_rowwise_grouped_128x32x128x128_32x32_1x2_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_v2<
-          InputType,
-          OutputType>;
-    }
-    return fp8_rowwise_grouped_128x32x128x128_32x32_1x2_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v2<
-        InputType,
-        OutputType>;
-  }
-  if (M <= 64) {
-    return fp8_rowwise_grouped_256x64x64x128_32x32_1x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<
-        InputType,
-        OutputType>;
-  }
-  if (M <= 128) {
-    if (N < 8192 && K <= 8192) {
-      return fp8_rowwise_grouped_256x128x64x128_32x32_2x1_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<
-          InputType,
-          OutputType>;
-    }
-    return fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<
-        InputType,
-        OutputType>;
-  }
-  if (M <= 256) {
-    return fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<
-        InputType,
-        OutputType>;
-  }
-  if (M <= 512) {
-    if (K <= 8192) {
-      return fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1<
-          InputType,
-          OutputType>;
-    }
-    return fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<
-        InputType,
-        OutputType>;
-  }
+
   // Default kernel for all other shapes.
   return fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1<
       InputType,
@@ -512,7 +576,7 @@ OutputType _f8f8bf16_rowwise_grouped(
   }
   RowwiseGroupedKernel<at::TensorList, at::Tensor> selected_kernel =
       rowwise_grouped_heuristic_dispatch<at::TensorList, at::Tensor>(
-          MaxM, MaxN, MaxK);
+          group_count, MaxM, MaxN, MaxK);
   at::Tensor g_out = selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
   // Get output in appropriate format.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
@@ -601,7 +665,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
 
   RowwiseGroupedKernel<at::Tensor, at::Tensor> selected_kernel =
       rowwise_grouped_heuristic_dispatch<at::Tensor, at::Tensor>(
-          total_M / group_count, N, K);
+          group_count, total_M, N, K);
   return selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
 }
 
@@ -667,7 +731,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
       zeroing_output_tensor);
 
   RowwiseGroupedKernel<at::Tensor, at::Tensor> selected_kernel =
-      rowwise_grouped_heuristic_dispatch<at::Tensor, at::Tensor>(M, N, K);
+      rowwise_grouped_heuristic_dispatch<at::Tensor, at::Tensor>(group_count, M, N, K);
   return selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
 }
 
