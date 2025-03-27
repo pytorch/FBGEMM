@@ -49,6 +49,7 @@ jobs:
       BUILD_ENV: build_binary
       BUILD_VARIANT: genai
       BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
+      BUILD_INCLUDE_FB_ONLY: 1
     continue-on-error: true
     strategy:
       fail-fast: false

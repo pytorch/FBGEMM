@@ -6,9 +6,15 @@ from typing import Optional
 
 import torch
 
-torch.ops.load_library(
-    "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:trt_llm_ops_gpu"
-)
+try:
+    # In OSS, load the TARGET directly
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:trt_llm_ops_gpu"
+    )
+except Exception:
+    # In OSS, import the shared libraries
+    # pyre-ignore [21]
+    import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 
 def fused_one_shot_allreduce_residual_rms_norm_init(

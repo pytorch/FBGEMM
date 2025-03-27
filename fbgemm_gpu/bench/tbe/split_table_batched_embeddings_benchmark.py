@@ -12,7 +12,7 @@ import logging
 import os
 import tempfile
 from contextlib import nullcontext
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 import click
 import numpy as np
