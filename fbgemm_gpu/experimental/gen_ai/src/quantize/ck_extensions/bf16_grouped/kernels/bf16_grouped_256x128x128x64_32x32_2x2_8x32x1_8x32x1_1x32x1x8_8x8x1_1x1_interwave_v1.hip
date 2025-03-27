@@ -8,12 +8,13 @@
 
 #include "bf16_grouped_common.h"
 
-std::vector<at::Tensor>
+template <typename InputType, typename OutputType>
+OutputType
 bf16_grouped_256x128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1(
-    at::TensorList A,
-    at::TensorList B,
+    InputType A,
+    InputType B,
     at::Tensor kernel_args,
-    std::vector<at::Tensor> Y)
+    OutputType Y)
 {
     // Check if this input needs to be padded.
 #if 0
@@ -83,3 +84,18 @@ bf16_grouped_256x128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave
 }
 
 
+
+template std::vector<at::Tensor>
+bf16_grouped_256x128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1(
+    at::TensorList X,
+    at::TensorList W,
+    at::Tensor kernel_args,
+    std::vector<at::Tensor> Y);
+
+template at::Tensor
+bf16_grouped_256x128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor kernel_args,
+    at::Tensor Y);
+    

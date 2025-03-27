@@ -57,75 +57,76 @@ struct IntTupleHash {
 
 // For certain high priority shapes, we directly map to the best kernel rather
 // than use heuristics.
-static const std::unordered_map<std::tuple<int, int, int, int>, GroupedKernel, IntTupleHash> bf16_grouped_lookup_dispatch = {
-{{16,16,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v2},
-{{16,16,5120,1024},bf16_grouped_64x16x16x128_16x16_1x1_16x4x1_16x4x1_1x16x1x4_4x4x1_1x1_interwave_v2},
-{{16,16,16384,5120},bf16_grouped_64x16x32x128_16x16_1x2_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v2},
-{{16,16,5120,8192},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v1},
-{{16,32,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2},
-{{16,32,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2},
-{{16,32,16384,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1},
-{{16,32,5120,8192},bf16_grouped_128x16x96x64_16x16_1x3_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
-{{16,64,2048,5120},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2},
-{{16,64,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2},
-{{16,64,16384,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1},
-{{16,64,5120,8192},bf16_grouped_128x16x96x64_16x16_1x3_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
-{{16,128,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2},
-{{16,128,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2},
-{{16,128,16384,5120},bf16_grouped_64x16x64x128_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v2},
-{{16,128,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
-{{16,256,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2},
-{{16,256,5120,1024},bf16_grouped_128x16x32x128_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2},
-{{16,256,16384,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
-{{16,256,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1},
-{{16,512,2048,5120},bf16_grouped_128x32x64x128_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v2},
-{{16,512,5120,1024},bf16_grouped_256x32x96x64_16x16_1x3_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v2},
-{{16,512,16384,5120},bf16_grouped_128x32x96x128_16x16_2x3_16x8x1_16x8x1_1x32x1x4_8x8x1_2x1_intrawave_v2},
-{{16,512,5120,8192},bf16_grouped_256x32x96x64_16x16_1x3_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v1},
-{{16,1024,2048,5120},bf16_grouped_256x64x128x128_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3},
-{{16,1024,5120,1024},bf16_grouped_256x64x96x64_16x16_2x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,1024,16384,5120},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3},
-{{16,1024,5120,8192},bf16_grouped_128x64x96x64_16x16_4x3_8x16x1_8x16x1_1x32x1x4_8x8x1_2x1_intrawave_v3},
-{{16,2048,2048,5120},bf16_grouped_256x128x128x128_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
-{{16,2048,5120,1024},bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,2048,16384,5120},bf16_grouped_256x128x224x64_16x16_4x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,2048,5120,8192},bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,4096,2048,5120},bf16_grouped_256x128x256x64_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3},
-{{16,4096,5120,1024},bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,4096,16384,5120},bf16_grouped_256x256x224x64_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,4096,5120,8192},bf16_grouped_256x256x160x64_16x16_8x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,8192,2048,5120},bf16_grouped_256x256x256x64_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
-{{16,8192,5120,1024},bf16_grouped_256x256x192x64_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
-{{16,8192,16384,5120},bf16_grouped_256x256x224x64_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3},
-{{16,8192,5120,8192},bf16_grouped_256x256x192x64_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3},
-{{128,128,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2},
-{{128,128,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2},
-{{128,128,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2},
-{{128,128,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2},
-{{128,256,2048,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
-{{128,256,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2},
-{{128,256,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v1},
-{{128,256,5120,8192},bf16_grouped_64x16x48x128_16x16_1x3_16x4x1_16x4x1_1x16x1x4_4x4x1_1x1_intrawave_v1},
-{{128,512,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v2},
-{{128,512,5120,1024},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2},
-{{128,512,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2},
-{{128,512,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2},
-{{128,1024,2048,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
-{{128,1024,5120,1024},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v2},
-{{128,1024,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2},
-{{128,1024,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2},
-{{128,2048,2048,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v2},
-{{128,2048,5120,1024},bf16_grouped_128x16x32x128_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2},
-{{128,2048,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2},
-{{128,2048,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1},
-{{128,4096,2048,5120},bf16_grouped_128x32x64x128_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v1},
-{{128,4096,5120,1024},bf16_grouped_128x32x64x128_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v2},
-{{128,4096,16384,5120},bf16_grouped_256x32x128x128_16x16_1x4_16x16x1_16x16x1_1x32x1x8_8x8x1_1x2_intrawave_v2},
-{{128,4096,5120,8192},bf16_grouped_256x32x224x64_16x16_1x7_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v1},
-{{128,8192,2048,5120},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3},
-{{128,8192,5120,1024},bf16_grouped_128x64x128x64_32x32_2x2_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v3},
-{{128,8192,16384,5120},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3},
-{{128,8192,5120,8192},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3},
+template <typename InputType, typename OutputType>
+static const std::unordered_map<std::tuple<int, int, int, int>, GroupedKernel<InputType, OutputType>, IntTupleHash> bf16_grouped_lookup_dispatch = {
+{{16,16,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{16,16,5120,1024},bf16_grouped_64x16x16x128_16x16_1x1_16x4x1_16x4x1_1x16x1x4_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,16,16384,5120},bf16_grouped_64x16x32x128_16x16_1x2_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{16,16,5120,8192},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v1<InputType, OutputType>},
+{{16,32,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{16,32,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,32,16384,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1<InputType, OutputType>},
+{{16,32,5120,8192},bf16_grouped_128x16x96x64_16x16_1x3_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{16,64,2048,5120},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,64,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,64,16384,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1<InputType, OutputType>},
+{{16,64,5120,8192},bf16_grouped_128x16x96x64_16x16_1x3_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{16,128,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{16,128,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,128,16384,5120},bf16_grouped_64x16x64x128_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{16,128,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{16,256,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{16,256,5120,1024},bf16_grouped_128x16x32x128_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,256,16384,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{16,256,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v1<InputType, OutputType>},
+{{16,512,2048,5120},bf16_grouped_128x32x64x128_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,512,5120,1024},bf16_grouped_256x32x96x64_16x16_1x3_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{16,512,16384,5120},bf16_grouped_128x32x96x128_16x16_2x3_16x8x1_16x8x1_1x32x1x4_8x8x1_2x1_intrawave_v2<InputType, OutputType>},
+{{16,512,5120,8192},bf16_grouped_256x32x96x64_16x16_1x3_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v1<InputType, OutputType>},
+{{16,1024,2048,5120},bf16_grouped_256x64x128x128_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,1024,5120,1024},bf16_grouped_256x64x96x64_16x16_2x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,1024,16384,5120},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,1024,5120,8192},bf16_grouped_128x64x96x64_16x16_4x3_8x16x1_8x16x1_1x32x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,2048,2048,5120},bf16_grouped_256x128x128x128_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,2048,5120,1024},bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,2048,16384,5120},bf16_grouped_256x128x224x64_16x16_4x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,2048,5120,8192},bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,2048,5120},bf16_grouped_256x128x256x64_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,5120,1024},bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,16384,5120},bf16_grouped_256x256x224x64_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,4096,5120,8192},bf16_grouped_256x256x160x64_16x16_8x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,2048,5120},bf16_grouped_256x256x256x64_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,5120,1024},bf16_grouped_256x256x192x64_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,16384,5120},bf16_grouped_256x256x224x64_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{16,8192,5120,8192},bf16_grouped_256x256x192x64_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{128,128,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{128,128,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,128,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,128,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,256,2048,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,256,5120,1024},bf16_grouped_256x16x64x128_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,256,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
+{{128,256,5120,8192},bf16_grouped_64x16x48x128_16x16_1x3_16x4x1_16x4x1_1x16x1x4_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,512,2048,5120},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,512,5120,1024},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
+{{128,512,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,512,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,1024,2048,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
+{{128,1024,5120,1024},bf16_grouped_128x16x64x128_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,1024,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,1024,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,2048,2048,5120},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
+{{128,2048,5120,1024},bf16_grouped_128x16x32x128_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,2048,16384,5120},bf16_grouped_256x16x128x128_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,2048,5120,8192},bf16_grouped_128x16x96x128_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,4096,2048,5120},bf16_grouped_128x32x64x128_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,4096,5120,1024},bf16_grouped_128x32x64x128_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v2<InputType, OutputType>},
+{{128,4096,16384,5120},bf16_grouped_256x32x128x128_16x16_1x4_16x16x1_16x16x1_1x32x1x8_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
+{{128,4096,5120,8192},bf16_grouped_256x32x224x64_16x16_1x7_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
+{{128,8192,2048,5120},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{128,8192,5120,1024},bf16_grouped_128x64x128x64_32x32_2x2_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
+{{128,8192,16384,5120},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
+{{128,8192,5120,8192},bf16_grouped_256x64x192x128_16x16_4x3_16x16x1_16x16x1_1x32x1x8_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
 };
 
 
@@ -137,8 +138,8 @@ static constexpr int nextPow2(unsigned int num)
     return 1;
   return 1 << (CHAR_BIT * sizeof(num) - __builtin_clz(num - 1));
 }
-
-GroupedKernel grouped_heuristic_dispatch(int G, int total_M, int N, int K) {
+template <typename InputType, typename OutputType>
+GroupedKernel<InputType, OutputType> grouped_heuristic_dispatch(int G, int total_M, int N, int K) {
   // We use shape heuristics to find the best kernel.
   // To do this, we divide by the size of M and find the best
   // option within that grouping.
@@ -147,14 +148,14 @@ GroupedKernel grouped_heuristic_dispatch(int G, int total_M, int N, int K) {
   int padded_m = nextPow2(total_M);
   padded_m = padded_m < G ? G : padded_m;
   padded_m = padded_m > 8192 ? 8192 : padded_m;
-  auto it = bf16_grouped_lookup_dispatch.find({G, padded_m, N, K});
+  auto it = bf16_grouped_lookup_dispatch<InputType, OutputType>.find({G, padded_m, N, K});
   // If we found an optimal kernel, use it.
-  if (it != bf16_grouped_lookup_dispatch.end()) {
+  if (it != bf16_grouped_lookup_dispatch<InputType, OutputType>.end()) {
     return it->second;
   }
 
   // Default kernel for all other shapes.
-  return bf16_grouped_256x128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1;
+  return bf16_grouped_256x128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1<InputType, OutputType>;
 }
 
 __global__ void set_kernel_args_kernel(
@@ -275,6 +276,43 @@ __global__ void set_kernel_args_fixed_nk_kernel(
   }
 }
 
+__global__ void set_kernel_args_m_sizes_kernel(
+    KernelArguments* kernel_args,
+    ADataType* A,
+    BDataType* B,
+    CDataType* output,
+    int64_t* M_sizes,
+    int M,
+    int N,
+    int K,
+    int group_count) {
+  int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  // Each thread is responsible for setting up the arguments for one group.
+  if (thread_idx < group_count) {
+    // Get M information for this group.
+    int kernel_M = M_sizes[thread_idx];
+    int offset_M = 0;
+    // Offset is computed by finding the sum of previous group Ms.
+    for (int i = 0; i < thread_idx; i++) {
+      offset_M += M_sizes[i];
+    }
+    KernelArguments kernel_group_args = {
+        A + (offset_M * K),
+        B + (thread_idx * N * K),
+        {},
+        output + (offset_M * N),
+        kernel_M,
+        N,
+        K,
+        K,
+        K,
+        {},
+        N};
+    // Write kernel args to memory.
+    kernel_args[thread_idx] = kernel_group_args;
+  }
+}
+
 void set_dynamic_kernel_args(
     at::Tensor kernel_args,
     at::TensorList A,
@@ -363,6 +401,37 @@ at::Tensor get_grouped_kernel_args(
   return kernel_args;
 }
 
+at::Tensor get_stacked_kernel_args(
+    at::Tensor A,
+    at::Tensor B,
+    at::Tensor Y,
+    at::Tensor M_sizes) {
+  // Get current cuda stream.
+  auto stream = at::cuda::getCurrentHIPStream().stream();
+
+  int group_count = M_sizes.size(0);
+  // Get space on device for the kernel argument tensor.
+  at::Tensor kernel_args = at::empty(
+      {static_cast<long>(group_count * sizeof(KernelArguments))},
+      A.options().dtype(at::kByte));
+
+  int M = A.size(A.dim() - 2);
+  int K = B.size(2);
+  int N = B.size(1);
+
+  set_kernel_args_m_sizes_kernel<<<1, group_count, 0, stream>>>(
+      reinterpret_cast<KernelArguments*>(kernel_args.data_ptr()),
+      reinterpret_cast<ADataType*>(A.data_ptr()),
+      reinterpret_cast<BDataType*>(B.data_ptr()),
+      reinterpret_cast<CDataType*>(Y.data_ptr()),
+      reinterpret_cast<int64_t*>(M_sizes.data_ptr()),
+      M,
+      N,
+      K,
+      group_count);
+  return kernel_args;
+}
+
 std::vector<at::Tensor> bf16bf16bf16_grouped(
     at::TensorList A,
     at::TensorList B,
@@ -423,7 +492,7 @@ std::vector<at::Tensor> bf16bf16bf16_grouped(
     MaxN = max(MaxN, B[i].size(0));
     MaxK = max(MaxK, A[i].size(1));
   }
-  GroupedKernel selected_kernel = grouped_heuristic_dispatch(group_count, MaxM, MaxN, MaxK);
+  auto selected_kernel = grouped_heuristic_dispatch<at::TensorList, std::vector<at::Tensor>>(group_count, MaxM, MaxN, MaxK);
   return selected_kernel(A, B, kernel_args, Y);
 }
 
@@ -498,11 +567,66 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
     MaxN = max(MaxN, B[i].size(0));
     MaxK = max(MaxK, A[i].size(1));
   }
-  GroupedKernel selected_kernel = grouped_heuristic_dispatch(group_count, MaxM, MaxN, MaxK);
+  auto selected_kernel = grouped_heuristic_dispatch<at::TensorList, std::vector<at::Tensor>>(group_count, MaxM, MaxN, MaxK);
   // Run kernel to populate output.
   selected_kernel(A, B, kernel_args, Y);
   // Return coalesced view of output tensor.
   return Y_full;
+}
+
+// Wrapper function for list input single tensor output.
+at::Tensor bf16bf16bf16_grouped_stacked(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> output = std::nullopt) {
+  // Check that input datatypes are valid.
+  // First confirm that there are the same number of groups in all inputs.
+  int group_count = M_sizes.size(0);
+  // X is expected to be shape [total_M, K].
+  int total_M = X.size(0);
+  // W is expected to be shape [G, N, K].
+  int N = W.size(1);
+  int K = X.size(1);
+  TORCH_CHECK(W.size(0) == group_count,
+      "All inputs must have the same number of groups.");
+
+  // Iterate over inputs and check they are valid.
+  TORCH_CHECK(X.is_cuda() && X.is_contiguous());
+  TORCH_CHECK(X.dim() == 2, "Input X must be 2D (total_M,K).");
+  TORCH_CHECK(
+      X.dtype() == at::kBFloat16,
+      "Input XQ must be type bfloat16.");
+
+  TORCH_CHECK(W.is_cuda() && W.is_contiguous());
+  TORCH_CHECK(W.dim() == 3, "Input W must be 3D (G,N,K).");
+  TORCH_CHECK(
+      W.dtype() == at::kBFloat16,
+      "Input W must be type bfloat16");
+  TORCH_CHECK(
+      W.size(1) >= 512 && W.size(2) >= 512,
+      "N and K must be at least 512 for grouped gemm. For smaller inputs, consider unrolling.");
+
+  TORCH_CHECK(
+      X.device() == M_sizes.device(),
+      "M_sizes and inputs must be on the same device.");
+  TORCH_CHECK(M_sizes.dtype() == at::kLong, "M_sizes must be int64.");
+
+  // Allocate an empty output array. We will set its values to zero as part
+  // of kernel setup.
+  at::Tensor Y = at::empty({total_M, N}, X.options().dtype(at::kBFloat16));
+
+  // Early exit for empty input.
+  if (total_M == 0) {
+    return Y;
+  }
+
+  // Prepare kernel arguments by copying them to the proper device location.
+  at::Tensor kernel_args = get_stacked_kernel_args(X, W, Y, M_sizes);
+
+  auto selected_kernel = grouped_heuristic_dispatch<at::Tensor, at::Tensor>(group_count, total_M, N, K);
+
+  return selected_kernel(X, W, kernel_args, Y);
 }
 
 } // namespace fbgemm_gpu
