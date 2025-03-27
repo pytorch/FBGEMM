@@ -1,6 +1,6 @@
+load("@fbcode//ai_codesign/gen_ai/trt_llm/0.15.0:build_utils.bzl", "is_sm90_cuda12040")
 load("@fbcode_macros//build_defs:gpu_python_unittest.bzl", "gpu_python_unittest")
 load("@fbcode_macros//build_defs/lib:re_test_utils.bzl", "re_test_utils")
-load("//ai_codesign/gen_ai/trt_llm/0.15.0:build_utils.bzl", "is_sm90_cuda12040")
 
 oncall("fbgemm_dev")
 
