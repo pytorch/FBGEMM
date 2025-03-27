@@ -875,6 +875,48 @@ class DeepGemmBlockwise(QuantizeOpBase):
 
 
 @register_quantize_op
+class DeepGemmRowwise(QuantizeOpBase):
+    """
+    FP8 matmul with rowwise scaling implemented with DeepGemm.
+    """
+
+    def preprocess(self, x, w):
+        # Quantize weights.
+        wq, w_scale = quantize_fp8_row(w)
+        # allocate output.
+        out = torch.empty(
+            x.shape[0], wq.shape[0], device=x.device, dtype=torch.bfloat16
+        )
+        # Return processed tensors.
+        return x, wq, w_scale, out
+
+    def quantize(self, x, wq, w_scale, out):
+        xq, x_scale = quantize_fp8_row(x)
+        # Pretranspose scales to deepgemm format.
+        x_scale = get_col_major_tma_aligned_tensor(x_scale, rowwise_scaling=True)
+        return xq, wq, x_scale, w_scale, out
+
+    def compute(self, xq, wq, x_scale, w_scale, out):
+        gemm_fp8_fp8_bf16_nt((xq, x_scale), (wq, w_scale), out)
+        return out
+
+    def quantize_and_compute(self, x, wq, w_scale, out):
+        xq, wq, x_scale, w_scale, out = self.quantize(x, wq, w_scale, out)
+        return self.compute(xq, wq, x_scale, w_scale, out)
+
+    @property
+    def name(self) -> str:
+        return "deepgemm_rowwise"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
 class FP8StackedGroupedGemm(QuantizeOpBase):
     """
     FP8 grouped matmul with rowwise scaling and stacked inputs.
