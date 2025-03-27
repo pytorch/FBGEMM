@@ -471,7 +471,6 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         if (counter_halflife > 0) { // decay based on counter_halflife
             // if id occurs multiple times in a batch, iter_delta=1
             const auto iter_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
-            prev_iter[idx] = iter * 1.0;
             const auto counter_log_rho = logf(2.0) / counter_halflife;
             row_counter[idx] = 1.0 + expf(-iter_delta * counter_log_rho) * row_counter[idx];
         } else if (counter_halflife == 0) { // count only 1 (appear or not)
@@ -552,7 +551,16 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
         exp_reg_correction = 1.0;
         if (regularization_mode == 3) { // counter-based regularization (regularization_mode=3)
             if (adjustment_enabled) {
-                if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
+               if (weight_decay_mode == 3) { // AdagradW (weight_decay_mode=3)
+                    if (counter_halflife < 0) {
+                        adjusted_multiplier = multiplier * sqrtf(row_counter[idx] * 1.0);
+                        exp_reg_correction = 1.0 - weight_decay * learning_rate;
+                        const auto lazy_delta = prev_iter[idx] == 0 ? 1.0 : iter * 1.0 - prev_iter[idx];
+                        const auto lazy_multiplier = powf(exp_reg_correction, min(lazy_delta, iter * 1.0 - adjustment_iter) - 1.0);
+                        adjusted_multiplier *= lazy_multiplier;
+                        exp_reg_correction *= lazy_multiplier;
+                    }
+                } else if (weight_decay_mode == 2) { // Decoupled weight decay (weight_decay_mode=2)
                     exp_reg_correction = 1.0 - freq * weight_decay * learning_rate;
                 } else if (weight_decay_mode == 1) { // L2 regularization (coupled wd)
                     exp_reg_correction = 1.0 - freq * weight_decay * multiplier;
@@ -565,6 +573,7 @@ def rowwise_adagrad_with_counter() -> Dict[str, Any]:
                 exp_reg_correction = 1.0 - weight_decay * adjusted_multiplier;
             }
         }
+        prev_iter[idx] = iter * 1.0;
     }
     adjusted_multiplier = SHFL_SYNC(adjusted_multiplier, 0);
     exp_reg_correction = SHFL_SYNC(exp_reg_correction, 0);
