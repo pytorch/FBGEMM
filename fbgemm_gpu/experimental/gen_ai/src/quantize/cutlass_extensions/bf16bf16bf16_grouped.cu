@@ -544,6 +544,14 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
   return output_full;
 }
 
+at::Tensor bf16bf16bf16_grouped_stacked(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor M_sizes,
+    std::optional<at::Tensor> output = std::nullopt) {
+  throw std::runtime_error("Unimplemented");
+}
+
 #else
 
 std::vector<at::Tensor> bf16bf16bf16_grouped(
@@ -558,6 +566,15 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
     at::TensorList /* x_group */, // BF16
     at::TensorList /* w_group */, // BF16
     std::optional<at::Tensor> /* zero_start_index_M */) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+
+at::Tensor bf16bf16bf16_grouped_stacked(
+    at::Tensor,
+    at::Tensor,
+    at::Tensor,
+    std::optional<at::Tensor>) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
