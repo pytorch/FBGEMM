@@ -28,10 +28,12 @@ file(GLOB experimental_gen_ai_cpp_source_files_gpu
 
 # Set the source file for FB only CPP
 if(USE_FB_ONLY)
-  file(GLOB fb_only_ops_sources
-      fb/src/*/*.cu
-      fb/src/*/*.cpp)
-  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_ops_sources})
+  file(GLOB fb_only_cxx_sources
+      fb/src/moe/*.cu
+      fb/src/moe/*.cpp
+      fb/src/trt_llm/*.cu
+      fb/src/trt_llm/*.cpp)
+  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_cxx_sources})
 endif()
 
 # CUDA-specific sources
@@ -82,3 +84,9 @@ add_to_package(
   DESTINATION fbgemm_gpu/experimental/gen_ai
   TARGETS fbgemm_gpu_experimental_gen_ai
   FILES ${experimental_gen_ai_python_source_files})
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/fb/gen_ai)
+  install(
+    DIRECTORY fb/gen_ai
+    DESTINATION fbgemm_gpu/experimental)
+endif()
