@@ -22,6 +22,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     triton_quantize_fp8_row,
 )
 from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
+    grouped_gemm,
     grouped_gemm_fp8_rowwise,
 )
 from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
@@ -719,6 +720,45 @@ class FP8RowwiseGroupedGemm(QuantizeOpBase):
             return "cutlass_rowwise_grouped"
         else:
             return "ck_rowwise_grouped"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class BF16TritonStackedGroupedGemm(QuantizeOpBase):
+    """
+    BF16 grouped matmul with stacked inputs implemented with triton.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        # Convert m_values into offsets into grouped tensor.
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int32, device=x[0].device)
+        w = torch.concat(w, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, w, m_sizes
+
+    def quantize(self, x, w, m_sizes):
+        return x, w, m_sizes
+
+    def compute(self, x, w, m_sizes):
+        return grouped_gemm(x, w, m_sizes)
+
+    def quantize_and_compute(self, x, w, m_sizes):
+        x, w, m_sizes = self.quantize(x, w, m_sizes)
+        return self.compute(x, w, m_sizes)
+
+    @property
+    def name(self) -> str:
+        return "triton_bf16_grouped_stacked"
 
     @property
     def hip(self) -> bool:
@@ -1482,6 +1522,46 @@ class F8I4ShuffledGroupedGemm(QuantizeOpBase):
     @property
     def hip(self) -> bool:
         return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class BF16GroupedStacked(QuantizeOpBase):
+    """
+    BF16 grouped matmul with stacked inputs backed by cutlass or ck.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        # Convert m_values into offsets into grouped tensor.
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        # Group weights as single tensor.
+        w = torch.stack(w, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, w, m_sizes
+
+    def quantize(self, x, w, m_sizes):
+        return x, w, m_sizes
+
+    def compute(self, x, w, m_sizes):
+        return torch.ops.fbgemm.bf16bf16bf16_grouped_stacked(x, w, m_sizes)
+
+    def quantize_and_compute(self, x, w, m_sizes):
+        x, w, m_sizes = self.quantize(x, w, m_sizes)
+        return self.compute(x, w, m_sizes)
+
+    @property
+    def name(self) -> str:
+        return "bf16_grouped_stacked"
+
+    @property
+    def hip(self) -> bool:
+        return True
 
     @property
     def cuda(self) -> bool:

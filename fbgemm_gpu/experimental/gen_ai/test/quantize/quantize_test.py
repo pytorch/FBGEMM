@@ -750,7 +750,7 @@ class FP8Tests(unittest.TestCase):
         use_cudagraph=st.booleans(),
         mode=st.sampled_from(["default", "cat", "padded", "stacked"]),
     )
-    def test_fp8_grouped_gemm(
+    def test_grouped_gemm(
         self,
         G: int,
         M: int,
@@ -812,13 +812,15 @@ class FP8Tests(unittest.TestCase):
 
         # Make inputs contiguous in memory, this simulates the typical MOE use-case.
         if mode == "padded":
-            x_group = torch.unbind(torch.stack(x_group, dim=0).contiguous())
-            w_group = torch.unbind(torch.stack(w_group, dim=0).contiguous())
+            x_group = torch.stack(x_group, dim=0).contiguous()
+            w_group = torch.stack(w_group, dim=0).contiguous()
             xq_group = torch.stack(xq_group, dim=0).contiguous()
             wq_group = torch.stack(wq_group, dim=0).contiguous()
             x_scale_group = torch.stack(x_scale_group, dim=0).contiguous()
             w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
         elif mode == "stacked":
+            x_group = torch.cat(x_group, dim=0).contiguous()
+            w_group = torch.stack(w_group, dim=0).contiguous()
             xq_group = torch.cat(xq_group, dim=0).contiguous()
             wq_group = torch.stack(wq_group, dim=0).contiguous()
             x_scale_group = torch.cat(x_scale_group, dim=0).contiguous()
@@ -827,6 +829,7 @@ class FP8Tests(unittest.TestCase):
         # FP8 grouped gemm kernel
         if mode == "padded":
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
+            bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
             fp8_args = [
                 xq_group,
                 wq_group,
@@ -834,16 +837,22 @@ class FP8Tests(unittest.TestCase):
                 w_scale_group,
                 zero_start_index_M,
             ]
+            bf16_args = [x_group, w_group, zero_start_index_M]
         elif mode == "stacked":
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
             M_sizes = ms.to(device="cuda", dtype=torch.int64)
             fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_sizes]
+            bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked
+            bf16_args = [x_group, w_group, M_sizes]
         else:
             if mode == "cat":
                 fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_cat
+                bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped_cat
             else:
                 fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped
+                bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped
             fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group]
+            bf16_args = [x_group, w_group]
 
         if use_cudagraph:
             # warmup
@@ -863,17 +872,6 @@ class FP8Tests(unittest.TestCase):
             else:
                 y_fp8_group = torch.unbind(y_fp8_group)
 
-        # BF16 grouped gemm kernel
-        bf16_args = (
-            [x_group, w_group, zero_start_index_M]
-            if mode == "padded"
-            else [x_group, w_group]
-        )
-        bf16_op = (
-            torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
-            if mode == "padded"
-            else torch.ops.fbgemm.bf16bf16bf16_grouped
-        )
         if use_cudagraph:
             # warmup
             bf16_op(*bf16_args)
@@ -893,6 +891,9 @@ class FP8Tests(unittest.TestCase):
                 y_bf16_group = torch.unbind(y_bf16_group)
 
         # BF16 loopover gemm reference
+        # unstack input to make it compatible with loopover.
+        if mode == "stacked":
+            x_group = torch.split(x_group, tuple(ms.tolist()), dim=0)
         y_group_ref = []
         for i in range(len(x_group)):
             y = torch.matmul(x_group[i], w_group[i].t())
@@ -907,82 +908,8 @@ class FP8Tests(unittest.TestCase):
         # Assert BF16 outputs
         for i in range(len(y_group_ref)):
             torch.testing.assert_close(
-                y_bf16_group[i], y_group_ref[i], atol=8.0e-2, rtol=8.0e-2
+                y_bf16_group[i], y_group_ref[i], atol=8.0e-3, rtol=8.0e-3
             )
-
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: GMM ops are not yet suported."
-    )
-    @settings(deadline=None)
-    @given(
-        G=st.sampled_from([4, 5]),
-        M=st.sampled_from([2048, 3584]),
-        N=st.sampled_from([1024, 6144]),
-        K=st.sampled_from([512, 3584]),
-        use_cudagraph=st.sampled_from([True, False]),
-        use_padding_zeros=st.sampled_from([True, False]),
-    )
-    def test_bf16_grouped_gemm(
-        self,
-        G: int,
-        M: int,
-        N: int,
-        K: int,
-        use_cudagraph: bool,
-        use_padding_zeros: bool,
-    ) -> None:
-        G = 16
-        M = 64
-        N = 1024
-        K = 5120
-        xs = torch.rand(size=(G, M, K), dtype=torch.bfloat16, device="cuda")
-        ws = torch.rand(size=(G, N, K), dtype=torch.bfloat16, device="cuda")
-
-        x_group = [x.squeeze() for x in xs.split(1, dim=0)]
-        w_group = [w.squeeze() for w in ws.split(1, dim=0)]
-
-        zero_start_index_M = None
-
-        use_padding_zeros = True
-        if use_padding_zeros:
-            zero_start_index_M = torch.randint(
-                1,
-                M,
-                (G,),
-                device="cuda",
-            )
-            for i in range(len(x_group)):
-                x_group[i][zero_start_index_M[i] :, :] = 0
-
-        bf16_op = (
-            torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
-            if use_padding_zeros
-            else torch.ops.fbgemm.bf16bf16bf16_grouped
-        )
-        bf16_args = (
-            (x_group, w_group, zero_start_index_M)
-            if use_padding_zeros
-            else (x_group, w_group)
-        )
-
-        # BF16 grouped gemm kernel
-        if use_cudagraph:
-            # warmup
-            bf16_op(*bf16_args)
-            # With cudagraph
-            g = torch.cuda.CUDAGraph()
-            with torch.cuda.graph(g):
-                y_bf16_group = bf16_op(*bf16_args)
-            g.replay()
-        else:
-            y_bf16_group = bf16_op(*bf16_args)
-
-        # BF16 loopover gemm reference
-        y_group_ref = torch.bmm(xs, ws.transpose(1, 2))
-
-        torch.testing.assert_close(
-            y_group_ref, y_bf16_group.view([G, M, N]), atol=8.0e-2, rtol=8.0e-2
-        )
 
     @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
     @settings(deadline=None)
