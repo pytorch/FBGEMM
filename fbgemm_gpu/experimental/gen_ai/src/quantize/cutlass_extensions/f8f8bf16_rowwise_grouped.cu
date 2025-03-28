@@ -723,8 +723,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_sizes,
-    std::optional<at::Tensor> output = std::nullopt) {
+    at::Tensor M_sizes) {
   int total_M = XQ.size(0);
   int N = WQ.size(1);
   int G = M_sizes.size(0);
@@ -798,8 +797,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_sizes,
-    std::optional<at::Tensor> output = std::nullopt) {
+    at::Tensor M_sizes) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
