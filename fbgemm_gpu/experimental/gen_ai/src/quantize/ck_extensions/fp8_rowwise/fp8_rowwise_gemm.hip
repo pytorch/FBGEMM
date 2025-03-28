@@ -426,24 +426,25 @@ RowwiseKernel rowwise_heuristic_dispatch(int M, int N, int K) {
   //of K Tile.
   //To-Do: Need a systemic solution for various restrictions from different
   //instances.
-  if(!((N % 8 == 0) && (K % 256 == 0)))
-      return fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1;
+  if(!((N % 8 == 0) && (K % 16 == 0))) {
+    return fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1;
+  }
 
   if (M < 64 && N < 2048 && K < 2048) {
     // Kernel that generally works well on small shapes.
-    return fp8_rowwise_64x16x16x128_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2;
+    return fp8_rowwise_64x16x16x128_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v1;
   } else if (M < 64 && K < 2048) {
     // Kernel that works well for small batch size and small K.
-    return fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v2;
+    return fp8_rowwise_128x16x32x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4x4x1_1x1_intrawave_v1;
   } else if (M < 64 && N < 2048) {
     // Kernel that works well for small batch size and small N.
-    return fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v2;
+    return fp8_rowwise_128x32x16x128_16x16_1x1_8x16x1_8x16x1_1x16x1x8_2x2x1_1x1_interwave_v1;
   } else if (M < 64 && N > 2048 && K > 2048) {
     // Kernel that works well for small M but larger N and K.
     return fp8_rowwise_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x4x1x16_4x4x1_1x1_intrawave_v1;
   } else if (M < 64) {
     // Fallback to generic small batch kernel if we cant find a good match.
-    return fp8_rowwise_64x16x16x128_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v2;
+    return fp8_rowwise_64x16x16x128_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4x4x1_1x1_interwave_v1;
   } else if (
       ((M < 512 && K < 8192) || (N <= 2048 && K <= 8192) ||
        (K <= 2048 && N <= 8192)) &&
