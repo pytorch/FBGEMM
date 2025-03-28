@@ -344,6 +344,7 @@ std::vector<Tensor> regroup_keyed_tensor_meta(
 } // namespace fbgemm_gpu
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.set_python_module("fbgemm_gpu.sparse_ops");
   // register the forward function for internal (autograd) usage
   m.def(
       "permute_multi_embedding_function(Tensor[] pooled_embs, Tensor permutes, Tensor in_shapes, Tensor out_shapes, SymInt[] out_lengths, bool reverse=False) -> Tensor[]");
