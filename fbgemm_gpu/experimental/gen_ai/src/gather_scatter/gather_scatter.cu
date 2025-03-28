@@ -351,6 +351,10 @@ void scatter_add_along_first_dim(
     const int M = src.size(0);
     const int K = src.size(1);
     const int N = index.size(0);
+    if (N == 0) {
+      assert(M == 0);
+      return;
+    }
     assert(dst.size(1) == K);
     // TODO(shikaili): Make it supports more configurations.
     if (dst.dtype() == at::kBFloat16 && src.dtype() == at::kBFloat16 &&
