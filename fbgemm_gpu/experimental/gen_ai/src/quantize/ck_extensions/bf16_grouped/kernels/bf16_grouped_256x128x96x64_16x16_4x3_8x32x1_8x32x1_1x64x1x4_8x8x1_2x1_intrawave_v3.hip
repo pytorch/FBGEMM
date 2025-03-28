@@ -85,12 +85,12 @@ bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_
 
 
 
-template std::vector<at::Tensor>
+template at::Tensor
 bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
     at::TensorList X,
     at::TensorList W,
     at::Tensor kernel_args,
-    std::vector<at::Tensor> Y);
+    at::Tensor Y);
 
 template at::Tensor
 bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3(
@@ -98,4 +98,3 @@ bf16_grouped_256x128x96x64_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_
     at::Tensor W,
     at::Tensor kernel_args,
     at::Tensor Y);
-    
