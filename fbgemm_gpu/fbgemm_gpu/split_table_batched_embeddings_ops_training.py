@@ -99,6 +99,7 @@ class CounterWeightDecayMode(enum.IntEnum):
     NONE = 0
     L2 = 1
     DECOUPLE = 2
+    ADAGRADW = 3
 
 
 class StepMode(enum.IntEnum):
@@ -2656,7 +2657,23 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         ):
             list_of_state_dict = [
                 (
-                    {"sum": states[0], "prev_iter": states[1], "row_counter": states[2]}
+                    (
+                        {
+                            "sum": states[0],
+                            "prev_iter": states[1],
+                            "row_counter": states[2],
+                            "iter": self.iter,
+                        }
+                        if self.optimizer_args.regularization_mode
+                        == WeightDecayMode.COUNTER.value
+                        and self.optimizer_args.weight_decay_mode
+                        == CounterWeightDecayMode.ADAGRADW.value
+                        else {
+                            "sum": states[0],
+                            "prev_iter": states[1],
+                            "row_counter": states[2],
+                        }
+                    )
                     if self._used_rowwise_adagrad_with_counter
                     else (
                         {
