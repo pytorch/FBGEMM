@@ -546,7 +546,7 @@ OutputType _f8f8bf16_rowwise_grouped(
 
   // Compute the total number of elements in the output.
   int64_t total_output_size = 0;
-  int64_t total_M = 0;
+  int total_M = 0;
   std::vector<int64_t> output_sizes;
   for (int i = 0; i < group_count; i++) {
     int M = XQ[i].size(0);
@@ -566,17 +566,15 @@ OutputType _f8f8bf16_rowwise_grouped(
   set_static_kernel_args<at::Tensor>(kernel_args, XQ, WQ, x_scale, w_scale, Y);
 
   // We use the largest of each shape for heuristics.
-  int MaxM = 0;
   int MaxN = 0;
   int MaxK = 0;
   for (int i = 0; i < group_count; i++) {
-    MaxM = max(MaxM, XQ[i].size(0));
     MaxN = max(MaxN, WQ[i].size(0));
     MaxK = max(MaxK, XQ[i].size(1));
   }
   RowwiseGroupedKernel<at::TensorList, at::Tensor> selected_kernel =
       rowwise_grouped_heuristic_dispatch<at::TensorList, at::Tensor>(
-          group_count, MaxM, MaxN, MaxK);
+          group_count, total_M, MaxN, MaxK);
   at::Tensor g_out = selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
   // Get output in appropriate format.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
@@ -614,8 +612,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_sizes,
-    std::optional<at::Tensor> output = std::nullopt) {
+    at::Tensor M_sizes) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int group_count = M_sizes.size(0);

@@ -19,27 +19,176 @@
 #include <cutlass/epilogue/collective/collective_builder.hpp> // @manual
 // clang-format on
 
-#include "cutlass_extensions/include/kernel_mode.h"
-
 namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
 
-namespace GroupedGemmBF16Args {
-using ProblemShape =
-    cutlass::gemm::GroupProblemShape<cute::Shape<int, int, int>>;
-using ElementInputA = cutlass::bfloat16_t;
-using ElementInputB = cutlass::bfloat16_t;
-using ElementOutput = cutlass::bfloat16_t;
-using LayoutInputA = cutlass::layout::RowMajor;
-using LayoutInputB = cutlass::layout::ColumnMajor;
-using LayoutOutput = cutlass::layout::RowMajor;
-using ElementAccumulator = float;
-using ArchTag = cutlass::arch::Sm90;
-using OperatorClass = cutlass::arch::OpClassTensorOp;
-using StageCountType = cutlass::gemm::collective::StageCountAuto;
-// Template structure to encapsulate configurations
+inline int64_t _byte_align(int64_t offset) {
+  int64_t remainder = offset % 16;
+  if (remainder != 0) {
+    offset += (16 - remainder);
+  }
+  return offset;
+}
+
 template <
+    typename ProblemShape,
+    typename ElementA,
+    typename ElementB,
+    typename ElementC,
+    typename StrideA,
+    typename StrideB,
+    typename StrideC>
+__global__ void set_kernel_args_kernel(
+    int i, // Group index
+    int G, // Total groups.
+    int M,
+    int N,
+    int K,
+    ProblemShape* problem_shape_ptr,
+    ElementA* x,
+    const ElementA** x_ptr,
+    ElementB* w,
+    const ElementB** w_ptr,
+    ElementC* output,
+    ElementC** output_ptr,
+    StrideA* stride_a_ptr,
+    StrideB* stride_b_ptr,
+    StrideC* stride_c_ptr) {
+  uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  // Each kernel annoyingly can only set the kernel args for one group.
+  // This could only be avoided with complicated memory management.
+  if (idx == 0) {
+    problem_shape_ptr[i] = ProblemShape(N, M, K);
+    x_ptr[i] = x;
+    w_ptr[i] = w;
+    output_ptr[i] = output;
+    stride_a_ptr[i] =
+        cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(M, K, 1));
+    stride_b_ptr[i] =
+        cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(N, K, 1));
+    stride_c_ptr[i] =
+        cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(N, M, 1));
+  }
+}
+
+template <
+    typename ProblemShape,
+    typename ElementA,
+    typename ElementB,
+    typename ElementC,
+    typename StrideA,
+    typename StrideB,
+    typename StrideC>
+__global__ void set_dynamic_kernel_args_kernel(
+    int G,
+    int M,
+    int N,
+    int K,
+    ProblemShape* problem_shape_ptr,
+    ElementA* x,
+    const ElementA** x_ptr,
+    ElementB* w,
+    const ElementB** w_ptr,
+    ElementC* output,
+    ElementC** output_ptr,
+    StrideA* stride_a_ptr,
+    StrideB* stride_b_ptr,
+    StrideC* stride_c_ptr,
+    int64_t* zero_start_index_M) {
+  uint32_t group_index = blockIdx.x * blockDim.x + threadIdx.x;
+  // If this thread corresponds to a valid group, write kernel args to device
+  // memory.
+  if (group_index < G) {
+    // Compute shape for this group.
+    int kernel_M = zero_start_index_M[group_index];
+    int offset_M = group_index * M;
+    // Set the problem shape for this group.
+    problem_shape_ptr[group_index] = ProblemShape(N, kernel_M, K);
+    // Set input pointers.
+    x_ptr[group_index] = x + (offset_M * K);
+    w_ptr[group_index] = w + (group_index * N * K);
+    output_ptr[group_index] = output + (offset_M * N);
+    stride_a_ptr[group_index] = cutlass::make_cute_packed_stride(
+        StrideA{}, cute::make_shape(kernel_M, K, 1));
+    stride_b_ptr[group_index] =
+        cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(N, K, 1));
+    stride_c_ptr[group_index] = cutlass::make_cute_packed_stride(
+        StrideC{}, cute::make_shape(N, kernel_M, 1));
+  }
+}
+
+template <
+    typename ProblemShape,
+    typename ElementA,
+    typename ElementB,
+    typename ElementC,
+    typename StrideA,
+    typename StrideB,
+    typename StrideC>
+__global__ void set_stacked_kernel_args_kernel(
+    int G,
+    int N,
+    int K,
+    ProblemShape* problem_shape_ptr,
+    ElementA* x,
+    const ElementA** x_ptr,
+    ElementB* w,
+    const ElementB** w_ptr,
+    ElementC* output,
+    ElementC** output_ptr,
+    StrideA* stride_a_ptr,
+    StrideB* stride_b_ptr,
+    StrideC* stride_c_ptr,
+    int64_t* M_sizes) {
+  uint32_t group_index = blockIdx.x * blockDim.x + threadIdx.x;
+  // If this thread corresponds to a valid group, write kernel args to device
+  // memory.
+  if (group_index < G) {
+    // Its possible that we're only writing a subset of the groups to
+    // kernel args. To do this, we need to set all groups initially to empty.
+    // and keep a problem counter for the number of non-empty groups.
+    __shared__ int non_zero_counter;
+    // Initialize counter in first group.
+    if (group_index == 0) {
+      non_zero_counter = 0;
+    }
+    // Set problem shapes to empty by default.
+    problem_shape_ptr[group_index] = ProblemShape(0, 0, 0);
+    // Sync threads to get consistent state in the block.
+    __syncthreads();
+
+    // Compute shape for this group.
+    // M for this group is pulled directly from M_sizes.
+    int M = M_sizes[group_index];
+    // Only proceed to writing kernel args if this group is non-empty.
+    if (M > 0) {
+      // Get the index for this group atomically.
+      int non_zero_idx = atomicAdd(&non_zero_counter, 1);
+      // We compute the offset by getting the cumulative sum over
+      // prior groups.
+      int offset_M = 0;
+      for (int i = 0; i < group_index; i++) {
+        offset_M += M_sizes[i];
+      }
+      // Set the problem shape for this group.
+      problem_shape_ptr[non_zero_idx] = ProblemShape(N, M, K);
+      // Set input pointers.
+      x_ptr[non_zero_idx] = x + (offset_M * K);
+      w_ptr[non_zero_idx] = w + (group_index * N * K);
+      output_ptr[non_zero_idx] = output + (offset_M * N);
+      stride_a_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideA{}, cute::make_shape(M, K, 1));
+      stride_b_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideB{}, cute::make_shape(N, K, 1));
+      stride_c_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
+          StrideC{}, cute::make_shape(N, M, 1));
+    }
+  }
+}
+
+template <
+    typename InputType,
     int TB_M,
     int TB_N,
     int TB_K,
@@ -47,7 +196,49 @@ template <
     int TBS_N,
     int TBS_K,
     bool PONG>
-struct GroupedGemmConfigs {
+at::Tensor bf16bf16bf16_grouped_impl(
+    InputType X, // FP8
+    InputType W, // FP8
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes) {
+  int G;
+  at::TensorOptions options;
+  if constexpr (std::is_same_v<InputType, at::TensorList>) {
+    G = X.size();
+    options = X[0].options();
+    TORCH_CHECK(W.size() == G);
+  } else {
+    TORCH_CHECK(
+        zero_start_index_M.has_value() != M_sizes.has_value(),
+        "One of zero_start_index_M or M_sizes must be provided.");
+    G = W.size(0);
+    options = X.options();
+  }
+  // The number of groups the kernel uses may vary.
+  int kernel_groups = G;
+  // Return early if there are no elements in the output.
+  if (output.numel() == 0) {
+    return output;
+  }
+
+  // Define gemm configuration.
+  using ProblemShape =
+      cutlass::gemm::GroupProblemShape<cute::Shape<int, int, int>>;
+  using ElementA = cutlass::bfloat16_t;
+  using ElementB = cutlass::bfloat16_t;
+  using ElementC = cutlass::bfloat16_t;
+  using LayoutA = cutlass::layout::RowMajor;
+  using LayoutB = cutlass::layout::ColumnMajor;
+  using LayoutC = cutlass::layout::RowMajor;
+  using LayoutA_Transpose =
+      typename cutlass::layout::LayoutTranspose<LayoutA>::type;
+  using LayoutB_Transpose =
+      typename cutlass::layout::LayoutTranspose<LayoutB>::type;
+  using ElementAccumulator = float;
+  using ArchTag = cutlass::arch::Sm90;
+  using OperatorClass = cutlass::arch::OpClassTensorOp;
+  using StageCountType = cutlass::gemm::collective::StageCountAuto;
   using TileShape =
       cute::Shape<cute::Int<TB_M>, cute::Int<TB_N>, cute::Int<TB_K>>;
   using ClusterShape =
@@ -63,6 +254,7 @@ struct GroupedGemmConfigs {
       cute::conditional_t<PONG, PongSchedule, CooperativeSchedule>;
   using EpilogueSchedule = cute::
       conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
+
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           cutlass::arch::Sm90,
@@ -72,368 +264,201 @@ struct GroupedGemmConfigs {
           cutlass::epilogue::collective::EpilogueTileAuto,
           ElementAccumulator,
           ElementAccumulator,
-          ElementOutput,
-          LayoutOutput*,
-          128 / cutlass::sizeof_bits<ElementOutput>::value,
-          ElementOutput,
-          LayoutOutput*,
-          128 / cutlass::sizeof_bits<ElementOutput>::value,
-          EpilogueSchedule,
-          cutlass::epilogue::fusion::LinearCombination<
-              ElementOutput,
-              ElementAccumulator>>::CollectiveOp;
+          void, // Indicate there is no beta scaling to save register space.
+          typename cutlass::layout::LayoutTranspose<LayoutC>::type*,
+          128 / cutlass::sizeof_bits<ElementC>::value,
+          ElementC,
+          typename cutlass::layout::LayoutTranspose<LayoutC>::type*,
+          128 / cutlass::sizeof_bits<ElementC>::value,
+          EpilogueSchedule>::CollectiveOp;
+
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
           ArchTag,
           OperatorClass,
-          ElementInputA,
-          LayoutInputA*,
-          128 / cutlass::sizeof_bits<ElementInputA>::value,
-          ElementInputB,
-          LayoutInputB*,
-          128 / cutlass::sizeof_bits<ElementInputB>::value,
+          ElementB,
+          LayoutB_Transpose*,
+          128 / cutlass::sizeof_bits<ElementA>::value,
+          ElementA,
+          LayoutA_Transpose*,
+          128 / cutlass::sizeof_bits<ElementB>::value,
           ElementAccumulator,
           TileShape,
           ClusterShape,
           cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
               sizeof(typename CollectiveEpilogue::SharedStorage))>,
           KernelSchedule>::CollectiveOp;
+
   using GemmKernel = cutlass::gemm::kernel::
       GemmUniversal<ProblemShape, CollectiveMainloop, CollectiveEpilogue>;
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
-  using StrideInputA = typename Gemm::GemmKernel::InternalStrideA;
-  using StrideInputB = typename Gemm::GemmKernel::InternalStrideB;
-  using StrideOutput = typename Gemm::GemmKernel::InternalStrideD;
-};
-} // namespace GroupedGemmBF16Args
+  using StrideA = typename Gemm::GemmKernel::InternalStrideA;
+  using StrideB = typename Gemm::GemmKernel::InternalStrideB;
+  using StrideC = typename Gemm::GemmKernel::InternalStrideD;
 
-__global__ void set_dynamic_kernel_args_kernel(
-    GroupedGemmBF16Args::ElementInputA* x_ptr,
-    GroupedGemmBF16Args::ElementInputB* w_ptr,
-    int64_t* input_args_ptr,
-    int64_t* output_args_ptr,
-    GroupedGemmBF16Args::ElementOutput* output_data,
-    int x_ptr_offset,
-    int w_ptr_offset,
-    int problem_shape_buf_offset,
-    int stride_buf_offset,
-    int stride_size,
-    int problem_count,
-    int problem_shape_size,
-    int64_t* zero_start_index_M,
-    int M,
-    int N,
-    int K) {
-  auto group_index = blockIdx.x * blockDim.x + threadIdx.x;
-  if (group_index < problem_count) {
-    int64_t* x_ptr_ = input_args_ptr + x_ptr_offset;
-    int64_t* w_ptr_ = input_args_ptr + w_ptr_offset;
-    uint8_t* problem_shape_buf =
-        reinterpret_cast<uint8_t*>(input_args_ptr + problem_shape_buf_offset);
-    uint8_t* stride_buf =
-        reinterpret_cast<uint8_t*>(input_args_ptr + stride_buf_offset);
+  // Create a buffer for kernel arguments. We do this by first figuring out
+  // how much space each sub-argument requires and setting up corresponding
+  // pointers.
+  const int64_t problem_size_offset = 0;
+  int64_t problem_size_buffer =
+      _byte_align(G * sizeof(ProblemShape::UnderlyingProblemShape));
 
-    GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*
-        problem_shape_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*>(
-            problem_shape_buf);
-    // Pass dummy configs to get Stride structure
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-        StrideInputA* stride_input_A_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-                    StrideInputA*>(stride_buf);
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-        StrideInputB* stride_input_B_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-                    StrideInputB*>(stride_buf + stride_size);
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-        StrideOutput* stride_output_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-                    StrideOutput*>(stride_buf + (stride_size * 2));
+  // Next create space for X pointers.
+  const int64_t x_offset = problem_size_offset + problem_size_buffer;
+  int64_t x_size_buffer = _byte_align(G * sizeof(ElementA**));
 
-    output_args_ptr[group_index] =
-        reinterpret_cast<int64_t>(output_data + (group_index * M * N));
+  // W Pointers.
+  const int64_t w_offset = x_offset + x_size_buffer;
+  int64_t w_size_buffer = _byte_align(G * sizeof(ElementB**));
 
-    // Write kernel arguments directly to memory.
-    x_ptr_[group_index] =
-        reinterpret_cast<int64_t>(x_ptr + (group_index * M * K));
-    w_ptr_[group_index] =
-        reinterpret_cast<int64_t>(w_ptr + (group_index * N * K));
-    problem_shape_ptr[group_index] =
-        GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape(
-            zero_start_index_M[group_index], N, K);
-    stride_input_A_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::StrideInputA{},
-        {zero_start_index_M[group_index], K, 1});
-    stride_input_B_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::StrideInputB{},
-        {N, K, 1});
-    stride_output_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::StrideOutput{},
-        {zero_start_index_M[group_index], N, 1});
-  }
-}
+  // Outputs.
+  const int64_t output_offset = w_offset + w_size_buffer;
+  int64_t output_buffer = _byte_align(G * sizeof(ElementC**));
 
-__global__ void set_static_kernel_args_kernel(
-    GroupedGemmBF16Args::ElementInputA* x_ptr,
-    GroupedGemmBF16Args::ElementInputB* w_ptr,
-    int64_t* input_args_ptr,
-    int64_t* output_args_ptr,
-    GroupedGemmBF16Args::ElementOutput* output_data,
-    int x_ptr_offset,
-    int w_ptr_offset,
-    int problem_shape_buf_offset,
-    int stride_buf_offset,
-    int stride_size,
-    int problem_count,
-    int problem_shape_size,
-    int group_index,
-    int M,
-    int N,
-    int K) {
-  auto idx = blockIdx.x * blockDim.x + threadIdx.x;
-  // We only set one group's information per kernel launch.
-  if (idx == 0) {
-    int64_t* x_ptr_ = input_args_ptr + x_ptr_offset;
-    int64_t* w_ptr_ = input_args_ptr + w_ptr_offset;
-    uint8_t* problem_shape_buf =
-        reinterpret_cast<uint8_t*>(input_args_ptr + problem_shape_buf_offset);
-    uint8_t* stride_buf =
-        reinterpret_cast<uint8_t*>(input_args_ptr + stride_buf_offset);
+  // A stride.
+  const int64_t stride_a_offset = output_offset + output_buffer;
+  int64_t stride_a_buffer = _byte_align(G * sizeof(StrideA));
 
-    GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*
-        problem_shape_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*>(
-            problem_shape_buf);
-    // Pass dummy configs to get Stride structure
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-        StrideInputA* stride_input_A_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-                    StrideInputA*>(stride_buf);
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-        StrideInputB* stride_input_B_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-                    StrideInputB*>(stride_buf + stride_size);
-    GroupedGemmBF16Args::GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-        StrideOutput* stride_output_ptr = reinterpret_cast<
-            GroupedGemmBF16Args::
-                GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::
-                    StrideOutput*>(stride_buf + (stride_size * 2));
+  // B stride;
+  const int64_t stride_b_offset = stride_a_offset + stride_a_buffer;
+  int64_t stride_b_buffer = _byte_align(G * sizeof(StrideB));
 
-    output_args_ptr[group_index] = reinterpret_cast<int64_t>(output_data);
+  // C stride;
+  const int64_t stride_c_offset = stride_b_offset + stride_b_buffer;
+  int64_t stride_c_buffer = _byte_align(G * sizeof(StrideC));
 
-    // Write kernel arguments directly to memory.
-    x_ptr_[group_index] = reinterpret_cast<int64_t>(x_ptr);
-    w_ptr_[group_index] = reinterpret_cast<int64_t>(w_ptr);
-    problem_shape_ptr[group_index] =
-        GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape(M, N, K);
-    stride_input_A_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::StrideInputA{},
-        {M, K, 1});
-    stride_input_B_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::StrideInputB{},
-        {N, K, 1});
-    stride_output_ptr[group_index] = cutlass::make_cute_packed_stride(
-        typename GroupedGemmBF16Args::
-            GroupedGemmConfigs<128, 256, 64, 2, 1, 1, false>::StrideOutput{},
-        {M, N, 1});
-  }
-}
+  // Compute total buffer size
+  int64_t total_buffer_size = stride_c_offset + stride_c_buffer;
 
-template <
-    int TB_M,
-    int TB_N,
-    int TB_K,
-    int TBS_M,
-    int TBS_N,
-    int TBS_K,
-    bool PONG>
-std::vector<at::Tensor> bf16bf16bf16_grouped_impl(
-    at::TensorList X, // BF16
-    at::TensorList W, // BF16
-    std::vector<at::Tensor> output_tensor,
-    std::optional<at::Tensor> zero_start_index_M) {
-  int problem_count = X.size();
-  TORCH_CHECK(W.size() == problem_count);
-  TORCH_CHECK(
-      !zero_start_index_M.has_value() ||
-      zero_start_index_M->size(0) == problem_count);
-  if (problem_count == 0) {
-    return {};
-  }
-  using GroupedGemmConfigs = GroupedGemmBF16Args::
-      GroupedGemmConfigs<TB_M, TB_N, TB_K, TBS_M, TBS_N, TBS_K, PONG>;
+  // Allocate space for gemm information.
+  at::Tensor kernel_args =
+      at::empty({total_buffer_size}, options.dtype(at::kByte));
 
-  at::Tensor output_args =
-      at::empty({problem_count}, X[0].options().dtype(at::kLong));
+  // Get byte pointer to underlying data.
+  char* kernel_args_ptr = reinterpret_cast<char*>(kernel_args.data_ptr());
 
-  const int64_t problem_shape_size = problem_count *
-      ((int64_t)sizeof(
-          GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape));
-  const int64_t stride_size = problem_count *
-      ((int64_t)sizeof(typename GroupedGemmConfigs::StrideInputA));
+  // Now use offsets to get appropriately typed pointers.
+  ProblemShape::UnderlyingProblemShape* problem_shape_ptr =
+      reinterpret_cast<ProblemShape::UnderlyingProblemShape*>(
+          kernel_args_ptr + problem_size_offset);
+  const ElementA** x_ptr =
+      reinterpret_cast<const ElementA**>(kernel_args_ptr + x_offset);
+  const ElementB** w_ptr =
+      reinterpret_cast<const ElementB**>(kernel_args_ptr + w_offset);
+  ElementC** output_ptr =
+      reinterpret_cast<ElementC**>(kernel_args_ptr + output_offset);
+  StrideA* stride_a_ptr =
+      reinterpret_cast<StrideA*>(kernel_args_ptr + stride_a_offset);
+  StrideB* stride_b_ptr =
+      reinterpret_cast<StrideB*>(kernel_args_ptr + stride_b_offset);
+  StrideC* stride_c_ptr =
+      reinterpret_cast<StrideC*>(kernel_args_ptr + stride_c_offset);
 
-  at::Tensor input_args = at::empty(
-      {problem_count * 3 + problem_shape_size + stride_size * 3},
-      X[0].options().dtype(at::kLong));
-
-  int x_ptr_offset = 0;
-  int w_ptr_offset = problem_count * sizeof(int64_t);
-  int problem_shape_buf_offset = problem_count * 2 * sizeof(int64_t);
-  int stride_buf_offset =
-      problem_count * 2 * sizeof(int64_t) + problem_shape_size;
-
-  TORCH_CHECK(
-      !zero_start_index_M.has_value() ||
-          zero_start_index_M->dtype() == at::kLong,
-      "zero_start_index_M must be int64.");
-
-  // Set arguments
-  // Here we support two methods for initializing arguments. If
-  // zero_start_index_M is provided, we assume that M is dynamic and N and K are
-  // fixed. This is useful for cuda graphs. If it is not provided we run in
-  // eager mode.
   auto stream = at::cuda::getCurrentCUDAStream().stream();
-  if (zero_start_index_M.has_value()) {
-    // When zero_start_M is provided, we run in dynamic shape mode.
-    int M = X[0].size(0);
-    int N = W[0].size(0);
-    int K = X[0].size(1);
-    // Make sure that inputs are allocated in sequential memory as required by
-    // this mode.
-    for (int i = 1; i < problem_count; i++) {
-      // Check that all inputs are allocated directly following preceding input.
-      TORCH_CHECK(
-          X[i].data_ptr() ==
-              (reinterpret_cast<GroupedGemmBF16Args::ElementInputA*>(
-                   X[i - 1].data_ptr()) +
-               (M * K)),
-          "Inputs must be sequential in memory to support dynamic M, but X is not.");
-      TORCH_CHECK(
-          W[i].data_ptr() ==
-              (reinterpret_cast<GroupedGemmBF16Args::ElementInputB*>(
-                   W[i - 1].data_ptr()) +
-               (N * K)),
-          "Inputs must be sequential in memory to support dynamic M, but W is not.");
-      TORCH_CHECK(
-          output_tensor[i].data_ptr() ==
-              (reinterpret_cast<GroupedGemmBF16Args::ElementOutput*>(
-                   output_tensor[i - 1].data_ptr()) +
-               (M * N)),
-          "Inputs must be sequential in memory to support dynamic M, but output is not.");
-    }
-    int blockSize = std::min(1024, problem_count);
-    int numBlocks = (problem_count + blockSize - 1) / blockSize;
-    set_dynamic_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
-        reinterpret_cast<GroupedGemmBF16Args::ElementInputA*>(X[0].data_ptr()),
-        reinterpret_cast<GroupedGemmBF16Args::ElementInputB*>(W[0].data_ptr()),
-        input_args.data_ptr<int64_t>(),
-        output_args.data_ptr<int64_t>(),
-        reinterpret_cast<GroupedGemmBF16Args::ElementOutput*>(
-            output_tensor[0].data_ptr()),
-        x_ptr_offset,
-        w_ptr_offset,
-        problem_shape_buf_offset,
-        stride_buf_offset,
-        stride_size,
-        problem_count,
-        problem_shape_size,
-        reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr()),
-        M,
-        N,
-        K);
-  } else {
-    // Otherwise run in static mode, which can support arbitrary N and K.
-    int blockSize = 256;
-    int numBlocks = 1;
-    // Iterate over groups and launch one kernel to set each up.
-    for (int i = 0; i < problem_count; i++) {
+  // Set kernel arguments for tensor list inputs.
+  // The strategy here is to iterate over each group and set the corresponding
+  // device memory separately. This is the best way to allow true dynamic
+  // shapes.
+  if constexpr (std::is_same_v<InputType, at::TensorList>) {
+    int64_t output_offset = 0;
+    for (int i = 0; i < G; ++i) {
+      // Compute buffer pointers based on input type.
       int M = X[i].size(0);
       int N = W[i].size(0);
       int K = X[i].size(1);
-      set_static_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
-          reinterpret_cast<GroupedGemmBF16Args::ElementInputA*>(
-              X[i].data_ptr()),
-          reinterpret_cast<GroupedGemmBF16Args::ElementInputB*>(
-              W[i].data_ptr()),
-          input_args.data_ptr<int64_t>(),
-          output_args.data_ptr<int64_t>(),
-          reinterpret_cast<GroupedGemmBF16Args::ElementOutput*>(
-              output_tensor[i].data_ptr()),
-          x_ptr_offset,
-          w_ptr_offset,
-          problem_shape_buf_offset,
-          stride_buf_offset,
-          stride_size,
-          problem_count,
-          problem_shape_size,
+      TORCH_CHECK_EQ(W[i].size(1), K);
+      // Launch a kernel to set one group's arguments.
+      set_kernel_args_kernel<<<1, 1, 0, stream>>>(
           i,
+          G,
           M,
           N,
-          K);
+          K,
+          problem_shape_ptr,
+          reinterpret_cast<ElementA*>(X[i].data_ptr()),
+          x_ptr,
+          reinterpret_cast<ElementB*>(W[i].data_ptr()),
+          w_ptr,
+          (reinterpret_cast<ElementC*>(output.data_ptr()) + output_offset),
+          output_ptr,
+          stride_a_ptr,
+          stride_b_ptr,
+          stride_c_ptr);
+      output_offset += M * N;
+    }
+  } else {
+    // For Tensor inputs, we can set all group arguments in a single kernel
+    // launch.
+    TORCH_CHECK(
+        !zero_start_index_M.has_value() ||
+            zero_start_index_M->dtype() == at::kLong,
+        "zero_start_index_M must be int64.");
+
+    TORCH_CHECK(
+        !M_sizes.has_value() || M_sizes->dtype() == at::kLong,
+        "M_sizes must be int64.");
+    // When m_offsets is used, X is shape [total_M, K]. When zero_start_index_M
+    // is used, shape is [G, M, K].
+    int M = X.size(X.dim() - 2);
+    int N = W.size(1);
+    int K = W.size(2);
+    if (zero_start_index_M.has_value()) {
+      int64_t* zero_start_index_M_ptr =
+          reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr());
+      set_dynamic_kernel_args_kernel<<<1, G, 0, stream>>>(
+          G,
+          M,
+          N,
+          K,
+          problem_shape_ptr,
+          reinterpret_cast<ElementA*>(X.data_ptr()),
+          x_ptr,
+          reinterpret_cast<ElementB*>(W.data_ptr()),
+          w_ptr,
+          reinterpret_cast<ElementC*>(output.data_ptr()),
+          output_ptr,
+          stride_a_ptr,
+          stride_b_ptr,
+          stride_c_ptr,
+          zero_start_index_M_ptr);
+    } else {
+      int64_t* M_sizes_ptr =
+          reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
+      set_stacked_kernel_args_kernel<<<1, G, 0, stream>>>(
+          G,
+          N,
+          K,
+          problem_shape_ptr,
+          reinterpret_cast<ElementA*>(X.data_ptr()),
+          x_ptr,
+          reinterpret_cast<ElementB*>(W.data_ptr()),
+          w_ptr,
+          reinterpret_cast<ElementC*>(output.data_ptr()),
+          output_ptr,
+          stride_a_ptr,
+          stride_b_ptr,
+          stride_c_ptr,
+          M_sizes_ptr);
+      // Set the number of groups to the kernel to be at most the number of
+      // non-zero rows.
+      kernel_groups = std::min(M, G);
     }
   }
 
-  // Get appropriate pointers to each component of the kernel args.
-  int64_t* output_ptr = output_args.data_ptr<int64_t>();
-  int64_t* x_ptr = input_args.data_ptr<int64_t>() + x_ptr_offset;
-  int64_t* w_ptr = input_args.data_ptr<int64_t>() + w_ptr_offset;
-  uint8_t* problem_shape_buf = reinterpret_cast<uint8_t*>(
-      input_args.data_ptr<int64_t>() + problem_shape_buf_offset);
-  uint8_t* stride_buf = reinterpret_cast<uint8_t*>(
-      input_args.data_ptr<int64_t>() + stride_buf_offset);
-
-  GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape* problem_shape_ptr =
-      reinterpret_cast<
-          GroupedGemmBF16Args::ProblemShape::UnderlyingProblemShape*>(
-          problem_shape_buf);
-  typename GroupedGemmConfigs::StrideInputA* stride_input_A_ptr =
-      reinterpret_cast<typename GroupedGemmConfigs::StrideInputA*>(stride_buf);
-  typename GroupedGemmConfigs::StrideInputB* stride_input_B_ptr =
-      reinterpret_cast<typename GroupedGemmConfigs::StrideInputB*>(
-          stride_buf + stride_size);
-  typename GroupedGemmConfigs::StrideOutput* stride_output_ptr =
-      reinterpret_cast<typename GroupedGemmConfigs::StrideOutput*>(
-          stride_buf + (stride_size * 2));
-
-  typename GroupedGemmConfigs::Gemm::Arguments arguments;
-  decltype(arguments.epilogue.thread) fusion_args;
-  fusion_args.alpha = 1.0;
-  fusion_args.dAlpha = {cute::_0{}, cute::_0{}, 0};
-
-  arguments = typename GroupedGemmConfigs::Gemm::Arguments{
+  typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGrouped,
-      {problem_count, problem_shape_ptr, nullptr},
-      {reinterpret_cast<const GroupedGemmBF16Args::ElementInputA**>(x_ptr),
-       stride_input_A_ptr,
-       reinterpret_cast<const GroupedGemmBF16Args::ElementInputB**>(w_ptr),
-       stride_input_B_ptr},
-      {fusion_args,
-       reinterpret_cast<const GroupedGemmBF16Args::ElementOutput**>(output_ptr),
-       stride_output_ptr,
-       reinterpret_cast<GroupedGemmBF16Args::ElementOutput**>(output_ptr),
-       stride_output_ptr}};
+      {kernel_groups, problem_shape_ptr, nullptr},
+      {w_ptr, stride_b_ptr, x_ptr, stride_a_ptr},
+      {{}, nullptr, stride_c_ptr, output_ptr, stride_c_ptr}};
 
-  typename GroupedGemmConfigs::Gemm gemm;
+  Gemm gemm;
 
   // Using the arguments, query for extra workspace required for matrix
   // multiplication computation
-  size_t workspace_size =
-      GroupedGemmConfigs::Gemm::get_workspace_size(arguments);
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
 
   // Allocate workspace memory
-  at::Tensor workspace =
-      at::empty(workspace_size, X[0].options().dtype(at::kByte));
+  at::Tensor workspace = at::empty(workspace_size, options.dtype(at::kByte));
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm.can_implement(arguments);
@@ -457,115 +482,149 @@ std::vector<at::Tensor> bf16bf16bf16_grouped_impl(
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-  return output_tensor;
+  return output;
 }
 
-std::vector<at::Tensor> dispatch_bf16_grouped_kernel(
-    at::TensorList x_group, // BF16
-    at::TensorList w_group, // BF16
-    std::vector<at::Tensor> output_tensor,
-    std::optional<at::Tensor> zero_start_index_M) {
-  KernelMode kernel = get_grouped_kernel_mode(x_group, w_group);
-  if (kernel == KernelMode::Small) {
-    return bf16bf16bf16_grouped_impl<64, 128, 128, 2, 1, 1, true>(
-        x_group, w_group, output_tensor, zero_start_index_M);
-  } else if (kernel == KernelMode::Large) {
-    return bf16bf16bf16_grouped_impl<128, 256, 64, 2, 1, 1, false>(
-        x_group, w_group, output_tensor, zero_start_index_M);
+// FP8 Tensorwise grouped cutlass kernel dispatch.
+template <typename InputType>
+at::Tensor dispatch_bf16_grouped_kernel(
+    int total_M,
+    InputType X, // BF16
+    InputType W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
+    std::optional<at::Tensor> M_sizes = std::nullopt) {
+  // Use heuristics to pick best kernel implementation.
+  if (total_M <= 16) {
+    return bf16bf16bf16_grouped_impl<InputType, 128, 16, 128, 1, 1, 1, false>(
+        X, W, output, zero_start_index_M, M_sizes);
+  } else if (total_M <= 32) {
+    return bf16bf16bf16_grouped_impl<InputType, 128, 32, 128, 1, 1, 1, false>(
+        X, W, output, zero_start_index_M, M_sizes);
+  } else if (total_M <= 64) {
+    return bf16bf16bf16_grouped_impl<InputType, 128, 64, 128, 1, 1, 1, false>(
+        X, W, output, zero_start_index_M, M_sizes);
+  } else if (total_M <= 128) {
+    return bf16bf16bf16_grouped_impl<InputType, 128, 128, 128, 1, 1, 1, false>(
+        X, W, output, zero_start_index_M, M_sizes);
+  } else if (total_M <= 512) {
+    return bf16bf16bf16_grouped_impl<InputType, 256, 128, 128, 2, 1, 1, false>(
+        X, W, output, zero_start_index_M, M_sizes);
   } else {
-    return bf16bf16bf16_grouped_impl<128, 256, 64, 2, 1, 1, false>(
-        x_group, w_group, output_tensor, zero_start_index_M);
+    return bf16bf16bf16_grouped_impl<InputType, 128, 256, 128, 2, 1, 1, false>(
+        X, W, output, zero_start_index_M, M_sizes);
+  }
+}
+
+template <typename OutputType>
+OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
+  at::Tensor Y;
+  int total_M = 0;
+  int G = X.size();
+
+  // Allocate output tensor.
+  std::vector<int64_t> output_sizes;
+  int64_t total_output_size = 0;
+  for (int i = 0; i < G; ++i) {
+    int M = X[i].size(0);
+    int N = W[i].size(0);
+    total_M += M;
+    const int64_t output_size = M * N;
+    total_output_size += output_size;
+    output_sizes.push_back(output_size);
+  }
+  Y = at::empty(total_output_size, X[0].options().dtype(at::kBFloat16));
+
+  // Run kernel.
+  at::Tensor g_out =
+      dispatch_bf16_grouped_kernel<at::TensorList>(total_M, X, W, Y);
+
+  // Return appropriate output type.
+  if constexpr (std::is_same_v<OutputType, at::Tensor>) {
+    int N = W[0].size(0);
+    return g_out.view({total_M, N});
+  } else {
+    // Return grouped view of output.
+    std::vector<at::Tensor> output_group = g_out.split(output_sizes);
+    for (int i = 0; i < G; ++i) {
+      output_group[i] = output_group[i].view({X[i].size(0), W[i].size(0)});
+    }
+    return output_group;
   }
 }
 
 std::vector<at::Tensor> bf16bf16bf16_grouped(
-    at::TensorList x_group, // BF16
-    at::TensorList w_group, // BF16
-    std::optional<std::vector<at::Tensor>> output = std::nullopt) {
-  TORCH_CHECK(!output.has_value(), "Preallocated output not yet supported.");
-  // Initialize output tensor.
-  int problem_count = x_group.size();
-  std::vector<at::Tensor> output_tensor;
-  for (int i = 0; i < problem_count; i++) {
-    int M = x_group[i].size(0);
-    int N = w_group[i].size(0);
-    output_tensor.push_back(
-        at::empty({M, N}, x_group[i].options().dtype(at::kBFloat16)));
+    at::TensorList X,
+    at::TensorList W) {
+  return _bf16bf16bf16_grouped<std::vector<at::Tensor>>(X, W);
+}
+
+at::Tensor bf16bf16bf16_grouped_cat(at::TensorList X, at::TensorList W) {
+  return _bf16bf16bf16_grouped<at::Tensor>(X, W);
+}
+
+at::Tensor
+bf16bf16bf16_grouped_stacked(at::Tensor X, at::Tensor W, at::Tensor M_sizes) {
+  int total_M = X.size(0);
+  int N = W.size(1);
+  int G = M_sizes.size(0);
+  TORCH_CHECK(
+      M_sizes.device() == X.device(),
+      "M_sizes must be on same device as inputs.");
+  TORCH_CHECK(
+      W.dim() == 3 && W.size(0) == G, "Weights should be shape [G, N, K].")
+  at::Tensor Y = at::empty(total_M * N, X.options().dtype(at::kBFloat16));
+  // Early exit for empty inputs.
+  if (total_M == 0) {
+    return Y.view({total_M, N});
   }
-  return dispatch_bf16_grouped_kernel(
-      x_group, w_group, output_tensor, std::nullopt);
+  // Return continuous view of output.
+  at::Tensor out = dispatch_bf16_grouped_kernel<at::Tensor>(
+      total_M, X, W, Y, std::nullopt, M_sizes);
+  return out.view({total_M, N});
 }
 
 at::Tensor bf16bf16bf16_grouped_dynamic(
-    at::TensorList x_group, // BF16
-    at::TensorList w_group, // BF16
-    std::optional<at::Tensor> zero_start_index_M = std::nullopt) {
-  std::vector<at::Tensor> output_groups;
-  at::Tensor output_full;
-  int problem_count = x_group.size();
-  int N = w_group[0].size(0);
-  int K = x_group[0].size(1);
-  if (zero_start_index_M.has_value()) {
-    int M = x_group[0].size(0);
-    // Fill output with zeros to simplify integration. This prevents nans from
-    // showing up in the tensor.
-    output_full = at::zeros(
-        {problem_count, M, N}, x_group[0].options().dtype(at::kBFloat16));
-    // Split the output into groups.
-    output_groups = at::unbind(output_full, 0);
-  } else {
-    // If not provided, we try to allocate a single blob that can store each
-    // group.
-    int total_M = 0;
-    std::vector<int> group_sizes = {};
-    for (int i = 0; i < problem_count; i++) {
-      TORCH_CHECK(
-          x_group[i].size(1) == K && w_group[i].size(0) == N,
-          "Dynamic grouped gemm requires fixed N and K.");
-      int group_M = x_group[i].size(0);
-      total_M += group_M;
-      group_sizes.push_back(group_M);
-    }
-    // Allocate a contiguous array for all groups.
-    output_full =
-        at::empty({total_M, N}, x_group[0].options().dtype(at::kBFloat16));
-    // Split the full array into appropriate groups.
-    // We do this with narrow to make sure there are no extra copies.
-    int offset = 0;
-    for (int size : group_sizes) {
-      output_groups.push_back(output_full.narrow(0, offset, size));
-      offset += size;
-    }
-  }
-  // Run kernel to populate output tensor.
-  dispatch_bf16_grouped_kernel(
-      x_group, w_group, output_groups, zero_start_index_M);
-  // Return coalesced view of output.
-  return output_full;
-}
-
-at::Tensor bf16bf16bf16_grouped_stacked(
     at::Tensor X,
     at::Tensor W,
-    at::Tensor M_sizes,
-    std::optional<at::Tensor> output = std::nullopt) {
-  throw std::runtime_error("Unimplemented");
+    at::Tensor zero_start_index_M) {
+  TORCH_CHECK(
+      zero_start_index_M.device() == X.device(),
+      "zero_start_index_M must be on same device as inputs.");
+  int G = X.size(0);
+  int M = X.size(1);
+  int N = W.size(1);
+  int K = X.size(0);
+  int total_output_size = G * M * N;
+  at::Tensor Y;
+  Y = at::zeros(total_output_size, X.options().dtype(at::kBFloat16));
+
+  // Return continuous view of output.
+  at::Tensor output = dispatch_bf16_grouped_kernel<at::Tensor>(
+      G * M, X, W, Y, zero_start_index_M);
+  // View as proper shape.
+  return output.view({G, M, N});
 }
 
 #else
 
 std::vector<at::Tensor> bf16bf16bf16_grouped(
-    at::TensorList /* x_group */, // BF16
-    at::TensorList /* w_group */, // BF16
-    std::optional<std::vector<at::Tensor>> /* output */) {
+    at::TensorList X,
+    at::TensorList W) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+
+at::Tensor bf16bf16bf16_grouped_cat(at::TensorList X, at::TensorList W) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
 at::Tensor bf16bf16bf16_grouped_dynamic(
-    at::TensorList /* x_group */, // BF16
-    at::TensorList /* w_group */, // BF16
-    std::optional<at::Tensor> /* zero_start_index_M */) {
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor zero_start_index_M,
+    bool zeroing_output_tensor = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
