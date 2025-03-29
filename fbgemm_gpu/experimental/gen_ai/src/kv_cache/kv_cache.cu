@@ -1915,6 +1915,17 @@ __global__ void dequantize_fp8_cache_kernel(
   auto D_H_q = cache_K.size(3);
   // TODO: support D_H < 128 for small model used in testing.
   CUDA_KERNEL_ASSERT(D_H == 128);
+  // The implementation of this kernel assumes
+  // (1) each thread handles 4 elements of D_H dimension,
+  // (2) D_H = 128 only.
+  // (3) each warp handles the one head.
+  // The implication is then on NV where each warp has 32 threads,
+  // we have 32 * 4 = 128, matching nicely.
+  // However, on AMD, each warp has 64 threads, so 32th to 63rd threads
+  // will then do out-of-bound memory accesses....
+  // As a short-term fix, we just let these threads do nothing.
+  if (threadIdx.x >= D_H / 4)
+    return;
   const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
   CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
 
@@ -2009,7 +2020,8 @@ __global__ void dequantize_fp8_cache_kernel_paged(
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
   CUDA_KERNEL_ASSERT(D_H == 128);
-
+  if (threadIdx.x >= D_H / 4)
+    return;
   auto b = blockIdx.x;
   // only need to dequantize this far.
   auto max_t = kv_seqlen[b];
