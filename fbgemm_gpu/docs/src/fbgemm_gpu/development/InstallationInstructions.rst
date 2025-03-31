@@ -13,49 +13,12 @@ The general steps for installing FBGEMM_GPU are as follows:
 #. Install the FBGEMM_GPU package.
 #. Run post-installation checks.
 
+Before installing FBGEMM_GPU, please check :ref:`fbgemm.releases.compatibility`
+to ensure that prerequisite hardware and software you are using is compatible
+with the version of FBGEMM_GPU you plan to install.
 
-FBGEMM Releases Compatibility Table
------------------------------------
 
-FBGEMM is released in accordance to the PyTorch release schedule, and is each
-release has no guarantee to work in conjunction with PyTorch releases that are
-older than the one that the FBGEMM release corresponds to.
-
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-| FBGEMM Release  | Corresponding    | Supported        | Supported      | Supported CUDA  | (Experimental) Supported  | (Experimental) Supported  |
-|                 | PyTorch Release  | Python Versions  | CUDA Versions  | Architectures   | ROCm Versions             | ROCm Architectures        |
-+=================+==================+==================+================+=================+===========================+===========================+
-| 1.1.0           | 2.6.x            | 3.9, 3.10, 3.11, | 11.8, 12.4,    | 7.0, 8.0, 9.0,  | 6.1, 6.2.4, 6.3           | gfx908, gfx90a, gfx942    |
-|                 |                  | 3.12, 3.13       | 12.6           | 9.0a            |                           |                           |
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-| 1.0.0           | 2.5.x            | 3.9, 3.10, 3.11, | 11.8, 12.1,    | 7.0, 8.0, 9.0,  | 6.0, 6.1                  | gfx908, gfx90a            |
-|                 |                  | 3.12             | 12.4           | 9.0a            |                           |                           |
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-| 0.8.0           | 2.4.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1,    | 7.0, 8.0, 9.0,  | 6.0, 6.1                  | gfx908, gfx90a            |
-|                 |                  | 3.11, 3.12       | 12.4           | 9.0a            |                           |                           |
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-| 0.7.0           | 2.3.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 7.0, 8.0, 9.0   | 6.0                       | gfx908, gfx90a            |
-|                 |                  | 3.11, 3.12       |                |                 |                           |                           |
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-| 0.6.0           | 2.2.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 7.0, 8.0, 9.0   | 5.7                       | gfx90a                    |
-|                 |                  | 3.11, 3.12       |                |                 |                           |                           |
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-| 0.5.0           | 2.1.x            | 3.8, 3.9, 3.10,  | 11.8, 12.1     | 7.0, 8.0, 9.0   | 5.5, 5.6                  | gfx90a                    |
-|                 |                  | 3.11             |                |                 |                           |                           |
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-| 0.4.0           | 2.0.x            | 3.8, 3.9, 3.10   | 11.7, 11.8     | 7.0, 8.0        | 5.3, 5.4                  | gfx90a                    |
-+-----------------+------------------+------------------+----------------+-----------------+---------------------------+---------------------------+
-
-Note that the list of supported CUDA and ROCm architectures refer to the targets
-support available in the default installation packages, and that building for
-other architecures may be possible, but not guaranteed.
-
-For more information, please visit:
-
-- `FBGEMM Releases Page <https://github.com/pytorch/FBGEMM/releases>`_
-- `CUDA Architectures <https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/>`_
-- `ROCm Architectures <https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html>`_
-
+.. _fbgemm-gpu.install.setup.cpu:
 
 Set Up CPU-Only Environment
 ---------------------------
@@ -65,6 +28,8 @@ Follow the instructions for setting up the Conda environment at
 :ref:`fbgemm-gpu.install.libraries`.
 
 
+.. _fbgemm-gpu.install.setup.cuda:
+
 Set Up CUDA Environment
 -----------------------
 
@@ -72,10 +37,10 @@ The CUDA variant of FBGEMM_GPU requires an NVIDIA GPU installed to the machine,
 along with working NVIDIA drivers installed; otherwise or the library will fall
 back to running the CPU version of the operators.
 
-The FBGEMM_GPU CUDA package is currently only built for the SM70 and SM80
-architectures (V100 and A100 GPUs respectively). Support for other architectures
-can be achieved by building the package from scratch, but is not guaranteed to
-work (especially for older architectures).
+Not all hardware archictures are supported natively by the FBGEMM_GPU CUDA
+package; please refer to :ref:`fbgemm.releases.compatibility` for details.
+Support for other architectures can be achieved by building the package from
+scratch, but is not guaranteed to work (especially for older architectures).
 
 Install NVIDIA Drivers
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -140,6 +105,8 @@ follow the instructions in :ref:`fbgemm-gpu.build.setup.cuda.install` for
 installing the CUDA toolkit inside a Conda environment.
 
 
+.. _fbgemm-gpu.install.setup.rocm:
+
 Set Up ROCm Environment
 -----------------------
 
@@ -184,6 +151,7 @@ Conda. Follow the instructions for setting up the Conda environment at
 :ref:`fbgemm-gpu.build.setup.rocm.install`, followed by
 :ref:`fbgemm-gpu.install.libraries`.
 
+
 .. _fbgemm-gpu.install.libraries:
 
 Install Python Libraries
@@ -206,11 +174,12 @@ Follow the instructions in :ref:`fbgemm-gpu.build.setup.pytorch.install`
 for installing PyTorch inside a Conda environment.
 
 
+.. _fbgemm-gpu.install.triton:
+
 Install Triton
 --------------
 
-This section is only applicable to working the experimental FBGEMM_GPU GenAI
-module.  Triton should already come packaged with the PyTOrch installation.
+Triton should already come packaged with the PyTOrch installation.
 This can be verified with:
 
 .. code:: sh
@@ -289,6 +258,7 @@ Install through Public PyPI
 As of time of writing, packages for the ROCm variant of FBGEMM_GPU are not
 released to public PyPI.
 
+.. _fbgemm-gpu.install.post-install-checks:
 
 Post-Installation Checks
 ------------------------
