@@ -957,6 +957,7 @@ class DeepGemmRowwise(QuantizeOpBase):
         return True
 
 
+@register_quantize_op
 class FP8StackedGroupedGemm(QuantizeOpBase):
     """
     FP8 grouped matmul with rowwise scaling and stacked inputs.
