@@ -180,7 +180,6 @@ html_theme_options = {
     "collapse_navigation": True,
     "display_version": True,
     "analytics_id": "UA-117752657-2",
-    "collapse_navigation": False,
 }
 
 
