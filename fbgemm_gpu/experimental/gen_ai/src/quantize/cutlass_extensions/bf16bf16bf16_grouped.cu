@@ -623,17 +623,12 @@ at::Tensor bf16bf16bf16_grouped_cat(at::TensorList X, at::TensorList W) {
 at::Tensor bf16bf16bf16_grouped_dynamic(
     at::Tensor X,
     at::Tensor W,
-    at::Tensor zero_start_index_M,
-    bool zeroing_output_tensor = true) {
+    at::Tensor zero_start_index_M) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 
-at::Tensor bf16bf16bf16_grouped_stacked(
-    at::Tensor,
-    at::Tensor,
-    at::Tensor,
-    std::optional<at::Tensor>) {
+at::Tensor bf16bf16bf16_grouped_stacked(at::Tensor, at::Tensor, at::Tensor) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
