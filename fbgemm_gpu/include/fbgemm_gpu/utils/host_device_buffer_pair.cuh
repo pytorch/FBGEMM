@@ -13,6 +13,8 @@
 #include <curand.h>
 #include <curand_kernel.h>
 
+#include <cstdio>
+
 namespace fbgemm_gpu::utils {
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -34,6 +36,11 @@ struct HostDeviceBufferPair {
     assign(size, value);
   }
 
+  HostDeviceBufferPair(const char* fname, size_t size)
+      : HostDeviceBufferPair(size) {
+    read(fname, size);
+  }
+
   inline void assign(size_t size, T value = T()) {
     free();
     host.assign(size, value);
@@ -53,6 +60,29 @@ struct HostDeviceBufferPair {
 
   inline size_t size() const {
     return host.size();
+  }
+
+  inline void read(const char* fname, size_t size) {
+    assign(size);
+
+    auto fd = fopen(fname, "r");
+    assert(fd != NULL);
+    auto ret = fread(host.data(), sizeof(T), host.size(), fd);
+    assert(ret > 0);
+    fclose(fd);
+
+    syncToDevice();
+  }
+
+  inline void write(const char* fname) {
+    syncToHost();
+
+    auto fd = fopen(fname, "w");
+    assert(fd != NULL);
+    auto ret = fwrite(host.data(), sizeof(T), host.size(), fd);
+    assert(ret > 0);
+
+    fclose(fd);
   }
 
   inline void syncToDevice() {
