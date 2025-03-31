@@ -93,24 +93,28 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList XQ,
     at::TensorList WQ,
     at::TensorList x_scale,
-    at::TensorList w_scale);
+    at::TensorList w_scale,
+    bool use_fast_accum = true);
 at::Tensor f8f8bf16_rowwise_grouped_cat(
     at::TensorList XQ,
     at::TensorList WQ,
     at::TensorList x_scale,
-    at::TensorList w_scale);
+    at::TensorList w_scale,
+    bool use_fast_accum = true);
 at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_sizes);
+    at::Tensor M_sizes,
+    bool use_fast_accum = true);
 at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor zero_start_index_M,
+    bool use_fast_accum = true,
     bool zeroing_output_tensor = true);
 at::Tensor f8f8bf16_blockwise(
     at::Tensor XQ,
@@ -249,13 +253,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8f8bf16_rowwise_batched(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True, Tensor(a!)? output=None) -> Tensor");
   m.def(
-      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale) -> Tensor[]");
+      "f8f8bf16_rowwise_grouped(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, bool use_fast_accum=True) -> Tensor[]");
   m.def(
-      "f8f8bf16_rowwise_grouped_cat(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale) -> Tensor");
+      "f8f8bf16_rowwise_grouped_cat(Tensor[] XQ, Tensor[] WQ, Tensor[] x_scale, Tensor[] w_scale, bool use_fast_accum=True) -> Tensor");
   m.def(
-      "f8f8bf16_rowwise_grouped_stacked(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor M_sizes) -> Tensor");
+      "f8f8bf16_rowwise_grouped_stacked(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor M_sizes, bool use_fast_accum=True) -> Tensor");
   m.def(
-      "f8f8bf16_rowwise_grouped_dynamic(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor zero_start_index_M, bool zeroing_output_tensor=True) -> Tensor");
+      "f8f8bf16_rowwise_grouped_dynamic(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor zero_start_index_M, bool use_fast_accum=True, bool zeroing_output_tensor=True) -> Tensor");
   m.def(
       "f8f8bf16_tensorwise(Tensor XQ, Tensor WQ, float scale, bool use_fast_accum=True) -> Tensor");
   m.def("per_tensor_quantize_i8(Tensor X, float scale) -> Tensor");

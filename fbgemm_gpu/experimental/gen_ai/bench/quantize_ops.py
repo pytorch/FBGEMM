@@ -775,6 +775,9 @@ class FP8TritonStackedGroupedGemm(QuantizeOpBase):
     FP8 grouped matmul with rowwise scaling and stacked inputs implemented with triton.
     """
 
+    def __init__(self):
+        self.fast_accum = True
+
     def preprocess(self, x, w):
         m_values = [i.shape[0] for i in x]
         # Convert m_values into offsets into grouped tensor.
@@ -796,7 +799,9 @@ class FP8TritonStackedGroupedGemm(QuantizeOpBase):
         return xq, wq, x_scale, w_scale, m_sizes
 
     def compute(self, xq, wq, x_scale, w_scale, m_sizes):
-        return grouped_gemm_fp8_rowwise(xq, wq, m_sizes, x_scale, w_scale)
+        return grouped_gemm_fp8_rowwise(
+            xq, wq, m_sizes, x_scale, w_scale, use_fast_accum=self.fast_accum
+        )
 
     def quantize_and_compute(self, x, wq, w_scale, m_sizes):
         xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, wq, w_scale, m_sizes)
@@ -963,6 +968,9 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
     FP8 grouped matmul with rowwise scaling and stacked inputs.
     """
 
+    def __init__(self):
+        self.fast_accum = True
+
     def preprocess(self, x, w):
         m_values = [i.shape[0] for i in x]
         m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
@@ -984,7 +992,7 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
 
     def compute(self, xq, wq, x_scale, w_scale, m_sizes):
         return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked(
-            xq, wq, x_scale, w_scale, m_sizes
+            xq, wq, x_scale, w_scale, m_sizes, use_fast_accum=self.fast_accum
         )
 
     def quantize_and_compute(self, x, wq, w_scale, m_sizes):

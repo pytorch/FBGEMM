@@ -593,7 +593,9 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList XQ,
     at::TensorList WQ,
     at::TensorList x_scale,
-    at::TensorList w_scale) {
+    at::TensorList w_scale,
+    bool use_fast_accum = true) {
+  TORCH_CHECK(use_fast_accum, "Slow accum is not supported on AMD.");
   return _f8f8bf16_rowwise_grouped<std::vector<at::Tensor>>(
       XQ, WQ, x_scale, w_scale);
 }
@@ -602,7 +604,9 @@ at::Tensor f8f8bf16_rowwise_grouped_cat(
     at::TensorList XQ,
     at::TensorList WQ,
     at::TensorList x_scale,
-    at::TensorList w_scale) {
+    at::TensorList w_scale,
+    bool use_fast_accum = true) {
+  TORCH_CHECK(use_fast_accum, "Slow accum is not supported on AMD.");
   return _f8f8bf16_rowwise_grouped<at::Tensor>(XQ, WQ, x_scale, w_scale);
 }
 
@@ -612,7 +616,9 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_sizes) {
+    at::Tensor M_sizes,
+    bool use_fast_accum = true) {
+  TORCH_CHECK(use_fast_accum, "Slow accum is not supported on AMD.");
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int group_count = M_sizes.size(0);
@@ -672,7 +678,9 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor zero_start_index_M,
+    bool use_fast_accum = true,
     bool zeroing_output_tensor = true) {
+  TORCH_CHECK(use_fast_accum, "Slow accum is not supported on AMD.");
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
   int group_count = XQ.size(0);
