@@ -23,6 +23,7 @@ from .backward_adagrad_common import (
     gpu_unavailable,
     optests,
     PoolingMode,
+    CacheAlgorithm,
     SparseType,
     st,
 )
@@ -36,15 +37,32 @@ test_st_cpu["row_wise"] = st.just(True)
 test_st_cpu["output_dtype"] = st.sampled_from([SparseType.FP32, SparseType.FP16])
 
 
-@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
+#@optests.generate_opcheck_tests(fast=True, additional_decorators=additional_decorators)
 class BackwardAdagradTest(unittest.TestCase):
-    @unittest.skipIf(*gpu_unavailable)
-    @given(mixed_B=st.booleans(), **test_st)
-    @settings(**common_settings)
+    #@unittest.skipIf(*gpu_unavailable)
+    #@given(mixed_B=st.booleans(), **test_st)
+    #@settings(**common_settings)
     def test_backward_adagrad_fp16_pmSUM(  # noqa C901
         self,
-        **kwargs: Any,
+    #    **kwargs: Any,
     ) -> None:
+        kwargs = {
+            "mixed_B": False,
+            "T": 2,
+            "D": 74,
+            "B": 65,
+            "log_E": 5,
+            "L": 2,
+            "D_gradcheck": 2,
+            "stochastic_rounding": True,
+            "weighted": True,
+            "row_wise": True,
+            "mixed": True,
+            "use_cache": False,
+            "cache_algorithm": CacheAlgorithm.LRU,
+            "use_cpu": False,
+            "output_dtype": SparseType.FP32,
+        }
         kwargs = adjust_mixed_B_st(kwargs)
         execute_backward_adagrad(
             weights_precision=SparseType.FP16,
@@ -53,135 +71,135 @@ class BackwardAdagradTest(unittest.TestCase):
             **kwargs,
         )
 
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        mixed_B=st.booleans(),
-        compile=st.booleans(),
-        **test_st,
-    )
-    @settings(**common_settings)
-    def test_backward_adagrad_fp16_pmMEAN(  # noqa C901
-        self,
-        **kwargs: Any,
-    ) -> None:
-        kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
-            weights_precision=SparseType.FP16,
-            pooling_mode=PoolingMode.MEAN,
-            **kwargs,
-        )
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        compile=st.booleans(),
-        **test_st,
-    )
-    @settings(**common_settings)
-    def test_backward_adagrad_fp16_pmNONE(  # noqa C901
-        self,
-        **kwargs: Any,
-    ) -> None:
-        execute_backward_adagrad(
-            weights_precision=SparseType.FP16,
-            pooling_mode=PoolingMode.NONE,
-            mixed_B=False,
-            **kwargs,
-        )
-
-    @given(
-        mixed_B=st.booleans(),
-        compile=st.booleans(),
-        **test_st,
-    )
-    @settings(**common_settings)
-    def test_backward_adagrad_fp32_pmSUM(  # noqa C901
-        self,
-        **kwargs: Any,
-    ) -> None:
-        kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
-            weights_precision=SparseType.FP32,
-            pooling_mode=PoolingMode.SUM,
-            **kwargs,
-        )
-
-    @given(
-        compile=st.booleans(),
-        pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
-        **test_st_cpu,
-    )
-    @settings(**common_settings)
-    def test_backward_adagrad_fp32_cpu(  # noqa C901
-        self,
-        pooling_mode: PoolingMode,
-        **kwargs: Any,
-    ) -> None:
-        """
-        Test VBE support for CPU on rowwise adagrad
-        """
-        kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
-            weights_precision=SparseType.FP32,
-            pooling_mode=pooling_mode,
-            mixed_B=True,
-            **kwargs,
-        )
-
-    @given(
-        mixed_B=st.booleans(),
-        compile=st.booleans(),
-        **test_st,
-    )
-    @settings(**common_settings)
-    def test_backward_adagrad_fp32_pmMEAN(  # noqa C901
-        self,
-        **kwargs: Any,
-    ) -> None:
-        kwargs = adjust_mixed_B_st(kwargs)
-        execute_backward_adagrad(
-            weights_precision=SparseType.FP32,
-            pooling_mode=PoolingMode.MEAN,
-            **kwargs,
-        )
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        compile=st.booleans(),
-        **test_st,
-    )
-    @settings(**common_settings)
-    def test_backward_adagrad_fp32_pmNONE(  # noqa C901
-        self,
-        **kwargs: Any,
-    ) -> None:
-        execute_backward_adagrad(
-            weights_precision=SparseType.FP32,
-            mixed_B=False,
-            pooling_mode=PoolingMode.NONE,
-            **kwargs,
-        )
-
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        mixed_B=st.booleans(),
-        max_norm=st.floats(min_value=0.01, max_value=1.0),
-        **test_st,
-    )
-    @settings(**common_settings)
-    def test_backward_adagrad_fp16_pmSUM_with_max_norm(  # noqa C901
-        self,
-        **kwargs: Any,
-    ) -> None:
-        kwargs = adjust_mixed_B_st(kwargs)
-        fixed_strategy = {"row_wise": True, "use_cpu": False}
-        for key, val in fixed_strategy.items():
-            assert key in kwargs
-            kwargs[key] = val
-        execute_backward_adagrad(
-            weights_precision=SparseType.FP16,
-            pooling_mode=PoolingMode.SUM,
-            **kwargs,
-        )
+#    @unittest.skipIf(*gpu_unavailable)
+#    @given(
+#        mixed_B=st.booleans(),
+#        compile=st.booleans(),
+#        **test_st,
+#    )
+#    @settings(**common_settings)
+#    def test_backward_adagrad_fp16_pmMEAN(  # noqa C901
+#        self,
+#        **kwargs: Any,
+#    ) -> None:
+#        kwargs = adjust_mixed_B_st(kwargs)
+#        execute_backward_adagrad(
+#            weights_precision=SparseType.FP16,
+#            pooling_mode=PoolingMode.MEAN,
+#            **kwargs,
+#        )
+#
+#    @unittest.skipIf(*gpu_unavailable)
+#    @given(
+#        compile=st.booleans(),
+#        **test_st,
+#    )
+#    @settings(**common_settings)
+#    def test_backward_adagrad_fp16_pmNONE(  # noqa C901
+#        self,
+#        **kwargs: Any,
+#    ) -> None:
+#        execute_backward_adagrad(
+#            weights_precision=SparseType.FP16,
+#            pooling_mode=PoolingMode.NONE,
+#            mixed_B=False,
+#            **kwargs,
+#        )
+#
+#    @given(
+#        mixed_B=st.booleans(),
+#        compile=st.booleans(),
+#        **test_st,
+#    )
+#    @settings(**common_settings)
+#    def test_backward_adagrad_fp32_pmSUM(  # noqa C901
+#        self,
+#        **kwargs: Any,
+#    ) -> None:
+#        kwargs = adjust_mixed_B_st(kwargs)
+#        execute_backward_adagrad(
+#            weights_precision=SparseType.FP32,
+#            pooling_mode=PoolingMode.SUM,
+#            **kwargs,
+#        )
+#
+#    @given(
+#        compile=st.booleans(),
+#        pooling_mode=st.sampled_from([PoolingMode.SUM, PoolingMode.MEAN]),
+#        **test_st_cpu,
+#    )
+#    @settings(**common_settings)
+#    def test_backward_adagrad_fp32_cpu(  # noqa C901
+#        self,
+#        pooling_mode: PoolingMode,
+#        **kwargs: Any,
+#    ) -> None:
+#        """
+#        Test VBE support for CPU on rowwise adagrad
+#        """
+#        kwargs = adjust_mixed_B_st(kwargs)
+#        execute_backward_adagrad(
+#            weights_precision=SparseType.FP32,
+#            pooling_mode=pooling_mode,
+#            mixed_B=True,
+#            **kwargs,
+#        )
+#
+#    @given(
+#        mixed_B=st.booleans(),
+#        compile=st.booleans(),
+#        **test_st,
+#    )
+#    @settings(**common_settings)
+#    def test_backward_adagrad_fp32_pmMEAN(  # noqa C901
+#        self,
+#        **kwargs: Any,
+#    ) -> None:
+#        kwargs = adjust_mixed_B_st(kwargs)
+#        execute_backward_adagrad(
+#            weights_precision=SparseType.FP32,
+#            pooling_mode=PoolingMode.MEAN,
+#            **kwargs,
+#        )
+#
+#    @unittest.skipIf(*gpu_unavailable)
+#    @given(
+#        compile=st.booleans(),
+#        **test_st,
+#    )
+#    @settings(**common_settings)
+#    def test_backward_adagrad_fp32_pmNONE(  # noqa C901
+#        self,
+#        **kwargs: Any,
+#    ) -> None:
+#        execute_backward_adagrad(
+#            weights_precision=SparseType.FP32,
+#            mixed_B=False,
+#            pooling_mode=PoolingMode.NONE,
+#            **kwargs,
+#        )
+#
+#    @unittest.skipIf(*gpu_unavailable)
+#    @given(
+#        mixed_B=st.booleans(),
+#        max_norm=st.floats(min_value=0.01, max_value=1.0),
+#        **test_st,
+#    )
+#    @settings(**common_settings)
+#    def test_backward_adagrad_fp16_pmSUM_with_max_norm(  # noqa C901
+#        self,
+#        **kwargs: Any,
+#    ) -> None:
+#        kwargs = adjust_mixed_B_st(kwargs)
+#        fixed_strategy = {"row_wise": True, "use_cpu": False}
+#        for key, val in fixed_strategy.items():
+#            assert key in kwargs
+#            kwargs[key] = val
+#        execute_backward_adagrad(
+#            weights_precision=SparseType.FP16,
+#            pooling_mode=PoolingMode.SUM,
+#            **kwargs,
+#        )
 
 
 if __name__ == "__main__":

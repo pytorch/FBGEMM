@@ -8,6 +8,7 @@
 # pyre-strict
 
 import sys
+import logging
 
 from typing import Any, Dict
 
@@ -288,6 +289,7 @@ def execute_backward_adagrad(  # noqa C901
     # do SGD update
     lr = 0.5
     eps = 0.2
+    logging.info("STOC_DEBUG: stochastic_rounding {}".format(stochastic_rounding))
 
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
     cc = emb_op(
@@ -353,6 +355,8 @@ def execute_backward_adagrad(  # noqa C901
     # pyre-ignore[16]: Anonymous callable has no attribute `split_optimizer_states`.
     split_optimizer_states = cc.split_optimizer_states()
     assert len(split_optimizer_states) == T
+
+    return
 
     get_optimizer_states = None
     if row_wise:

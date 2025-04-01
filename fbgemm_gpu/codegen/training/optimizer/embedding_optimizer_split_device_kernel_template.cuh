@@ -98,6 +98,9 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {%- endfor %}
 
     StochasticRoundingRNGState state;
+    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+      printf("STOC_DEBUG: before optimizer &state=%p, stochastic_rounding=%d\n", &state, (int) stochastic_rounding);
+    }
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
             weights,
@@ -106,6 +109,9 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
             stochastic_rounding ? &state : nullptr,
             &stochastic_rounding_philox_args,
             threadIdx.x + run_id * blockDim.x);
+    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+      printf("STOC_DEBUG: after optimizer stochastic_rounding %d\n", stochastic_rounding ? 1 : 0);
+    }
 
     float2 qparams_template;
     if (kIsInt8 && !cache_weights) {
@@ -113,7 +119,6 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     }
 
     {{ split_precomputation }}
-
     {# /* Note: technically, global weight decay (gwd) compensation should be done before
     `split_precomputation`). But since decouple mode in `rowwise_adagrad` only computes correction,
     the order of applying gwd does not matter. We perform gwd update before `split_weight_update`
