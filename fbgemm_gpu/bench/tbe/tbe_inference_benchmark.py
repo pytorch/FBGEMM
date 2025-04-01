@@ -1431,7 +1431,7 @@ def nbit_uvm_compare_direct_mapped(
         )
         torch.cuda.cudart().cudaProfilerStop()
 
-        nonlocal stats
+        nonlocal stats  # noqa: F824
         if name not in stats:
             stats[name] = {}
 
