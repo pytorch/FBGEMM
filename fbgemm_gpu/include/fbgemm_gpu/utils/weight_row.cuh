@@ -28,8 +28,14 @@ DEVICE_INLINE void quantize_store(
     StochasticRoundingRNGState* state,
     const float2 qparams) {
   if (!state) {
+    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+      printf("STOC_DEBUG: nearest_rounding_vector\n");
+    }
     nearest_rounding_vector<dst_t, src_t>(output, value, qparams);
   } else {
+    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+      printf("STOC_DEBUG: stochastic_rounding_vector\n");
+    }
     stochastic_rounding_vector<dst_t, src_t>(output, value, *state, qparams);
   }
 }
@@ -133,9 +139,15 @@ struct WeightRow {
       : row_(row), cache_row_(cache_row), dim_(dim) {
     // Set the internal stoc_rounding_state_
     stoc_rounding_state_ = stoc_rounding_state;
+    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+      printf("STOC_DEBUG: WeightRow has stoc_rounding_state_ %p\n", stoc_rounding_state);
+    }
 
     if constexpr (!std::is_same_v<emb_t, float>) {
       if (stoc_rounding_state != nullptr) {
+        if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+          printf("STOC_DEBUG: WeightRow init stoc_rounding_state\n");
+        }
         const auto stochastic_rounding_seeds =
             at::cuda::philox::unpack(*stochastic_rounding_philox_args);
 
