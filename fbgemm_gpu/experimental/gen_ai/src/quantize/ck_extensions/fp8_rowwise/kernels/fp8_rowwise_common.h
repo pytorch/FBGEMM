@@ -103,7 +103,7 @@ template <
     ck::BlockGemmPipelineScheduler LOOP_SCHED,
     ck::BlockGemmPipelineVersion PIPELINE_VERSION,
     ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
-        ck::tensor_operation::device::GemmSpecialization::MNPadding,
+        ck::tensor_operation::device::GemmSpecialization::MNKPadding,
     ck::index_t AReadVecLength = 16,
     ck::index_t BReadVecLength = 16,
     ck::index_t ADstVecLength = 16,
@@ -203,6 +203,12 @@ at::Tensor f8f8bf16_rowwise_impl(
       a_element_op,
       b_element_op,
       cde_element_op);
+
+  if (!gemm.IsSupportedArgument(argument)) {
+    std::cerr << "Error: " << gemm.GetTypeString()
+              << " does not support this problem {" << M << ", " << N << ", "
+              << K << "}" << std::endl;
+  }
 
   auto stream = at::cuda::getCurrentHIPStream().stream();
   invoker.Run(argument, StreamConfig{stream, false});
