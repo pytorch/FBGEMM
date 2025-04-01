@@ -60,7 +60,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
         &weights[weights_offset_current + idx_current * D_emb + 0],
         &lxu_cache_weights[b][0],
         D_current,
-        stochastic_rounding ? &state : nullptr,
+        stochastic_rounding,
         &stochastic_rounding_philox_args,
         blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
             threadIdx.x);
