@@ -120,22 +120,20 @@ struct WeightRow {
       : row_(row),
         cache_row_(cache_row),
         dim_(dim),
-        stoc_rounding_state_(nullptr) {}
+        stoc_rounding_state_ptr_(nullptr) {}
 
   // Constructor for stochastic rounding
   DEVICE_INLINE WeightRow(
       emb_t* row,
       cache_t* cache_row,
       int dim,
-      StochasticRoundingRNGState* stoc_rounding_state,
+      bool stochastic_rounding,
       const at::PhiloxCudaState* stochastic_rounding_philox_args,
       const uint64_t salt_value)
       : row_(row), cache_row_(cache_row), dim_(dim) {
-    // Set the internal stoc_rounding_state_
-    stoc_rounding_state_ = stoc_rounding_state;
-
+    stoc_rounding_state_ptr_ = nullptr;
     if constexpr (!std::is_same_v<emb_t, float>) {
-      if (stoc_rounding_state != nullptr) {
+      if (stochastic_rounding) {
         const auto stochastic_rounding_seeds =
             at::cuda::philox::unpack(*stochastic_rounding_philox_args);
 
@@ -145,7 +143,9 @@ struct WeightRow {
             // The salt value should be different for every *run* and every
             // *thread*.
             salt_value,
-            stoc_rounding_state);
+            &stoc_rounding_state_);
+        // Store the pointer here to avoid an if-else cond during load/store
+        stoc_rounding_state_ptr_ = &stoc_rounding_state_;
       }
     }
   }
@@ -153,7 +153,8 @@ struct WeightRow {
   emb_t* row_;
   cache_t* cache_row_;
   int dim_;
-  StochasticRoundingRNGState* stoc_rounding_state_;
+  StochasticRoundingRNGState stoc_rounding_state_;
+  StochasticRoundingRNGState* stoc_rounding_state_ptr_;
 
   // Load from cache if resident; else load from embedding
   DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {
@@ -169,9 +170,9 @@ struct WeightRow {
   DEVICE_INLINE void
   store(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
     if (cache_row_) {
-      quantize_store(cache_row_ + d, v, stoc_rounding_state_, qparams);
+      quantize_store(cache_row_ + d, v, stoc_rounding_state_ptr_, qparams);
     } else {
-      quantize_store(row_ + d, v, stoc_rounding_state_, qparams);
+      quantize_store(row_ + d, v, stoc_rounding_state_ptr_, qparams);
     }
   }
 
@@ -201,7 +202,7 @@ struct WeightRow {
     } else {
       // Does 2-step conversion: cache_t -> FP32 -> weight_t
       const auto cache_slice = load(d, qparams);
-      quantize_store(row_ + d, cache_slice, stoc_rounding_state_, qparams);
+      quantize_store(row_ + d, cache_slice, stoc_rounding_state_ptr_, qparams);
     }
   }
 
@@ -236,7 +237,7 @@ struct WeightRow {
       // Does 2-step conversion: weight_t -> FP32 -> cache_t
       for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
         const auto slice = load(d, qparams);
-        quantize_store(dst_row + d, slice, stoc_rounding_state_, qparams);
+        quantize_store(dst_row + d, slice, stoc_rounding_state_ptr_, qparams);
       }
     }
   }
