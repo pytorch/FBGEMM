@@ -98,8 +98,9 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     {%- endfor %}
 
     StochasticRoundingRNGState state;
+    StochasticRoundingRNGState* mystate = &state;
     if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-      printf("STOC_DEBUG: before optimizer &state=%p, stochastic_rounding=%d\n", &state, (int) stochastic_rounding);
+      printf("STOC_DEBUG: before optimizer &state=%p, stochastic_rounding=%d, has mystate %d\n", &state, (int) stochastic_rounding, (int) (mystate != nullptr));
     }
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
