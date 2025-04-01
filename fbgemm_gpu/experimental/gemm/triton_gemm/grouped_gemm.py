@@ -136,7 +136,7 @@ def _fbgemm_grouped_gemm(
     m_sizes,
     # problem sizes
     G: tl.constexpr,
-    M_BUCKET: tl.constexpr,
+    M_BUCKET,
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
@@ -281,7 +281,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
     m_sizes,
     # problem sizes
     G: tl.constexpr,
-    M_BUCKET: tl.constexpr,
+    M_BUCKET,
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
@@ -483,7 +483,8 @@ def _grouped_gemm(
 
         return (NUM_SMS,)
 
-    M_BUCKET = triton.next_power_of_2(M)
+    M_BUCKET_CAP = 16384
+    M_BUCKET = min(triton.next_power_of_2(M), M_BUCKET_CAP)
     if x_scale is not None and w_scale is not None:
         assert x_scale.is_contiguous()
         assert w_scale.is_contiguous()
