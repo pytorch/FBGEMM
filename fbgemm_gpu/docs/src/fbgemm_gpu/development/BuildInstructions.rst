@@ -9,7 +9,6 @@ The currently available FBGEMM_GPU build variants are:
 
 * CPU-only
 * CUDA
-* GenAI (experimental)
 * ROCm
 
 The general steps for building FBGEMM_GPU are as follows:
@@ -70,6 +69,7 @@ Create a Conda environment with the specified Python version:
   conda run -n ${env_name} pip install --upgrade pip
   conda run -n ${env_name} python -m pip install pyOpenSSL>22.1.0
 
+.. _fbgemm-gpu.build.setup.cpu:
 
 Set Up for CPU-Only Build
 -------------------------
@@ -78,9 +78,10 @@ Follow the instructions for setting up the Conda environment at
 :ref:`fbgemm-gpu.build.setup.env`, followed by
 :ref:`fbgemm-gpu.build.setup.tools.install`.
 
+.. _fbgemm-gpu.build.setup.cuda:
 
-Set Up for CUDA / GenAI-Only Build
-----------------------------------
+Set Up for CUDA Build
+---------------------
 
 The CUDA build of FBGEMM_GPU requires a recent version of ``nvcc`` **that
 supports compute capability 3.5+**. Setting the machine up for CUDA builds of
@@ -159,11 +160,14 @@ submodule (see :ref:`fbgemm-gpu.build.prepare`).  The following include paths
 are already added to the CMake configuration:
 
 .. code:: cmake
+
   set(THIRDPARTY ${FBGEMM}/external)
 
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
 
+
+.. _fbgemm-gpu.build.setup.rocm:
 
 Set Up for ROCm Build
 ---------------------
@@ -463,15 +467,14 @@ Other Pre-Build Setup
 Preparing the Build
 ~~~~~~~~~~~~~~~~~~~
 
-Clone the repo along with its submodules, and install the
-``requirements.txt``:
+Clone the repo along with its submodules, and install ``requirements.txt``:
 
 .. code:: sh
 
   # !! Run inside the Conda environment !!
 
   # Select a version tag
-  FBGEMM_VERSION=v1.0.0
+  FBGEMM_VERSION=v1.2.0
 
   # Clone the repo along with its submodules
   git clone --recursive -b ${FBGEMM_VERSION} https://github.com/pytorch/FBGEMM.git fbgemm_${FBGEMM_VERSION}
@@ -479,6 +482,8 @@ Clone the repo along with its submodules, and install the
   # Install additional required packages for building and testing
   cd fbgemm_${FBGEMM_VERSION}/fbgemm_gpu
   pip install -r requirements.txt
+
+.. _fbgemm-gpu.build.the-process:
 
 The Build Process
 ~~~~~~~~~~~~~~~~~
@@ -494,6 +499,8 @@ build cache:
   # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
   python setup.py clean
+
+.. _fbgemm-gpu.build.set-wheel-vars:
 
 Set Wheel Build Variables
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -649,36 +656,6 @@ toolchains have been properly installed.
       --nccl_lib_path=${NCCL_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
-.. _fbgemm-gpu.build.process.genai:
-
-GenAI-Only Build
-----------------
-
-By default, the CUDA build of FBGEMM_GPU includes all experimental modules that
-are used for GenAI applications.  The instructions for building just the
-experimental modules are the same as those for a CUDA build, but with specifying
-``--package_variant=genai`` in the build invocation:
-
-.. code:: sh
-
-  # Build the wheel artifact only
-  python setup.py bdist_wheel \
-      --package_variant=genai \
-      --python-tag="${python_tag}" \
-      --plat-name="${python_plat_name}" \
-      --nvml_lib_path=${NVML_LIB_PATH} \
-      --nccl_lib_path=${NCCL_LIB_PATH} \
-      -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
-
-  # Build and install the library into the Conda environment
-  python setup.py install \
-      --package_variant=genai \
-      --nvml_lib_path=${NVML_LIB_PATH} \
-      --nccl_lib_path=${NCCL_LIB_PATH} \
-      -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
-
-Note that currently, only CUDA is supported for the experimental modules.
-
 .. _fbgemm-gpu.build.process.rocm:
 
 ROCm Build
@@ -722,6 +699,8 @@ presuming the toolchains have been properly installed.
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
       -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
+
+.. _fbgemm-gpu.build.process.post-build:
 
 Post-Build Checks (For Developers)
 ----------------------------------

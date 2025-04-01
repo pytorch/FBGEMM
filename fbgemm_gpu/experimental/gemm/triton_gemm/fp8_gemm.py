@@ -1228,7 +1228,7 @@ def matmul_fp8_row(
         desc_helper.init_tma_descriptor("bias")
 
         def persistent_grid_tma_ws(META):
-            nonlocal desc_helper
+            nonlocal desc_helper  # noqa: F824
             desc_helper.fill_2d_tma_descriptor(
                 "a",
                 a.data_ptr(),
@@ -1340,7 +1340,7 @@ def matmul_fp8_row(
         desc_helper.init_tma_descriptor("bias")
 
         def persistent_grid_tma(META):
-            nonlocal desc_helper
+            nonlocal desc_helper  # noqa: F824
             desc_helper.fill_2d_tma_descriptor(
                 "a",
                 a.data_ptr(),

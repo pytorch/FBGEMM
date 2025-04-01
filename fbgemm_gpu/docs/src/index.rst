@@ -113,3 +113,11 @@ Table of Contents
    fbgemm_gpu/python-api/tbe_ops_inference
    fbgemm_gpu/python-api/pooled_embedding_modules
    fbgemm_gpu/python-api/feature_gates
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM GenAI Development
+
+   fbgemm_genai/development/BuildInstructions
+   fbgemm_genai/development/InstallationInstructions
+   fbgemm_genai/development/TestInstructions
