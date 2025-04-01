@@ -363,7 +363,7 @@ test_setup_conda_environment () {
     install_cuda  "${env_name}" "${pytorch_variant_version}"                                            || return 1
     install_cudnn "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
   # Install ROCm tools and runtime
-  elif [ "$pytorch_variant_type" == "rocm" ]; then
+  elif [[ "$pytorch_variant_type" == "rocm" ]] && ! [[ "$(hostname)" =~ ^.*facebook.com$ ]]; then
     install_rocm_ubuntu     "${env_name}" "${pytorch_variant_version}"  || return 1
   fi
 

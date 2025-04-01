@@ -133,7 +133,8 @@ print_gpu_info () {
   if [[ "${BUILD_FROM_NOVA}" != '1' ]]; then
     echo "################################################################################"
     echo "[INFO] Printing general display info ..."
-    install_system_packages lshw
+    install_system_packages hostname lshw
+    print_exec hostname
     print_exec sudo lshw -C display
   fi
 
