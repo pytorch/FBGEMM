@@ -162,6 +162,7 @@ def scatter_add_padded_tokens(
             META["SPLIT_T"],
         )
 
+    T_BUCKET = triton.next_power_of_2(T)
     _fbgemm_scatter_add_padded_tokens[grid](
         in_tokens,
         token_counts,
@@ -169,6 +170,7 @@ def scatter_add_padded_tokens(
         out_tokens,
         EP,
         E,
+        T_BUCKET,
         T,
         D,
     )
@@ -211,7 +213,7 @@ _AMD_CONFIGS = [
 @triton.autotune(
     configs=_AMD_CONFIGS if torch.version.hip else _NV_CONFIGS,
     restore_value=("out_tokens_ptr",),
-    key=["EP", "E", "T", "D", "SPLIT_T"],
+    key=["EP", "E", "T_BUCKET", "D", "SPLIT_T"],
 )
 @triton.jit
 def _fbgemm_scatter_add_padded_tokens(
@@ -221,7 +223,8 @@ def _fbgemm_scatter_add_padded_tokens(
     out_tokens_ptr,
     EP: tl.constexpr,
     E: tl.constexpr,
-    T: tl.constexpr,
+    T_BUCKET,
+    T,
     D: tl.constexpr,
     SPLIT_T: tl.constexpr,
     BLOCK_D: tl.constexpr,

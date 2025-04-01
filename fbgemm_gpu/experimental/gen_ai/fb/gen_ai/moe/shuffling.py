@@ -94,11 +94,11 @@ def _combine_or_split_shuffling(
         is_combine,
         is_balanced,
         T_BUCKET,
+        EG,
         EP,
         E,
         D,
         expert_start,
-        expert_end,
         SPLIT_D,
     )
 
@@ -149,11 +149,10 @@ _AMD_CONFIGS = [
         "COMBINE",
         "BALANCED",
         "T_BUCKET",
+        "EG",
         "EP",
         "E",
         "D",
-        "EG_START",
-        "EG_END",
     ],
 )
 @triton.heuristics(
@@ -170,13 +169,13 @@ def _fbgemm_combine_or_split_shuffling(
     output_tokens_ptr,
     output_token_counts_ptr,
     COMBINE: tl.constexpr,
-    BALANCED: tl.constexpr,
-    T_BUCKET: tl.constexpr,
+    BALANCED,
+    T_BUCKET,
+    EG: tl.constexpr,
     EP: tl.constexpr,
     E: tl.constexpr,
     D: tl.constexpr,
-    EG_START: tl.constexpr,
-    EG_END: tl.constexpr,
+    EG_START,
     SPLIT_D: tl.constexpr,
     BLOCK_T: tl.constexpr,
     BLOCK_D: tl.constexpr,
@@ -189,9 +188,6 @@ def _fbgemm_combine_or_split_shuffling(
     output_token_counts: [E]
     """
     tidx = tl.program_id(0)
-
-    tl.static_assert(EG_END > EG_START)
-    EG: tl.constexpr = EG_END - EG_START
 
     rank = tidx // (EG * SPLIT_D)
     local_expert = (tidx % (EG * SPLIT_D)) // SPLIT_D
