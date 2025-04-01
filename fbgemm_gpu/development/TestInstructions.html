@@ -372,6 +372,12 @@
 <li class="toctree-l1"><a class="reference internal" href="../python-api/pooled_embedding_modules.html">Pooled Embedding Modules</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../python-api/feature_gates.html">Feature Gates (Python)</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">FBGEMM GenAI Development</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_genai/development/BuildInstructions.html">Build Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_genai/development/InstallationInstructions.html">Installation Instructions</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../fbgemm_genai/development/TestInstructions.html">Test Instructions</a></li>
+</ul>
 
             
           
@@ -450,9 +456,10 @@
   <section id="test-instructions">
 <h1>Test Instructions<a class="headerlink" href="#test-instructions" title="Permalink to this heading">¶</a></h1>
 <p>The tests (in the <code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/test/</span></code> directory) and benchmarks (in the
-<code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/bench/</span></code> directory) provide good examples on how to use FBGEMM_GPU.</p>
-<section id="setup-the-fbgemm-gpu-test-environment">
-<h2>Setup the FBGEMM_GPU Test Environment<a class="headerlink" href="#setup-the-fbgemm-gpu-test-environment" title="Permalink to this heading">¶</a></h2>
+<code class="docutils literal notranslate"><span class="pre">fbgemm_gpu/bench/</span></code> directory) provide good examples on how to use FBGEMM_GPU
+operators.</p>
+<section id="set-uup-the-fbgemm-gpu-test-environment">
+<h2>Set Uup the FBGEMM_GPU Test Environment<a class="headerlink" href="#set-uup-the-fbgemm-gpu-test-environment" title="Permalink to this heading">¶</a></h2>
 <p>After an environment is available from building / installing the FBGEMM_GPU
 package, additional packages need to be installed for tests to run correctly:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
@@ -467,7 +474,7 @@ python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </sp
 <p>To run the tests after building / installing the FBGEMM_GPU package:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
-<span class="c1"># From the /fbgemm_gpu/ directory</span>
+<span class="c1"># From the /fbgemm_gpu/test/ directory</span>
 <span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
 
 python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
@@ -504,7 +511,7 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 <code class="docutils literal notranslate"><span class="pre">FBGEMM_TEST_WITH_ROCM=1</span></code> set in the environment:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
-<span class="c1"># From the /fbgemm_gpu/ directory</span>
+<span class="c1"># From the fbgemm_gpu/test/ directory</span>
 <span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
 
 <span class="nb">export</span><span class="w"> </span><span class="nv">FBGEMM_TEST_WITH_ROCM</span><span class="o">=</span><span class="m">1</span>
@@ -521,10 +528,10 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 <p>To run the benchmarks:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
-<span class="c1"># From the /fbgemm_gpu/ directory</span>
+<span class="c1"># From the fbgemm_gpu/bench/ directory</span>
 <span class="nb">cd</span><span class="w"> </span>bench
 
-python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span class="w"> </span>uvm
+python<span class="w"> </span>tbe_training_benchmark.py<span class="w"> </span>device
 </pre></div>
 </div>
 </section>
@@ -574,7 +581,7 @@ python<span class="w"> </span>split_table_batched_embeddings_benchmark.py<span c
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
 <li><a class="reference internal" href="#">Test Instructions</a><ul>
-<li><a class="reference internal" href="#setup-the-fbgemm-gpu-test-environment">Setup the FBGEMM_GPU Test Environment</a></li>
+<li><a class="reference internal" href="#set-uup-the-fbgemm-gpu-test-environment">Set Uup the FBGEMM_GPU Test Environment</a></li>
 <li><a class="reference internal" href="#running-fbgemm-gpu-tests">Running FBGEMM_GPU Tests</a><ul>
 <li><a class="reference internal" href="#testing-with-the-cuda-variant">Testing with the CUDA Variant</a></li>
 <li><a class="reference internal" href="#testing-with-the-rocm-variant">Testing with the ROCm Variant</a></li>
