@@ -3035,6 +3035,15 @@ def _kernel_matmul_fp8_row_non_persistent(
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
         AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
     """
+    tl.assume(M >= 0)
+    tl.assume(N >= 0)
+    tl.assume(K >= 0)
+    tl.assume(stride_am >= 0)
+    tl.assume(stride_ak >= 0)
+    tl.assume(stride_bn >= 0)
+    tl.assume(stride_bk >= 0)
+    tl.assume(stride_cm >= 0)
+    tl.assume(stride_cn >= 0)
     # Matrix multiplication.
     pid = tl.program_id(0)
     pid_z = tl.program_id(1)
@@ -3046,6 +3055,8 @@ def _kernel_matmul_fp8_row_non_persistent(
     group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
     pid_m = group_id * GROUP_M + (pid % group_size)
     pid_n = (pid % width) // (group_size)
+    tl.assume(pid_m >= 0)
+    tl.assume(pid_n >= 0)
     # Do matrix multiplication.
     rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
     rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
