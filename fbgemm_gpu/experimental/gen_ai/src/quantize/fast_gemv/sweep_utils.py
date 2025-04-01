@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-unsafe
+
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 import torch
 from torch._inductor.utils import do_bench_using_profiling
