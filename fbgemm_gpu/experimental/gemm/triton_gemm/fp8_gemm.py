@@ -2382,6 +2382,368 @@ def triton_quantize_fp8_row(
     return a_fp8.view(a_shape), a_scale.view(a_shape[:-1])
 
 
+@triton.autotune(
+    configs=[
+        Config({"BLOCK_SIZE": 512}),
+        Config({"BLOCK_SIZE": 1024}),
+        Config({"BLOCK_SIZE": 2048}),
+        Config({"BLOCK_SIZE": 4096}),
+        Config({"BLOCK_SIZE": 8192}),
+    ],
+    key=["K"],
+)
+@triton.jit
+def _kernel_quantize_fp8_packed_row(
+    A,
+    A_fp8,
+    packed_scale,
+    scale_ub,
+    zero_start_index_M,
+    B,
+    M,
+    N,
+    K,
+    stride_ab,
+    stride_am,
+    stride_an,
+    stride_ak,
+    stride_ob,
+    stride_om,
+    stride_on,
+    stride_ok,
+    packed_scale_stride,
+    stride_zb,
+    stride_zm,
+    TL_FP8_DTYPE: tl.constexpr,
+    MAX_FP8: tl.constexpr,
+    EPS: tl.constexpr,
+    CLAMP_MAX: tl.constexpr,
+    JAGGED: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+    USE_INT64: tl.constexpr,
+) -> None:
+    """Quantize and scale each row.
+
+    Scale per row i is computed as MAX_FP8 / max(abs(A[i, :]))
+
+    Kernel naively iterates through  matrix with [1, BLOCK_SIZE] tiles
+    in a max pass then scale/quantize pass.
+
+    Todo:
+        * Better tiling schemes.
+
+    Args:
+        A (Tensor): higher precision input tensor of 4 dimension.
+        packed_scale (Tensor): [B * M * N] reciprocal scale tensor per row.
+        A_fp8 (Tensor): fp8 scaled tensor. A_fp8 = A / a_scale
+        scale_ub (Tensor): [1] Maximum value allowed for scale.
+        B (int): Size of dimenion 0
+        M (int): Size of dimenion 1
+        N (int): Size of dimenion 2
+        K (int): Size of dimenion 3
+        stride_ab (int): Stride of b dimension of A.
+        stride_am (int): Stride of m dimension of A.
+        stride_an (int): Stride of n dimension of A.
+        stride_ak (int): Stride of k dimension of A.
+        stride_ob (int): Stride of b dimension of output.
+        stride_om (int): Stride of m dimension of output.
+        stride_on (int): Stride of n dimension of output.
+        stride_ok (int): Stride of k dimension of output.
+        packed_scale_stride (int): Stride of the packed scale, indexing into a_fp8.
+        stride_zb (int): Stride of b dimension of jagged index.
+        stride_zm (int): Stride of m dimension of jagged index.
+        TL_FP8_DTYPE (tl.dtype): Target fp8 datatype.
+        MAX_FP8 (float): Maxmimum expressible value for FP8.
+        EPS (float): Epsilon value for numerical stability.
+        CLAMP_MAX (bool): Whethar to apply scale_ub.
+        JAGGED (bool): Whether to use jagged indexing.
+        BLOCK_SIZE (int): Block size for reduction.
+        USE_INT64 (bool): Whether to use int64 indexing for large inputs.
+    """
+    pid = tl.program_id(0)
+    # Use int64 indexing for large inputs. This is slower, but
+    # needed to avoid index overflows.
+    if USE_INT64:
+        pid = pid.to(tl.int64)
+    n_offset = tl.arange(0, BLOCK_SIZE)
+    a_offset_base = (
+        pid // (M * N) * stride_ab
+        + (pid % (M * N)) // N * stride_am
+        + (pid % (M * N)) % N * stride_an
+    )
+    a_fp8_offset_base = (
+        pid // (M * N) * stride_ob
+        + (pid % (M * N)) // N * stride_om
+        + (pid % (M * N)) % N * stride_on
+    )
+
+    K_in = K
+
+    if JAGGED:
+        z_offset_base = pid // (M * N) * stride_zb + (pid % (M * N)) // N * stride_zm
+        group_rows = tl.load(zero_start_index_M + z_offset_base)
+        current_row = pid % N
+        # If this row is empty, dont process any of it.
+        if current_row >= group_rows:
+            K_in = 0
+
+    # Calculate max.
+    cur_max = 0.0
+    for _k in range(0, tl.cdiv(K_in, BLOCK_SIZE)):
+        a = tl.load(
+            A + a_offset_base + n_offset * stride_ak,
+            mask=n_offset < K_in,
+            other=0.0,
+        )
+        tile_max = tl.max(tl.abs(a))
+        cur_max = tl.maximum(tile_max, cur_max)
+        n_offset += BLOCK_SIZE
+
+    # Clamp max value appropriately.
+    if CLAMP_MAX:
+        ub = tl.load(scale_ub)
+        cur_max = tl.clamp(cur_max, EPS, ub)
+    else:
+        cur_max = tl.maximum(cur_max, EPS)
+    # Scale and quantize.
+    a_scale = MAX_FP8 / cur_max
+
+    (fp8_0, fp8_1, fp8_2, fp8_3) = tl.inline_asm_elementwise(
+        asm="""
+        {
+            // $4 is the input register
+            .reg .b32 input;
+            mov.b32 input, $4;
+            mov.b32 $0, $4;
+            shr.b32 $1, $4, 8;
+            shr.b32 $2, $4, 16;
+            shr.b32 $3, $4, 24;
+        }
+            """,
+        constraints=("=r,=r,=r,=r," "r"),
+        # Let's pass in 1 uint32 value per iteration, containing 8 packed int4 values
+        args=[1.0 / a_scale],
+        dtype=(
+            tl.uint8,
+            tl.uint8,
+            tl.uint8,
+            tl.uint8,
+        ),
+        is_pure=True,
+        pack=1,
+    )
+
+    # There are some compiler issues with FP8 pointers
+    packed_scale_ptr = packed_scale.to(tl.pointer_type(tl.uint8))
+    tl.store(packed_scale_ptr + pid * packed_scale_stride, fp8_0)
+    tl.store(packed_scale_ptr + pid * packed_scale_stride + 1, fp8_1)
+    tl.store(packed_scale_ptr + pid * packed_scale_stride + 2, fp8_2)
+    tl.store(packed_scale_ptr + pid * packed_scale_stride + 3, fp8_3)
+
+    n_offset = tl.arange(0, BLOCK_SIZE)
+
+    for _k in range(0, tl.cdiv(K, BLOCK_SIZE)):
+        a = tl.load(
+            A + a_offset_base + n_offset * stride_ak,
+            mask=n_offset < K_in,
+            other=0.0,
+        )
+        a_fp8 = a * a_scale
+        # Clamp A to fp8 range to make sure there's no overflow.
+        # This is required for AMD. Nvidia's default saturation
+        # handles it, but it's nice to have anyway.
+        a_fp8 = tl.clamp(a_fp8, -MAX_FP8, MAX_FP8).to(TL_FP8_DTYPE)
+        tl.store(
+            A_fp8 + a_fp8_offset_base + n_offset * stride_ok,
+            a_fp8,
+            mask=n_offset < K,
+        )
+
+        n_offset += BLOCK_SIZE
+
+
+def triton_quantize_fp8_packed_row(
+    a: Tensor,
+    scale_ub: Optional[Tensor] = None,
+    zero_start_index_M: Optional[Tensor] = None,
+    return_only_packed: Optional[bool] = False,
+) -> Tuple[Optional[Tensor], Optional[Tensor], Tensor]:
+    """
+    Call the triton quantize fp8 row kernel to quantize a tensor to fp8 with row-wise scalings.
+
+    This packs the FP32 scale at the end of each row, so the fp8 scaled tensor and the reciprocal scale tensor per row are contiguous in memory.
+
+    Args:
+        a (Tensor): higher precision input tensor of 4 dimension.
+        scale_ub (Tensor): Maximum allowed value for scale.
+        zero_start_index_M (Tensor): Indicates number of nonzero elements in each row.
+        return_only_packed (bool): Only return the packed tensor, do not unpack results if True
+    Returns:
+        torch.Tensor: fp8 scaled tensor.
+        torch.Tensor: reciprocal scale tensor per row.
+        torch.Tensor: The packed FP8 scaled tensor, with the scale at the end of each row.
+    """
+    assert a.dim() <= 4, "Triton only supports up to 4 dimension input tensor."
+    a_shape = a.shape
+    while a.dim() < 4:
+        a = a.unsqueeze(0)
+    if zero_start_index_M is not None:
+        # There should be one value of zero_start_index_M per NxK matrix.
+        zero_start_index_M = zero_start_index_M.view(a.shape[0], a.shape[1])
+    # Get constant values.
+    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
+    num_rows = a.numel() // a.shape[-1]
+
+    # Allocate an extra 4-bytes at the end of each row for the scale.
+    a_fp8 = torch.empty(
+        (*a.shape[:-1], a.shape[-1] + 4), device=a.device, dtype=pt_dtype
+    )
+
+    # create a view of the packed scale
+    packed_scale = a_fp8[..., -4:]
+
+    # If input tensor is sufficiently large, we need to use int64 indexing.
+    use_int64 = a.numel() > (2**31 - 1)
+    grid = (num_rows,)
+
+    _kernel_quantize_fp8_packed_row[grid](
+        a,
+        a_fp8,
+        packed_scale,
+        scale_ub,
+        zero_start_index_M,
+        a.shape[0],
+        a.shape[1],
+        a.shape[2],
+        a.shape[3],
+        a.stride(0),
+        a.stride(1),
+        a.stride(2),
+        a.stride(3),
+        a_fp8.stride(0),
+        a_fp8.stride(1),
+        a_fp8.stride(2),
+        a_fp8.stride(3),
+        packed_scale.stride(2),  # this is the stride that matters
+        zero_start_index_M.stride(0) if zero_start_index_M is not None else None,
+        zero_start_index_M.stride(1) if zero_start_index_M is not None else None,
+        TL_FP8_DTYPE=tl_dtype,
+        MAX_FP8=max_fp8,
+        EPS=eps,
+        CLAMP_MAX=scale_ub is not None,
+        JAGGED=zero_start_index_M is not None,
+        USE_INT64=use_int64,
+    )
+    if return_only_packed:
+        return None, None, a_fp8.view((*a_shape[:-1], a_shape[-1] + 4))
+
+    # Extract the original shape data without the extra 4 bytes per row
+    # The data is still contiguous in memory, so we have to unpack it.
+    final_fp8_view = a_fp8[..., :-4].view(a_shape)
+    scale_view = a_fp8[..., -4:].reshape((num_rows * 4)).view(torch.float32)
+
+    # the difference with the packed API is that it also
+    # returns the full packed tensor as a third return value
+    return final_fp8_view, scale_view.view(a_shape[:-1]), a_fp8
+
+
+@torch.library.custom_op("triton::quantize_fp8_packed_row", mutates_args=())
+def quantize_fp8_packed_row(
+    a: Tensor,
+    scale_ub: Optional[Tensor] = None,
+    zero_start_index_M: Optional[Tensor] = None,
+    use_triton: bool = True,
+    output_device: Optional[torch.device] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize a to fp8 with row-wise scalings and optionally move to output device.
+
+    Args:
+        a (Tensor): Input high precision tensor. Required to have no more than 4 dimension
+        scale_ub (Tensor): Maximum allowed value for scale.
+        zero_start_index_M (Tensor): Indicates number of nonzero elements in each row.
+        use_triton (bool): Whether to use triton kernel or pytorch.
+        output_device (torch.device): Device to optionally move the scaled tensors to.
+    Returns:
+        torch.Tensor: fp8 scaled tensor.
+        torch.Tensor: The reciprocal scale tensor per row.
+    """
+
+    if a.device == torch.device("cpu"):
+        logger.info("Triton does not support cpu, falling back to torch ops.")
+        use_triton = False
+    if use_triton:
+        # ignore the packed tensor here, we aren't testing it
+        a_fp8, scale, _ = triton_quantize_fp8_packed_row(
+            a, scale_ub, zero_start_index_M, return_only_packed=False
+        )
+        assert a_fp8 is not None
+        assert scale is not None
+        return a_fp8, scale
+    # else use pytorch implementation.
+    if not output_device:
+        output_device = a.device
+
+    a_shape = a.shape
+    # Get constants.
+    pt_dtype, _, max_fp8, eps = get_fp8_constants()
+    row_max: torch.Tensor = torch.max(torch.abs(a), dim=-1)[0]
+    # Apply clamping.
+    if scale_ub is not None:
+        row_max = torch.clamp(row_max, min=eps, max=scale_ub.item())
+    else:
+        # pyre-ignore[6]: Incompatible parameter type [6]
+        row_max = torch.clamp(row_max, min=eps)
+    a_scale = torch.empty((a.shape[:-1]), dtype=torch.float32, device=output_device)
+    a_scale = max_fp8 / row_max.to(torch.float32)  # pyre-ignore
+    a_scale[a_scale == float("inf")] = 1.0  # pyre-ignore
+    a_fp8 = a * a_scale[..., None]  # pyre-ignore
+    # Cast and move data to output device (for cpu weight loading).
+    a_fp8 = a_fp8.to(device=output_device, dtype=pt_dtype)
+    a_scale = a_scale.to(output_device)  # pyre-ignore
+    del a
+    return a_fp8, (1 / a_scale).view(a_shape[:-1])  # pyre-ignore
+
+
+@torch.library.custom_op("triton::quantize_fp8_packed_row_raw", mutates_args=())
+def quantize_fp8_packed_row_raw(
+    a: Tensor,
+    scale_ub: Optional[Tensor] = None,
+    zero_start_index_M: Optional[Tensor] = None,
+    use_triton: bool = True,
+    output_device: Optional[torch.device] = None,
+) -> torch.Tensor:
+    """
+    Quantize a to fp8 with row-wise scalings and optionally move to output device.
+
+    Identical to quantize_fp8_packed_row, except it only returns the raw packed tensor.
+
+    Args:
+        a (Tensor): Input high precision tensor. Required to have no more than 4 dimension
+        scale_ub (Tensor): Maximum allowed value for scale.
+        zero_start_index_M (Tensor): Indicates number of nonzero elements in each row.
+        use_triton (bool): Whether to use triton kernel or pytorch.
+        output_device (torch.device): Device to optionally move the scaled tensors to.
+    Returns:
+        torch.Tensor: fp8 scaled tensor.
+        torch.Tensor: The reciprocal scale tensor per row.
+    """
+
+    if a.device == torch.device("cpu"):
+        logger.info("Triton does not support cpu, falling back to torch ops.")
+        use_triton = False
+    if use_triton:
+        # ignore the packed tensor here, we aren't testing it
+        _, _, packed_tensor = triton_quantize_fp8_packed_row(
+            a, scale_ub, zero_start_index_M, return_only_packed=True
+        )
+        return packed_tensor
+    else:
+        raise Exception(
+            "No PyTorch implementation provided for triton::quantize_fp8_packed_row_raw"
+        )
+
+
 @torch.library.custom_op("triton::quantize_fp8_row", mutates_args=())
 def quantize_fp8_row(
     a: Tensor,
@@ -3205,6 +3567,117 @@ def dequantize_fp8_row(
         xq.stride(1),
         USE_INT64=use_int64,
     )
+    return x_dequant
+
+
+@triton.autotune(
+    configs=[Config({"BLOCK_M": 16, "BLOCK_K": 512, "NUM_STAGES": 2})],
+    key=["M", "K"],
+)
+@triton.jit
+def _kernel_dequantize_fp8_packed_row(
+    xq_ptr,
+    x_scale_ptr,
+    x_dequant_ptr,
+    M,
+    K,
+    stride_xm,
+    stride_xk,
+    stride_xdqm,
+    stride_xdqk,
+    BLOCK_M: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    NUM_STAGES: tl.constexpr,
+    USE_INT64: tl.constexpr,
+):
+    """
+    Kernel to dequantize FP8 tensor to BF16 tensor.
+    Args:
+        xq_ptr (tl.constexpr): Pointer to FP8 tensor.
+        x_scale_ptr (tl.constexpr): Pointer to FP8 scale tensor.
+        x_dequant_ptr (tl.constexpr): Pointer to BF16 tensor.
+        M (tl.constexpr): M dimension of input tensor.
+        K (tl.constexpr): K dimension of input tensor (along which scales are applied)
+        BLOCK_SIZE (tl.constexpr): Block size for the K dimension.
+    """
+    pid = tl.program_id(axis=0)
+    if USE_INT64:
+        pid = pid.to(tl.int64)
+    offs_m = pid * BLOCK_M + tl.arange(0, BLOCK_M)
+    offs_k = tl.arange(0, BLOCK_K)
+    scales = tl.load(x_scale_ptr + offs_m)
+
+    for _k in tl.range(0, tl.cdiv(K, BLOCK_K), num_stages=NUM_STAGES):
+        mask = (offs_m[:, None] < M) & (offs_k[None, :] < K)
+
+        xq = tl.load(
+            xq_ptr + offs_m[:, None] * stride_xm + offs_k[None, :] * stride_xk,
+            mask=mask,
+            other=0.0,
+        )
+        x_dq = xq * scales[:, None]
+
+        tl.store(
+            x_dequant_ptr
+            + offs_m[:, None] * stride_xdqm
+            + offs_k[None, :] * stride_xdqk,
+            x_dq,
+            mask=mask,
+        )
+        offs_k += BLOCK_K
+
+
+def dequantize_fp8_packed_row(
+    xq: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Rowwise Dequantize FP8 tensor to BF16 tensor along last axis.
+
+    Args:
+        xq (torch.Tensor): Packed FP8 tensor to be dequantized. The last 4 bytes of each row is the FP32 scale for that row.
+
+    Returns:
+        torch.Tensor: Dequantized BF16 tensor.
+    """
+
+    # Create a view of the packed tensors, get the scale and actual xq tensor
+    # This makes it much easier to write the kernel
+    orig_shape = (*xq.shape[:-1], xq.shape[-1] - 4)
+    actual_xq = xq[..., :-4].view(orig_shape)
+
+    assert xq.is_contiguous(), "Input tensors must be contiguous"
+    x_dequant = torch.empty(orig_shape, dtype=torch.bfloat16, device=xq.device)
+
+    # Calculate number of rows when flattened
+    num_rows = actual_xq.numel() // actual_xq.shape[-1]
+
+    # TODO: we take a perf hit from these reshapes, can we do better?
+    # It's hard to skip this reshape, we can't create a int32/float32 view because of alignment issues
+    scale_view = xq[..., -4:].reshape((num_rows * 4)).view(torch.float32)
+    scale_view = scale_view.view(orig_shape[:-1])
+
+    # Reshape to 2-d array keeping last dim only.
+    K = actual_xq.shape[-1]
+    actual_xq = actual_xq.reshape(-1, K)
+    M = actual_xq.shape[0]
+    use_int64 = actual_xq.numel() > 2**31
+
+    def grid(meta):
+        return (triton.cdiv(M, meta["BLOCK_M"]),)
+
+    _kernel_dequantize_fp8_packed_row[grid](
+        actual_xq,
+        scale_view,
+        x_dequant,
+        M,
+        K,
+        actual_xq.stride(0),
+        actual_xq.stride(1),
+        x_dequant.stride(-2),  # Use squashed stride.
+        x_dequant.stride(-1),
+        USE_INT64=use_int64,
+    )
+
     return x_dequant
 
 
