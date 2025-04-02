@@ -16,10 +16,14 @@ import triton
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
         dequantize_fp8_block,
+        dequantize_fp8_packed_row,
         dequantize_fp8_row,
         matmul_fp8_block,
         matmul_fp8_row,
         quantize_fp8_block,
+        # packed_row unpacks the values, packed_row_raw returns just the packed tensor
+        quantize_fp8_packed_row,
+        quantize_fp8_packed_row_raw,
         quantize_fp8_row,
         scale_fp8_row,
     )
@@ -138,6 +142,116 @@ class TestFp8Matmul(unittest.TestCase):
             use_jagged=True,
         )
 
+    def test_quantize_fp8_packed_row(self) -> None:
+        def _test_quantize_fp8_packed_row(
+            shape: Tuple[int, ...],
+            use_triton: bool,
+            device: torch.device,
+            output_device: Optional[torch.device] = None,
+            use_jagged: bool = False,
+            use_scale_ub: bool = False,
+            transpose_inputs: bool = False,
+        ) -> None:
+            a = torch.randn(shape, dtype=torch.bfloat16, device=device)
+            inputs = [a]
+            # if transpose_inputs is true, get all possible dimension combinations
+            # of the input tensor and transposes each pair
+            if transpose_inputs:
+                dims = range(a.ndim)
+                for dim1, dim2 in itertools.combinations(dims, 2):
+                    dims_list = list(dims)
+                    dims_list[dim1], dims_list[dim2] = dims_list[dim2], dims_list[dim1]
+                    inputs.append(a.clone().permute(dims_list))
+            scale_ub = (
+                torch.tensor([1200], dtype=torch.float, device=device)
+                if use_scale_ub
+                else None
+            )
+            for input_a in inputs:
+                # Apply sparsification if specified.
+                zero_start_index_M = None
+                if use_jagged:
+                    # View input as [G, M, K] where G is the number of groups.
+                    grouped_input = input_a.view(
+                        -1, input_a.shape[-2], input_a.shape[-1]
+                    )
+                    m_vals = torch.randint(
+                        0, grouped_input.shape[1] + 1, (grouped_input.shape[0],)
+                    )
+                    mask = torch.arange(grouped_input.shape[-2]).expand(
+                        (grouped_input.shape[0], grouped_input.shape[1])
+                    ) >= m_vals.unsqueeze(-1)
+                    # Set corresponding values to 0.
+                    grouped_input[mask] = 0.0
+                    # Generate nonzero tensor in same layout as input.
+                    zero_start_index_M = torch.count_nonzero(
+                        torch.sum(grouped_input, dim=-1), dim=-1
+                    )
+
+                a_fp8, a_scale = quantize_fp8_packed_row(
+                    input_a,
+                    scale_ub=scale_ub,
+                    zero_start_index_M=zero_start_index_M,
+                    use_triton=use_triton,
+                    output_device=output_device,
+                )
+
+                # Undo scaling.
+                a_torch = a_fp8.to(torch.bfloat16)
+                broadcast_shape = list(a_torch.shape[:-1]) + [-1]
+
+                assert a_scale.shape == a_torch.shape[:-1]
+
+                a_torch *= a_scale.view(broadcast_shape)
+
+                self.assertTrue(
+                    torch.allclose(
+                        input_a.to(device=output_device),
+                        a_torch,
+                        atol=2e-1,
+                        rtol=1e-1,
+                    )
+                )
+
+        for n_col in range(1, 9000, 100):
+            _test_quantize_fp8_packed_row((2, n_col), True, torch.device("cuda"))
+        # Test with batched input.
+        _test_quantize_fp8_packed_row((4, 2, 3), True, torch.device("cuda"))
+        _test_quantize_fp8_packed_row((6, 4, 2, 3), True, torch.device("cuda"))
+        # Test with non-contiguous input
+        _test_quantize_fp8_packed_row(
+            (4, 2, 3), True, torch.device("cuda"), transpose_inputs=True
+        )
+        _test_quantize_fp8_packed_row(
+            (6, 4, 2, 3), True, torch.device("cuda"), transpose_inputs=True
+        )
+        _test_quantize_fp8_packed_row(
+            (2, 3), True, torch.device("cuda"), use_scale_ub=True
+        )
+        # Test with cpu
+        _test_quantize_fp8_packed_row(
+            (2, 3), False, torch.device("cpu"), torch.device("cuda")
+        )
+        _test_quantize_fp8_packed_row(
+            (2, 3), False, torch.device("cpu"), torch.device("cuda"), use_scale_ub=True
+        )
+        _test_quantize_fp8_packed_row((4, 2, 3), True, torch.device("cpu"))
+        _test_quantize_fp8_packed_row((6, 4, 2, 3), True, torch.device("cpu"))
+        # Test with zero_start_index_M
+        _test_quantize_fp8_packed_row(
+            (20, 30), True, torch.device("cuda"), use_jagged=True
+        )
+        _test_quantize_fp8_packed_row(
+            (6, 4, 2, 3), True, torch.device("cuda"), use_jagged=True
+        )
+        _test_quantize_fp8_packed_row(
+            (4, 2, 3),
+            True,
+            torch.device("cuda"),
+            transpose_inputs=True,
+            use_jagged=True,
+        )
+
     def test_dequantize_fp8_row(self) -> None:
         def _test_dequantize_fp8_row(
             shape: Tuple[int, ...],
@@ -172,6 +286,44 @@ class TestFp8Matmul(unittest.TestCase):
         shapes = [(4, 2, 3), (6, 4, 2, 3), (2, 3), (20, 30)]
         for shape in shapes:
             _test_dequantize_fp8_row(shape)
+
+    def test_dequantize_fp8_packed_row(self) -> None:
+        def _test_dequantize_fp8_packed_row(
+            shape: Tuple[int, ...],
+        ) -> None:
+            a = torch.randn(shape, dtype=torch.bfloat16, device="cuda")
+
+            packed_values = quantize_fp8_packed_row_raw(
+                a,
+                use_triton=True,
+            )
+
+            # Undo scaling.
+            a_bf16 = dequantize_fp8_packed_row(packed_values)
+
+            ms = triton.testing.do_bench(
+                lambda: dequantize_fp8_packed_row(packed_values),
+            )
+            print(f"Shape: {a.shape} MS: {ms}")
+
+            torch.testing.assert_close(a_bf16, a, atol=2e-1, rtol=1e-1)
+
+            self.assertTrue(
+                torch.allclose(
+                    a,
+                    a_bf16,
+                    atol=2e-1,
+                    rtol=1e-1,
+                )
+            )
+
+        for n_col in [1, 100, 1000]:
+            _test_dequantize_fp8_packed_row((2, n_col))
+        # Test with batched input.
+        _test_dequantize_fp8_packed_row((4, 2, 3))
+        shapes = [(4, 2, 3), (6, 4, 2, 3), (2, 3), (20, 30)]
+        for shape in shapes:
+            _test_dequantize_fp8_packed_row(shape)
 
     def test_scale_fp8_row(self) -> None:
         def _test_scale_fp8_row(
