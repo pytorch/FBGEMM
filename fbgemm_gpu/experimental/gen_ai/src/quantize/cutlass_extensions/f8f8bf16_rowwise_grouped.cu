@@ -216,7 +216,8 @@ template <
     int TBS_M,
     int TBS_N,
     int TBS_K,
-    bool PONG>
+    bool PONG,
+    bool FAST_ACCUM>
 at::Tensor f8f8bf16_rowwise_grouped_impl(
     InputType XQ, // FP8
     InputType WQ, // FP8
@@ -267,10 +268,20 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
       cute::Shape<cute::Int<TB_M>, cute::Int<TB_N>, cute::Int<TB_K>>;
   using ClusterShape =
       cute::Shape<cute::Int<TBS_M>, cute::Int<TBS_N>, cute::Int<TBS_K>>;
-  using CooperativeSchedule =
+  using CooperativeScheduleFast =
       cutlass::gemm::KernelPtrArrayTmaWarpSpecializedCooperativeFP8FastAccum;
-  using PongSchedule =
+  using CooperativeScheduleSlow =
+      cutlass::gemm::KernelPtrArrayTmaWarpSpecializedCooperative;
+  using CooperativeSchedule = cute::conditional_t<
+      FAST_ACCUM,
+      CooperativeScheduleFast,
+      CooperativeScheduleSlow>;
+  using PongScheduleFast =
       cutlass::gemm::KernelPtrArrayTmaWarpSpecializedPingpongFP8FastAccum;
+  using PongScheduleSlow =
+      cutlass::gemm::KernelPtrArrayTmaWarpSpecializedPingpong;
+  using PongSchedule =
+      cute::conditional_t<FAST_ACCUM, PongScheduleFast, PongScheduleSlow>;
   using CooperativeEpilogueSchedule =
       cutlass::epilogue::PtrArrayTmaWarpSpecializedCooperative;
   using PongEpilogueSchedule =
@@ -585,6 +596,49 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
   return output;
 }
 
+template <
+    typename InputType,
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool PONG>
+at::Tensor _fast_accum_wrapper(
+    bool use_fast_accum,
+    InputType XQ, // FP8
+    InputType WQ, // FP8
+    InputType x_scale,
+    InputType w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
+    std::optional<at::Tensor> M_sizes = std::nullopt) {
+  if (use_fast_accum) {
+    return f8f8bf16_rowwise_grouped_impl<
+        InputType,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        PONG,
+        true>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+  } else {
+    return f8f8bf16_rowwise_grouped_impl<
+        InputType,
+        TB_M,
+        TB_N,
+        TB_K,
+        TBS_M,
+        TBS_N,
+        TBS_K,
+        PONG,
+        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+  }
+}
+
 // FP8 Tensorwise grouped cutlass kernel dispatch.
 template <typename InputType>
 at::Tensor dispatch_fp8_grouped_kernel(
@@ -594,69 +648,70 @@ at::Tensor dispatch_fp8_grouped_kernel(
     InputType x_scale,
     InputType w_scale,
     at::Tensor output,
+    bool use_fast_accum = true,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
   // Use heuristics to pick best kernel implementation.
   if (total_M <= 16) {
-    return f8f8bf16_rowwise_grouped_impl<
-        InputType,
-        128,
-        16,
-        128,
-        1,
-        1,
-        1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+    return _fast_accum_wrapper<InputType, 128, 16, 128, 1, 1, 1, false>(
+        use_fast_accum,
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        zero_start_index_M,
+        M_sizes);
   } else if (total_M <= 32) {
-    return f8f8bf16_rowwise_grouped_impl<
-        InputType,
-        128,
-        32,
-        128,
-        1,
-        1,
-        1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+    return _fast_accum_wrapper<InputType, 128, 32, 128, 1, 1, 1, false>(
+        use_fast_accum,
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        zero_start_index_M,
+        M_sizes);
   } else if (total_M <= 64) {
-    return f8f8bf16_rowwise_grouped_impl<
-        InputType,
-        128,
-        64,
-        128,
-        1,
-        1,
-        1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+    return _fast_accum_wrapper<InputType, 128, 64, 128, 1, 1, 1, false>(
+        use_fast_accum,
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        zero_start_index_M,
+        M_sizes);
   } else if (total_M <= 128) {
-    return f8f8bf16_rowwise_grouped_impl<
-        InputType,
-        128,
-        128,
-        128,
-        1,
-        1,
-        1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+    return _fast_accum_wrapper<InputType, 128, 128, 128, 1, 1, 1, false>(
+        use_fast_accum,
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        zero_start_index_M,
+        M_sizes);
   } else if (total_M <= 512) {
-    return f8f8bf16_rowwise_grouped_impl<
-        InputType,
-        256,
-        128,
-        128,
-        2,
-        1,
-        1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+    return _fast_accum_wrapper<InputType, 256, 128, 128, 2, 1, 1, false>(
+        use_fast_accum,
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        zero_start_index_M,
+        M_sizes);
   } else {
-    return f8f8bf16_rowwise_grouped_impl<
-        InputType,
-        128,
-        256,
-        128,
-        2,
-        1,
-        1,
-        false>(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+    return _fast_accum_wrapper<InputType, 128, 256, 128, 2, 1, 1, false>(
+        use_fast_accum,
+        XQ,
+        WQ,
+        x_scale,
+        w_scale,
+        output,
+        zero_start_index_M,
+        M_sizes);
   }
 }
 
@@ -665,7 +720,8 @@ OutputType _f8f8bf16_rowwise_grouped(
     at::TensorList XQ, // FP8
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
-    at::TensorList w_scale) {
+    at::TensorList w_scale,
+    bool use_fast_accum = true) {
   at::Tensor Y;
   int total_M = 0;
   int G = XQ.size();
@@ -685,7 +741,7 @@ OutputType _f8f8bf16_rowwise_grouped(
 
   // Run kernel.
   at::Tensor g_out = dispatch_fp8_grouped_kernel<at::TensorList>(
-      total_M, XQ, WQ, x_scale, w_scale, Y);
+      total_M, XQ, WQ, x_scale, w_scale, Y, use_fast_accum);
 
   // Return appropriate output type.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
@@ -705,17 +761,20 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList XQ, // FP8
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
-    at::TensorList w_scale) {
+    at::TensorList w_scale,
+    bool use_fast_accum = true) {
   return _f8f8bf16_rowwise_grouped<std::vector<at::Tensor>>(
-      XQ, WQ, x_scale, w_scale);
+      XQ, WQ, x_scale, w_scale, use_fast_accum);
 }
 
 at::Tensor f8f8bf16_rowwise_grouped_cat(
     at::TensorList XQ, // FP8
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
-    at::TensorList w_scale) {
-  return _f8f8bf16_rowwise_grouped<at::Tensor>(XQ, WQ, x_scale, w_scale);
+    at::TensorList w_scale,
+    bool use_fast_accum = true) {
+  return _f8f8bf16_rowwise_grouped<at::Tensor>(
+      XQ, WQ, x_scale, w_scale, use_fast_accum);
 }
 
 at::Tensor f8f8bf16_rowwise_grouped_stacked(
@@ -723,7 +782,8 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_sizes) {
+    at::Tensor M_sizes,
+    bool use_fast_accum = true) {
   int total_M = XQ.size(0);
   int N = WQ.size(1);
   int G = M_sizes.size(0);
@@ -739,7 +799,15 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
   }
   // Return continuous view of output.
   at::Tensor out = dispatch_fp8_grouped_kernel<at::Tensor>(
-      total_M, XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_sizes);
+      total_M,
+      XQ,
+      WQ,
+      x_scale,
+      w_scale,
+      Y,
+      use_fast_accum,
+      std::nullopt,
+      M_sizes);
   return out.view({total_M, N});
 }
 
@@ -749,6 +817,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor zero_start_index_M,
+    bool use_fast_accum = true,
     bool zeroing_output_tensor = true) {
   TORCH_CHECK(
       zero_start_index_M.device() == XQ.device(),
@@ -767,7 +836,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
 
   // Return continuous view of output.
   at::Tensor output = dispatch_fp8_grouped_kernel<at::Tensor>(
-      G * M, XQ, WQ, x_scale, w_scale, Y, zero_start_index_M);
+      G * M, XQ, WQ, x_scale, w_scale, Y, use_fast_accum, zero_start_index_M);
   // View as proper shape.
   return output.view({G, M, N});
 }
@@ -778,7 +847,8 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList XQ, // FP8
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
-    at::TensorList w_scale) {
+    at::TensorList w_scale,
+    bool use_fast_accum = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -787,7 +857,8 @@ at::Tensor f8f8bf16_rowwise_grouped_cat(
     at::TensorList XQ, // FP8
     at::TensorList WQ, // FP8
     at::TensorList x_scale,
-    at::TensorList w_scale) {
+    at::TensorList w_scale,
+    bool use_fast_accum = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -797,7 +868,8 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor WQ, // FP8
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor M_sizes) {
+    at::Tensor M_sizes,
+    bool use_fast_accum = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
@@ -808,6 +880,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor zero_start_index_M,
+    bool use_fast_accum = true,
     bool zeroing_output_tensor = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
