@@ -780,6 +780,8 @@ def _grouped_gemm(
     assert K == w.shape[1]
 
     y = torch.empty((M, N), device=x.device, dtype=torch.bfloat16)
+    if M == 0 or N == 0:
+        return y
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
 
