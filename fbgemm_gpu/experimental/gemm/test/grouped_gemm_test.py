@@ -45,6 +45,8 @@ class TestGroupedGEMM(unittest.TestCase):
                 torch.randint(
                     low=0, high=M, size=[G - 1], device=device, dtype=torch.int32
                 )
+                if M > 0
+                else torch.zeros([G - 1], device=device, dtype=torch.int32)
             )
             m_ends = m_ends.tolist()
             m_starts = [0] + m_ends
@@ -85,7 +87,7 @@ class TestGroupedGEMM(unittest.TestCase):
             torch.testing.assert_close(result, expected_result, atol=2e-2, rtol=1.6e-2)
 
         for G in (1, 4, 16):
-            for M in (64, 512):
+            for M in (0, 64, 512):
                 for fast_accu in (True, False):
                     for ws in (True, False):
                         logging.info(
@@ -111,6 +113,8 @@ class TestGroupedGEMM(unittest.TestCase):
                 torch.randint(
                     low=0, high=M, size=[G - 1], device=device, dtype=torch.int32
                 )
+                if M > 0
+                else torch.zeros([G - 1], device=device, dtype=torch.int32)
             )
             m_ends = m_ends.tolist()
             m_starts = [0] + m_ends
@@ -138,7 +142,7 @@ class TestGroupedGEMM(unittest.TestCase):
             torch.testing.assert_close(result, expected_result, atol=1e-5, rtol=1.6e-2)
 
         for G in (1, 4, 16):
-            for M in (64, 512):
+            for M in (0, 64, 512):
                 for ws in (True, False):
                     logging.info(f"Testing BF16 GMM with G={G}, M={M}")
                     _test_grouped_gemm_bf16(
