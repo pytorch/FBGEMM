@@ -31,7 +31,8 @@ void _bounds_check_indices_cuda_v1(
     const int64_t max_B,
     const std::optional<Tensor>& b_t_map,
     const int32_t info_B_num_bits,
-    const uint32_t info_B_mask);
+    const uint32_t info_B_mask,
+    const bool prefetch_pipeline);
 
 void _bounds_check_indices_cuda_v2(
     Tensor& rows_per_table,
@@ -44,7 +45,8 @@ void _bounds_check_indices_cuda_v2(
     const int64_t max_B,
     const std::optional<Tensor>& b_t_map,
     const int32_t info_B_num_bits,
-    const uint32_t info_B_mask);
+    const uint32_t info_B_mask,
+    const bool prefetch_pipeline);
 
 ///@ingroup embedding-cuda
 void bounds_check_indices_cuda(
@@ -59,7 +61,8 @@ void bounds_check_indices_cuda(
     const std::optional<Tensor>& b_t_map,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask,
-    const int8_t bounds_check_version) {
+    const int8_t bounds_check_version,
+    const bool prefetch_pipeline) {
 #if USE_ROCM
   // Force using bounds_check_indices v2 on ROCm because ROCm has a constraint
   // that the gridDim * blockDim has to be smaller than 2^32. The v1 kernel can
@@ -86,7 +89,8 @@ void bounds_check_indices_cuda(
       max_B,
       b_t_map,
       static_cast<int32_t>(info_B_num_bits),
-      static_cast<uint32_t>(info_B_mask));
+      static_cast<uint32_t>(info_B_mask),
+      prefetch_pipeline);
 }
 // Deprecated for fb namespace! Please use fbgemm namespace instead!
 TORCH_LIBRARY_FRAGMENT(fb, m) {

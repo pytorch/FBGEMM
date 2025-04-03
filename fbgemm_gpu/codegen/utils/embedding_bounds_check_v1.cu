@@ -201,13 +201,17 @@ void _bounds_check_indices_cuda_v1(
     const int64_t max_B,
     const std::optional<Tensor>& /*b_t_map*/,
     const int32_t /*info_b_num_bits*/,
-    const uint32_t /*info_B_mask*/) {
+    const uint32_t /*info_B_mask*/,
+    const bool prefetch_pipeline) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       rows_per_table, indices, offsets, warning, weights, B_offsets);
   TENSOR_NDIM_EQUALS(rows_per_table, 1);
   TENSOR_NDIM_EQUALS(indices, 1);
   TENSOR_NDIM_EQUALS(offsets, 1);
   TENSOR_NDIM_EQUALS(warning, 1);
+  TORCH_CHECK(
+      !prefetch_pipeline,
+      "bounds_check_indices_v1 does not support prefetch_pipeline=true")
 
   const auto vbe = B_offsets.has_value();
   if (vbe) {
