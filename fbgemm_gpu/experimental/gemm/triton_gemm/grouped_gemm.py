@@ -885,7 +885,7 @@ def grouped_gemm(
     x: torch.Tensor,
     w: torch.Tensor,
     m_sizes: torch.Tensor,
-    use_fast_accum: bool = False,
+    use_fast_accum: bool = True,
     *,
     _use_warp_specialization: bool = False,
 ) -> torch.Tensor:
@@ -904,7 +904,7 @@ def grouped_gemm_fp8_rowwise(
     m_sizes: torch.Tensor,
     x_scale: torch.Tensor,
     w_scale: torch.Tensor,
-    use_fast_accum: bool = False,
+    use_fast_accum: bool = True,
     *,
     _use_warp_specialization: bool = False,
 ) -> torch.Tensor:
