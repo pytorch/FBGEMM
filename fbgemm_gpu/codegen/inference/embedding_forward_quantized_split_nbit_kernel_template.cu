@@ -212,11 +212,15 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             buffers[warp_idx][i][input_row_idx][row_load_idx] = data;
           }
           {% if weighted %}
+          {%- if is_rocm %}
           if (valid && row_load_idx == 0)  {
             // Use only one thread to load the index weight to prevent a race
             // condition when writing to the shared memory
             buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
           }
+          {%- else %}
+          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+          {%- endif %}
           {% endif %}
         }
       }
@@ -251,11 +255,15 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
         }
         {% if weighted %}
+        {%- if is_rocm %}
         if (valid && row_load_idx == 0) {
           // Use only one thread to load the index weight to prevent a race
           // condition when writing to the shared memory
           buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
         }
+        {%- else %}
+        buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+        {%- endif %}
         {% endif %}
       }
       {%- if is_rocm %}
