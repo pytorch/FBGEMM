@@ -70,7 +70,8 @@ void bounds_check_indices_cpu(
     const std::optional<Tensor>& /*b_t_map*/,
     const int64_t /*info_B_num_bits*/,
     const int64_t /*info_B_mask*/,
-    const int8_t /*bounds_check_version*/) {
+    const int8_t /*bounds_check_version*/,
+    const bool /*prefetch_pipeline*/) {
   if (offsets.scalar_type() != indices.scalar_type()) {
     offsets = offsets.toType(indices.scalar_type());
   }
@@ -220,7 +221,8 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       "    Tensor? b_t_map=None, "
       "    int info_B_num_bits=-1, "
       "    int info_B_mask=-1, "
-      "    int bounds_check_version=1"
+      "    int bounds_check_version=1, "
+      "    bool prefetch_pipeline=False"
       ") -> ()",
       {PT2_COMPLIANT_TAG});
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
@@ -245,7 +247,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor? b_t_map=None, "
       "    int info_B_num_bits=-1, "
       "    int info_B_mask=-1, "
-      "    int bounds_check_version=1"
+      "    int bounds_check_version=1, "
+      "    bool prefetch_pipeline=False"
       ") -> ()",
       {PT2_COMPLIANT_TAG});
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
