@@ -26,23 +26,33 @@ namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
 
-template <int TB_M, int TB_N, int TBS_M, int TBS_N, int TBS_K, bool COOP>
-at::Tensor _f8i4bf16_shuffled(
-    at::Tensor XQ,
-    at::Tensor WQ,
-    at::Tensor x_scale,
-    at::Tensor w_scale,
+template <
+    bool SHUFFLE,
+    typename SCALE_TYPE,
+    int TB_M,
+    int TB_N,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    bool COOP>
+at::Tensor _bf16i4bf16(
+    at::Tensor X,
+    at::Tensor W,
     at::Tensor w_scale_group,
+    at::Tensor w_zero_group,
     at::Tensor Y) {
   // Get shape information from input tensors.
-  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
-  int K = XQ.size(-1);
-  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
+  int M = size_to_dim_(X.dim() - 1, X.sizes());
+  int K = X.size(-1);
+  int N = size_to_dim_(W.dim() - 1, W.sizes());
   int num_groups = w_scale_group.size(0);
+  TORCH_CHECK(
+      w_zero_group.size(0) == num_groups,
+      "Scales and zeros must be the same shape.");
   int group_size = K / num_groups;
 
   // Define input types.
-  using MmaType = cutlass::float_e4m3_t;
+  using MmaType = cutlass::bfloat16_t;
   using QuantType = cutlass::int4b_t;
   constexpr int TileShapeK = 128 * 8 / cute::sizeof_bits<MmaType>::value;
 
@@ -67,12 +77,24 @@ at::Tensor _f8i4bf16_shuffled(
   using StrideB = cutlass::detail::TagToStrideB_t<LayoutB>;
 
   // Define layout for shuffled weight tensor.
-  using LayoutAtomQuant =
-      decltype(cutlass::compute_memory_reordering_atom<MmaType>());
+  using ValueShuffle = cute::Layout<
+      cute::Shape<cute::_2, cute::_4>,
+      cute::Stride<cute::_4, cute::_1>>; // order [0,2,4,6,1,3,5,7]
+  int constexpr NumShuffleAtoms = 1;
+  using MmaAtomShape =
+      cute::Layout<cute::Shape<cute::_1, cute::Int<NumShuffleAtoms>>>;
+  using LayoutAtomQuant = decltype(cutlass::compute_memory_reordering_atom<
+                                   MmaType,
+                                   MmaAtomShape,
+                                   ValueShuffle>());
   using LayoutB_Reordered = decltype(cute::tile_to_shape(
       LayoutAtomQuant{}, cute::Layout<cute::Shape<int, int, int>, StrideB>{}));
 
-  using ElementScale = MmaType;
+  using B_Layout =
+      cute::conditional_t<SHUFFLE, LayoutB_Reordered, LayoutB_Transpose>;
+
+  using ElementScale = SCALE_TYPE;
+  using ElementZero = ElementScale;
 
   // Output Matrix configuration.
   using ElementC = cutlass::bfloat16_t;
@@ -84,12 +106,10 @@ at::Tensor _f8i4bf16_shuffled(
   using ElementCompute = float;
   using ArchTag = cutlass::arch::Sm90;
   using OperatorClass = cutlass::arch::OpClassTensorOp;
-  // TODO tune these shapes.
   using TileShape =
       cute::Shape<cute::Int<TB_M>, cute::Int<TB_N>, cute::Int<TileShapeK>>;
   using ClusterShape =
       cute::Shape<cute::Int<TBS_M>, cute::Int<TBS_N>, cute::Int<TBS_K>>;
-  // TODO Should we use fast accum here?
   using KernelSchedule = cute::conditional_t<
       COOP,
       cutlass::gemm::KernelTmaWarpSpecializedCooperative,
@@ -101,42 +121,6 @@ at::Tensor _f8i4bf16_shuffled(
       cutlass::epilogue::TmaWarpSpecialized>;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
 
-  // Define EVT for rowwise scaling.
-  // Implement rowwise scaling epilogue.
-  using XScale = cutlass::epilogue::fusion::Sm90ColBroadcast<
-      0,
-      TileShape,
-      ElementAccumulator,
-      ElementAccumulator,
-      cute::Stride<cute::Int<1>, cute::Int<0>, cute::Int<0>>>;
-
-  using WScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      0,
-      TileShape,
-      ElementAccumulator,
-      ElementAccumulator,
-      cute::Stride<cute::Int<0>, cute::Int<1>, cute::Int<0>>>;
-
-  using Accum = cutlass::epilogue::fusion::Sm90AccFetch;
-
-  using Compute0 = cutlass::epilogue::fusion::Sm90Compute<
-      cutlass::multiplies,
-      ElementAccumulator, // First stage output type.
-      ElementAccumulator, // First stage input types.
-      cutlass::FloatRoundStyle::round_to_nearest>;
-
-  using EVTCompute0 =
-      cutlass::epilogue::fusion::Sm90EVT<Compute0, WScale, Accum>;
-
-  using Compute1 = cutlass::epilogue::fusion::Sm90Compute<
-      cutlass::multiplies,
-      ElementC,
-      ElementAccumulator, // Second stage input types.
-      cutlass::FloatRoundStyle::round_to_nearest>;
-
-  using EpilogueEVT =
-      cutlass::epilogue::fusion::Sm90EVT<Compute1, XScale, EVTCompute0>;
-
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           cutlass::arch::Sm90,
@@ -146,21 +130,20 @@ at::Tensor _f8i4bf16_shuffled(
           EpilogueTileType,
           ElementAccumulator,
           ElementAccumulator,
-          void,
+          void, // Indicate there is no beta scaling.
           typename cutlass::layout::LayoutTranspose<LayoutC>::type,
           AlignmentC,
           ElementC,
           typename cutlass::layout::LayoutTranspose<LayoutC>::type,
           AlignmentC,
-          EpilogueSchedule,
-          EpilogueEVT>::CollectiveOp;
+          EpilogueSchedule>::CollectiveOp;
 
   using CollectiveMainloopShuffled =
       typename cutlass::gemm::collective::CollectiveBuilder<
           ArchTag,
           OperatorClass,
-          cute::tuple<ElementB, cutlass::Array<ElementScale, 8>>,
-          LayoutB_Reordered,
+          cute::tuple<ElementB, ElementScale, ElementZero>,
+          B_Layout,
           AlignmentB,
           ElementA,
           LayoutA_Transpose,
@@ -186,10 +169,21 @@ at::Tensor _f8i4bf16_shuffled(
   auto shape_B = cute::make_shape(N, K, 1);
   StrideA stride_A =
       cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(M, K, 1));
+  StrideB stride_B =
+      cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(N, K, 1));
   StrideC stride_C =
       cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(N, M, 1));
   LayoutB_Reordered layout_B_reordered =
       cute::tile_to_shape(LayoutAtomQuant{}, shape_B);
+
+  using stride_type = cute::conditional_t<SHUFFLE, LayoutB_Reordered, StrideB>;
+  stride_type B_stride;
+  if constexpr (SHUFFLE) {
+    B_stride = layout_B_reordered;
+  } else {
+    B_stride = stride_B;
+  }
+
   using StrideS = typename CollectiveMainloopShuffled::StrideScale;
   StrideS stride_S = cutlass::make_cute_packed_stride(
       StrideS{}, cute::make_shape(N, num_groups, 1));
@@ -198,31 +192,19 @@ at::Tensor _f8i4bf16_shuffled(
   typename GemmShuffled::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
       {N, M, K, 1},
-      {reinterpret_cast<ElementB*>(WQ.data_ptr()),
-       layout_B_reordered,
-       reinterpret_cast<ElementA*>(XQ.data_ptr()),
+      {reinterpret_cast<ElementB*>(W.data_ptr()),
+       B_stride,
+       reinterpret_cast<ElementA*>(X.data_ptr()),
        stride_A,
-       reinterpret_cast<cutlass::Array<ElementScale, 8>*>(
-           w_scale_group.data_ptr()),
+       reinterpret_cast<ElementScale*>(w_scale_group.data_ptr()),
        stride_S,
-       group_size},
+       group_size,
+       reinterpret_cast<ElementZero*>(w_zero_group.data_ptr())},
       {{},
        nullptr,
        stride_C,
        reinterpret_cast<ElementC*>(Y.data_ptr()),
        stride_C}};
-
-  arguments.epilogue.thread = {
-      {reinterpret_cast<ElementAccumulator*>(w_scale.data_ptr())}, // w_scale
-      // compute_0
-      {
-          {reinterpret_cast<ElementAccumulator*>(
-              x_scale.data_ptr())}, // w_scale
-          {}, // Accumulator
-          {} // Multiplies
-      },
-      {}, // Multiplies
-  };
 
   // Launch the workload.
   GemmShuffled gemm;
@@ -233,7 +215,7 @@ at::Tensor _f8i4bf16_shuffled(
 
   // Allocate workspace memory
   at::Tensor workspace =
-      at::empty(workspace_size, XQ.options().dtype(at::kByte));
+      at::empty(workspace_size, X.options().dtype(at::kByte));
 
   // Check the problem size is supported or not
   cutlass::Status status = gemm.can_implement(arguments);
@@ -259,140 +241,168 @@ at::Tensor _f8i4bf16_shuffled(
   return Y;
 }
 
-at::Tensor f8i4bf16_shuffled(
-    at::Tensor XQ,
-    at::Tensor WQ,
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    at::Tensor w_scale_group) {
-  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
-  int K = XQ.size(-1);
-  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
+template <bool SHUFFLE, typename SCALE_TYPE>
+at::Tensor bf16i4bf16_dispatch(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor w_scale_group,
+    at::Tensor w_zero_group) {
+  int M = size_to_dim_(X.dim() - 1, X.sizes());
+  int K = X.size(-1);
+  int N = size_to_dim_(W.dim() - 1, W.sizes());
   // Check input types and shapes.
   TORCH_CHECK(
-      XQ.is_cuda() && XQ.is_contiguous() && XQ.dtype() == at::kFloat8_e4m3fn,
-      "XQ must be FP8 and contiguous on GPU.");
+      X.is_cuda() && X.is_contiguous() && X.dtype() == at::kBFloat16,
+      "X must be BF16 and contiguous on GPU.");
   TORCH_CHECK(
-      WQ.size(-1) == K / 2 && WQ.is_cuda() && WQ.is_contiguous() &&
-          WQ.dtype() == at::kChar,
-      "WQ should be int8 (which represent two int4 values), have shape [..., N, K/2], "
+      W.size(-1) == K / 2 && W.is_cuda() && W.is_contiguous() &&
+          W.dtype() == at::kChar,
+      "W should be int8 (which represent two int4 values), have shape [..., N, K/2], "
       "and be contiguous on GPU.");
+  // Make sure group scales and zeros are in proper format.
   TORCH_CHECK(
-      x_scale.numel() == M && x_scale.dtype() == at::kFloat &&
-          x_scale.is_cuda(),
-      "x_scale must be fp32 and have M total elements.");
-  TORCH_CHECK(
-      w_scale.numel() == N && w_scale.dtype() == at::kFloat &&
-          w_scale.is_cuda(),
-      "Weight row scale should have N elements and be on GPU.");
-  // Make sure w_scale_group is in proper format.
-  TORCH_CHECK(
-      w_scale_group.dtype() == at::kFloat8_e4m3fn && w_scale_group.dim() == 3 &&
-          w_scale_group.size(1) == 8 && w_scale_group.size(2) == N,
-      "Weights and group scales must be prepacked with preshuffle_i4. "
-      "Group scales are expected to be FP8 and have shape [num_groups, 8, N].");
+      w_scale_group.dim() == 2 && w_scale_group.size(1) == N,
+      "Group scales are expected to have shape [num_groups, N].");
 
   // Allocate output or return an empty tensor if input is empty.
   if (M == 0 || N == 0 || K == 0) {
-    return at::zeros({M, N}, XQ.options().dtype(at::kBFloat16));
+    return at::zeros({M, N}, X.options().dtype(at::kBFloat16));
   }
-  at::Tensor Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  at::Tensor Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
 
   // Use shape heuristics to dispatch to optimized kernel configuration.
   if (M <= 16) {
-    return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
-        XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+    return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 16, 1, 1, 1, false>(
+        X, W, w_scale_group, w_zero_group, Y);
   } else if (M <= 32) {
     if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 16, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else {
-      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 32, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     }
   } else if (M <= 64) {
     if (N <= 2048) {
-      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 16, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 32, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else {
-      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 64, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     }
   } else if (M <= 128) {
     if (N <= 1024) {
-      return _f8i4bf16_shuffled<64, 16, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 16, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 2048) {
-      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 32, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 64, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else {
-      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 128, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     }
   } else if (M <= 256) {
     if (N <= 1024) {
-      return _f8i4bf16_shuffled<64, 32, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 32, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 2048) {
-      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 64, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 128, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else {
-      return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 256, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     }
   } else if (M <= 512) {
     if (N <= 1024) {
-      return _f8i4bf16_shuffled<64, 64, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 64, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 2048) {
-      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 128, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 4096) {
-      return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 256, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else {
-      return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 128, 256, 2, 1, 1, true>(
+          X, W, w_scale_group, w_zero_group, Y);
     }
   } else if (M <= 1024) {
     if (N <= 1024) {
-      return _f8i4bf16_shuffled<64, 128, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 128, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else if (N <= 2048) {
-      return _f8i4bf16_shuffled<64, 256, 1, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 256, 1, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else {
-      return _f8i4bf16_shuffled<128, 256, 1, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 128, 256, 1, 1, 1, true>(
+          X, W, w_scale_group, w_zero_group, Y);
     }
   } else {
     if (M <= 2048 && N <= 1024) {
-      return _f8i4bf16_shuffled<64, 256, 2, 1, 1, false>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 64, 256, 2, 1, 1, false>(
+          X, W, w_scale_group, w_zero_group, Y);
     } else {
-      return _f8i4bf16_shuffled<128, 256, 2, 1, 1, true>(
-          XQ, WQ, x_scale, w_scale, w_scale_group, Y);
+      return _bf16i4bf16<SHUFFLE, SCALE_TYPE, 128, 256, 2, 1, 1, true>(
+          X, W, w_scale_group, w_zero_group, Y);
     }
+  }
+}
+
+at::Tensor bf16i4bf16_shuffled(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor w_scale_group,
+    at::Tensor w_zero_group) {
+  if (w_scale_group.dtype() == at::kFloat) {
+    return bf16i4bf16_dispatch<true, float>(X, W, w_scale_group, w_zero_group);
+  } else if (w_scale_group.dtype() == at::kBFloat16) {
+    return bf16i4bf16_dispatch<true, cutlass::bfloat16_t>(
+        X, W, w_scale_group, w_zero_group);
+  } else {
+    TORCH_CHECK(false, "Only fp32 an bf16 scales supported.")
+  }
+}
+
+at::Tensor bf16i4bf16_rowwise(
+    at::Tensor X, // BF16
+    at::Tensor W, // INT4
+    at::Tensor w_scale_group,
+    at::Tensor w_zero_group) {
+  if (w_scale_group.dtype() == at::kFloat) {
+    return bf16i4bf16_dispatch<false, float>(X, W, w_scale_group, w_zero_group);
+  } else if (w_scale_group.dtype() == at::kBFloat16) {
+    return bf16i4bf16_dispatch<false, cutlass::bfloat16_t>(
+        X, W, w_scale_group, w_zero_group);
+  } else {
+    TORCH_CHECK(false, "Only fp32 an bf16 scales supported.")
   }
 }
 
 #else
 
-at::Tensor f8i4bf16_shuffled(
-    at::Tensor XQ,
-    at::Tensor WQ,
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    at::Tensor w_scale_group) {
+at::Tensor bf16i4bf16_shuffled(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor w_scale_group,
+    at::Tensor w_zero_group) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
+
+at::Tensor bf16i4bf16_rowwise(
+    at::Tensor X, // BF16
+    at::Tensor W, // INT4
+    at::Tensor w_scale_group,
+    at::Tensor w_zero_group) {
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }

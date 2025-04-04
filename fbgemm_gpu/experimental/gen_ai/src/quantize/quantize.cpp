@@ -148,6 +148,11 @@ at::Tensor f8i4bf16_shuffled(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_scale_group);
+at::Tensor bf16i4bf16_shuffled(
+    at::Tensor X,
+    at::Tensor W,
+    at::Tensor w_scale_group,
+    at::Tensor w_zero_group);
 at::Tensor f8i4bf16_shuffled_grouped(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -160,9 +165,9 @@ std::tuple<at::Tensor, at::Tensor> preshuffle_i4(
     at::Tensor w_scale);
 at::Tensor bf16i4bf16_rowwise(
     at::Tensor X,
-    at::Tensor WQ,
-    at::Tensor w_scale,
-    at::Tensor w_zp);
+    at::Tensor W,
+    at::Tensor w_scale_group,
+    at::Tensor w_zero_group);
 at::Tensor bf16i4bf16_rowwise_batched(
     at::Tensor X,
     at::Tensor WQ,
@@ -218,6 +223,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "f8i4bf16_shuffled(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_scale_group) -> Tensor");
   m.def(
+      "bf16i4bf16_shuffled(Tensor X, Tensor W, Tensor w_scale_group, Tensor w_zero_group) -> Tensor");
+  m.def(
       "f8i4bf16_shuffled_grouped(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor w_scale_group, Tensor M_sizes) -> Tensor");
   m.impl("f8i4bf16_shuffled", f8i4bf16_shuffled);
   m.def("preshuffle_i4(Tensor WQ, Tensor w_scale) -> (Tensor, Tensor)");
@@ -227,7 +234,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "fp8fp8bf16_fast_gemv(Tensor X, Tensor W, Tensor x_scale, Tensor w_scale) -> Tensor");
   m.def("f8f8bf16_lite(Tensor XQ, Tensor WQ, Tensor scale) -> Tensor");
   m.def(
-      "bf16i4bf16_rowwise(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
+      "bf16i4bf16_rowwise(Tensor X, Tensor W, Tensor w_scale_group, Tensor w_zero_group) -> Tensor");
   m.def(
       "bf16i4bf16_rowwise_batched(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
@@ -318,6 +325,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16_lite", f8f8bf16_lite);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("f8i4bf16_shuffled", f8i4bf16_shuffled);
+  m.impl("bf16i4bf16_shuffled", bf16i4bf16_shuffled);
   m.impl("f8i4bf16_shuffled_grouped", f8i4bf16_shuffled_grouped);
   m.impl("preshuffle_i4", preshuffle_i4);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
@@ -352,6 +360,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f8f8bf16_lite", f8f8bf16_lite);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise);
   m.impl("f8i4bf16_shuffled", f8i4bf16_shuffled);
+  m.impl("bf16i4bf16_shuffled", bf16i4bf16_shuffled);
   m.impl("f8i4bf16_shuffled_grouped", f8i4bf16_shuffled_grouped);
   m.impl("preshuffle_i4", preshuffle_i4);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
@@ -518,12 +527,12 @@ at::Tensor f8i4bf16_rowwise_meta(
 
 at::Tensor bf16i4bf16_rowwise_meta(
     at::Tensor X, // BF16
-    at::Tensor WQ, // INT4
-    at::Tensor /*  w_scale */,
-    at::Tensor /* w_zp */
+    at::Tensor W, // INT4
+    at::Tensor /*  w_scale_group */,
+    at::Tensor /* w_zero_group */
 ) {
   int M = X.size(0);
-  int N = WQ.size(0);
+  int N = W.size(0);
   auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
