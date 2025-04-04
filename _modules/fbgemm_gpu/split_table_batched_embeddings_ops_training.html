@@ -1167,6 +1167,16 @@
             <span class="c1"># See:</span>
             <span class="c1">#   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/</span>
             <span class="n">cache_precision</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Override cache_precision=SparseType.FP32 on ROCm&quot;</span><span class="p">)</span>
+
+            <span class="c1"># NOTE: Use bounds_check_indices v2 on ROCm because ROCm has a</span>
+            <span class="c1"># constraint that the gridDim * blockDim has to be smaller than</span>
+            <span class="c1"># 2^32. The v1 kernel can be launched with gridDim * blockDim &gt;</span>
+            <span class="c1"># 2^32 while the v2 kernel limits the gridDim size to 64 * # of</span>
+            <span class="c1"># SMs.  Thus, its gridDim * blockDim is guaranteed to be smaller</span>
+            <span class="c1"># than 2^32</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_version</span> <span class="o">=</span> <span class="mi">2</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Override bounds_check_version=2 on ROCm&quot;</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># NOTE: The changes from D65865527 are retained here until we can</span>
             <span class="c1"># test that the the hack also works for non-ROCm environments.</span>
