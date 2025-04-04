@@ -1527,7 +1527,6 @@ class F8I4ShuffledGroupedGemm(QuantizeOpBase):
         # Convert m_values into offsets into grouped tensor.
         m_sizes = torch.tensor(m_values).to(dtype=torch.int32, device=x[0].device)
         # Quantize weights.
-        # TODO Only rowwise scaling is currently supported. This needs to be fixed.
         wq, scales = zip(*[quantize_int4_preshuffle(i) for i in w])
         group_scale, row_scale = zip(*scales)
         # Group weights as single tensor.
@@ -1563,6 +1562,65 @@ class F8I4ShuffledGroupedGemm(QuantizeOpBase):
             return "cutlass_f8i4_grouped_preshuffle"
         else:
             return "ck_f8i4_grouped_preshuffle"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class BF16I4ShuffledGroupedGemm(QuantizeOpBase):
+    """
+    BF16 x Int4 mixed dtype grouped gemm with preshuffling.
+    """
+
+    def preprocess(self, x, w):
+        assert isinstance(x, list) and isinstance(
+            w, list
+        ), "Only supported for grouped inputs."
+        m_values = [i.shape[0] for i in x]
+        # Convert m_values into offsets into grouped tensor.
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int32, device=x[0].device)
+        # Quantize weights.
+        wq, scales = zip(
+            *[quantize_int4_preshuffle(i, dtype="bf16", use_zp=False) for i in w]
+        )
+        # Group weights as single tensor.
+        group_scale, group_zero = zip(*scales)
+        wq = torch.stack(wq, dim=0).contiguous()
+        group_scale = torch.stack(group_scale, dim=0).contiguous()
+        group_zero = torch.stack(group_zero, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, wq, group_scale, group_zero, m_sizes
+
+    def quantize(self, x, wq, group_scale, group_zero, m_sizes):
+        return x, wq, group_scale, group_zero, m_sizes
+
+    def compute(self, x, wq, group_scale, group_zero, m_sizes):
+        # TODO Zero points arent currently supported in grouped gemm.
+        # We leave them as inputs for future compatibility but they are ignored.
+        return torch.ops.fbgemm.bf16i4bf16_shuffled_grouped(
+            x, wq, group_scale, group_zero, m_sizes
+        )
+
+    def quantize_and_compute(self, x, wq, group_scale, group_zero, m_sizes):
+        x, wq, group_scale, group_zero, m_sizes = self.quantize(
+            x, wq, group_scale, group_zero, m_sizes
+        )
+        return self.compute(x, wq, group_scale, group_zero, m_sizes)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_bf16i4_grouped_preshuffle"
+        else:
+            return "ck_bf16i4_grouped_preshuffle"
 
     @property
     def hip(self) -> bool:
