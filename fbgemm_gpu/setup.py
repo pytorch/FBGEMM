@@ -116,8 +116,12 @@ class FbgemmGpuBuild:
             sys.exit(0)
 
         elif self.nova_flag() == 0:
-            # The package name is the same for all build variants in Nova
-            pass
+            # In Nova, we are publishing genai packages separately from the main
+            # fbgemm_gpu package, so if the package variant is genai, we need to
+            # update the package name accordingly.  Otherwise, the package name
+            # is the same for all other build variants in Nova
+            if self.args.package_variant == "genai":
+                pkg_name = "fbgemm_gpu_genai"
 
         else:
             # If running outside of Nova workflow context, append the channel
