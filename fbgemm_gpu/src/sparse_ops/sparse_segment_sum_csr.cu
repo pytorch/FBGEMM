@@ -14,27 +14,27 @@ namespace fbgemm_gpu {
 
 // Kernel for calculating the segmented sum for sparse matrix with CSR format.
 // See https://moderngpu.github.io/segreduce.html
-template <typename scalar_t>
+template <typename values_t, typename index_t>
 __global__ __launch_bounds__(kMaxThreads) void _segment_sum_csr_cuda_kernel(
     int num_segments,
     int batch_size,
-    const int* csr_seg_data,
-    const scalar_t* values_data,
-    scalar_t* output_data) {
-  typedef FBGEMM_GPU_CUB_NS_PREFIX cub::BlockReduce<scalar_t, 256> BlockReduce;
+    const index_t* csr_seg_data,
+    const values_t* values_data,
+    values_t* output_data) {
+  typedef FBGEMM_GPU_CUB_NS_PREFIX cub::BlockReduce<values_t, 256> BlockReduce;
 
   __shared__ typename BlockReduce::TempStorage temp_storage;
-  int seg_start = csr_seg_data[blockIdx.x] * batch_size;
-  int seg_end = csr_seg_data[blockIdx.x + 1] * batch_size;
-  scalar_t sum = 0;
+  index_t seg_start = csr_seg_data[blockIdx.x] * batch_size;
+  index_t seg_end = csr_seg_data[blockIdx.x + 1] * batch_size;
+  values_t sum = 0;
 
-  for (auto i = seg_start; i < seg_end; i += blockDim.x) {
-    scalar_t thread_data;
+  for (index_t i = seg_start; i < seg_end; i += blockDim.x) {
+    values_t thread_data;
     if (threadIdx.x < seg_end - i) {
       thread_data = values_data[i + threadIdx.x];
     }
 
-    scalar_t aggregate =
+    values_t aggregate =
         BlockReduce(temp_storage).Sum(thread_data, seg_end - i);
 
     __syncthreads();
@@ -68,19 +68,24 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
   constexpr uint32_t threads_per_block = 256;
   const uint32_t num_blocks = csr_seg.numel() - 1;
 
-  FBGEMM_DISPATCH_ALL_TYPES(values.scalar_type(), "_segment_sum_csr_cuda", [&] {
-    _segment_sum_csr_cuda_kernel<scalar_t>
-        <<<num_blocks,
-           threads_per_block,
-           0,
-           at::cuda::getCurrentCUDAStream()>>>(
-            csr_seg.numel() - 1,
-            batch_size,
-            csr_seg.data_ptr<int>(),
-            values.data_ptr<scalar_t>(),
-            output.data_ptr<scalar_t>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-  });
+  FBGEMM_DISPATCH_ALL_TYPES(
+      values.scalar_type(), "_segment_sum_csr_cuda_1", [&] {
+        using values_t = scalar_t;
+        AT_DISPATCH_INDEX_TYPES(
+            csr_seg.scalar_type(), "_segment_sum_csr_cuda_2", [&] {
+              _segment_sum_csr_cuda_kernel<values_t, index_t>
+                  <<<num_blocks,
+                     threads_per_block,
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      csr_seg.numel() - 1,
+                      batch_size,
+                      csr_seg.data_ptr<index_t>(),
+                      values.data_ptr<values_t>(),
+                      output.data_ptr<values_t>());
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      });
 
   return output;
 }
