@@ -470,7 +470,7 @@ class FP8Tests(unittest.TestCase):
         w_zp = w_zp.contiguous().to(device="cuda")
 
         # Preshuffled i4 weight format.
-        wq_shuffled, w_scale_row, w_scale_group = quantize_int4_preshuffle(w, 128)
+        wq_shuffled, (w_scale_group, w_scale_row) = quantize_int4_preshuffle(w, 128)
 
         if CudaGraph:
             g = torch.cuda.CUDAGraph()
