@@ -1122,6 +1122,24 @@ def generic_histogram_binning_calibration_by_feature(
     )
 
 
+def permute_multi_embedding_function(
+    pooled_embs: List[Tensor],
+    permutes: Tensor,
+    in_shapes: Tensor,
+    out_shapes: Tensor,
+    out_lengths: List[int],
+    reverse: bool = False,
+) -> List[Tensor]:
+    out_dtype = pooled_embs[0].dtype
+    bs = pooled_embs[0].shape[0]
+    torch._check(permutes.shape[1] == 6, lambda: "permutes must have 6 columns")
+
+    output = []
+    for i in range(len(out_lengths)):
+        output.append(torch.empty([bs, out_lengths[i]], dtype=out_dtype))
+    return output
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1258,6 +1276,10 @@ def _setup() -> None:
         impl_abstract(
             "fbgemm::generic_histogram_binning_calibration_by_feature",
             generic_histogram_binning_calibration_by_feature,
+        )
+        impl_abstract(
+            "fbgemm::permute_multi_embedding_function",
+            permute_multi_embedding_function,
         )
         impl_abstract(
             "fbgemm::FloatToHFP8Quantized",
