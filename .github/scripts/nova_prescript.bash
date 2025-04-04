@@ -21,6 +21,11 @@ BUILD_ENV_NAME=${CONDA_ENV}
 # Record time for each step
 start_time=$(date +%s)
 
+echo "################################################################################"
+echo "Environment Variables:"
+printenv
+echo "################################################################################"
+
 # Display System Info
 print_system_info
 end_time=$(date +%s)
@@ -94,8 +99,13 @@ if [[ $CU_VERSION = cu* ]]; then
   start_time=${end_time}
   echo "[NOVA] Time taken to find NVML_LIB_PATH: ${runtime} seconds"
 
-  echo "[NOVA] Building the CUDA variant of FBGEMM_GPU ..."
-  export fbgemm_variant="cuda"
+  if [[ ${BUILD_TARGET} == "genai" ]]; then
+    echo "[NOVA] Building the GenAI variant of FBGEMM_GPU ..."
+    export fbgemm_variant="genai"
+  else
+    echo "[NOVA] Building the CUDA variant of FBGEMM_GPU ..."
+    export fbgemm_variant="cuda"
+  fi
 
 elif [[ $CU_VERSION = rocm* ]]; then
   echo "[NOVA] Building the ROCm variant of FBGEMM_GPU ..."
