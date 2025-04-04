@@ -22,6 +22,8 @@
 #if defined(__aarch64__) && (__GNUC__ >= 8 || __clang_major__ >= 5) && \
     __ARM_FEATURE_SVE
 #define HAVE_SVE 1
+#include <arm_neon_sve_bridge.h> // @manual
+#include <arm_sve.h>
 #else
 #define HAVE_SVE 0
 #endif
