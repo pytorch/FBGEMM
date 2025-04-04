@@ -29,6 +29,34 @@ def pack_int4(x: torch.Tensor) -> torch.Tensor:
     return torch.bitwise_or(low_x, high_x).contiguous()
 
 
+def int4_row_quantize_zp(
+    x: torch.Tensor,
+    group_size: int = 128,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    n_bit = 4  # Number of target bits.
+    to_quant = x.reshape(-1, group_size).to(torch.float)
+
+    max_val = to_quant.amax(dim=1, keepdim=True)
+    min_val = to_quant.amin(dim=1, keepdim=True)
+    max_int = 2**n_bit - 1
+    min_int = 0
+    scales = (max_val - min_val).clamp(min=1e-6) / max_int
+
+    zeros = min_val + scales * (2 ** (n_bit - 1))
+
+    out = to_quant.sub(min_val).div(scales).round().clamp_(min_int, max_int)
+
+    # Recenter output and move to int8.
+    out = (out - 2 ** (n_bit - 1)).to(dtype=torch.int8).reshape(x.shape)
+
+    # Cutlass expects column major layout for scale and zero point,
+    # so we transpose here and make them contiguous.
+    scales = scales.view(x.shape[0], -1).t().contiguous()
+    zeros = zeros.view(x.shape[0], -1).t().contiguous()
+
+    return out, scales, zeros
+
+
 def int4_row_quantize(
     x: torch.Tensor,
     group_size: int = 128,
@@ -63,8 +91,8 @@ def int4_row_quantize(
 
 
 def quantize_int4_preshuffle(
-    w: torch.Tensor, group_size: int = 128
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    w: torch.Tensor, group_size: int = 128, dtype: str = "fp8"
+) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """
     Quantizes an input weight tensor to int4 using preshuffling and scale packing.
     This function is intended to be used with fbgemms mixed dtype kernels and is expected
@@ -73,47 +101,57 @@ def quantize_int4_preshuffle(
     Args:
         w (Tensor): [N, K] Higher precision weight tensor to quantize. May optionally have a batch dimension.
         group_size (int): Number of elements to calculate group scale for, must be at least 128.
+        dtype (torch.dtype): Type of corresponding activations. Must be fp8 or bf16.
     Returns:
         wq (Tensor): [N, K // 2] Quantized int4 weight tensor packed into int8 elements.
-        row_scale (Tensor): [N] FP32 Scale per row of the weight tensor.
-        group_scale (Tensor): [K / group_size, 8, N] FP8 Scale per group of the weight tensor.
+        scales (Tuple[Tensor]): Scale tensors for the specified activation type. When FP8 is used,
+        scales is a tuple of row_scale ([N]) and group_scale ([K / group_size, 8, N]). When BF16 is
+        used, scales is a tuple of group_scale([K / group_size, N]) and group_zero ([K / group_size, N])
     """
 
-    def _quantize(w: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # Start by lowering weights to FP8 and producing row scales.
-        wq, row_scale = quantize_fp8_row(w)
+    def _quantize(
+        w: torch.Tensor, dtype: str = "fp8"
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
 
-        # Now reduce to INT4.
-        wq, group_scale = int4_row_quantize(wq, group_size)
-        # Reduce group scale to FP8.
-        group_scale = group_scale.to(torch.float8_e4m3fn)
+        if dtype == "fp8":
+            # Start by lowering weights to FP8 and producing row scales.
+            wq, row_scale = quantize_fp8_row(w)
 
-        # Take quantized weights and pack them efficiently.
-        wq = pack_int4(wq)
+            # Now reduce to INT4.
+            wq, group_scale = int4_row_quantize(wq, group_size)
+            # Reduce group scale to FP8.
+            group_scale = group_scale.to(torch.float8_e4m3fn)
+            # Take quantized weights and pack them efficiently.
+            wq = pack_int4(wq)
+            # Finally pack weights and scales into efficient preshuffled format.
+            wq, group_scale = torch.ops.fbgemm.preshuffle_i4(wq, group_scale)
+            return wq, (group_scale, row_scale)
 
-        # Finally pack weights and scales into efficient preshuffled format.
-        wq, group_scale = torch.ops.fbgemm.preshuffle_i4(wq, group_scale)
-
-        return wq, row_scale, group_scale
+        elif dtype == "bf16":
+            wq, group_scale, group_zero = int4_row_quantize_zp(w, group_size)
+            # Set scales to activation type.
+            group_scale = group_scale.to(torch.bfloat16)
+            group_zero = group_zero.to(torch.bfloat16)
+            # Take quantized weights and pack them efficiently.
+            wq = pack_int4(wq)
+            # Finally pack weights and scales into efficient preshuffled format.
+            wq, group_scale = torch.ops.fbgemm.preshuffle_i4(wq, group_scale)
+            return wq, (group_scale, group_zero)
+        else:
+            raise NotImplementedError("Only fp8 and bf16 activations supported.")
 
     if w.ndim >= 3:
         orig_shape = w.shape
         # Flatten to 3 dimensions then iterate over batches.
-        w = w.view(-1, *w.shape[1:])
-        w.unbind(dim=0)
-        wq = []
-        row_scale = []
-        group_scale = []
-        for batch in w:
-            wq_, row_scale_, group_scale_ = _quantize(batch)
-            wq.append(wq_)
-            row_scale.append(row_scale_)
-            group_scale.append(group_scale_)
+        wq, scales = zip(*[_quantize(i, dtype=dtype) for i in w])
         wq = torch.stack(wq).view(*orig_shape[:-2], *wq[0].shape)
-        row_scale = torch.stack(row_scale).view(*orig_shape[:-2], *row_scale[0].shape)
-        group_scale = torch.stack(group_scale).view(
-            *orig_shape[:-2], *group_scale[0].shape
+        # Decompose then stack scales back into a tuple.
+        a_scales, b_scales = zip(*scales)
+        scales = (
+            torch.stack(a_scales).view(*orig_shape[:-2], *a_scales[0].shape),
+            torch.stack(b_scales).view(*orig_shape[:-2], *b_scales[0].shape),
         )
     else:
-        wq, row_scale, group_scale = _quantize(w)
-    return wq, row_scale, group_scale
+        wq, scales = _quantize(w, dtype=dtype)
+
+    return wq, scales
