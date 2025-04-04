@@ -91,7 +91,7 @@ def int4_row_quantize(
 
 
 def quantize_int4_preshuffle(
-    w: torch.Tensor, group_size: int = 128, dtype: str = "fp8"
+    w: torch.Tensor, group_size: int = 128, dtype: str = "fp8", use_zp: bool = True
 ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """
     Quantizes an input weight tensor to int4 using preshuffling and scale packing.
@@ -102,6 +102,7 @@ def quantize_int4_preshuffle(
         w (Tensor): [N, K] Higher precision weight tensor to quantize. May optionally have a batch dimension.
         group_size (int): Number of elements to calculate group scale for, must be at least 128.
         dtype (torch.dtype): Type of corresponding activations. Must be fp8 or bf16.
+        use_zp (bool): If true, uses zero points during weight quantization. Only relevant for bf16 currently.
     Returns:
         wq (Tensor): [N, K // 2] Quantized int4 weight tensor packed into int8 elements.
         scales (Tuple[Tensor]): Scale tensors for the specified activation type. When FP8 is used,
@@ -128,7 +129,11 @@ def quantize_int4_preshuffle(
             return wq, (group_scale, row_scale)
 
         elif dtype == "bf16":
-            wq, group_scale, group_zero = int4_row_quantize_zp(w, group_size)
+            if use_zp:
+                wq, group_scale, group_zero = int4_row_quantize_zp(w, group_size)
+            else:
+                wq, group_scale = int4_row_quantize(w, group_size)
+                group_zero = torch.zeros_like(group_scale)
             # Set scales to activation type.
             group_scale = group_scale.to(torch.bfloat16)
             group_zero = group_zero.to(torch.bfloat16)
