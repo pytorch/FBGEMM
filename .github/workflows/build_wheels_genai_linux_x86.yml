@@ -1,4 +1,4 @@
-name: Build FBGEMM_GPU x86 Linux Wheels
+name: Build FBGEMM GenAI x86 Linux Wheels
 
 on:
   pull_request:
@@ -30,8 +30,8 @@ jobs:
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
       with-cuda: enable
-      with-rocm: enable
-      with-cpu: enable
+      with-rocm: disable
+      with-cpu: disable
 
   build:
     if: ${{ github.repository_owner == 'pytorch' }}
@@ -46,6 +46,7 @@ jobs:
       smoke-test-script: ""
       env-var-script: .github/scripts/nova_dir.bash
       package-name: fbgemm_gpu
+      build-target: genai
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
