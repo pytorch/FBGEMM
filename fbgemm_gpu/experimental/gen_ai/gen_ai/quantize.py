@@ -109,6 +109,8 @@ def quantize_int4_preshuffle(
         scales is a tuple of row_scale ([N]) and group_scale ([K / group_size, 8, N]). When BF16 is
         used, scales is a tuple of group_scale([K / group_size, N]) and group_zero ([K / group_size, N])
     """
+    # Check that K is divisible by group size.
+    assert w.shape[-1] % group_size == 0, "K must be divisible by group size."
 
     def _quantize(
         w: torch.Tensor, dtype: str = "fp8"

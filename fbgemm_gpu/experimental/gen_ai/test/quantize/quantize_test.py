@@ -500,7 +500,8 @@ class FP8Tests(unittest.TestCase):
         B_T=st.sampled_from([2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
-        CudaGraph=st.sampled_from([True, False]),
+        CudaGraph=st.booleans(),
+        Preshuffle=st.booleans(),
     )
     def test_quantize_int4_bf16_matmul(
         self,
@@ -508,22 +509,32 @@ class FP8Tests(unittest.TestCase):
         D: int,
         HD_L: int,
         CudaGraph: bool,
+        Preshuffle: bool,
     ) -> None:
         x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
 
-        wq, w_scale, w_zp = int4_row_quantize(w, 128)
-        wq = pack_int4(wq).contiguous().to(device="cuda")
-        w_scale = w_scale.contiguous().to(device="cuda")
-        w_zp = w_zp.contiguous().to(device="cuda")
+        if Preshuffle:
+            wq, (w_scale, w_zp) = quantize_int4_preshuffle(w, dtype="bf16")
+        else:
+            wq, w_scale, w_zp = int4_row_quantize(w, 128)
+            wq = pack_int4(wq).contiguous().to(device="cuda")
+            w_scale = w_scale.contiguous().to(device="cuda")
+            w_zp = w_zp.contiguous().to(device="cuda")
+
+        bf16i4_op = (
+            torch.ops.fbgemm.bf16i4bf16_shuffled
+            if Preshuffle
+            else torch.ops.fbgemm.bf16i4bf16_rowwise
+        )
 
         if CudaGraph:
             g = torch.cuda.CUDAGraph()
             with torch.cuda.graph(g):
-                zq = torch.ops.fbgemm.bf16i4bf16_rowwise(x, wq, w_scale, w_zp)
+                zq = bf16i4_op(x, wq, w_scale, w_zp)
             g.replay()
         else:
-            zq = torch.ops.fbgemm.bf16i4bf16_rowwise(x, wq, w_scale, w_zp)
+            zq = bf16i4_op(x, wq, w_scale, w_zp)
 
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-1, rtol=8.0e-2)
@@ -909,6 +920,149 @@ class FP8Tests(unittest.TestCase):
         for i in range(len(y_group_ref)):
             torch.testing.assert_close(
                 y_bf16_group[i], y_group_ref[i], atol=8.0e-3, rtol=8.0e-3
+            )
+
+    @unittest.skipIf(not torch.version.cuda, "Currently not supported on AMD.")
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 5, 16]),
+        M=st.sampled_from([0, 2048, 3584]),
+        N=st.sampled_from([1024, 6144]),
+        K=st.sampled_from([512, 3584]),
+        use_cudagraph=st.booleans(),
+    )
+    def test_shuffled_grouped_gemm(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+        use_cudagraph: bool,
+    ) -> None:
+        if M > 0:
+            ms = (
+                torch.randint(
+                    1,
+                    (M // 64) + 1,
+                    (G,),
+                    dtype=torch.int,
+                )
+                * 64
+            )
+        else:
+            ms = torch.zeros((G,), dtype=torch.int)
+
+        M_sizes = ms.to(device="cuda", dtype=torch.int32)
+        ns = [N] * G
+        ks = [K] * G
+
+        x_group = []
+        w_group = []
+        xq_group = []
+        x_scale_group = []
+        w_fp8_group = []
+        fp8_group_scales = []
+        fp8_row_scales = []
+        w_bf16_group = []
+        bf16_group_scales = []
+        bf16_group_zeros = []
+
+        for _, (m, n, k) in enumerate(zip(ms, ns, ks)):
+            x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
+            w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
+
+            xq, x_scale = quantize_fp8_row(x)
+            w_fp8, (fp8_group_scale, fp8_row_scale) = quantize_int4_preshuffle(w)
+            w_bf16, (bf16_group_scale, bf16_group_zero) = quantize_int4_preshuffle(
+                w, dtype="bf16", use_zp=False
+            )
+            x_group.append(x)
+            w_group.append(w)
+            xq_group.append(xq)
+            x_scale_group.append(x_scale)
+            w_fp8_group.append(w_fp8)
+            fp8_group_scales.append(fp8_group_scale)
+            fp8_row_scales.append(fp8_row_scale)
+            w_bf16_group.append(w_bf16)
+            bf16_group_scales.append(bf16_group_scale)
+            bf16_group_zeros.append(bf16_group_zero)
+
+        # Only stacked API currently available for preshuffled grouped gemm.
+        x_group = torch.cat(x_group, dim=0).contiguous()
+        w_group = torch.stack(w_group, dim=0).contiguous()
+        xq_group = torch.cat(xq_group, dim=0).contiguous()
+        x_scale_group = torch.cat(x_scale_group, dim=0).contiguous()
+        w_fp8_group = torch.stack(w_fp8_group, dim=0).contiguous()
+        fp8_group_scales = torch.stack(fp8_group_scales, dim=0).contiguous()
+        fp8_row_scales = torch.stack(fp8_row_scales, dim=0).contiguous()
+        w_bf16_group = torch.stack(w_bf16_group, dim=0).contiguous()
+        bf16_group_scales = torch.stack(bf16_group_scales, dim=0).contiguous()
+        bf16_group_zeros = torch.stack(bf16_group_zeros, dim=0).contiguous()
+
+        fp8_op = torch.ops.fbgemm.f8i4bf16_shuffled_grouped
+        fp8_args = [
+            xq_group,
+            w_fp8_group,
+            x_scale_group,
+            fp8_row_scales,
+            fp8_group_scales,
+            M_sizes,
+        ]
+        bf16_op = torch.ops.fbgemm.bf16i4bf16_shuffled_grouped
+        bf16_args = [
+            x_group,
+            w_bf16_group,
+            bf16_group_scales,
+            bf16_group_zeros,
+            M_sizes,
+        ]
+
+        if use_cudagraph:
+            # warmup
+            fp8_op(*fp8_args)
+            # With cudagraph
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y_fp8_group = fp8_op(*fp8_args)
+            g.replay()
+        else:
+            y_fp8_group = fp8_op(*fp8_args)
+
+        # Massage output into proper format.
+        y_fp8_group = torch.split(y_fp8_group, tuple(ms.tolist()), dim=0)
+
+        if use_cudagraph:
+            # warmup
+            bf16_op(*bf16_args)
+            # With cudagraph
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y_bf16_group = bf16_op(*bf16_args)
+            g.replay()
+        else:
+            y_bf16_group = bf16_op(*bf16_args)
+
+        # View output as list if needed.
+        y_bf16_group = torch.split(y_bf16_group, tuple(ms.tolist()), dim=0)
+
+        # BF16 loopover gemm reference
+        # unstack input to make it compatible with loopover.
+        x_group = torch.split(x_group, tuple(ms.tolist()), dim=0)
+        y_group_ref = []
+        for i in range(len(x_group)):
+            y = torch.matmul(x_group[i], w_group[i].t())
+            y_group_ref.append(y)
+
+        # Assert FP8 outputs
+        for i in range(len(y_group_ref)):
+            torch.testing.assert_close(
+                y_fp8_group[i], y_group_ref[i], atol=8.0e-2, rtol=2.0e-1
+            )
+
+        # Assert BF16 outputs
+        for i in range(len(y_group_ref)):
+            torch.testing.assert_close(
+                y_bf16_group[i], y_group_ref[i], atol=8.0e-2, rtol=5.0e-2
             )
 
     @unittest.skipIf(torch.version.hip, "Skip on AMD: Marlin not yet suported.")
