@@ -41,10 +41,10 @@ template <
     typename StrideC>
 __global__ void set_kernel_args_kernel(
     int i, // Group index
-    int G, // Total groups.
-    int M,
-    int N,
-    int K,
+    int64_t G, // Total groups.
+    int64_t M,
+    int64_t N,
+    int64_t K,
     ProblemShape* problem_shape_ptr,
     ElementA* x,
     const ElementA** x_ptr,
@@ -59,16 +59,16 @@ __global__ void set_kernel_args_kernel(
   // Each kernel annoyingly can only set the kernel args for one group.
   // This could only be avoided with complicated memory management.
   if (idx == 0) {
-    problem_shape_ptr[i] = ProblemShape(N, M, K);
+    problem_shape_ptr[i] = ProblemShape(int(N), int(M), int(K));
     x_ptr[i] = x;
     w_ptr[i] = w;
     output_ptr[i] = output;
-    stride_a_ptr[i] =
-        cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(M, K, 1));
-    stride_b_ptr[i] =
-        cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(N, K, 1));
-    stride_c_ptr[i] =
-        cutlass::make_cute_packed_stride(StrideC{}, cute::make_shape(N, M, 1));
+    stride_a_ptr[i] = cutlass::make_cute_packed_stride(
+        StrideA{}, cute::make_shape(int(M), int(K), 1));
+    stride_b_ptr[i] = cutlass::make_cute_packed_stride(
+        StrideB{}, cute::make_shape(int(N), int(K), 1));
+    stride_c_ptr[i] = cutlass::make_cute_packed_stride(
+        StrideC{}, cute::make_shape(int(N), int(M), 1));
   }
 }
 
@@ -81,10 +81,10 @@ template <
     typename StrideB,
     typename StrideC>
 __global__ void set_dynamic_kernel_args_kernel(
-    int G,
-    int M,
-    int N,
-    int K,
+    int64_t G,
+    int64_t M,
+    int64_t N,
+    int64_t K,
     ProblemShape* problem_shape_ptr,
     ElementA* x,
     const ElementA** x_ptr,
@@ -101,20 +101,21 @@ __global__ void set_dynamic_kernel_args_kernel(
   // memory.
   if (group_index < G) {
     // Compute shape for this group.
-    int kernel_M = zero_start_index_M[group_index];
-    int offset_M = group_index * M;
+    int64_t kernel_M = zero_start_index_M[group_index];
+    int64_t offset_M = group_index * M;
     // Set the problem shape for this group.
-    problem_shape_ptr[group_index] = ProblemShape(N, kernel_M, K);
+    problem_shape_ptr[group_index] =
+        ProblemShape(int(N), int(kernel_M), int(K));
     // Set input pointers.
     x_ptr[group_index] = x + (offset_M * K);
     w_ptr[group_index] = w + (group_index * N * K);
     output_ptr[group_index] = output + (offset_M * N);
     stride_a_ptr[group_index] = cutlass::make_cute_packed_stride(
-        StrideA{}, cute::make_shape(kernel_M, K, 1));
-    stride_b_ptr[group_index] =
-        cutlass::make_cute_packed_stride(StrideB{}, cute::make_shape(N, K, 1));
+        StrideA{}, cute::make_shape(int(kernel_M), int(K), 1));
+    stride_b_ptr[group_index] = cutlass::make_cute_packed_stride(
+        StrideB{}, cute::make_shape(int(N), int(K), 1));
     stride_c_ptr[group_index] = cutlass::make_cute_packed_stride(
-        StrideC{}, cute::make_shape(N, kernel_M, 1));
+        StrideC{}, cute::make_shape(int(N), int(kernel_M), 1));
   }
 }
 
@@ -127,9 +128,9 @@ template <
     typename StrideB,
     typename StrideC>
 __global__ void set_stacked_kernel_args_kernel(
-    int G,
-    int N,
-    int K,
+    int64_t G,
+    int64_t N,
+    int64_t K,
     ProblemShape* problem_shape_ptr,
     ElementA* x,
     const ElementA** x_ptr,
@@ -167,22 +168,22 @@ __global__ void set_stacked_kernel_args_kernel(
       int non_zero_idx = atomicAdd(&non_zero_counter, 1);
       // We compute the offset by getting the cumulative sum over
       // prior groups.
-      int offset_M = 0;
+      int64_t offset_M = 0;
       for (int i = 0; i < group_index; i++) {
         offset_M += M_sizes[i];
       }
       // Set the problem shape for this group.
-      problem_shape_ptr[non_zero_idx] = ProblemShape(N, M, K);
+      problem_shape_ptr[non_zero_idx] = ProblemShape(int(N), int(M), int(K));
       // Set input pointers.
       x_ptr[non_zero_idx] = x + (offset_M * K);
       w_ptr[non_zero_idx] = w + (group_index * N * K);
       output_ptr[non_zero_idx] = output + (offset_M * N);
       stride_a_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
-          StrideA{}, cute::make_shape(M, K, 1));
+          StrideA{}, cute::make_shape(int(M), int(K), 1));
       stride_b_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
-          StrideB{}, cute::make_shape(N, K, 1));
+          StrideB{}, cute::make_shape(int(N), int(K), 1));
       stride_c_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
-          StrideC{}, cute::make_shape(N, M, 1));
+          StrideC{}, cute::make_shape(int(N), int(M), 1));
     }
   }
 }
@@ -202,7 +203,7 @@ at::Tensor bf16bf16bf16_grouped_impl(
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes) {
-  int G;
+  int64_t G;
   at::TensorOptions options;
   if constexpr (std::is_same_v<InputType, at::TensorList>) {
     G = X.size();
@@ -216,7 +217,7 @@ at::Tensor bf16bf16bf16_grouped_impl(
     options = X.options();
   }
   // The number of groups the kernel uses may vary.
-  int kernel_groups = G;
+  int kernel_groups = int(G);
   // Return early if there are no elements in the output.
   if (output.numel() == 0) {
     return output;
@@ -363,9 +364,9 @@ at::Tensor bf16bf16bf16_grouped_impl(
     int64_t output_offset = 0;
     for (int i = 0; i < G; ++i) {
       // Compute buffer pointers based on input type.
-      int M = X[i].size(0);
-      int N = W[i].size(0);
-      int K = X[i].size(1);
+      int64_t M = X[i].size(0);
+      int64_t N = W[i].size(0);
+      int64_t K = X[i].size(1);
       TORCH_CHECK_EQ(W[i].size(1), K);
       // Launch a kernel to set one group's arguments.
       set_kernel_args_kernel<<<1, 1, 0, stream>>>(
@@ -399,9 +400,9 @@ at::Tensor bf16bf16bf16_grouped_impl(
         "M_sizes must be int64.");
     // When m_offsets is used, X is shape [total_M, K]. When zero_start_index_M
     // is used, shape is [G, M, K].
-    int M = X.size(X.dim() - 2);
-    int N = W.size(1);
-    int K = W.size(2);
+    int64_t M = X.size(X.dim() - 2);
+    int64_t N = W.size(1);
+    int64_t K = W.size(2);
     if (zero_start_index_M.has_value()) {
       int64_t* zero_start_index_M_ptr =
           reinterpret_cast<int64_t*>(zero_start_index_M.value().data_ptr());
@@ -441,7 +442,7 @@ at::Tensor bf16bf16bf16_grouped_impl(
           M_sizes_ptr);
       // Set the number of groups to the kernel to be at most the number of
       // non-zero rows.
-      kernel_groups = std::min(M, G);
+      kernel_groups = int(std::min(M, G));
     }
   }
 
@@ -519,15 +520,15 @@ at::Tensor dispatch_bf16_grouped_kernel(
 template <typename OutputType>
 OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
   at::Tensor Y;
-  int total_M = 0;
-  int G = X.size();
+  int64_t total_M = 0;
+  int64_t G = X.size();
 
   // Allocate output tensor.
   std::vector<int64_t> output_sizes;
   int64_t total_output_size = 0;
   for (int i = 0; i < G; ++i) {
-    int M = X[i].size(0);
-    int N = W[i].size(0);
+    int64_t M = X[i].size(0);
+    int64_t N = W[i].size(0);
     total_M += M;
     const int64_t output_size = M * N;
     total_output_size += output_size;
@@ -541,7 +542,7 @@ OutputType _bf16bf16bf16_grouped(at::TensorList X, at::TensorList W) {
 
   // Return appropriate output type.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
-    int N = W[0].size(0);
+    int64_t N = W[0].size(0);
     return g_out.view({total_M, N});
   } else {
     // Return grouped view of output.
@@ -565,9 +566,9 @@ at::Tensor bf16bf16bf16_grouped_cat(at::TensorList X, at::TensorList W) {
 
 at::Tensor
 bf16bf16bf16_grouped_stacked(at::Tensor X, at::Tensor W, at::Tensor M_sizes) {
-  int total_M = X.size(0);
-  int N = W.size(1);
-  int G = M_sizes.size(0);
+  int64_t total_M = X.size(0);
+  int64_t N = W.size(1);
+  int64_t G = M_sizes.size(0);
   TORCH_CHECK(
       M_sizes.device() == X.device(),
       "M_sizes must be on same device as inputs.");
@@ -591,11 +592,10 @@ at::Tensor bf16bf16bf16_grouped_dynamic(
   TORCH_CHECK(
       zero_start_index_M.device() == X.device(),
       "zero_start_index_M must be on same device as inputs.");
-  int G = X.size(0);
-  int M = X.size(1);
-  int N = W.size(1);
-  int K = X.size(0);
-  int total_output_size = G * M * N;
+  int64_t G = X.size(0);
+  int64_t M = X.size(1);
+  int64_t N = W.size(1);
+  int64_t total_output_size = G * M * N;
   at::Tensor Y;
   Y = at::zeros(total_output_size, X.options().dtype(at::kBFloat16));
 
