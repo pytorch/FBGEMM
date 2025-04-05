@@ -37,7 +37,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 )
 from fbgemm_gpu.tbe.bench import (
     bench_warmup,
-    benchmark_cpu_requests,
+    benchmark_cpu_requests_mp,
     benchmark_pipelined_requests,
     benchmark_requests,
     benchmark_requests_refer,
@@ -94,6 +94,42 @@ def cli() -> None:
 @click.option("--fp8-exponent-bits", type=int, default=None)
 @click.option("--fp8-exponent-bias", type=int, default=None)
 @click.option("--pooling", type=str, default="sum")
+@click.option(
+    "--copies",
+    default=1,
+    help=(
+        "Spawn N worker processes running CPU TBE benchmark in parallel, "
+        "each of which processes the same set of TBE tables."
+    ),
+)
+@click.option(
+    "--sweep",
+    default=False,
+    is_flag=True,
+    help=(
+        "If this flag is set and --copies is set to greater than 1, "
+        "this benchmark will run sweep experiments from 1 to N parallel copies."
+    ),
+)
+@click.option(
+    "--start-script",
+    type=str,
+    default="",
+    help=(
+        "Before executing TBE, run the script (e.g. perf collection script). "
+        "N will be passed to the script as the first CLI argument ($1). "
+        "The script will be terminated after TBE finishes."
+    ),
+)
+@click.option(
+    "--end-script",
+    type=str,
+    default="",
+    help=(
+        "After TBE finishes, run the script (e.g. perf post-processing script). "
+        "N will be passed to the script as the first CLI argument."
+    ),
+)
 def nbit_cpu(  # noqa C901
     alpha: float,
     bag_size: int,
@@ -117,6 +153,10 @@ def nbit_cpu(  # noqa C901
     fp8_exponent_bits: Optional[int],
     fp8_exponent_bias: Optional[int],
     pooling: str,
+    copies: int,
+    sweep: bool,
+    start_script: str,
+    end_script: str,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -204,22 +244,29 @@ def nbit_cpu(  # noqa C901
         for req in requests
     ]
 
-    time_per_iter = benchmark_cpu_requests(
-        requests,
-        lambda indices, offsets, per_sample_weights: emb.forward(
-            indices,
-            offsets,
-            per_sample_weights,
-        ),
-        num_warmups=warmup_runs,
-    )
+    copies_to_try = []
+    if sweep:
+        copies_to_try = list(range(1, copies + 1))
+    else:
+        copies_to_try = [copies]
 
-    logging.info(
-        f"{weights_precision} Forward, B: {B}, "
-        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-        f"T: {time_per_iter * 1.0e6:.0f}us"
-    )
+    for C in copies_to_try:
+        time_per_iter = benchmark_cpu_requests_mp(
+            requests,
+            emb,
+            num_warmups=warmup_runs,
+            num_copies=C,
+            start_script=start_script,
+            end_script=end_script,
+        )
+
+        result_msg = f"{weights_precision} Forward, B: {B}, "
+        result_msg += f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        result_msg += f"BW: {C * read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        result_msg += f"T: {time_per_iter * 1.0e6:.0f}us"
+        if copies > 1:
+            result_msg += f", C: {C}"
+        logging.info(result_msg)
 
 
 @cli.command()
@@ -637,6 +684,12 @@ def nbit_device(  # noqa C901
     default=None,
     help="Warmup duration in milliseconds. Disables the --run-nums option.",
 )
+@click.option(
+    "--cpu-copies",
+    type=int,
+    default=1,
+    help="number of copies of CPU TBE workloads to run in parallel",
+)
 def nbit_device_with_spec(  # noqa C901
     alpha: float,
     bag_size_list: str,
@@ -665,6 +718,7 @@ def nbit_device_with_spec(  # noqa C901
     trace_url: str,
     warmup_runs: int,
     warmup_ms: Optional[int],
+    cpu_copies: int,
 ) -> None:
     np.random.seed(42)
     torch.manual_seed(42)
@@ -677,6 +731,11 @@ def nbit_device_with_spec(  # noqa C901
     D = np.mean(Ds)
     L = np.mean(Ls)
     T = len(Ds)
+    if not use_cpu and cpu_copies > 1:
+        logging.warning(
+            "--cpu-copies is effective only in CPU mode, will execute 1 copy instead."
+        )
+        cpu_copies = 1
     logging.info("TBE Spec:")
     logging.info("#, E, D, L")
     for i, (e, d, bag_size) in enumerate(zip(Es, Ds, Ls)):
@@ -837,13 +896,10 @@ def nbit_device_with_spec(  # noqa C901
 
         # forward
         if use_cpu:
-            time_per_iter = benchmark_cpu_requests(
+            time_per_iter = benchmark_cpu_requests_mp(
                 requests,
-                lambda indices, offsets, per_sample_weights: emb.forward(
-                    indices.int(),
-                    offsets.int(),
-                    per_sample_weights,
-                ),
+                emb,
+                num_copies=cpu_copies,
             )
         else:
             time_per_iter = benchmark_requests(
@@ -863,21 +919,23 @@ def nbit_device_with_spec(  # noqa C901
 
         # free up memory
         del requests
+        result_msg = f"Iteration {i}: "
+        f"{weights_precision} Forward, B: {B}, "
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {cpu_copies * float(read_write_bytes) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"Time: {time_per_iter * 1.0e6:.0f}us, "
+        f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
 
-        logging.info(
-            f"Iteration {i}: "
-            f"{weights_precision} Forward, B: {B}, "
-            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {read_write_bytes / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-            f"Time: {time_per_iter * 1.0e6:.0f}us, "
-            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
-        )
+        if use_cpu and cpu_copies > 1:
+            result_msg += f", Parallel Copies: {cpu_copies}"
+
+        logging.info(result_msg)
 
         if i >= warmup_runs:
             times.append(time_per_iter)
 
     time_per_iter = statistics.mean(times)
-    bandwidth = read_write_bytes / time_per_iter / 1.0e9
+    bandwidth = cpu_copies * float(read_write_bytes) / time_per_iter / 1.0e9
 
     logging.info(
         f"Average of all iterations: "
