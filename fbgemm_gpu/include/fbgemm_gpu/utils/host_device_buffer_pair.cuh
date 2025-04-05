@@ -6,8 +6,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <c10/cuda/CUDAException.h>
-
 #include <cuda.h>
 #include <cuda_fp16.h>
 #include <curand.h>
@@ -86,13 +84,22 @@ struct HostDeviceBufferPair {
   }
 
   inline void syncToDevice() {
-    cudaMemcpy(
+    const auto err = cudaMemcpy(
         device, host.data(), host.size() * sizeof(T), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+      fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(err));
+      std::exit(1);
+    }
   }
 
   inline void syncToHost() {
-    cudaMemcpy(
+    const auto err = cudaMemcpy(
         host.data(), device, host.size() * sizeof(T), cudaMemcpyDeviceToHost);
+
+    if (err != cudaSuccess) {
+      fprintf(stderr, "CUDA error: %s\n", cudaGetErrorString(err));
+      std::exit(1);
+    }
   }
 
   inline void free() {
