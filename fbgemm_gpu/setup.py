@@ -157,7 +157,10 @@ class FbgemmGpuBuild:
             )
             return pkg_vver
 
-        if self.args.package_variant == "cuda":
+        # NOTE: This is a workaround for the fact that we currently overload
+        # package target (e.g. GPU, GenAI), and variant (e.g. CPU, CUDA, ROCm)
+        # into the same `package_variant` variable, and should be fixed soon.
+        if self.args.package_variant == "cuda" or self.args.package_variant == "genai":
             CudaUtils.set_cuda_environment_variables()
             if torch.version.cuda is not None:
                 cuda_version = torch.version.cuda.split(".")
