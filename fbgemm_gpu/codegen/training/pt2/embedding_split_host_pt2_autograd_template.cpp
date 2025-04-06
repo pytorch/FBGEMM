@@ -693,7 +693,7 @@ class {{ autograd_func }} :
     // Constanting info_B_num_bits, info_B_mask for Dynamo for now.
     const auto info_B_num_bits = static_cast<int32_t>(aux_int[IDX_INFO_B_NUM_BITS]);
     const auto info_B_mask = static_cast<uint32_t>(aux_int[IDX_INFO_B_MASK]);
-
+    TORCH_SYM_CHECK(max_B_.sym_le(info_B_mask), "Not enough bits to accommodate B");
     {%- if vbe %}
     static auto generate_vbe_metadata_op =
         torch::Dispatcher::singleton()
