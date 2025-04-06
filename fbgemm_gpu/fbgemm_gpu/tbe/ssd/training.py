@@ -230,6 +230,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
 
+        (info_B_num_bits_, info_B_mask_) = torch.ops.fbgemm.get_infos_metadata(
+            self.D_offsets,  # unused tensor
+            1,  # max_B
+            T,  # T
+        )
+        self.info_B_num_bits: int = info_B_num_bits_
+        self.info_B_mask: int = info_B_mask_
+
         assert cache_sets > 0
         element_size = weights_precision.bit_rate() // 8
         assert (
@@ -549,12 +557,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         cowclip_regularization = CowClipDefinition()
 
+        self.learning_rate_tensor: torch.Tensor = torch.tensor(
+            learning_rate, device=torch.device("cpu"), dtype=torch.float32
+        )
+
         self.optimizer_args = invokers.lookup_args_ssd.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
             max_norm=max_norm,
-            learning_rate=learning_rate,
             eps=eps,
             beta1=beta1,
             beta2=beta2,
@@ -1676,6 +1687,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             },
             # pyre-fixme[6]: Expected `lookup_args_ssd.VBEMetadata` but got `lookup_args.VBEMetadata`
             vbe_metadata=vbe_metadata,
+            learning_rate_tensor=self.learning_rate_tensor,
+            info_B_num_bits=self.info_B_num_bits,
+            info_B_mask=self.info_B_mask,
         )
 
         self.timesteps_prefetched.pop(0)
@@ -1817,17 +1831,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def set_learning_rate(self, lr: float) -> None:
         """
         Sets the learning rate.
+
+        Args:
+            lr (float): The learning rate value to set to
         """
         self._set_learning_rate(lr)
 
     def get_learning_rate(self) -> float:
         """
-        Sets the learning rate.
-
-        Args:
-            lr (float): The learning rate value to set to
+        Get and return the learning rate.
         """
-        return self.optimizer_args.learning_rate
+        return self.learning_rate_tensor.item()
 
     @torch.jit.ignore
     def _set_learning_rate(self, lr: float) -> float:
@@ -1835,7 +1849,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Helper function to script `set_learning_rate`.
         Note that returning None does not work.
         """
-        self.optimizer_args = self.optimizer_args._replace(learning_rate=lr)
+        self.learning_rate_tensor.fill_(lr)
         return 0.0
 
     def flush(self) -> None:
