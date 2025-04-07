@@ -1077,8 +1077,9 @@ std::vector<at::Tensor> quantize_fp8_per_row(
       "Invalid dim. The dim of input should be greater than or equal to 2");
   TORCH_CHECK(
       input.scalar_type() == torch::kBFloat16 ||
-          input.scalar_type() == torch::kFloat,
-      "Invalid datatype. input must be BF16 or FP32");
+          input.scalar_type() == torch::kFloat ||
+          input.scalar_type() == torch::kHalf,
+      "Invalid datatype. input must be BF16, FP16 or FP32");
   TORCH_CHECK(
       !stochastic_rounding || input.size(-1) % 4 == 0,
       "input row dim must be 4's multiple when stochastic_rounding is True");
