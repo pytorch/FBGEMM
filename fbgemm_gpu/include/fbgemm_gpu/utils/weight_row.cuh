@@ -134,16 +134,7 @@ struct WeightRow {
     stoc_rounding_state_ptr_ = nullptr;
     if constexpr (!std::is_same_v<emb_t, float>) {
       if (stochastic_rounding) {
-        const auto stochastic_rounding_seeds =
-            at::cuda::philox::unpack(*stochastic_rounding_philox_args);
-
-        stochastic_rounding_init(
-            std::get<0>(stochastic_rounding_seeds) ^
-                std::get<1>(stochastic_rounding_seeds),
-            // The salt value should be different for every *run* and every
-            // *thread*.
-            salt_value,
-            &stoc_rounding_state_);
+        stoc_rounding_state_.init(*stochastic_rounding_philox_args, salt_value);
         // Store the pointer here to avoid an if-else cond during load/store
         stoc_rounding_state_ptr_ = &stoc_rounding_state_;
       }

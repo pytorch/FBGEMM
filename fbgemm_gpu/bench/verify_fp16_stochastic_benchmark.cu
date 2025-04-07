@@ -28,7 +28,7 @@ namespace fbgemm_gpu {
 
 DEVICE_INLINE half
 float_to_sto_half_fbgemm_rand(float x, StochasticRoundingRNGState& state) {
-  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const auto random_bits = state.rand4();
   uint32_t random_value = random_bits.x;
   uint32_t w_int = __float_as_uint(x);
   unsigned assembles = (w_int & 0xff800000) | (random_value >> 19);
@@ -41,13 +41,10 @@ __global__ void convert_float_to_half_fbgemm_rand(
     half* dst,
     const float* src,
     int size,
-    at::PhiloxCudaState stochastic_rounding_philox_args) {
+    at::PhiloxCudaState philox_args) {
   const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-  StochasticRoundingRNGState state;
-  const auto seeds = at::cuda::philox::unpack(stochastic_rounding_philox_args);
-  stochastic_rounding_init(
-      std::get<0>(seeds) ^ std::get<1>(seeds), idx, &state);
+  auto state = StochasticRoundingRNGState(philox_args, idx);
 
   if (idx < size) {
     dst[idx] = float_to_sto_half_fbgemm_rand(src[idx], state);
