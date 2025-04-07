@@ -9,7 +9,6 @@ ci.package(
         ci.opt(
             ci.buckconfigs({
                 "fbcode.nvcc_arch": "h100a",
-                "fbcode.platform010_cuda_version": "12.4",
             }),
         ),
     ),
