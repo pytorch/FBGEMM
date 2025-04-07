@@ -16,6 +16,10 @@
 	path = external/cutlass
 	url = https://github.com/jwfromm/cutlass
 	branch = FBGEMM
+[submodule "external/composable_kernel"]
+	path = external/composable_kernel
+	url = https://github.com/jwfromm/composable_kernel.git
+	branch = FBGEMM
 [submodule "external/json"]
 	path = external/json
 	url = https://github.com/nlohmann/json.git
