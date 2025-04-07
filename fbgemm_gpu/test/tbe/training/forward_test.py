@@ -296,6 +296,9 @@ class ForwardTest(unittest.TestCase):
             output_dtype=output_dtype,
             use_experimental_tbe=use_experimental_tbe,
         )
+        # Test torch JIT script compatibility
+        if not use_cpu:
+            cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(

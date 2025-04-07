@@ -8,11 +8,16 @@
 
 import logging
 import statistics
+import threading
 import time
+from subprocess import Popen
 from typing import Callable, List, Optional, Tuple
 
 import torch
+
 from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
+from torch import Tensor
+from torch.multiprocessing import Barrier, Pool
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -37,6 +42,161 @@ def bench_warmup(
             out = func(indices, offsets, weights)
             if bwd_only:
                 out.backward(grad)
+
+
+class BMBarrier:
+
+    def __init__(self) -> None:
+        self.bar: Optional[threading.Barrier] = None
+
+    def create_barrier(self, party_size: int) -> None:
+        if self.bar is not None:
+            self.bar.reset()
+            self.bar = None
+        self.bar = Barrier(party_size)
+
+    def wait(self) -> None:
+        if self.bar is not None:
+            self.bar.wait()
+
+
+# This barrier ensures all CPU TBE workers start the embedding workload
+# together so that we get the most accurate measurement. This needs to be
+# a global variable because it will be shared among worker processes.
+cpu_bm_barrier = BMBarrier()
+
+
+def cpu_tbe_worker(
+    requests_: List[TBERequest],
+    func_: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    use_barrier: bool = False,
+) -> float:
+    """
+    Worker function to process CPU TBE workload.
+
+    Args:
+        requests_ (List[TBERequest]): A list of TBERequest objects to be processed. Namely, the dataset.
+        func_ (Callable[[Tensor, Tensor, Optional[Tensor]], Tensor]):
+            The function to process each request, usually the `.forward()` method
+            n the embedding module instance.
+        use_barrier (bool, optional): Whether to use a barrier to synchronize the
+            start of embedding workload. Defaults to False.
+
+    Returns:
+        float: The average runtime per iteration in seconds.
+    """
+    import time
+
+    if use_barrier:
+        cpu_bm_barrier.wait()
+
+    start_time = time.perf_counter()
+    for req in requests_:
+        func_(*(req.unpack_3()))
+    end_time = time.perf_counter()
+
+    return (end_time - start_time) / len(requests_)
+
+
+def benchmark_cpu_requests_mp(
+    requests: List[TBERequest],
+    emb_module: torch.nn.Module,
+    num_warmups: int = 0,
+    num_copies: int = 1,
+    start_script: str = "",
+    end_script: str = "",
+) -> float:
+    """
+    CPU benchmark request handler with multi-processing support
+
+    Args:
+        requests (List[TBERequest]): A list of TBERequest objects to be processed.
+        emb_module (torch.nn.Module): The embedding module to be used for processing requests,
+            for example, an instance of `IntNBitTableBatchedEmbeddingBagsCodegen` module.
+        num_warmups (int, optional): Number of warm-up iterations to perform before benchmarking. Defaults to 0.
+        num_copies (int, optional): Number of parallel copies of the workloads. By `copies`,
+            we mean the number of parallel processes working on the same dataset described in `requests`.
+            Defaults to 1 (which means single threaded). Increasing this will enable the benchmark to use
+            more CPU cores and push higher memory bandwidth.
+        start_script (str, optional): Path to a script to be executed before starting the benchmark.
+            Defaults to empty (not running anything). This can be used to collect perf counters.
+            The script will be terminated upon benchmark finishing.
+        end_script (str, optional): Path to a script to be executed after completing the benchmark.
+            Defaults to empty (not running anything). This can be used to post-process perf counters.
+
+    Returns:
+        float: The average runtime per iteration in seconds.
+
+    """
+    cpu_bm_barrier.create_barrier(num_copies)
+    worker_pool = Pool(num_copies)
+
+    if num_warmups > 0:
+        asyncres = []
+        for _ in range(num_copies):
+            asyncres.append(
+                worker_pool.apply_async(
+                    cpu_tbe_worker,
+                    args=(
+                        [requests[0]],
+                        emb_module.forward,
+                        False,
+                        num_warmups,
+                    ),
+                )
+            )
+        for res in asyncres:
+            res.wait()
+
+    if start_script:
+        p_start = Popen([start_script, str(num_copies)])
+
+    asyncres = []
+    for _ in range(num_copies):
+        asyncres.append(
+            worker_pool.apply_async(
+                cpu_tbe_worker,
+                args=(
+                    requests,
+                    emb_module.forward,
+                    True,
+                ),
+            )
+        )
+    runtime_per_iter = 0.0
+    for res in asyncres:
+        res.wait()
+        runtime_per_iter += res.get()
+    worker_pool.close()
+    worker_pool.join()
+    worker_pool.terminate()
+
+    if start_script:
+        p_start.terminate()
+
+    if end_script:
+        p_end = Popen([end_script, str(num_copies)])
+        p_end.wait()
+
+    return runtime_per_iter / num_copies
+
+
+def benchmark_cpu_requests(
+    requests: List[TBERequest],
+    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    num_warmups: int = 0,
+) -> float:
+    import time
+
+    if num_warmups > 0:
+        for _ in range(num_warmups):
+            func(*(requests[0].unpack_3()))
+
+    start_time = time.perf_counter()
+    for req in requests:
+        func(*(req.unpack_3()))
+    end_time = time.perf_counter()
+    return (end_time - start_time) / len(requests)
 
 
 def benchmark_requests(  # noqa: C901
@@ -299,21 +459,25 @@ def benchmark_pipelined_requests(
 
 
 def benchmark_vbe(
-    requests: List[Tuple[torch.Tensor, torch.Tensor]],
-    func: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    requests: List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]],
+    func: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
+    num_warmups: int = 0,
 ) -> Tuple[float, float]:
     """
     A benchmark function to return the average execution time in seconds of
     forward and backward of VBE kernels.
 
     Args:
-        requests (List[Tuple[torch.Tensor, torch.Tensor]]):
+        requests (List[Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]):
             A list of requests.  Each request is a tuple
-            of indices and offsets.
+            of indices, offsets and weights.
 
-        func (Callable[[torch.Tensor, torch.Tensor], torch.Tensor]):
-            A function that takes in indices and offsets
+        func (Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor]):
+            A function that takes in indices, offsets, and weights
             and returns the output of the VBE kernel.
+
+        num_warmups (int):
+            The number of warm-up iterations before measuring performance.
 
     Returns:
         Tuple[float, float]:
@@ -321,32 +485,78 @@ def benchmark_vbe(
             backward of VBE kernels.
     """
 
-    fwd_times = []
-    bwd_times = []
+    use_cuda = torch.cuda.is_available()
 
-    torch.cuda.synchronize()
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
+    # Warm-ups.
+    for _ in range(num_warmups):
+        # Warm-up using the first request as done in benchmark_requests
+        indices, offsets, weights = requests[0]
+        out = func(indices, offsets, weights)
+        grad = torch.rand_like(out)
+        out.backward(grad)
 
-    for indices, offsets in requests:
-        # forward
-        start_event.record()
-        out = func(indices, offsets)
-        end_event.record()
+    iters = len(requests)
+    if use_cuda:
+        fwd_start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        fwd_end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        bwd_start_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
+        bwd_end_events = [torch.cuda.Event(enable_timing=True) for _ in range(iters)]
         torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
-        fwd_times.append(it_time)
+    else:
+        # Actual measurement in seconds.
+        fwd_times_sec = []
+        bwd_times_sec = []
+
+    for i, (indices, offsets, weights) in enumerate(requests):
+        # forward
+        if use_cuda:
+            # pyre-ignore[61]
+            fwd_start_events[i].record()
+        else:
+            start_time = time.time()
+
+        out = func(indices, offsets, weights)
+        if use_cuda:
+            # pyre-ignore[61]
+            fwd_end_events[i].record()
+        else:
+            # pyre-ignore[61]
+            fwd_times_sec.append(time.time() - start_time)
 
         grad = torch.rand_like(out)
-        start_event.record()
+
+        if use_cuda:
+            # pyre-ignore[61]
+            bwd_start_events[i].record()
+        else:
+            start_time = time.time()
         # backward
         out.backward(grad)
-        end_event.record()
-        torch.cuda.synchronize()
-        it_time = start_event.elapsed_time(end_event) * 1.0e-3
-        bwd_times.append(it_time)
+        if use_cuda:
+            # pyre-ignore[61]
+            bwd_end_events[i].record()
+        else:
+            # pyre-ignore[61]
+            bwd_times_sec.append(time.time() - start_time)
 
-    fwd_time_sec = statistics.median(fwd_times)
-    bwd_time_sec = statistics.median(bwd_times)
+    if use_cuda:
+        torch.cuda.synchronize()
+
+    if use_cuda:
+        fwd_times_sec = [
+            start_event.elapsed_time(end_event) * 1.0e-3
+            # pyre-ignore[61]
+            for start_event, end_event in zip(fwd_start_events, fwd_end_events)
+        ]
+        bwd_times_sec = [
+            start_event.elapsed_time(end_event) * 1.0e-3
+            # pyre-ignore[61]
+            for start_event, end_event in zip(bwd_start_events, bwd_end_events)
+        ]
+
+    # pyre-ignore[61]
+    fwd_time_sec = statistics.median(fwd_times_sec)
+    # pyre-ignore[61]
+    bwd_time_sec = statistics.median(bwd_times_sec)
 
     return fwd_time_sec, bwd_time_sec

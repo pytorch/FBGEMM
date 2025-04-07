@@ -1,6 +1,7 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
+ * Copyright 2024-2025 Arm Limited and/or its affiliates
+ * <open-source-office@arm.com> All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
@@ -62,15 +63,12 @@ class PackedGemmMatrixB {
       const float alpha,
       const float* smat,
       const int brow = 512)
-      : nrow_(nrow),
-        ncol_(ncol),
-        brow_(brow),
+      : nrow_(nrow), ncol_(ncol), brow_(brow), kernel_ncol_blocks_(2) {
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-        kernel_ncol_blocks_(1)
-#else
-        kernel_ncol_blocks_(2)
+    if (std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
 #endif
-  {
     initializeParam();
     initializeMemory();
     // copy source matrix into packed matrix
@@ -95,6 +93,11 @@ class PackedGemmMatrixB {
         nbcol_(nbcol),
         size_(size),
         kernel_ncol_blocks_(2) {
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+    if (std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
+#endif
     initializeMemory();
   }
 
@@ -118,6 +121,11 @@ class PackedGemmMatrixB {
         nbcol_(nbcol),
         size_(size),
         kernel_ncol_blocks_(kernel_ncol_blocks) {
+#ifdef FBGEMM_ENABLE_KLEIDIAI
+    if (std::is_same<T, float16>::value) {
+      kernel_ncol_blocks_ = 1;
+    }
+#endif
     pmat_ = static_cast<T*>(pmat);
     packed_ = true;
     pmat_passed_in = true;
@@ -296,5 +304,31 @@ class PackedGemmMatrixB {
   bool packed_{false};
   bool pmat_passed_in{false};
 };
+
+#ifndef _M_X64
+
+template <>
+FBGEMM_API
+PackedGemmMatrixB<float16, TypeConverter<float16>>::PackedGemmMatrixB(
+    const matrix_op_t trans,
+    const int nrow,
+    const int ncol,
+    const float alpha,
+    const float* smat,
+    const int brow);
+
+template <>
+FBGEMM_API
+PackedGemmMatrixB<float16, TypeConverter<float16>>::PackedGemmMatrixB(
+    const int nrow,
+    const int ncol,
+    const int brow,
+    const int last_brow,
+    const int bcol,
+    const int nbrow,
+    const int nbcol,
+    const uint64_t size);
+
+#endif
 
 } // namespace fbgemm

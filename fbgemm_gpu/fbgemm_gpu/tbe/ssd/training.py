@@ -16,7 +16,7 @@ import os
 import tempfile
 import threading
 import time
-from math import log2
+from math import floor, log2
 from typing import Any, Callable, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 
@@ -148,8 +148,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Set to False to use cudaMallocManaged
         uvm_host_mapped: bool = False,
         enable_async_update: bool = True,  # whether enable L2/rocksdb write to async background thread
-        # if > 0, insert all kv pairs to rocksdb at init time, in chunks of *bulk_init_chunk_size* rows
+        # if > 0, insert all kv pairs to rocksdb at init time, in chunks of *bulk_init_chunk_size* bytes
+        # number of rows will be decided by bulk_init_chunk_size / size_of_each_row
         bulk_init_chunk_size: int = 0,
+        lazy_bulk_init_enabled: bool = False,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -228,11 +230,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
         )
 
-        (self.info_B_num_bits, self.info_B_mask) = torch.ops.fbgemm.get_infos_metadata(
+        (info_B_num_bits_, info_B_mask_) = torch.ops.fbgemm.get_infos_metadata(
             self.D_offsets,  # unused tensor
             1,  # max_B
             T,  # T
         )
+        self.info_B_num_bits: int = info_B_num_bits_
+        self.info_B_mask: int = info_B_mask_
 
         assert cache_sets > 0
         element_size = weights_precision.bit_rate() // 8
@@ -250,7 +254,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
             f"weights precision: {weights_precision}, "
             f"output dtype: {output_dtype}, "
-            f"chunk size in bulk init: {bulk_init_chunk_size} rows"
+            f"chunk size in bulk init: {bulk_init_chunk_size} bytes"
         )
         self.register_buffer(
             "lxu_cache_state",
@@ -443,7 +447,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
                 f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
                 f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},rate_limit_mbps={ssd_rate_limit_mbps},"
-                f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger},"
+                f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger}, lazy_bulk_init_enabled={lazy_bulk_init_enabled},"
                 f"write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size},max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num},"
                 f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
                 f"row_storage_bitwidth={weights_precision.bit_rate()},block_cache_size_per_tbe={ssd_block_cache_size_per_tbe},"
@@ -476,7 +480,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
                 self.ssd_uniform_init_upper: float = ssd_uniform_init_upper
-                self._lazy_initialize_ssd_tbe()
+                if lazy_bulk_init_enabled:
+                    self._lazy_initialize_ssd_tbe()
+                else:
+                    self._insert_all_kv()
         else:
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
@@ -550,15 +557,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         cowclip_regularization = CowClipDefinition()
 
-        learning_rate_tensor = torch.tensor(
-            learning_rate, device=torch.device("cpu"), dtype=torch.float
+        self.learning_rate_tensor: torch.Tensor = torch.tensor(
+            learning_rate, device=torch.device("cpu"), dtype=torch.float32
         )
-        self.optimizer_args = invokers.lookup_args_ssd.OptimizerArgsPT2(
+
+        self.optimizer_args = invokers.lookup_args_ssd.OptimizerArgs(
             stochastic_rounding=stochastic_rounding,
             gradient_clipping=gradient_clipping,
             max_gradient=max_gradient,
             max_norm=max_norm,
-            learning_rate_tensor=learning_rate_tensor,
             eps=eps,
             beta1=beta1,
             beta2=beta2,
@@ -771,21 +778,24 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         initailization time.
         """
         row_offset = 0
-        chunk_size = self.bulk_init_chunk_size
+        row_count = floor(
+            self.bulk_init_chunk_size
+            / (self.max_D * self.weights_precision.as_dtype().itemsize)
+        )
         total_dim0 = 0
         for dim0, _ in self.embedding_specs:
             total_dim0 += dim0
 
         start_ts = time.time()
         chunk_tensor = torch.empty(
-            chunk_size,
+            row_count,
             self.max_D,
             dtype=self.weights_precision.as_dtype(),
             device="cuda",
         )
         cpu_tensor = torch.empty_like(chunk_tensor, device="cpu")
-        for row_offset in range(0, total_dim0, chunk_size):
-            actual_dim0 = min(total_dim0 - row_offset, chunk_size)
+        for row_offset in range(0, total_dim0, row_count):
+            actual_dim0 = min(total_dim0 - row_offset, row_count)
             chunk_tensor.uniform_(
                 self.ssd_uniform_init_lower, self.ssd_uniform_init_upper
             )
@@ -794,9 +804,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # This code is intentionally not calling through the getter property
             # to avoid the lazy initialization thread from joining with itself.
             self._ssd_db.set_range_to_storage(rand_val, row_offset, actual_dim0)
+        self.ssd_db.toggle_compaction(True)
         end_ts = time.time()
         elapsed = int((end_ts - start_ts) * 1e6)
-        logging.info(f"TBE bulk initialization took {elapsed:_} us")
+        logging.info(
+            f"TBE bulk initialization took {elapsed:_} us, bulk_init_chunk_size={self.bulk_init_chunk_size}, each batch of {row_count} rows, total rows of {total_dim0}"
+        )
 
     @torch.jit.ignore
     def _report_duration(
@@ -1639,7 +1652,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             vbe_metadata.max_B,
         )
 
-        common_args = invokers.lookup_args_ssd.CommonArgsPT2(
+        common_args = invokers.lookup_args_ssd.CommonArgs(
             placeholder_autograd_tensor=self.placeholder_autograd_tensor,
             output_dtype=self.output_dtype,
             dev_weights=self.weights_dev,
@@ -1674,6 +1687,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             },
             # pyre-fixme[6]: Expected `lookup_args_ssd.VBEMetadata` but got `lookup_args.VBEMetadata`
             vbe_metadata=vbe_metadata,
+            learning_rate_tensor=self.learning_rate_tensor,
             info_B_num_bits=self.info_B_num_bits,
             info_B_mask=self.info_B_mask,
         )
@@ -1817,8 +1831,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def set_learning_rate(self, lr: float) -> None:
         """
         Sets the learning rate.
+
+        Args:
+            lr (float): The learning rate value to set to
         """
         self._set_learning_rate(lr)
+
+    def get_learning_rate(self) -> float:
+        """
+        Get and return the learning rate.
+        """
+        return self.learning_rate_tensor.item()
 
     @torch.jit.ignore
     def _set_learning_rate(self, lr: float) -> float:
@@ -1826,7 +1849,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Helper function to script `set_learning_rate`.
         Note that returning None does not work.
         """
-        self.optimizer_args.learning_rate_tensor.fill_(lr)
+        self.learning_rate_tensor.fill_(lr)
         return 0.0
 
     def flush(self) -> None:

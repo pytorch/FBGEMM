@@ -65,7 +65,7 @@ jobs:
       run: . $PRELUDE; create_conda_environment $BUILD_ENV 3.13
 
     - name: Install C/C++ Compilers
-      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+      run: . $PRELUDE; GCC_VERSION=14.1.0 install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
 
     - name: Install Build Tools
       run: . $PRELUDE; install_build_tools $BUILD_ENV

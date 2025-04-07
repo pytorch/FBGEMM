@@ -30,7 +30,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
   // uint32_t capacity = hash_table.size(0);
-  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t t = b_t / B;
   const int32_t b = b_t % B;
   if (b_t >= B * T) {
@@ -46,7 +46,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
 
   if (capacity == 0) {
     // No pruning applied on the indices associated with this table.
-    for (int32_t l = threadIdx.x; l < L; l += blockDim.x) {
+    for (auto l = threadIdx.x; l < L; l += blockDim.x) {
       dense_indices[indices_start + l] = indices[indices_start + l];
     }
     return;
@@ -107,7 +107,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
         indices,
     const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         offsets,
-    const pta::PackedTensorAccessor32<remap_t, 1, at::RestrictPtrTraits>
+    const pta::PackedTensorAccessor64<remap_t, 1, at::RestrictPtrTraits>
         index_remappings,
     const pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits>
         index_remappings_offsets,
@@ -115,7 +115,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
     const int32_t T,
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         dense_indices) {
-  const int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   const int32_t t = b_t / B;
   const int32_t b = b_t % B;
   if (b_t >= B * T) {
@@ -131,7 +131,7 @@ __launch_bounds__(kMaxThreads) void int_nbit_split_embedding_codegen_forward_pru
 
   if (capacity > 0) {
     for (index_t l = threadIdx.x; l < L; l += blockDim.x) {
-      index_t idx = indices[indices_start + l];
+      const overflow_safe_int_t idx = indices[indices_start + l];
       dense_indices[indices_start + l] =
           static_cast<index_t>(index_remappings[index_remappings_start + idx]);
     }
@@ -249,7 +249,7 @@ Tensor pruned_array_lookup_cuda(
                   MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
                   MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
                   MAKE_PTA_WITH_NAME(
-                      func_name, index_remappings, remap_t, 1, 32),
+                      func_name, index_remappings, remap_t, 1, 64),
                   MAKE_PTA_WITH_NAME(
                       func_name, index_remappings_offsets, int64_t, 1, 32),
                   B,

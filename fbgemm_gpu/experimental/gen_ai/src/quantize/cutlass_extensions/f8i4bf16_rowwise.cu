@@ -47,6 +47,10 @@ at::Tensor f8i4bf16_rowwise_impl(
 
   int group_size = K / num_groups;
 
+  // Return immediately if input is empty.
+  if (M == 0 || N == 0 || K == 0) {
+    return at::zeros({M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
 
   using ElementInputA = INPUT_DTYPE;

@@ -1,4 +1,4 @@
-name: Build x86 Linux Wheels
+name: Build FBGEMM_GPU x86 Linux Wheels
 
 on:
   pull_request:
@@ -6,8 +6,6 @@ on:
     branches:
       - nightly
       - main
-      # Release candidate branch look like: v1.11.0-rc1
-      - v[0-9]+.[0-9]+.[0-9]+-release+
     tags:
       # Release candidate tag look like: v1.11.0-rc1
       - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
@@ -34,6 +32,7 @@ jobs:
       with-cuda: enable
       with-rocm: enable
       with-cpu: enable
+
   build:
     if: ${{ github.repository_owner == 'pytorch' }}
     needs: generate-matrix
@@ -51,4 +50,4 @@ jobs:
       test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       trigger-event: ${{ github.event_name }}
-      timeout: 180
+      timeout: 240

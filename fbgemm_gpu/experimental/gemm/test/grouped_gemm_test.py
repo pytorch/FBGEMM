@@ -35,6 +35,8 @@ class TestGroupedGEMM(unittest.TestCase):
         def _test_grouped_gemm_fp8_rowwise(
             shape: Tuple[int, int, int, int],
             device: torch.device,
+            fast_accu: bool,
+            use_warp_specialization: bool,
         ) -> None:
             G, M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -43,6 +45,8 @@ class TestGroupedGEMM(unittest.TestCase):
                 torch.randint(
                     low=0, high=M, size=[G - 1], device=device, dtype=torch.int32
                 )
+                if M > 0
+                else torch.zeros([G - 1], device=device, dtype=torch.int32)
             )
             m_ends = m_ends.tolist()
             m_starts = [0] + m_ends
@@ -60,6 +64,8 @@ class TestGroupedGEMM(unittest.TestCase):
                 m_sizes,
                 a_scale,
                 b_scale,
+                use_fast_accum=fast_accu,
+                _use_warp_specialization=use_warp_specialization,
             )
             self.assertTrue(result.shape == (M, N))
 
@@ -81,14 +87,24 @@ class TestGroupedGEMM(unittest.TestCase):
             torch.testing.assert_close(result, expected_result, atol=2e-2, rtol=1.6e-2)
 
         for G in (1, 4, 16):
-            for M in (64, 512):
-                logging.info(f"Testing FP8 GMM with G={G}, M={M}")
-                _test_grouped_gemm_fp8_rowwise((G, M, 256, 256), torch.device("cuda"))
+            for M in (0, 64, 512):
+                for fast_accu in (True, False):
+                    for ws in (True, False):
+                        logging.info(
+                            f"Testing FP8 GMM with G={G}, M={M}, FastAccu={fast_accu}"
+                        )
+                        _test_grouped_gemm_fp8_rowwise(
+                            (G, M, 256, 256),
+                            torch.device("cuda"),
+                            fast_accu=fast_accu,
+                            use_warp_specialization=ws,
+                        )
 
     def test_grouped_gemm_bf16(self) -> None:
         def _test_grouped_gemm_bf16(
             shape: Tuple[int, int, int, int],
             device: torch.device,
+            use_warp_specialization: bool,
         ) -> None:
             G, M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -97,6 +113,8 @@ class TestGroupedGEMM(unittest.TestCase):
                 torch.randint(
                     low=0, high=M, size=[G - 1], device=device, dtype=torch.int32
                 )
+                if M > 0
+                else torch.zeros([G - 1], device=device, dtype=torch.int32)
             )
             m_ends = m_ends.tolist()
             m_starts = [0] + m_ends
@@ -109,6 +127,7 @@ class TestGroupedGEMM(unittest.TestCase):
                 a,
                 b,
                 m_sizes,
+                _use_warp_specialization=use_warp_specialization,
             )
             self.assertTrue(result.shape == (M, N))
 
@@ -123,6 +142,11 @@ class TestGroupedGEMM(unittest.TestCase):
             torch.testing.assert_close(result, expected_result, atol=1e-5, rtol=1.6e-2)
 
         for G in (1, 4, 16):
-            for M in (64, 512):
-                logging.info(f"Testing BF16 GMM with G={G}, M={M}")
-                _test_grouped_gemm_bf16((G, M, 256, 256), torch.device("cuda"))
+            for M in (0, 64, 512):
+                for ws in (True, False):
+                    logging.info(f"Testing BF16 GMM with G={G}, M={M}")
+                    _test_grouped_gemm_bf16(
+                        (G, M, 256, 256),
+                        torch.device("cuda"),
+                        use_warp_specialization=ws,
+                    )

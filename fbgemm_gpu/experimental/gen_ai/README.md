@@ -1,4 +1,6 @@
-# FBGEMM GenAI Operators
+# FBGEMM GenAI
+
+FBGEMM GenAI (FBGEMM Generative AI Kernels Library)
 
 # **1. Overview**
 

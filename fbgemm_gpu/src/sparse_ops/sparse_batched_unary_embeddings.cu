@@ -27,12 +27,12 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_forward_kernel(
     scalar_t* __restrict__ output // N * B * T
 ) {
   index_t sum_E = table_offsets[T];
-  int32_t b = blockIdx.x * blockDim.x + threadIdx.x;
+  auto b = blockIdx.x * blockDim.x + threadIdx.x;
   if (b >= B) {
     return;
   }
-  int32_t t = blockIdx.y;
-  int32_t n = blockIdx.z;
+  auto t = blockIdx.y;
+  auto n = blockIdx.z;
   index_t table_offset = table_offsets[t];
   index_t indices_start = offsets[t * B + b];
   index_t indices_end = offsets[t * B + b + 1];
@@ -124,8 +124,8 @@ __launch_bounds__(kMaxThreads) void batched_unary_embeddings_backward_kernel(
     const int32_t* __restrict__ sorted_linear_indices_num_runs,
     const int32_t info_B_num_bits,
     const uint32_t info_B_mask) {
-  int32_t run_id = blockIdx.x * blockDim.x + threadIdx.x;
-  int32_t n = blockIdx.y;
+  auto run_id = blockIdx.x * blockDim.x + threadIdx.x;
+  auto n = blockIdx.y;
   if (n >= N) {
     return;
   }

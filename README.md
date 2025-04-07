@@ -1,4 +1,31 @@
-# FBGEMM
+# The FBGEMM Project
+
+The FBGEMM Project is a repository of highly-optimized kernels used across
+deep learning applications.
+
+The codebase is organized and published as three related packages: FBGEMM,
+FBGEMM-GPU, and FBGEMM-GenAI. Each package has its own set of features and
+documentation.
+
+### Project Overview
+
+* **FBGEMM**: A low-precision, high-performance matrix multiplication and
+  convolution library for server-side inference.  The documentation below
+  provides an overview of FBGEMM, including its features, documentation, and
+  community resources.
+
+* **FBGEMM_GPU**: A collection of PyTorch GPU operator libraries built on top of
+  FBGEMM for training and inference, with focus on recommendation systems
+  applications.  Please see [the documentation](fbgemm_gpu/README.md) for more
+  information.
+
+* **FBGEMM_GPU GenAI**: A collection of PyTorch GPU operator libraries that are
+  designed for generative AI applications, such as FP8 row-wise quantization and
+  collective communications. Please see [the documentation](fbgemm_gpu/README.md)
+  for more information.
+
+
+## FBGEMM
 
 [![FBGEMM CI](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_ci.yml/badge.svg)](https://github.com/pytorch/FBGEMM/actions/workflows/fbgemm_ci.yml)
 

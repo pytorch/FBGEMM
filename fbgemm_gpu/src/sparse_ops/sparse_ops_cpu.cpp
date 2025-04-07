@@ -2288,18 +2288,17 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
 
   return std::make_tuple(calibrated_prediction, bin_ids);
 }
-
-template <typename scalar_t>
+template <typename value_t, typename index_t>
 void _segment_sum_csr_cpu_kernel(
     const int num_segments,
     const int batch_size,
-    const int* const csr_seg_data,
-    const scalar_t* const values_data,
-    scalar_t* const output_data) {
+    const index_t* const csr_seg_data,
+    const value_t* const values_data,
+    value_t* const output_data) {
   for (const auto i : c10::irange(num_segments)) {
-    const int seg_start = csr_seg_data[i] * batch_size;
-    const int seg_end = csr_seg_data[i + 1] * batch_size;
-    scalar_t v = 0;
+    const index_t seg_start = csr_seg_data[i] * batch_size;
+    const index_t seg_end = csr_seg_data[i + 1] * batch_size;
+    value_t v = 0;
     for (const auto j : c10::irange(seg_start, seg_end)) {
       v += values_data[j];
     }
@@ -2315,14 +2314,19 @@ Tensor segment_sum_csr_cpu(
   TENSOR_ON_CPU(values);
 
   auto output = at::empty(csr_seg.numel() - 1, values.options());
-  FBGEMM_DISPATCH_ALL_TYPES(values.scalar_type(), "_segment_sum_csr_cpu", [&] {
-    _segment_sum_csr_cpu_kernel<scalar_t>(
-        csr_seg.numel() - 1,
-        batch_size,
-        csr_seg.data_ptr<int>(),
-        values.data_ptr<scalar_t>(),
-        output.data_ptr<scalar_t>());
-  });
+  FBGEMM_DISPATCH_ALL_TYPES(
+      values.scalar_type(), "_segment_sum_csr_cpu_1", [&] {
+        using value_t = scalar_t;
+        AT_DISPATCH_INDEX_TYPES(
+            csr_seg.scalar_type(), "_segment_sum_csr_cpu_2", [&] {
+              _segment_sum_csr_cpu_kernel<value_t, index_t>(
+                  csr_seg.numel() - 1,
+                  batch_size,
+                  csr_seg.data_ptr<index_t>(),
+                  values.data_ptr<value_t>(),
+                  output.data_ptr<value_t>());
+            });
+      });
   return output;
 }
 

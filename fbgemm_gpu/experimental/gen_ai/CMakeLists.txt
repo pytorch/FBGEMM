@@ -8,26 +8,32 @@
 # Target Sources
 ################################################################################
 
-set(experimental_gen_ai_cpp_source_files_gpu
-    # Attention Ops
-    src/attention/attention.cpp
-    src/attention/gqa_attn_splitk.cu
-    # Quantize Ops
-    src/quantize/quantize.cu
-    src/quantize/quantize.cpp
-    # Comm Ops
-    src/comm/car.cu
-    src/comm/car.cpp
-    # KV Cache Ops
-    src/kv_cache/kv_cache.cu
-    src/kv_cache/kv_cache.cpp)
+
+file(GLOB experimental_gen_ai_cpp_source_files_gpu
+  # Attention Ops
+  src/attention/*.cpp
+  src/attention/*.cu
+  # Comm Ops
+  src/comm/*.cpp
+  src/comm/*.cu
+  # Gather Scatter Ops
+  src/gather_scatter/*.cpp
+  src/gather_scatter/*.cu
+  # Quantize Ops
+  src/kv_cache/*.cpp
+  src/kv_cache/*.cu
+  # Quantize Ops
+  src/quantize/*.cpp
+  src/quantize/*.cu)
 
 # Set the source file for FB only CPP
 if(USE_FB_ONLY)
-  file(GLOB fb_only_ops_sources
-      fb/src/*/*.cu
-      fb/src/*/*.cpp)
-  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_ops_sources})
+  file(GLOB fb_only_cxx_sources
+      fb/src/moe/*.cu
+      fb/src/moe/*.cpp
+      fb/src/trt_llm/*.cu
+      fb/src/trt_llm/*.cpp)
+  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_cxx_sources})
 endif()
 
 # CUDA-specific sources
@@ -40,6 +46,8 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_cuda
 
 # HIP-specific sources
 file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
+  src/gemm/gemm.cpp
+  src/gemm/ck_extensions.hip
   src/quantize/ck_extensions/*.hip
   src/quantize/ck_extensions/**/*.hip)
 
@@ -76,3 +84,9 @@ add_to_package(
   DESTINATION fbgemm_gpu/experimental/gen_ai
   TARGETS fbgemm_gpu_experimental_gen_ai
   FILES ${experimental_gen_ai_python_source_files})
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/fb/gen_ai)
+  install(
+    DIRECTORY fb/gen_ai
+    DESTINATION fbgemm_gpu/experimental)
+endif()
