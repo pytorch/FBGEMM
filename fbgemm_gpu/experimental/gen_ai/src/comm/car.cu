@@ -94,7 +94,7 @@ static DEVICE_INLINE void ld_flag_acquire(int32_t& flag, int32_t* flag_addr) {
 }
 
 template <int32_t kWorldSize, bool has_acc>
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 900))
 __launch_bounds__(512)
 #endif
     __global__ void one_shot_all_reduce(
@@ -328,7 +328,7 @@ at::Tensor car_tensor() {
 }
 
 template <int32_t kWorldSize, bool split_last_dim>
-#if defined(USE_ROCM)
+#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 900))
 __launch_bounds__(512) __global__ void reduce_scatter(
 #else
 __launch_bounds__(1024) __global__ void reduce_scatter(
@@ -434,6 +434,8 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
 template <int32_t kWorldSize, bool has_acc>
 #if defined(USE_ROCM)
 __launch_bounds__(512) __global__ void two_shot_all_reduce(
+#elif defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 900)
+__launch_bounds__(256) __global__ void two_shot_all_reduce(
 #else
 __launch_bounds__(1024) __global__ void two_shot_all_reduce(
 #endif
