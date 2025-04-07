@@ -371,26 +371,15 @@ __global__ void scaleMatrix(
     const int64_t numel,
     const int64_t lda,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  StochasticRoundingRNGState stoc_rounding_state;
-
-  const auto stochastic_rounding_seeds =
-      at::cuda::philox::unpack(stochastic_rounding_philox_args);
-  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
-
-  stochastic_rounding_init(
-      std::get<0>(stochastic_rounding_seeds) ^
-          std::get<1>(stochastic_rounding_seeds),
-      // The salt value should be different for every *run* and every
-      // *thread*.
-      salt_value,
-      &stoc_rounding_state);
+  auto stoc_rounding_state = StochasticRoundingRNGState(
+      stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
   auto input_scal = static_cast<float>(input_scale[0]);
 
   auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
   auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
   for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
        d += (size_t)blockDim.x * gridDim.x) {
-    const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+    const auto random_bits = stoc_rounding_state.rand4();
     bfx4 v_in = vec_input[d];
     float4 v_float;
     v_float.x = stochastic_rounding_scalar_fp8(
@@ -417,25 +406,16 @@ __global__ void scaleMatrixRowwise(
     const int64_t numel,
     const int64_t lda,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  StochasticRoundingRNGState stoc_rounding_state;
-
-  const auto stochastic_rounding_seeds =
-      at::cuda::philox::unpack(stochastic_rounding_philox_args);
-  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
-  stochastic_rounding_init(
-      std::get<0>(stochastic_rounding_seeds) ^
-          std::get<1>(stochastic_rounding_seeds),
-      // The salt value should be different for every *run* and every
-      // *thread*.
-      salt_value,
-      &stoc_rounding_state);
+  auto stoc_rounding_state = StochasticRoundingRNGState(
+      stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
+  auto input_scal = static_cast<float>(input_scale[0]);
 
   auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
   auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
   auto vec_scale = reinterpret_cast<const float4*>(&input_scale[0]);
   for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
        d += (size_t)blockDim.x * gridDim.x) {
-    const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+    const auto random_bits = stoc_rounding_state.rand4();
     bfx4 v_in = vec_input[d];
     float4 v_float;
     float4 v_scale = vec_scale[d / lda];
@@ -938,21 +918,9 @@ __global__ void dynamicQuantizeMatrixRowwiseStoc(
     int64_t lda,
     const float* scale_ub,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  StochasticRoundingRNGState stoc_rounding_state;
-
-  const auto stochastic_rounding_seeds =
-      at::cuda::philox::unpack(stochastic_rounding_philox_args);
-  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
-
-  stochastic_rounding_init(
-      std::get<0>(stochastic_rounding_seeds) ^
-          std::get<1>(stochastic_rounding_seeds),
-      // The salt value should be different for every *run* and every
-      // *thread*.
-      salt_value,
-      &stoc_rounding_state);
-
-  const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+  auto stoc_rounding_state = StochasticRoundingRNGState(
+      stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
+  const auto random_bits = stoc_rounding_state.rand4();
 
   extern __shared__ __align__(sizeof(float)) char _shmem[];
   T_IN* shmem = reinterpret_cast<T_IN*>(_shmem);
