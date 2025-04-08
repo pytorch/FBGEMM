@@ -121,3 +121,15 @@ Table of Contents
    fbgemm_genai/development/BuildInstructions
    fbgemm_genai/development/InstallationInstructions
    fbgemm_genai/development/TestInstructions
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM GenAI Overview
+
+   fbgemm_genai/overview/Overview
+
+.. toctree::
+   :maxdepth: 1
+   :caption: FBGEMM GenAI Python API
+
+   fbgemm_genai/python-api/quantize_ops

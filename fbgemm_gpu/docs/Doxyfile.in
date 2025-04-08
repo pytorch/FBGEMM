@@ -2343,7 +2343,8 @@ SEARCH_INCLUDES        = YES
 INCLUDE_PATH           = "../codegen" \
                          "../include" \
                          "../src" \
-                         "../../include/fbgemm"
+                         "../../include/fbgemm" \
+                         "../experimental/gen_ai/src"
 
 # You can use the INCLUDE_FILE_PATTERNS tag to specify one or more wildcard
 # patterns (like *.h and *.hpp) to filter out the header-files in the

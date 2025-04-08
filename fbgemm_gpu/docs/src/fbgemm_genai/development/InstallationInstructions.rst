@@ -30,7 +30,7 @@ Follow the instructions for setting up the runtime environment:
 
 
 Install the FBGEMM GenAI Package
-------------------------------
+--------------------------------
 
 Install through PyTorch PIP
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -43,11 +43,11 @@ PyTorch PIP is the preferred channel for installing FBGEMM GenAI:
 
   # CUDA Nightly
   pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu126/
-  pip install --pre fbgemm-genai --index-url https://download.pytorch.org/whl/nightly/cu126/
+  pip install --pre fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/nightly/cu126/
 
   # CUDA Release
   pip install torch --index-url https://download.pytorch.org/whl/cu126/
-  pip install fbgemm-genai --index-url https://download.pytorch.org/whl/cu126/
+  pip install fbgemm-gpu-genai --index-url https://download.pytorch.org/whl/cu126/
 
   # Test the installation
   python -c "import torch; import fbgemm_gpu.experimental.gen_ai"

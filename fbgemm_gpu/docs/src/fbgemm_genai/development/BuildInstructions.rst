@@ -26,8 +26,25 @@ Follow the instructions to set up the Conda environment:
 
 #. :ref:`fbgemm-gpu.build.setup.env`
 #. :ref:`fbgemm-gpu.build.setup.cuda`
+#. :ref:`fbgemm-gpu.build.setup.cutlass`
 #. :ref:`fbgemm-gpu.build.setup.tools.install`
 #. :ref:`fbgemm-gpu.build.setup.pytorch.install`
+
+.. _fbgemm-gpu.build.setup.cutlass:
+
+Install CUTLASS
+~~~~~~~~~~~~~~~
+
+CUTLASS should be already be available in the FBGEMM repository as a git
+submodule (see :ref:`fbgemm-gpu.build.prepare`).  The following include paths
+are already added to the CMake configuration:
+
+.. code:: cmake
+
+  set(THIRDPARTY ${FBGEMM}/external)
+
+  ${THIRDPARTY}/cutlass/include
+  ${THIRDPARTY}/cutlass/tools/util/include
 
 
 Other Pre-Build Setup

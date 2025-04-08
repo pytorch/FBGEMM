@@ -151,21 +151,6 @@ cuDNN package for the given CUDA version:
   wget -q "${cudnn_url}" -O cudnn.tar.xz
   tar -xvf cudnn.tar.xz
 
-Install CUTLASS
-~~~~~~~~~~~~~~~
-
-This section is only applicable to building the experimental FBGEMM_GPU GenAI
-module.  CUTLASS should be already be available in the repository as a git
-submodule (see :ref:`fbgemm-gpu.build.prepare`).  The following include paths
-are already added to the CMake configuration:
-
-.. code:: cmake
-
-  set(THIRDPARTY ${FBGEMM}/external)
-
-  ${THIRDPARTY}/cutlass/include
-  ${THIRDPARTY}/cutlass/tools/util/include
-
 
 .. _fbgemm-gpu.build.setup.rocm:
 

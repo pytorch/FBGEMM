@@ -56,7 +56,7 @@ fbgemm_gpu_genai_libraries = [
     "experimental/gen_ai/fbgemm_gpu_experimental_gen_ai",
 ]
 
-# NOTE: While FBGEMM_GPU GenAI is not available for ROCm yet, we would like to
+# NOTE: While FBGEMM GenAI is not available for ROCm yet, we would like to
 # be able to install the existing CUDA variant of the package onto ROCm systems,
 # so that we can at least use the Triton GEMM libraries from experimental/gemm.
 # But loading fbgemm_gpu package will trigger load-checking the .SO file for the

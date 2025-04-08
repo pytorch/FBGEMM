@@ -82,6 +82,14 @@ build_fbgemm_gpu_docs () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} SPHINX_LINT=1
 
+  # print_exec mkdir -p ../fbgemm_gpu/experimental/
+  # print_exec cp -r ../experimental/gen_ai/gen_ai ../fbgemm_gpu/experimental/ || return 1
+  # print_exec cp -r ../experimental/gemm/triton_gemm ../fbgemm_gpu/experimental/ || return 1
+  # print_exec ls -la ../fbgemm_gpu
+  # print_exec ls -la ../fbgemm_gpu/experimental/
+  # print_exec ls -la ../fbgemm_gpu/experimental/gen_ai
+  # print_exec ls -la ../fbgemm_gpu/experimental/triton_gemm
+
   # shellcheck disable=SC2086
   if print_exec conda run ${env_prefix} make clean doxygen; then
     echo "[DOCS] Doxygen build passed"
