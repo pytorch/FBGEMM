@@ -15,11 +15,13 @@ from typing import Callable, List, Optional, Tuple
 
 import torch
 
-from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
 from torch import Tensor
 from torch.multiprocessing import Barrier, Pool
 
 logging.basicConfig(level=logging.DEBUG)
+
+
+from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
 
 
 def bench_warmup(
