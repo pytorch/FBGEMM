@@ -15,9 +15,8 @@ from typing import Callable, List, Optional, Tuple
 
 import torch
 
-from fbgemm_gpu.tbe.utils import b_indices, TBERequest  # noqa: F401
-from torch import Tensor
-from torch.multiprocessing import Barrier, Pool
+from fbgemm_gpu.tbe.utils import b_indices, TBERequest
+
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -53,7 +52,7 @@ class BMBarrier:
         if self.bar is not None:
             self.bar.reset()
             self.bar = None
-        self.bar = Barrier(party_size)
+        self.bar = torch.multiprocessing.Barrier(party_size)
 
     def wait(self) -> None:
         if self.bar is not None:
@@ -68,7 +67,7 @@ cpu_bm_barrier = BMBarrier()
 
 def cpu_tbe_worker(
     requests_: List[TBERequest],
-    func_: Callable[[Tensor, Tensor, Optional[Tensor]], Tensor],
+    func_: Callable[[torch.Tensor, torch.Tensor, Optional[torch.Tensor]], torch.Tensor],
     use_barrier: bool = False,
 ) -> float:
     """
@@ -129,7 +128,7 @@ def benchmark_cpu_requests_mp(
 
     """
     cpu_bm_barrier.create_barrier(num_copies)
-    worker_pool = Pool(num_copies)
+    worker_pool = torch.multiprocessing.Pool(num_copies)
 
     if num_warmups > 0:
         asyncres = []
