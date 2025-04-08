@@ -33,7 +33,7 @@
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
 
-static constexpr float kINT8QparamsBytes = 8;
+[[maybe_unused]] static constexpr float kINT8QparamsBytes = 8;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Kernel Definitions
