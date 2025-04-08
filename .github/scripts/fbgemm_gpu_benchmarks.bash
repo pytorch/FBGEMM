@@ -47,7 +47,7 @@ run_tbe_microbench () {
       --bag-size 55 \
       --weights-precision fp16 \
       --cache-precision "${cache_type}" \
-      --output-dtype bf16 \
+      --output-dtype fp16 \
       --managed="${managed}" \
       --num-embeddings 10000000 \
       --num-tables 1 \
@@ -69,7 +69,7 @@ run_tbe_microbench () {
       --tbe-num-tables 1 \
       --emb-weights-dtype fp16 \
       --emb-cache-dtype "${cache_type}" \
-      --emb-output-dtype bf16 \
+      --emb-output-dtype fp16 \
       --emb-location "${managed}" \
       --row-wise
   }
