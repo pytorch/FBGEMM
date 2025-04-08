@@ -47,10 +47,10 @@ template <
     typename StrideS,
     typename LayoutAtomQuant>
 __global__ void set_kernel_args(
-    int G,
-    int N,
-    int K,
-    int num_scale_groups,
+    int64_t G,
+    int64_t N,
+    int64_t K,
+    int64_t num_scale_groups,
     int32_t* M_sizes,
     ProblemShape* problem_shape_ptr,
     ElementA* xq,
@@ -88,13 +88,13 @@ __global__ void set_kernel_args(
     __syncthreads();
 
     // Now check if this is a non-zero group.
-    int M = M_sizes[group_index];
+    int64_t M = M_sizes[group_index];
     // Only proceed if so.
     if (M > 0) {
       // Get the non-zero index for this group atomically.
       int non_zero_idx = atomicAdd(&non_zero_counter, 1);
       // Compute offset into tensor where this group begins.
-      int offset_M = 0;
+      int64_t offset_M = 0;
       // Compute cumulative sum of prior groups to find offset.
       for (int i = 0; i < group_index; i++) {
         offset_M += M_sizes[i];
@@ -114,13 +114,13 @@ __global__ void set_kernel_args(
       output_ptr[non_zero_idx] = output + (offset_M * N);
       // Set stride pointers.
       stride_a_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
-          StrideA{}, cute::make_shape(M, K, 1));
+          StrideA{}, cute::make_shape(int(M), int(K), 1));
       stride_b_ptr[non_zero_idx] = cute::tile_to_shape(
-          LayoutAtomQuant{}, cute::make_shape(N, K, cute::Int<1>{}));
+          LayoutAtomQuant{}, cute::make_shape(int(N), int(K), cute::Int<1>{}));
       stride_c_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
-          StrideC{}, cute::make_shape(N, M, 1));
+          StrideC{}, cute::make_shape(int(N), int(M), 1));
       stride_s_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
-          StrideS{}, cute::make_shape(N, num_scale_groups, 1));
+          StrideS{}, cute::make_shape(int(N), int(num_scale_groups), 1));
     }
   }
 }
@@ -135,15 +135,15 @@ void _f8i4bf16_shuffled_grouped(
     at::Tensor M_sizes,
     at::Tensor Y) {
   // Get basic shape information.
-  int G = M_sizes.size(0);
+  int64_t G = M_sizes.size(0);
   // XQ is shape [total_M, K]
-  int total_M = XQ.size(0);
-  int kernel_groups = std::min(G, total_M);
-  int K = XQ.size(-1);
+  int64_t total_M = XQ.size(0);
+  int kernel_groups = int(std::min(G, total_M));
+  int64_t K = XQ.size(-1);
   // WQ is shape [G, N, K/2]
-  int N = WQ.size(1);
+  int64_t N = WQ.size(1);
   // Group scales should have shape [G, num_scale_groups, 8, N]
-  int num_scale_groups = w_scale_group.size(1);
+  int64_t num_scale_groups = w_scale_group.size(1);
   int group_size = K / num_scale_groups;
   // Define cutlass types.
   using ProblemShape = cutlass::gemm::GroupProblemShape<
@@ -480,10 +480,10 @@ at::Tensor f8i4bf16_shuffled_grouped(
     at::Tensor w_scale_group,
     at::Tensor M_sizes) {
   // X should be shape [total_M, K], W should be shape [G, N, K/2]
-  int total_M = XQ.size(0);
-  int K = XQ.size(1);
-  int N = WQ.size(1);
-  int group_count = M_sizes.size(0);
+  int64_t total_M = XQ.size(0);
+  int64_t K = XQ.size(1);
+  int64_t N = WQ.size(1);
+  int64_t group_count = M_sizes.size(0);
   TORCH_CHECK(
       M_sizes.device() == XQ.device() && M_sizes.dtype() == at::kInt,
       "M_sizes must be int32 and on the same device as inputs.");
