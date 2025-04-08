@@ -3426,7 +3426,9 @@
 <span class="sd">        Helper function to script `set_learning_rate`.</span>
 <span class="sd">        Note that returning None does not work.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate_tensor</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="n">lr</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate_tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
+            <span class="n">lr</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cpu&quot;</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span>
+        <span class="p">)</span>
         <span class="k">return</span> <span class="mf">0.0</span>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step"><a class="viewcode-back" href="../../fbgemm_gpu/python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.set_optimizer_step">[docs]</a>    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
