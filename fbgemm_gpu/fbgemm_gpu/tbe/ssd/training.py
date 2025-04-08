@@ -1849,7 +1849,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Helper function to script `set_learning_rate`.
         Note that returning None does not work.
         """
-        self.learning_rate_tensor.fill_(lr)
+        self.learning_rate_tensor = torch.tensor(
+            lr, device=torch.device("cpu"), dtype=torch.float32
+        )
         return 0.0
 
     def flush(self) -> None:
