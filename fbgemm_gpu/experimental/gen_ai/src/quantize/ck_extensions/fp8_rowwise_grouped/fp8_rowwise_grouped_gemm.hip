@@ -48,22 +48,22 @@ using EDataType = ck::bhalf_t;
 
 // Define a custom hash function for std::tuple<int, int, int>
 struct IntTupleHash {
-  size_t operator()(const std::tuple<int, int>& t) const {
-    auto hash1 = std::hash<int>{}(std::get<0>(t));
-    auto hash2 = std::hash<int>{}(std::get<1>(t));
+  size_t operator()(const std::tuple<int64_t, int64_t>& t) const {
+    auto hash1 = std::hash<int64_t>{}(std::get<0>(t));
+    auto hash2 = std::hash<int64_t>{}(std::get<1>(t));
     return hash1 ^ hash2;
   }
-  size_t operator()(const std::tuple<int, int, int>& t) const {
-    auto hash1 = std::hash<int>{}(std::get<0>(t));
-    auto hash2 = std::hash<int>{}(std::get<1>(t));
-    auto hash3 = std::hash<int>{}(std::get<2>(t));
+  size_t operator()(const std::tuple<int64_t, int64_t, int64_t>& t) const {
+    auto hash1 = std::hash<int64_t>{}(std::get<0>(t));
+    auto hash2 = std::hash<int64_t>{}(std::get<1>(t));
+    auto hash3 = std::hash<int64_t>{}(std::get<2>(t));
     return hash1 ^ hash2 ^ hash3;
   }
-  size_t operator()(const std::tuple<int, int, int, int>& t) const {
-    auto hash1 = std::hash<int>{}(std::get<0>(t));
-    auto hash2 = std::hash<int>{}(std::get<1>(t));
-    auto hash3 = std::hash<int>{}(std::get<2>(t));
-    auto hash4 = std::hash<int>{}(std::get<3>(t));
+  size_t operator()(const std::tuple<int64_t, int64_t, int64_t, int64_t>& t) const {
+    auto hash1 = std::hash<int64_t>{}(std::get<0>(t));
+    auto hash2 = std::hash<int64_t>{}(std::get<1>(t));
+    auto hash3 = std::hash<int64_t>{}(std::get<2>(t));
+    auto hash4 = std::hash<int64_t>{}(std::get<3>(t));
     return hash1 ^ hash2 ^ hash3 ^ hash4;
   }
 };
@@ -72,7 +72,7 @@ struct IntTupleHash {
 // For certain high priority shapes, we directly map to the best kernel rather
 // than use heuristics.
 template <typename InputType, typename OutputType>
-static const std::unordered_map<std::tuple<int, int, int, int>, RowwiseGroupedKernel<InputType, OutputType>, IntTupleHash> rowwise_grouped_lookup_dispatch = {
+static const std::unordered_map<std::tuple<int64_t, int64_t, int64_t, int64_t>, RowwiseGroupedKernel<InputType, OutputType>, IntTupleHash> rowwise_grouped_lookup_dispatch = {
 {{16,16,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
 {{16,16,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
 {{16,16,16384,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v1<InputType, OutputType>},
@@ -144,7 +144,7 @@ static const std::unordered_map<std::tuple<int, int, int, int>, RowwiseGroupedKe
 };
 
 // Helper function to return the next largest power of 2
-static constexpr int nextPow2(unsigned int num)
+static constexpr int nextPow2(int64_t num)
 {
   if (num <= 1)
     return 1;
@@ -163,10 +163,10 @@ using EDataType = ck::bhalf_t;
 
 template <typename InputType, typename OutputType>
 RowwiseGroupedKernel<InputType, OutputType>
-rowwise_grouped_heuristic_dispatch(int G, int total_M, int N, int K) {
+rowwise_grouped_heuristic_dispatch(int64_t G, int64_t total_M, int64_t N, int64_t K) {
 
 // First check if this shape is available in the direct lookup.
-  int padded_m = nextPow2(total_M);
+  int64_t padded_m = nextPow2(total_M);
   padded_m = padded_m < G ? G : padded_m;
   padded_m = padded_m > 8192 ? 8192 : padded_m;
   auto it = rowwise_grouped_lookup_dispatch<InputType, OutputType>.find({G, padded_m, N, K});
@@ -188,16 +188,16 @@ __global__ void set_kernel_args_kernel(
     D0DataType* w_scale,
     D1DataType* x_scale,
     EDataType* output,
-    int M,
-    int N,
-    int K) {
+    int64_t M,
+    int64_t N,
+    int64_t K) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each kernel annoyingly can only set the kernel args for one group.
   // This could only be avoided with complicated memory management.
   if (idx == 0) {
     // Write kernel arguments directly to memory.
     KernelArguments kernel_group_args = {
-        XQ, WQ, {w_scale, x_scale}, output, M, N, K, K, K, {0, 0}, N};
+        XQ, WQ, {w_scale, x_scale}, output, int(M), int(N), int(K), int(K), int(K), {0, 0}, int(N)};
     kernel_args[0] = kernel_group_args;
   }
 }
@@ -212,18 +212,18 @@ void set_static_kernel_args(
     OutputType output) {
   // Get current cuda stream.
   auto stream = at::cuda::getCurrentHIPStream().stream();
-  int group_count = XQ.size();
+  int64_t group_count = XQ.size();
   // Declare variables for loop.
   EDataType* output_ptr;
-  int output_offset = 0;
+  int64_t output_offset = 0;
   // When group count is large, we can more efficiently initialize
   // by doing host setup and a memcpy. This is only viable if cuda
   // graphs arent being used.
   // Iterate over inputs and get group information.
   for (int i = 0; i < group_count; i++) {
-    int M = XQ[i].size(0);
-    int K = XQ[i].size(1);
-    int N = WQ[i].size(0);
+    int64_t M = XQ[i].size(0);
+    int64_t K = XQ[i].size(1);
+    int64_t N = WQ[i].size(0);
 
     // Compute proper output pointer.
     if constexpr (std::is_same_v<OutputType, std::vector<at::Tensor>>) {
@@ -238,13 +238,11 @@ void set_static_kernel_args(
 
     // We use the smallest reasonable block size since we effectively need only
     // 1 thread.
-    const int blockSize = 32;
-    const int numBlocks = 1;
     // Launch a kernel for each group to set kernel memory on device.
     // Using multiple kernels this way allows us to support arbitrary M,N,K.
     // For some reason, this approach is faster than using hipmemcpy.
     // Launch kernel to set kernel arguments.
-    set_kernel_args_kernel<<<numBlocks, blockSize, 0, stream>>>(
+    set_kernel_args_kernel<<<1, 1, 0, stream>>>(
         reinterpret_cast<KernelArguments*>(
             reinterpret_cast<char*>(kernel_args.data_ptr()) +
             (i * sizeof(KernelArguments))),
@@ -267,10 +265,10 @@ __global__ void set_kernel_args_m_sizes_kernel(
     D1DataType* x_scale,
     EDataType* output,
     int64_t* M_sizes,
-    int M,
-    int N,
-    int K,
-    int group_count) {
+    int64_t M,
+    int64_t N,
+    int64_t K,
+    int64_t group_count) {
   int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each thread is responsible for setting up the arguments for one group.
   if (thread_idx < group_count) {
@@ -298,12 +296,12 @@ __global__ void set_kernel_args_m_sizes_kernel(
     // Sync threads to get consistent state.
     __syncthreads();
     // Get M information for this group.
-    int kernel_M = M_sizes[thread_idx];
+    int64_t kernel_M = M_sizes[thread_idx];
     // Only write actual group information if this group is nonzero.
     if (kernel_M > 0) {
       // Get index automatically for this group.
       int non_zero_idx = atomicAdd(&non_zero_counter, 1);
-      int offset_M = 0;
+      int64_t offset_M = 0;
       // Offset is computed by finding the sum of previous group Ms.
       for (int i = 0; i < thread_idx; i++) {
         offset_M += M_sizes[i];
@@ -313,13 +311,13 @@ __global__ void set_kernel_args_m_sizes_kernel(
           WQ + (thread_idx * N * K),
           {w_scale + (thread_idx * N), x_scale + offset_M},
           output + (offset_M * N),
-          kernel_M,
-          N,
-          K,
-          K,
-          K,
+          int(kernel_M),
+          int(N),
+          int(K),
+          int(K),
+          int(K),
           {0, 0},
-          N};
+          int(N)};
       // Write kernel args to memory.
       kernel_args[non_zero_idx] = kernel_group_args;
     }
@@ -334,27 +332,27 @@ __global__ void set_kernel_args_fixed_nk_kernel(
     D1DataType* x_scale,
     EDataType* output,
     int64_t* prepad_M,
-    int M,
-    int N,
-    int K,
-    int group_count) {
+    int64_t M,
+    int64_t N,
+    int64_t K,
+    int64_t group_count) {
   int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each thread is responsible for setting up the arguments for one group.
   if (thread_idx < group_count) {
     // Compute offsets for this group.
-    int group_M = prepad_M[thread_idx];
+    int64_t group_M = prepad_M[thread_idx];
     KernelArguments kernel_group_args = {
         XQ + (thread_idx * M * K),
         WQ + (thread_idx * N * K),
         {w_scale + (thread_idx * N), x_scale + (thread_idx * M)},
         output + (thread_idx * M * N),
-        group_M,
-        N,
-        K,
-        K,
-        K,
+        int(group_M),
+        int(N),
+        int(K),
+        int(K),
+        int(K),
         {0, 0},
-        N};
+        int(N)};
     // Write kernel args to memory.
     kernel_args[thread_idx] = kernel_group_args;
   }
@@ -368,27 +366,27 @@ __global__ void set_kernel_args_fixed_nk_kernel_zeroing(
     D1DataType* x_scale,
     EDataType* output,
     int64_t* prepad_M,
-    int M,
-    int N,
-    int K,
-    int group_count) {
+    int64_t M,
+    int64_t N,
+    int64_t K,
+    int64_t group_count) {
   int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
   // Each thread is responsible for setting up the arguments for one group.
   if (thread_idx < group_count) {
     // Compute offsets for this group.
-    int group_M = prepad_M[thread_idx];
+    int64_t group_M = prepad_M[thread_idx];
     KernelArguments kernel_group_args = {
         XQ + (thread_idx * M * K),
         WQ + (thread_idx * N * K),
         {w_scale + (thread_idx * N), x_scale + (thread_idx * M)},
         output + (thread_idx * M * N),
-        group_M,
-        N,
-        K,
-        K,
-        K,
+        int(group_M),
+        int(N),
+        int(K),
+        int(K),
+        int(K),
         {0, 0},
-        N};
+        int(N)};
     // Write kernel args to memory.
     kernel_args[thread_idx] = kernel_group_args;
   }
@@ -422,7 +420,7 @@ void set_dynamic_kernel_args(
     bool zeroing_output_tensor) {
   // Get current cuda stream.
   auto stream = at::cuda::getCurrentHIPStream().stream();
-  int group_count;
+  int64_t group_count;
   // Check provided tensors are valid.
   TORCH_CHECK(
       zero_start_index_M.has_value() != M_sizes.has_value(),
@@ -446,9 +444,9 @@ void set_dynamic_kernel_args(
 
   // When m_sizes is used XQ is shape [tota_M, K]. When zero_start_index_M is
   // used it is shape [G, M, K].
-  int M = XQ.size(XQ.dim() - 2);
-  int K = WQ.size(2);
-  int N = WQ.size(1);
+  int64_t M = XQ.size(XQ.dim() - 2);
+  int64_t K = WQ.size(2);
+  int64_t N = WQ.size(1);
 
   // Depending on the mode, use appropriate setup kernel.
   if (M_sizes.has_value()) {
@@ -467,7 +465,7 @@ void set_dynamic_kernel_args(
   } else if (zeroing_output_tensor) {
     // Launch a kernel that sets kernel argument memory and zeros the output.
     // Each thread sets one float4 which corresponds to 8 bf16 values.
-    const int BLOCK_SIZE = 8;
+    const int64_t BLOCK_SIZE = 8;
     TORCH_CHECK(
         N % BLOCK_SIZE == 0, "N must be divisible 8 for dynamic grouped gemm.");
     int block_factor =
@@ -546,11 +544,11 @@ OutputType _f8f8bf16_rowwise_grouped(
 
   // Compute the total number of elements in the output.
   int64_t total_output_size = 0;
-  int total_M = 0;
+  int64_t total_M = 0;
   std::vector<int64_t> output_sizes;
   for (int i = 0; i < group_count; i++) {
-    int M = XQ[i].size(0);
-    int N = WQ[i].size(0);
+    int64_t M = XQ[i].size(0);
+    int64_t N = WQ[i].size(0);
     total_M += M;
     const int64_t output_size = M * N;
     total_output_size += output_size;
@@ -566,8 +564,8 @@ OutputType _f8f8bf16_rowwise_grouped(
   set_static_kernel_args<at::Tensor>(kernel_args, XQ, WQ, x_scale, w_scale, Y);
 
   // We use the largest of each shape for heuristics.
-  int MaxN = 0;
-  int MaxK = 0;
+  int64_t MaxN = 0;
+  int64_t MaxK = 0;
   for (int i = 0; i < group_count; i++) {
     MaxN = max(MaxN, WQ[i].size(0));
     MaxK = max(MaxK, XQ[i].size(1));
@@ -578,7 +576,7 @@ OutputType _f8f8bf16_rowwise_grouped(
   at::Tensor g_out = selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, Y);
   // Get output in appropriate format.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
-    int N = WQ[0].size(0);
+    int64_t N = WQ[0].size(0);
     return g_out.view({total_M, N});
   } else {
     std::vector<at::Tensor> output_groups = g_out.split(output_sizes);
@@ -615,12 +613,12 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
     at::Tensor M_sizes) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
-  int group_count = M_sizes.size(0);
+  int64_t group_count = M_sizes.size(0);
   // XQ is expected to be shape [total_M, K].
-  int total_M = XQ.size(0);
+  int64_t total_M = XQ.size(0);
   // WQ is expected to be shape [G, N, K].
-  int N = WQ.size(1);
-  int K = XQ.size(1);
+  int64_t N = WQ.size(1);
+  int64_t K = XQ.size(1);
   TORCH_CHECK(
       WQ.size(0) == group_count && x_scale.numel() == total_M &&
           w_scale.numel() / group_count == N,
@@ -675,10 +673,10 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
     bool zeroing_output_tensor = true) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
-  int group_count = XQ.size(0);
-  int M = XQ.size(1);
-  int N = WQ.size(1);
-  int K = WQ.size(2);
+  int64_t group_count = XQ.size(0);
+  int64_t M = XQ.size(1);
+  int64_t N = WQ.size(1);
+  int64_t K = WQ.size(2);
   TORCH_CHECK(
       WQ.size(0) == group_count && x_scale.numel() / group_count == M &&
           w_scale.numel() / group_count == N,
