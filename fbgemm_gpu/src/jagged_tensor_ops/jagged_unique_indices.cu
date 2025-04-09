@@ -25,7 +25,6 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_wo_infos_kernel(
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
         linear_indices,
     FixedDivisor fd) {
-  const int32_t T = hash_size_cumsum.size(0) - 1;
   const auto b_t = blockIdx.x * blockDim.x + threadIdx.x;
   int32_t b;
   int32_t t;
@@ -41,7 +40,6 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_wo_infos_kernel(
 
   for (int32_t j = 0; j < fbgemm_gpu::kWarpSize; ++j) {
     const auto indices_start_warp = fbgemm_gpu::shfl_sync(indices_start, j);
-    const auto t_warp = fbgemm_gpu::shfl_sync(t, j);
     const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
     const auto hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
     for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
