@@ -45,6 +45,7 @@ try:
         gemm_fp8_fp8_bf16_nt,
         get_col_major_tma_aligned_tensor,
         m_grouped_gemm_fp8_fp8_bf16_nt_contiguous,
+        m_grouped_gemm_fp8_fp8_bf16_nt_masked,
     )
 
     DEEPGEMM_ENABLED = True
@@ -869,6 +870,72 @@ class DeepGemmStacked(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return DEEPGEMM_ENABLED
+
+
+@register_quantize_op
+class DeepGemmMaskedStacked(DeepGemmStacked):
+    def preprocess(self, x, w):
+        # Quantize weights.
+        wq, w_scale = zip(*[quantize_fp8_block(i, block_k=128, block_m=128) for i in w])
+        # Group weights as single tensor.
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+
+        # Also view input as flattened.
+        m_values = [i.shape[0] for i in x]
+        expected_m = max(m_values)
+        padded_m_max = ((max(m_values) + 127) // 128) * 128
+        masked_m = torch.tensor(m_values).to(dtype=torch.int32, device=x[0].device)
+
+        num_groups = len(m_values)
+        k = x[0].shape[1]
+        x_padded = torch.zeros(
+            [num_groups, padded_m_max, k], device=x[0].device, dtype=x[0].dtype
+        )
+        for g in range(num_groups):
+            x_padded[g, : m_values[g], :] = x[g]
+
+        # Return processed tensors.
+        return x_padded, wq, w_scale, masked_m, expected_m, m_values
+
+    def quantize(self, x, wq, w_scale, masked_m, expected_m, m_values):
+        g, m_max, k = x.shape
+        xq, x_scale = quantize_fp8_block(x.view(-1, k), block_m=1, block_k=128)
+        # Pretranspose scales to deepgemm format.
+        x_scale = get_col_major_tma_aligned_tensor(x_scale)
+        return (
+            xq.view(g, m_max, -1),
+            wq,
+            x_scale.view(g, m_max, -1),
+            w_scale,
+            masked_m,
+            expected_m,
+            m_values,
+        )
+
+    def compute(self, xq, wq, x_scale, w_scale, masked_m, expected_m, m_values):
+        # Preallocate output.
+        out = torch.empty(
+            [xq.shape[0], xq.shape[1], wq.shape[1]],
+            device=xq.device,
+            dtype=torch.bfloat16,
+        )
+        m_grouped_gemm_fp8_fp8_bf16_nt_masked(
+            (xq, x_scale), (wq, w_scale), out, masked_m, expected_m
+        )
+        num_groups = xq.shape[0]
+        out_list = [out[g, : m_values[g], :] for g in range(num_groups)]
+        return out_list
+
+    def quantize_and_compute(self, x, wq, w_scale, masked_m, expected_m, m_values):
+        xq, wq, x_scale, w_scale, masked_m, expected_m = self.quantize(
+            x, wq, w_scale, masked_m, expected_m, m_values
+        )
+        return self.compute(xq, wq, x_scale, w_scale, masked_m, expected_m, m_values)
+
+    @property
+    def name(self) -> str:
+        return "deepgemm_masked_stacked"
 
 
 @register_quantize_op
