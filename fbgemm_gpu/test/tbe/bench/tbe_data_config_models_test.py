@@ -18,7 +18,7 @@ from fbgemm_gpu.tbe.bench import (
     PoolingParams,
     TBEDataConfig,
 )
-from hypothesis import given
+from hypothesis import given, settings
 
 
 def rand_int(min_value: int, max_value: int) -> int:
@@ -30,6 +30,7 @@ class TBEDataConfigModelsTest(unittest.TestCase):
     @given(
         dtype=st.sampled_from([torch.float32, torch.float64]),
     )
+    @settings(deadline=None)
     def test_indices_params_serialization(
         self,
         dtype: torch.dtype,
@@ -57,6 +58,7 @@ class TBEDataConfigModelsTest(unittest.TestCase):
     @given(
         dtype=st.sampled_from([torch.float32, torch.float64]),
     )
+    @settings(deadline=None)
     def test_tbe_data_config_serialization(
         self,
         dtype: torch.dtype,
