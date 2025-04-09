@@ -6,6 +6,7 @@
     "fbgemm::Fused8BitRowwiseQuantizedToFloat": {},
     "fbgemm::asynchronous_complete_cumsum": {},
     "fbgemm::bounds_check_indices": {},
+    "fbgemm::check_feature_gate_key": {},
     "fbgemm::dense_embedding_codegen_lookup_function": {
       "BackwardDenseTest.test_autograd_registration__test_backward_dense": {
         "comment": "",
@@ -24,6 +25,7 @@
       }
     },
     "fbgemm::emb_inplace_update": {},
+    "fbgemm::get_infos_metadata": {},
     "fbgemm::get_unique_indices": {
       "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
         "comment": "",
@@ -363,6 +365,7 @@
     "fbgemm::split_embedding_codegen_forward_weighted_cuda": {},
     "fbgemm::split_embedding_codegen_lookup_adagrad_function": {},
     "fbgemm::split_embedding_codegen_lookup_adagrad_function_cpu": {},
+    "fbgemm::split_embedding_codegen_lookup_adagrad_function_pt2": {},
     "fbgemm::split_embedding_codegen_lookup_adam_function": {},
     "fbgemm::split_embedding_codegen_lookup_lamb_function": {},
     "fbgemm::split_embedding_codegen_lookup_lars_sgd_function": {},
@@ -381,10 +384,6 @@
     },
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_cpu": {},
     "fbgemm::split_embedding_codegen_lookup_rowwise_adagrad_function_pt2": {
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_cpu": {
-        "comment": "",
-        "status": "xfail"
-      },
       "ForwardTest.test_faketensor__test_forward_cpu_fp32": {
         "comment": "",
         "status": "xfail"
