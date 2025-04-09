@@ -525,10 +525,6 @@ batch_index_select_dim0_codegen_forward_cuda(
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
-    int64_t total_adjusted_D = total_D;
-    if (o_dtype == SparseType::INT8) {
-        total_adjusted_D += T * kINT8QparamsBytes;
-    }
 
     {%- if vbe %}
     // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
@@ -537,6 +533,11 @@ batch_index_select_dim0_codegen_forward_cuda(
         dev_weights.options().dtype(getScalarType(o_dtype))
     );
     {%- else %}
+    int64_t total_adjusted_D = total_D;
+    if (o_dtype == SparseType::INT8) {
+        total_adjusted_D += T * kINT8QparamsBytes;
+    }
+
     output = at::empty(
         {B, total_adjusted_D},
         dev_weights.options().dtype(getScalarType(o_dtype))

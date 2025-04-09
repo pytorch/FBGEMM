@@ -171,11 +171,6 @@ Tensor
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
-    c10::SymInt total_adjusted_D = total_D;
-    if (o_dtype == SparseType::INT8) {
-        // TODO: Why is kINT8QparamsBytes a float
-        total_adjusted_D += T * int64_t(kINT8QparamsBytes);
-    }
     
     // Fix tensor does not have device error for faketensor when all of the weights are undefined tensors.
     auto options = dev_weights.defined() ? dev_weights.options() : at::TensorOptions().device(at::kMeta);
@@ -185,6 +180,12 @@ Tensor
         options.dtype(getScalarType(o_dtype))
     );
     {%- else %}
+    c10::SymInt total_adjusted_D = total_D;
+    if (o_dtype == SparseType::INT8) {
+        // TODO: Why is kINT8QparamsBytes a float
+        total_adjusted_D += T * int64_t(kINT8QparamsBytes);
+    }
+    
     output = at::empty_symint(
         {B, total_adjusted_D},
         options.dtype(getScalarType(o_dtype))
