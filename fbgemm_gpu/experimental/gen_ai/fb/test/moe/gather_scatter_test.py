@@ -38,7 +38,7 @@ class GatherScatterTests(unittest.TestCase):
                 rowmajor=rowmajor,
             )
             for E in [2, 4, 86]
-            for T in [1, 128, 2048, 4096]
+            for T in [1, 128, 2048, 4096, 1000000]
             for D in [5120, 7168]
             for rowmajor in [True, False]
         ],
@@ -47,9 +47,11 @@ class GatherScatterTests(unittest.TestCase):
     def test_gather_scale_dense_tokens(
         self, E: int, T: int, D: int, rowmajor: bool
     ) -> None:
+        if T == 1000000 and (E > 2 or D > 5120):
+            self.skipTest(f"Skipping test for E={E}, T={T} because it will lead to OOM")
         x: torch.Tensor = torch.randn((T, D), dtype=torch.bfloat16, device="cuda").abs()
         expert_indices: torch.Tensor = torch.randint(0, E, (T,), device="cuda")
-        token_indices: torch.Tensor = torch.randperm(T, device="cuda")
+        token_indices: torch.Tensor = torch.randperm(T, device="cuda").to(torch.int32)
         scores: torch.Tensor = torch.rand((E, T), dtype=torch.bfloat16, device="cuda")
 
         def torch_fn() -> torch.Tensor:

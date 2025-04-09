@@ -38,14 +38,17 @@ def _fbgemm_gather_scale_dense_tokens(
 
     for _ in range(0, BLOCK_D_OUTER // BLOCK_D_INNER):
         input_token_value = tl.load(
-            x + input_token_index * D + feature_offset + tl.arange(0, BLOCK_D_INNER)[:],
+            x
+            + input_token_index.to(tl.int64) * D
+            + feature_offset
+            + tl.arange(0, BLOCK_D_INNER)[:],
             None,
         ).to(tl.float32)
         output_token_value = input_token_value * input_score
 
         tl.store(
             out
-            + output_token_index * D
+            + output_token_index.to(tl.int64) * D
             + feature_offset
             + tl.arange(0, BLOCK_D_INNER)[:],
             output_token_value,
