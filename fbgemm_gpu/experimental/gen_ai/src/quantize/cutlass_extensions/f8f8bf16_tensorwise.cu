@@ -197,7 +197,7 @@ at::Tensor f8f8bf16_tensorwise_impl(
        stride_output}};
 
   arguments.epilogue.thread = {
-      {float(scale)}, // scale
+      {{float(scale)}}, // scale
       {}, // Accumulator
       {}, // Multiplies
   };
