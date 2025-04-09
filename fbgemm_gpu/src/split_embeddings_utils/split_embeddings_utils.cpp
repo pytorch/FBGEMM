@@ -48,5 +48,5 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("generate_vbe_metadata", &generate_vbe_metadata_meta);
-  m.impl("get_infos_metadata", &get_infos_metadata);
+  m.impl("get_infos_metadata", &get_infos_metadata_meta);
 }
