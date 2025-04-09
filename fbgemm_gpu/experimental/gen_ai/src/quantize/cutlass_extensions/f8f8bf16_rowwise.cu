@@ -34,6 +34,7 @@ template <
     int TBS_N,
     int TBS_K,
     bool PONG,
+    bool COOP,
     bool FAST_ACCUM,
     bool USE_BIAS,
     typename INPUT_DTYPE,
@@ -170,6 +171,23 @@ at::Tensor f8f8bf16_rowwise_impl(
   using EpilogueEVT =
       cute::conditional_t<USE_BIAS, EVTComputeBias, EVTCompute1>;
 
+  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
+  using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
+  using SlowAccum = cute::conditional_t<PONG, PongSchedule, DefaultSchedule>;
+  using FastAccum = cute::conditional_t<
+      COOP,
+      cutlass::gemm::KernelTmaWarpSpecializedCooperativeFP8FastAccum,
+      cute::conditional_t<
+          PONG,
+          cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum,
+          cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum>>;
+  using MainLoopSchedule =
+      cute::conditional_t<FAST_ACCUM, FastAccum, SlowAccum>;
+  using EpilogueSchedule = cute::conditional_t<
+      COOP,
+      cutlass::epilogue::TmaWarpSpecializedCooperative,
+      cutlass::epilogue::TmaWarpSpecialized>;
+
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           cutlass::arch::Sm90,
@@ -185,20 +203,8 @@ at::Tensor f8f8bf16_rowwise_impl(
           ElementOutput,
           LayoutOutput,
           AlignmentOutput,
-          cutlass::epilogue::TmaWarpSpecialized,
+          EpilogueSchedule,
           EpilogueEVT>::CollectiveOp;
-
-  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecialized;
-  using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
-  using FastDefaultSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum;
-  using FastPongSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum;
-  using SlowAccum = cute::conditional_t<PONG, PongSchedule, DefaultSchedule>;
-  using FastAccum =
-      cute::conditional_t<PONG, FastPongSchedule, FastDefaultSchedule>;
-  using MainLoopSchedule =
-      cute::conditional_t<FAST_ACCUM, FastAccum, SlowAccum>;
 
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
@@ -322,6 +328,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias,
     std::optional<at::Tensor> output) {
+  auto K = XQ.size(1);
   KernelMode kernel = get_kernel_mode(XQ, WQ);
   if (kernel == KernelMode::Small) {
     return f8f8bf16_rowwise_impl<
@@ -332,23 +339,41 @@ at::Tensor dispatch_fp8_rowwise_kernel(
         1,
         1,
         false,
+        false,
         FastAccum,
         UseBias,
         InputDType,
         BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
   } else if (kernel == KernelMode::Large) {
-    return f8f8bf16_rowwise_impl<
-        128,
-        128,
-        128,
-        2,
-        1,
-        1,
-        true,
-        FastAccum,
-        UseBias,
-        InputDType,
-        BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
+    if (K < 4096) {
+      return f8f8bf16_rowwise_impl<
+          128,
+          128,
+          128,
+          2,
+          1,
+          1,
+          true,
+          false,
+          FastAccum,
+          UseBias,
+          InputDType,
+          BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
+    } else {
+      return f8f8bf16_rowwise_impl<
+          128,
+          256,
+          128,
+          2,
+          1,
+          1,
+          false,
+          true,
+          FastAccum,
+          UseBias,
+          InputDType,
+          BiasDType>(XQ, WQ, x_scale, w_scale, bias, output);
+    }
   } else {
     return f8f8bf16_rowwise_impl<
         128,
@@ -357,6 +382,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
         1,
         2,
         1,
+        false,
         false,
         FastAccum,
         UseBias,
