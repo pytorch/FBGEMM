@@ -125,7 +125,7 @@ jobs:
           { instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3", "12.8.0" ]
+        cuda-version: [ "11.8.0", "12.6.3", "12.8.0" ]
 
     steps:
     # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
