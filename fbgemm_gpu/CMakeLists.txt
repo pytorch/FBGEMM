@@ -237,29 +237,21 @@ endfunction()
 
 
 ################################################################################
-# Build FBGEMM_GPU (Main) Module
+# Build Targets
 ################################################################################
 
-if(NOT FBGEMM_GENAI_ONLY)
-  include(FbgemmGpu.cmake)
-endif()
-
-
-################################################################################
-# Build Experimental Modules
-################################################################################
-
-if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
-  add_subdirectory(experimental/example)
-endif()
-
-if(NOT FBGEMM_CPU_ONLY)
-  # Package Triton GEMM (GenAI) kernels
-  add_subdirectory(experimental/gemm)
-endif()
-
-if(NOT FBGEMM_CPU_ONLY AND NOT USE_ROCM)
-  # TODO: Re-enable gen_ai for ROCm once ck/tensor_operation/gpu/device/impl/device_gemm_multiple_d_xdl_cshuffle_v3_ab_scale.hpp
-  # lands into latest ROCm
+if(FBGEMM_GENAI_ONLY)
+  # Build FBGEMM GenAI
   add_subdirectory(experimental/gen_ai)
+
+  # Add experimental packaging example
+  add_subdirectory(experimental/example)
+
+  # Add Triton GEMM (GenAI) kernels if non-CPU build
+  add_subdirectory(experimental/gemm)
+
+else()
+  # Build FBGEMM_GPU
+  include(FbgemmGpu.cmake)
+
 endif()

@@ -69,7 +69,7 @@ if torch.cuda.is_available() and torch.version.hip:
 libraries_to_load = {
     "cpu": fbgemm_gpu_libraries,
     "docs": fbgemm_gpu_libraries,
-    "cuda": fbgemm_gpu_libraries + fbgemm_gpu_genai_libraries,
+    "cuda": fbgemm_gpu_libraries,
     "genai": fbgemm_gpu_genai_libraries,
     "rocm": fbgemm_gpu_libraries,
 }
