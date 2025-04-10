@@ -31,6 +31,7 @@ class IndicesParams:
     heavy_hitters: torch.Tensor
     # zipf*: parameters for the Zipf distribution (x+q)^{-s}
     zipf_q: float
+    # zipf_s is synonymous with alpha in the literature
     zipf_s: float
     # [Optional] dtype for indices tensor
     index_dtype: Optional[torch.dtype] = None
