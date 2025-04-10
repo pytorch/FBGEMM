@@ -11,11 +11,14 @@
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
+#include "fbgemm_gpu/utils/device_properties.cuh"
 #include "fbgemm_gpu/utils/host_device_buffer_pair.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 namespace fbgemm_gpu::utils {
+
+#define U32(x) static_cast<uint32_t>(x)
 
 template <typename T>
 __global__ void array_sum_kernel(T* C, const T* A, const T* B, size_t size) {
@@ -34,6 +37,28 @@ __global__ void tensor_sum_kernel(
   if (idx < C.size(0)) {
     C[idx] = A[idx] + B[idx];
   }
+}
+
+auto sample_tensors(const long size) {
+  auto A = torch::full(
+      {size},
+      2,
+      torch::dtype(torch::kFloat32)
+          .device(torch::kCUDA, at::cuda::current_device()));
+
+  auto B = torch::full(
+      {size},
+      3,
+      torch::dtype(torch::kFloat32)
+          .device(torch::kCUDA, at::cuda::current_device()));
+
+  auto C = torch::full(
+      {size},
+      -1,
+      torch::dtype(torch::kFloat32)
+          .device(torch::kCUDA, at::cuda::current_device()));
+
+  return std::make_tuple(A, B, C);
 }
 
 TEST(KernelLauncherTest, test_array_kernel_launch) {
@@ -60,45 +85,16 @@ TEST(KernelLauncherTest, test_array_kernel_launch) {
       EXPECT_EQ(x, 5.0f);
     }
   });
-
-#ifdef USE_ROCM
-  // Test grid size bounds checking for ROCm
-  EXPECT_THROW(
-      {
-        FBGEMM_LAUNCH_KERNEL(
-            array_sum_kernel<float>,
-            // block size x grid size > 2**32
-            1LL << 30, // 2**30
-            1LL << 30, // 2**30
-            0,
-            at::cuda::getCurrentCUDAStream(),
-            C.device,
-            A.device,
-            B.device,
-            size);
-      },
-      std::exception);
-#endif
 }
 
 TEST(KernelLauncherTest, tensor_array_kernel_launch) {
   const auto size = 1024;
-  auto A = torch::full(
-      {size},
-      2,
-      torch::dtype(torch::kFloat32)
-          .device(torch::kCUDA, at::cuda::current_device()));
-  auto B = torch::full(
-      {size},
-      3,
-      torch::dtype(torch::kFloat32)
-          .device(torch::kCUDA, at::cuda::current_device()));
-  auto C = torch::full(
-      {size},
-      -1,
-      torch::dtype(torch::kFloat32)
-          .device(torch::kCUDA, at::cuda::current_device()));
+  // Not using structured bindings bc it fails on ROCm with:
+  // `capturing a structured binding is not yet supported in OpenMP`
+  at::Tensor A, B, C;
+  std::tie(A, B, C) = sample_tensors(size);
 
+  // Test normal kernel launch succeeds
   EXPECT_NO_THROW({
     FBGEMM_LAUNCH_KERNEL(
         tensor_sum_kernel<float>,
@@ -118,16 +114,62 @@ TEST(KernelLauncherTest, tensor_array_kernel_launch) {
           torch::dtype(torch::kFloat32)
               .device(torch::kCUDA, at::cuda::current_device()))),
       true);
+}
 
-#ifdef USE_ROCM
-  // Test grid size bounds checking for ROCm
+TEST(KernelLauncherTest, kernel_launch_checks) {
+  const auto size = 1024;
+  // Not using structured bindings bc it fails on ROCm with:
+  // `capturing a structured binding is not yet supported in OpenMP`
+  at::Tensor A, B, C;
+  std::tie(A, B, C) = sample_tensors(size);
+
+  const auto device = get_device_for_stream(at::cuda::getCurrentCUDAStream());
+  const auto properties = get_device_properties(device);
+  const auto grid_max = properties.maxGridSize;
+  const auto block_max = properties.maxThreadsDim;
+
+  // Test grid size bounds checking
   EXPECT_THROW(
       {
         FBGEMM_LAUNCH_KERNEL(
             tensor_sum_kernel<float>,
-            // block size x grid size > 2**32
-            1LL << 30, // 2**30
-            1LL << 30, // 2**30
+            // grid dims are too large
+            grid_max[0] + 1,
+            1024,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(C, float, 1, 64),
+            PTA_B(A, float, 1, 64),
+            PTA_B(B, float, 1, 64));
+      },
+      std::exception);
+
+  // Test block size bounds checking
+  EXPECT_THROW(
+      {
+        FBGEMM_LAUNCH_KERNEL(
+            tensor_sum_kernel<float>,
+            8,
+            // block dims are too large
+            block_max[0] + 1,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(C, float, 1, 64),
+            PTA_B(A, float, 1, 64),
+            PTA_B(B, float, 1, 64));
+      },
+      std::exception);
+
+#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700))
+  // Test max thread count
+  EXPECT_THROW(
+      {
+        FBGEMM_LAUNCH_KERNEL(
+            tensor_sum_kernel<float>,
+            // Both grid and block dims conform, but the total number of threads
+            // exceeds the max
+            {U32(grid_max[0]), U32(grid_max[1]), U32(grid_max[2])},
+            {U32(block_max[0]), U32(block_max[1]), U32(block_max[2])},
             0,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(C, float, 1, 64),
@@ -136,6 +178,22 @@ TEST(KernelLauncherTest, tensor_array_kernel_launch) {
       },
       std::exception);
 #endif
+
+  // Test shared memory size bounds checking
+  EXPECT_THROW(
+      {
+        FBGEMM_LAUNCH_KERNEL(
+            tensor_sum_kernel<float>,
+            8,
+            1024,
+            // shared memory size is too large
+            properties.sharedMemPerBlock + 1,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(C, float, 1, 64),
+            PTA_B(A, float, 1, 64),
+            PTA_B(B, float, 1, 64));
+      },
+      std::exception);
 }
 
 } // namespace fbgemm_gpu::utils
