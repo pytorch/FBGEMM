@@ -978,7 +978,8 @@ class DeepGemmBlockwise(QuantizeOpBase):
 
     @property
     def cuda(self) -> bool:
-        return True
+        # Temporarily disabled due to DeepGemm update removing support.
+        return False
 
 
 @register_quantize_op
