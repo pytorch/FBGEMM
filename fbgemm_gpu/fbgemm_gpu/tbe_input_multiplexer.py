@@ -22,15 +22,25 @@ class TBEInfo:
 
     Args:
         table_names: table names within the tbe
-        table_heights: table heights (hashsize)
+        table_heights: sharded table heights (hashsize)
         tbe_uuid: a unique identifier for the TBE
         feature_table_map: feature to table map
+        table_dims: sharded table dimensions
+        full_table_heights: table heights before sharding
+        full_table_dims: table dimensions before sharding
+        row_offset: the shard offset of the current rank on row (height)
+        col_offset: the shard offset of the current rank on column (dim)
     """
 
     table_names: List[str]
     table_heights: List[int]
     tbe_uuid: str
     feature_table_map: List[int]
+    table_dims: List[int]
+    full_table_heights: List[int]
+    full_table_dims: List[int]
+    row_offset: List[int]
+    col_offset: List[int]
 
 
 @dataclass(frozen=True)
