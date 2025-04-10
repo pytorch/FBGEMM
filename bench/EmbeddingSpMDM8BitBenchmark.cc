@@ -23,6 +23,7 @@
 #include <set>
 #include <vector>
 
+#include <c10/util/irange.h>
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"
@@ -31,9 +32,9 @@ using namespace std;
 using namespace fbgemm;
 
 void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
+  for (const auto i : c10::irange(rows)) {
     cout << "row: " << i << " : " << endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
+    for (const auto ii : c10::irange(embedding_dim)) {
       cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii] << ",";
     }
     cout << endl;
@@ -77,8 +78,8 @@ int run_benchmark(
 
   vector<uint8_t> fused_embedding_table(
       num_rows * (embedding_dim + 2 * sizeof(float)));
-  for (int i = 0; i < num_rows; i++) {
-    for (int ii = 0; ii < embedding_dim; ii++) {
+  for (const auto i : c10::irange(num_rows)) {
+    for (const auto ii : c10::irange(embedding_dim)) {
       fused_embedding_table[i * (embedding_dim + 2 * sizeof(float)) + ii] = 2;
     }
     float* scale_bias = reinterpret_cast<float*>(
@@ -95,7 +96,7 @@ int run_benchmark(
       1, std::min(2 * average_len + 1, num_rows));
   vector<int> offsets(batch_size + 1);
   offsets[0] = 0;
-  for (int i = 0; i < batch_size; ++i) {
+  for (const auto i : c10::irange(batch_size)) {
     offsets[i + 1] = offsets[i] + length_distribution(generator);
   }
 
@@ -113,7 +114,7 @@ int run_benchmark(
   map<int64_t, set<int>> dedup_map; // index -> set(output index)
 
   // please note we generate unique indices
-  for (int i = 0; i < batch_size; ++i) {
+  for (const auto i : c10::irange(batch_size)) {
     iota(container.begin(), container.end(), 0);
     shuffle(container.begin(), container.end(), generator);
     copy(
@@ -125,7 +126,7 @@ int run_benchmark(
 
   // Generate weights
   vector<float> weights(lengths_sum);
-  for (int i = 0; i < lengths_sum; ++i) {
+  for (const auto i : c10::irange(lengths_sum)) {
     weights[i] = embedding_distribution(generator);
   }
 
@@ -258,7 +259,7 @@ int run_benchmark(
           assert(
               false && "ERROR: refernce impl and JIT imp did not both succeed");
         } else if (success) {
-          for (size_t i = 0; i < output.size(); ++i) {
+          for (const auto i : c10::irange(output.size())) {
             float tmp1 = 0;
             float tmp2 = 0;
             if (std::is_same<OutType, float>::value) {

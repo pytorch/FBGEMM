@@ -19,6 +19,7 @@
 #include <omp.h>
 #endif
 
+#include <c10/util/irange.h>
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "src/RefImplementations.h"
@@ -354,7 +355,7 @@ void performance_test(
 
     // computing column offset
     vector<int32_t> col_offsets(conv_p.OC);
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       col_offsets_with_zero_pt_s8acc32_ref(
           KDimPerGroup,
           OC_per_G,
@@ -365,7 +366,7 @@ void performance_test(
           conv_p.OC);
     }
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       row_offsets_u8acc32_ref(
           MDim,
           KDimPerGroup,
@@ -406,7 +407,7 @@ void performance_test(
     double total_postprocessing_time = 0.0;
     double total_run_time = 0.0;
 #endif
-    for (auto i = 0; i < NWARMUP + NITER; ++i) {
+    for (const auto i : c10::irange(NWARMUP + NITER)) {
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
       packing_time = 0.0;
       computing_time = 0.0;
@@ -462,23 +463,23 @@ void performance_test(
     }
 
     cout << conv_p.MB << ", " << conv_p.IC << ", " << conv_p.OC << ", ";
-    for (int i = 0; i < SPATIAL_DIM; ++i) {
+    for (const auto i : c10::irange(SPATIAL_DIM)) {
       cout << conv_p.IN_DIM[i] << ", ";
     }
     cout << conv_p.G << ", ";
-    for (int i = 0; i < SPATIAL_DIM; ++i) {
+    for (const auto i : c10::irange(SPATIAL_DIM)) {
       cout << conv_p.K[i] << ", ";
     }
-    for (int i = 0; i < SPATIAL_DIM; ++i) {
+    for (const auto i : c10::irange(SPATIAL_DIM)) {
       cout << conv_p.stride[i] << ", ";
     }
-    for (int i = 0; i < SPATIAL_DIM; ++i) {
+    for (const auto i : c10::irange(SPATIAL_DIM)) {
       cout << conv_p.pad[i] << ", ";
     }
-    for (int i = 0; i < SPATIAL_DIM; ++i) {
+    for (const auto i : c10::irange(SPATIAL_DIM)) {
       cout << conv_p.dilation[i] << ", ";
     }
-    for (int i = 0; i < SPATIAL_DIM; ++i) {
+    for (const auto i : c10::irange(SPATIAL_DIM)) {
       cout << conv_p.output_pad[i] << ", ";
     }
     cout << conv_p.transposed;

@@ -23,6 +23,7 @@
 #include <set>
 #include <vector>
 
+#include <c10/util/irange.h>
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmConvert.h"
@@ -64,7 +65,7 @@ void run_benchmark(
 
   vector<float> embedding_table(num_rows * embedding_dim);
   normal_distribution<float> embedding_distribution;
-  for (size_t i = 0; i < embedding_table.size(); ++i) {
+  for (const auto i : c10::irange(embedding_table.size())) {
     embedding_table[i] = embedding_distribution(generator);
   }
   vector<float16> embedding_table_fp16;
@@ -89,7 +90,7 @@ void run_benchmark(
       1, std::min(2 * average_len + 1, num_rows));
   vector<int> offsets(batch_size + 1);
   offsets[0] = 0;
-  for (int i = 0; i < batch_size; ++i) {
+  for (const auto i : c10::irange(batch_size)) {
     offsets[i + 1] = offsets[i] + length_distribution(generator);
   }
 
@@ -104,7 +105,7 @@ void run_benchmark(
   vector<int> container(num_rows);
 
   // please note we generate unique indices
-  for (int i = 0; i < batch_size; ++i) {
+  for (const auto i : c10::irange(batch_size)) {
     iota(container.begin(), container.end(), 0);
     shuffle(container.begin(), container.end(), generator);
     copy(
@@ -116,7 +117,7 @@ void run_benchmark(
 
   // Generate weights
   vector<float> weights(lengths_sum);
-  for (int i = 0; i < lengths_sum; ++i) {
+  for (const auto i : c10::irange(lengths_sum)) {
     weights[i] = embedding_distribution(generator);
   }
 
@@ -351,7 +352,7 @@ void run_benchmark(
           assert(
               false && "ERROR: refernce impl and JIT imp did not both succeed");
         } else if (success) {
-          for (size_t i = 0; i < output.size(); ++i) {
+          for (const auto i : c10::irange(output.size())) {
             assert(output[i] == output_ref[i]);
             if (output[i] != output_ref[i]) {
               cout << i << " " << output[i] << " " << output_ref[i] << endl;

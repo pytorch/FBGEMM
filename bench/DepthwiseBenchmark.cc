@@ -17,6 +17,7 @@
 #include <omp.h>
 #endif
 
+#include <c10/util/irange.h>
 #include "./AlignedVec.h"
 #include "./BenchUtils.h"
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
@@ -254,7 +255,7 @@ int main() {
     transposeConvWeights(conv_p, B.data(), B_tr.data());
     conv_ref(conv_p, A.data(), A_zero_point, B_tr.data(), C_ref.data());
 
-    for (int g = 0; g < conv_p.G; ++g) {
+    for (const auto g : c10::irange(conv_p.G)) {
       // Compute row offset
       row_offsets_u8acc32_ref(
           MDim,
@@ -324,10 +325,10 @@ int main() {
         true /*useOpenMP*/);
 
     // correctness check
-    for (int n = 0; n < N; ++n) {
-      for (int h = 0; h < H_OUT; ++h) {
-        for (int w = 0; w < W_OUT; ++w) {
-          for (int k = 0; k < OC; ++k) {
+    for (const auto n : c10::irange(N)) {
+      for (const auto h : c10::irange(H_OUT)) {
+        for (const auto w : c10::irange(W_OUT)) {
+          for (const auto k : c10::irange(OC)) {
             uint8_t expected =
                 C_uint8_ref[((n * H_OUT + h) * W_OUT + w) * OC + k];
             uint8_t actual = C_uint8[((n * H_OUT + h) * W_OUT + w) * OC + k];

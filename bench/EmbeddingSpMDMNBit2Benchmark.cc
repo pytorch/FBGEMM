@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include <c10/util/irange.h>
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmConvert.h"
@@ -153,7 +154,7 @@ static void print_benchmark_results() {
       << "autovec b/w (GB/s), autovec effective b/w (GB/s), autovec time, "
       << "ref b/w (GB/s), ref effective b/w (GB/s), ref time, "
       << "asmjit speedup ratio, autovec speedup ratio" << std::endl;
-  for (size_t i = 0; i < benchmarks.size(); ++i) {
+  for (const auto i : c10::irange(benchmarks.size())) {
     BenchmarkSpec& spec = benchmarks[i].first;
     BenchmarkResult& res = benchmarks[i].second;
     float asmjit_speedup = res.ref_bw > 0.0 ? res.asmjit_bw / res.ref_bw : 0;
@@ -172,9 +173,9 @@ static void print_benchmark_results() {
 }
 
 void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
+  for (const auto i : c10::irange(rows)) {
     std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
+    for (const auto ii : c10::irange(embedding_dim)) {
       std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
                 << ",";
     }
@@ -219,10 +220,9 @@ int run_benchmark(
   normal_distribution<float> embedding_distribution;
 
   vector<uint8_t> fused_embedding_table(num_rows * fused_embedding_dim);
-  for (int i = 0; i < num_rows; i++) {
-    for (int ii = 0;
-         ii < (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte;
-         ii++) {
+  for (const auto i : c10::irange(num_rows)) {
+    for (const auto ii : c10::irange(
+             (embedding_dim + num_elem_per_byte - 1) / num_elem_per_byte)) {
       fused_embedding_table[i * fused_embedding_dim + ii] = 2;
     }
     float16* scale_bias = reinterpret_cast<float16*>(
@@ -239,7 +239,7 @@ int run_benchmark(
       1, std::min(2 * average_len + 1, num_rows));
   vector<int> offsets(batch_size + 1);
   offsets[0] = 0;
-  for (int i = 0; i < batch_size; ++i) {
+  for (const auto i : c10::irange(batch_size)) {
     offsets[i + 1] = offsets[i] + length_distribution(generator);
   }
 
@@ -254,7 +254,7 @@ int run_benchmark(
   map<int64_t, set<int>> dedup_map; // index -> set(output index)
 
   // please note we generate unique indices
-  for (int i = 0; i < batch_size; ++i) {
+  for (const auto i : c10::irange(batch_size)) {
     iota(container.begin(), container.end(), 0);
     shuffle(container.begin(), container.end(), generator);
     copy(
@@ -266,7 +266,7 @@ int run_benchmark(
 
   // Generate weights
   vector<float> weights(lengths_sum);
-  for (int i = 0; i < lengths_sum; ++i) {
+  for (const auto i : c10::irange(lengths_sum)) {
     weights[i] = embedding_distribution(generator);
   }
 

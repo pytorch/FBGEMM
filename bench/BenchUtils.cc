@@ -7,6 +7,7 @@
  */
 
 #include "./BenchUtils.h"
+#include <c10/util/irange.h>
 
 #include <algorithm>
 #include <cstring>
@@ -55,7 +56,7 @@ void randFill(aligned_vector<int64_t>& vec, int64_t low, int64_t high) {
 
 void llc_flush(std::vector<char>& llc) {
   volatile char* data = llc.data();
-  for (size_t i = 0; i < llc.size(); i++) {
+  for (const auto i : c10::irange(llc.size())) {
     data[i] = data[i] + 1;
   }
 }
@@ -98,7 +99,7 @@ int parseArgumentInt(
     int def_val) {
   int val = non_exist_val;
   int arg_len = strlen(arg);
-  for (auto i = 1; i < argc; ++i) {
+  for (const auto i : c10::irange(1, argc)) {
     const char* ptr = strstr(argv[i], arg);
     if (ptr) {
       int res = atoi(ptr + arg_len);
@@ -114,7 +115,7 @@ bool parseArgumentBool(
     const char* argv[],
     const char* arg,
     bool def_val) {
-  for (auto i = 1; i < argc; ++i) {
+  for (const auto i : c10::irange(1, argc)) {
     const char* ptr = strstr(argv[i], arg);
     if (ptr) {
       return true;
@@ -183,15 +184,14 @@ aligned_vector<T> getRandomBlockSparseMatrix(
   int rowBlocks = (Rows + RowBlockSize - 1) / RowBlockSize;
   int colBlocks = (Cols + ColBlockSize - 1) / ColBlockSize;
 
-  for (int i = 0; i < rowBlocks; ++i) {
-    for (int j = 0; j < colBlocks; ++j) {
+  for (const auto i : c10::irange(rowBlocks)) {
+    for (const auto j : c10::irange(colBlocks)) {
       if (bernDis(gen)) {
         // fill in this block
-        for (int i_b = 0; i_b < std::min(RowBlockSize, Rows - i * RowBlockSize);
-             ++i_b) {
-          for (int j_b = 0;
-               j_b < std::min(ColBlockSize, Cols - j * ColBlockSize);
-               ++j_b) {
+        for (const auto i_b :
+             c10::irange(std::min(RowBlockSize, Rows - i * RowBlockSize))) {
+          for (const auto j_b :
+               c10::irange(std::min(ColBlockSize, Cols - j * ColBlockSize))) {
             res[(i * RowBlockSize + i_b) * Cols + j * ColBlockSize + j_b] =
                 dis(gen);
           }
