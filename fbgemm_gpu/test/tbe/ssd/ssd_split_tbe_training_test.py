@@ -305,6 +305,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 "if bulk_init_chunk_size > 0, lazy_init_thread must be set and it should not be force-synchronized yet",
             )
 
+        self.assertTrue(emb.ssd_db.is_auto_compaction_enabled())
+
         # By doing the check for ssd_db being None below, we also access the getter property of ssd_db, which will
         # force the synchronization of lazy_init_thread, and then reset it to None.
         if emb.ssd_db is not None:

@@ -462,6 +462,9 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::set_range_to_storage)
         .def("toggle_compaction", &EmbeddingRocksDBWrapper::toggle_compaction)
         .def(
+            "is_auto_compaction_enabled",
+            &EmbeddingRocksDBWrapper::is_auto_compaction_enabled)
+        .def(
             "get",
             &EmbeddingRocksDBWrapper::get,
             "",
