@@ -549,13 +549,13 @@ at::Tensor bf16i4bf16_rowwise_meta(
 
 at::Tensor bf16i4bf16_rowwise_batched_meta(
     at::Tensor X, // BF16
-    at::Tensor WQ, // INT4
-    at::Tensor /* w_scale */,
-    at::Tensor /* w_zp */
+    at::Tensor W, // INT4
+    at::Tensor /* w_scale_group */,
+    at::Tensor /* w_zero_group */
 ) {
   int B = X.size(0);
   int M = X.size(1);
-  int N = WQ.size(1);
+  int N = W.size(1);
   auto Y = at::empty({B, M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
