@@ -372,7 +372,8 @@ install_build_tools () {
     patchelf \
     rhash \
     scikit-build \
-    wheel) || return 1
+    wheel \
+    pyyaml) || return 1
 
   echo "[INSTALL] Adding symlink librhash.so.0, which is needed by CMake ..."
   # shellcheck disable=SC2155,SC2086
