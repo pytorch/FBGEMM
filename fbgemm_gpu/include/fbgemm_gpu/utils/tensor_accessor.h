@@ -12,7 +12,6 @@
 #include <c10/core/ScalarType.h>
 #include <c10/macros/Macros.h>
 #include <c10/util/ArrayRef.h>
-#include <c10/util/Deprecated.h>
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 
@@ -504,7 +503,8 @@ template <
     size_t N,
     template <typename U> class PtrTraits = DefaultPtrTraits,
     typename index_t = int64_t>
-C10_DEFINE_DEPRECATED_USING(PackedTensorAccessor, AT_X)
+using PackedTensorAccessor
+    [[deprecated("Old name for `GenericPackedTensorAccessor`")]] = AT_X;
 
 #undef AT_X
 
