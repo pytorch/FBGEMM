@@ -20,6 +20,7 @@
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
+#include "fbgemm_gpu/utils/assert_macros.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -96,6 +97,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- endif %}
     ) {
     constexpr int32_t kVecWidth = 4;
+    int error_code = 0;
+    int64_t error_value;
 
     int32_t T = D_offsets.size(0) - 1;
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
@@ -118,6 +121,10 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     const auto D_start = D_offsets[t];
     const auto D_end = D_offsets[t + 1];
     const auto D = D_end - D_start;
+    auto D_emb = D;
+    if (std::is_same<emb_t, uint8_t>::value) {
+      D_emb += kINT8QparamsBytes;
+    }
     const auto indices_start = offsets[b_t];
     const auto indices_end = offsets[b_t + 1];
     const auto L = indices_end - indices_start;
@@ -132,16 +139,26 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
         return;
     }
 
-    const emb_t* __restrict__ weights;
+    emb_t* __restrict__ weights;
+    {%- if not ssd %}
+    overflow_safe_int_t weights_numel;
+    {%- endif %}
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
     if (placement == PlacementType::DEVICE) {
         weights = &dev_weights[weights_offset];
+        {%- if not ssd %}
+        weights_numel = dev_weights.size(0) - weights_offset;
+        {%- endif %}
     } else {
         weights = &uvm_weights[weights_offset];
+        {%- if not ssd %}
+        weights_numel = uvm_weights.size(0) - weights_offset;
+        {%- endif %}
     }
     {%- else %}
     weights = &dev_weights[weights_offset];
+    weights_numel = dev_weights.size(0) - weights_offset;
     {%- endif %}
 
     {%- if vbe %}
@@ -174,14 +191,26 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
 
         for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
             auto l = l_start + threadIdx.x;
-            index_t idx = l < L ? indices[indices_start + l] : 0;
+            const auto offset_idx = l < L
+                ? (static_cast<overflow_safe_int_t>(indices[indices_start + l]) * D_emb)
+                : 0;
             {%- if not dense %}
             const auto {{ locs_or_addrs_idx }} =
                 (placement == PlacementType::MANAGED_CACHING && l < L)
                     ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
             {%- endif %}
+
+            {%- if not ssd %}
+            FBGEMM_KERNEL_ERROR_CHECK(
+                1, offset_idx >= 0 && offset_idx < weights_numel, offset_idx
+            )
+            FBGEMM_KERNEL_ERROR_CHECK(
+                2, offset_idx + D_emb <= weights_numel, offset_idx
+            )
+            {%- endif %}
+
             for (auto j = 0; j < kWarpSize && l_start + j < L; ++j) {
-                auto idx_j = shfl_sync(idx, j);
+                const auto offset_idx_j = shfl_sync(offset_idx, j);
                 {%- if not dense %}
                 const auto {{ locs_or_addrs_idx }}_j = shfl_sync({{ locs_or_addrs_idx }}, j);
                 {%- endif %}
@@ -212,17 +241,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                             weight.acc.z * grad_out[vec].acc.z +
                             weight.acc.w * grad_out[vec].acc.w;
                     } else {
-                        int32_t D_emb = D;
-                        if (std::is_same<emb_t, uint8_t>::value) {
-                            D_emb += kINT8QparamsBytes;
-                        }
                         auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-                            const_cast<emb_t*>(
-                              &weights[
-                                static_cast<overflow_safe_int_t>(idx_j)
-                                * static_cast<overflow_safe_int_t>(D_emb)
-                              ]
-                            ),
+                            &weights[offset_idx_j],
                             nullptr,
                             D);
                         float2 qparams;
@@ -237,17 +257,8 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                             weight.acc.w * grad_out[vec].acc.w;
                     }
                     {%- else %}
-                    int32_t D_emb = D;
-                    if (std::is_same<emb_t, uint8_t>::value) {
-                        D_emb += kINT8QparamsBytes;
-                    }
                     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-                        const_cast<emb_t*>(
-                          &weights[
-                            static_cast<overflow_safe_int_t>(idx_j)
-                            * static_cast<overflow_safe_int_t>(D_emb)
-                          ]
-                        ),
+                        &weights[offset_idx_j],
                         nullptr,
                         D);
                     float2 qparams;
@@ -284,6 +295,25 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     {%- if use_vec_blocking %}
     } // for vec_start
     {%- endif %}
+
+{%- if not ssd %}
+kernel_error_handler:
+    FBGEMM_KERNEL_ERROR_THROW(
+        1,
+        offset_idx >= 0 && offset_idx < weights_numel,
+        (offset_idx=%lld, weights_numel=%lld),
+        error_value,
+        weights_numel
+    )
+    FBGEMM_KERNEL_ERROR_THROW(
+        2,
+        offset_idx + D_emb <= weights_numel,
+        (offset_idx=%lld, D_emb=%d, weights_numel=%lld),
+        error_value,
+        D_emb,
+        weights_numel
+    )
+{%- endif %}
 }
 {%- endfor %} {# /* for use_vec_blocking */ #}
 
