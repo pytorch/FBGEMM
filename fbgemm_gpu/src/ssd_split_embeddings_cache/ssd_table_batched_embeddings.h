@@ -176,6 +176,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             tbe_unqiue_id,
             row_storage_bitwidth / 8,
             enable_async_update),
+        auto_compaction_enabled_(true),
         max_D_(max_D),
         elem_size_(row_storage_bitwidth / 8) {
     class Int64Comparator : public rocksdb::Comparator {
@@ -290,10 +291,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     options.memtable_prefix_bloom_size_ratio = 0.05;
     options.memtable_whole_key_filtering = true;
     options.max_background_jobs = num_threads;
-    // disable auto compactions during bulk init, re-enable once done
     // maximum number of concurrent flush operations
     options.max_background_flushes = num_threads;
-    options.disable_auto_compactions = true;
     options.env->SetBackgroundThreads(4, rocksdb::Env::HIGH);
     options.env->SetBackgroundThreads(1, rocksdb::Env::LOW);
     options.max_open_files = -1;
@@ -583,6 +582,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return dbs_[shard]->SetOptions({{key, value}});
   }
 
+  bool is_auto_compaction_enabled() {
+    return auto_compaction_enabled_;
+  }
+
   void toggle_compaction(bool enable) {
     int max_retries = 10;
     std::vector<folly::Future<bool>> futures;
@@ -614,6 +617,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                      << std::endl;
       }
     }
+    auto_compaction_enabled_ = enable;
   }
 
   int64_t get_max_D() {
@@ -996,6 +1000,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t memtable_flush_period_;
   int64_t compaction_period_;
   int64_t l0_files_per_compact_;
+  bool auto_compaction_enabled_;
 
   // break down on rocksdb write duration for details checkout RocksdbWriteMode
   std::atomic<int64_t> read_total_duration_{0};
