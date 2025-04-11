@@ -40,7 +40,7 @@ logger.setLevel(logging.INFO)
 
 
 def _get_varseq_batch_seqpos(
-    seqlens_q: List[int], seqlens_kv: List[int]
+    seqlens_q: List[int], seqlens_kv: List[int], device: torch.device
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     varseq_batch[i] is batch index of query i
@@ -49,7 +49,11 @@ def _get_varseq_batch_seqpos(
 
     varseq_batch = torch.cat(
         [
-            torch.as_tensor([i for _ in range(len_q)], dtype=torch.int, device="cuda")
+            torch.as_tensor(
+                [i for _ in range(len_q)],
+                dtype=torch.int,
+                device=device,
+            )
             for i, len_q in enumerate(seqlens_q)
         ]
     )
@@ -58,7 +62,7 @@ def _get_varseq_batch_seqpos(
             torch.as_tensor(
                 [len_kv - len_q + t for t in range(len_q)],
                 dtype=torch.int,
-                device="cuda",
+                device=device,
             )
             for len_q, len_kv in zip(seqlens_q, seqlens_kv)
         ]
@@ -67,6 +71,22 @@ def _get_varseq_batch_seqpos(
 
 
 class KVCacheTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        cls.device = device
+
+        # Perform a dummy compilation to test if inductor is supported
+        try:
+            torch.compile(torch.abs, backend="inductor")(
+                torch.tensor(0, device=cls.device)
+            )
+            cls.compile_backend = "inductor"
+        except torch._dynamo.exc.BackendCompilerFailed:
+            cls.compile_backend = "eager"
+
     @settings(deadline=None)
     @given(
         num_groups=st.sampled_from([1, 2, 4, 8]),
@@ -88,26 +108,34 @@ class KVCacheTests(unittest.TestCase):
         # PROMPT_T = 1024
 
         xq = (
-            torch.randn(size=(B * T, N_H_L, D_H), dtype=torch.bfloat16, device="cuda")
+            torch.randn(
+                size=(B * T, N_H_L, D_H), dtype=torch.bfloat16, device=self.device
+            )
             * 0.01
         )
         xk = (
-            torch.randn(size=(B * T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda")
+            torch.randn(
+                size=(B * T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
+            )
             * 0.01
         )
         xv = (
-            torch.randn(size=(B * T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda")
+            torch.randn(
+                size=(B * T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
+            )
             * 0.01
         )
         varseq_seqpos = torch.cat(
             [
-                torch.as_tensor(list(range(T)), dtype=torch.int, device="cuda")
+                torch.as_tensor(list(range(T)), dtype=torch.int, device=self.device)
                 for b in range(B)
             ]
         )
         varseq_batch = torch.cat(
             [
-                torch.as_tensor([b for _ in range(T)], dtype=torch.int, device="cuda")
+                torch.as_tensor(
+                    [b for _ in range(T)], dtype=torch.int, device=self.device
+                )
                 for b in range(B)
             ]
         )
@@ -118,19 +146,21 @@ class KVCacheTests(unittest.TestCase):
                 kv_seqlen=[T for _ in range(B)],
             )
         )
-        attn_bias.k_seqinfo.to(torch.device("cuda"))
+        attn_bias.k_seqinfo.to(self.device)
         assert attn_bias.k_seqinfo.seqlen.shape == (B,)
         assert attn_bias.k_seqinfo.seqlen.tolist() == [T for _ in range(B)]
 
         theta = 10000.0
         cache_k_bf16 = torch.zeros(
-            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
         )
         cache_v_bf16 = torch.zeros(
-            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
         )
 
-        xq_out_bf16 = torch.compile(torch.ops.fbgemm.rope_qkv_varseq_prefill)(
+        xq_out_bf16 = torch.compile(
+            torch.ops.fbgemm.rope_qkv_varseq_prefill, backend=self.compile_backend
+        )(
             xq,
             xk,
             xv,
@@ -145,14 +175,16 @@ class KVCacheTests(unittest.TestCase):
         cache_k_int4 = torch.zeros(
             size=(B, MAX_T, N_KVH_L, int(D_H // 2) + qparam_offset),
             dtype=torch.uint8,
-            device="cuda",
+            device=self.device,
         )
         cache_v_int4 = torch.zeros(
             size=(B, MAX_T, N_KVH_L, int(D_H // 2) + qparam_offset),
             dtype=torch.uint8,
-            device="cuda",
+            device=self.device,
         )
-        xq_out = torch.compile(torch.ops.fbgemm.rope_qkv_varseq_prefill)(
+        xq_out = torch.compile(
+            torch.ops.fbgemm.rope_qkv_varseq_prefill, backend=self.compile_backend
+        )(
             xq,
             xk,
             xv,
@@ -166,7 +198,9 @@ class KVCacheTests(unittest.TestCase):
         )
         torch.testing.assert_close(xq_out_bf16, xq_out)
 
-        dequantized_cache = torch.compile(torch.ops.fbgemm.dequantize_int4_cache)(
+        dequantized_cache = torch.compile(
+            torch.ops.fbgemm.dequantize_int4_cache, backend=self.compile_backend
+        )(
             cache_k_int4,
             cache_v_int4,
             attn_bias.k_seqinfo.seqlen,
@@ -205,7 +239,8 @@ class KVCacheTests(unittest.TestCase):
         xq = (
             torch.cat(
                 [
-                    torch.randn(N_H_L, D_H, dtype=torch.bfloat16, device="cuda") * (i)
+                    torch.randn(N_H_L, D_H, dtype=torch.bfloat16, device=self.device)
+                    * (i)
                     for i in range(B * T)
                 ]
             )
@@ -215,14 +250,14 @@ class KVCacheTests(unittest.TestCase):
         xk_rows = [
             scale_step
             * (i + 1)
-            * torch.randn(size=(N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda")
+            * torch.randn(size=(N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device)
             + i * shift_step
             for i in range(B * T)
         ]
         xv_rows = [
             scale_step
             * (i + 1)
-            * torch.randn(size=(N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda")
+            * torch.randn(size=(N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device)
             + i * shift_step
             for i in range(B * T)
         ]
@@ -232,13 +267,15 @@ class KVCacheTests(unittest.TestCase):
         xv = (torch.cat(xv_rows)).view(B * T, N_KVH_L, D_H)
         varseq_seqpos = torch.cat(
             [
-                torch.as_tensor(list(range(T)), dtype=torch.int, device="cuda")
+                torch.as_tensor(list(range(T)), dtype=torch.int, device=self.device)
                 for b in range(B)
             ]
         )
         varseq_batch = torch.cat(
             [
-                torch.as_tensor([b for _ in range(T)], dtype=torch.int, device="cuda")
+                torch.as_tensor(
+                    [b for _ in range(T)], dtype=torch.int, device=self.device
+                )
                 for b in range(B)
             ]
         )
@@ -249,19 +286,21 @@ class KVCacheTests(unittest.TestCase):
                 kv_seqlen=[T for _ in range(B)],
             )
         )
-        attn_bias.k_seqinfo.to(torch.device("cuda"))
+        attn_bias.k_seqinfo.to(self.device)
         assert attn_bias.k_seqinfo.seqlen.shape == (B,)
         assert attn_bias.k_seqinfo.seqlen.tolist() == [T for _ in range(B)]
 
         theta = 10000.0
         cache_k_bf16 = torch.zeros(
-            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
         )
         cache_v_bf16 = torch.zeros(
-            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+            size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
         )
 
-        xq_out_bf16 = torch.compile(torch.ops.fbgemm.rope_qkv_varseq_prefill)(
+        xq_out_bf16 = torch.compile(
+            torch.ops.fbgemm.rope_qkv_varseq_prefill, backend=self.compile_backend
+        )(
             xq,
             xk,
             xv,
@@ -276,14 +315,16 @@ class KVCacheTests(unittest.TestCase):
         cache_k_fp8 = torch.zeros(
             size=(B, MAX_T, N_KVH_L, int(D_H) + qparam_offset),
             dtype=torch.uint8,
-            device="cuda",
+            device=self.device,
         )
         cache_v_fp8 = torch.zeros(
             size=(B, MAX_T, N_KVH_L, int(D_H) + qparam_offset),
             dtype=torch.uint8,
-            device="cuda",
+            device=self.device,
         )
-        xq_out = torch.compile(torch.ops.fbgemm.rope_qkv_varseq_prefill)(
+        xq_out = torch.compile(
+            torch.ops.fbgemm.rope_qkv_varseq_prefill, backend=self.compile_backend
+        )(
             xq,
             xk,
             xv,
@@ -296,7 +337,9 @@ class KVCacheTests(unittest.TestCase):
         )
         torch.testing.assert_close(xq_out_bf16, xq_out)
 
-        dequantized_cache = torch.compile(torch.ops.fbgemm.dequantize_fp8_cache)(
+        dequantized_cache = torch.compile(
+            torch.ops.fbgemm.dequantize_fp8_cache, backend=self.compile_backend
+        )(
             cache_k_fp8,
             cache_v_fp8,
             attn_bias.k_seqinfo.seqlen,
@@ -339,12 +382,12 @@ class KVCacheTests(unittest.TestCase):
         kv_seqlens = torch.randint(low=0, high=MAX_T, size=(B,)).tolist()
         q_seqlens = kv_seqlens if prefill else [1 for _ in range(B)]
         seq_positions = torch.tensor(
-            [x - 1 for x in kv_seqlens], device="cuda", dtype=torch.int32
+            [x - 1 for x in kv_seqlens], device=self.device, dtype=torch.int32
         )
         total_length_q = sum(q_seqlens)
 
         cache_k = torch.randn(
-            (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+            (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
         )
         cache_v = torch.randn_like(cache_k)
 
@@ -363,7 +406,7 @@ class KVCacheTests(unittest.TestCase):
             N_H_L + 2 * N_KVH_L,
             D_H,
             dtype=torch.bfloat16,
-            device="cuda",
+            device=self.device,
         )
         xq = xqkv[:, :N_H_L, :]
         # This clone is to avoid a weirdness in torch.compile:
@@ -394,15 +437,20 @@ class KVCacheTests(unittest.TestCase):
         assert cache_v.shape == (B, MAX_T, N_KVH_L, D_H)
 
         if prefill:
-            seqpos_args = _get_varseq_batch_seqpos(q_seqlens, kv_seqlens)
+            seqpos_args = _get_varseq_batch_seqpos(q_seqlens, kv_seqlens, self.device)
         else:
             seqpos_args = (seq_positions,)
 
         if rope_theta is not None:
             func = (
-                torch.compile(torch.ops.fbgemm.rope_qkv_varseq_prefill)
+                torch.compile(
+                    torch.ops.fbgemm.rope_qkv_varseq_prefill,
+                    backend=self.compile_backend,
+                )
                 if prefill
-                else torch.compile(torch.ops.fbgemm.rope_qkv_decoding)
+                else torch.compile(
+                    torch.ops.fbgemm.rope_qkv_decoding, backend=self.compile_backend
+                )
             )
             xq_out_ref = func(
                 xq,
@@ -428,9 +476,14 @@ class KVCacheTests(unittest.TestCase):
             )
         else:
             func = (
-                torch.compile(torch.ops.fbgemm.xpos_qkv_varseq_prefill)
+                torch.compile(
+                    torch.ops.fbgemm.xpos_qkv_varseq_prefill,
+                    backend=self.compile_backend,
+                )
                 if prefill
-                else torch.compile(torch.ops.fbgemm.xpos_qkv_decoding)
+                else torch.compile(
+                    torch.ops.fbgemm.xpos_qkv_decoding, backend=self.compile_backend
+                )
             )
             xq_out_ref = func(
                 xq,
@@ -510,12 +563,12 @@ class KVCacheTests(unittest.TestCase):
         kv_seqlens = torch.randint(low=0, high=MAX_T, size=(B,)).tolist()
         q_seqlens = kv_seqlens if prefill else [1 for _ in range(B)]
         seq_positions = torch.tensor(
-            [x - 1 for x in kv_seqlens], device="cuda", dtype=torch.int32
+            [x - 1 for x in kv_seqlens], device=self.device, dtype=torch.int32
         )
         total_length_q = sum(q_seqlens)
 
         cache_k = torch.randn(
-            (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+            (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
         )
         cache_v = torch.randn_like(cache_k)
 
@@ -524,7 +577,7 @@ class KVCacheTests(unittest.TestCase):
             N_H_L + 2 * N_KVH_L,
             D_H,
             dtype=torch.bfloat16,
-            device="cuda",
+            device=self.device,
         )
         xq = xqkv[:, :N_H_L, :]
         xk = xqkv[:, N_H_L : N_H_L + N_KVH_L, :].clone()
@@ -542,14 +595,18 @@ class KVCacheTests(unittest.TestCase):
         assert cache_v.shape == (B, MAX_T, N_KVH_L, D_H)
 
         if prefill:
-            seqpos_args = _get_varseq_batch_seqpos(q_seqlens, kv_seqlens)
+            seqpos_args = _get_varseq_batch_seqpos(q_seqlens, kv_seqlens, self.device)
         else:
             seqpos_args = (seq_positions,)
 
         func = (
-            torch.compile(torch.ops.fbgemm.rope_qkv_varseq_prefill)
+            torch.compile(
+                torch.ops.fbgemm.rope_qkv_varseq_prefill, backend=self.compile_backend
+            )
             if prefill
-            else torch.compile(torch.ops.fbgemm.rope_qkv_decoding)
+            else torch.compile(
+                torch.ops.fbgemm.rope_qkv_decoding, backend=self.compile_backend
+            )
         )
         xq_out = func(
             xq,
@@ -569,7 +626,7 @@ class KVCacheTests(unittest.TestCase):
                 kv_seqlen=kv_seqlens,
             )
         )
-        attn_bias.k_seqinfo.to(torch.device("cuda"))
+        attn_bias.k_seqinfo.to(self.device)
         xq = xq.view(1, xq.shape[0], N_H_L, D_H)
         xk = xk.view(1, xk.shape[0], N_KVH_L, D_H)
         xv = xv.view(1, xv.shape[0], N_KVH_L, D_H)
