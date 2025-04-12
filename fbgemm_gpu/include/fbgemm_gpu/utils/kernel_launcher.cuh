@@ -57,7 +57,7 @@ decltype(auto) transform_kernel_arg(const SourceContext& context, T&& arg) {
     // turned ON.
     return arg.build(context.description());
   } else {
-    // Otherwise, forward the argument as is
+    // Otherwise, perfect-forward the argument as is
     return std::forward<T>(arg);
   }
 }
@@ -69,6 +69,7 @@ decltype(auto) transform_kernel_arg(const SourceContext& context, T&& arg) {
 // routines when launching GPU kernels.
 ////////////////////////////////////////////////////////////////////////////////
 
+template <bool EnableDSA = false>
 struct KernelLauncher {
   const SourceContext context;
 
@@ -158,7 +159,7 @@ struct KernelLauncher {
         " is greater than the limit of ",
         properties.maxThreadsPerBlock);
 
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700))
+#if defined(__HIPCC__) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700))
     // ROCm has a limit of 2^32 elements per kernel launch, but doesn't
     // automatically work around problem like CUDA does (V100 or newer
     // architectures), see:
@@ -181,7 +182,7 @@ struct KernelLauncher {
     const auto smem_limits = properties.sharedMemPerBlock;
 
     TORCH_CHECK(
-        shared_mem_per_block >= 0 && shared_mem_per_block <= smem_limits,
+        shared_mem_per_block <= smem_limits,
         context.description(),
         ": Requested shared memory per block (",
         shared_mem_per_block,
@@ -201,6 +202,7 @@ struct KernelLauncher {
     // Fetch device properties from the stream information
     const auto device = get_device_for_stream(stream);
     const auto properties = get_device_properties(device);
+    const auto streamId = get_stream_id(stream);
 
     // Check that the grid sizes are within the range per the device associated
     // with the compute stream
@@ -217,10 +219,39 @@ struct KernelLauncher {
     // device associated with the compute stream
     checkSharedMemoryPerBlockNotExceeded(properties, shared_mem_per_block);
 
-    // Launch the kernel
-    kernel<<<grid, block, shared_mem_per_block, stream>>>(
-        // Transform arguments to the kernel before forwarding them.
-        transform_kernel_arg(context, std::forward<Args>(args))...);
+    if constexpr (EnableDSA) {
+      // This launch code here is essentially the same as the contents of
+      // TORCH_USE_CUDA_DSA macro, but with the addition of kernel argument
+      // transformation.
+
+      auto& launch_registry =
+#ifdef __HIPCC__
+          // CUDAKernelLaunchRegistry has only been recently added to Torch
+          // HIPify mappings, so wrap this with USE_ROCM until the mappings land
+          // in PyTorch OSS.
+          c10::hip::HIPKernelLaunchRegistry::get_singleton_ref();
+#else
+          c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref();
+#endif
+
+      // Launch the kernel
+      kernel<<<grid, block, shared_mem_per_block, stream>>>(
+          // Transform arguments to the kernel before forwarding them.
+          transform_kernel_arg(context, std::forward<Args>(args))...,
+          launch_registry.get_uvm_assertions_ptr_for_current_device(),
+          launch_registry.insert(
+              context.location.file_name(),
+              context.location.function_name(),
+              context.location.line(),
+              context.summary.data(),
+              streamId));
+
+    } else {
+      // Launch the kernel
+      kernel<<<grid, block, shared_mem_per_block, stream>>>(
+          // Transform arguments to the kernel before forwarding them.
+          transform_kernel_arg(context, std::forward<Args>(args))...);
+    }
 
     // Check for CUDA errors
     C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -255,6 +286,16 @@ struct KernelLauncher {
     constexpr auto location = source_location::current();               \
     constexpr decltype(KERNEL)& kernel = KERNEL;                        \
                                                                         \
-    return fbgemm_gpu::utils::KernelLauncher(location, #KERNEL)         \
+    return fbgemm_gpu::utils::KernelLauncher<false>(location, #KERNEL)  \
         .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+  }()
+
+#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...) \
+  [&] {                                                                  \
+    using source_location = fbgemm_gpu::utils::source_location;          \
+    constexpr auto location = source_location::current();                \
+    constexpr decltype(KERNEL)& kernel = KERNEL;                         \
+                                                                         \
+    return fbgemm_gpu::utils::KernelLauncher<true>(location, #KERNEL)    \
+        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);  \
   }()

@@ -45,7 +45,7 @@ inline auto get_device_properties(const int device) {
 // This function is memoized since the operation may be expensive
 ////////////////////////////////////////////////////////////////////////////////
 
-inline auto get_device_for_stream(const cudaStream_t stream) {
+inline auto get_device_for_stream(const cudaStream_t& stream) {
   // Keep as thread local to avoid race conditions
   static thread_local std::unordered_map<cudaStream_t, int> table;
 
@@ -81,6 +81,30 @@ inline auto get_device_for_stream(const cudaStream_t stream) {
     table.insert({stream, device});
     return device;
   }
+}
+
+inline auto get_stream_id(const cudaStream_t& stream) {
+#ifdef USE_ROCM
+  // There is no HIP version of cudaStreamGetId, so we use the pointer value
+  // instead as the stream ID
+  return reinterpret_cast<unsigned long long>(stream);
+
+#else
+  // Keep as thread local to avoid race conditions
+  static thread_local std::unordered_map<cudaStream_t, unsigned long long>
+      table;
+
+  if (const auto search = table.find(stream); search != table.end()) {
+    return search->second;
+
+  } else {
+    unsigned long long streamId = 0;
+    C10_CUDA_CHECK(cudaStreamGetId(stream, &streamId));
+
+    table.insert({stream, streamId});
+    return streamId;
+  }
+#endif
 }
 
 } // namespace fbgemm_gpu::utils
