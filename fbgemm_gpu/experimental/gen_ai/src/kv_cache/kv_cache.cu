@@ -1783,6 +1783,113 @@ at::Tensor xpos_qkv_decoding(
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+template <bool ExternalQParam>
+__global__ void dequantize_fp8_cache_kernel(
+    // This code currently represents FP8 version not int4
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_K, // [B][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_V, // [B][MAX_T][N_KVH][D_H // G]
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+        cache_K_dq, // [B][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+        cache_V_dq, // [B][MAX_T][N_KVH][D_H]
+    int32_t* qparam_k_ptr,
+    int32_t* qparam_v_ptr) {
+  auto N_KVH = cache_K.size(2);
+  auto MAX_T = cache_K.size(1);
+  auto D_H = cache_K_dq.size(3);
+  auto D_H_q = cache_K.size(3);
+  // TODO: support D_H < 128 for small model used in testing.
+  CUDA_KERNEL_ASSERT(D_H == 128);
+  const uint8_t offset_bytes = (ExternalQParam) ? 0 : 4;
+  CUDA_KERNEL_ASSERT(D_H_q - D_H == offset_bytes);
+
+  auto b = blockIdx.x;
+  // only need to dequantize this far.
+  auto max_t = kv_seqlen[b];
+
+  // one warp per T/H
+  int h = 0, t = 0;
+  uint8_t* row;
+  c10::BFloat16* row_dq{};
+  bfx4 kv_dq;
+  long t_h{};
+  __half2* qparam_src;
+  // On AMD, we have 64 threads per warp.
+  // We use the first 32 threads to process K
+  // and the second 32 threads to process V
+  for (t_h = threadIdx.y + blockIdx.y * blockDim.y; t_h < max_t * N_KVH;
+       t_h += blockDim.y * gridDim.y) {
+    h = t_h % N_KVH;
+    t = t_h / N_KVH;
+    size_t idx = b * (MAX_T * N_KVH) + t * N_KVH + h;
+    auto tidx = threadIdx.x;
+    if (threadIdx.x < 32) {
+      row = &cache_K[b][t][h][0];
+      row_dq = &cache_K_dq[b][t][h][0];
+      if constexpr (ExternalQParam) {
+        qparam_src = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
+      } else {
+        qparam_src = reinterpret_cast<__half2*>(&row[0]);
+      }
+    } else {
+      row = &cache_V[b][t][h][0];
+      row_dq = &cache_V_dq[b][t][h][0];
+      if constexpr (ExternalQParam) {
+        qparam_src = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
+      } else {
+        qparam_src = reinterpret_cast<__half2*>(&row[0]);
+      }
+      tidx -= 32;
+    }
+    uint32_t q = *reinterpret_cast<uint32_t*>(&row[tidx * 4 + offset_bytes]);
+    kv_dq = dequantize_packed_fp8(q, *qparam_src);
+    // now, write our outputs
+    // each thread writes 4 elements of type bf16
+    *reinterpret_cast<uint2*>(&row_dq[4 * tidx]) =
+        *reinterpret_cast<uint2*>(&kv_dq.vals[0]);
+  }
+
+  max_t = (max_t + 127) / 128 * 128;
+  max_t = max_t > MAX_T ? MAX_T : max_t;
+  for (; t_h < max_t * N_KVH; t_h += blockDim.y * gridDim.y) {
+    h = t_h % N_KVH;
+    t = t_h / N_KVH;
+    auto tidx = threadIdx.x;
+    if (threadIdx.x < 32) {
+      row_dq = &cache_K_dq[b][t][h][0];
+    } else {
+      row_dq = &cache_V_dq[b][t][h][0];
+      tidx -= 32;
+    }
+    memset(&row_dq[4 * tidx], 0, sizeof(uint2));
+  }
+}
+
+__global__ void dequantize_fp8_cache_kernel_paged(
+    // This code currently represents FP8 version not int4
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_K, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H]
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_V, // [1][MAX_PAGE * PAGE_SIZE][N_KVH][D_H // G]
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> kv_seqlen,
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+        cache_K_dq, // [1][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<at::BFloat16, 4, at::RestrictPtrTraits>
+        cache_V_dq, // [1][MAX_T][N_KVH][D_H]
+    int32_t* qparam_k_ptr,
+    int32_t* qparam_v_ptr,
+    int32_t* block_tables,
+    int32_t block_tables_b_stride,
+    int32_t page_size) {
+  CUDA_KERNEL_ASSERT(0 && "unimplemented");
+}
+
+#else
 template <bool ExternalQParam>
 __global__ void dequantize_fp8_cache_kernel(
     // This code currently represents FP8 version not int4
@@ -1959,6 +2066,8 @@ __global__ void dequantize_fp8_cache_kernel_paged(
         *reinterpret_cast<uint2*>(&kv_dq.vals[2]);
   }
 }
+#endif
+
 std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     at::Tensor cache_K,
     at::Tensor cache_V,
