@@ -15,6 +15,7 @@ def get_fbgemm_generic_srcs(with_base = False):
     return [
         "src/EmbeddingSpMDM.cc",
         "src/EmbeddingSpMDMNBit.cc",
+        "src/EmbeddingSpMDMSve.cc",
         "src/ExecuteKernel.cc",
         "src/ExecuteKernelU8S8.cc",
         "src/Fbgemm.cc",
