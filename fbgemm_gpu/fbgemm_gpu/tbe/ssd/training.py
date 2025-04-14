@@ -777,6 +777,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         be effectively overwritten. This function should only be called once at
         initailization time.
         """
+        self._ssd_db.toggle_compaction(False)
         row_offset = 0
         row_count = floor(
             self.bulk_init_chunk_size
@@ -804,12 +805,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # This code is intentionally not calling through the getter property
             # to avoid the lazy initialization thread from joining with itself.
             self._ssd_db.set_range_to_storage(rand_val, row_offset, actual_dim0)
-        self.ssd_db.toggle_compaction(True)
         end_ts = time.time()
         elapsed = int((end_ts - start_ts) * 1e6)
         logging.info(
             f"TBE bulk initialization took {elapsed:_} us, bulk_init_chunk_size={self.bulk_init_chunk_size}, each batch of {row_count} rows, total rows of {total_dim0}"
         )
+        self._ssd_db.toggle_compaction(True)
 
     @torch.jit.ignore
     def _report_duration(

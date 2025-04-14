@@ -86,6 +86,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     impl_->toggle_compaction(enable);
   }
 
+  bool is_auto_compaction_enabled() {
+    return impl_->is_auto_compaction_enabled();
+  }
+
   void get(
       at::Tensor indices,
       at::Tensor weights,
