@@ -13,6 +13,9 @@ file(GLOB experimental_gen_ai_cpp_source_files_gpu
   # Attention Ops
   src/attention/*.cpp
   src/attention/*.cu
+  # Coalesce Ops
+  src/coalesce/*.cpp
+  src/coalesce/*.cu
   # Comm Ops
   src/comm/*.cpp
   src/comm/*.cu
