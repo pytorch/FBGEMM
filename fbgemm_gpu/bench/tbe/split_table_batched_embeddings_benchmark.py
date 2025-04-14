@@ -1321,7 +1321,7 @@ def vbe(
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD
     managed_option = (
         EmbeddingLocation.DEVICE
-        if get_available_compute_device() != ComputeDevice.CPU
+        if get_available_compute_device() == ComputeDevice.CUDA
         else EmbeddingLocation.HOST
     )
 
