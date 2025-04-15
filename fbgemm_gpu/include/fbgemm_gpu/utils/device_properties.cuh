@@ -14,6 +14,20 @@
 
 namespace fbgemm_gpu::utils {
 
+inline auto get_compute_versions() {
+  static const auto versions = [] {
+    int runtime_version = 0;
+    cudaRuntimeGetVersion(&runtime_version);
+
+    int driver_version = 0;
+    cudaDriverGetVersion(&driver_version);
+
+    return std::make_tuple(runtime_version, driver_version);
+  }();
+
+  return versions;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Get CUDA Device Properties
 //
@@ -100,7 +114,14 @@ inline auto get_stream_id(const cudaStream_t& stream) {
 
   } else {
     unsigned long long streamId = 0;
-    C10_CUDA_CHECK(cudaStreamGetId(stream, &streamId));
+
+    if (auto [_, driver_version] = get_compute_versions();
+        driver_version <= 12060) {
+      streamId = reinterpret_cast<unsigned long long>(stream);
+
+    } else {
+      C10_CUDA_CHECK(cudaStreamGetId(stream, &streamId));
+    }
 
     table.insert({stream, streamId});
     return streamId;
