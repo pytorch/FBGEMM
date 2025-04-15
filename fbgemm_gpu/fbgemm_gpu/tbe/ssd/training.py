@@ -270,6 +270,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         self.step = 0
+        self.last_flush_step = -1
 
         # Set prefetch pipeline
         self.prefetch_pipeline: bool = prefetch_pipeline
@@ -1856,6 +1857,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return 0.0
 
     def flush(self) -> None:
+        if self.step == self.last_flush_step:
+            logging.info(f"SSD TBE has been flushed at {self.last_flush_step=} already")
+            return
+        logging.info(
+            f"SSD TBE flush at {self.step=}, it is an expensive call please be cautious"
+        )
         active_slots_mask = self.lxu_cache_state != -1
 
         active_weights_gpu = self.lxu_cache_weights[active_slots_mask.view(-1)].view(
@@ -1875,6 +1882,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             torch.tensor([active_ids_cpu.numel()]),
         )
         self.ssd_db.flush()
+        self.last_flush_step = self.step
 
     def prepare_inputs(
         self,
