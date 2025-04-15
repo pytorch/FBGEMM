@@ -90,6 +90,8 @@ def cli() -> None:
 @click.option("--output-dtype", type=SparseType, default=SparseType.FP32)
 @click.option("--indices-dtype", type=click.Choice(["32", "64"]), default="64")
 @click.option("--requests_data_file", type=str, default=None)
+@click.option("--indices-file", type=str, default=None, help="Path to the indices file")
+@click.option("--offsets-file", type=str, default=None, help="Path to the offsets file")
 @click.option("--tables", type=str, default=None)
 @click.option("--export-trace", is_flag=True, default=False)
 @click.option(
@@ -147,6 +149,8 @@ def device(  # noqa C901
     ssd_prefix: str,
     cache_load_factor: float,
     num_requests: int,
+    indices_file: Optional[str],
+    offsets_file: Optional[str],
 ) -> None:
     assert not ssd or not dense, "--ssd cannot be used together with --dense"
     num_requests = iters if num_requests == -1 else num_requests
@@ -306,6 +310,8 @@ def device(  # noqa C901
         alpha=alpha,
         weighted=weighted,
         requests_data_file=requests_data_file,
+        indices_file=indices_file,
+        offsets_file=offsets_file,
         tables=tables,
         use_cpu=get_available_compute_device() == ComputeDevice.CPU,
         index_dtype=torch.long,
