@@ -56,6 +56,7 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
 
 # Python sources
 file(GLOB_RECURSE experimental_gen_ai_python_source_files
+  bench/*.py
   gen_ai/*.py)
 
 

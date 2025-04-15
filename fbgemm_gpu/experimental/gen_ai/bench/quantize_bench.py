@@ -29,7 +29,7 @@ except ImportError:
             super().__init__()
 
 
-from .quantize_ops import get_quantize_ops, QuantizeOpBase
+from fbgemm_gpu.experimental.gen_ai.quantize_ops import get_quantize_ops, QuantizeOpBase
 
 
 def generate_group_tensor(G, M):
@@ -592,3 +592,7 @@ def invoke_main() -> None:
 
     args = parser.parse_args()
     main(args)
+
+
+if __name__ == "__main__":
+    invoke_main()  # pragma: no cover
