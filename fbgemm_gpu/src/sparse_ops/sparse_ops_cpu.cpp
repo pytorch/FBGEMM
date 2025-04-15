@@ -2457,7 +2457,6 @@ Tensor& lengths_range_out(
 
   const auto t_in_contig = t_in.expect_contiguous();
   const auto num_seq = t_in_contig->numel();
-
   int64_t output_size;
   if (shape.has_value()) {
     output_size = c10::multiply_integers(shape.value());
