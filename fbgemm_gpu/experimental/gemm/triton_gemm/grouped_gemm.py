@@ -210,16 +210,18 @@ def _fbgemm_grouped_gemm(
         c_desc_ptr = None
 
     M_end_offset = 0
+    M_end_offset = M_end_offset.to(tl.int64)
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
-        M_start_offset = M_end_offset
         m_size = tl.load(m_sizes + g)
-        M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
+            M_start_offset = M_end_offset
+            M_end_offset = M_start_offset + m_size
             N_start_offset = g.to(tl.int64) * N
             n_size = N
+
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
             num_tiles = num_m_tiles * num_n_tiles
@@ -350,16 +352,18 @@ def _fbgemm_grouped_gemm_ws(
         c_desc_ptr = None
 
     M_end_offset = 0
+    M_end_offset = M_end_offset.to(tl.int64)
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
-        M_start_offset = M_end_offset
         m_size = tl.load(m_sizes + g)
-        M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
-            N_start_offset = g * N
+            M_start_offset = M_end_offset
+            M_end_offset = M_start_offset + m_size
+            N_start_offset = g.to(tl.int64) * N
             n_size = N
+
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
             num_tiles = num_m_tiles * num_n_tiles
@@ -488,16 +492,18 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
         c_desc_ptr = None
 
     M_end_offset = 0
+    M_end_offset = M_end_offset.to(tl.int64)
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
-        M_start_offset = M_end_offset
         m_size = tl.load(m_sizes + g)
-        M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
+            M_start_offset = M_end_offset
+            M_end_offset = M_start_offset + m_size
             N_start_offset = g.to(tl.int64) * N
             n_size = N
+
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
             num_tiles = num_m_tiles * num_n_tiles
@@ -643,16 +649,18 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
         c_desc_ptr = None
 
     M_end_offset = 0
+    M_end_offset = M_end_offset.to(tl.int64)
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
-        M_start_offset = M_end_offset
         m_size = tl.load(m_sizes + g)
-        M_end_offset = M_start_offset + m_size
 
         if m_size > 0:
-            N_start_offset = g * N
+            M_start_offset = M_end_offset
+            M_end_offset = M_start_offset + m_size
+            N_start_offset = g.to(tl.int64) * N
             n_size = N
+
             num_m_tiles = tl.cdiv(m_size, BLOCK_SIZE_M)
             num_n_tiles = tl.cdiv(n_size, BLOCK_SIZE_N)
             num_tiles = num_m_tiles * num_n_tiles

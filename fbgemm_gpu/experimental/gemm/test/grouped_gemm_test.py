@@ -18,14 +18,11 @@ if torch.cuda.is_available():
         grouped_gemm,
         grouped_gemm_fp8_rowwise,
     )
-    from fbgemm_gpu.experimental.gemm.triton_gemm.utils import HAS_TMA_DESC
 
 
 @unittest.skipIf(
-    not torch.cuda.is_available()
-    or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9
-    or not HAS_TMA_DESC,
-    "Skip when H100 or TMA is not available",
+    not torch.cuda.is_available(),
+    "Skip when CUDA is not available",
 )
 class TestGroupedGEMM(unittest.TestCase):
     def setUp(self) -> None:
@@ -84,10 +81,17 @@ class TestGroupedGEMM(unittest.TestCase):
                     * b_scale[n_start:n_end][None, :]
                 ).to(torch.bfloat16)
 
-            torch.testing.assert_close(result, expected_result, atol=2e-2, rtol=1.6e-2)
+            if M > 16384:
+                torch.testing.assert_close(
+                    result, expected_result, atol=5e-2, rtol=1.6e-2
+                )
+            else:
+                torch.testing.assert_close(
+                    result, expected_result, atol=2e-2, rtol=1.6e-2
+                )
 
         for G in (1, 4, 16):
-            for M in (0, 64, 512):
+            for M in (0, 64, 512, 1000000):
                 for fast_accu in (True, False):
                     for ws in (True, False):
                         logging.info(
@@ -142,7 +146,7 @@ class TestGroupedGEMM(unittest.TestCase):
             torch.testing.assert_close(result, expected_result, atol=1e-5, rtol=1.6e-2)
 
         for G in (1, 4, 16):
-            for M in (0, 64, 512):
+            for M in (0, 64, 512, 1000000):
                 for ws in (True, False):
                     logging.info(f"Testing BF16 GMM with G={G}, M={M}")
                     _test_grouped_gemm_bf16(
