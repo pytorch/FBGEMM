@@ -9,6 +9,8 @@
 import random
 import unittest
 
+import fbgemm_gpu.experimental.gen_ai  # noqa: F401
+
 import hypothesis.strategies as st
 import torch
 from hypothesis import given, settings
