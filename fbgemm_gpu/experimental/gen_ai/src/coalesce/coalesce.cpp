@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "deeplearning/fbgemm/fbgemm_gpu/include/fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/ops_utils.h"
 
 #include <ATen/core/op_registration/op_registration.h>
 #include <torch/library.h>
