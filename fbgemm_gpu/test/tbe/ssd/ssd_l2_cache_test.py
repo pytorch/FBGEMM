@@ -14,6 +14,7 @@ import time
 import unittest
 
 from typing import Any, Dict, List, Tuple
+from unittest.mock import MagicMock, patch
 
 import hypothesis.strategies as st
 import numpy as np
@@ -131,7 +132,7 @@ class SSDCheckpointTest(unittest.TestCase):
         weights_precision: SparseType,
         enable_l2: bool,
     ) -> None:
-        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
+        emb, _, _, max_D = self.generate_fbgemm_ssd_tbe(
             T, D, log_E, weights_precision, mixed, enable_l2
         )
         E = int(10**log_E)
@@ -188,8 +189,7 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         weights_precision: SparseType,
     ) -> None:
-        weights_precision: SparseType = SparseType.FP32
-        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
+        emb, _, _, max_D = self.generate_fbgemm_ssd_tbe(
             T, D, log_E, weights_precision, mixed
         )
         E = int(10**log_E)
@@ -229,3 +229,30 @@ class SSDCheckpointTest(unittest.TestCase):
         assert torch.equal(weights, weights_out)
         emb.ssd_db.get(indices.clone(), weights_out, count)
         assert torch.equal(new_weights, weights_out)
+
+    @given(**default_st)
+    @settings(**default_settings)
+    def test_l2_multiple_flush_at_same_train_iter(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+        emb, _, _, _ = self.generate_fbgemm_ssd_tbe(
+            T, D, log_E, weights_precision, mixed
+        )
+
+        with patch.object(torch.cuda, "synchronize") as mock_calls:
+            mock_calls.side_effect = None
+            emb.flush()
+            emb.flush()
+            mock_calls.assert_called_once()
+            mock_calls.reset_mock()
+
+            emb.step += 1
+            emb.flush()
+            emb.step += 1
+            emb.flush()
+            self.assertEqual(mock_calls.call_count, 2)
