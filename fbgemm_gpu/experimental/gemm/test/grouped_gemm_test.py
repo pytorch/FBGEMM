@@ -7,6 +7,7 @@
 # pyre-strict
 
 import logging
+import os
 import unittest
 from typing import Tuple
 
@@ -28,6 +29,11 @@ class TestGroupedGEMM(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
 
+    # pyre-ignore [56]
+    @unittest.skipIf(
+        os.getenv("GITHUB_ENV") is not None,
+        """This test fails on the GitHub runners: module 'triton.language' has no attribute 'async_task'""",
+    )
     def test_grouped_gemm_fp8_rowwise(self) -> None:
         def _test_grouped_gemm_fp8_rowwise(
             shape: Tuple[int, int, int, int],
@@ -104,6 +110,10 @@ class TestGroupedGEMM(unittest.TestCase):
                             use_warp_specialization=ws,
                         )
 
+    @unittest.skipIf(  # pyre-ignore [56]
+        os.getenv("GITHUB_ENV") is not None,
+        """This test fails on the GitHub runners: "type fp8e4nv not supported in this architecture. The supported fp8 dtypes are ('fp8e4b15', 'fp8e5')""",
+    )
     def test_grouped_gemm_bf16(self) -> None:
         def _test_grouped_gemm_bf16(
             shape: Tuple[int, int, int, int],
