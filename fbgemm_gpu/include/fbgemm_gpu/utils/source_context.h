@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <optional>
 #include <sstream>
 #include <string_view>
 
@@ -45,23 +46,39 @@ using source_location = std::experimental::source_location;
 ////////////////////////////////////////////////////////////////////////////////
 
 struct SourceContext {
+  // The source location of interest
   const source_location location;
+  // A summary of the context
   const std::string_view summary;
+  // Secondary source file location (for template-generated source files)
+  const std::string_view secondaryLocation;
+
+  // Cached description of the context
+  mutable std::optional<std::string> desc_;
 
   constexpr inline SourceContext(
       const source_location& loc_,
-      const std::string_view& sum_) noexcept
-      : location(loc_), summary(sum_) {}
+      const std::string_view& sum_,
+      const std::string_view& loc2_) noexcept
+      : location(loc_), summary(sum_), secondaryLocation(loc2_) {}
 
   inline const std::string_view description() const noexcept {
-    static const std::string cached = [&] {
+    // Generate and cache the description if it hasn't been generated yet
+    if (!desc_) {
       std::stringstream ss;
+
+      // Append template source file location if it exists
+      if (!secondaryLocation.empty()) {
+        ss << "[" << secondaryLocation << "] ";
+      }
+
       ss << "[" << location.file_name() << '(' << location.line() << ':'
          << location.column() << ")] [" << summary << "]";
-      return ss.str();
-    }();
 
-    return cached;
+      desc_ = ss.str();
+    }
+
+    return *desc_;
   }
 };
 

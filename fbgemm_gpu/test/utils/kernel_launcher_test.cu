@@ -6,6 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// Define __TEMPLATE_SOURCE_FILE__, which is similar to __FILE, but is used in
+// FBGEMM codebase to denote the template source file in auto-generated code.
+#define __TEMPLATE_SOURCE_FILE__ "FOO/BAR/BAZ-123.cpp"
+
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDADeviceAssertion.h>
 #include <cuda.h>
@@ -23,6 +27,12 @@ namespace fbgemm_gpu::utils {
 #define U32(x) static_cast<uint32_t>(x)
 
 using ::testing::HasSubstr;
+using source_location = fbgemm_gpu::utils::source_location;
+
+// Define the constant value that is immune to preprocesor #defined and #undefs
+// and use this for template_source_file test.  Value should match the value in
+// the __TEMPLATE_SOURCE_FILE__ macro.
+constexpr auto TemplateSourceFileReference = "FOO/BAR/BAZ-123.cpp";
 
 ////////////////////////////////////////////////////////////////////////////////
 // Test Kernels
@@ -93,7 +103,49 @@ auto sample_tensors(const long size) {
 // Kernel Launcher Tests
 ////////////////////////////////////////////////////////////////////////////////
 
-TEST(KernelLauncherTest, test_array_kernel_launch) {
+TEST(KernelLauncherTest, template_source_file) {
+  {
+    const auto launcher = KernelLauncher<true>(
+        source_location::current(), "kernel", __TEMPLATE_SOURCE_FILE__);
+
+    ASSERT_THAT(launcher.context.description(), HasSubstr(__FILE__));
+
+    ASSERT_THAT(
+        launcher.context.description(), HasSubstr(TemplateSourceFileReference));
+  }
+
+  {
+    const auto launcher =
+        KernelLauncher<true>(source_location::current(), "kernel", "");
+
+    ASSERT_THAT(
+        launcher.context.description(),
+        Not(HasSubstr(TemplateSourceFileReference)));
+  }
+}
+
+TEST(KernelLauncherTest, no_template_source_file) {
+  {
+    const auto launcher = KernelLauncher<true>(
+        source_location::current(), "kernel", __TEMPLATE_SOURCE_FILE__);
+
+    ASSERT_THAT(launcher.context.description(), HasSubstr(__FILE__));
+
+    ASSERT_THAT(
+        launcher.context.description(), HasSubstr(TemplateSourceFileReference));
+  }
+
+  {
+    const auto launcher =
+        KernelLauncher<true>(source_location::current(), "kernel", "");
+
+    ASSERT_THAT(
+        launcher.context.description(),
+        Not(HasSubstr(TemplateSourceFileReference)));
+  }
+}
+
+TEST(KernelLauncherTest, array_kernel_launch) {
   constexpr auto size = 1024;
   auto A = HostDeviceBufferPair<float>(size, 2);
   auto B = HostDeviceBufferPair<float>(size, 3);
@@ -119,7 +171,7 @@ TEST(KernelLauncherTest, test_array_kernel_launch) {
   });
 }
 
-TEST(KernelLauncherTest, test_array_kernel_launch_dsa) {
+TEST(KernelLauncherTest, array_kernel_launch_dsa) {
   constexpr auto size = 1024;
   auto A = HostDeviceBufferPair<float>(size, 2);
   auto B = HostDeviceBufferPair<float>(size, 3);
