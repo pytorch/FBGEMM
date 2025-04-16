@@ -56,21 +56,36 @@ class TBERequest:
 
 
 def generate_requests_from_data_file(
-    requests_data_file: str,
     iters: int,
     B: int,
     T: int,
     L: int,
     E: int,
     weighted: bool,
+    requests_data_file: Optional[str] = None,
+    indices_file: Optional[str] = None,
+    offsets_file: Optional[str] = None,
     tables: Optional[str] = None,
     index_dtype: Optional[torch.dtype] = None,
     offset_dtype: Optional[torch.dtype] = None,
 ) -> List[TBERequest]:
     """
-    Generate TBE requests from the input data file (`requests_data_file`)
+    Generate TBE requests from the input data file. If `requests_data_file` is provided,
+    `indices_file` and `offsets_file` should not be provided. If either `indices_file`
+    or `offsets_file` is provided, both must be provided.
     """
-    indices_tensor, offsets_tensor, lengths_tensor = torch.load(requests_data_file)
+    assert not (
+        requests_data_file and (indices_file or offsets_file)
+    ), "If requests_data_file is provided, indices_file and offsets_file cannot be provided."
+    assert (
+        indices_file and offsets_file
+    ), "Both indices_file and offsets_file must be provided if either is provided."
+
+    if requests_data_file:
+        indices_tensor, offsets_tensor, *rest = torch.load(requests_data_file)
+    else:
+        indices_tensor = torch.load(indices_file)
+        offsets_tensor = torch.load(offsets_file)
 
     average_L = 0
     if tables is not None:
@@ -104,7 +119,7 @@ def generate_requests_from_data_file(
         average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
         assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
             f"Data file (indices = {indices_tensor.size()}, "
-            f"offsets = {offsets_tensor.size()}, lengths = {lengths_tensor.size()}) "
+            f"offsets = {offsets_tensor.size()}, lengths = {offsets_tensor.size()-1}) "
             f"does not conform to inputs (T, B) = ({T}, {B})."
         )
 
@@ -371,6 +386,9 @@ def generate_requests(  # noqa C901
     zipf_oversample_ratio: int = 3,
     weighted: bool = False,
     requests_data_file: Optional[str] = None,
+    # Path to file containing indices and offsets. If provided, this will be used
+    indices_file: Optional[str] = None,
+    offsets_file: Optional[str] = None,
     # Comma-separated list of table numbers
     tables: Optional[str] = None,
     # If sigma_L is not None, treat L as mu_L and generate Ls from sigma_L
@@ -396,18 +414,25 @@ def generate_requests(  # noqa C901
 ) -> List[TBERequest]:
     # TODO: refactor and split into helper functions to separate load from file,
     # generate from distribution, and other future methods of generating data
-    if requests_data_file is not None:
+    if (
+        requests_data_file is not None
+        or indices_file is not None
+        or offsets_file is not None
+    ):
+
         assert sigma_L is None, "Variable pooling factors is not supported"
         assert sigma_B is None, "Variable batch sizes is not supported"
         return generate_requests_from_data_file(
-            requests_data_file,
-            iters,
-            B,
-            T,
-            L,
-            E,
-            weighted,
-            tables,
+            iters=iters,
+            B=B,
+            T=T,
+            L=L,
+            E=E,
+            weighted=weighted,
+            requests_data_file=requests_data_file,
+            indices_file=indices_file,
+            offsets_file=offsets_file,
+            tables=tables,
             index_dtype=index_dtype,
             offset_dtype=offset_dtype,
         )
