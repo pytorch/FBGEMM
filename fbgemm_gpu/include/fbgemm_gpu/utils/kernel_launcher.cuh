@@ -75,8 +75,9 @@ struct KernelLauncher {
 
   constexpr inline KernelLauncher(
       const source_location& location,
-      const std::string_view& summary) noexcept
-      : context(SourceContext(location, summary)) {}
+      const std::string_view& summary,
+      const std::string_view& secondaryLocation) noexcept
+      : context(SourceContext(location, summary, secondaryLocation)) {}
 
   constexpr inline void checkGridSizesInRange(
       const cudaDeviceProp& properties,
@@ -280,22 +281,28 @@ struct KernelLauncher {
 //  mismatches.
 ////////////////////////////////////////////////////////////////////////////////
 
-#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)    \
-  [&] {                                                                 \
-    using source_location = fbgemm_gpu::utils::source_location;         \
-    constexpr auto location = source_location::current();               \
-    constexpr decltype(KERNEL)& kernel = KERNEL;                        \
-                                                                        \
-    return fbgemm_gpu::utils::KernelLauncher<false>(location, #KERNEL)  \
-        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+#ifdef __TEMPLATE_SOURCE_FILE__
+#define T_FILE __TEMPLATE_SOURCE_FILE__
+#else
+#define T_FILE ""
+#endif
+
+#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)           \
+  [&] {                                                                        \
+    using source_location = fbgemm_gpu::utils::source_location;                \
+    constexpr auto location = source_location::current();                      \
+    constexpr decltype(KERNEL)& kernel = KERNEL;                               \
+                                                                               \
+    return fbgemm_gpu::utils::KernelLauncher<false>(location, #KERNEL, T_FILE) \
+        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);        \
   }()
 
-#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...) \
-  [&] {                                                                  \
-    using source_location = fbgemm_gpu::utils::source_location;          \
-    constexpr auto location = source_location::current();                \
-    constexpr decltype(KERNEL)& kernel = KERNEL;                         \
-                                                                         \
-    return fbgemm_gpu::utils::KernelLauncher<true>(location, #KERNEL)    \
-        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);  \
+#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)      \
+  [&] {                                                                       \
+    using source_location = fbgemm_gpu::utils::source_location;               \
+    constexpr auto location = source_location::current();                     \
+    constexpr decltype(KERNEL)& kernel = KERNEL;                              \
+                                                                              \
+    return fbgemm_gpu::utils::KernelLauncher<true>(location, #KERNEL, T_FILE) \
+        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);       \
   }()
