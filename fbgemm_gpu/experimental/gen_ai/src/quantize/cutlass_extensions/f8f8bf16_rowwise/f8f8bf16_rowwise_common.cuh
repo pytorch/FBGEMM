@@ -292,13 +292,6 @@ at::Tensor f8f8bf16_rowwise_impl(
     };
   }
 
-  int sm_count =
-      at::cuda::getDeviceProperties(Y.device().index())->multiProcessorCount;
-  if (at::globalContext()._SMCarveout_EXPERIMENTAL().has_value()) {
-    sm_count -= at::globalContext()._SMCarveout_EXPERIMENTAL().value();
-  }
-  arguments.hw_info.sm_count = sm_count;
-
   Gemm gemm;
 
   // Using the arguments, query for extra workspace required for matrix
