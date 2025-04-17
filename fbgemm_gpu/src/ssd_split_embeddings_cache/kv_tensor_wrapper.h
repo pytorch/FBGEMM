@@ -47,6 +47,10 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const int64_t length,
       const at::Tensor& weights);
 
+  void set_weights_and_ids(const at::Tensor& ids, const at::Tensor& weights);
+
+  at::Tensor get_weights_by_ids(const at::Tensor& ids);
+
   c10::IntArrayRef sizes();
 
   c10::IntArrayRef strides();
