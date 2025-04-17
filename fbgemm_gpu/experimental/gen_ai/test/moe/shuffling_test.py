@@ -1,0 +1,359 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# pyre-strict
+# pyre-ignore-all-errors[16,21,56]
+
+import functools
+import itertools
+import logging
+import os
+import unittest
+from typing import List, Optional, Tuple
+
+import torch
+import triton  # noqa: F401
+from fbgemm_gpu.experimental.gen_ai.moe import (
+    combine_shuffling,
+    index_shuffling,
+    split_shuffling,
+)
+from hypothesis import given, settings, strategies as st, Verbosity
+
+from triton.testing import do_bench_cudagraph
+
+from .utils import do_bench_cudagraph_and_clear_cache
+
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+torch._dynamo.config.cache_size_limit = 128
+
+_BENCHMARK_IN_TEST: bool = os.environ.get("BENCHMARK_IN_TEST", "0") == "1"
+_MAX_SAMPLES: int = 100
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available(),
+    "Skip when no GPU is available.",
+)
+class ShufflingTests(unittest.TestCase):
+    """Test shuffling kernels."""
+
+    @given(
+        num_tokens=st.sampled_from(
+            [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
+        ),
+        num_experts=st.sampled_from([16, 128]),
+        rowmajor=st.sampled_from([True, False]),
+        padded=st.sampled_from([True, False]),
+        compile_=st.sampled_from([True, False]),
+        benchmark=st.sampled_from([_BENCHMARK_IN_TEST]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
+    def test_top1_index_shuffling(
+        self,
+        num_tokens: int,
+        num_experts: int,
+        rowmajor: bool,
+        padded: bool,
+        benchmark: bool,
+        compile_: bool,
+    ) -> None:
+        torch.manual_seed(0)
+
+        num_valid_tokens_tensor: Optional[torch.Tensor] = None
+        num_valid_tokens_scalar: int = num_tokens
+        num_total_tokens = num_tokens
+        if padded:
+            num_valid_tokens_scalar = num_tokens
+            num_valid_tokens_tensor: Optional[torch.Tensor] = torch.tensor(
+                [num_tokens], device="cuda"
+            )
+            num_total_tokens = num_tokens * 2
+
+        scores: torch.Tensor = torch.randn(
+            num_total_tokens, num_experts, device="cuda", dtype=torch.bfloat16
+        )
+        scores = scores.contiguous()
+
+        if not rowmajor:
+            scores = scores.transpose(0, 1).contiguous().transpose(0, 1)
+
+        def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            op = index_shuffling
+            if compile_:
+                op = torch.compile(op, backend="inductor", fullgraph=True)
+            return op(scores, num_valid_tokens_tensor)
+
+        def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            valid_scores = scores[:num_valid_tokens_scalar].contiguous()
+            selected_scores, selected_expert_indices = torch.topk(
+                valid_scores, 1, dim=1
+            )
+            expert_indices, token_indices = torch.sort(selected_expert_indices, dim=0)
+            router_counts = (
+                expert_indices[:, None]
+                == torch.arange(num_experts, device=expert_indices.device)[None, :]
+            ).sum(dim=0)
+            return (
+                router_counts.flatten(),
+                expert_indices.flatten(),
+                token_indices.flatten(),
+            )
+
+        router_counts, expert_indices, token_indices = fn()
+        ref_router_counts, ref_expert_indices, ref_token_indices = ref_fn()
+
+        # Correctness check
+        self.assertTrue(router_counts[:-1].equal(ref_router_counts))
+        self.assertEqual(router_counts[:-1].sum().item(), num_valid_tokens_scalar)
+        self.assertEqual(expert_indices.shape, (num_total_tokens,))
+        self.assertEqual(token_indices.shape, (num_total_tokens,))
+
+        if padded:
+            assert num_valid_tokens_tensor is not None
+            assert num_valid_tokens_tensor.item() == num_valid_tokens_scalar
+            assert num_valid_tokens_tensor.item() < num_total_tokens
+        else:
+            assert num_valid_tokens_tensor is None
+            assert num_valid_tokens_scalar == num_total_tokens
+
+        # No invalid indices
+        self.assertTrue(
+            (expert_indices >= 0).logical_and(expert_indices < num_experts).all()
+        )
+        self.assertTrue(
+            (token_indices >= 0).logical_and(token_indices < num_total_tokens).all()
+        )
+
+        def _assert_indices_equal(
+            indices1: torch.Tensor, indices2: torch.Tensor
+        ) -> None:
+            if indices1.numel() == 0 and indices2.numel() == 0:
+                return
+            indices1 = torch.sort(indices1)[0]
+            indices2 = torch.sort(indices2)[0]
+            self.assertTrue(
+                torch.equal(
+                    indices1,
+                    indices2,
+                ),
+                f"indices1={indices1}, indices2={indices2}",
+            )
+
+        start_index = 0
+        for i in range(num_experts):
+            end_index = start_index + router_counts[i]
+            _assert_indices_equal(
+                expert_indices[start_index:end_index],
+                ref_expert_indices[start_index:end_index],
+            )
+            _assert_indices_equal(
+                token_indices[start_index:end_index],
+                ref_token_indices[start_index:end_index],
+            )
+            start_index = end_index
+        token_indices_unshuffling = torch.sort(
+            token_indices[:num_valid_tokens_tensor], dim=0
+        )[1]
+        ref_token_indices_unshuffling = torch.sort(ref_token_indices, dim=0)[1]
+        self.assertTrue(
+            expert_indices[token_indices_unshuffling].equal(
+                ref_expert_indices[ref_token_indices_unshuffling]
+            )
+        )
+
+        # Performance check
+        if benchmark:
+            fbgemm_time = do_bench_cudagraph(fn) * 1e3
+            torch_time = do_bench_cudagraph(ref_fn) * 1e3
+            print(
+                f"num_tokens={num_tokens:4}, num_experts={num_experts:4}, rowmajor={int(rowmajor)}, padded={int(padded)}, "
+                f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us"
+            )
+
+    @given(
+        num_tokens=st.sampled_from(
+            [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
+        ),
+        num_experts=st.sampled_from([16, 128]),
+        ep_size=st.sampled_from([4, 8]),
+        dim=st.sampled_from([5120]),
+        sparse=st.sampled_from([True, False]),
+        balanced=st.sampled_from([False]),
+        benchmark=st.sampled_from([_BENCHMARK_IN_TEST]),
+        target_fn=st.sampled_from(["combine_shuffling", "split_shuffling"]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
+    def test_combine_or_split_shuffling(
+        self,
+        num_tokens: int,
+        num_experts: int,
+        ep_size: int,
+        dim: int,
+        sparse: bool,
+        balanced: bool,
+        benchmark: bool,
+        target_fn: str,
+    ) -> None:
+        torch.manual_seed(0)
+
+        is_combine_shuffling: bool = target_fn == "combine_shuffling"
+        assert num_experts % ep_size == 0
+
+        if sparse:
+            num_tokens *= ep_size
+            num_local_experts: int = num_experts
+            expert_start: int = 1
+            expert_end: int = 1 + (num_experts // ep_size)
+        else:
+            num_local_experts: int = num_experts // ep_size
+            expert_start: int = 0
+            expert_end: int = num_local_experts
+
+        expert_group_size: int = expert_end - expert_start
+
+        tokens: torch.Tensor = torch.randn(
+            num_tokens, dim, device="cuda", dtype=torch.bfloat16
+        )
+
+        if balanced:
+            assert num_tokens % (ep_size * num_local_experts) == 0
+            num_tokens_per_expert = num_tokens // (ep_size * num_local_experts)
+            token_counts: torch.Tensor = (
+                torch.ones(
+                    [ep_size, num_local_experts], dtype=torch.int32, device="cuda"
+                )
+                * num_tokens_per_expert
+            )
+        else:
+            token_cumsums, _ = torch.sort(
+                torch.randint(
+                    low=0,
+                    high=num_tokens,
+                    size=(num_local_experts * ep_size + 1,),
+                    device="cuda",
+                    dtype=torch.int32,
+                )
+            )
+            token_cumsums[0] = 0
+            token_cumsums[-1] = num_tokens
+            token_counts: torch.Tensor = token_cumsums[1:] - token_cumsums[:-1]
+            token_counts = token_counts.reshape(ep_size, num_local_experts)
+
+        assert token_counts.sum().item() == num_tokens
+
+        token_counts_list: List[List[int]] = token_counts.tolist()
+        token_counts_t_list: List[List[int]] = token_counts.T.tolist()
+
+        def slice_tokens(
+            tokens: torch.Tensor,
+            combine: bool,
+        ) -> Tuple[torch.Tensor, ...]:
+            offset = 0
+            if combine:
+                reshuffled_chunks = [[] for _ in range(num_local_experts)]
+                # token_counts: [EP, E]
+                for counts_per_rank in token_counts_list:
+                    for expert, chunk_size in enumerate(counts_per_rank):
+                        if expert >= expert_start and expert < expert_end:
+                            reshuffled_chunks[expert].append(
+                                tokens[offset : offset + chunk_size]
+                            )
+                        offset += chunk_size
+            else:
+                reshuffled_chunks = [[] for _ in range(ep_size)]
+                # token_counts: [EP, E]
+                for expert, counts_per_expert in enumerate(token_counts_t_list):
+                    for rank, chunk_size in enumerate(counts_per_expert):
+                        if expert >= expert_start and expert < expert_end:
+                            reshuffled_chunks[rank].append(
+                                tokens[offset : offset + chunk_size]
+                            )
+                        offset += chunk_size
+            return tuple(itertools.chain(*reshuffled_chunks))
+
+        prepare_ref_fn = functools.partial(
+            slice_tokens, tokens=tokens, combine=is_combine_shuffling
+        )
+        reshuffled_chunks: Tuple[torch.Tensor, ...] = prepare_ref_fn()
+
+        def ref_fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+            cat_tokens = torch.cat(reshuffled_chunks)
+            if is_combine_shuffling:
+                counts = token_counts[:, expert_start:expert_end].sum(dim=0)
+            else:
+                counts = None
+            return cat_tokens, counts
+
+        ref_output_tokens, ref_output_token_counts = ref_fn()
+
+        def fn() -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+            if is_combine_shuffling:
+                return combine_shuffling(
+                    tokens,
+                    token_counts,
+                    expert_start=expert_start,
+                    expert_end=expert_end,
+                    is_balanced=balanced,
+                )
+            else:
+                return (
+                    split_shuffling(
+                        tokens,
+                        token_counts,
+                        expert_start=expert_start,
+                        expert_end=expert_end,
+                        is_balanced=balanced,
+                    ),
+                    None,
+                )
+
+        output_tokens, output_token_counts = fn()
+
+        if is_combine_shuffling:
+            assert output_token_counts is not None
+            assert ref_output_token_counts is not None
+            self.assertEqual(tuple(output_token_counts.shape), (expert_group_size + 1,))
+            self.assertTrue(output_token_counts[:-1].equal(ref_output_token_counts))
+            self.assertEqual(
+                output_token_counts[:-1].sum(), output_token_counts[-1].item()
+            )
+
+        num_valid_tokens = ref_output_tokens.shape[0]
+        self.assertEqual(tuple(output_tokens.shape), (num_tokens, dim))
+        if not is_combine_shuffling and sparse:
+            reverse_input_tokens = torch.concat(
+                slice_tokens(output_tokens, combine=True)
+            )
+            self.assertTrue(tuple(reverse_input_tokens.shape), (num_valid_tokens, dim))
+            self.assertTrue(reverse_input_tokens.equal(tokens[:num_valid_tokens]))
+        else:
+            self.assertTrue(output_tokens[:num_valid_tokens].equal(ref_output_tokens))
+
+        if benchmark:
+            # Benchmark padded API with large shapes is meanigless. We won't use it.
+            if sparse and num_tokens > 1024:
+                return
+
+            mem_bytes = ref_output_tokens.numel() * 2 * 2
+            fbgemm_time = do_bench_cudagraph_and_clear_cache(fn) * 1e3
+            fbgemm_bw = mem_bytes * 1e-9 / (fbgemm_time * 1e-6)
+            # We don't benchmark counting on CPU
+            torch_time = do_bench_cudagraph_and_clear_cache(ref_fn) * 1e3
+            torch_bw = mem_bytes * 1e-9 / (torch_time * 1e-6)
+
+            logger.info(
+                f"\nnum_tokens={num_tokens:4}, ep_size={ep_size:4}, num_local_experts={num_local_experts:4}, balanced={int(balanced)}, "
+                f"fbgemm_time={fbgemm_time:7.3f}us, fbgemm_bw={fbgemm_bw:8.3f}GBytes/s,  "
+                f"torch_time={torch_time:7.3f}us, torch_bw={torch_bw:8.3f}GBytes/s, speedup={torch_time / fbgemm_time:7.3f}x",
+            )
+
+
+if __name__ == "__main__":
+
+    unittest.main()
