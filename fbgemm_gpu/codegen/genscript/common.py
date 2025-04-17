@@ -36,7 +36,16 @@ class CodeTemplate:
         return CodeTemplate(relative_path, env.get_template(relative_path))
 
     def write(self, filename: str, **kwargs: Any) -> None:
-        # Render the generated file header
+        """
+        Render the template with the given arguments and write the result to a
+        file.  In addition to rendering the template, this function also adds
+        a header and footer to the generated file to provide information about
+        the template source file, and to define `__TEMPLATE_SOURCE_FILE__`,
+        which can be used by the code to reference the template file when
+        logging messages and errors.
+        """
+
+        # Render the generated filename #define
         comment = (
             "##"
             if (
@@ -45,6 +54,26 @@ class CodeTemplate:
             )
             else "//"
         )
+
+        # Render the generated file header
+        file_define = (
+            # For Python template files, store the filename in a variable
+            f'__template_source_file__ = "{self.relative_path}"'
+            if (
+                self.relative_path.endswith(".py")
+                or self.relative_path.endswith(".template")
+            )
+            # For C/C++ template files, define filename with a macro, but only
+            # for non-header files (otherwise macro definitions will overlap
+            # and result in macro redefinition errors).
+            else (
+                f'#define __TEMPLATE_SOURCE_FILE__ "{self.relative_path}"'
+                if any(filename.endswith(x) for x in [".c", ".cc", ".cpp", ".cu"])
+                else ""
+            )
+        )
+
+        # Combine the components into the file header
         generated_file_header = (
             f"{comment * 40}\n"
             f"{comment} GENERATED FILE INFO\n"
@@ -52,9 +81,11 @@ class CodeTemplate:
             f"{comment} Template Source: {self.relative_path}\n"
             f"{comment * 40}\n"
             "\n"
+            f"{file_define}\n"
+            "\n"
         )
 
-        # Render the template
+        # Render the template with header
         output = generated_file_header + self.template.render(**kwargs)
 
         # All generated files are written to the specified install directory.

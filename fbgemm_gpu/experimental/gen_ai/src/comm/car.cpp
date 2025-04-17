@@ -259,6 +259,11 @@ void two_shot_car_allreduce(
     at::Tensor src,
     std::optional<at::Tensor> bias,
     int64_t comm_idx);
+void car_reducescatter(
+    at::Tensor dst,
+    at::Tensor src,
+    bool split_last_dim,
+    int64_t comm_idx);
 
 at::Tensor car_tensor();
 
@@ -302,6 +307,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
   m.def(
       "two_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+
+  m.def(
+      "car_reducescatter(Tensor(a!) dst, Tensor src, bool split_last_dim=False, int comm_idx=0) -> ()");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -312,6 +320,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
+  m.impl("car_reducescatter", car_reducescatter);
 }
 
 // Though it shouldnt be used, it is useful to define these functions for CPU to
@@ -324,6 +333,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
+  m.impl("car_reducescatter", car_reducescatter);
 }
 
 // Shape registration functions for car operators.
@@ -380,6 +390,14 @@ void two_shot_car_allreduce_meta(
   return;
 }
 
+void car_reducescatter_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    bool /* split_last_dim */,
+    int64_t /* comm_idx */) {
+  return;
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("nccl_allreduce", nccl_allreduce_meta);
   m.impl("nccl_allgather", nccl_allgather_meta);
@@ -388,6 +406,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("nccl_reducescatter", nccl_reducescatter_meta);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce_meta);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce_meta);
+  m.impl("car_reducescatter", car_reducescatter_meta);
 }
 
 } // namespace fbgemm_gpu

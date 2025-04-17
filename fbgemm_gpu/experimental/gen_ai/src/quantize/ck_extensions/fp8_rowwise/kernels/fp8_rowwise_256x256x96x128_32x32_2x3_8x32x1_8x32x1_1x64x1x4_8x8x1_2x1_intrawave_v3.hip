@@ -15,56 +15,25 @@ fp8_rowwise_256x256x96x128_32x32_2x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
-  // Check if this input needs to be padded.
-  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
-  int N = WQ.size(0);
-  int K = WQ.size(1);
-  bool kpad = (K % 128 != 0);
-
-  // Dispatch based on whether padding is needed or not.
-  if (kpad) {
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        256,
-        96,
-        128,
-        32,
-        32,
-        2,
-        3,
-        S<8, 32, 1>,
-        S<8, 32, 1>,
-        S<1, 64, 1, 4>,
-        S<8, 8, 1>,
-        2,
-        1,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3,
-        ck::tensor_operation::device::GemmSpecialization::KPadding>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, Y);
-  } else {
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        256,
-        96,
-        128,
-        32,
-        32,
-        2,
-        3,
-        S<8, 32, 1>,
-        S<8, 32, 1>,
-        S<1, 64, 1, 4>,
-        S<8, 8, 1>,
-        2,
-        1,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3,
-        ck::tensor_operation::device::GemmSpecialization::Default>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(
-        XQ, WQ, x_scale, w_scale, Y);
-  }
+  using DeviceGemmInstance = DeviceGemmHelper<
+      256,
+      256,
+      96,
+      128,
+      32,
+      32,
+      2,
+      3,
+      S<8, 32, 1>,
+      S<8, 32, 1>,
+      S<1, 64, 1, 4>,
+      S<8, 8, 1>,
+      2,
+      1,
+      ck::BlockGemmPipelineScheduler::Intrawave,
+      ck::BlockGemmPipelineVersion::v3,
+      ck::tensor_operation::device::GemmSpecialization::Default>;
+  // Run kernel instance.
+  return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
 }
+

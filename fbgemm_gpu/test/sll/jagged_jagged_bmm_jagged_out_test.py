@@ -8,12 +8,21 @@
 
 import unittest
 
+import fbgemm_gpu.sll  # noqa F401
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.triton_sll import triton_jagged_jagged_bmm_jagged_out
 from hypothesis import given, settings
 
-from .common import open_source  # noqa
+from .common import open_source
+
+if open_source:
+    # pyre-ignore[21]
+    from test_utils import gpu_unavailable
+else:
+    from fbgemm_gpu.test.test_utils import gpu_unavailable
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.sll.triton import triton_jagged_jagged_bmm_jagged_out
 
 
 class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
@@ -23,7 +32,8 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
         max_L=st.integers(1, 200),
         K=st.integers(1, 100),
     )
-    @settings(deadline=20000)
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(deadline=30000)
     def test_triton_jagged_jagged_bmm_jagged_out(
         self,
         B: int,
@@ -97,7 +107,8 @@ class JaggedJaggedBmmJaggedOutTest(unittest.TestCase):
         K=st.integers(1, 100),
         device_type=st.sampled_from(["meta"]),
     )
-    @settings(deadline=20000)
+    @unittest.skipIf(*gpu_unavailable)
+    @settings(deadline=30000)
     def test_triton_jagged_jagged_bmm_jagged_out_meta_backend(
         self,
         B: int,

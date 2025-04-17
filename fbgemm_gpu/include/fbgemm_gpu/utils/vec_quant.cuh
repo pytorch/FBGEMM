@@ -173,11 +173,32 @@ DEVICE_INLINE fx4 bfx4_scale_acc(fx4 acc, bfx4 a, float b) {
   return acc;
 }
 
+DEVICE_INLINE fx4 bfx4_to_fx4(bfx4 src) {
+  fx4 dst;
+  auto r0 = bf1622float2(src.vals[0]);
+  auto r1 = bf1622float2(src.vals[1]);
+  dst.x = r0.x;
+  dst.y = r0.y;
+  dst.z = r1.x;
+  dst.w = r1.y;
+  return dst;
+}
 DEVICE_INLINE fx4 fx4_acc(fx4 a, fx4 b) {
   a.x += b.x;
   a.y += b.y;
   a.z += b.z;
   a.w += b.w;
+  return a;
+}
+DEVICE_INLINE float fx4_dot(fx4 a, fx4 b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+DEVICE_INLINE fx4 fx4_scale(fx4 a, float scale) {
+  a.x *= scale;
+  a.y *= scale;
+  a.z *= scale;
+  a.w *= scale;
   return a;
 }
 

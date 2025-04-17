@@ -33,7 +33,7 @@
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
 
-static constexpr float kINT8QparamsBytes = 8;
+[[maybe_unused]] static constexpr float kINT8QparamsBytes = 8;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Kernel Definitions
@@ -171,23 +171,26 @@ Tensor
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
+    
+    // Fix tensor does not have device error for faketensor when all of the weights are undefined tensors.
+    auto options = dev_weights.defined() ? dev_weights.options() : at::TensorOptions().device(at::kMeta);
+    {%- if vbe %}
+    output = at::empty_symint(
+        {vbe_output_size},
+        options.dtype(getScalarType(o_dtype))
+    );
+    {%- else %}
     c10::SymInt total_adjusted_D = total_D;
     if (o_dtype == SparseType::INT8) {
         // TODO: Why is kINT8QparamsBytes a float
         total_adjusted_D += T * int64_t(kINT8QparamsBytes);
     }
-
-    {%- if vbe %}
-    output = at::empty_symint(
-        {vbe_output_size},
-        dev_weights.options().dtype(getScalarType(o_dtype))
-    );
-    {%- else %}
+    
     output = at::empty_symint(
         {B, total_adjusted_D},
-        dev_weights.options().dtype(getScalarType(o_dtype))
+        options.dtype(getScalarType(o_dtype))
     );
-    {%- endif %}
+    {%- endif %} {#-/* if vbe */#}
     {%- endif %} // if nobag
 
     return output;

@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# pyre-unsafe
+
 import torch
 
 # Load the custom op library
@@ -19,6 +21,8 @@ def main():
     experts = 32
     intermediate_size = 8192
     topk = 5
+
+    print("Running fused MoE kernel...")
 
     # Create input tensors on GPU
     input = torch.randn(tokens, hidden_size, dtype=torch.bfloat16, device="cuda")

@@ -25,6 +25,11 @@ echo "[NOVA] Current working directory: $(pwd)"
 # Record time for each step
 start_time=$(date +%s)
 
+echo "################################################################################"
+echo "Environment Variables:"
+printenv
+echo "################################################################################"
+
 # Collect PyTorch environment information
 collect_pytorch_env_info "${BUILD_ENV_NAME}"
 end_time=$(date +%s)
@@ -42,8 +47,13 @@ echo "[NOVA] Time taken to install wheel: ${runtime} seconds"
 # Test with PyTest
 echo "[NOVA] Current working directory: $(pwd)"
 if [[ $CU_VERSION = cu* ]]; then
-  echo "[NOVA] Testing the CUDA variant of FBGEMM_GPU ..."
-  export fbgemm_variant="cuda"
+  if [[ ${BUILD_TARGET} == "genai" ]]; then
+    echo "[NOVA] Testing the GenAI variant of FBGEMM_GPU ..."
+    export fbgemm_variant="genai"
+  else
+    echo "[NOVA] Testing the CUDA variant of FBGEMM_GPU ..."
+    export fbgemm_variant="cuda"
+  fi
 
 elif [[ $CU_VERSION = rocm* ]]; then
   echo "[NOVA] Testing the ROCm variant of FBGEMM_GPU ..."

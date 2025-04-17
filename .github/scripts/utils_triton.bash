@@ -87,7 +87,7 @@ install_triton_pip () {
   # https://github.com/pytorch/pytorch/commits/main/.ci/docker/ci_commit_pins/triton.txt
   # https://github.com/pytorch/pytorch/blob/main/.ci/docker/ci_commit_pins/triton.txt
   # https://github.com/pytorch/pytorch/pull/126098
-  local triton_version="nightly/3.2.0+git0d4682f0"
+  local triton_version="nightly/3.2.0+git4b3bb1f8"
 
   # BUILD_VARIANT is provided by the github workflow file
   if [ "$BUILD_VARIANT" == "cuda" ] || [ "$BUILD_VARIANT" == "genai" ]; then

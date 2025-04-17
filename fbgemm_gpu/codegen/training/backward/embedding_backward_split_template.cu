@@ -21,10 +21,12 @@
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
 #include "fbgemm_gpu/sparse_ops.h"
+#include "fbgemm_gpu/config/feature_gates.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
+#include "fbgemm_gpu/utils/barrier_isolation.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
 {%- if is_rocm %}
 #include "fbgemm_gpu/rocm/cdna_guard.h"
@@ -601,6 +603,7 @@ Tensor {{ embedding_cuda_op }}(
 
     {%- if "learning_rate" in args.split_kernel_arg_names %}
     // convert `learning rate` to float since `learning rate` is float in kernels
+    TORCH_CHECK(learning_rate_tensor.is_cpu(), "learning_rate_tensor tensor needs to be on CPU. Ensure learning_rate_tensor is on CPU or contact FBGEMM team if you get this error.")
     const float learning_rate = learning_rate_tensor.item<float>();
     {%- endif %}
 
@@ -790,32 +793,34 @@ Tensor {{ embedding_cuda_op }}(
           // {{ locs_or_addrs_tensor }} run ids and sorted_linear_indices run ids.
           auto dev_or_uvm_unique_indices = at::zeros_like(weights_placements);
 
+          DEBUG_KERNEL_BARRIER_ISOLATE([&] {
 #ifdef FBGEMM_GPU_MEMCHECK
           const auto func_name = "split_embedding_backward_count_unique_indices_kernel";
 #endif
-          split_embedding_backward_count_unique_indices_kernel<
-          {{ "int64_t" if nobag else "int32_t" }},
-          {{ "int64_t" if nobag else "uint32_t" }},
-          {{ "true" if nobag else "false" }}
-          ><<<
-            div_round_up(total_unique_indices, kMaxThreads),
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()
-              >>>(
-                  MAKE_PTA_WITH_NAME(
-                    func_name, sorted_linear_indices_num_runs, int32_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(
-                    func_name, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(
-                    func_name, infos_sorted, {{ "int64_t" if nobag else "int32_t" }}, 1, 32),
-                  MAKE_PTA_WITH_NAME(
-                    func_name, weights_placements, int32_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(
-                    func_name, dev_or_uvm_unique_indices, int32_t, 1, 32),
-                  info_B_num_bits
-                 );
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
+            split_embedding_backward_count_unique_indices_kernel<
+            {{ "int64_t" if nobag else "int32_t" }},
+            {{ "int64_t" if nobag else "uint32_t" }},
+            {{ "true" if nobag else "false" }}
+            ><<<
+                div_round_up(total_unique_indices, kMaxThreads),
+                kMaxThreads,
+                0,
+                at::cuda::getCurrentCUDAStream()
+                >>>(
+                    MAKE_PTA_WITH_NAME(
+                        func_name, sorted_linear_indices_num_runs, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, sorted_linear_indices_cumulative_run_lengths, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, infos_sorted, {{ "int64_t" if nobag else "int32_t" }}, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, weights_placements, int32_t, 1, 32),
+                    MAKE_PTA_WITH_NAME(
+                        func_name, dev_or_uvm_unique_indices, int32_t, 1, 32),
+                    info_B_num_bits
+                    );
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+          }); // DEBUG_KERNEL_BARRIER_ISOLATE
 
           table_unique_indices_offsets =
             fbgemm_gpu::asynchronous_complete_cumsum_gpu(dev_or_uvm_unique_indices).to(at::kInt);
@@ -940,31 +945,32 @@ Tensor {{ embedding_cuda_op }}(
                 grad_output_mean = at::empty_like(grad_output_reshaped);
                 {%- if not dense or not vbe %}
 
+                DEBUG_KERNEL_BARRIER_ISOLATE([&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name1 = "grad_mean{{ vdesc }}_kernel";
+                    const auto func_name1 = "grad_mean{{ vdesc }}_kernel";
 #endif
+                    grad_mean{{ vdesc }}_kernel<<<
+                        div_round_up(total_B, kMaxThreads / kWarpSize),
+                        dim3(kWarpSize, kMaxThreads / kWarpSize),
+                        0,
+                        at::cuda::getCurrentCUDAStream()>>>
+                        (
+                            MAKE_PTA_WITH_NAME(func_name1, grad_output_mean, grad_t, 2, 64),
+                            MAKE_PTA_WITH_NAME(func_name1, grad_output_reshaped, grad_t, 2, 64),
+                            MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
+                            {%- if vbe %}
+                            MAKE_PTA_WITH_NAME(func_name1, vbe_row_output_offsets, int64_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name1, vbe_b_t_map, int32_t, 1, 32),
+                            info_B_num_bits,
+                            info_B_mask
+                            {%- else %}
+                            FixedDivisor(total_B / T)
+                            {%- endif %}
+                        );
 
-                grad_mean{{ vdesc }}_kernel<<<
-                    div_round_up(total_B, kMaxThreads / kWarpSize),
-                    dim3(kWarpSize, kMaxThreads / kWarpSize),
-                    0,
-                    at::cuda::getCurrentCUDAStream()>>>
-                    (
-                        MAKE_PTA_WITH_NAME(func_name1, grad_output_mean, grad_t, 2, 64),
-                        MAKE_PTA_WITH_NAME(func_name1, grad_output_reshaped, grad_t, 2, 64),
-                        MAKE_PTA_WITH_NAME(func_name1, D_offsets, int32_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
-                        {%- if vbe %}
-                        MAKE_PTA_WITH_NAME(func_name1, vbe_row_output_offsets, int64_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, vbe_b_t_map, int32_t, 1, 32),
-                        info_B_num_bits,
-                        info_B_mask
-                        {%- else %}
-                        FixedDivisor(total_B / T)
-                        {%- endif %}
-                    );
-
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                    C10_CUDA_KERNEL_LAUNCH_CHECK();
+                }); // DEBUG_KERNEL_BARRIER_ISOLATE
                 {%- endif %} // if not dense or not vbe
 
                 grad_output_accessor = MAKE_PTA_WITH_NAME("{{ embedding_cuda_op }}.2", grad_output_mean, grad_t, 2, 64);
@@ -1005,27 +1011,29 @@ Tensor {{ embedding_cuda_op }}(
                     use_deterministic_algorithms ? 0 : (indices.numel() / max_segment_length_per_cta),
                     indices.options().dtype(at::kInt));
 
+                DEBUG_KERNEL_BARRIER_ISOLATE([&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name2 = "split_embedding_backward_codegen_find_long_segments";
+                    const auto func_name2 = "split_embedding_backward_codegen_find_long_segments";
 #endif
 
-                split_embedding_backward_codegen_find_long_segments<<<
-                    div_round_up(total_unique_indices, kMaxThreads),
-                    kMaxThreads,
-                    0,
-                    at::cuda::getCurrentCUDAStream()
-                >>>(
-                    MAKE_PTA_WITH_NAME(func_name2, sorted_linear_indices_num_runs, int32_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name2, sorted_linear_indices_run_lengths, int32_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name2, long_run_ids, int32_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name2, num_long_run_ids, int32_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name2, long_run_id_to_really_long_run_ids, int32_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name2, num_really_long_run_ids, int32_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name2, grad_accum_counter, int32_t, 1, 32),
-                    max_segment_length_per_warp,
-                    max_segment_length_per_cta,
-                    use_deterministic_algorithms);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                    split_embedding_backward_codegen_find_long_segments<<<
+                        div_round_up(total_unique_indices, kMaxThreads),
+                        kMaxThreads,
+                        0,
+                        at::cuda::getCurrentCUDAStream()
+                    >>>(
+                        MAKE_PTA_WITH_NAME(func_name2, sorted_linear_indices_num_runs, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, sorted_linear_indices_run_lengths, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, long_run_ids, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, num_long_run_ids, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, long_run_id_to_really_long_run_ids, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, num_really_long_run_ids, int32_t, 1, 32),
+                        MAKE_PTA_WITH_NAME(func_name2, grad_accum_counter, int32_t, 1, 32),
+                        max_segment_length_per_warp,
+                        max_segment_length_per_cta,
+                        use_deterministic_algorithms);
+                    C10_CUDA_KERNEL_LAUNCH_CHECK();
+                }); // DEBUG_KERNEL_BARRIER_ISOLATE
 
                 // A temp buffer to accumulate gradients with atomics.
                 auto temp_grad_accum = at::zeros(
@@ -1079,8 +1087,9 @@ Tensor {{ embedding_cuda_op }}(
                         div_round_up(total_unique_indices, kMaxThreads),
                         get_max_thread_blocks_());
 
+                    DEBUG_KERNEL_BARRIER_ISOLATE([&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-                    const auto func_name3 = "{{ cta_kernel }}";
+                        const auto func_name3 = "{{ cta_kernel }}";
 #endif
                     backward_cta_per_row_kernel
                         <<<cta_per_row_grid_size,
@@ -1161,6 +1170,8 @@ Tensor {{ embedding_cuda_op }}(
                     );
 
                     C10_CUDA_KERNEL_LAUNCH_CHECK();
+                    }); // DEBUG_KERNEL_BARRIER_ISOLATE
+
                     {%- set warp_kernel =
                         "batch_index_select_dim0_codegen_backward_kernel_warp_per_row"
                         if is_index_select else
@@ -1210,14 +1221,18 @@ Tensor {{ embedding_cuda_op }}(
 #ifdef USE_ROCM
                     {%- if is_rocm and not is_index_select and optimizer == "rowwise_adagrad" and
                         not dense and not is_gwd_kernel and not vbe and not ssd and not nobag %}
-                    const bool isSupportedWeightsType = dev_weights.scalar_type() == at::ScalarType::Half
+
+                    const static auto use_hip_kernel = fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_HIP_BACKWARD_KERNEL);
+
+                    const auto supported_weights_type = dev_weights.scalar_type() == at::ScalarType::Half
                                                       || dev_weights.scalar_type() == at::ScalarType::Float;
-                    if(isSupportedWeightsType && !mixed_D && rocm::is_supported_cdna())
+
+                    if (use_hip_kernel && supported_weights_type && !mixed_D && rocm::is_supported_cdna())
                     {
                         constexpr int segments_per_workgroup = 4;
                         {%- for kDimSize in [64, 128, 160, 192, 256] %}
                         {%- for kWeightDecayMode in [0, 1, 2] %}
-                        if(max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
+                        if (max_D == {{ kDimSize }} && weight_decay_mode == {{ kWeightDecayMode }})
                         {
                             warp_per_row_grid_size = div_round_up(sorted_linear_indices_num_runs[0].item<int32_t>(), segments_per_workgroup);
                             blockSize = dim3(256);
@@ -1241,7 +1256,7 @@ Tensor {{ embedding_cuda_op }}(
                     {%- endif %}
 #endif
 
-
+                    DEBUG_KERNEL_BARRIER_ISOLATE([&] {
 #ifdef FBGEMM_GPU_MEMCHECK
                     const auto func_name4 = "{{ warp_kernel }}";
 #endif
@@ -1316,6 +1331,8 @@ Tensor {{ embedding_cuda_op }}(
                             {%- endif %}
                     );
                     C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+                    }); // DEBUG_KERNEL_BARRIER_ISOLATE
                 }); // DISPATCH_PLACEHOLDER_TYPES
                 return;
 

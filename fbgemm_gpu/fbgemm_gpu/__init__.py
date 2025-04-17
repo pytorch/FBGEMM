@@ -11,14 +11,15 @@ import os
 import torch
 
 
-def _load_library(filename: str) -> None:
+def _load_library(filename: str, no_throw: bool = False) -> None:
     """Load a shared library from the given filename."""
     try:
         torch.ops.load_library(os.path.join(os.path.dirname(__file__), filename))
         logging.info(f"Successfully loaded: '{filename}'")
     except Exception as error:
         logging.error(f"Could not load the library '{filename}': {error}")
-        raise error
+        if not no_throw:
+            raise error
 
 
 # Since __init__.py is only used in OSS context, we define `open_source` here
@@ -43,6 +44,11 @@ fbgemm_gpu_libraries = [
     "fbgemm_gpu_tbe_inference",
     "fbgemm_gpu_tbe_training_forward",
     "fbgemm_gpu_tbe_training_backward",
+    "fbgemm_gpu_tbe_training_backward_pt2",
+    "fbgemm_gpu_tbe_training_backward_dense",
+    "fbgemm_gpu_tbe_training_backward_split_host",
+    "fbgemm_gpu_tbe_training_backward_gwd",
+    "fbgemm_gpu_tbe_training_backward_vbe",
     "fbgemm_gpu_py",
 ]
 
@@ -62,13 +68,24 @@ if torch.cuda.is_available() and torch.version.hip:
 
 libraries_to_load = {
     "cpu": fbgemm_gpu_libraries,
-    "cuda": fbgemm_gpu_libraries + fbgemm_gpu_genai_libraries,
+    "docs": fbgemm_gpu_libraries,
+    "cuda": fbgemm_gpu_libraries,
     "genai": fbgemm_gpu_genai_libraries,
     "rocm": fbgemm_gpu_libraries,
 }
 
 for library in libraries_to_load.get(__variant__, []):
-    _load_library(f"{library}.so")
+    # NOTE: In all cases, we want to throw an error if we cannot load the
+    # library.  However, this appears to break the OSS documentation build,
+    # where the Python documentation doesn't show up in the generated docs.
+    #
+    # To work around this problem, we introduce a fake build variant called
+    # `docs` and we only throw a library load error when the variant is not
+    # `docs`.  For more information, see:
+    #
+    #   https://github.com/pytorch/FBGEMM/pull/3477
+    #   https://github.com/pytorch/FBGEMM/pull/3717
+    _load_library(f"{library}.so", __variant__ == "docs")
 
 try:
     # Trigger meta operator registrations

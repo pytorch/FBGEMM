@@ -97,13 +97,12 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     }
     {%- endfor %}
 
-    StochasticRoundingRNGState state;
     auto weight_row_template =
         WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
             weights,
             cache_weights,
             D,
-            stochastic_rounding ? &state : nullptr,
+            stochastic_rounding,
             &stochastic_rounding_philox_args,
             threadIdx.x + run_id * blockDim.x);
 
@@ -154,7 +153,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
         for (int32_t vec = 0;
             (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
             ++vec) {
-            const int32_t d_vec = vec * kThreadGroupSize + threadIdx.x;
+            const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
             const int32_t d = d_vec * VEC_WIDTH;
             weight_row_template.store(
                 shared_weight_update_row[d_vec],

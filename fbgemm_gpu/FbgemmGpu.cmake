@@ -15,6 +15,14 @@ include(${CMAKEMODULES}/Utilities.cmake)
 # FBGEMM_GPU Static Sources
 ################################################################################
 
+set(tbe_eeg_cpu_sources
+  src/tbe/eeg/eeg_models.cpp
+  src/tbe/eeg/eeg_utils.cpp
+  src/tbe/eeg/indices_estimator_ops.cpp
+  src/tbe/eeg/indices_estimator.cpp
+  src/tbe/eeg/indices_generator_ops.cpp
+  src/tbe/eeg/indices_generator.cpp)
+
 set(fbgemm_gpu_sources_cpu_static
     src/memory_utils/memory_utils.cpp
     src/memory_utils/memory_utils_ops.cpp
@@ -32,7 +40,8 @@ set(fbgemm_gpu_sources_cpu_static
     src/quantize_ops/quantize_ops_cpu.cpp
     src/quantize_ops/quantize_ops_meta.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
-    src/sparse_ops/sparse_ops_meta.cpp)
+    src/sparse_ops/sparse_ops_meta.cpp
+    ${tbe_eeg_cpu_sources})
 
 if(NOT FBGEMM_CPU_ONLY)
   list(APPEND fbgemm_gpu_sources_cpu_static
@@ -135,7 +144,7 @@ gpu_cpp_library(
   GPU_SRCS
     src/embedding_inplace_ops/embedding_inplace_update_gpu.cpp
     src/embedding_inplace_ops/embedding_inplace_update.cu
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DESTINATION
     fbgemm_gpu)
@@ -152,7 +161,7 @@ gpu_cpp_library(
     ${fbgemm_gpu_sources_cpu_static}
   GPU_SRCS
     ${fbgemm_gpu_sources_gpu_static}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm

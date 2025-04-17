@@ -122,18 +122,32 @@ using DeviceGemmHelper =
         PIPELINE_VERSION,
         ComputeType>;
 
-template <typename DeviceGemmInstance>
-std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
-    at::TensorList XQ,
-    at::TensorList WQ,
-    at::TensorList x_scale,
-    at::TensorList w_scale,
+// Templated kernel launch to accommodate different input and output types.
+template <typename DeviceGemmInstance, typename InputType, typename OutputType>
+OutputType f8f8bf16_rowwise_grouped_impl(
+    InputType XQ,
+    InputType WQ,
+    InputType x_scale,
+    InputType w_scale,
     at::Tensor kernel_args,
-    std::vector<at::Tensor> Y) {
+    OutputType Y) {
   // Get input information.
-  int group_count = XQ.size();
+  int group_count;
+  if constexpr (std::is_same_v<InputType, at::Tensor>) {
+    // Two different modes when inputs are tensors.
+    // If XQ is 3D then its shape is [G, M, K].
+    // If its 2D then its shape is [total_M, K].
+    if (XQ.dim() == 2) {
+      // group count is the min of total_M and G.
+      group_count = std::min(XQ.size(0), WQ.size(0));
+    } else {
+      group_count = WQ.size(0);
+    }
+  } else {
+    group_count = XQ.size();
+  }
   using KernelArguments =
-      ck::tensor_operation::device::GroupedGemmTileLoopKernelArguments<2>;
+      ck::tensor_operation::device::GroupedGemmKernelArgument<2>;
   using GemmDesc = ck::tensor_operation::device::GemmDesc;
   // Create gemm shape containers.
   std::vector<GemmDesc> gemm_descs;
@@ -148,21 +162,53 @@ std::vector<at::Tensor> f8f8bf16_rowwise_grouped_impl(
   B_args.reserve(group_count);
   C_args.reserve(group_count);
   D_args.reserve(group_count);
+  int M;
+  int K;
+  int N;
+  // Declare pointers to input and output buffers.
+  ADataType* a_ptr;
+  BDataType* b_ptr;
+  EDataType* c_ptr;
+  D0DataType* d0_ptr;
+  D1DataType* d1_ptr;
   // Populate arguments.
   for (int i = 0; i < group_count; i++) {
+    // Compute appropriate data pointers.
     // Set the shape arguments for this gemm.
-    int M = XQ[i].size(0);
-    int K = XQ[i].size(1);
-    int N = WQ[i].size(0);
+    if constexpr (std::is_same_v<InputType, at::Tensor>) {
+      M = XQ.size(XQ.dim() - 2);
+      N = WQ.size(1);
+      K = WQ.size(2);
+      // These pointers dont seem to actually be used since the kernel arguments
+      // contains the correct version. For simplicity, we just point to the
+      // start of the tensor.
+      a_ptr = reinterpret_cast<ADataType*>(XQ.data_ptr());
+      b_ptr = reinterpret_cast<BDataType*>(WQ.data_ptr());
+      d0_ptr = reinterpret_cast<D0DataType*>(w_scale.data_ptr());
+      d1_ptr = reinterpret_cast<D1DataType*>(x_scale.data_ptr());
+    } else {
+      M = XQ[i].size(0);
+      N = WQ[i].size(0);
+      K = XQ[i].size(1);
+      a_ptr = reinterpret_cast<ADataType*>(XQ[i].data_ptr());
+      b_ptr = reinterpret_cast<BDataType*>(WQ[i].data_ptr());
+      d0_ptr = reinterpret_cast<D0DataType*>(w_scale[i].data_ptr());
+      d1_ptr = reinterpret_cast<D1DataType*>(x_scale[i].data_ptr());
+    }
+    if constexpr (std::is_same_v<OutputType, at::Tensor>) {
+      c_ptr = reinterpret_cast<EDataType*>(Y.data_ptr()) + (i * M * N);
+    } else {
+      c_ptr = reinterpret_cast<EDataType*>(Y[i].data_ptr());
+    }
+
     GemmDesc gemm_desc = {M, N, K, K, K, N, {0, 0}};
     gemm_descs.push_back(gemm_desc);
+
     // Set pointers to inputs and outputs.
-    A_args.push_back(reinterpret_cast<ADataType*>(XQ[i].data_ptr()));
-    B_args.push_back(reinterpret_cast<BDataType*>(WQ[i].data_ptr()));
-    C_args.push_back(reinterpret_cast<EDataType*>(Y[i].data_ptr()));
-    D_args.emplace_back(std::array<const void*, 2>{
-        reinterpret_cast<D0DataType*>(w_scale[i].data_ptr()),
-        reinterpret_cast<D1DataType*>(x_scale[i].data_ptr())});
+    A_args.push_back(a_ptr);
+    B_args.push_back(b_ptr);
+    C_args.push_back(c_ptr);
+    D_args.emplace_back(std::array<const void*, 2>{d0_ptr, d1_ptr});
   }
 
   // Create gemm launcher and arguments.

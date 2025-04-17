@@ -315,6 +315,11 @@ KVTensorWrapper::KVTensorWrapper(
   if (snapshot_handle.has_value()) {
     snapshot_handle_ = std::move(snapshot_handle.value());
   }
+  // derive strides details assuming contiguous tensor
+  strides_ = std::vector<int64_t>(shape_.size(), 1);
+  for (auto dim = shape_.size() - 1; dim > 0; --dim) {
+    strides_[dim - 1] = strides_[dim] * shape_[dim];
+  }
 }
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
@@ -347,8 +352,12 @@ void KVTensorWrapper::set_range(
   }
 }
 
-c10::IntArrayRef KVTensorWrapper::size() {
+c10::IntArrayRef KVTensorWrapper::sizes() {
   return shape_;
+}
+
+c10::IntArrayRef KVTensorWrapper::strides() {
+  return strides_;
 }
 
 c10::ScalarType KVTensorWrapper::dtype() {
@@ -451,6 +460,10 @@ static auto embedding_rocks_db_wrapper =
         .def(
             "set_range_to_storage",
             &EmbeddingRocksDBWrapper::set_range_to_storage)
+        .def("toggle_compaction", &EmbeddingRocksDBWrapper::toggle_compaction)
+        .def(
+            "is_auto_compaction_enabled",
+            &EmbeddingRocksDBWrapper::is_auto_compaction_enabled)
         .def(
             "get",
             &EmbeddingRocksDBWrapper::get,
@@ -500,9 +513,10 @@ static auto kv_tensor_wrapper =
         .def_property("layout_str", &KVTensorWrapper::layout_str)
         .def_property(
             "shape",
-            &KVTensorWrapper::size,
+            &KVTensorWrapper::sizes,
             std::string(
-                "Returns the shape of the original tensor. Only the narrowed part is materialized."));
+                "Returns the shape of the original tensor. Only the narrowed part is materialized."))
+        .def_property("strides", &KVTensorWrapper::strides);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(

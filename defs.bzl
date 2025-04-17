@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -25,6 +26,7 @@ def get_fbgemm_generic_srcs(with_base = False):
         "src/FbgemmI64.cc",
         "src/FbgemmSparseDense.cc",
         "src/FbgemmI8Spmdm.cc",
+        "src/FbgemmPackMatrixB.cc",
         # "src/fp32/FbgemmFP32.cc",
         "src/GenerateKernelDirectConvU8S8S32ACC32.cc",
         "src/GenerateKernel.cc",
@@ -68,11 +70,13 @@ def get_fbgemm_public_headers():
         "include/fbgemm/FbgemmI8Spmdm.h",
         "include/fbgemm/FbgemmPackMatrixB.h",
         "include/fbgemm/FbgemmSparse.h",
+        "include/fbgemm/FloatConversion.h",
         "include/fbgemm/OutputProcessing-inl.h",
         "include/fbgemm/PackingTraits-inl.h",
         "include/fbgemm/QuantUtils.h",
         "include/fbgemm/QuantUtilsAvx2.h",
         "include/fbgemm/QuantUtilsAvx512.h",
+        "include/fbgemm/QuantUtilsNeon.h",
         "include/fbgemm/spmmUtils.h",
         "include/fbgemm/spmmUtilsAvx2.h",
         "include/fbgemm/SimdUtils.h",
@@ -153,15 +157,40 @@ def get_fbgemm_inline_sve_srcs(msvc = False, buck = False):
     intrinsics_srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
+        "src/QuantUtilsNeon.cc",
         "src/UtilsSve.cc",
-    ]
+    ] + select({
+        "DEFAULT": [],
+        "ovr_config//cpu:arm64": [
+            "src/FbgemmFloat16ConvertSVE.cc",
+        ],
+    })
 
     #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
     asm_srcs = [
         "src/FbgemmFP16UKernelsSve128.cc",
         "src/KleidiAIFP16UKernelsNeon.cc",
+        "src/QuantUtilsNeon.cc",
         "src/UtilsSve.cc",
-    ]
+    ] + select({
+        "DEFAULT": [],
+        "ovr_config//cpu:arm64": [
+            "src/FbgemmFloat16ConvertSVE.cc",
+        ],
+    })
+    if buck:
+        return select({
+            "DEFAULT": asm_srcs,
+            "ovr_config//compiler:cl": intrinsics_srcs,
+            "ovr_config//cpu:arm64": intrinsics_srcs,
+        })
+    return asm_srcs if not msvc else intrinsics_srcs
+
+def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
+    intrinsics_srcs = ["src/UtilsNeon.cc"]
+
+    #FP16 kernels contain inline assembly and inline assembly syntax for MSVC is different.
+    asm_srcs = ["src/UtilsNeon.cc"]
     if buck:
         return select({
             "DEFAULT": asm_srcs,

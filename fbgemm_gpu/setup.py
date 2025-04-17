@@ -52,7 +52,7 @@ class FbgemmGpuBuild:
         parser.add_argument(
             "--package_variant",
             type=str,
-            choices=["cpu", "cuda", "rocm", "genai"],
+            choices=["docs", "cpu", "cuda", "rocm", "genai"],
             default="cuda",
             help="The FBGEMM_GPU variant to build.",
         )
@@ -79,7 +79,7 @@ class FbgemmGpuBuild:
         parser.add_argument(
             "--use_fb_only",
             action="store_true",
-            help="Build FB only operators.",
+            help="Build FB-only operators.",
         )
         parser.add_argument(
             "--cxxprefix",
@@ -93,7 +93,7 @@ class FbgemmGpuBuild:
         print(f"[SETUP.PY] Other arguments: {other_args}")
         return FbgemmGpuBuild(setup_py_args, other_args)
 
-    def nova_flag(self) -> Optional[bool]:
+    def nova_flag(self) -> Optional[int]:
         if "BUILD_FROM_NOVA" in os.environ:
             if str(os.getenv("BUILD_FROM_NOVA")) == "0":
                 return 0
@@ -116,8 +116,12 @@ class FbgemmGpuBuild:
             sys.exit(0)
 
         elif self.nova_flag() == 0:
-            # The package name is the same for all build variants in Nova
-            pass
+            # In Nova, we are publishing genai packages separately from the main
+            # fbgemm_gpu package, so if the package variant is genai, we need to
+            # update the package name accordingly.  Otherwise, the package name
+            # is the same for all other build variants in Nova
+            if self.args.package_variant == "genai":
+                pkg_name = "fbgemm_gpu_genai"
 
         else:
             # If running outside of Nova workflow context, append the channel
@@ -153,7 +157,10 @@ class FbgemmGpuBuild:
             )
             return pkg_vver
 
-        if self.args.package_variant == "cuda":
+        # NOTE: This is a workaround for the fact that we currently overload
+        # package target (e.g. GPU, GenAI), and variant (e.g. CPU, CUDA, ROCm)
+        # into the same `package_variant` variable, and should be fixed soon.
+        if self.args.package_variant == "cuda" or self.args.package_variant == "genai":
             CudaUtils.set_cuda_environment_variables()
             if torch.version.cuda is not None:
                 cuda_version = torch.version.cuda.split(".")
@@ -270,7 +277,16 @@ class FbgemmGpuBuild:
             # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
             cxx_flags.extend(["-DTORCH_USE_CUDA_DSA", "-DTORCH_USE_HIP_DSA"])
 
-        if self.args.package_variant == "cpu":
+        if self.args.package_variant in ["docs", "cpu"]:
+            # NOTE: The docs variant is a fake variant that is effectively the
+            # cpu variant, but marks __VARIANT__ as "docs" instead of "cpu".
+            #
+            # This minor change lets the library loader know not throw
+            # exceptions on failed load, which is the workaround for a bug in
+            # the Sphinx documentation generation process, see:
+            #
+            #   https://github.com/pytorch/FBGEMM/pull/3477
+            #   https://github.com/pytorch/FBGEMM/pull/3717
             print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
             cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
 

@@ -47,6 +47,10 @@ at::Tensor f8i4bf16_rowwise_impl(
 
   int group_size = K / num_groups;
 
+  // Return immediately if input is empty.
+  if (M == 0 || N == 0 || K == 0) {
+    return at::zeros({M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
 
   using ElementInputA = INPUT_DTYPE;
@@ -92,13 +96,17 @@ at::Tensor f8i4bf16_rowwise_impl(
       cute::Int<TBS_K>>; // Shape of the
                          // threadblocks in a
                          // cluster
-  using DefaultSchedule = cutlass::gemm::KernelTmaWarpSpecializedMixedInput;
-  using PongSchedule =
-      cutlass::gemm::KernelTmaWarpSpecializedPingpongMixedInput;
-  using EpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
+  using CooperativeSchedule =
+      cutlass::gemm::KernelTmaWarpSpecializedCooperative;
+  using PongSchedule = cutlass::gemm::KernelTmaWarpSpecializedPingpong;
+  using CooperativeEpilogueSchedule =
+      cutlass::epilogue::TmaWarpSpecializedCooperative;
+  using PongEpilogueSchedule = cutlass::epilogue::TmaWarpSpecialized;
   using EpilogueTileType = cutlass::epilogue::collective::EpilogueTileAuto;
   using MainLoopSchedule =
-      cute::conditional_t<PONG, PongSchedule, DefaultSchedule>;
+      cute::conditional_t<PONG, PongSchedule, CooperativeSchedule>;
+  using EpilogueSchedule = cute::
+      conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
 
   // Implement rowwise scaling epilogue for x
   using XScale = cutlass::epilogue::fusion::Sm90RowBroadcast<
@@ -254,18 +262,18 @@ at::Tensor dispatch_f8i4bf16_rowwise_kernel(
   } else if (kernel == KernelMode::Large) {
     return f8i4bf16_rowwise_impl<
         128,
-        128,
+        256,
         128,
         2,
         1,
         1,
-        true,
+        false,
         InputDType,
         WEIGHT_SCALE_DTYPE>(XQ, WQ, x_scale, w_scale, w_zp);
   } else {
     return f8i4bf16_rowwise_impl<
         128,
-        128,
+        256,
         128,
         2,
         1,

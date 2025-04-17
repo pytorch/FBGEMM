@@ -118,7 +118,8 @@ __configure_fbgemm_gpu_build_nvcc () {
 }
 
 __configure_fbgemm_gpu_cuda_home () {
-  if [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]]; then
+  if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
     # shellcheck disable=SC2155,SC2086
     local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
     local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
@@ -144,6 +145,14 @@ __configure_fbgemm_gpu_build_cpu () {
   )
 }
 
+__configure_fbgemm_gpu_build_docs () {
+  # Update the package name and build args depending on if CUDA is specified
+  echo "[BUILD] Setting CPU-only (docs) build args ..."
+  build_args=(
+    --package_variant=docs
+  )
+}
+
 __configure_fbgemm_gpu_build_rocm () {
   local fbgemm_variant_targets="$1"
 
@@ -151,6 +160,7 @@ __configure_fbgemm_gpu_build_rocm () {
   if [ "$fbgemm_variant_targets" != "" ]; then
     echo "[BUILD] ROCm targets have been manually provided: ${fbgemm_variant_targets}"
     local arch_list="${fbgemm_variant_targets}"
+
   else
     if which rocminfo; then
       # shellcheck disable=SC2155
@@ -162,12 +172,22 @@ __configure_fbgemm_gpu_build_rocm () {
         # cards, in which case the arch_list will be empty.
         echo "[BUILD] rocminfo did not return anything valid!"
 
-        # By default, we build just for MI100 and MI250 to save time.  This list
-        # needs to be updated if the CI ROCm machines have different hardware.
+        # By default, we build for a limited number of architectures to save on
+        # build time.  This list needs to be updated if the CI ROCm machines
+        # have different hardware.
         #
         # Architecture mapping can be found at:
         #   https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html
-        local arch_list="gfx908,gfx90a,gfx942"
+        if [ -z "${BUILD_FROM_NOVA+x}" ]; then
+          # If BUILD_FROM_NOVA is unset, then we are building from AMD host with
+          # sufficient resources, so we can build for more architectures.
+          local arch_list="gfx908,gfx90a,gfx942"
+        else
+          # If BUILD_FROM_NOVA is set (regardless of 0 or 1), we are building in
+          # Nova.  Nova machines take a longer time to build FBGEMM_GPU for
+          # ROCm, so we limit to one architecture.
+          local arch_list="gfx942"
+        fi
       fi
     else
       echo "[BUILD] rocminfo not found in PATH!"
@@ -210,26 +230,34 @@ __configure_fbgemm_gpu_build_cuda () {
     local arch_list="${fbgemm_variant_targets}"
 
   elif [ "$TORCH_CUDA_ARCH_LIST" != "" ]; then
+    # NOTE: This is generally set by Nova CI; see:
+    #   .github/scripts/nova_dir.bash
     echo "[BUILD] Using the environment-supplied TORCH_CUDA_ARCH_LIST as the CUDA targets ..."
     local arch_list="${TORCH_CUDA_ARCH_LIST}"
 
   else
-    # To keep binary sizes to minimum, build only against the CUDA architectures
-    # that the latest PyTorch supports:
-    #   7.0 (V100), 8.0 (A100), and 9.0,9.0a (H100)
+    # Build only against the CUDA architectures that the latest PyTorch
+    # supports, i.e.:
+    #   7.0 (V100), 8.0 (A100), 9.0,9.0a (H100), 10.0,10.0a,12.0,12.0a (B100)
     cuda_version_nvcc=$(conda run -n "${env_name}" nvcc --version)
     echo "[BUILD] Using the default architectures for CUDA $cuda_version_nvcc ..."
 
-    if  [[ $cuda_version_nvcc == *"V12.1"* ]] ||
-        [[ $cuda_version_nvcc == *"V12.4"* ]] ||
-        [[ $cuda_version_nvcc == *"V12.6"* ]]; then
-      # sm_90 and sm_90a are only available for CUDA 12.1+
-      # NOTE: CUTLASS kernels for Hopper require sm_90a to be enabled
-      # See:
-      #   https://github.com/NVIDIA/nvbench/discussions/129
-      #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
-      #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
+    # NOTE: CUTLASS kernels for Hopper require sm_90a to be enabled
+    # See:
+    #
+    #   https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
+    #   https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/#gpu-feature-list
+    #   https://github.com/NVIDIA/nvbench/discussions/129
+    #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
+    #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
+    if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
+      local arch_list="7.0;8.0;9.0;9.0a;10.0;10.0a;12.0;12.0a"
+
+    elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
+          [[ $cuda_version_nvcc == *"V12.4"* ]] ||
+          [[ $cuda_version_nvcc == *"V12.1"* ]]; then
       local arch_list="7.0;8.0;9.0;9.0a"
+
     else
       local arch_list="7.0;8.0"
     fi
@@ -297,6 +325,10 @@ __configure_fbgemm_gpu_build () {
     echo "[BUILD] Configuring build as CPU variant ..."
     __configure_fbgemm_gpu_build_cpu
 
+  elif [ "$fbgemm_variant" == "docs" ]; then
+    echo "[BUILD] Configuring build as CPU (docs) variant ..."
+    __configure_fbgemm_gpu_build_docs
+
   elif [ "$fbgemm_variant" == "rocm" ]; then
     echo "[BUILD] Configuring build as ROCm variant ..."
     __configure_fbgemm_gpu_build_rocm "${fbgemm_variant_targets}"
@@ -325,8 +357,17 @@ __configure_fbgemm_gpu_build () {
 
   # Set debugging options
   if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
+    echo "[BUILD] Enabling debug features in the build ..."
     build_args+=(
       --debug
+    )
+  fi
+
+  # Set FB-only options
+  if [ "$BUILD_INCLUDE_FB_ONLY" -eq 1 ]; then
+    echo "[BUILD] Enabling build of FB-only code ..."
+    build_args+=(
+      --use_fb_only
     )
   fi
 
@@ -374,16 +415,23 @@ __build_fbgemm_gpu_set_python_plat_name () {
 }
 
 __build_fbgemm_gpu_set_run_multicore () {
-  # shellcheck disable=SC2155
-  local core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
-  # shellcheck disable=SC2155
-  local sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
-  local re='^[0-9]+$'
+  if [[ -n "${BUILD_PARALLELISM:-}"  ]]; then
+    # Set manual override if provided.  This is useful for preventing
+    # overlapping compilation error messages when debugging.
+    export run_multicore="-j ${BUILD_PARALLELISM}"
 
-  export run_multicore=""
-  if [[ $core =~ $re && $sockets =~ $re ]] ; then
-    local n_core=$((core * sockets))
-    export run_multicore="-j ${n_core}"
+  else
+    # shellcheck disable=SC2155
+    local core=$(lscpu | grep "Core(s)" | awk '{print $NF}') && echo "core = ${core}" || echo "core not found"
+    # shellcheck disable=SC2155
+    local sockets=$(lscpu | grep "Socket(s)" | awk '{print $NF}') && echo "sockets = ${sockets}" || echo "sockets not found"
+    local re='^[0-9]+$'
+
+    export run_multicore=""
+    if [[ $core =~ $re && $sockets =~ $re ]]; then
+      local n_core=$((core * sockets))
+      export run_multicore="-j ${n_core}"
+    fi
   fi
 
   echo "[BUILD] Set multicore run option for setup.py: ${run_multicore}"
@@ -399,9 +447,10 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" g++) || return 1
 
   # Set the default the FBGEMM_GPU variant to be CUDA
-  if [ "$fbgemm_variant" != "cpu" ] &&
-     [ "$fbgemm_variant" != "rocm" ] &&
-     [ "$fbgemm_variant" != "genai" ]; then
+  if  [ "$fbgemm_variant" != "cpu" ] &&
+      [ "$fbgemm_variant" != "docs" ] &&
+      [ "$fbgemm_variant" != "rocm" ] &&
+      [ "$fbgemm_variant" != "genai" ]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM_GPU variant: $fbgemm_variant"
     echo "[BUILD] Defaulting to CUDA"
@@ -499,7 +548,8 @@ __verify_library_symbols () {
 
   # Prepare a sample set of symbols whose existence in the built library should be checked
   # This is by no means an exhaustive set, and should be updated accordingly
-  if [ "${fbgemm_variant}" == "cpu" ]; then
+  if  [ "${fbgemm_variant}" == "cpu" ] ||
+      [ "${fbgemm_variant}" == "docs" ]; then
     local lib_symbols_to_check=(
       fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
       fbgemm_gpu::jagged_2d_to_dense
@@ -537,6 +587,7 @@ run_fbgemm_gpu_postbuild_checks () {
     echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} cpu"
+    echo "    ${FUNCNAME[0]} docs"
     echo "    ${FUNCNAME[0]} cuda"
     echo "    ${FUNCNAME[0]} rocm"
     echo "    ${FUNCNAME[0]} genai"
@@ -588,6 +639,7 @@ build_fbgemm_gpu_package () {
     echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_CHANNEL VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env release cpu                      # CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env release docs                     # CPU-only (docs) variant"
     echo "    ${FUNCNAME[0]} build_env nightly cuda                     # CUDA variant for default target(s)"
     echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'              # CUDA variant for custom target(s)"
     echo "    ${FUNCNAME[0]} build_env test rocm                        # ROCm variant for default target(s)"
@@ -657,6 +709,7 @@ build_fbgemm_gpu_install () {
     echo "Usage: ${FUNCNAME[0]} ENV_NAME VARIANT [TARGETS]"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
+    echo "    ${FUNCNAME[0]} build_env docs                         # CPU-only (docs) variant"
     echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
     echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
     echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"

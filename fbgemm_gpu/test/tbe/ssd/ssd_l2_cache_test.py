@@ -14,6 +14,7 @@ import time
 import unittest
 
 from typing import Any, Dict, List, Tuple
+from unittest.mock import MagicMock, patch
 
 import hypothesis.strategies as st
 import numpy as np
@@ -81,102 +82,102 @@ class SSDCheckpointTest(unittest.TestCase):
         )
         return emb, Es, Ds, max(Ds)
 
-    # @given(**default_st, do_flush=st.sampled_from([True, False]))
-    # @settings(**default_settings)
-    # def test_l2_flush(
-    #     self,
-    #     T: int,
-    #     D: int,
-    #     log_E: int,
-    #     mixed: bool,
-    #     weights_precision: SparseType,
-    #     do_flush: bool,
-    # ) -> None:
-    #     emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
-    #         T, D, log_E, weights_precision, mixed
-    #     )
-    #     indices = torch.arange(start=0, end=sum(Es))
-    #     weights = torch.randn(
-    #         indices.numel(), max_D, dtype=weights_precision.as_dtype()
-    #     )
-    #     weights_from_l2 = torch.empty_like(weights)
-    #     count = torch.as_tensor([indices.numel()])
-    #     emb.ssd_db.set_cuda(indices, weights, count, 1)
-    #     emb.ssd_db.get_cuda(indices.clone(), weights_from_l2, count)
+    @given(**default_st, do_flush=st.sampled_from([True, False]))
+    @settings(**default_settings)
+    def test_l2_flush(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+        do_flush: bool,
+    ) -> None:
+        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
+            T, D, log_E, weights_precision, mixed
+        )
+        indices = torch.arange(start=0, end=sum(Es))
+        weights = torch.randn(
+            indices.numel(), max_D, dtype=weights_precision.as_dtype()
+        )
+        weights_from_l2 = torch.empty_like(weights)
+        count = torch.as_tensor([indices.numel()])
+        emb.ssd_db.set_cuda(indices, weights, count, 1)
+        emb.ssd_db.get_cuda(indices.clone(), weights_from_l2, count)
 
-    #     torch.cuda.synchronize()
-    #     assert torch.equal(weights, weights_from_l2)
-    #     import logging
+        torch.cuda.synchronize()
+        assert torch.equal(weights, weights_from_l2)
+        import logging
 
-    #     logging.info(f"wgqtest {do_flush=}")
-    #     weights_from_ssd = torch.empty_like(weights)
-    #     if do_flush:
-    #         emb.ssd_db.flush()
-    #     emb.ssd_db.reset_l2_cache()
-    #     emb.ssd_db.get_cuda(indices, weights_from_ssd, count)
-    #     torch.cuda.synchronize()
-    #     if do_flush:
-    #         assert torch.equal(weights, weights_from_ssd)
-    #     else:
-    #         assert not torch.equal(weights, weights_from_ssd)
+        logging.info(f"wgqtest {do_flush=}")
+        weights_from_ssd = torch.empty_like(weights)
+        if do_flush:
+            emb.ssd_db.flush()
+        emb.ssd_db.reset_l2_cache()
+        emb.ssd_db.get_cuda(indices, weights_from_ssd, count)
+        torch.cuda.synchronize()
+        if do_flush:
+            assert torch.equal(weights, weights_from_ssd)
+        else:
+            assert not torch.equal(weights, weights_from_ssd)
 
-    # @given(**default_st, enable_l2=st.sampled_from([True, False]))
-    # @settings(**default_settings)
-    # def test_l2_io(
-    #     self,
-    #     T: int,
-    #     D: int,
-    #     log_E: int,
-    #     mixed: bool,
-    #     weights_precision: SparseType,
-    #     enable_l2: bool,
-    # ) -> None:
-    #     emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
-    #         T, D, log_E, weights_precision, mixed, enable_l2
-    #     )
-    #     E = int(10**log_E)
-    #     num_rounds = 10
-    #     N = E
-    #     total_indices = torch.tensor([])
+    @given(**default_st, enable_l2=st.sampled_from([True, False]))
+    @settings(**default_settings)
+    def test_l2_io(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+        enable_l2: bool,
+    ) -> None:
+        emb, _, _, max_D = self.generate_fbgemm_ssd_tbe(
+            T, D, log_E, weights_precision, mixed, enable_l2
+        )
+        E = int(10**log_E)
+        num_rounds = 10
+        N = E
+        total_indices = torch.tensor([])
 
-    #     indices = torch.as_tensor(
-    #         np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
-    #     )
-    #     weights = torch.randn(
-    #         indices.numel(), max_D, dtype=weights_precision.as_dtype()
-    #     )
-    #     sub_N = N // num_rounds
+        indices = torch.as_tensor(
+            np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
+        )
+        weights = torch.randn(
+            indices.numel(), max_D, dtype=weights_precision.as_dtype()
+        )
+        sub_N = N // num_rounds
 
-    #     for _ in range(num_rounds):
-    #         sub_indices = torch.as_tensor(
-    #             np.random.choice(E, replace=False, size=(sub_N,)), dtype=torch.int64
-    #         )
-    #         sub_weights = weights[sub_indices, :]
-    #         sub_weights_out = torch.empty_like(sub_weights)
-    #         count = torch.as_tensor([sub_indices.numel()])
-    #         emb.ssd_db.set_cuda(sub_indices, sub_weights, count, 1)
-    #         emb.ssd_db.get_cuda(sub_indices.clone(), sub_weights_out, count)
-    #         torch.cuda.synchronize()
-    #         assert torch.equal(sub_weights, sub_weights_out)
-    #         total_indices = torch.cat((total_indices, sub_indices))
-    #     # dedup
-    #     used_unique_indices = torch.tensor(
-    #         list(set(total_indices.tolist())), dtype=torch.int64
-    #     )
-    #     stored_weights = weights[used_unique_indices, :]
-    #     weights_out = torch.empty_like(stored_weights)
-    #     count = torch.as_tensor([used_unique_indices.numel()])
-    #     emb.ssd_db.get_cuda(used_unique_indices.clone(), weights_out, count)
-    #     torch.cuda.synchronize()
-    #     assert torch.equal(stored_weights, weights_out)
+        for _ in range(num_rounds):
+            sub_indices = torch.as_tensor(
+                np.random.choice(E, replace=False, size=(sub_N,)), dtype=torch.int64
+            )
+            sub_weights = weights[sub_indices, :]
+            sub_weights_out = torch.empty_like(sub_weights)
+            count = torch.as_tensor([sub_indices.numel()])
+            emb.ssd_db.set_cuda(sub_indices, sub_weights, count, 1)
+            emb.ssd_db.get_cuda(sub_indices.clone(), sub_weights_out, count)
+            torch.cuda.synchronize()
+            assert torch.equal(sub_weights, sub_weights_out)
+            total_indices = torch.cat((total_indices, sub_indices))
+        # dedup
+        used_unique_indices = torch.tensor(
+            list(set(total_indices.tolist())), dtype=torch.int64
+        )
+        stored_weights = weights[used_unique_indices, :]
+        weights_out = torch.empty_like(stored_weights)
+        count = torch.as_tensor([used_unique_indices.numel()])
+        emb.ssd_db.get_cuda(used_unique_indices.clone(), weights_out, count)
+        torch.cuda.synchronize()
+        assert torch.equal(stored_weights, weights_out)
 
-    #     emb.ssd_db.flush()
-    #     emb.ssd_db.reset_l2_cache()
-    #     weights_out = torch.empty_like(stored_weights)
-    #     count = torch.as_tensor([used_unique_indices.numel()])
-    #     emb.ssd_db.get_cuda(used_unique_indices.clone(), weights_out, count)
-    #     torch.cuda.synchronize()
-    #     assert torch.equal(stored_weights, weights_out)
+        emb.ssd_db.flush()
+        emb.ssd_db.reset_l2_cache()
+        weights_out = torch.empty_like(stored_weights)
+        count = torch.as_tensor([used_unique_indices.numel()])
+        emb.ssd_db.get_cuda(used_unique_indices.clone(), weights_out, count)
+        torch.cuda.synchronize()
+        assert torch.equal(stored_weights, weights_out)
 
     @given(**default_st)
     @settings(**default_settings)
@@ -188,8 +189,7 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         weights_precision: SparseType,
     ) -> None:
-        weights_precision: SparseType = SparseType.FP32
-        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
+        emb, _, _, max_D = self.generate_fbgemm_ssd_tbe(
             T, D, log_E, weights_precision, mixed
         )
         E = int(10**log_E)
@@ -229,3 +229,30 @@ class SSDCheckpointTest(unittest.TestCase):
         assert torch.equal(weights, weights_out)
         emb.ssd_db.get(indices.clone(), weights_out, count)
         assert torch.equal(new_weights, weights_out)
+
+    @given(**default_st)
+    @settings(**default_settings)
+    def test_l2_multiple_flush_at_same_train_iter(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+        emb, _, _, _ = self.generate_fbgemm_ssd_tbe(
+            T, D, log_E, weights_precision, mixed
+        )
+
+        with patch.object(torch.cuda, "synchronize") as mock_calls:
+            mock_calls.side_effect = None
+            emb.flush()
+            emb.flush()
+            mock_calls.assert_called_once()
+            mock_calls.reset_mock()
+
+            emb.step += 1
+            emb.flush()
+            emb.step += 1
+            emb.flush()
+            self.assertEqual(mock_calls.call_count, 2)

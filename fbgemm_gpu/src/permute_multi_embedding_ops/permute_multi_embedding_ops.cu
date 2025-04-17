@@ -39,9 +39,9 @@ __global__ void permute_multi_embs_kernel(
     const int32_t batch_size,
     const int32_t permute_size) {
   // workers in a warp handle exact one permute (of a feature/key)
-  const int32_t worker_id = threadIdx.x;
-  const int32_t permute_id = threadIdx.y + blockIdx.x * blockDim.y;
-  const int32_t batch_id = blockIdx.y + gridDim.y * blockIdx.z;
+  const auto worker_id = threadIdx.x;
+  const auto permute_id = threadIdx.y + blockIdx.x * blockDim.y;
+  const auto batch_id = blockIdx.y + gridDim.y * blockIdx.z;
   if (batch_id >= batch_size) {
     return;
   }
@@ -97,11 +97,11 @@ __global__ void permute_multi_embs_kernel(
       fbgemm_gpu::Vec4T<scalar_t>::copy(&input_ptr[i], &output_ptr[i]);
     }
     // Use elementwise access for the last incomplete vector.
-    for (int32_t i = loop_end + worker_id; i < length; i += blockDim.x) {
+    for (auto i = loop_end + worker_id; i < length; i += blockDim.x) {
       output_ptr[i] = input_ptr[i];
     }
   } else { // Fallback if not aligned.
-    for (int32_t i = worker_id; i < length; i += blockDim.x) {
+    for (auto i = worker_id; i < length; i += blockDim.x) {
       output_ptr[i] = input_ptr[i];
     }
   }
@@ -120,7 +120,7 @@ __global__ void permute_multi_embs_kernel(
         static_cast<int64_t>(batch_id) * static_cast<int64_t>(in_length) +
         in_offset;
 
-    for (int32_t i = worker_id; i < length; i += blockDim.x) {
+    for (auto i = worker_id; i < length; i += blockDim.x) {
       output_ptr[i] += input_ptr[i];
     }
   }

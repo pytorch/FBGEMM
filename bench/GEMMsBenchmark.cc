@@ -131,7 +131,7 @@ void performance_test(
         });
     ttot *= 1e9; // convert to ns
 
-    ((volatile char*)(llc.data()));
+    std::ignore = ((volatile char*)(llc.data()));
 
     cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
          << setw(16) << runType << ", ";

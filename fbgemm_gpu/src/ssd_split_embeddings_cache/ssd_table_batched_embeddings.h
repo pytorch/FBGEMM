@@ -176,6 +176,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             tbe_unqiue_id,
             row_storage_bitwidth / 8,
             enable_async_update),
+        auto_compaction_enabled_(true),
         max_D_(max_D),
         elem_size_(row_storage_bitwidth / 8) {
     class Int64Comparator : public rocksdb::Comparator {
@@ -290,12 +291,65 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     options.memtable_prefix_bloom_size_ratio = 0.05;
     options.memtable_whole_key_filtering = true;
     options.max_background_jobs = num_threads;
+    // maximum number of concurrent flush operations
+    options.max_background_flushes = num_threads;
     options.env->SetBackgroundThreads(4, rocksdb::Env::HIGH);
     options.env->SetBackgroundThreads(1, rocksdb::Env::LOW);
-
     options.max_open_files = -1;
 
+    initialize_dbs(num_shards, path, options, use_passed_in_path);
+    initialize_initializers(
+        num_shards,
+        max_D,
+        uniform_init_lower,
+        uniform_init_upper,
+        row_storage_bitwidth);
+    executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards);
+    ro_.verify_checksums = false;
+    ro_.async_io = true;
+    wo_.disableWAL = true;
+    wo_.sync = false;
+
+    // Setup staggered manual compaction data members
+    memtable_flush_period_ = memtable_flush_period;
+    if (memtable_flush_period_ > 0) {
+      done_staggered_flushes_ = false;
+      memtable_flush_offset_ = memtable_flush_offset;
+      l0_files_per_compact_ = l0_files_per_compact;
+      compaction_period_ = memtable_flush_period_ * l0_files_per_compact *
+          options.min_write_buffer_number_to_merge;
+      int64_t period_per_shard = memtable_flush_period_ / num_shards;
+      CHECK_GT(period_per_shard, 0);
+      // We want to stagger memory flushes (and then later
+      // stagger all compactions)
+
+      for (int64_t i = 0; i < num_shards; i++) {
+        shard_flush_compaction_deadlines_.push_back(
+            memtable_flush_offset_ + (i * period_per_shard));
+      }
+    }
+  }
+
+  ~EmbeddingRocksDB() override {
+    // clear all the snapshots if not released
+    if (snapshots_.size() > 0) {
+      LOG(WARNING)
+          << snapshots_.size()
+          << " snapshots have not been released when db is closing. Releasing them now.";
+    }
+    snapshots_.clear();
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      dbs_[shard]->Close();
+    }
+  }
+
+  void initialize_dbs(
+      int64_t num_shards,
+      std::string path,
+      rocksdb::Options& options,
+      bool use_passed_in_path) {
 #ifdef FBGEMM_FBCODE
+    std::string used_path = "";
     auto serviceInfo = std::make_shared<facebook::fb_rocksdb::ServiceInfo>();
     serviceInfo->oncall = "pyper_training";
     serviceInfo->service_name = "ssd_offloading_rocksb";
@@ -307,7 +361,6 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       path = ssd_mount_point;
       tbe_uuid = facebook::strings::generateUUID();
     }
-    std::string used_path = "";
 #endif
     for (auto i = 0; i < num_shards; ++i) {
 #ifdef FBGEMM_FBCODE
@@ -350,6 +403,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       }
       CHECK(s.ok()) << s.ToString();
       dbs_.emplace_back(db);
+    }
+#ifdef FBGEMM_FBCODE
+    LOG(INFO) << "TBE actual used_path: " << used_path;
+#endif
+  }
+
+  void initialize_initializers(
+      int64_t num_shards,
+      int64_t max_D,
+      float uniform_init_lower,
+      float uniform_init_upper,
+      int64_t row_storage_bitwidth) {
+    for (auto i = 0; i < num_shards; ++i) {
       auto* gen = at::check_generator<at::CPUGeneratorImpl>(
           at::detail::getDefaultCPUGenerator());
       {
@@ -361,46 +427,6 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             uniform_init_upper,
             row_storage_bitwidth));
       }
-    }
-#ifdef FBGEMM_FBCODE
-    LOG(INFO) << "TBE actual used_path: " << used_path;
-#endif
-    executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards);
-    ro_.verify_checksums = false;
-    ro_.async_io = true;
-    wo_.disableWAL = true;
-    wo_.sync = false;
-
-    // Setup staggered manual compaction data members
-    memtable_flush_period_ = memtable_flush_period;
-    if (memtable_flush_period_ > 0) {
-      done_staggered_flushes_ = false;
-      memtable_flush_offset_ = memtable_flush_offset;
-      l0_files_per_compact_ = l0_files_per_compact;
-      compaction_period_ = memtable_flush_period_ * l0_files_per_compact *
-          options.min_write_buffer_number_to_merge;
-      int64_t period_per_shard = memtable_flush_period_ / num_shards;
-      CHECK_GT(period_per_shard, 0);
-      // We want to stagger memory flushes (and then later
-      // stagger all compactions)
-
-      for (int64_t i = 0; i < num_shards; i++) {
-        shard_flush_compaction_deadlines_.push_back(
-            memtable_flush_offset_ + (i * period_per_shard));
-      }
-    }
-  }
-
-  ~EmbeddingRocksDB() override {
-    // clear all the snapshots if not released
-    if (snapshots_.size() > 0) {
-      LOG(WARNING)
-          << snapshots_.size()
-          << " snapshots have not been released when db is closing. Releasing them now.";
-    }
-    snapshots_.clear();
-    for (auto shard = 0; shard < dbs_.size(); ++shard) {
-      dbs_[shard]->Close();
     }
   }
 
@@ -547,6 +573,51 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
     folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
+  }
+
+  virtual rocksdb::Status set_rocksdb_option(
+      int shard,
+      const std::string& key,
+      const std::string& value) {
+    return dbs_[shard]->SetOptions({{key, value}});
+  }
+
+  bool is_auto_compaction_enabled() {
+    return auto_compaction_enabled_;
+  }
+
+  void toggle_compaction(bool enable) {
+    int max_retries = 10;
+    std::vector<folly::Future<bool>> futures;
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      auto f = folly::via(executor_.get()).thenValue([=](folly::Unit) -> bool {
+        for (int attempt = 0; attempt < max_retries; ++attempt) {
+          auto val = enable ? "false" : "true";
+          auto s = set_rocksdb_option(shard, "disable_auto_compactions", val);
+          if (s.ok()) {
+            return true;
+          }
+          LOG(WARNING) << "Failed to toggle compaction to " << enable
+                       << " for shard " << shard << ", attempt=" << attempt
+                       << ", max_retries=" << max_retries << std::endl;
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        return false;
+      });
+      futures.push_back(std::move(f));
+    }
+    auto results = folly::coro::blockingWait(folly::collectAll(futures));
+    for (auto& result : results) {
+      if (result.hasValue()) {
+        CHECK(result.value())
+            << "Failed to toggle compaction to " << enable << std::endl;
+      } else {
+        CHECK(false) << "Failed to toggle compaction to " << enable
+                     << " with exception " << result.exception().what()
+                     << std::endl;
+      }
+    }
+    auto_compaction_enabled_ = enable;
   }
 
   int64_t get_max_D() {
@@ -846,6 +917,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                               }
                               key_indices.push_back(i);
                             }
+
+                            // bail if nothing to do
+                            if (key_indices.empty()) {
+                              return;
+                            }
+
                             std::sort(
                                 key_indices.begin(),
                                 key_indices.end(),
@@ -923,6 +1000,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t memtable_flush_period_;
   int64_t compaction_period_;
   int64_t l0_files_per_compact_;
+  bool auto_compaction_enabled_;
 
   // break down on rocksdb write duration for details checkout RocksdbWriteMode
   std::atomic<int64_t> read_total_duration_{0};

@@ -65,6 +65,9 @@ Tensor permute_pooled_embs_split_gpu_impl(
     const Tensor& inv_offset_dim_list,
     const Tensor& inv_permute_list,
     const bool& allow_duplicates) {
+  if (pooled_embs.numel() == 0) {
+    return pooled_embs;
+  }
   // inv_permute_list is not being used so it's not checked here.
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       pooled_embs, offset_dim_list, permute_list, inv_offset_dim_list);

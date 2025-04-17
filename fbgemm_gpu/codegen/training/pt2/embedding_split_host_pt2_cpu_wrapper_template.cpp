@@ -26,6 +26,12 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
+// #include <ATen/ATen.h>
+#include <ATen/Dispatch.h>
+#include <ATen/TensorUtils.h>
+{%- if has_vbe_support %}
+#include "fbgemm_gpu/utils/pt2_autograd_utils.h"
+{%- endif %}
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -53,23 +59,43 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cpu_wrapper(
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
     const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64
+    const int64_t info_B_mask_int64,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const c10::SymInt max_B
     {%- else %}
     const Tensor& feature_requires_grad
     {%- endif %}
 ) {
+    {%- if vbe %}
+    Tensor offsets_;
+    const int64_t max_B_int = max_B.guard_int(__FILE__, __LINE__);
+    AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_grad_indices", [&]() {
+        offsets_ = reshape_vbe_offsets<index_t>(
+            offsets,
+            vbe_B_offsets_rank_per_feature,
+            max_B_int,
+            D_offsets.numel() - 1
+        );
+    });
+    const auto grad_output_ = reshape_vbe_output(
+        grad_output,
+        max_B_int,
+        vbe_B_offsets_rank_per_feature,
+        D_offsets
+    );
+    {%- endif %}
   static auto op =
       torch::Dispatcher::singleton()
         .findSchemaOrThrow(
               "fbgemm::split_embedding_codegen_grad_indice_weights_cpu", "")
         .typed<Tensor(Tensor,Tensor,Tensor,Tensor,Tensor,Tensor,Tensor)>();
   return op.call(
-      grad_output,
+      {{ "grad_output_" if vbe else "grad_output" }},
       host_weights,
       weights_offsets,
       D_offsets,
       indices,
-      offsets,
+      {{ "offsets_" if vbe else "offsets" }},
       feature_requires_grad);
 }
 {%- endif %}
@@ -96,14 +122,24 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
     const Tensor& /*lxu_cache_locations*/,
     const Tensor& /*uvm_cache_stats*/,
     {%- if vbe %}
-    const Tensor& vbe_row_output_offsets, /*vbe_output_offsets_feature_rank*/
-    const Tensor& vbe_b_t_map, /*vbe_B_offsets_rank_per_feature*/
+    const Tensor& vbe_row_output_offsets,
+    const Tensor& vbe_b_t_map,
     const c10::SymInt vbe_output_size,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const Tensor& vbe_output_offsets_feature_rank,
+    const c10::SymInt max_B,
     {%- endif %}
     const bool /*is_experimental = false*/,
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
+    Tensor offsets_;
+    {%- if vbe %}
+    const int64_t max_B_int = max_B.guard_int(__FILE__, __LINE__);
+    AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_forward", [&]() {
+        offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B_int, D_offsets.numel() - 1);
+    });
+    {%- endif %}
     static auto op =
         torch::Dispatcher::singleton()
             .findSchemaOrThrow("fbgemm::split_embedding_codegen_forward_cpu", "")
@@ -112,8 +148,6 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
             )>();
     {%- if vbe %}
     // TODO: remove this after vbe is implemented for CPU kernel
-    Tensor vbe_B_offsets_rank_per_feature = vbe_b_t_map;
-    Tensor vbe_output_offsets_feature_rank = vbe_row_output_offsets;
     const auto output = op.call(
         host_weights,
         weights_offsets,
@@ -121,7 +155,7 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
         total_D,
         hash_size_cumsum,
         indices,
-        offsets,
+        offsets_,
         pooling_mode,
         indice_weights,
         output_dtype);
@@ -174,7 +208,8 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
+    const bool mixed_D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
@@ -191,6 +226,8 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     const Tensor& B_offsets,
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const c10::SymInt max_B,
     {%- endif %}
     const bool /*use_uniq_cache_locations*/,
     const bool /*use_homogeneous_placements*/,
@@ -199,6 +236,14 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     , const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
     {%- endif %})
     {
+        {%- if vbe %}
+        const int64_t max_B_int = max_B.guard_int(__FILE__, __LINE__);
+        Tensor offsets_;
+        AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_backward", [&]() {
+            offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B_int, D_offsets.numel() - 1);
+        });
+        const auto grad_output_ = reshape_vbe_output(grad_output, max_B_int, vbe_B_offsets_rank_per_feature, D_offsets);
+        {%- endif %}
         {%- set backward_op = "split_embedding_backward_codegen_{}_cpu".format(
                 optimizer
             )
@@ -207,19 +252,19 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
             torch::Dispatcher::singleton()
                 .findSchemaOrThrow("fbgemm::{{ backward_op }}", "")
                 .typed<void(
-                    Tensor,
-                    Tensor,
-                    Tensor,
-                    Tensor,
-                    Tensor,
-                    int64_t,
-                    Tensor,
-                    int64_t,
-                    Tensor,
-                    Tensor,
-                    int64_t,
-                    Tensor,
-                    bool,
+                    Tensor, /* grad_output */
+                    Tensor, /* host_weights */
+                    Tensor, /* weights_placements */
+                    Tensor, /* weights_offsets */
+                    Tensor, /* D_offsets */
+                    int64_t, /* max_D */
+                    Tensor, /* hash_size_cumsum */
+                    int64_t, /* total_hash_size_bits */
+                    Tensor, /* indices */
+                    Tensor, /* offsets */
+                    int64_t, /* pooling_mode */
+                    Tensor, /* indices_weights */
+                    bool, /* stochastic_rounding */
                     {%- for arg_type in args.split_function_args %}
                     {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
                     {%- endfor %}
@@ -229,16 +274,16 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
                 )>();
 
         op.call(
-            grad_output,
+            {{ "grad_output_" if vbe else "grad_output" }},
             host_weights,
             weights_placements,
             weights_offsets,
             D_offsets,
-            max_D,
+            max_D.guard_int(__FILE__, __LINE__),
             hash_size_cumsum,
             total_hash_size_bits,
             indices,
-            offsets,
+            {{ "offsets_" if vbe else "offsets" }},
             pooling_mode,
             indice_weights,
             stochastic_rounding,
@@ -247,7 +292,7 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
             , output_dtype
             {%- endif %}
             );
-        return grad_output;
+        return Tensor();
     }
 {% endif %}
 {%- endfor %} {#-/*for weighted*/#}
@@ -285,13 +330,16 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor indice_weights, "
         {%- endif %}
         "    Tensor lxu_cache_locations, "
-        "    Tensor uvm_cache_stats, "
+        "    Tensor{{ schema_annotation['uvm_cache_stats'] }} uvm_cache_stats, "
         {%- if vbe %}
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
         "    SymInt vbe_output_size, "
         "    int info_B_num_bits, "
         "    int info_B_mask_int64, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    Tensor vbe_output_offsets_feature_rank, "
+        "    SymInt max_B, "
         {%- endif %}
         "    bool is_experimental, "
         "    int output_dtype "
@@ -311,10 +359,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     %}
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
-        "    Tensor(a!) host_weights, "
-        "    Tensor(b!) dev_weights, "
-        "    Tensor(c!) uvm_weights, "
-        "    Tensor lxu_cache_weights, "
+        "    Tensor{{ schema_annotation['weights_host'] }} host_weights, "
+        "    Tensor{{ schema_annotation['weights_dev'] }} dev_weights, "
+        "    Tensor{{ schema_annotation['weights_uvm'] }} uvm_weights, "
+        "    Tensor{{ schema_annotation['weights_lxu_cache'] }} lxu_cache_weights, "
         "    Tensor weights_placements, "
         "    Tensor weights_offsets, "
         {%- if nobag %}
@@ -322,6 +370,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- else %}
         "    Tensor D_offsets, "
         "    SymInt max_D, "
+        "    bool mixed_D, "
         {%- endif %}
         "    Tensor hash_size_cumsum, "
         "    int total_hash_size_bits, "
@@ -343,6 +392,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor B_offsets, "
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    SymInt max_B, "
         {%- endif %}
         "    bool use_uniq_cache_locations, "
         "    bool use_homogeneous_placements,"
@@ -379,7 +430,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
         "    int info_B_num_bits, "
-        "    int info_B_mask_int64"
+        "    int info_B_mask_int64, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    SymInt max_B "
         {%- else %}
         "    Tensor feature_requires_grad"
         {%- endif %}

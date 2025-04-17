@@ -83,17 +83,6 @@ __configure_fbgemm_gpu_test_cpu () {
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
-    ./sll/triton_sll_test.py
-    ./sll/array_jagged_bmm_jagged_out_test.py
-    ./sll/jagged_dense_elementwise_add_test.py
-    ./sll/jagged_flash_attention_basic_test.py
-    ./sll/jagged_jagged_bmm_jagged_out_test.py
-    ./sll/jagged_dense_flash_attention_test.py
-    ./sll/multi_head_jagged_flash_attention_test.py
-    ./sll/jagged_dense_bmm_test.py
-    ./sll/jagged_dense_elementwise_mul_jagged_out_test.py
-    ./sll/jagged_jagged_bmm_test.py
-    ./sll/jagged_softmax_test.py
   )
 }
 
@@ -123,6 +112,8 @@ __configure_fbgemm_gpu_test_rocm () {
   print_exec conda env config vars set ${env_prefix} FBGEMM_TEST_WITH_ROCM=1
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} HIP_LAUNCH_BLOCKING=1
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} FBGEMM_TBE_ROCM_INFERENCE_PACKED_BAGS=1
 
   # Starting from MI250 AMD GPUs support per process XNACK mode change
   # shellcheck disable=SC2155
@@ -266,7 +257,7 @@ __determine_test_directories () {
     )
   fi
 
-  if [ "$fbgemm_gpu_variant" == "cuda" ] || [ "$fbgemm_gpu_variant" == "genai" ]; then
+  if [ "$fbgemm_gpu_variant" == "genai" ]; then
     target_directories+=(
       fbgemm_gpu/experimental/example/test
       fbgemm_gpu/experimental/gemm/test
@@ -372,7 +363,7 @@ test_setup_conda_environment () {
     install_cuda  "${env_name}" "${pytorch_variant_version}"                                            || return 1
     install_cudnn "${env_name}" "${HOME}/cudnn-${pytorch_variant_version}" "${pytorch_variant_version}" || return 1
   # Install ROCm tools and runtime
-  elif [ "$pytorch_variant_type" == "rocm" ]; then
+  elif [[ "$pytorch_variant_type" == "rocm" ]] && ! [[ "$(hostname)" =~ ^.*facebook.com$ ]]; then
     install_rocm_ubuntu     "${env_name}" "${pytorch_variant_version}"  || return 1
   fi
 
@@ -505,6 +496,7 @@ test_fbgemm_gpu_setup_and_pip_install () {
       11.8.0
       12.4.1
       12.6.3
+      12.8.0
     )
   elif [ "$variant_type" == "rocm" ]; then
     local variant_versions=(

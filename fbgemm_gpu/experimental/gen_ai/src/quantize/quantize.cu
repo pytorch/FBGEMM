@@ -371,26 +371,15 @@ __global__ void scaleMatrix(
     const int64_t numel,
     const int64_t lda,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  StochasticRoundingRNGState stoc_rounding_state;
-
-  const auto stochastic_rounding_seeds =
-      at::cuda::philox::unpack(stochastic_rounding_philox_args);
-  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
-
-  stochastic_rounding_init(
-      std::get<0>(stochastic_rounding_seeds) ^
-          std::get<1>(stochastic_rounding_seeds),
-      // The salt value should be different for every *run* and every
-      // *thread*.
-      salt_value,
-      &stoc_rounding_state);
+  auto stoc_rounding_state = StochasticRoundingRNGState(
+      stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
   auto input_scal = static_cast<float>(input_scale[0]);
 
   auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
   auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
   for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
        d += (size_t)blockDim.x * gridDim.x) {
-    const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+    const auto random_bits = stoc_rounding_state.rand4();
     bfx4 v_in = vec_input[d];
     float4 v_float;
     v_float.x = stochastic_rounding_scalar_fp8(
@@ -417,25 +406,16 @@ __global__ void scaleMatrixRowwise(
     const int64_t numel,
     const int64_t lda,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  StochasticRoundingRNGState stoc_rounding_state;
-
-  const auto stochastic_rounding_seeds =
-      at::cuda::philox::unpack(stochastic_rounding_philox_args);
-  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
-  stochastic_rounding_init(
-      std::get<0>(stochastic_rounding_seeds) ^
-          std::get<1>(stochastic_rounding_seeds),
-      // The salt value should be different for every *run* and every
-      // *thread*.
-      salt_value,
-      &stoc_rounding_state);
+  auto stoc_rounding_state = StochasticRoundingRNGState(
+      stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
+  auto input_scal = static_cast<float>(input_scale[0]);
 
   auto vec_output = reinterpret_cast<__nv_fp8x4_e4m3*>(&output[0]);
   auto vec_input = reinterpret_cast<const bfx4*>(&input[0]);
   auto vec_scale = reinterpret_cast<const float4*>(&input_scale[0]);
   for (int32_t d = (threadIdx.x + blockIdx.x * blockDim.x); d * 4 < numel;
        d += (size_t)blockDim.x * gridDim.x) {
-    const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+    const auto random_bits = stoc_rounding_state.rand4();
     bfx4 v_in = vec_input[d];
     float4 v_float;
     float4 v_scale = vec_scale[d / lda];
@@ -786,7 +766,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
   for (int i = 0; i < input.dim(); i++) {
     quantized_input_shape.push_back(input.size(i));
   }
-  std::vector<long int> scale_shape = {1};
+  std::vector<long int> scale_shape = {};
   input = input.cuda();
   at::Tensor quantized_input = torch::empty(
       quantized_input_shape,
@@ -879,8 +859,8 @@ std::vector<at::Tensor> quantize_fp8_per_tensor(
 template <typename T>
 __inline__ __device__ T blockAllReduceMax(T val) {
   static __shared__ T shared[32];
-  int lane = threadIdx.x & 0x1f;
-  int wid = threadIdx.x >> 5;
+  auto lane = threadIdx.x & 0x1f;
+  auto wid = threadIdx.x >> 5;
   val = warpReduceMax(val);
   if (lane == 0)
     shared[wid] = val;
@@ -938,21 +918,9 @@ __global__ void dynamicQuantizeMatrixRowwiseStoc(
     int64_t lda,
     const float* scale_ub,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
-  StochasticRoundingRNGState stoc_rounding_state;
-
-  const auto stochastic_rounding_seeds =
-      at::cuda::philox::unpack(stochastic_rounding_philox_args);
-  const uint64_t salt_value = threadIdx.x + blockIdx.x * blockDim.x;
-
-  stochastic_rounding_init(
-      std::get<0>(stochastic_rounding_seeds) ^
-          std::get<1>(stochastic_rounding_seeds),
-      // The salt value should be different for every *run* and every
-      // *thread*.
-      salt_value,
-      &stoc_rounding_state);
-
-  const uint4 random_bits = stochastic_rounding_rand4(&stoc_rounding_state);
+  auto stoc_rounding_state = StochasticRoundingRNGState(
+      stochastic_rounding_philox_args, threadIdx.x + blockIdx.x * blockDim.x);
+  const auto random_bits = stoc_rounding_state.rand4();
 
   extern __shared__ __align__(sizeof(float)) char _shmem[];
   T_IN* shmem = reinterpret_cast<T_IN*>(_shmem);
@@ -1109,8 +1077,9 @@ std::vector<at::Tensor> quantize_fp8_per_row(
       "Invalid dim. The dim of input should be greater than or equal to 2");
   TORCH_CHECK(
       input.scalar_type() == torch::kBFloat16 ||
-          input.scalar_type() == torch::kFloat,
-      "Invalid datatype. input must be BF16 or FP32");
+          input.scalar_type() == torch::kFloat ||
+          input.scalar_type() == torch::kHalf,
+      "Invalid datatype. input must be BF16, FP16 or FP32");
   TORCH_CHECK(
       !stochastic_rounding || input.size(-1) % 4 == 0,
       "input row dim must be 4's multiple when stochastic_rounding is True");

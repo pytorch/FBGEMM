@@ -6,7 +6,10 @@
 
 import argparse
 import itertools
+
 import os
+
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -16,7 +19,40 @@ import pandas as pd
 import seaborn as sns
 import torch
 
-from .quantize_ops import get_quantize_ops, QuantizeOpBase
+try:
+    from accelerators.pytorch.lib.utils.torch_profiler import profiler_or_nullcontext
+except ImportError:
+    from contextlib import nullcontext
+
+    class profiler_or_nullcontext(nullcontext):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+
+from fbgemm_gpu.experimental.gen_ai.quantize_ops import get_quantize_ops, QuantizeOpBase
+
+
+def generate_group_tensor(G, M):
+    """
+    Generate a tensor with G elements whose integer elements sum to A.
+
+    Args:
+        G (int): Number of elements in the tensor.
+        M (int): Sum of the elements in the tensor.
+
+    Returns:
+        torch.Tensor: A tensor with G elements whose integer elements sum to M.
+    """
+
+    # First, we generate a random tensor with G elements
+    random_tensor = torch.rand(G)
+    # Then, we normalize this tensor so it sums up to 1
+    normalized_tensor = random_tensor / random_tensor.sum()
+    # Finally, we multiply this tensor by M and round to the nearest integer
+    output_tensor = torch.round(normalized_tensor * M).to(torch.int64)
+    # Adjust the last element to ensure the sum is exactly M
+    output_tensor[-1] += max(0, M - output_tensor.sum())
+    return output_tensor.tolist()
 
 
 def set_amd_env_vars() -> None:
@@ -86,16 +122,42 @@ def get_ldm_shapes() -> List[Tuple[int, int, int, int]]:
     ]
 
 
+@dataclass
+class Metrics:
+    op_name: str
+
+    sim: float = 0.0
+    ms: float = 0.0
+    tflops: float = 0.0
+    gbps: float = 0.0
+
+    def __str__(self) -> str:
+        return (
+            "%s sim: %.3f.\n%s ms: %.3f. \n" "%s TFLOPS: %.3f. \n%s GB/s: %.3f."
+        ) % (
+            self.op_name,
+            self.sim,
+            self.op_name,
+            self.ms,
+            self.op_name,
+            self.tflops,
+            self.op_name,
+            self.gbps,
+        )
+
+
 def benchmark_grouped(
     quantize_ops: List[QuantizeOpBase],
     b: List[int],
     m: List[int],
     n: List[int],
     k: List[int],
-    kernels: Optional[List[str]] = None,
     bench_quantize: bool = False,
     use_rotating_buffer_bench: bool = False,
     use_cuda_graph: bool = True,
+    trace: bool = False,
+    num_iters: int = 1,
+    fast_accum: bool = True,
 ) -> Dict[str, Any]:
     num_groups = len(m)
     # Create input tensors.
@@ -120,69 +182,74 @@ def benchmark_grouped(
     results: Dict[str, Any] = {"M": log_m, "N": log_n, "K": log_k, "groups": num_groups}
     # Benchmark each operator.
     for quantize_op in quantize_ops:
-        # If kernel filter is provided, skip kernels that arent requested.
-        kernel_requested = (kernels is None) or (
-            kernels is not None and quantize_op.name in kernels
-        )
-        # Also check if the operator is supported.
-        if kernel_requested and quantize_op.supported:
-            # Get the quantized tensors for this operator.
-            quantized_vals = quantize_op.quantize(A, B)
-            # Compute the output given quantized values.
-            output = quantize_op.compute(*quantized_vals)
-            # Some kernels may pad output, just take the first m values of each row.
+        metrics = Metrics(op_name=quantize_op.name)
+        # Set fast accum mode if applicable.
+        if hasattr(quantize_op, "fast_accum"):
+            quantize_op.fast_accum = fast_accum
+        # Get the quantized tensors for this operator.
+        preprocessed_args = quantize_op.preprocess(A, B)
+        quantized_vals = quantize_op.quantize(*preprocessed_args)
+        # Compute the output given quantized values.
+        output = quantize_op.compute(*quantized_vals)
+        # Some kernels may pad output, just take the first m values of each row.
+        if isinstance(output, torch.Tensor) and output.ndim == 2:
+            # Output is stacked and needs to be split.
+            output = torch.split(output, m, dim=0)
+        else:
+            # Otherwise output may be padded or require unbinding.
             output = [o[: m[i]] for i, o in enumerate(output)]
-            # Compare the quantize op output to reference as a sanity check.
-            sim_check: float = 0
-            for i in range(num_groups):
-                sim_check += float(
+        # Compare the quantize op output to reference as a sanity check.
+        for i in range(num_groups):
+            if m[i] > 0:
+                metrics.sim += float(
                     torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
                 )
-
+        for _ in range(num_iters):
             # Now perform benchmark.
             if bench_quantize:
                 # Benchmark both quantize and compute.
-                ms_runtime = quantize_op.benchmark(
-                    A,
-                    B,
-                    bench_quantize=True,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *preprocessed_args,
+                        bench_quantize=True,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
             else:
-                ms_runtime = quantize_op.benchmark(
-                    *quantized_vals,
-                    bench_quantize=False,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *quantized_vals,
+                        bench_quantize=False,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
 
             # Print out results for this op.
-            tflops = 0
-            gbps = 0
             for i in range(num_groups):
-                tflops += 2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
-                gbps += (
-                    (
-                        quantized_vals[0][i][: m[i]].numel()
-                        * quantized_vals[0][i][: m[i]].element_size()
-                        + quantized_vals[1][i].numel()
-                        * quantized_vals[1][i].element_size()
-                        + output[i].numel() * output[i].element_size()
-                    )
-                    / (ms_runtime / 1e3)
-                    / 1e9
+                metrics.tflops += (
+                    2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 )
-            print(f"{quantize_op.name} sim: {sim_check:.3f}.")
-            print(f"{quantize_op.name} ms: {ms_runtime:.3f}.")
-            print(f"{quantize_op.name} TFLOPS: {tflops:.3f}.")
-            print(f"{quantize_op.name} GB/s: {gbps:.3f}.")
+                if m[i] > 0:
+                    metrics.gbps += (
+                        (
+                            b[i] * m[i] * k[i] * quantized_vals[0][0].element_size()
+                            + b[i] * n[i] * k[i] * quantized_vals[1][0].element_size()
+                            + b[i] * m[i] * n[i] * output[0].element_size()
+                        )
+                        / (ms_runtime / 1e3)
+                        / 1e9
+                    )
+            metrics.ms += ms_runtime
+        metrics.ms /= num_iters
+        metrics.tflops /= num_iters
+        metrics.gbps /= num_iters
+        print(f"Average metrics over {num_iters} iterations: \n{metrics}")
 
-            # Save results for this operator.
-            results[f"{quantize_op.name}_sim"] = sim_check
-            results[f"{quantize_op.name}_ms"] = ms_runtime
-            results[f"{quantize_op.name}_tflops"] = tflops
-            results[f"{quantize_op.name}_gb/s"] = gbps
+        # Save results for this operator.
+        results[f"{quantize_op.name}_sim"] = metrics.sim
+        results[f"{quantize_op.name}_ms"] = metrics.ms
+        results[f"{quantize_op.name}_tflops"] = metrics.tflops
+        results[f"{quantize_op.name}_gb/s"] = metrics.gbps
 
     return results
 
@@ -193,10 +260,12 @@ def benchmark(
     m: int,
     n: int,
     k: int,
-    kernels: Optional[List[str]] = None,
     bench_quantize: bool = False,
     use_rotating_buffer_bench: bool = False,
     use_cuda_graph: bool = True,
+    trace: bool = False,
+    num_iters: int = 1,
+    fast_accum: bool = True,
 ) -> Dict[str, Any]:
     # Create input tensors.
     if b > 1:
@@ -212,40 +281,42 @@ def benchmark(
     results: Dict[str, Any] = {"B": b, "M": m, "N": n, "K": k}
     # Benchmark each operator.
     for quantize_op in quantize_ops:
-        # If kernel filter is provided, skip kernels that arent requested.
-        kernel_requested = (kernels is None) or (
-            kernels is not None and quantize_op.name in kernels
-        )
-        # Also check if the operator is supported.
-        if kernel_requested and quantize_op.supported:
-            # Get the quantized tensors for this operator.
-            quantized_vals = quantize_op.quantize(A, B)
-            # Compute the output given quantized values.
-            output = quantize_op.compute(*quantized_vals)
-            # Compare the quantize op output to reference as a sanity check.
-            sim_check = torch.mean(torch.pow(output - out_ref, 2))
+        metrics = Metrics(op_name=quantize_op.name)
+        # Set fast accum mode if applicable.
+        if hasattr(quantize_op, "fast_accum"):
+            quantize_op.fast_accum = fast_accum
+        # Preprocess data if needed.
+        preprocessed_args = quantize_op.preprocess(A, B)
+        # Get the quantized tensors for this operator.
+        quantized_vals = quantize_op.quantize(*preprocessed_args)
+        # Compute the output given quantized values.
+        output = quantize_op.compute(*quantized_vals)
+        # Compare the quantize op output to reference as a sanity check.
+        metrics.sim = torch.mean(torch.pow(output - out_ref, 2)).item()
 
+        for _ in range(num_iters):
             # Now perform benchmark.
             if bench_quantize:
                 # Benchmark both quantize and compute.
-                ms_runtime = quantize_op.benchmark(
-                    A,
-                    B,
-                    bench_quantize=True,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *preprocessed_args,
+                        bench_quantize=True,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
             else:
-                ms_runtime = quantize_op.benchmark(
-                    *quantized_vals,
-                    bench_quantize=False,
-                    use_rotating_buffer_bench=use_rotating_buffer_bench,
-                    use_cuda_graph=use_cuda_graph,
-                )
+                with profiler_or_nullcontext(enabled=trace, with_stack=True):
+                    ms_runtime = quantize_op.benchmark(
+                        *quantized_vals,
+                        bench_quantize=False,
+                        use_rotating_buffer_bench=use_rotating_buffer_bench,
+                        use_cuda_graph=use_cuda_graph,
+                    )
 
             # Print out results for this op.
-            tflops = 2 * b * m * n * k / (ms_runtime / 1e3) / 1e12
-            gbps = (
+            metrics.tflops += 2 * b * m * n * k / (ms_runtime / 1e3) / 1e12
+            metrics.gbps += (
                 (
                     quantized_vals[0].numel() * quantized_vals[0].element_size()
                     + quantized_vals[1].numel() * quantized_vals[1].element_size()
@@ -254,21 +325,23 @@ def benchmark(
                 / (ms_runtime / 1e3)
                 / 1e9
             )
-            print(f"{quantize_op.name} sim: {sim_check:.3f}.")
-            print(f"{quantize_op.name} ms: {ms_runtime:.3f}.")
-            print(f"{quantize_op.name} TFLOPS: {tflops:.3f}.")
-            print(f"{quantize_op.name} GB/s: {gbps:.3f}.")
+            metrics.ms += ms_runtime
+        # Print out results for this op.
+        metrics.ms /= num_iters
+        metrics.tflops /= num_iters
+        metrics.gbps /= num_iters
+        print(f"Average metrics over {num_iters} iterations: \n{metrics}")
 
-            # Save results for this operator.
-            results[f"{quantize_op.name}_sim"] = sim_check.item()
-            results[f"{quantize_op.name}_ms"] = ms_runtime
-            results[f"{quantize_op.name}_tflops"] = tflops
-            results[f"{quantize_op.name}_gb/s"] = gbps
+        # Save results for this operator.
+        results[f"{quantize_op.name}_sim"] = metrics.sim
+        results[f"{quantize_op.name}_ms"] = metrics.ms
+        results[f"{quantize_op.name}_tflops"] = metrics.tflops
+        results[f"{quantize_op.name}_gb/s"] = metrics.gbps
 
     return results
 
 
-def plot_benchmark(results: List[Dict[str, Any]]) -> None:
+def plot_benchmark(results: List[Dict[str, Any]], output_dir: str) -> None:
     """Create a barplot visualizing the TFLOPS of each kernel."""
     # Reprocess into new dataframe with proper graph format.
     data = []
@@ -289,21 +362,33 @@ def plot_benchmark(results: List[Dict[str, Any]]) -> None:
     plt.yscale("log")
     ax = sns.barplot(x="MNK", y="TFLOPS", hue="kernel", data=df)
     ax.tick_params(axis="x", labelsize=3)
-    plot.savefig("quantize_ops_benchmark.png", dpi=300)
+    img_fn = os.path.join(output_dir, "quantize_ops_benchmark.png")
+    plot.savefig(img_fn, dpi=300)
+
+
+def collect_kernels_to_profile(kernels: Optional[List[str]]) -> List[QuantizeOpBase]:
+    # Get existing quantization operators.
+    quantize_ops = get_quantize_ops()
+    quantize_ops = [op for op in quantize_ops if op.supported]
+    if kernels is None:
+        return quantize_ops
+    return [op for op in quantize_ops if op.name in kernels]
 
 
 def main(args: Any):
     if args.enable_amd_env_vars:
         set_amd_env_vars()
+    # If kernel filter is provided, parse it. Else, benchmark all kernels.
+    quantize_ops = collect_kernels_to_profile(
+        args.kernels.strip().split(",") if args.kernels else None
+    )
 
-    # Get operators to quantize.
-    quantize_ops = get_quantize_ops()
+    if len(quantize_ops) == 0:
+        raise Exception("No valid kernels to benchmark.")
 
-    # If kernel filter is provided, parse it.
-    if args.kernels is not None:
-        kernels = args.kernels.strip().split(",")
-    else:
-        kernels = None
+    if args.num_iters < 1:
+        print("Number of iterations must be at least 1.")
+        args.num_iters = 1
 
     # Enumerate shapes to benchmark.
     if args.grouped and not args.groups:
@@ -349,10 +434,22 @@ def main(args: Any):
     # When groups is provided transform shapes into grouped format.
     if args.groups:
         groups = int(args.groups)
-        MNK = [
-            [[b] * groups, [m] * groups, [n] * groups, [k] * groups]
-            for b, m, n, k in MNK
-        ]
+        if args.total_M:
+            M = generate_group_tensor(groups, int(args.total_M))
+            MNK = [
+                [
+                    [b] * groups,
+                    generate_group_tensor(groups, int(args.total_M)),
+                    [n] * groups,
+                    [k] * groups,
+                ]
+                for b, _, n, k in MNK
+            ]
+        else:
+            MNK = [
+                [[b] * groups, [m] * groups, [n] * groups, [k] * groups]
+                for b, m, n, k in MNK
+            ]
 
     # Iterate over shapes and benchmark.
     benchmark_results = []
@@ -365,22 +462,37 @@ def main(args: Any):
             m,  # pyre-ignore[6]: Incompatible parameter type [6]
             n,  # pyre-ignore[6]: Incompatible parameter type [6]
             k,  # pyre-ignore[6]: Incompatible parameter type [6]
-            kernels,
             args.bench_quantize,
             args.use_rotating_buffer_bench,
             not args.no_cuda_graph,
+            args.trace,
+            args.num_iters,
+            not args.disable_fast_accum,
         )
         benchmark_results.append(quantize_measurements)
+    if args.export_csv or args.plot:
+        os.makedirs(args.output_dir, exist_ok=True)
+        print("csv and images will be saved to " + args.output_dir)
     if args.export_csv:
+        csv_file = os.path.join(args.output_dir, "quantize_ops_benchmark.csv")
         # Export results to a CSV file.
         df = pd.DataFrame(benchmark_results)
-        df.to_csv("quantize_ops_benchmark.csv", index=False)
+        df.to_csv(csv_file, index=False)
     if args.plot:
-        plot_benchmark(benchmark_results)
+        plot_benchmark(benchmark_results, args.output_dir)
 
 
 def invoke_main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--output_dir", default="/tmp", help="Directory to save plots and csvs to"
+    )
+    parser.add_argument(
+        "--num_iters",
+        default=1,
+        type=int,
+        help="Number of iterations to repeat each benchmark.",
+    )
     parser.add_argument(
         "--export_csv",
         action="store_true",
@@ -436,6 +548,12 @@ def invoke_main() -> None:
         help="If set with grouped mode, repeat input shapes this many times.",
     )
     parser.add_argument(
+        "--total_M",
+        default=None,
+        help="If set, Adjusts the M values to sum to this number. "
+        "This can help simulate real grouped workloads.",
+    )
+    parser.add_argument(
         "--no_cuda_graph",
         default=False,
         action="store_true",
@@ -459,6 +577,22 @@ def invoke_main() -> None:
         action="store_true",
         help="If set, benchmark using fixed shapes relevant to ldm workloads.",
     )
+    parser.add_argument(
+        "--trace",
+        default=False,
+        action="store_true",
+        help="If set, produce a performance trace of the benchmark.",
+    )
+    parser.add_argument(
+        "--disable_fast_accum",
+        default=False,
+        action="store_true",
+        help="If set, disable fast accumulation for FP8 implementations.",
+    )
 
     args = parser.parse_args()
     main(args)
+
+
+if __name__ == "__main__":
+    invoke_main()  # pragma: no cover

@@ -47,7 +47,9 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const int64_t length,
       const at::Tensor& weights);
 
-  c10::IntArrayRef size();
+  c10::IntArrayRef sizes();
+
+  c10::IntArrayRef strides();
 
   c10::ScalarType dtype();
 
@@ -64,6 +66,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
   at::TensorOptions options_;
   std::vector<int64_t> shape_;
+  std::vector<int64_t> strides_;
   int64_t row_offset_;
 };
 

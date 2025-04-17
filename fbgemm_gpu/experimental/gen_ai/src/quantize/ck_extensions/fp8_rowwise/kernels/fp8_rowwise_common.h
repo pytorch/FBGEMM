@@ -103,9 +103,13 @@ template <
     ck::BlockGemmPipelineScheduler LOOP_SCHED,
     ck::BlockGemmPipelineVersion PIPELINE_VERSION,
     ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
-        ck::tensor_operation::device::GemmSpecialization::MNPadding,
+        ck::tensor_operation::device::GemmSpecialization::MNKPadding,
     ck::index_t AReadVecLength = 16,
-    ck::index_t BReadVecLength = 16>
+    ck::index_t BReadVecLength = 16,
+    ck::index_t ADstVecLength = 16,
+    ck::index_t BDstVecLength = 16,
+    int AK1 = 16,
+    int BK1 = 16>
 using DeviceGemmHelper =
     ck::tensor_operation::device::DeviceGemmMultiD_Xdl_CShuffle_V3<
         ALayout,
@@ -126,8 +130,8 @@ using DeviceGemmHelper =
         MBLOCK, // M per Block
         NBLOCK, // N per Block
         KBLOCK, // K per Block
-        16, // AK1
-        16, // BK1
+        AK1,
+        BK1,
         WAVE_TILE_M, // M per Xdl
         WAVE_TILE_N, // N per Xdl
         WAVE_MAP_M, // Mxdl per Wave
@@ -137,14 +141,14 @@ using DeviceGemmHelper =
         S<1, 0, 2>,
         2,
         AReadVecLength,
-        16,
+        ADstVecLength,
         0,
         BBLOCK_TRANSFER,
         S<1, 0, 2>,
         S<1, 0, 2>,
         2,
         BReadVecLength,
-        16,
+        BDstVecLength,
         0,
         CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
         CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
@@ -199,6 +203,12 @@ at::Tensor f8f8bf16_rowwise_impl(
       a_element_op,
       b_element_op,
       cde_element_op);
+
+  if (!gemm.IsSupportedArgument(argument)) {
+    std::cerr << "Error: " << gemm.GetTypeString()
+              << " does not support this problem {" << M << ", " << N << ", "
+              << K << "}" << std::endl;
+  }
 
   auto stream = at::cuda::getCurrentHIPStream().stream();
   invoker.Run(argument, StreamConfig{stream, false});
