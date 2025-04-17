@@ -87,6 +87,7 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
   CPU_SRCS
     src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
+    src/split_embeddings_utils/split_embeddings_utils_meta.cpp
   GPU_SRCS
     src/split_embeddings_utils/split_embeddings_utils.cpp
     src/split_embeddings_utils/generate_vbe_metadata.cu
