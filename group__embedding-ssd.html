@@ -114,6 +114,8 @@ Enumerations</h2></td></tr>
 Functions</h2></td></tr>
 <tr class="memitem:ga62f470c1f80d566177fd011b4f7181ac" id="r_ga62f470c1f80d566177fd011b4f7181ac"><td class="memItemLeft" align="right" valign="top">size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga62f470c1f80d566177fd011b4f7181ac">hash_shard</a> (int64_t id, size_t num_shards)</td></tr>
 <tr class="separator:ga62f470c1f80d566177fd011b4f7181ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:gab0454abe665989e744169d08e3cc3629" id="r_gab0454abe665989e744169d08e3cc3629"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gab0454abe665989e744169d08e3cc3629">get_bucket_sorted_indices_and_bucket_tensor</a> (const at::Tensor &amp;unordered_indices, int64_t hash_mode, int64_t bucket_start, int64_t bucket_end, std::optional&lt; int64_t &gt; bucket_size, std::optional&lt; int64_t &gt; total_num_buckets)</td></tr>
+<tr class="separator:gab0454abe665989e744169d08e3cc3629"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga14b70f98db5378da5071b9049b7356db" id="r_ga14b70f98db5378da5071b9049b7356db"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga14b70f98db5378da5071b9049b7356db">cuda_callback_func</a> (cudaStream_t stream, cudaError_t status, void *functor)</td></tr>
 <tr class="separator:ga14b70f98db5378da5071b9049b7356db"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaf16c3a72b210803c8ed97db57215ea49" id="r_gaf16c3a72b210803c8ed97db57215ea49"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gaf16c3a72b210803c8ed97db57215ea49">masked_index_put_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count, const bool use_pipeline, const int64_t preferred_sms)</td></tr>
@@ -242,6 +244,61 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
+
+</div>
+</div>
+<a id="gab0454abe665989e744169d08e3cc3629" name="gab0454abe665989e744169d08e3cc3629"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#gab0454abe665989e744169d08e3cc3629">&#9670;&#160;</a></span>get_bucket_sorted_indices_and_bucket_tensor()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::tuple&lt; at::Tensor, at::Tensor &gt; get_bucket_sorted_indices_and_bucket_tensor </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>unordered_indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>hash_mode</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>bucket_start</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>bucket_end</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>bucket_size</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>total_num_buckets</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>given a tensor containing ids in random order, returns 2 tensors tensor1 contains ids sorted in bucket ascending order, for example given [1,2,3,4] with 2 buckets [1, 4) and [4, 7), the output will be [1,2,3,4] or [2, 1, 3, 4], id 1, 2, 3 must be prior to 4, but 1 2 3 can be in any order tensor2 contains number of embeddings in each bucket id(tensor offset), in the above example tensor2 will be [3, 1] where first item corresponds to the first bucket id, value 3 means there are 3 ids in the first bucket id </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">unordered_indices</td><td>unordered ids, the id here might be original(unlinearized) id </td></tr>
+    <tr><td class="paramname">hash_mode</td><td>0 for hash by mod, 1 for hash by interleave </td></tr>
+    <tr><td class="paramname">bucket_start</td><td>global bucket id, the start of the bucket range </td></tr>
+    <tr><td class="paramname">bucket_end</td><td>global bucket id, the end of the bucket range </td></tr>
+    <tr><td class="paramname">bucket_size</td><td>an optional, virtual size(input space, e.g. 2^50) of a bucket </td></tr>
+    <tr><td class="paramname">total_num_buckets</td><td>an optional with the total number of buckets per training model</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>list of 2 tensors, first tensor is bucket sorted ids, second tensor is bucket size </dd></dl>
 
 </div>
 </div>
