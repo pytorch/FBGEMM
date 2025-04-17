@@ -307,7 +307,7 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
 }
 
 // NOTE: This test currently fails in fbcode CI for HIP with the following
-// error:
+// error (but runs without issues on both NVIDIA and AMD machines):
 //
 // void fbgemm_gpu::utils::always_fail_assertion_kernel(const int,
 // c10::hip::DeviceAssertionsData *const, uint32_t): Device-side assertion `(a
