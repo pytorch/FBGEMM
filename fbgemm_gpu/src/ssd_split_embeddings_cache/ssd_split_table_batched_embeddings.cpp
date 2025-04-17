@@ -15,6 +15,7 @@
 
 #include "./ssd_table_batched_embeddings.h"
 #include "embedding_rocksdb_wrapper.h"
+#include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
 using namespace at;
@@ -546,6 +547,18 @@ static auto kv_tensor_wrapper =
         .def_property("strides", &KVTensorWrapper::strides);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "get_bucket_sorted_indices_and_bucket_tensor("
+      "    Tensor unordered_indices,"
+      "    int hash_mode,"
+      "    int bucket_start,"
+      "    int bucket_end,"
+      "    int? bucket_size=None,"
+      "    int? total_num_buckets=None"
+      ") -> (Tensor, Tensor)");
+  DISPATCH_TO_CPU(
+      "get_bucket_sorted_indices_and_bucket_tensor",
+      kv_db_utils::get_bucket_sorted_indices_and_bucket_tensor);
   m.def(
       "masked_index_put("
       "    Tensor self, "
