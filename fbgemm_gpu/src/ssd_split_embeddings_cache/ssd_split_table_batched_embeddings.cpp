@@ -352,6 +352,30 @@ void KVTensorWrapper::set_range(
   }
 }
 
+void KVTensorWrapper::set_weights_and_ids(
+    const at::Tensor& ids,
+    const at::Tensor& weights) {
+  CHECK_EQ(ids.size(0), weights.size(0))
+      << "ids and weights must have same # rows";
+  CHECK_GE(db_->get_max_D(), shape_[1]);
+  int pad_right = db_->get_max_D() - weights.size(1);
+  if (pad_right == 0) {
+    db_->set_kv_to_storage(ids, weights);
+  } else {
+    std::vector<int64_t> padding = {0, pad_right, 0, 0};
+    auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
+    CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+    db_->set_kv_to_storage(ids, padded_weights);
+  }
+}
+
+at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
+  auto weights =
+      at::empty(c10::IntArrayRef({ids.size(0), db_->get_max_D()}), options_);
+  db_->get_kv_from_storage_by_snapshot(ids, weights, snapshot_handle_->handle);
+  return weights.narrow(1, 0, shape_[1]);
+}
+
 c10::IntArrayRef KVTensorWrapper::sizes() {
   return shape_;
 }
@@ -508,6 +532,8 @@ static auto kv_tensor_wrapper =
             "",
             {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
         .def("set_range", &KVTensorWrapper::set_range)
+        .def("set_weights_and_ids", &KVTensorWrapper::set_weights_and_ids)
+        .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property("device_str", &KVTensorWrapper::device_str)
         .def_property("layout_str", &KVTensorWrapper::layout_str)

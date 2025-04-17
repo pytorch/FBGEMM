@@ -575,6 +575,21 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
   }
 
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
+    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+    folly::coro::blockingWait(set_kv_db_async(ids, weights, count));
+  }
+
+  void get_kv_from_storage_by_snapshot(
+      const at::Tensor& ids,
+      const at::Tensor& weights,
+      const SnapshotHandle* snapshot_handle) {
+    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+    get_kv_db_async_impl</*use_iterator=*/false>(
+        ids, weights, count, snapshot_handle)
+        .wait();
+  }
+
   virtual rocksdb::Status set_rocksdb_option(
       int shard,
       const std::string& key,
