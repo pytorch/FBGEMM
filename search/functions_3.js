@@ -5,7 +5,7 @@ var searchData=
   ['checked_5fmemcpy_2',['checked_memcpy',['../namespacefbgemm__gpu.html#aa918bd02809bf42ba7d396c18add690f',1,'fbgemm_gpu']]],
   ['codegenbase_3',['CodeGenBase',['../classfbgemm_1_1_code_gen_base.html#a843f4289cb9de379bac477ed0dcba1cf',1,'fbgemm::CodeGenBase']]],
   ['col_5foffsets_5fwith_5fzero_5fpt_5fs8acc32_5fref_4',['col_offsets_with_zero_pt_s8acc32_ref',['../namespacefbgemm.html#a0f66af5e8e787dc1ff6893ac75ae161f',1,'fbgemm']]],
-  ['compact_5findices_5fcuda_5',['compact_indices_cuda',['../group__embedding-ssd.html#ga3c1be516461fee114c157402e33cb0d9',1,'ssd_split_table_batched_embeddings.cpp']]],
+  ['compact_5findices_5fcuda_5',['compact_indices_cuda',['../group__embedding-ssd.html#ga3c1be516461fee114c157402e33cb0d9',1,'compact_indices_cuda(std::vector&lt; Tensor &gt; compact_indices, Tensor compact_count, std::vector&lt; Tensor &gt; indices, Tensor masks, Tensor count):&#160;ssd_split_embeddings_cache_cuda.cu'],['../group__embedding-ssd.html#ga3c1be516461fee114c157402e33cb0d9',1,'compact_indices_cuda(std::vector&lt; Tensor &gt; compact_indices, Tensor compact_count, std::vector&lt; Tensor &gt; indices, Tensor masks, Tensor count):&#160;ssd_split_embeddings_cache_cuda.cu']]],
   ['compare_5fbuffers_6',['compare_buffers',['../namespacefbgemm.html#a9d995b583abb4b09927c90f66e3b1463',1,'fbgemm']]],
   ['conv_5fparam_5ft_7',['conv_param_t',['../structfbgemm_1_1conv__param__t.html#a926431139532f74306f6cd6dc08d171a',1,'fbgemm::conv_param_t']]],
   ['convfastpath_8',['ConvFastPath',['../namespacefbgemm.html#ad5bda89769bca9a01ddf81591f20ef02',1,'fbgemm']]],
