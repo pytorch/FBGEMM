@@ -54,6 +54,7 @@ class SSDCheckpointTest(unittest.TestCase):
         weights_precision: SparseType,
         mixed: bool,
         enable_l2: bool = True,
+        ssd_rocksdb_shards: int = 1,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int], int]:
         E = int(10**log_E)
         D = D * 4
@@ -79,6 +80,7 @@ class SSDCheckpointTest(unittest.TestCase):
             ssd_uniform_init_upper=0.1,
             weights_precision=weights_precision,
             l2_cache_size=1 if enable_l2 else 0,
+            ssd_rocksdb_shards=ssd_rocksdb_shards,
         )
         return emb, Es, Ds, max(Ds)
 
@@ -107,9 +109,7 @@ class SSDCheckpointTest(unittest.TestCase):
 
         torch.cuda.synchronize()
         assert torch.equal(weights, weights_from_l2)
-        import logging
 
-        logging.info(f"wgqtest {do_flush=}")
         weights_from_ssd = torch.empty_like(weights)
         if do_flush:
             emb.ssd_db.flush()
@@ -256,3 +256,55 @@ class SSDCheckpointTest(unittest.TestCase):
             emb.step += 1
             emb.flush()
             self.assertEqual(mock_calls.call_count, 2)
+
+    @given(**default_st)
+    @settings(**default_settings)
+    def test_rocksdb_get_discrete_ids(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+        weights_precision: SparseType = SparseType.FP32
+        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
+            T, D, log_E, weights_precision, mixed, False, 8
+        )
+        E = int(10**log_E)
+        N = int(E / 10)
+
+        offset = 1000
+        indices = torch.as_tensor(
+            np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
+        )
+        new_indices = torch.as_tensor(
+            np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
+        )
+        weights = torch.arange(N * D, dtype=weights_precision.as_dtype()).view(N, D)
+        new_weights_after_snapshot = torch.randn(
+            N, D, dtype=weights_precision.as_dtype()
+        )
+
+        # use kvtensor to directly set KVs into rocksdb wrapper
+        tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+            emb.ssd_db, [E, D], weights.dtype, 0
+        )
+        tensor_wrapper.set_weights_and_ids(indices + offset, weights)
+
+        snapshot = emb.ssd_db.create_snapshot()
+        tensor_wrapper.set_weights_and_ids(
+            new_indices + offset, new_weights_after_snapshot
+        )
+        start_id = 0
+        end_id = int(E / 2)
+
+        mask = (indices >= start_id) & (indices < end_id)
+        ids_in_range = indices[mask]
+        id_tensor = emb.ssd_db.get_keys_in_range_by_snapshot(
+            start_id + offset, end_id + offset, offset, snapshot
+        )
+        ids_in_range_ordered, _ = torch.sort(ids_in_range)
+        id_tensor_ordered, _ = torch.sort(id_tensor)
+
+        assert torch.equal(ids_in_range_ordered, id_tensor_ordered)
