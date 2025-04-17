@@ -14,7 +14,7 @@ import time
 import unittest
 
 from typing import Any, Dict, List, Tuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import hypothesis.strategies as st
 import numpy as np

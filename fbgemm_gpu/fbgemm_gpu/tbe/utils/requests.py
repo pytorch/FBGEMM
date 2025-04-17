@@ -119,7 +119,7 @@ def generate_requests_from_data_file(
         average_L = int((offsets_tensor[-1] - offsets_tensor[0]) / B)
         assert (np.prod(offsets_tensor.size()) - 1) == np.prod((T, B)), (
             f"Data file (indices = {indices_tensor.size()}, "
-            f"offsets = {offsets_tensor.size()}, lengths = {offsets_tensor.size()-1}) "
+            f"offsets = {offsets_tensor.size()}, lengths = {offsets_tensor.size() - 1}) "
             f"does not conform to inputs (T, B) = ({T}, {B})."
         )
 
