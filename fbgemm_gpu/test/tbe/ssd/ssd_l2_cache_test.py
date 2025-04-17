@@ -7,6 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[3,6,56]
 
+import math
 import tempfile
 
 import threading
@@ -27,7 +28,8 @@ from hypothesis import given, settings, Verbosity
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
 
-MAX_EXAMPLES = 20
+MAX_EXAMPLES = 100
+WORLD_SIZE = 4
 default_st: Dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=10),
     "D": st.integers(min_value=2, max_value=128),
@@ -308,3 +310,107 @@ class SSDCheckpointTest(unittest.TestCase):
         id_tensor_ordered, _ = torch.sort(id_tensor)
 
         assert torch.equal(ids_in_range_ordered, id_tensor_ordered)
+
+    @given(
+        E=st.integers(min_value=1000, max_value=10000),
+        num_buckets=st.integers(min_value=10, max_value=15),
+        my_rank=st.integers(min_value=0, max_value=WORLD_SIZE),
+        hash_mode=st.sampled_from([0, 1, 2]),
+    )
+    @settings(**default_settings)
+    def test_get_bucket_sorted_indices(
+        self,
+        E: int,
+        num_buckets: int,
+        my_rank: int,
+        hash_mode: int,
+    ) -> None:
+        bucket_size = math.ceil(E / num_buckets)
+        bucket_start = min(math.ceil(num_buckets / WORLD_SIZE) * my_rank, num_buckets)
+        bucket_end = min(
+            math.ceil(num_buckets / WORLD_SIZE) * (my_rank + 1), num_buckets
+        )
+        rank_range = (bucket_end - bucket_start) * bucket_size
+
+        indices = torch.empty(0, dtype=torch.int64)
+
+        # construct indices, the indices's bucket ids have to fall into the range of bucket start and end
+        if hash_mode == 0:
+            if rank_range == 0:
+                indices = torch.empty(0, dtype=torch.int64)
+            else:
+                indices = torch.as_tensor(
+                    np.random.choice(rank_range, replace=False, size=(rank_range,)),
+                    dtype=torch.int64,
+                )
+                indices += bucket_start * bucket_size
+        elif hash_mode == 1:
+            for i in range(bucket_start, bucket_end):
+                sub_indices = torch.arange(start=0, end=bucket_size, dtype=torch.int64)
+                sub_indices *= num_buckets
+                sub_indices += i
+                indices = torch.cat((indices, sub_indices), dim=0)
+
+        # test get_bucket_sorted_indices_and_bucket_tensor
+        if hash_mode == 0:
+            # meaning it is mod based hashing
+            [bucket_sorted_ids, bucket_t] = (
+                torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
+                    indices,
+                    hash_mode,
+                    bucket_start,
+                    bucket_end,
+                    bucket_size,
+                )
+            )
+        elif hash_mode == 1:
+            # meaning it is interleaved based hashing
+            [bucket_sorted_ids, bucket_t] = (
+                torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
+                    indices,
+                    hash_mode,
+                    bucket_start,
+                    bucket_end,
+                    None,
+                    num_buckets,
+                )
+            )
+        else:
+            # test failure
+            with self.assertRaisesRegex(
+                RuntimeError, "only support hash by mod and interleaved for now"
+            ):
+                torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
+                    indices,
+                    hash_mode,
+                    bucket_start,
+                    bucket_end,
+                    bucket_size,
+                )
+            return
+        last_bucket_id = 0
+        for i in range(bucket_sorted_ids.numel()):
+            self.assertTrue(hash_mode >= 0 and hash_mode <= 1)
+            cur_bucket_id = -1
+            if hash_mode == 0:
+                cur_bucket_id = bucket_sorted_ids[i] // bucket_size
+            elif hash_mode == 1:
+                cur_bucket_id = bucket_sorted_ids[i] % num_buckets
+
+            self.assertGreaterEqual(cur_bucket_id, last_bucket_id)
+            last_bucket_id = cur_bucket_id
+        # Calculate expected tensor output
+        expected_bucket_tensor = torch.zeros(
+            bucket_end - bucket_start, 1, dtype=torch.int64
+        )
+        for index in indices:
+            self.assertTrue(hash_mode >= 0 and hash_mode <= 1)
+            bucket_id = -1
+            if hash_mode == 0:
+                bucket_id = index // bucket_size
+            elif hash_mode == 1:
+                bucket_id = index % num_buckets
+            expected_bucket_tensor[bucket_id - bucket_start] += 1
+
+        # Compare actual and expected tensor outputs
+        self.assertTrue(torch.equal(bucket_t, expected_bucket_tensor))
