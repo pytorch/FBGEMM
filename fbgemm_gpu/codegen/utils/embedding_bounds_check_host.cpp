@@ -15,6 +15,7 @@
 #include "fbgemm_gpu/utils/ops_utils.h"
 
 #include "fbgemm_gpu/config/feature_gates.h"
+#include "fbgemm_gpu/embedding_common.h"
 
 using Tensor = at::Tensor;
 
@@ -67,6 +68,15 @@ void bounds_check_indices_cuda(
       bounds_check_version == 2;
   const auto bounds_check_indices_fn =
       use_v2 ? _bounds_check_indices_cuda_v2 : _bounds_check_indices_cuda_v1;
+  const auto bounds_check_mode_ =
+      static_cast<fbgemm_gpu::BoundsCheckMode>(bounds_check_mode);
+  TORCH_CHECK(
+      bounds_check_mode_ == fbgemm_gpu::BoundsCheckMode::WARNING ||
+          bounds_check_mode_ == fbgemm_gpu::BoundsCheckMode::FATAL ||
+          bounds_check_mode_ == fbgemm_gpu::BoundsCheckMode::IGNORE,
+      "bounds_check_indices: bounds_check_mode=",
+      bounds_check_mode,
+      " is not supported");
   bounds_check_indices_fn(
       rows_per_table,
       indices,
