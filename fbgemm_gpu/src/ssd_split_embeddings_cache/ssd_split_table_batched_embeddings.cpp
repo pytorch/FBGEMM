@@ -504,9 +504,10 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::wait_util_filling_work_done)
         .def("create_snapshot", &EmbeddingRocksDBWrapper::create_snapshot)
         .def("release_snapshot", &EmbeddingRocksDBWrapper::release_snapshot)
+        .def("get_snapshot_count", &EmbeddingRocksDBWrapper::get_snapshot_count)
         .def(
-            "get_snapshot_count",
-            &EmbeddingRocksDBWrapper::get_snapshot_count);
+            "get_keys_in_range_by_snapshot",
+            &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")

@@ -82,6 +82,15 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->set_range_to_storage(weights, start, length);
   }
 
+  at::Tensor get_keys_in_range_by_snapshot(
+      int64_t start_id,
+      int64_t end_id,
+      int64_t id_offset,
+      c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle) {
+    return impl_->get_keys_in_range_by_snapshot(
+        start_id, end_id, id_offset, snapshot_handle->handle);
+  }
+
   void toggle_compaction(bool enable) {
     impl_->toggle_compaction(enable);
   }
