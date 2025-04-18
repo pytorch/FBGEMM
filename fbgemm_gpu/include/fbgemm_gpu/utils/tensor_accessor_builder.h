@@ -66,6 +66,10 @@ struct TensorAccessorBuilder {
       N > 0,
       "Accessor is used for indexing tensor; for scalars use *data_ptr<T>() instead!");
 
+  static_assert(
+      index_nbits == 32 || index_nbits == 64,
+      "index_nbits must be 32 or 64!");
+
   //////////////////////////////////////////////////////////////////////////////
   // Attributes
   //////////////////////////////////////////////////////////////////////////////
