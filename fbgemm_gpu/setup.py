@@ -292,7 +292,7 @@ class FbgemmGpuBuild:
 
         if self.args.package_variant == "genai":
             print("[SETUP.PY] Building the GENAI-ONLY variant of FBGEMM_GPU ...")
-            cmake_args.append("-DFBGEMM_GENAI_ONLY=ON")
+            cmake_args.append("-DFBGEMM_BUILD_TARGET=genai")
 
         if self.args.nvml_lib_path:
             cmake_args.append(f"-DNVML_LIB_PATH={self.args.nvml_lib_path}")
