@@ -717,6 +717,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             BoundsCheckMode.IGNORE,
             BoundsCheckMode.WARNING,
             BoundsCheckMode.FATAL,
+            BoundsCheckMode.NONE,
         ):
             raise NotImplementedError(
                 f"SplitTableBatchedEmbeddingBagsCodegen bounds_check_mode={bounds_check_mode} is not supported"
