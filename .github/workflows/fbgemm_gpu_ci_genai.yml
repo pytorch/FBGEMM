@@ -157,7 +157,7 @@ jobs:
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         cuda-version: [ "11.8.0", "12.6.3", "12.8.0" ]
         # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "12.4.1" ]
+        cuda-version-publish: [ "12.6.3" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
