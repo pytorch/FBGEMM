@@ -15,6 +15,7 @@
 
 #include "./ssd_table_batched_embeddings.h"
 #include "embedding_rocksdb_wrapper.h"
+#include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
 using namespace at;
@@ -352,6 +353,30 @@ void KVTensorWrapper::set_range(
   }
 }
 
+void KVTensorWrapper::set_weights_and_ids(
+    const at::Tensor& ids,
+    const at::Tensor& weights) {
+  CHECK_EQ(ids.size(0), weights.size(0))
+      << "ids and weights must have same # rows";
+  CHECK_GE(db_->get_max_D(), shape_[1]);
+  int pad_right = db_->get_max_D() - weights.size(1);
+  if (pad_right == 0) {
+    db_->set_kv_to_storage(ids, weights);
+  } else {
+    std::vector<int64_t> padding = {0, pad_right, 0, 0};
+    auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
+    CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+    db_->set_kv_to_storage(ids, padded_weights);
+  }
+}
+
+at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
+  auto weights =
+      at::empty(c10::IntArrayRef({ids.size(0), db_->get_max_D()}), options_);
+  db_->get_kv_from_storage_by_snapshot(ids, weights, snapshot_handle_->handle);
+  return weights.narrow(1, 0, shape_[1]);
+}
+
 c10::IntArrayRef KVTensorWrapper::sizes() {
   return shape_;
 }
@@ -480,9 +505,10 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::wait_util_filling_work_done)
         .def("create_snapshot", &EmbeddingRocksDBWrapper::create_snapshot)
         .def("release_snapshot", &EmbeddingRocksDBWrapper::release_snapshot)
+        .def("get_snapshot_count", &EmbeddingRocksDBWrapper::get_snapshot_count)
         .def(
-            "get_snapshot_count",
-            &EmbeddingRocksDBWrapper::get_snapshot_count);
+            "get_keys_in_range_by_snapshot",
+            &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
@@ -508,6 +534,8 @@ static auto kv_tensor_wrapper =
             "",
             {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
         .def("set_range", &KVTensorWrapper::set_range)
+        .def("set_weights_and_ids", &KVTensorWrapper::set_weights_and_ids)
+        .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
         .def_property("dtype_str", &KVTensorWrapper::dtype_str)
         .def_property("device_str", &KVTensorWrapper::device_str)
         .def_property("layout_str", &KVTensorWrapper::layout_str)
@@ -519,6 +547,18 @@ static auto kv_tensor_wrapper =
         .def_property("strides", &KVTensorWrapper::strides);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "get_bucket_sorted_indices_and_bucket_tensor("
+      "    Tensor unordered_indices,"
+      "    int hash_mode,"
+      "    int bucket_start,"
+      "    int bucket_end,"
+      "    int? bucket_size=None,"
+      "    int? total_num_buckets=None"
+      ") -> (Tensor, Tensor)");
+  DISPATCH_TO_CPU(
+      "get_bucket_sorted_indices_and_bucket_tensor",
+      kv_db_utils::get_bucket_sorted_indices_and_bucket_tensor);
   m.def(
       "masked_index_put("
       "    Tensor self, "

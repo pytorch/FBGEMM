@@ -200,6 +200,81 @@ def _rope_padded_kernel(
         tl.store(out + cols_im, im_out_, mask=mask)
 
 
+def rope_padded_ref(
+    xq: torch.Tensor,
+    xk: torch.Tensor,
+    xv: torch.Tensor,
+    cache_k: torch.Tensor,
+    cache_v: torch.Tensor,
+    attn_bias: BlockDiagonalCausalWithOffsetPaddedKeysMask,
+    *,
+    theta: float = 10000.0,
+    out_q: Optional[torch.Tensor] = None,
+    adjacents: bool = True,
+    internal_dtype: str = "",
+):
+    # TODO: Support non-adjacent ROPE
+    assert adjacents
+
+    def rotary_embedding(tensor: torch.Tensor, varseq_seqpos: torch.Tensor):
+        head_dim = tensor.shape[-1]
+        powers = torch.arange(0, head_dim, 2, device=tensor.device, dtype=torch.float64)
+        re_x, im_x = tensor.unflatten(-1, [-1, 2]).unbind(-1)
+        freqs = (
+            varseq_seqpos.outer(theta ** (powers / -head_dim)).unsqueeze(1).unsqueeze(0)
+        )
+        sines = freqs.sin()
+        cosines = freqs.cos()
+        re_out = re_x * cosines - im_x * sines
+        im_out = im_x * cosines + re_x * sines
+        tensor_out = torch.stack([re_out, im_out], -1).flatten(-2)
+        return tensor_out.to(tensor.dtype)
+
+    seqstartk: torch.Tensor = attn_bias.k_seqinfo.seqstart
+    seqlenk: torch.Tensor = attn_bias.k_seqinfo.seqlen
+
+    kv_cache_starts = seqstartk.tolist()
+    q_lengths = [end - start for start, end in list(attn_bias.q_seqinfo.intervals())]
+    kv_lengths = seqlenk.tolist()
+
+    varseq_seqpos = torch.cat(
+        [
+            torch.arange(
+                kv_length - q_length,
+                kv_length,
+                dtype=torch.int64,
+                device=xq.device,
+            )
+            for kv_length, q_length in zip(kv_lengths, q_lengths)
+        ]
+    )
+
+    xq_out = rotary_embedding(xq, varseq_seqpos)
+    xk_out = rotary_embedding(xk, varseq_seqpos)
+
+    cache_indices = torch.cat(
+        [
+            torch.arange(
+                kv_start + kv_length - q_length,
+                kv_start + kv_length,
+                dtype=torch.int64,
+                device=xq.device,
+            )
+            for kv_start, kv_length, q_length in zip(
+                kv_cache_starts, kv_lengths, q_lengths
+            )
+        ]
+    ).reshape([1, -1, 1, 1])
+
+    cache_k.scatter_(1, cache_indices, xk_out)
+    cache_v.scatter_(1, cache_indices, xv)
+
+    if out_q is not None:
+        out_q.copy_(xq_out)
+
+    return xq_out
+
+
 def rope_padded(
     xq,
     xk,
@@ -248,6 +323,22 @@ def rope_padded(
                    src/transformers/models/llama/modeling_llama.py#L126-L130
         internal_dtype: set to "f32" or "f64" to enforce dtype in the calculation
     """
+
+    # Slower path for devices that don't completely support the triton kernel
+    if xq.device.type != "cuda":
+        return rope_padded_ref(
+            xq,
+            xk,
+            xv,
+            cache_k,
+            cache_v,
+            attn_bias,
+            theta=theta,
+            out_q=out_q,
+            adjacents=adjacents,
+            internal_dtype=internal_dtype,
+        )
+
     n_total_queries = attn_bias.q_seqinfo.seqstart_py[-1]
     cache_length = attn_bias.k_seqinfo.seqstart_py[-1]
     assert xq.shape[1] == n_total_queries

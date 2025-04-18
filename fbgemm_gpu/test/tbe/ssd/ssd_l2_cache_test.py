@@ -7,6 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[3,6,56]
 
+import math
 import tempfile
 
 import threading
@@ -14,7 +15,7 @@ import time
 import unittest
 
 from typing import Any, Dict, List, Tuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import hypothesis.strategies as st
 import numpy as np
@@ -27,7 +28,8 @@ from hypothesis import given, settings, Verbosity
 from .. import common  # noqa E402
 from ..common import gpu_unavailable, running_in_oss
 
-MAX_EXAMPLES = 20
+MAX_EXAMPLES = 100
+WORLD_SIZE = 4
 default_st: Dict[str, Any] = {
     "T": st.integers(min_value=1, max_value=10),
     "D": st.integers(min_value=2, max_value=128),
@@ -54,6 +56,7 @@ class SSDCheckpointTest(unittest.TestCase):
         weights_precision: SparseType,
         mixed: bool,
         enable_l2: bool = True,
+        ssd_rocksdb_shards: int = 1,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int], int]:
         E = int(10**log_E)
         D = D * 4
@@ -79,6 +82,7 @@ class SSDCheckpointTest(unittest.TestCase):
             ssd_uniform_init_upper=0.1,
             weights_precision=weights_precision,
             l2_cache_size=1 if enable_l2 else 0,
+            ssd_rocksdb_shards=ssd_rocksdb_shards,
         )
         return emb, Es, Ds, max(Ds)
 
@@ -107,9 +111,7 @@ class SSDCheckpointTest(unittest.TestCase):
 
         torch.cuda.synchronize()
         assert torch.equal(weights, weights_from_l2)
-        import logging
 
-        logging.info(f"wgqtest {do_flush=}")
         weights_from_ssd = torch.empty_like(weights)
         if do_flush:
             emb.ssd_db.flush()
@@ -256,3 +258,159 @@ class SSDCheckpointTest(unittest.TestCase):
             emb.step += 1
             emb.flush()
             self.assertEqual(mock_calls.call_count, 2)
+
+    @given(**default_st)
+    @settings(**default_settings)
+    def test_rocksdb_get_discrete_ids(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+        weights_precision: SparseType = SparseType.FP32
+        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
+            T, D, log_E, weights_precision, mixed, False, 8
+        )
+        E = int(10**log_E)
+        N = int(E / 10)
+
+        offset = 1000
+        indices = torch.as_tensor(
+            np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
+        )
+        new_indices = torch.as_tensor(
+            np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
+        )
+        weights = torch.arange(N * D, dtype=weights_precision.as_dtype()).view(N, D)
+        new_weights_after_snapshot = torch.randn(
+            N, D, dtype=weights_precision.as_dtype()
+        )
+
+        # use kvtensor to directly set KVs into rocksdb wrapper
+        tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+            emb.ssd_db, [E, D], weights.dtype, 0
+        )
+        tensor_wrapper.set_weights_and_ids(indices + offset, weights)
+
+        snapshot = emb.ssd_db.create_snapshot()
+        tensor_wrapper.set_weights_and_ids(
+            new_indices + offset, new_weights_after_snapshot
+        )
+        start_id = 0
+        end_id = int(E / 2)
+
+        mask = (indices >= start_id) & (indices < end_id)
+        ids_in_range = indices[mask]
+        id_tensor = emb.ssd_db.get_keys_in_range_by_snapshot(
+            start_id + offset, end_id + offset, offset, snapshot
+        )
+        ids_in_range_ordered, _ = torch.sort(ids_in_range)
+        id_tensor_ordered, _ = torch.sort(id_tensor)
+
+        assert torch.equal(ids_in_range_ordered, id_tensor_ordered)
+
+    @given(
+        E=st.integers(min_value=1000, max_value=10000),
+        num_buckets=st.integers(min_value=10, max_value=15),
+        my_rank=st.integers(min_value=0, max_value=WORLD_SIZE),
+        hash_mode=st.sampled_from([0, 1, 2]),
+    )
+    @settings(**default_settings)
+    def test_get_bucket_sorted_indices(
+        self,
+        E: int,
+        num_buckets: int,
+        my_rank: int,
+        hash_mode: int,
+    ) -> None:
+        bucket_size = math.ceil(E / num_buckets)
+        bucket_start = min(math.ceil(num_buckets / WORLD_SIZE) * my_rank, num_buckets)
+        bucket_end = min(
+            math.ceil(num_buckets / WORLD_SIZE) * (my_rank + 1), num_buckets
+        )
+        rank_range = (bucket_end - bucket_start) * bucket_size
+
+        indices = torch.empty(0, dtype=torch.int64)
+
+        # construct indices, the indices's bucket ids have to fall into the range of bucket start and end
+        if hash_mode == 0:
+            if rank_range == 0:
+                indices = torch.empty(0, dtype=torch.int64)
+            else:
+                indices = torch.as_tensor(
+                    np.random.choice(rank_range, replace=False, size=(rank_range,)),
+                    dtype=torch.int64,
+                )
+                indices += bucket_start * bucket_size
+        elif hash_mode == 1:
+            for i in range(bucket_start, bucket_end):
+                sub_indices = torch.arange(start=0, end=bucket_size, dtype=torch.int64)
+                sub_indices *= num_buckets
+                sub_indices += i
+                indices = torch.cat((indices, sub_indices), dim=0)
+
+        # test get_bucket_sorted_indices_and_bucket_tensor
+        if hash_mode == 0:
+            # meaning it is mod based hashing
+            [bucket_sorted_ids, bucket_t] = (
+                torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
+                    indices,
+                    hash_mode,
+                    bucket_start,
+                    bucket_end,
+                    bucket_size,
+                )
+            )
+        elif hash_mode == 1:
+            # meaning it is interleaved based hashing
+            [bucket_sorted_ids, bucket_t] = (
+                torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
+                    indices,
+                    hash_mode,
+                    bucket_start,
+                    bucket_end,
+                    None,
+                    num_buckets,
+                )
+            )
+        else:
+            # test failure
+            with self.assertRaisesRegex(
+                RuntimeError, "only support hash by mod and interleaved for now"
+            ):
+                torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
+                    indices,
+                    hash_mode,
+                    bucket_start,
+                    bucket_end,
+                    bucket_size,
+                )
+            return
+        last_bucket_id = 0
+        for i in range(bucket_sorted_ids.numel()):
+            self.assertTrue(hash_mode >= 0 and hash_mode <= 1)
+            cur_bucket_id = -1
+            if hash_mode == 0:
+                cur_bucket_id = bucket_sorted_ids[i] // bucket_size
+            elif hash_mode == 1:
+                cur_bucket_id = bucket_sorted_ids[i] % num_buckets
+
+            self.assertGreaterEqual(cur_bucket_id, last_bucket_id)
+            last_bucket_id = cur_bucket_id
+        # Calculate expected tensor output
+        expected_bucket_tensor = torch.zeros(
+            bucket_end - bucket_start, 1, dtype=torch.int64
+        )
+        for index in indices:
+            self.assertTrue(hash_mode >= 0 and hash_mode <= 1)
+            bucket_id = -1
+            if hash_mode == 0:
+                bucket_id = index // bucket_size
+            elif hash_mode == 1:
+                bucket_id = index % num_buckets
+            expected_bucket_tensor[bucket_id - bucket_start] += 1
+
+        # Compare actual and expected tensor outputs
+        self.assertTrue(torch.equal(bucket_t, expected_bucket_tensor))

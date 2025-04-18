@@ -193,7 +193,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "rocm" },
+          { arch: x86, instance: "linux.rocm.gpu.2" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]

@@ -551,6 +551,85 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     snapshots_.erase(snapshot_handle);
   }
 
+  /// get existing ids from rocksdb in a given range at a given rocksdb
+  /// snapshot
+  /// @param start_id the inclusive start stored_id of the range
+  /// @param end_id the exclusive end stored_id of the range
+  /// @param id_offset to translate the rocksdb stored id(linearized id) to
+  /// original id(unlinearized id)
+  /// @return unlinearized ids in random order
+  at::Tensor get_keys_in_range_by_snapshot(
+      int64_t start_id,
+      int64_t end_id,
+      int64_t id_offset,
+      const SnapshotHandle* snapshot_handle) {
+    std::vector<folly::Future<folly::Unit>> futures;
+
+    const auto start_key = rocksdb::Slice(
+        reinterpret_cast<const char*>(&start_id), sizeof(int64_t));
+    // [db shard -> [original_ids]]
+    std::vector<std::vector<int64_t>> keys_in_db_shards(dbs_.size());
+    for (auto& keys : keys_in_db_shards) {
+      keys.reserve(1 * 1024 * 1024); // reserve 1M items space
+    }
+
+    // parallel loop through all db shards by iterating from start id to end id
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      // Get a snapshot for the shard
+      snapshot_ptr_t snapshot = snapshot_handle == nullptr
+          ? nullptr
+          : snapshot_handle->get_snapshot_for_shard(shard);
+      auto local_ro = ro_;
+      local_ro.snapshot = snapshot;
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([&, local_ro, shard](folly::Unit) {
+                auto* dcf = dbs_[shard]->DefaultColumnFamily();
+
+                auto iterator_ro = local_ro;
+                iterator_ro.total_order_seek = true; // disable prefix filter
+                auto it = dbs_[shard]->NewIterator(iterator_ro, dcf);
+                it->Seek(start_key);
+                while (true) {
+                  CHECK(it->status().ok());
+                  if (!it->Valid()) {
+                    CHECK(it->status().ok());
+                    // the iterator reaches the end of the data
+                    break;
+                  }
+                  int64_t stored_value =
+                      *reinterpret_cast<const int64_t*>(it->key().data());
+                  if (stored_value >= end_id) {
+                    // go beyond the end of the range
+                    break;
+                  }
+                  keys_in_db_shards[shard].push_back(stored_value - id_offset);
+                  it->Next();
+                }
+
+                delete it;
+              });
+      futures.push_back(std::move(f));
+    }
+    folly::collect(futures).wait();
+    int64_t total_num = 0;
+
+    // calc total num for tensor allocation and count_in_ranges
+    for (const auto& keys : keys_in_db_shards) {
+      total_num += keys.size();
+    }
+
+    at::Tensor returned_keys = at::empty(
+        total_num, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+    auto key_ptr = returned_keys.data_ptr<int64_t>();
+    int64_t offset = 0;
+    for (const auto& keys : keys_in_db_shards) {
+      std::copy(keys.begin(), keys.end(), &key_ptr[offset]);
+      offset += keys.size();
+    }
+    return returned_keys;
+  }
+
   void get_range_from_snapshot(
       const at::Tensor& weights,
       const int64_t start,
@@ -573,6 +652,21 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
     folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
+  }
+
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
+    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+    folly::coro::blockingWait(set_kv_db_async(ids, weights, count));
+  }
+
+  void get_kv_from_storage_by_snapshot(
+      const at::Tensor& ids,
+      const at::Tensor& weights,
+      const SnapshotHandle* snapshot_handle) {
+    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+    get_kv_db_async_impl</*use_iterator=*/false>(
+        ids, weights, count, snapshot_handle)
+        .wait();
   }
 
   virtual rocksdb::Status set_rocksdb_option(
@@ -751,8 +845,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     initializers_[shard_id]->consumer_queue_.enqueue(row_index);
   }
 
-  // use this iterator approach only when the keys in indices are contiguous and
-  // matches the key order as defined by the comparator. i.e. the values
+  // use this iterator approach only when the keys in indices are contiguous
+  // and matches the key order as defined by the comparator. i.e. the values
   // returned by the itertor are not thrown away. in other cases using an
   // iterator doesn't provide performance benefits.
   template <typename VALUE_T>
@@ -1002,7 +1096,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t l0_files_per_compact_;
   bool auto_compaction_enabled_;
 
-  // break down on rocksdb write duration for details checkout RocksdbWriteMode
+  // break down on rocksdb write duration for details checkout
+  // RocksdbWriteMode
   std::atomic<int64_t> read_total_duration_{0};
   std::atomic<int64_t> fwd_rocksdb_read_dur_{0};
   std::atomic<int64_t> fwd_l1_eviction_dur_{0};
