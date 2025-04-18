@@ -692,11 +692,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.logging_table_name: str = self.get_table_name_for_logging(table_names)
         self.pooling_mode = pooling_mode
         self.is_nobag: bool = self.pooling_mode == PoolingMode.NONE
+
         # If environment variable is set, it overwrites the default bounds check mode.
-        self.bounds_check_version: int = 1
+        self.bounds_check_version: int = (
+            2
+            if self._feature_is_enabled(FeatureGateName.BOUNDS_CHECK_INDICES_V2)
+            else 1
+        )
         self.bounds_check_mode_int: int = int(
             os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
         )
+        # Check if bounds_check_indices_v2 is enabled via the feature gate
         bounds_check_mode = BoundsCheckMode(self.bounds_check_mode_int)
         if bounds_check_mode.name.startswith("V2_"):
             self.bounds_check_version = 2
@@ -706,10 +712,21 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 bounds_check_mode = BoundsCheckMode.WARNING
             elif bounds_check_mode == BoundsCheckMode.V2_FATAL:
                 bounds_check_mode = BoundsCheckMode.FATAL
-            else:
-                raise NotImplementedError(
-                    f"Did not recognize V2 bounds check mode: {bounds_check_mode}"
-                )
+
+        if bounds_check_mode not in (
+            BoundsCheckMode.IGNORE,
+            BoundsCheckMode.WARNING,
+            BoundsCheckMode.FATAL,
+        ):
+            raise NotImplementedError(
+                f"SplitTableBatchedEmbeddingBagsCodegen bounds_check_mode={bounds_check_mode} is not supported"
+            )
+
+        self.bounds_check_mode_int = bounds_check_mode.value
+
+        self.log(
+            f"SplitTableBatchedEmbeddingBagsCodegen bounds_check_mode={bounds_check_mode} bounds_check_version={self.bounds_check_version}"
+        )
 
         self.weights_precision = weights_precision
 
@@ -1403,13 +1420,6 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._debug_print_input_stats: Callable[..., None] = (
             self._debug_print_input_stats_factory()
         )
-
-        # Check if bounds_check_indices_v2 is enabled via the feature gate
-        self.use_bounds_check_v2: bool = self._feature_is_enabled(
-            FeatureGateName.BOUNDS_CHECK_INDICES_V2
-        )
-        if self.bounds_check_version == 2:
-            self.use_bounds_check_v2 = True
 
         if embedding_table_index_type not in [torch.int32, torch.int64]:
             raise ValueError(
@@ -3544,7 +3554,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
             # Compute B info and VBE metadata for bounds_check_indices only if
             # VBE and bounds check indices v2 are used
-            if vbe and self.use_bounds_check_v2:
+            if vbe and self.bounds_check_version == 2:
                 B_offsets = vbe_metadata.B_offsets
                 B_offsets_rank_per_feature = vbe_metadata.B_offsets_rank_per_feature
                 output_offsets_feature_rank = vbe_metadata.output_offsets_feature_rank
