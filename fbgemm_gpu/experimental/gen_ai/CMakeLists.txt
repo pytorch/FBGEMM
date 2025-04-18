@@ -8,35 +8,43 @@
 # Target Sources
 ################################################################################
 
+file(GLOB experimental_gen_ai_cpp_source_files_cpu
+  src/quantize/*.cpp)
 
 file(GLOB experimental_gen_ai_cpp_source_files_gpu
-  # Attention Ops
-  src/attention/*.cpp
-  src/attention/*.cu
-  # Coalesce Ops
-  src/coalesce/*.cpp
-  src/coalesce/*.cu
-  # Comm Ops
-  src/comm/*.cpp
-  src/comm/*.cu
-  # Gather Scatter Ops
-  src/gather_scatter/*.cpp
-  src/gather_scatter/*.cu
-  # Quantize Ops
-  src/kv_cache/*.cpp
-  src/kv_cache/*.cu
-  # Quantize Ops
-  src/quantize/*.cpp
   src/quantize/*.cu)
 
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+  file(GLOB tmp_list_cpu
+    src/attention/*.cpp
+    src/coalesce/*.cpp
+    src/comm/*.cpp
+    src/gather_scatter/*.cpp
+    src/kv_cache/*.cpp)
+
+  file(GLOB tmp_list_gpu
+    src/attention/*.cu
+    src/coalesce/*.cu
+    src/comm/*.cu
+    src/gather_scatter/*.cu
+    src/kv_cache/*.cu)
+
+  list(APPEND experimental_gen_ai_cpp_source_files_cpu ${tmp_list_cpu})
+  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu})
+endif()
+
 # Set the source file for FB only CPP
-if(USE_FB_ONLY)
-  file(GLOB fb_only_cxx_sources
-      fb/src/moe/*.cu
+if(USE_FB_ONLY AND (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA))
+  file(GLOB fb_only_sources_cpu
       fb/src/moe/*.cpp
-      fb/src/trt_llm/*.cu
       fb/src/trt_llm/*.cpp)
-  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_cxx_sources})
+
+  file(GLOB fb_only_sources_gpu
+      fb/src/moe/*.cu
+      fb/src/trt_llm/*.cu)
+
+  list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
+  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_sources_gpu})
 endif()
 
 # CUDA-specific sources
@@ -57,7 +65,9 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
 # Python sources
 file(GLOB_RECURSE experimental_gen_ai_python_source_files
   bench/*.py
-  gen_ai/*.py)
+  bench/**/*.py
+  gen_ai/*.py
+  gen_ai/**/*.py)
 
 
 ################################################################################
@@ -72,6 +82,8 @@ gpu_cpp_library(
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
+  CPU_SRCS
+    ${experimental_gen_ai_cpp_source_files_cpu}
   GPU_SRCS
     ${experimental_gen_ai_cpp_source_files_gpu}
   CUDA_SPECIFIC_SRCS
