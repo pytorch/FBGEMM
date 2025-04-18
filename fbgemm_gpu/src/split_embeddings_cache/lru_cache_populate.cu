@@ -123,11 +123,12 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
           D_emb += kINT8QparamsBytes;
         }
 
+        StochasticRoundingRNGState state;
         auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
             &weights[weights_offset_current + idx_current * D_emb + 0],
             &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
             D_current,
-            stochastic_rounding,
+            stochastic_rounding ? &state : nullptr,
             &stochastic_rounding_philox_args,
             stoc_rounding_salt + l);
 
