@@ -20,33 +20,67 @@ include(${CMAKEMODULES}/Utilities.cmake)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 ################################################################################
-# FBGEMM_GPU Build Options
+# Set Build Target
 ################################################################################
+
+set(BUILD_TARGET_DEFAULT "default")
+set(BUILD_TARGET_GENAI "genai")
+set(BUILD_TARGET_VALUES "${BUILD_TARGET_DEFAULT};${BUILD_TARGET_GENAI}")
+
+if(NOT DEFINED FBGEMM_BUILD_TARGET)
+  set(FBGEMM_BUILD_TARGET "${BUILD_TARGET_DEFAULT}")
+elseif(NOT FBGEMM_BUILD_TARGET IN_LIST BUILD_TARGET_VALUES)
+  message(FATAL_ERROR
+    "Invalid FBGEMM_BUILD_TARGET value: ${FBGEMM_BUILD_TARGET}.
+    Allowed values: ${BUILD_TARGET_VALUES}")
+endif()
+
+################################################################################
+# Set Build Variant
+################################################################################
+
+set(BUILD_VARIANT_CPU "cpu")
+set(BUILD_VARIANT_CUDA "cuda")
+set(BUILD_VARIANT_ROCM "rocm")
+set(BUILD_VARIANT_VALUES
+  "${BUILD_VARIANT_CPU};${BUILD_VARIANT_CUDA};${BUILD_VARIANT_ROCM}")
 
 option(FBGEMM_CPU_ONLY   "Build FBGEMM_GPU without GPU support" OFF)
 option(USE_ROCM          "Build FBGEMM_GPU for ROCm" OFF)
-option(FBGEMM_GENAI_ONLY "Build FBGEMM_GPU with GEN AI only support" OFF)
-option(USE_FB_ONLY       "Build FBGEMM_GPU FB-only operators" OFF)
 
-if((NOT FBGEMM_CPU_ONLY) AND
-   ((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
-   (NOT EXISTS "/bin/nvcc"))
-  message(
-    "CMake has been set to build a non-CPU variant"
-    "and AMD GPU has been detected; "
-    "will default to ROCm build"
-  )
-  set(USE_ROCM ON)
-endif()
+if (DEFINED FBGEMM_BUILD_VARIANT)
+  # If FBGEMM_BUILD_VARIANT is set, validate it
+  if(NOT FBGEMM_BUILD_VARIANT IN_LIST BUILD_VARIANT_VALUES)
+    message(FATAL_ERROR
+      "Invalid FBGEMM_BUILD_VARIANT value: ${FBGEMM_BUILD_VARIANT}.
+      Allowed values: ${BUILD_VARIANT_VALUES}")
+  endif()
 
-if(FBGEMM_CPU_ONLY)
-  BLOCK_PRINT("Building the CPU-only variant of FBGEMM-GPU")
-elseif(USE_ROCM)
-  BLOCK_PRINT("Building the ROCm variant of FBGEMM-GPU")
 else()
-  BLOCK_PRINT("Building the CUDA variant of FBGEMM-GPU")
-endif()
+  # Else fall back to looking at FBGEMM_CPU_ONLY and filesystem paths to see if
+  # the build variant should be set to CPU, CUDA. or ROCM (legacy)
+  if(FBGEMM_CPU_ONLY)
+    set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_CPU}")
 
+  elseif(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
+    (NOT EXISTS "/bin/nvcc"))
+    message(
+      "CMake has been set to build a non-CPU variant"
+      "and AMD GPU has been detected; "
+      "will default to ROCm build"
+    )
+    set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_ROCM}")
+
+    # Set USE_ROCM (legacy)
+    # NOTE: Should be removed once other CMake scripts have migrated over to
+    # FBGEMM_BUILD_VARIANT
+    set(USE_ROCM ON)
+
+  else()
+    set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_CUDA}")
+
+  endif()
+endif()
 
 ################################################################################
 # FBGEMM_GPU Build Kickstart
@@ -62,6 +96,9 @@ endif()
 BLOCK_PRINT(
   "Build Settings"
   ""
+  "FBGEMM_BUILD_TARGET    : ${FBGEMM_BUILD_TARGET}"
+  "FBGEMM_BUILD_VARIANT   : ${FBGEMM_BUILD_VARIANT}"
+  ""
   "NVCC_VERBOSE           : ${NVCC_VERBOSE}"
   "CUDNN_INCLUDE_DIR      : ${CUDNN_INCLUDE_DIR}"
   "CUDNN_LIBRARY          : ${CUDNN_LIBRARY}"
@@ -73,17 +110,16 @@ BLOCK_PRINT(
   "AMDGPU_TARGETS         : ${AMDGPU_TARGETS}"
   "PYTORCH_ROCM_ARCH      : ${PYTORCH_ROCM_ARCH}")
 
-if(FBGEMM_CPU_ONLY OR USE_ROCM)
-  project(
-    fbgemm_gpu
-    VERSION 0.8.0
-    LANGUAGES CXX C)
-else()
-  project(
-    fbgemm_gpu
-    VERSION 0.8.0
-    LANGUAGES CXX C CUDA)
+set(project_languages CXX C)
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+  list(APPEND project_languages CUDA)
 endif()
+
+# Declare CMake project
+project(
+  fbgemm_gpu
+  VERSION 1.2.0
+  LANGUAGES ${project_languages})
 
 # AVX Flags Setup - must be set AFTER project declaration
 include(${CMAKEMODULES}/FindAVX.cmake)
@@ -119,6 +155,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cpuinfo/include
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
+  ${THIRDPARTY}/composable_kernel/include
   ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 
@@ -240,7 +277,13 @@ endfunction()
 # Build Targets
 ################################################################################
 
-if(FBGEMM_GENAI_ONLY)
+if(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_GENAI)
+  if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
+    message(FATAL_ERROR
+      "Unsupported (target, variant) combination:
+      (${FBGEMM_BUILD_TARGET}, ${FBGEMM_BUILD_VARIANT})")
+  endif()
+
   # Build FBGEMM GenAI
   add_subdirectory(experimental/gen_ai)
 
@@ -250,8 +293,7 @@ if(FBGEMM_GENAI_ONLY)
   # Add Triton GEMM (GenAI) kernels if non-CPU build
   add_subdirectory(experimental/gemm)
 
-else()
+elseif(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_DEFAULT)
   # Build FBGEMM_GPU
   include(FbgemmGpu.cmake)
-
 endif()
