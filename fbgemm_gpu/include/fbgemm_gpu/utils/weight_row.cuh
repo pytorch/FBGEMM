@@ -269,32 +269,34 @@ struct WeightRow {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Weight Row Accessor
+//
+// This is a basic memory accessor around a row of dim_ number of embedding
+// weights of type row_t, and provides for loading 4 elements at a time into
+// Vec4T<dst_t> with de-quantization support.  Unlike WeightRow, this accessor
+// is for reading only, and does not take into account embedding vs cache table,
+// etc.
 ////////////////////////////////////////////////////////////////////////////////
 
-template <typename emb_t, typename cache_t, typename dst_t, bool uses_cache>
+template <typename row_t, typename dst_t>
 struct WeightRowAccessor {
-  const emb_t* row_;
-  const cache_t* cache_row_;
-  const int dim_;
+  const row_t* row_;
+  const int32_t dim_;
+  const float2 qparams_;
 
   DEVICE_INLINE
-  WeightRowAccessor(const emb_t* row, const cache_t* cache_row, const int dim)
-      : row_(row), cache_row_(cache_row), dim_(dim) {}
+  WeightRowAccessor(const row_t* const row, const int32_t dim)
+      : row_(row), dim_(dim), qparams_(qparams()) {}
 
-  DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {
-    if constexpr (uses_cache) {
-      return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
-    } else {
-      return dequantize_load<dst_t, emb_t>(row_ + d, qparams);
-    }
-  }
-
-  DEVICE_INLINE float2 load_qparams() const {
-    if constexpr (std::is_same_v<emb_t, uint8_t>) {
-      return load_qparams_from_row<emb_t>(row_ + dim_);
+  DEVICE_INLINE auto qparams() const {
+    if constexpr (std::is_same_v<row_t, uint8_t>) {
+      return load_qparams_from_row<row_t>(row_ + dim_);
     } else {
       return make_float2(0.0f, 0.0f);
     }
+  }
+
+  DEVICE_INLINE Vec4T<dst_t> load(const int32_t d) const {
+    return dequantize_load<dst_t, row_t>(row_ + d, qparams_);
   }
 };
 
