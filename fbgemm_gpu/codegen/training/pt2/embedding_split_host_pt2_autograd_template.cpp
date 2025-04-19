@@ -743,6 +743,15 @@ class {{ autograd_func }} :
     const auto indice_weights_value = GET_OPTIONAL_TENSOR_VALUE(indice_weights, Tensor());
     {%- endif %}
 
+    // Setting learning rate tensor with `.fill_()` breaks apf_dlrm bento kernel with 
+    // `RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation.`
+    // This is because if a tensor is saved for backward and it is mutated later, this can cause correctness problems. 
+    // Since the forward compute and backward compute see different data values for this tensor.
+    // To work around, we pass the cloned tensor instead the mutated tensor
+    {%- if "learning_rate_tensor" in args_pt2.unified_pt2.split_unpacked_arg_names %}
+    Tensor learning_rate_tensor_cloned = learning_rate_tensor.clone();
+    {%- endif %}
+
     ctx->save_for_backward({
         {%- if dense %}
         dev_weights,
@@ -782,7 +791,9 @@ class {{ autograd_func }} :
         ssd_tensors[SSDTensor::{{ tensor | upper }}],
         {%- endfor %}
         {%- endif %}
-        {{ args_pt2.split_saved_tensors | join(", ") }}
+        {%- for tensor in args_pt2.split_saved_tensors %}
+        {{ tensor }}{%- if tensor == "learning_rate_tensor" %}{{"_cloned"}}{%- endif %}{%- if not loop.last %}{{ "," }}{%- endif %}
+        {%- endfor %}
     });
 
     {%- if not nobag %}

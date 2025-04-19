@@ -2996,9 +2996,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         Helper function to script `set_learning_rate`.
         Note that returning None does not work.
         """
-        self.learning_rate_tensor = torch.tensor(
-            lr, device=torch.device("cpu"), dtype=torch.float32
-        )
+        self.learning_rate_tensor.fill_(lr)
         return 0.0
 
     @torch.jit.ignore
