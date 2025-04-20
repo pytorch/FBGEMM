@@ -77,33 +77,26 @@ DEVICE_INLINE Vec2T<at::Half> dequantize_load(
 // Weight Row Accessor for Vec2T
 ////////////////////////////////////////////////////////////////////////////////
 
-template <typename emb_t, typename cache_t, typename dst_t, bool uses_cache>
+template <typename row_t, typename dst_t>
 struct WeightRowAccessorVec2 {
-  const emb_t* row_;
-  const cache_t* cache_row_;
-  const int dim_;
+  const row_t* row_;
+  const int32_t dim_;
+  const float2 qparams_;
 
   DEVICE_INLINE
-  WeightRowAccessorVec2(
-      const emb_t* row,
-      const cache_t* cache_row,
-      const int dim)
-      : row_(row), cache_row_(cache_row), dim_(dim) {}
+  WeightRowAccessorVec2(const row_t* const row, const int32_t dim)
+      : row_(row), dim_(dim), qparams_(qparams()) {}
 
-  DEVICE_INLINE Vec2T<dst_t> load(const int32_t d, const float2 qparams) const {
-    if constexpr (uses_cache) {
-      return rocm::dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
-    } else {
-      return rocm::dequantize_load<dst_t, emb_t>(row_ + d, qparams);
-    }
-  }
-
-  DEVICE_INLINE float2 load_qparams() const {
-    if constexpr (std::is_same_v<emb_t, uint8_t>) {
-      return load_qparams_from_row<emb_t>(row_ + dim_);
+  DEVICE_INLINE float2 qparams() const {
+    if constexpr (std::is_same_v<row_t, uint8_t>) {
+      return load_qparams_from_row<row_t>(row_ + dim_);
     } else {
       return make_float2(0.0f, 0.0f);
     }
+  }
+
+  DEVICE_INLINE Vec2T<dst_t> load(const int32_t d) const {
+    return rocm::dequantize_load<dst_t, row_t>(row_ + d, qparams_);
   }
 };
 

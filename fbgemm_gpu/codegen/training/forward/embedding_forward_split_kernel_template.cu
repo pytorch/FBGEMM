@@ -47,7 +47,7 @@ using namespace fbgemm_gpu;
     This code chunk describes the weights load + accumulate step in the
     forward kernel, containing 3 steps:
 
-    1. Set up the WeightRow
+    1. Set up the WeightRowAccessor based on the pointer to the row in the embedding table or cache
     1. Load the quantization params
     1. Load and accumulate the slices of values from the row
 
@@ -71,54 +71,34 @@ using namespace fbgemm_gpu;
         output_j
 */#}
 {%- macro load_and_accumulate(from_cache) %}
+    {#-/* Initialize cache_weights */#}
     {%- if from_cache %}
-    const cache_t* cache_weights;
     {%- if ssd %}
-    cache_weights = reinterpret_cast<const cache_t*>(
+    const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
           *reinterpret_cast<uint64_t*>(&{{ locs_or_addrs_idx }}_j));
     {%- else %}
-    cache_weights = reinterpret_cast<const cache_t*>(
+    const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
         &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][0]);
     {%- endif %}
     {%- endif %}
-    {#-/* Set the weights row */#}
+
+
+    {#-/* Set the weights row accessor */#}
     {%- if is_rocm %}
     const auto weights_row = rocm::WeightRowAccessorVec2
     {%- else %}
     const auto weights_row = WeightRowAccessor
     {%- endif %}
         <
-            emb_t,
-            cache_t,
-            cache_t,
-            {%- if from_cache %}
-            true
-            {%- else %}
-            false
-            {%- endif %}
+            {{ 'cache_t' if from_cache else 'emb_t' }},
+            cache_t
         >(
         {%- if from_cache %}
-        // Pass nullptr to avoid calling &weights[idx_j * D_emb], which loads
-        // memory into the registers as a side effect
-        nullptr,
-        // Load from the cache
-        cache_weights,
+        cache_weights, // Load from the cache
         {%- else %}
-        // Load from the embedding table
-        &weights[idx_j * D_emb],
-        // Pass nullptr bc we are loading from the embedding table
-        nullptr,
+        &weights[idx_j * D_emb], // Load from the embedding table
         {%- endif %}
         D);
-
-    {#-/* Set the quantization params */#}
-    {%- if from_cache %}
-    // Assume cache is FP16/FP32, which doesn't require quantization params
-    const auto qparams = make_float2(0.0f, 0.0f);
-    {%- else %}
-    // Load the quantization params from the embedding table row if emb_t == uint8_t
-    const auto qparams = weights_row.load_qparams();
-    {%- endif %}
 
     {%- if not nobag %}
     // Iterate over the row in the weights table, in 4-element strides
@@ -130,15 +110,15 @@ using namespace fbgemm_gpu;
         const int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
 
         {%- if is_gwd_kernel %}
-        auto weights_slice = weights_row.load(d, qparams);
+        auto weights_slice = weights_row.load(d);
         // Scale weights with global weight decay
         weights_slice.mul_(global_weight_decay_j);
         {%- else %}
-        const auto weights_slice = weights_row.load(d, qparams);
+        const auto weights_slice = weights_row.load(d);
         {%- endif %}
 
         {%- if weighted %}
-        // Accumulate the weights * positional weight
+        // Accumulate the weights * index weight
         accumulators[i].fma_(weights_slice, idx_weight_j);
         {%- else %}
         // Accumulate the weights
@@ -151,7 +131,7 @@ using namespace fbgemm_gpu;
         const auto d = i + threadIdx.x * VEC_WIDTH;
         if (d < D) {
             // Since there is no pooling, simply copy the weights to output
-            const auto weights_slice = weights_row.load(d, qparams);
+            const auto weights_slice = weights_row.load(d);
             {%- if is_index_select %}
             // output is 1D (because the stride can be irregular)
             weights_slice.store(&output[output_offset + output_j * output_stride + d]);
@@ -190,54 +170,33 @@ using namespace fbgemm_gpu;
         output_j
 */#}
 {%- macro load_weights(from_cache) %}
+    {#-/* Initialize cache_weights */#}
     {%- if from_cache %}
-    const cache_t* cache_weights;
     {%- if ssd %}
-    cache_weights = reinterpret_cast<const cache_t*>(
+    const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
           *reinterpret_cast<uint64_t*>(&{{ locs_or_addrs_idx }}_j));
     {%- else %}
-    cache_weights = reinterpret_cast<const cache_t*>(
+    const cache_t* cache_weights = reinterpret_cast<const cache_t*>(
         &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][0]);
     {%- endif %}
     {%- endif %}
-    {#-/* Set the weights row */#}
+
+    {#-/* Set the weights row accessor */#}
     {%- if is_rocm %}
     const auto weights_row = rocm::WeightRowAccessorVec2
     {%- else %}
     const auto weights_row = WeightRowAccessor
     {%- endif %}
         <
-            emb_t,
-            cache_t,
-            cache_t,
-            {%- if from_cache %}
-            true
-            {%- else %}
-            false
-            {%- endif %}
+            {{ 'cache_t' if from_cache else 'emb_t' }},
+            cache_t
         >(
         {%- if from_cache %}
-        // Pass nullptr to avoid calling &weights[idx_j * D_emb], which loads
-        // memory into the registers as a side effect
-        nullptr,
-        // Load from the cache
-        cache_weights,
+        cache_weights, // Load from the cache
         {%- else %}
-        // Load from the embedding table
-        &weights[idx_j * D_emb],
-        // Pass nullptr bc we are loading from the embedding table
-        nullptr,
+        &weights[idx_j * D_emb], // Load from the embedding table
         {%- endif %}
         D);
-
-    {#-/* Set the quantization params */#}
-    {%- if from_cache %}
-    // Assume cache is FP16/FP32, which doesn't require quantization params
-    const auto qparams = make_float2(0.0f, 0.0f);
-    {%- else %}
-    // Load the quantization params from the embedding table row if emb_t == uint8_t
-    const auto qparams = weights_row.load_qparams();
-    {%- endif %}
 
     {%- if not nobag %}
     // Iterate over the row in the weights table, in 4-element strides
@@ -247,7 +206,7 @@ using namespace fbgemm_gpu;
         // Load the slice of the weights
         int32_t d = (i * kThreadGroupSize + threadIdx.x) * VEC_WIDTH;
         d = (d < D) ? d : 0;
-        const auto weights_slice = weights_row.load(d, qparams);
+        const auto weights_slice = weights_row.load(d);
         vals[inner_j * kMaxVecsPerThread + i] = weights_slice;
     }
 
@@ -256,7 +215,7 @@ using namespace fbgemm_gpu;
         const auto d = i + threadIdx.x * VEC_WIDTH;
         if (d < D) {
             // Since there is no pooling, simply copy the weights to output
-            const auto weights_slice = weights_row.load(d, qparams);
+            const auto weights_slice = weights_row.load(d);
             {%- if is_index_select %}
             // output is 1D (because the stride can be irregular)
             weights_slice.store(&output[output_offset + output_j * output_stride + d]);
@@ -370,6 +329,7 @@ using namespace fbgemm_gpu;
                 idx_j_[inner_j] = SHFL_SYNC(idx, outer_j + inner_j);
             }
             {%- endif %}
+
             {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
             // Load cache's index from thread j in the group
             [[maybe_unused]] int32_t {{ locs_or_addrs_idx }}_j_[kManualUnrollLength];
