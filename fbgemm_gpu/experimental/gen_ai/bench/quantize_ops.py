@@ -756,7 +756,7 @@ class BF16TritonStackedGroupedGemm(QuantizeOpBase):
         return x, w, m_sizes
 
     def compute(self, x, w, m_sizes):
-        return grouped_gemm(x, w, m_sizes)
+        return grouped_gemm(x, w, m_sizes, _use_warp_specialization=True)
 
     def quantize_and_compute(self, x, w, m_sizes):
         x, w, m_sizes = self.quantize(x, w, m_sizes)
@@ -802,7 +802,9 @@ class FP8TritonStackedGroupedGemm(QuantizeOpBase):
         return xq, wq, x_scale, w_scale, m_sizes
 
     def compute(self, xq, wq, x_scale, w_scale, m_sizes):
-        return grouped_gemm_fp8_rowwise(xq, wq, m_sizes, x_scale, w_scale)
+        return grouped_gemm_fp8_rowwise(
+            xq, wq, m_sizes, x_scale, w_scale, _use_warp_specialization=True
+        )
 
     def quantize_and_compute(self, x, wq, w_scale, m_sizes):
         xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, wq, w_scale, m_sizes)
