@@ -136,6 +136,13 @@ def gqa_reference(
 
 
 class Int4GQATest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        device = torch.accelerator.current_accelerator()
+        assert device is not None
+        cls.device = device
+
     @unittest.skipIf(
         not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
         "Skip when CUDA is not available or CUDA compute capability is less than 8",
@@ -168,14 +175,14 @@ class Int4GQATest(unittest.TestCase):
         SEQ_POSITION = MAX_T - 2
 
         seq_positions = torch.tensor(
-            [SEQ_POSITION for _ in range(B)], device="cuda"
+            [SEQ_POSITION for _ in range(B)], device=self.device
         ).int()
         kv_seqlens = [seq_position + 1 for seq_position in seq_positions]
-        q = torch.randn((B, 1, N_H_L, D_H), dtype=torch.bfloat16, device="cuda")
+        q = torch.randn((B, 1, N_H_L, D_H), dtype=torch.bfloat16, device=self.device)
 
         # Generate KV cache
         cache_k = torch.randn(
-            (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+            (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
         )
         cache_v = torch.randn_like(cache_k)
         if int4_kv:
@@ -322,10 +329,10 @@ class Int4GQATest(unittest.TestCase):
         N_KVH_L = 1 if mqa else N_H_L
         SEQ_POSITION = MAX_T - 2
         seq_positions = torch.tensor(
-            [SEQ_POSITION for _ in range(B)], device="cuda"
+            [SEQ_POSITION for _ in range(B)], device=self.device
         ).int()
         kv_seqlens = [seq_position + 1 for seq_position in seq_positions]
-        q = torch.randn((B, 1, N_H_L, D_H), dtype=torch.bfloat16, device="cuda")
+        q = torch.randn((B, 1, N_H_L, D_H), dtype=torch.bfloat16, device=self.device)
         if validate_p_inf_exp:
             # Validate inf exp of P.  Set the first value of the query to be
             # very large.  This will cause some of the QK^T results (i.e., P)
@@ -347,17 +354,17 @@ class Int4GQATest(unittest.TestCase):
                 l_dtype = LogicalDtype.int4.value
 
             xq = torch.randn(
-                (B * SEQ_POSITION, N_H_L, D_H), dtype=torch.bfloat16, device="cuda"
+                (B * SEQ_POSITION, N_H_L, D_H), dtype=torch.bfloat16, device=self.device
             )
             xk = torch.randn(
                 (B * SEQ_POSITION, N_KVH_L, D_H),
                 dtype=torch.bfloat16,
-                device="cuda",
+                device=self.device,
             )
             xv = torch.randn_like(xk)
 
             cache_k_orig = torch.zeros(
-                size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+                size=(B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
             )
             cache_v_orig = torch.zeros_like(cache_k_orig)
             # Create and fill quantized K/V cache
@@ -367,7 +374,7 @@ class Int4GQATest(unittest.TestCase):
                 N_KVH_L,
                 D_H_KV,
                 dtype=torch.uint8,
-                device="cuda",
+                device=self.device,
             )
             cache_v = torch.zeros_like(cache_k)
 
@@ -375,7 +382,9 @@ class Int4GQATest(unittest.TestCase):
                 varseq_seqpos = torch.cat(
                     [
                         torch.as_tensor(
-                            list(range(SEQ_POSITION)), dtype=torch.int, device="cuda"
+                            list(range(SEQ_POSITION)),
+                            dtype=torch.int,
+                            device=self.device,
                         )
                         for b in range(B)
                     ]
@@ -385,7 +394,7 @@ class Int4GQATest(unittest.TestCase):
                         torch.as_tensor(
                             [b for _ in range(SEQ_POSITION)],
                             dtype=torch.int,
-                            device="cuda",
+                            device=self.device,
                         )
                         for b in range(B)
                     ]
@@ -436,7 +445,7 @@ class Int4GQATest(unittest.TestCase):
             l_dtype = LogicalDtype.bf16.value
             D_H_KV = D_H
             cache_k = torch.randn(
-                (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device="cuda"
+                (B, MAX_T, N_KVH_L, D_H), dtype=torch.bfloat16, device=self.device
             )
             cache_v = torch.randn_like(cache_k)
             cache_k_ref = cache_k.cpu().float()
@@ -491,6 +500,7 @@ class Int4GQATest(unittest.TestCase):
         # gqa_attn_splitk gives numerical errors on H100 for group-wise quantization
         gqa_attn_splitk_known_failure = (
             int4_kv
+            and self.device.type == "cuda"
             and num_groups > 1
             and torch.cuda.get_device_capability(q.device) >= (9, 0)
         )
@@ -581,7 +591,7 @@ class Int4GQATest(unittest.TestCase):
             )
             torch.testing.assert_close(
                 y.view(*z_ref.shape),
-                z_ref.bfloat16().cuda(),
+                z_ref.bfloat16().to(self.device),
                 atol=1.0e-2,
                 rtol=1.0e-2,
             )
