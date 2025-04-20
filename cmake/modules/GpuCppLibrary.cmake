@@ -45,7 +45,7 @@ function(prepare_target_sources)
     set(${args_PREFIX}_sources_cpp ${cpu_sources_cpp})
 
     # For GPU mode, add the CXX sources from GPU_SRCS
-    if(NOT FBGEMM_CPU_ONLY)
+    if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
         LIST_FILTER(
             INPUT ${args_GPU_SRCS}
             OUTPUT gpu_sources_cpp
@@ -76,7 +76,7 @@ function(prepare_target_sources)
     # Collect, Annotate, and Append CU sources
     ############################################################################
 
-    if(NOT FBGEMM_CPU_ONLY)
+    if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
         # Filter GPU_SRCS for CU sources - these may be HIPified later if building in ROCm mode
         LIST_FILTER(
             INPUT ${args_GPU_SRCS}
@@ -106,7 +106,7 @@ function(prepare_target_sources)
     # Collect, Annotate, and Append HIP sources
     ############################################################################
 
-    if(NOT FBGEMM_CPU_ONLY AND USE_ROCM)
+    if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
         # Filter GPU_SRCS for HIP sources
         LIST_FILTER(
             INPUT ${args_GPU_SRCS}

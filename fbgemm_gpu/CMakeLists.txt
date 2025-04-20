@@ -45,7 +45,6 @@ set(BUILD_VARIANT_ROCM "rocm")
 set(BUILD_VARIANT_VALUES
   "${BUILD_VARIANT_CPU};${BUILD_VARIANT_CUDA};${BUILD_VARIANT_ROCM}")
 
-option(FBGEMM_CPU_ONLY   "Build FBGEMM_GPU without GPU support" OFF)
 option(USE_ROCM          "Build FBGEMM_GPU for ROCm" OFF)
 
 if (DEFINED FBGEMM_BUILD_VARIANT)
@@ -57,12 +56,7 @@ if (DEFINED FBGEMM_BUILD_VARIANT)
   endif()
 
 else()
-  # Else fall back to looking at FBGEMM_CPU_ONLY and filesystem paths to see if
-  # the build variant should be set to CPU, CUDA. or ROCM (legacy)
-  if(FBGEMM_CPU_ONLY)
-    set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_CPU}")
-
-  elseif(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
+  if(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
     (NOT EXISTS "/bin/nvcc"))
     message(
       "CMake has been set to build a non-CPU variant"
@@ -86,7 +80,8 @@ endif()
 # FBGEMM_GPU Build Kickstart
 ################################################################################
 
-# FBGEMM_GPU C++ Setup - must be set BEFORE project declaration
+# FBGEMM_GPU C++ Setup - must be set AFTER FBGEMM_BUILD_VARIANT declaration but
+# BEFORE project declaration
 include(${CMAKEMODULES}/CxxCompilerSetup.cmake)
 
 if(SKBUILD)

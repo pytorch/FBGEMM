@@ -62,12 +62,11 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
   src/quantize/ck_extensions/*.hip
   src/quantize/ck_extensions/**/*.hip)
 
-# Python sources
-file(GLOB_RECURSE experimental_gen_ai_python_source_files
-  bench/*.py
-  bench/**/*.py
-  gen_ai/*.py
-  gen_ai/**/*.py)
+# # Python sources
+# file(GLOB_RECURSE experimental_gen_ai_python_source_files
+#   bench/*.py
+#   gen_ai/*.py
+#   gen_ai/moe/*.py)
 
 
 ################################################################################
@@ -98,8 +97,16 @@ gpu_cpp_library(
 
 add_to_package(
   DESTINATION fbgemm_gpu/experimental/gen_ai
-  TARGETS fbgemm_gpu_experimental_gen_ai
-  FILES ${experimental_gen_ai_python_source_files})
+  TARGETS fbgemm_gpu_experimental_gen_ai)
+  # FILES ${experimental_gen_ai_python_source_files})
+
+install(
+  DIRECTORY bench
+  DESTINATION fbgemm_gpu/experimental)
+
+install(
+  DIRECTORY gen_ai
+  DESTINATION fbgemm_gpu/experimental)
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/fb/gen_ai)
   install(

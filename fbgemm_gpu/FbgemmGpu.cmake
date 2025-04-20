@@ -43,7 +43,7 @@ set(fbgemm_gpu_sources_cpu_static
     src/sparse_ops/sparse_ops_meta.cpp
     ${tbe_eeg_cpu_sources})
 
-if(NOT FBGEMM_CPU_ONLY)
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   list(APPEND fbgemm_gpu_sources_cpu_static
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
@@ -64,7 +64,7 @@ if(NOT FBGEMM_CPU_ONLY)
   endif()
 endif()
 
-if(NOT FBGEMM_CPU_ONLY)
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   set(fbgemm_gpu_sources_gpu_static
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
