@@ -13,7 +13,15 @@ from typing import Tuple
 
 import torch
 
-if torch.cuda.is_available():
+try:
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu import open_source
+except Exception:
+    open_source: bool = False
+
+
+if not open_source and torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
     from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
         grouped_gemm,
@@ -21,6 +29,10 @@ if torch.cuda.is_available():
     )
 
 
+@unittest.skipIf(
+    open_source,
+    "TypeError: __init__() got an unexpected keyword argument 'num_consumer_groups'",
+)
 @unittest.skipIf(
     not torch.cuda.is_available(),
     "Skip when CUDA is not available",
