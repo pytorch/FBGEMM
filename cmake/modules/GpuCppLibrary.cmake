@@ -85,7 +85,7 @@ function(prepare_target_sources)
         )
 
         # Append CUDA-specific sources, but ONLY when building in CUDA mode
-        if(NOT USE_ROCM)
+        if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
             list(APPEND ${args_PREFIX}_sources_cu ${args_CUDA_SPECIFIC_SRCS})
         endif()
 
@@ -209,7 +209,7 @@ function(gpu_cpp_library)
     # Set the build target name
     set(lib_name ${args_PREFIX})
 
-    if(USE_ROCM)
+    if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
         if(lib_sources)
             # Fetch the equivalent HIPified sources if available.  The mapping
             # is provided by a table that is generated during transpilation

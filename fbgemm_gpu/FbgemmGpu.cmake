@@ -54,7 +54,7 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
     src/metric_ops/metric_ops_host.cpp
     src/input_combine_ops/input_combine_gpu.cpp)
 
-  if(NVML_LIB_PATH OR USE_ROCM)
+  if(NVML_LIB_PATH OR FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
     list(APPEND fbgemm_gpu_sources_cpu_static
       src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_gpu.cpp

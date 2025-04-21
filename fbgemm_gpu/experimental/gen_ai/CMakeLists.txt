@@ -20,14 +20,16 @@ if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
     src/coalesce/*.cpp
     src/comm/*.cpp
     src/gather_scatter/*.cpp
-    src/kv_cache/*.cpp)
+    src/kv_cache/*.cpp
+    src/moe/*.cpp)
 
   file(GLOB tmp_list_gpu
     src/attention/*.cu
     src/coalesce/*.cu
     src/comm/*.cu
     src/gather_scatter/*.cu
-    src/kv_cache/*.cu)
+    src/kv_cache/*.cu
+    src/moe/*.cu)
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${tmp_list_cpu})
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu})
@@ -36,11 +38,9 @@ endif()
 # Set the source file for FB only CPP
 if(USE_FB_ONLY AND (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA))
   file(GLOB fb_only_sources_cpu
-      fb/src/moe/*.cpp
       fb/src/trt_llm/*.cpp)
 
   file(GLOB fb_only_sources_gpu
-      fb/src/moe/*.cu
       fb/src/trt_llm/*.cu)
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
@@ -61,12 +61,6 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
   src/gemm/ck_extensions.hip
   src/quantize/ck_extensions/*.hip
   src/quantize/ck_extensions/**/*.hip)
-
-# # Python sources
-# file(GLOB_RECURSE experimental_gen_ai_python_source_files
-#   bench/*.py
-#   gen_ai/*.py
-#   gen_ai/moe/*.py)
 
 
 ################################################################################
@@ -98,7 +92,6 @@ gpu_cpp_library(
 add_to_package(
   DESTINATION fbgemm_gpu/experimental/gen_ai
   TARGETS fbgemm_gpu_experimental_gen_ai)
-  # FILES ${experimental_gen_ai_python_source_files})
 
 install(
   DIRECTORY bench

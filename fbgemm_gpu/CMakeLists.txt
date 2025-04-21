@@ -23,9 +23,9 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 # Set Build Target
 ################################################################################
 
-set(BUILD_TARGET_DEFAULT "default")
-set(BUILD_TARGET_GENAI "genai")
-set(BUILD_TARGET_VALUES "${BUILD_TARGET_DEFAULT};${BUILD_TARGET_GENAI}")
+set(BUILD_TARGET_DEFAULT  "default")
+set(BUILD_TARGET_GENAI    "genai")
+set(BUILD_TARGET_VALUES   "${BUILD_TARGET_DEFAULT};${BUILD_TARGET_GENAI}")
 
 if(NOT DEFINED FBGEMM_BUILD_TARGET)
   set(FBGEMM_BUILD_TARGET "${BUILD_TARGET_DEFAULT}")
@@ -39,13 +39,11 @@ endif()
 # Set Build Variant
 ################################################################################
 
-set(BUILD_VARIANT_CPU "cpu")
-set(BUILD_VARIANT_CUDA "cuda")
-set(BUILD_VARIANT_ROCM "rocm")
+set(BUILD_VARIANT_CPU     "cpu")
+set(BUILD_VARIANT_CUDA    "cuda")
+set(BUILD_VARIANT_ROCM    "rocm")
 set(BUILD_VARIANT_VALUES
   "${BUILD_VARIANT_CPU};${BUILD_VARIANT_CUDA};${BUILD_VARIANT_ROCM}")
-
-option(USE_ROCM          "Build FBGEMM_GPU for ROCm" OFF)
 
 if (DEFINED FBGEMM_BUILD_VARIANT)
   # If FBGEMM_BUILD_VARIANT is set, validate it
@@ -55,25 +53,16 @@ if (DEFINED FBGEMM_BUILD_VARIANT)
       Allowed values: ${BUILD_VARIANT_VALUES}")
   endif()
 
+elseif(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
+  (NOT EXISTS "/bin/nvcc"))
+  message(
+    "AMD GPU has been detected; will default to ROCm build"
+  )
+  set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_ROCM}")
+
 else()
-  if(((EXISTS "/opt/rocm/") OR (EXISTS $ENV{ROCM_PATH})) AND
-    (NOT EXISTS "/bin/nvcc"))
-    message(
-      "CMake has been set to build a non-CPU variant"
-      "and AMD GPU has been detected; "
-      "will default to ROCm build"
-    )
-    set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_ROCM}")
+  set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_CUDA}")
 
-    # Set USE_ROCM (legacy)
-    # NOTE: Should be removed once other CMake scripts have migrated over to
-    # FBGEMM_BUILD_VARIANT
-    set(USE_ROCM ON)
-
-  else()
-    set(FBGEMM_BUILD_VARIANT "${BUILD_VARIANT_CUDA}")
-
-  endif()
 endif()
 
 ################################################################################
@@ -175,7 +164,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Fbgemm.cmake)
 set(CMAKE_CODEGEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/codegen)
 
 macro(RUN_GEN_SCRIPT SCRIPT)
-  if(USE_ROCM)
+  if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     set(rocm_flag --is_rocm)
   endif()
 
@@ -202,7 +191,7 @@ endforeach()
 # HIP Code Generation
 ################################################################################
 
-if(USE_ROCM)
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
   set(include_dirs_for_hipification
     # All directories need to be included for headers to be properly HIPified
     ${CMAKE_CURRENT_SOURCE_DIR}/include
