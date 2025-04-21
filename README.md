@@ -21,7 +21,7 @@ documentation.
 
 * **FBGEMM_GPU GenAI**: A collection of PyTorch GPU operator libraries that are
   designed for generative AI applications, such as FP8 row-wise quantization and
-  collective communications. Please see [the documentation](fbgemm_gpu/README.md)
+  collective communications. Please see [the documentation](fbgemm_gpu/experimental/gen_ai/README.md)
   for more information.
 
 
