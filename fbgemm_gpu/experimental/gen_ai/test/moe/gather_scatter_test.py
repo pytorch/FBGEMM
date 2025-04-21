@@ -20,8 +20,6 @@ from fbgemm_gpu.experimental.gen_ai.moe import (
 from hypothesis import given, settings, strategies as st, Verbosity
 from triton.testing import do_bench
 
-from .utils import do_bench_cudagraph_and_clear_cache
-
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -160,21 +158,6 @@ class GatherScatterTests(unittest.TestCase):
         torch.testing.assert_close(
             test_out_tokens, ref_out_tokens, atol=1e-3, rtol=1.6e-2
         )
-
-        bench_fn = do_bench_cudagraph_and_clear_cache if torch.version.hip else do_bench
-        if benchmark:
-            mem_bytes = ref_out_tokens.numel() * 2 * 3
-            fbgemm_time = bench_fn(fn) * 1e3
-            fbgemm_bw = mem_bytes * 1e-9 / (fbgemm_time * 1e-6)
-            # We don't benchmark counting on CPU
-            torch_time = bench_fn(ref_fn) * 1e3
-            torch_bw = mem_bytes * 1e-9 / (torch_time * 1e-6)
-
-            logger.info(
-                f"\nnum_tokens={num_tokens:4}, ep_size={ep_size:4}, num_experts={num_experts:4}, balanced={int(balanced)}, "
-                f"fbgemm_time={fbgemm_time:7.3f}us, fbgemm_bw={fbgemm_bw:8.3f}GBytes/s,  "
-                f"torch_time={torch_time:7.3f}us, torch_bw={torch_bw:8.3f}GBytes/s, speedup={torch_time / fbgemm_time:7.3f}x",
-            )
 
 
 if __name__ == "__main__":
