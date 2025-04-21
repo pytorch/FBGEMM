@@ -62,7 +62,7 @@ add_link_options($<$<CONFIG:RELEASE>:-s>)
 
 # Set flags for AVX2
 set(AVX2_FLAGS "-mavx2;-mf16c;-mfma;-fopenmp")
-if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU AND WSL_MODE)
   # NVCC in WSL complains about unknown -mavx options
   # https://github.com/pytorch/FBGEMM/issues/2135
   set(AVX2_FLAGS "-Xcompiler;-mavx;-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-fopenmp")
@@ -70,6 +70,18 @@ endif()
 
 # Set flags for AVX512
 set(AVX512_FLAGS "-mavx2;-mf16c;-mfma;-mavx512f;-mavx512bw;-mavx512dq;-mavx512vl;-fopenmp")
-if(NOT FBGEMM_CPU_ONLY AND WSL_MODE)
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU AND WSL_MODE)
   set(AVX512_FLAGS "-Xcompiler;-mavx2;-Xcompiler;-mf16c;-Xcompiler;-mfma;-Xcompiler;-mavx512f;-Xcompiler;-mavx512bw;-Xcompiler;-mavx512dq;-Xcompiler;-mavx512vl;-fopenmp")
 endif()
+
+BLOCK_PRINT(
+  "AVX2_FLAGS:"
+  ""
+  "${AVX2_FLAGS}"
+)
+
+BLOCK_PRINT(
+  "AVX512_FLAGS:"
+  ""
+  "${AVX512_FLAGS}"
+)

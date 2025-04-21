@@ -67,7 +67,7 @@ macro(handle_genfiles variable)
 endmacro()
 
 macro(handle_genfiles_rocm variable)
-  if(USE_ROCM)
+  if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     handle_genfiles(${variable})
   endif()
 endmacro()

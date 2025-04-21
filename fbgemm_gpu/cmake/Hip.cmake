@@ -35,6 +35,7 @@ endif()
 message("Building FBGEMM for GPU arch: ${PYTORCH_ROCM_ARCH}")
 
 ADD_DEFINITIONS(-DNDEBUG)
+# USE_ROCM flag is used inside FBGEMM_GPU C++ code
 ADD_DEFINITIONS(-DUSE_ROCM)
 
 # Add HIP to the CMAKE Module Path

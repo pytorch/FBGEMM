@@ -287,8 +287,12 @@ class FbgemmGpuBuild:
             #
             #   https://github.com/pytorch/FBGEMM/pull/3477
             #   https://github.com/pytorch/FBGEMM/pull/3717
-            print("[SETUP.PY] Building the CPU-ONLY variant of FBGEMM_GPU ...")
-            cmake_args.append("-DFBGEMM_CPU_ONLY=ON")
+            print("[SETUP.PY] Building the CPU ...")
+            cmake_args.append("-DFBGEMM_BUILD_VARIANT=cpu")
+
+        if self.args.package_variant == "rocm":
+            print("[SETUP.PY] Building the ROCm variant ...")
+            cmake_args.append("-DFBGEMM_BUILD_VARIANT=rocm")
 
         if self.args.package_variant == "genai":
             print("[SETUP.PY] Building the GENAI-ONLY variant of FBGEMM_GPU ...")
