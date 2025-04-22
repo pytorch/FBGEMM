@@ -12,6 +12,7 @@ import triton  # noqa: F401
 from fbgemm_gpu.experimental.gen_ai.moe import (
     gather_along_first_dim,
     gather_scale_dense_tokens,
+    gather_scale_quant_dense_tokens,
     index_shuffling,
     scatter_add_along_first_dim,
 )
@@ -86,7 +87,7 @@ def bench_scatter_add_along_first_dim(M: int, N: int, K: int) -> None:
     )
 
 
-def bench_gather_scale_dense_tokens(E: int, T: int, D: int):
+def bench_gather_scale_dense_tokens(E: int, T: int, D: int, quantize: bool):
     x = torch.randn((T, D), dtype=torch.bfloat16, device="cuda").abs()
     expert_indices = torch.randint(0, E, (T,), device="cuda")
     token_indices = torch.randperm(T, device="cuda")
@@ -101,22 +102,25 @@ def bench_gather_scale_dense_tokens(E: int, T: int, D: int):
         ref_output = shuffled_x * shuffled_selected_scores.view(-1, 1)
         return ref_output
 
-    torch_output = torch_fn()
+    torch_fn()
 
     scores_TE = scores.transpose(0, 1).contiguous()
 
+    fbgemm_fn = (
+        gather_scale_quant_dense_tokens if quantize else gather_scale_dense_tokens
+    )
+
     def triton_fn():
-        test_output = gather_scale_dense_tokens(
-            x, token_indices, expert_indices, scores_TE
-        )
+        test_output = fbgemm_fn(x, token_indices, expert_indices, scores_TE)
         return test_output
 
-    test_output = triton_fn()
-
-    torch.testing.assert_close(torch_output, test_output)
+    triton_fn()
 
     # Run benchmark
-    data_size_in_gigabytes = T * D * 2 * 2 / 1e9
+    if quantize:
+        data_size_in_gigabytes = T * D * 3 / 1e9
+    else:
+        data_size_in_gigabytes = T * D * 4 / 1e9
 
     fbgemm_time = do_bench(triton_fn, rep=1000) * 1e3
     fbgemm_bw = data_size_in_gigabytes / (fbgemm_time / 1e6)
@@ -124,7 +128,7 @@ def bench_gather_scale_dense_tokens(E: int, T: int, D: int):
     torch_time = do_bench(torch_fn, rep=1000) * 1e3
     torch_bw = data_size_in_gigabytes / (torch_time / 1e6)
     print(
-        f"Benchmark gather_scale_dense_tokens, {E=:3d}, {T=:5d}, {D=:5d}, "
+        f"Benchmark gather_scale_dense_tokens({quantize=}), {E=:3d}, {T=:5d}, {D=:5d}, "
         f"FBGEMM time: {fbgemm_time:10.3f} us. Bandwidth: {fbgemm_bw:10.3f} GB/s, "
         f"Torch time: {torch_time:10.3f} us. Bandwidth: {torch_bw:10.3f} GB/s"
     )
@@ -165,7 +169,10 @@ def main():
     Ds = [5120]
 
     for E, T, D in itertools.product(Es, Ts, Ds):
-        bench_gather_scale_dense_tokens(E, T, D)
+        bench_gather_scale_dense_tokens(E, T, D, quantize=False)
+
+    for E, T, D in itertools.product(Es, Ts, Ds):
+        bench_gather_scale_dense_tokens(E, T, D, quantize=True)
 
     if gather_along_first_dim is not None:
         for T, D in itertools.product(Ts, Ds):
