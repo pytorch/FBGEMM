@@ -15,6 +15,256 @@ import triton.language as tl
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import get_fp8_constants
 
 
+# Function APIs
+def gather_scale_dense_tokens(
+    x: torch.Tensor,
+    token_indices: torch.Tensor,
+    expert_indices: torch.Tensor,
+    scores: torch.Tensor,
+):
+    T, D = x.shape
+    E = scores.shape[1]
+    # a = K * T
+    a = token_indices.shape[0]
+
+    assert x.is_contiguous()
+    assert token_indices.is_contiguous()
+    assert expert_indices.is_contiguous()
+
+    assert tuple(token_indices.shape) == (a,)
+    assert tuple(expert_indices.shape) == (a,)
+    assert tuple(scores.shape) == (T, E)
+
+    stride_t = scores.stride(0)
+    stride_e = scores.stride(1)
+
+    out = torch.empty((a, D), device="cuda", dtype=torch.bfloat16)
+
+    NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
+    if a >= NUM_SMS:
+        BLOCK_D_OUTER = D
+        BLOCK_D_INNER = 1024
+        assert D % BLOCK_D_INNER == 0
+    else:
+        BLOCK_D_OUTER = 512
+        BLOCK_D_INNER = 256
+        assert D % BLOCK_D_OUTER == 0
+    grid = (a, D // BLOCK_D_OUTER)
+    _fbgemm_gather_scale_dense_tokens[grid](
+        out,
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+        stride_t,
+        stride_e,
+        D,  # pyre-ignore
+        BLOCK_D_OUTER,  # pyre-ignore
+        BLOCK_D_INNER,  # pyre-ignore
+    )
+    return out
+
+
+def gather_scale_quant_dense_tokens(
+    x: torch.Tensor,
+    token_indices: torch.Tensor,
+    expert_indices: torch.Tensor,
+    scores: torch.Tensor,
+    scale_ub: Optional[torch.Tensor] = None,
+):
+    T, D = x.shape
+    E = scores.shape[1]
+    # a = K * T
+    a = token_indices.shape[0]
+
+    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
+
+    assert x.is_contiguous()
+    assert token_indices.is_contiguous()
+    assert expert_indices.is_contiguous()
+
+    assert tuple(token_indices.shape) == (a,)
+    assert tuple(expert_indices.shape) == (a,)
+    assert tuple(scores.shape) == (T, E)
+
+    stride_t = scores.stride(0)
+    stride_e = scores.stride(1)
+
+    out = torch.empty((a, D), device="cuda", dtype=pt_dtype)
+    out_scale = torch.empty((a,), device="cuda", dtype=torch.float32)
+
+    grid = (a,)
+    _fbgemm_gather_scale_fp8_rowwise_quant_dense_tokens[grid](
+        out,
+        out_scale,
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+        scale_ub,
+        stride_t,
+        stride_e,
+        D,
+        TL_FP8_DTYPE=tl_dtype,
+        MAX_FP8=max_fp8,
+        EPS=eps,
+        CLAMP_MAX=scale_ub is not None,
+    )
+    return out, out_scale
+
+
+def scatter_add_padded_tokens(
+    in_tokens: torch.Tensor,  # [EP, T, D]
+    token_counts: torch.Tensor,  # [E]
+    token_indices: torch.Tensor,  # [T]
+    out_tokens: torch.Tensor,  # [T, D]
+) -> None:
+    assert torch.version.hip is not None or (
+        torch.version.cuda is not None and torch.version.cuda >= "12.4"
+    ), "Requires CUDA version 12.4 or later on Nvidia GPUs!"
+
+    assert in_tokens.is_contiguous()
+    assert token_counts.is_contiguous()
+    assert token_indices.is_contiguous()
+    assert out_tokens.is_contiguous()
+
+    EP, T, D = in_tokens.shape
+    E = token_counts.shape[0]
+    assert tuple(token_indices.shape) == (T,)
+    assert tuple(out_tokens.shape) == (T, D)
+
+    def grid(META):
+        return (
+            E,
+            META["SPLIT_T"],
+        )
+
+    T_BUCKET_CAP = 16384
+    T_BUCKET = min(triton.next_power_of_2(T), T_BUCKET_CAP)
+    _fbgemm_scatter_add_padded_tokens[grid](
+        in_tokens,
+        token_counts,
+        token_indices,
+        out_tokens,
+        EP,
+        E,
+        T_BUCKET,
+        T,
+        D,
+    )
+
+
+# Torch Custom Op Registrations
+_GATHER_SCALE_DENSE_TOKENS_OP_NAME = "fbgemm::gather_scale_dense_tokens"
+
+torch.library.define(
+    "fbgemm::gather_scale_dense_tokens",
+    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores) -> Tensor",
+)
+
+
+@torch.library.impl(_GATHER_SCALE_DENSE_TOKENS_OP_NAME, "Meta")
+def gather_scale_dense_tokens_meta(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+):
+    D = x.shape[1]
+    a = token_indices.shape[0]
+    return x.new_empty((a, D))
+
+
+@torch.library.impl(_GATHER_SCALE_DENSE_TOKENS_OP_NAME, "CUDA")
+def gather_scale_dense_tokens_cuda(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+):
+    return gather_scale_dense_tokens(
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+    )
+
+
+_GATHER_SCALE_QUANT_DENSE_TOKENS_OP_NAME = "fbgemm::gather_scale_quant_dense_tokens"
+
+torch.library.define(
+    "fbgemm::gather_scale_quant_dense_tokens",
+    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores, Tensor? scale_ub) -> Tensor",
+)
+
+
+@torch.library.impl(_GATHER_SCALE_QUANT_DENSE_TOKENS_OP_NAME, "Meta")
+def gather_scale_quant_dense_tokens_meta(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+    scale_ub,
+):
+    D = x.shape[1]
+    a = token_indices.shape[0]
+    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
+    return torch.empty((a, D), device=x.device, dtype=pt_dtype), torch.empty(
+        (a,), device=x.device, dtype=torch.float32
+    )
+
+
+@torch.library.impl(_GATHER_SCALE_QUANT_DENSE_TOKENS_OP_NAME, "CUDA")
+def gather_scale_quant_dense_tokens_cuda(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+    scale_ub=None,
+):
+    return gather_scale_quant_dense_tokens(
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+        scale_ub,
+    )
+
+
+_SCATTER_ADD_PADDED_TOKENS_OP_NAME = "fbgemm::scatter_add_padded_tokens"
+
+torch.library.define(
+    "fbgemm::scatter_add_padded_tokens",
+    "(Tensor in_tokens, Tensor token_counts, Tensor token_indices, Tensor out_tokens) -> None",
+)
+
+
+@torch.library.impl(_SCATTER_ADD_PADDED_TOKENS_OP_NAME, "Meta")
+def scatter_add_padded_tokens_meta(
+    in_tokens,
+    token_counts,
+    token_indices,
+    out_tokens,
+):
+    return None
+
+
+@torch.library.impl(_SCATTER_ADD_PADDED_TOKENS_OP_NAME, "CUDA")
+def scatter_add_padded_tokens_cuda(
+    in_tokens,
+    token_counts,
+    token_indices,
+    out_tokens,
+):
+    return scatter_add_padded_tokens(
+        in_tokens,
+        token_counts,
+        token_indices,
+        out_tokens,
+    )
+
+
+# Kernel Implementations
 @triton.jit
 def _fbgemm_gather_scale_dense_tokens(
     out,
@@ -65,90 +315,6 @@ def _fbgemm_gather_scale_dense_tokens(
         feature_offset += BLOCK_D_INNER
 
 
-def gather_scale_dense_tokens(
-    x: torch.Tensor,
-    token_indices: torch.Tensor,
-    expert_indices: torch.Tensor,
-    scores: torch.Tensor,
-):
-    T, D = x.shape
-    E = scores.shape[1]
-    # a = K * T
-    a = token_indices.shape[0]
-
-    assert x.is_contiguous()
-    assert token_indices.is_contiguous()
-    assert expert_indices.is_contiguous()
-
-    assert tuple(token_indices.shape) == (a,)
-    assert tuple(expert_indices.shape) == (a,)
-    assert tuple(scores.shape) == (T, E)
-
-    stride_t = scores.stride(0)
-    stride_e = scores.stride(1)
-
-    out = torch.empty((a, D), device="cuda", dtype=torch.bfloat16)
-
-    NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
-    if a >= NUM_SMS:
-        BLOCK_D_OUTER = D
-        BLOCK_D_INNER = 1024
-        assert D % BLOCK_D_INNER == 0
-    else:
-        BLOCK_D_OUTER = 512
-        BLOCK_D_INNER = 256
-        assert D % BLOCK_D_OUTER == 0
-    grid = (a, D // BLOCK_D_OUTER)
-    _fbgemm_gather_scale_dense_tokens[grid](
-        out,
-        x,
-        token_indices,
-        expert_indices,
-        scores,
-        stride_t,
-        stride_e,
-        D,  # pyre-ignore
-        BLOCK_D_OUTER,  # pyre-ignore
-        BLOCK_D_INNER,  # pyre-ignore
-    )
-    return out
-
-
-GATHER_SCALE_DENSE_TOKENS = "fbgemm::gather_scale_dense_tokens"
-
-torch.library.define(
-    "fbgemm::gather_scale_dense_tokens",
-    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores) -> Tensor",
-)
-
-
-@torch.library.impl(GATHER_SCALE_DENSE_TOKENS, "Meta")
-def gather_scale_dense_tokens_meta(
-    x,
-    token_indices,
-    expert_indices,
-    scores,
-):
-    D = x.shape[1]
-    a = token_indices.shape[0]
-    return x.new_empty((a, D))
-
-
-@torch.library.impl(GATHER_SCALE_DENSE_TOKENS, "CUDA")
-def gather_scale_dense_tokens_cuda(
-    x,
-    token_indices,
-    expert_indices,
-    scores,
-):
-    return gather_scale_dense_tokens(
-        x,
-        token_indices,
-        expert_indices,
-        scores,
-    )
-
-
 @triton.autotune(
     configs=[
         triton.Config({"BLOCK_D": 256}),
@@ -158,7 +324,7 @@ def gather_scale_dense_tokens_cuda(
     key=["D"],
 )
 @triton.jit
-def _fbgemm_gather_scale_quant_dense_tokens(
+def _fbgemm_gather_scale_fp8_rowwise_quant_dense_tokens(
     output_ptr,
     output_scale_ptr,
     input_ptr,
@@ -248,136 +414,6 @@ def _fbgemm_gather_scale_quant_dense_tokens(
         )
         in_2d_ptr += BLOCK_D
         out_2d_ptr += BLOCK_D
-
-
-def gather_scale_quant_dense_tokens(
-    x: torch.Tensor,
-    token_indices: torch.Tensor,
-    expert_indices: torch.Tensor,
-    scores: torch.Tensor,
-    scale_ub: Optional[torch.Tensor] = None,
-):
-    T, D = x.shape
-    E = scores.shape[1]
-    # a = K * T
-    a = token_indices.shape[0]
-
-    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
-
-    assert x.is_contiguous()
-    assert token_indices.is_contiguous()
-    assert expert_indices.is_contiguous()
-
-    assert tuple(token_indices.shape) == (a,)
-    assert tuple(expert_indices.shape) == (a,)
-    assert tuple(scores.shape) == (T, E)
-
-    stride_t = scores.stride(0)
-    stride_e = scores.stride(1)
-
-    out = torch.empty((a, D), device="cuda", dtype=pt_dtype)
-    out_scale = torch.empty((a,), device="cuda", dtype=torch.float32)
-
-    grid = (a,)
-    _fbgemm_gather_scale_quant_dense_tokens[grid](
-        out,
-        out_scale,
-        x,
-        token_indices,
-        expert_indices,
-        scores,
-        scale_ub,
-        stride_t,
-        stride_e,
-        D,
-        TL_FP8_DTYPE=tl_dtype,
-        MAX_FP8=max_fp8,
-        EPS=eps,
-        CLAMP_MAX=scale_ub is not None,
-    )
-    return out, out_scale
-
-
-GATHER_SCALE_QUANT_DENSE_TOKENS = "fbgemm::gather_scale_quant_dense_tokens"
-
-torch.library.define(
-    "fbgemm::gather_scale_quant_dense_tokens",
-    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores) -> Tensor",
-)
-
-
-@torch.library.impl(GATHER_SCALE_QUANT_DENSE_TOKENS, "Meta")
-def gather_scale_quant_dense_tokens_meta(
-    x,
-    token_indices,
-    expert_indices,
-    scores,
-    scale_ub,
-):
-    D = x.shape[1]
-    a = token_indices.shape[0]
-    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
-    return torch.empty((a, D), device=x.device, dtype=pt_dtype), torch.empty(
-        (a,), device=x.device, dtype=torch.float32
-    )
-
-
-@torch.library.impl(GATHER_SCALE_QUANT_DENSE_TOKENS, "CUDA")
-def gather_scale_quant_dense_tokens_cuda(
-    x,
-    token_indices,
-    expert_indices,
-    scores,
-    scale_ub=None,
-):
-    return gather_scale_quant_dense_tokens(
-        x,
-        token_indices,
-        expert_indices,
-        scores,
-        scale_ub,
-    )
-
-
-def scatter_add_padded_tokens(
-    in_tokens: torch.Tensor,  # [EP, T, D]
-    token_counts: torch.Tensor,  # [E]
-    token_indices: torch.Tensor,  # [T]
-    out_tokens: torch.Tensor,  # [T, D]
-) -> None:
-    assert torch.version.hip is not None or (
-        torch.version.cuda is not None and torch.version.cuda >= "12.4"
-    ), "Requires CUDA version 12.4 or later on Nvidia GPUs!"
-
-    assert in_tokens.is_contiguous()
-    assert token_counts.is_contiguous()
-    assert token_indices.is_contiguous()
-    assert out_tokens.is_contiguous()
-
-    EP, T, D = in_tokens.shape
-    E = token_counts.shape[0]
-    assert tuple(token_indices.shape) == (T,)
-    assert tuple(out_tokens.shape) == (T, D)
-
-    def grid(META):
-        return (
-            E,
-            META["SPLIT_T"],
-        )
-
-    T_BUCKET_CAP = 16384
-    T_BUCKET = min(triton.next_power_of_2(T), T_BUCKET_CAP)
-    _fbgemm_scatter_add_padded_tokens[grid](
-        in_tokens,
-        token_counts,
-        token_indices,
-        out_tokens,
-        EP,
-        E,
-        T_BUCKET,
-        T,
-        D,
-    )
 
 
 _NV_CONFIGS = [

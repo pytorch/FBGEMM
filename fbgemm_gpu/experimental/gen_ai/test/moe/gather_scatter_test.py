@@ -41,15 +41,21 @@ class GatherScatterTests(unittest.TestCase):
 
     @given(
         E=st.sampled_from([2, 4, 8]),
-        T=st.sampled_from([1, 128, 2048, 4096, 1000000]),
+        T=st.sampled_from([1, 128, 2048, 4096, 16384]),
         D=st.sampled_from([5120, 7168]),
         rowmajor=st.sampled_from([True, False]),
+        compiled=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_gather_scale_dense_tokens(
-        self, E: int, T: int, D: int, rowmajor: bool
+        self,
+        E: int,
+        T: int,
+        D: int,
+        rowmajor: bool,
+        compiled: bool,
     ) -> None:
-        if T == 1000000 and (E > 2 or D > 5120):
+        if T == 16384 and (E > 2 or D > 5120):
             logger.info(f"Skipping test for E={E}, T={T} because it will lead to OOM")
             return
         x: torch.Tensor = torch.randn((T, D), dtype=torch.bfloat16, device="cuda").abs()
@@ -72,9 +78,10 @@ class GatherScatterTests(unittest.TestCase):
             scores_ = scores.contiguous().transpose(0, 1)
             if rowmajor:
                 scores_ = scores_.contiguous()
-            test_output = gather_scale_dense_tokens(
-                x, token_indices, expert_indices, scores_
-            )
+            op = gather_scale_dense_tokens
+            if compiled:
+                op = torch.compile(op)
+            test_output = op(x, token_indices, expert_indices, scores_)
             return test_output
 
         test_output = triton_fn()
@@ -83,15 +90,21 @@ class GatherScatterTests(unittest.TestCase):
 
     @given(
         E=st.sampled_from([2, 4, 8]),
-        T=st.sampled_from([1, 128, 2048, 4096, 100]),
+        T=st.sampled_from([1, 128, 2048, 4096, 16384]),
         D=st.sampled_from([5120, 7168]),
         rowmajor=st.sampled_from([True, False]),
+        compiled=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_gather_scale_quant_dense_tokens(
-        self, E: int, T: int, D: int, rowmajor: bool
+        self,
+        E: int,
+        T: int,
+        D: int,
+        rowmajor: bool,
+        compiled: bool,
     ) -> None:
-        if T == 1000000 and (E > 2 or D > 5120):
+        if T == 16384 and (E > 2 or D > 5120):
             logger.info(f"Skipping test for E={E}, T={T} because it will lead to OOM")
             return
         x: torch.Tensor = torch.randn((T, D), dtype=torch.bfloat16, device="cuda")
@@ -124,7 +137,10 @@ class GatherScatterTests(unittest.TestCase):
             scores_ = scores.contiguous().transpose(0, 1)
             if rowmajor:
                 scores_ = scores_.contiguous()
-            test_output_q, test_output_scales = gather_scale_quant_dense_tokens(
+            op = gather_scale_quant_dense_tokens
+            if compiled:
+                op = torch.compile(op)
+            test_output_q, test_output_scales = op(
                 x, token_indices, expert_indices, scores_, scale_ub
             )
             return test_output_q, test_output_scales
@@ -140,7 +156,7 @@ class GatherScatterTests(unittest.TestCase):
         ep_size=st.sampled_from([2, 4, 8, 16]),
         dim=st.sampled_from([5120]),
         balanced=st.sampled_from([True, False]),
-        benchmark=st.sampled_from([_BENCHMARK_IN_TEST]),
+        compiled=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_scatter_add_padded_tokens(
@@ -150,7 +166,7 @@ class GatherScatterTests(unittest.TestCase):
         ep_size: int,
         dim: int,
         balanced: bool,
-        benchmark: bool,
+        compiled: bool,
     ) -> None:
         torch.manual_seed(0)
 
@@ -183,7 +199,10 @@ class GatherScatterTests(unittest.TestCase):
         ref_out_tokens: torch.Tensor = out_tokens.clone()
 
         def fn() -> None:
-            scatter_add_padded_tokens(
+            op = scatter_add_padded_tokens
+            if compiled:
+                op = torch.compile(op)
+            op(
                 in_tokens,
                 token_counts,
                 token_indices,
