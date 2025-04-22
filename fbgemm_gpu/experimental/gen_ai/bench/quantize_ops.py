@@ -776,6 +776,42 @@ class BF16TritonStackedGroupedGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class BF16TritonStackedGroupedGemmFuseScatterAdd(BF16TritonStackedGroupedGemm):
+    """
+    BF16 grouped matmul with stacked inputs implemented with triton. Fused with ScatterAdd.
+    """
+
+    def preprocess(self, x, w):
+        x, w, m_sizes = super().preprocess(x, w)
+        M = x.shape[0]
+        N = w.shape[0] // m_sizes.shape[0]
+        output = torch.zeros(M, N, dtype=torch.bfloat16, device=x.device)
+        indices = torch.randperm(M, dtype=torch.int32, device=x.device)
+        return x, w, m_sizes, output, indices
+
+    def quantize(self, x, w, m_sizes, *args):
+        return *super().quantize(x, w, m_sizes), *args
+
+    def compute(self, x, w, m_sizes, output, indices):
+        return grouped_gemm(
+            x,
+            w,
+            m_sizes,
+            _use_warp_specialization=True,
+            _output_tensor=output,
+            _scatter_add_indices=indices,
+        )
+
+    def quantize_and_compute(self, x, w, m_sizes, *args):
+        x, w, m_sizes, *ret = self.quantize(x, w, m_sizes, *args)
+        return self.compute(x, w, m_sizes, *ret)
+
+    @property
+    def name(self) -> str:
+        return "triton_bf16_grouped_stacked_fuse_scatter_add"
+
+
+@register_quantize_op
 class FP8TritonStackedGroupedGemm(QuantizeOpBase):
     """
     FP8 grouped matmul with rowwise scaling and stacked inputs implemented with triton.
@@ -821,6 +857,46 @@ class FP8TritonStackedGroupedGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+@register_quantize_op
+class FP8TritonStackedGroupedGemmFuseScatterAdd(FP8TritonStackedGroupedGemm):
+    """
+    FP8 grouped matmul with stacked inputs implemented with triton. Fused with ScatterAdd.
+    """
+
+    def preprocess(self, x, w):
+        x, wq, w_scale, m_sizes = super().preprocess(x, w)
+        M = x.shape[0]
+        N = wq.shape[0] // m_sizes.shape[0]
+        output = torch.zeros(M, N, dtype=torch.bfloat16, device=x.device)
+        indices = torch.randperm(M, dtype=torch.int32, device=x.device)
+        return x, wq, w_scale, m_sizes, output, indices
+
+    def quantize(self, x, wq, w_scale, m_sizes, *args):
+        return *super().quantize(x, wq, w_scale, m_sizes), *args
+
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes, output, indices):
+        return grouped_gemm_fp8_rowwise(
+            xq,
+            wq,
+            m_sizes,
+            x_scale,
+            w_scale,
+            _use_warp_specialization=True,
+            _output_tensor=output,
+            _scatter_add_indices=indices,
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale, m_sizes, *args):
+        xq, wq, x_scale, w_scale, m_sizes, *ret = self.quantize(
+            x, wq, w_scale, m_sizes, *args
+        )
+        return self.compute(xq, wq, x_scale, w_scale, m_sizes, *ret)
+
+    @property
+    def name(self) -> str:
+        return "triton_grouped_stacked_fuse_scatter_add"
 
 
 @register_quantize_op
