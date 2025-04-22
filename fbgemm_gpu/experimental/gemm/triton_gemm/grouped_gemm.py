@@ -196,6 +196,7 @@ def early_config_prune(configs, named_args, dtsize=None, dtype=None, **kwargs):
     configs=_AMD_CONFIGS if torch.version.hip else _NV_CONFIGS,
     key=["G", "M_BUCKET", "N", "K"],
     prune_configs_by={"early_config_prune": early_config_prune},
+    restore_value=["c_ptr"],  # restore for scatter_add fusion
 )
 @triton.jit
 def _fbgemm_grouped_gemm(
@@ -203,6 +204,7 @@ def _fbgemm_grouped_gemm(
     b_desc_ptr,
     c_ptr,
     workspace,
+    scatter_add_indices,
     m_sizes,
     # problem sizes
     G: tl.constexpr,
@@ -210,6 +212,7 @@ def _fbgemm_grouped_gemm(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    FUSE_SCATTER_ADD: tl.constexpr,
     USE_TMA_LOAD: tl.constexpr,
     USE_TMA_STORE: tl.constexpr,
     USE_FAST_ACCUM: tl.constexpr,
@@ -219,6 +222,11 @@ def _fbgemm_grouped_gemm(
     BLOCK_SIZE_K: tl.constexpr,
     NUM_CONSUMER_GROUPS: tl.constexpr,
 ) -> None:
+    tl.static_assert(
+        not FUSE_SCATTER_ADD,
+        "FUSE_SCATTER_ADD not supported at _fbgemm_grouped_gemm at the moment!",
+    )
+
     tidx = tl.program_id(0)
 
     dtype: tl.dtype = c_ptr.dtype.element_ty
@@ -336,6 +344,7 @@ def _fbgemm_grouped_gemm(
     configs=_NV_WS_CONFIGS,
     key=["G", "M_BUCKET", "N", "K"],
     prune_configs_by={"early_config_prune": early_config_prune},
+    restore_value=["c_ptr"],  # restore for scatter_add fusion
 )
 @triton.jit
 def _fbgemm_grouped_gemm_ws(
@@ -343,6 +352,7 @@ def _fbgemm_grouped_gemm_ws(
     b_desc_ptr,
     c_ptr,
     workspace,
+    scatter_add_indices,
     m_sizes,
     # problem sizes
     G: tl.constexpr,
@@ -350,6 +360,7 @@ def _fbgemm_grouped_gemm_ws(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    FUSE_SCATTER_ADD: tl.constexpr,
     USE_TMA_LOAD: tl.constexpr,
     USE_FAST_ACCUM: tl.constexpr,
     # tile sizes
@@ -362,6 +373,10 @@ def _fbgemm_grouped_gemm_ws(
 ) -> None:
     tl.static_assert(USE_TMA_LOAD, "Always use TMA load with warp specialziation!")
     tl.static_assert(not USE_TMA_LOAD_ON_SCALES, "Not supported!")
+    tl.static_assert(
+        not (FUSE_SCATTER_ADD and USE_TMA_STORE),
+        "Cannot fuse scatter add with TMA store!",
+    )
 
     tidx = tl.program_id(0)
 
@@ -446,6 +461,27 @@ def _fbgemm_grouped_gemm_ws(
                                 accumulator.to(c_ptr.dtype.element_ty),
                                 [m_offset, n_offset],
                             )
+                    elif FUSE_SCATTER_ADD:
+                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
+                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
+                                0, BLOCK_SIZE_M
+                            )
+                            mask = offs_am < m_size
+                            m_offsets = tl.load(
+                                scatter_add_indices + M_start_offset + offs_am,
+                                mask=mask,
+                                cache_modifier=".ca",
+                            )
+                            offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(
+                                0, BLOCK_SIZE_N
+                            )
+                            c = accumulator.to(c_ptr.dtype.element_ty)
+                            tl.atomic_add(
+                                c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
+                                c,
+                                mask=mask[:, None],
+                                sem="relaxed",
+                            )
                     else:
                         with tl.async_task([1, NUM_CONSUMER_GROUPS]):
                             offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
@@ -480,6 +516,7 @@ TT_FP8_DTYPE = tl.float8e4b8 if torch.version.hip else tl.float8e4nv
             early_config_prune, dtype=TT_FP8_DTYPE, dtsize=1
         )
     },
+    restore_value=["c_ptr"],  # restore for scatter_add fusion
 )
 @triton.jit
 def _fbgemm_grouped_gemm_fp8_rowwise(
@@ -490,6 +527,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
     b_scale_desc_ptr,
     c_ptr,
     workspace,
+    scatter_add_indices,
     m_sizes,
     # problem sizes
     G: tl.constexpr,
@@ -497,6 +535,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    FUSE_SCATTER_ADD: tl.constexpr,
     USE_TMA_LOAD: tl.constexpr,
     USE_TMA_STORE: tl.constexpr,
     USE_FAST_ACCUM: tl.constexpr,
@@ -506,6 +545,11 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
     BLOCK_SIZE_K: tl.constexpr,
     NUM_CONSUMER_GROUPS: tl.constexpr,
 ) -> None:
+    tl.static_assert(
+        not FUSE_SCATTER_ADD,
+        "FUSE_SCATTER_ADD not supported at _fbgemm_grouped_gemm_fp8_rowwise at the moment!",
+    )
+
     tidx = tl.program_id(0)
 
     dtype = TT_FP8_DTYPE
@@ -636,6 +680,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
             early_config_prune, dtype=TT_FP8_DTYPE, dtsize=1
         )
     },
+    restore_value=["c_ptr"],  # restore for scatter_add fusion
 )
 @triton.jit
 def _fbgemm_grouped_gemm_fp8_rowwise_ws(
@@ -646,6 +691,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
     b_scale_desc_ptr,
     c_ptr,
     workspace,
+    scatter_add_indices,
     m_sizes,
     # problem sizes
     G: tl.constexpr,
@@ -653,6 +699,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
     N: tl.constexpr,
     K: tl.constexpr,
     NUM_SMS: tl.constexpr,
+    FUSE_SCATTER_ADD: tl.constexpr,
     USE_TMA_LOAD: tl.constexpr,
     USE_FAST_ACCUM: tl.constexpr,
     # tile sizes
@@ -664,6 +711,10 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
     USE_TMA_STORE: tl.constexpr,
 ) -> None:
     tl.static_assert(USE_TMA_LOAD, "Always use TMA load with warp specialziation!")
+    tl.static_assert(
+        not (FUSE_SCATTER_ADD and USE_TMA_STORE),
+        "Cannot fuse scatter add with TMA store!",
+    )
 
     tidx = tl.program_id(0)
 
@@ -787,6 +838,26 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
                                 c.to(c_ptr.dtype.element_ty),
                                 [m_offset, n_offset],
                             )
+                    elif FUSE_SCATTER_ADD:
+                        with tl.async_task([1, NUM_CONSUMER_GROUPS]):
+                            offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
+                                0, BLOCK_SIZE_M
+                            )
+                            mask = offs_am < m_size
+                            m_offsets = tl.load(
+                                scatter_add_indices + M_start_offset + offs_am,
+                                mask=mask,
+                                cache_modifier=".ca",
+                            )
+                            offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(
+                                0, BLOCK_SIZE_N
+                            )
+                            tl.atomic_add(
+                                c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
+                                c,
+                                mask=mask[:, None],
+                                sem="relaxed",
+                            )
                     else:
                         with tl.async_task([1, NUM_CONSUMER_GROUPS]):
                             offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(
@@ -816,6 +887,8 @@ def _grouped_gemm(
     w_scale: Optional[torch.Tensor] = None,
     use_fast_accum: bool = False,
     use_warp_specialization: bool = False,
+    output_tensor: Optional[torch.Tensor] = None,
+    scatter_add_indices: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
 
     USE_TMA_LOAD = not torch.version.hip
@@ -849,7 +922,16 @@ def _grouped_gemm(
     N = w.shape[0] // G
     assert K == w.shape[1]
 
-    y = torch.empty((M, N), device=x.device, dtype=torch.bfloat16)
+    if output_tensor is None:
+        FUSE_SCATTER_ADD = False
+        assert scatter_add_indices is None
+        y = torch.empty((M, N), device=x.device, dtype=torch.bfloat16)
+    else:
+        FUSE_SCATTER_ADD = True
+        assert scatter_add_indices is not None
+        assert scatter_add_indices.is_contiguous()
+        assert scatter_add_indices.shape == (M,)
+        y = output_tensor
     if M == 0 or N == 0:
         return y
 
@@ -930,12 +1012,14 @@ def _grouped_gemm(
             desc_ws,
             y,
             workspace,
+            scatter_add_indices,
             m_sizes,
             G,
             M_BUCKET,
             N,
             K,
             NUM_SMS,
+            FUSE_SCATTER_ADD,
             USE_TMA_LOAD,
         )
         if use_warp_specialization:
@@ -954,12 +1038,14 @@ def _grouped_gemm(
             desc_w,
             y,
             workspace,
+            scatter_add_indices,
             m_sizes,
             G,
             M_BUCKET,
             N,
             K,
             NUM_SMS,
+            FUSE_SCATTER_ADD,
             USE_TMA_LOAD,
         )
         if use_warp_specialization:
@@ -978,6 +1064,8 @@ def grouped_gemm(
     use_fast_accum: bool = True,
     *,
     _use_warp_specialization: bool = False,
+    _output_tensor: Optional[torch.Tensor] = None,
+    _scatter_add_indices: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     return _grouped_gemm(
         x,
@@ -985,6 +1073,8 @@ def grouped_gemm(
         m_sizes,
         use_fast_accum=use_fast_accum,
         use_warp_specialization=_use_warp_specialization,
+        output_tensor=_output_tensor,
+        scatter_add_indices=_scatter_add_indices,
     )
 
 
@@ -997,6 +1087,8 @@ def grouped_gemm_fp8_rowwise(
     use_fast_accum: bool = True,
     *,
     _use_warp_specialization: bool = False,
+    _output_tensor: Optional[torch.Tensor] = None,
+    _scatter_add_indices: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     return _grouped_gemm(
         x,
@@ -1006,4 +1098,6 @@ def grouped_gemm_fp8_rowwise(
         w_scale,
         use_fast_accum=use_fast_accum,
         use_warp_specialization=_use_warp_specialization,
+        output_tensor=_output_tensor,
+        scatter_add_indices=_scatter_add_indices,
     )

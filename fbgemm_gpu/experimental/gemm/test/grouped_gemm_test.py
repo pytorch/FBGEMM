@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
+# pyre-ignore-all-errors[53]
 
 import logging
 import os
@@ -40,6 +41,7 @@ class TestGroupedGEMM(unittest.TestCase):
             device: torch.device,
             fast_accu: bool,
             use_warp_specialization: bool,
+            fuse_scatter_add: bool,
         ) -> None:
             G, M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -61,6 +63,17 @@ class TestGroupedGEMM(unittest.TestCase):
             a_fp8, a_scale = quantize_fp8_row(a)
             b_fp8, b_scale = quantize_fp8_row(b)
 
+            if fuse_scatter_add:
+                scatter_add_target = torch.randn(
+                    M, N, dtype=torch.bfloat16, device=device
+                )
+                scatter_add_indices = torch.randperm(M, device=device).to(torch.int32)
+                scatter_add_target_clone = scatter_add_target.clone()
+            else:
+                scatter_add_target = None
+                scatter_add_indices = None
+                scatter_add_target_clone = None
+
             result = grouped_gemm_fp8_rowwise(
                 a_fp8,
                 b_fp8,
@@ -69,8 +82,13 @@ class TestGroupedGEMM(unittest.TestCase):
                 b_scale,
                 use_fast_accum=fast_accu,
                 _use_warp_specialization=use_warp_specialization,
+                _output_tensor=scatter_add_target,
+                _scatter_add_indices=scatter_add_indices,
             )
             self.assertTrue(result.shape == (M, N))
+
+            if M == 0:
+                return
 
             expected_result = torch.zeros(M, N, dtype=torch.bfloat16, device=device)
             # Running baseline with quantization to exclude quantization error from the test as it has nothing to do with the correctness of the kernel implementation.
@@ -87,28 +105,56 @@ class TestGroupedGEMM(unittest.TestCase):
                     * b_scale[n_start:n_end][None, :]
                 ).to(torch.bfloat16)
 
+            if fuse_scatter_add:
+                assert scatter_add_target_clone is not None
+                assert scatter_add_indices is not None
+                scatter_add_target_clone.scatter_add_(
+                    0,
+                    scatter_add_indices.view(M, 1).expand(M, N).to(torch.int64),
+                    expected_result,
+                )
+                expected_result = scatter_add_target_clone
+
+            ws = use_warp_specialization
+
+            def msg(s: str) -> str:
+                return f"{G=}, {M=}, {N=}, {K=}, {fast_accu=}, {ws=}, {fuse_scatter_add=}, {s}"
+
             if M > 16384:
                 torch.testing.assert_close(
-                    result, expected_result, atol=5e-2, rtol=1.6e-2
+                    result,
+                    expected_result,
+                    atol=5e-2,
+                    rtol=1.6e-2,
+                    msg=msg,
                 )
             else:
                 torch.testing.assert_close(
-                    result, expected_result, atol=2e-2, rtol=1.6e-2
+                    result,
+                    expected_result,
+                    atol=2e-2,
+                    rtol=1.6e-2,
+                    msg=msg,
                 )
 
         for G in (1, 4, 16):
             for M in (0, 64, 512, 1000000):
                 for fast_accu in (True, False):
                     for ws in (True, False):
-                        logging.info(
-                            f"Testing FP8 GMM with G={G}, M={M}, FastAccu={fast_accu}"
-                        )
-                        _test_grouped_gemm_fp8_rowwise(
-                            (G, M, 256, 256),
-                            torch.device("cuda"),
-                            fast_accu=fast_accu,
-                            use_warp_specialization=ws,
-                        )
+                        for fuse_scatter_add in (True, False):
+                            if not ws and fuse_scatter_add:
+                                continue
+                            logging.info(
+                                f"Testing FP8 GMM with G={G}, M={M}, FastAccu={fast_accu}, "
+                                f"UseWarpSpecialization={ws}, FuseScatterAdd={fuse_scatter_add}"
+                            )
+                            _test_grouped_gemm_fp8_rowwise(
+                                (G, M, 256, 256),
+                                torch.device("cuda"),
+                                fast_accu=fast_accu,
+                                use_warp_specialization=ws,
+                                fuse_scatter_add=fuse_scatter_add,
+                            )
 
     @unittest.skipIf(  # pyre-ignore [56]
         os.getenv("GITHUB_ENV") is not None,
@@ -119,6 +165,7 @@ class TestGroupedGEMM(unittest.TestCase):
             shape: Tuple[int, int, int, int],
             device: torch.device,
             use_warp_specialization: bool,
+            fuse_scatter_add: bool,
         ) -> None:
             G, M, N, K = shape
             a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
@@ -137,13 +184,29 @@ class TestGroupedGEMM(unittest.TestCase):
                 [m_ends[i] - m_starts[i] for i in range(G)], device=device
             ).to(torch.int32)
 
+            if fuse_scatter_add:
+                scatter_add_target = torch.randn(
+                    M, N, dtype=torch.bfloat16, device=device
+                )
+                scatter_add_indices = torch.randperm(M, device=device).to(torch.int32)
+                scatter_add_target_clone = scatter_add_target.clone()
+            else:
+                scatter_add_target = None
+                scatter_add_indices = None
+                scatter_add_target_clone = None
+
             result = grouped_gemm(
                 a,
                 b,
                 m_sizes,
                 _use_warp_specialization=use_warp_specialization,
+                _output_tensor=scatter_add_target,
+                _scatter_add_indices=scatter_add_indices,
             )
             self.assertTrue(result.shape == (M, N))
+
+            if M == 0:
+                return
 
             expected_result = torch.zeros(M, N, dtype=torch.bfloat16, device=device)
             for g in range(G):
@@ -153,14 +216,38 @@ class TestGroupedGEMM(unittest.TestCase):
                     a[m_start:m_end, :] @ b[g * N : (g + 1) * N, :].T
                 )
 
-            torch.testing.assert_close(result, expected_result, atol=1e-5, rtol=1.6e-2)
+            if fuse_scatter_add:
+                assert scatter_add_target_clone is not None
+                assert scatter_add_indices is not None
+                scatter_add_target_clone.scatter_add_(
+                    0,
+                    scatter_add_indices.view(M, 1).expand(M, N).to(torch.int64),
+                    expected_result,
+                )
+                expected_result = scatter_add_target_clone
+
+            ws = use_warp_specialization
+
+            def msg(s: str) -> str:
+                return f"{G=}, {M=}, {N=}, {K=}, {ws=}, {fuse_scatter_add=}, {s}"
+
+            torch.testing.assert_close(
+                result, expected_result, atol=1e-5, rtol=1.6e-2, msg=msg
+            )
 
         for G in (1, 4, 16):
             for M in (0, 64, 512, 1000000):
                 for ws in (True, False):
-                    logging.info(f"Testing BF16 GMM with G={G}, M={M}")
-                    _test_grouped_gemm_bf16(
-                        (G, M, 256, 256),
-                        torch.device("cuda"),
-                        use_warp_specialization=ws,
-                    )
+                    for fuse_scatter_add in (True, False):
+                        if not ws and fuse_scatter_add:
+                            continue
+                        logging.info(
+                            f"Testing BF16 GMM with G={G}, M={M}, "
+                            f"UseWarpSpecialization={ws}, FuseScatterAdd={fuse_scatter_add}"
+                        )
+                        _test_grouped_gemm_bf16(
+                            (G, M, 256, 256),
+                            torch.device("cuda"),
+                            use_warp_specialization=ws,
+                            fuse_scatter_add=fuse_scatter_add,
+                        )
