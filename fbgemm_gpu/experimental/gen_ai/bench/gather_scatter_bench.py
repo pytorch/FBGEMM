@@ -5,15 +5,17 @@
 # LICENSE file in the root directory of this source tree.
 
 import itertools
+from typing import List, Tuple
 
 import torch
 import triton  # noqa: F401
 from fbgemm_gpu.experimental.gen_ai.moe import (
     gather_along_first_dim,
     gather_scale_dense_tokens,
+    index_shuffling,
     scatter_add_along_first_dim,
 )
-from triton.testing import do_bench
+from triton.testing import do_bench, do_bench_cudagraph
 
 
 def bench_gather_along_first_dim(M: int, N: int, K: int) -> None:
@@ -128,6 +130,35 @@ def bench_gather_scale_dense_tokens(E: int, T: int, D: int):
     )
 
 
+def bench_top1_index_shuffling(num_tokens: int, num_experts: int) -> None:
+    torch.manual_seed(0)
+
+    scores_list: List[torch.Tensor] = [
+        torch.randn(num_tokens, num_experts, device="cuda", dtype=torch.bfloat16)
+        for i in range(100)
+    ]
+
+    def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        for scores in scores_list:
+            index_shuffling(scores)
+
+    def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        for scores in scores_list:
+            _, selected_expert_indices = torch.topk(scores, 1, dim=1)
+            expert_indices, _ = torch.sort(selected_expert_indices, dim=0)
+            _ = (
+                expert_indices[:, None]
+                == torch.arange(num_experts, device=expert_indices.device)[None, :]
+            ).sum(dim=0)
+
+    fbgemm_time = do_bench_cudagraph(fn) * 1e3 / 100
+    torch_time = do_bench_cudagraph(ref_fn) * 1e3 / 100
+    print(
+        f"Benchmark index_shuffling, num_tokens={num_tokens:4}, num_experts={num_experts:4}, "
+        f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us"
+    )
+
+
 def main():
     Es = [16, 128]
     Ts = [1, 128, 2048, 4096, 8192, 16384]
@@ -143,6 +174,9 @@ def main():
     if scatter_add_along_first_dim is not None:
         for T, D in itertools.product(Ts, Ds):
             bench_scatter_add_along_first_dim(T, T, D)
+
+    for T, E in itertools.product(Ts, Es):
+        bench_top1_index_shuffling(T, E)
 
 
 if __name__ == "__main__":
