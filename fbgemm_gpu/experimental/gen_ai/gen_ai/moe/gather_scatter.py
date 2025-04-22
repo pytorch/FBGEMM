@@ -6,9 +6,13 @@
 
 # pyre-unsafe
 
+from typing import Optional
+
 import torch
 import triton
 import triton.language as tl
+
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import get_fp8_constants
 
 
 @triton.jit
@@ -142,6 +146,196 @@ def gather_scale_dense_tokens_cuda(
         token_indices,
         expert_indices,
         scores,
+    )
+
+
+@triton.autotune(
+    configs=[
+        triton.Config({"BLOCK_D": 256}),
+        triton.Config({"BLOCK_D": 512}),
+        triton.Config({"BLOCK_D": 1024}),
+    ],
+    key=["D"],
+)
+@triton.jit
+def _fbgemm_gather_scale_quant_dense_tokens(
+    output_ptr,
+    output_scale_ptr,
+    input_ptr,
+    token_indices_ptr,
+    expert_indices_ptr,
+    scores_ptr,
+    scale_ub_ptr,
+    stride_t,
+    stride_e,
+    D: tl.constexpr,
+    TL_FP8_DTYPE: tl.constexpr,
+    MAX_FP8: tl.constexpr,
+    EPS: tl.constexpr,
+    CLAMP_MAX: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    tl.static_assert(D % BLOCK_D == 0, "D must be a multiple of BLOCK_D")
+
+    output_token_index = tl.program_id(0)
+
+    input_token_index = tl.load(
+        token_indices_ptr + output_token_index, None, eviction_policy="evict_first"
+    )
+    input_expert_index = tl.load(
+        expert_indices_ptr + output_token_index, None, eviction_policy="evict_first"
+    )
+    input_score = tl.load(
+        scores_ptr + input_token_index * stride_t + input_expert_index * stride_e,
+        None,
+        eviction_policy="evict_first",
+    ).to(tl.float32)
+
+    row_max = 0.0
+    in_2d_ptr = (
+        input_ptr + input_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:]
+    )
+    for _ in range(0, D, BLOCK_D):
+        input_token_value = tl.load(
+            in_2d_ptr,
+            None,
+            eviction_policy="evict_last",
+        ).to(tl.float32)
+        output_token_value = input_token_value * input_score
+
+        tile_max = tl.max(tl.abs(output_token_value))
+        row_max = tl.maximum(tile_max, row_max)
+        in_2d_ptr += BLOCK_D
+
+    # Clamp max value appropriately.
+    if CLAMP_MAX:
+        ub = tl.load(scale_ub_ptr, eviction_policy="evict_last")
+        row_max = tl.clamp(row_max, EPS, ub)
+    else:
+        row_max = tl.maximum(row_max, EPS)
+
+    # Scale and quantize.
+    output_scale = MAX_FP8 / row_max
+    tl.store(output_scale_ptr + output_token_index, 1.0 / output_scale)
+
+    in_2d_ptr = (
+        input_ptr + input_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:]
+    )
+    out_2d_ptr = (
+        output_ptr + output_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:],
+    )
+    for _ in range(0, D, BLOCK_D):
+        # Load from L2
+        input_token_value = tl.load(
+            in_2d_ptr,
+            None,
+            eviction_policy="evict_first",
+        ).to(tl.float32)
+        # Rematerilize
+        output_token_value_fp8 = (input_token_value * input_score) * output_scale
+
+        # Clamp A to fp8 range to make sure there's no overflow.
+        # This is required for AMD. Nvidia's default saturation
+        # handles it, but it's nice to have anyway.
+        output_token_value_fp8 = tl.clamp(output_token_value_fp8, -MAX_FP8, MAX_FP8).to(
+            TL_FP8_DTYPE
+        )
+        tl.store(
+            out_2d_ptr,
+            output_token_value_fp8,
+            None,
+            cache_modifier=".cg",
+        )
+        in_2d_ptr += BLOCK_D
+        out_2d_ptr += BLOCK_D
+
+
+def gather_scale_quant_dense_tokens(
+    x: torch.Tensor,
+    token_indices: torch.Tensor,
+    expert_indices: torch.Tensor,
+    scores: torch.Tensor,
+    scale_ub: Optional[torch.Tensor] = None,
+):
+    T, D = x.shape
+    E = scores.shape[1]
+    # a = K * T
+    a = token_indices.shape[0]
+
+    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
+
+    assert x.is_contiguous()
+    assert token_indices.is_contiguous()
+    assert expert_indices.is_contiguous()
+
+    assert tuple(token_indices.shape) == (a,)
+    assert tuple(expert_indices.shape) == (a,)
+    assert tuple(scores.shape) == (T, E)
+
+    stride_t = scores.stride(0)
+    stride_e = scores.stride(1)
+
+    out = torch.empty((a, D), device="cuda", dtype=pt_dtype)
+    out_scale = torch.empty((a,), device="cuda", dtype=torch.float32)
+
+    grid = (a,)
+    _fbgemm_gather_scale_quant_dense_tokens[grid](
+        out,
+        out_scale,
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+        scale_ub,
+        stride_t,
+        stride_e,
+        D,
+        TL_FP8_DTYPE=tl_dtype,
+        MAX_FP8=max_fp8,
+        EPS=eps,
+        CLAMP_MAX=scale_ub is not None,
+    )
+    return out, out_scale
+
+
+GATHER_SCALE_QUANT_DENSE_TOKENS = "fbgemm::gather_scale_quant_dense_tokens"
+
+torch.library.define(
+    "fbgemm::gather_scale_quant_dense_tokens",
+    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores) -> Tensor",
+)
+
+
+@torch.library.impl(GATHER_SCALE_QUANT_DENSE_TOKENS, "Meta")
+def gather_scale_quant_dense_tokens_meta(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+    scale_ub,
+):
+    D = x.shape[1]
+    a = token_indices.shape[0]
+    pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
+    return torch.empty((a, D), device=x.device, dtype=pt_dtype), torch.empty(
+        (a,), device=x.device, dtype=torch.float32
+    )
+
+
+@torch.library.impl(GATHER_SCALE_QUANT_DENSE_TOKENS, "CUDA")
+def gather_scale_quant_dense_tokens_cuda(
+    x,
+    token_indices,
+    expert_indices,
+    scores,
+    scale_ub=None,
+):
+    return gather_scale_quant_dense_tokens(
+        x,
+        token_indices,
+        expert_indices,
+        scores,
+        scale_ub,
     )
 
 

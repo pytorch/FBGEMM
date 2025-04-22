@@ -5,21 +5,23 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-strict
-# pyre-ignore-all-errors[16,21,56]
+# pyre-ignore-all-errors[16,21,53,56]
 
 import logging
 import os
 import unittest
+from typing import Tuple
 
 import torch
 import triton  # noqa: F401
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
 from fbgemm_gpu.experimental.gen_ai.moe import (
     gather_scale_dense_tokens,
+    gather_scale_quant_dense_tokens,
     open_source,
     scatter_add_padded_tokens,
 )
 from hypothesis import given, settings, strategies as st, Verbosity
-from triton.testing import do_bench
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -78,6 +80,59 @@ class GatherScatterTests(unittest.TestCase):
         test_output = triton_fn()
 
         torch.testing.assert_close(torch_output, test_output)
+
+    @given(
+        E=st.sampled_from([2, 4, 8]),
+        T=st.sampled_from([1, 128, 2048, 4096, 100]),
+        D=st.sampled_from([5120, 7168]),
+        rowmajor=st.sampled_from([True, False]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
+    def test_gather_scale_quant_dense_tokens(
+        self, E: int, T: int, D: int, rowmajor: bool
+    ) -> None:
+        if T == 1000000 and (E > 2 or D > 5120):
+            logger.info(f"Skipping test for E={E}, T={T} because it will lead to OOM")
+            return
+        x: torch.Tensor = torch.randn((T, D), dtype=torch.bfloat16, device="cuda")
+        expert_indices: torch.Tensor = torch.randint(0, E, (T,), device="cuda")
+        token_indices: torch.Tensor = torch.randperm(T, device="cuda").to(torch.int32)
+        scores: torch.Tensor = torch.randn((E, T), dtype=torch.bfloat16, device="cuda")
+
+        scale_ub = torch.tensor([1200], dtype=torch.float, device="cuda")
+
+        def torch_fn() -> Tuple[torch.Tensor, torch.Tensor]:
+            shuffled_x = torch.index_select(x, dim=0, index=token_indices)
+            shuffled_scores = torch.index_select(scores, dim=1, index=token_indices)
+            shuffled_selected_scores = torch.gather(
+                shuffled_scores, dim=0, index=expert_indices.view(1, T)
+            )
+            ref_output = shuffled_x.to(torch.float32) * shuffled_selected_scores.view(
+                -1, 1
+            ).to(torch.float32)
+            ref_output_q, ref_output_scales = triton_quantize_fp8_row(
+                ref_output, scale_ub
+            )
+            return ref_output_q, ref_output_scales
+
+        torch_output_q, torch_output_scales = torch_fn()
+        torch_output = torch_output_q.to(torch.float32) * torch_output_scales.view(
+            -1, 1
+        )
+
+        def triton_fn() -> Tuple[torch.Tensor, torch.Tensor]:
+            scores_ = scores.contiguous().transpose(0, 1)
+            if rowmajor:
+                scores_ = scores_.contiguous()
+            test_output_q, test_output_scales = gather_scale_quant_dense_tokens(
+                x, token_indices, expert_indices, scores_, scale_ub
+            )
+            return test_output_q, test_output_scales
+
+        test_output_q, test_output_scales = triton_fn()
+        test_output = test_output_q.to(torch.float32) * test_output_scales.view(-1, 1)
+
+        torch.testing.assert_close(torch_output, test_output, atol=1e-3, rtol=1.6e-2)
 
     @given(
         num_tokens=st.sampled_from([64, 128, 256]),
