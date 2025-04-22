@@ -52,10 +52,14 @@ void performance_test() {
 
       double duration = 0.0f;
 
+      int constexpr kNumRepeats = is_same<T, float16>::value ? 16 : 32;
+
       duration = measureWithWarmup(
           [&]() {
-            Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
-                inpVec.data(), rowSize, colSize, outVec.data());
+            for (int i = 0; i < kNumRepeats; ++i) {
+              Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf(
+                  inpVec.data(), rowSize, colSize, outVec.data());
+            }
           },
           NWARMUP,
           NITER,
@@ -64,10 +68,11 @@ void performance_test() {
             cache_evict(outVec);
           });
 
-      float elements_per_usec = rowSize * colSize / (duration * 1e6);
+      float elements_per_usec =
+          rowSize * colSize * kNumRepeats / (duration * 1e6);
 
       duration *= 1e9; // convert to ns
-      long bytes_read = rowSize * colSize * sizeof(float);
+      long bytes_read = rowSize * colSize * sizeof(float) * kNumRepeats;
       float gigabyes_per_sec = bytes_read / duration;
 
       cout << setw(6) << rowSize << ", " << setw(6) << colSize << ",";
