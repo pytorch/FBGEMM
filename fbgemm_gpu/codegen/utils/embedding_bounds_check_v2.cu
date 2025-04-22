@@ -202,7 +202,8 @@ void _bounds_check_indices_cuda_v2(
     const int64_t /*max_B*/,
     const std::optional<Tensor>& b_t_map,
     const int32_t info_B_num_bits,
-    const uint32_t info_B_mask) {
+    const uint32_t info_B_mask,
+    const bool prefetch_pipeline) {
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       rows_per_table, indices, offsets, warning, weights, B_offsets, b_t_map);
   TENSOR_NDIM_EQUALS(rows_per_table, 1);
@@ -247,6 +248,15 @@ void _bounds_check_indices_cuda_v2(
   }
 
   constexpr size_t kNumThreads = 1024;
+  auto grid_dim =
+      min(div_round_up(total_B, kNumThreads / fbgemm_gpu::kWarpSize),
+          get_max_thread_blocks_());
+  if (prefetch_pipeline) {
+    // Limit the grid size to PREFETCH_KERNEL_MAX_BLOCKS if running this kernel
+    // on the prefetch stream
+    constexpr int PREFETCH_KERNEL_MAX_BLOCKS = 8;
+    grid_dim = min(grid_dim, PREFETCH_KERNEL_MAX_BLOCKS);
+  }
 
 #define INVOKE_BOUNDS_CHECK_INDICES(MODE)                                      \
   if (bounds_check_mode == MODE) {                                             \
@@ -259,8 +269,7 @@ void _bounds_check_indices_cuda_v2(
                    : bounds_check_indices_kernel_v2<index_t, false, MODE>);    \
           TORCH_DSA_KERNEL_LAUNCH(                                             \
               bounds_check_kernel,                                             \
-              min(div_round_up(total_B, kNumThreads / fbgemm_gpu::kWarpSize),  \
-                  get_max_thread_blocks_()),                                   \
+              grid_dim,                                                        \
               dim3(                                                            \
                   fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize), \
               0,                                                               \
