@@ -43,7 +43,7 @@ if(CXX_AVX2_FOUND)
     ${fbgemm_sources}
     ${fbgemm_sources_avx2})
 endif()
-if(NOT USE_ROCM AND CXX_AVX512_FOUND)
+if((NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM) AND CXX_AVX512_FOUND)
   set(fbgemm_sources
     ${fbgemm_sources}
     ${fbgemm_sources_avx2}

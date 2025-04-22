@@ -229,12 +229,17 @@ def benchmark_grouped(
                 metrics.tflops += (
                     2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 )
+                output_multiplier = 2 if "fuse_scatter_add" in quantize_op.name else 1
                 if m[i] > 0:
                     metrics.gbps += (
                         (
                             b[i] * m[i] * k[i] * quantized_vals[0][0].element_size()
                             + b[i] * n[i] * k[i] * quantized_vals[1][0].element_size()
-                            + b[i] * m[i] * n[i] * output[0].element_size()
+                            + output_multiplier
+                            * b[i]
+                            * m[i]
+                            * n[i]
+                            * output[0].element_size()
                         )
                         / (ms_runtime / 1e3)
                         / 1e9
@@ -292,6 +297,7 @@ def benchmark(
         # Compute the output given quantized values.
         output = quantize_op.compute(*quantized_vals)
         # Compare the quantize op output to reference as a sanity check.
+        # TODO(shikaili): This calculation is incorrect for scatter add fusion.
         metrics.sim = torch.mean(torch.pow(output - out_ref, 2)).item()
 
         for _ in range(num_iters):
