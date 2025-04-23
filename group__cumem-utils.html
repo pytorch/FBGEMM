@@ -120,9 +120,61 @@ Functions</h2></td></tr>
 <tr class="separator:ga01301ad686f7570c21e81c122d2c7af8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga161495e682d9eac3701dca87469930db" id="r_ga161495e682d9eac3701dca87469930db"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga161495e682d9eac3701dca87469930db">uvm_to_cpu_clone</a> (const Tensor &amp;self)</td></tr>
 <tr class="separator:ga161495e682d9eac3701dca87469930db"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga5fffe2dc08b30ada0d71581d880220ad" id="r_ga5fffe2dc08b30ada0d71581d880220ad"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga5fffe2dc08b30ada0d71581d880220ad">copy_to_shared</a> (const Tensor &amp;self)</td></tr>
+<tr class="separator:ga5fffe2dc08b30ada0d71581d880220ad"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga82ee6c70f3bfdca8039956cf8ee2e5fb" id="r_ga82ee6c70f3bfdca8039956cf8ee2e5fb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga82ee6c70f3bfdca8039956cf8ee2e5fb">initialize_nan_shared_mem</a> (int64_t device_index)</td></tr>
+<tr class="separator:ga82ee6c70f3bfdca8039956cf8ee2e5fb"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <h2 class="groupheader">Function Documentation</h2>
+<a id="ga5fffe2dc08b30ada0d71581d880220ad" name="ga5fffe2dc08b30ada0d71581d880220ad"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga5fffe2dc08b30ada0d71581d880220ad">&#9670;&#160;</a></span>copy_to_shared()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void copy_to_shared </td>
+          <td>(</td>
+          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>self</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Copy a tensors contents to shared memory. This can be useful for forcing the initialization state of gpu memory, which is relevant for testing.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">self</td><td>The input tensor </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
+<a id="ga82ee6c70f3bfdca8039956cf8ee2e5fb" name="ga82ee6c70f3bfdca8039956cf8ee2e5fb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga82ee6c70f3bfdca8039956cf8ee2e5fb">&#9670;&#160;</a></span>initialize_nan_shared_mem()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void initialize_nan_shared_mem </td>
+          <td>(</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>device_index</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Copy nan values into a gpu's shared memory. This is useful for debugging or testing.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">self</td><td>The input tensor </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
 <a id="gacba28ed334d071e79c1ead1792391e9d" name="gacba28ed334d071e79c1ead1792391e9d"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#gacba28ed334d071e79c1ead1792391e9d">&#9670;&#160;</a></span>is_uvm_tensor()</h2>
 

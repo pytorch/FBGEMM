@@ -686,6 +686,28 @@
 </dl>
 </dd></dl>
 
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv414copy_to_sharedRK6Tensor">
+<span id="_CPPv314copy_to_sharedRK6Tensor"></span><span id="_CPPv214copy_to_sharedRK6Tensor"></span><span id="copy_to_shared__TensorCR"></span><span class="target" id="group__cumem-utils_1ga5fffe2dc08b30ada0d71581d880220ad"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">copy_to_shared</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">self</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv414copy_to_sharedRK6Tensor" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Copy a tensors contents to shared memory. This can be useful for forcing the initialization state of gpu memory, which is relevant for testing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv425initialize_nan_shared_mem7int64_t">
+<span id="_CPPv325initialize_nan_shared_mem7int64_t"></span><span id="_CPPv225initialize_nan_shared_mem7int64_t"></span><span id="initialize_nan_shared_mem__int64_t"></span><span class="target" id="group__cumem-utils_1ga82ee6c70f3bfdca8039956cf8ee2e5fb"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">initialize_nan_shared_mem</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">int64_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">device_index</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv425initialize_nan_shared_mem7int64_t" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>Copy nan values into a gpu’s shared memory. This is useful for debugging or testing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>self</strong> – The input tensor </p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 
 
