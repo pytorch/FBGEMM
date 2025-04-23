@@ -1200,9 +1200,6 @@ class BF16GroupedGemm(QuantizeOpBase):
         if m_values is None:
             return torch.ops.fbgemm.bf16bf16bf16_grouped(x, w)
         else:
-            B = x.shape[0]
-            x = [x[i, :, :] for i in range(B)]
-            w = [w[i, :, :] for i in range(B)]
             return torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic(x, w, m_values)
 
     def quantize_and_compute(self, x, w, m_values):
