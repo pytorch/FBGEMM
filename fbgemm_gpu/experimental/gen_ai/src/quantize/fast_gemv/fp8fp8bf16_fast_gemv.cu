@@ -57,6 +57,25 @@ dim3 get_best_block_dim(int m, int n, int k) {
     return dim3(128, 1);
   } else if (m == 4 && n == 8192 && k == 3584) {
     return dim3(128, 1);
+  } // below four cases are grabbed from llama4 17b_128e
+    // model FFN/Attn_linear layers:
+    // https://www.internalfb.com/code/fbsource/[26a75e239633]/fbcode/accelerators/workloads/microbench/bench_gemm.py?lines=269
+  else if (m == 1 && n == 4096 && k == 5120) {
+    return dim3(128, 1);
+  } else if (m == 1 && n == 5120 && k == 2048) {
+    return dim3(64, 1);
+  } else if (m == 1 && n == 896 && k == 5120) {
+    return dim3(64, 1);
+  } else if (m == 1 && n == 5120 && k == 640) {
+    return dim3(64, 1);
+  } else if (m == 2 && n == 4096 && k == 5120) {
+    return dim3(256, 1);
+  } else if (m == 2 && n == 5120 && k == 2048) {
+    return dim3(256, 1);
+  } else if (m == 2 && n == 896 && k == 5120) {
+    return dim3(64, 1);
+  } else if (m == 2 && n == 5120 && k == 640) {
+    return dim3(32, 1);
   } else {
     // Default block dimensions
     return dim3(32, 1);
