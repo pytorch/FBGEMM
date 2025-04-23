@@ -14,10 +14,27 @@
 namespace fbgemm_gpu::utils {
 
 #ifdef FBGEMM_GPU_MEMCHECK
-namespace pta = fbgemm_gpu;
+namespace pta = fbgemm_gpu::utils;
 #else
 namespace pta = at;
 #endif
+
+//////////////////////////////////////////////////////////////////////////////
+// Type Utilities
+//////////////////////////////////////////////////////////////////////////////
+
+template <typename T>
+inline at::ScalarType scalar_type_for() {
+#define TYPE_CASE(U, name)              \
+  if constexpr (std::is_same_v<T, U>) { \
+    return at::ScalarType::name;        \
+  }
+
+  AT_FORALL_SCALAR_TYPES_WITH_COMPLEX(TYPE_CASE)
+#undef TYPE_CASE
+
+  return at::ScalarType::Undefined;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Tensor Accessor Builder
@@ -151,7 +168,7 @@ struct TensorAccessorBuilder {
       validate_tensor(context);
 
 #ifdef FBGEMM_GPU_MEMCHECK
-      return fbgemm_gpu::TensorAccessor<T, N, PtrTraits, index_t>(
+      return fbgemm_gpu::utils::TensorAccessor<T, N, PtrTraits, index_t>(
           static_cast<typename PtrTraits<T>::PtrType>(tensor.data_ptr<T>()),
           tensor.sizes().data(),
           tensor.strides().data(),
@@ -163,10 +180,10 @@ struct TensorAccessorBuilder {
 
     } else {
 #ifdef FBGEMM_GPU_MEMCHECK
-      return fbgemm_gpu::TensorAccessor<T, N, PtrTraits, index_t>(
+      return fbgemm_gpu::utils::TensorAccessor<T, N, PtrTraits, index_t>(
           nullptr, nullptr, nullptr, name.data(), context.data());
 #else
-      return pta::TensorAccessor<T, N, PtrTraits, index_t>(
+      return at::TensorAccessor<T, N, PtrTraits, index_t>(
           nullptr, nullptr, nullptr);
 #endif
     }
@@ -181,7 +198,7 @@ struct TensorAccessorBuilder {
     validate_tensor(context);
 
 #ifdef FBGEMM_GPU_MEMCHECK
-    return fbgemm_gpu::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>(
+    return fbgemm_gpu::utils::PackedTensorAccessor<T, N, PtrTraits, index_t>(
         static_cast<typename PtrTraits<T>::PtrType>(tensor.data_ptr<T>()),
         tensor.sizes().data(),
         tensor.strides().data(),
