@@ -11,6 +11,7 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <cuda_runtime.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cstring>
