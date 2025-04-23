@@ -36,11 +36,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("uvm_to_cpu(Tensor t) -> Tensor", TORCH_FN(uvm_to_cpu));
 
   m.def(FBGEMM_GPU_ENUM_OP(uvm, fbgemm_gpu_uvm_enum_query));
+  m.def("copy_to_shared(Tensor t) -> ()", TORCH_FN(copy_to_shared));
+  m.def(
+      "initialize_nan_shared_mem(int device_index) -> ()",
+      TORCH_FN(initialize_nan_shared_mem));
 
   DISPATCH_TO_CUDA("new_managed_tensor", new_managed_tensor);
   DISPATCH_TO_CUDA("new_host_mapped_tensor", new_host_mapped_tensor);
   DISPATCH_TO_CUDA("new_unified_tensor", new_unified_tensor);
   DISPATCH_TO_CUDA("new_vanilla_managed_tensor", new_vanilla_managed_tensor);
+  DISPATCH_TO_CUDA("copy_to_shared", copy_to_shared);
+  DISPATCH_TO_CUDA("initialize_nan_shared_mem", initialize_nan_shared_mem);
 }
 
 } // namespace fbgemm_gpu
