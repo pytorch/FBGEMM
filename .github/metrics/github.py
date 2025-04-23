@@ -13,7 +13,10 @@ import requests
 
 from datatypes import GHCommit, GHPullRequest
 from dateutil import parser as dtparser  # For flexible date parsing
+from ratelimit import limits, sleep_and_retry
 
+ONE_MINUTE = 60
+MAX_CALLS_PER_MINUTE = 20
 logging.basicConfig(level=logging.INFO)
 
 
@@ -36,6 +39,8 @@ class GitHubClient:
             "Accept": "application/vnd.github.v3+json",
         }
 
+    @sleep_and_retry
+    @limits(calls=MAX_CALLS_PER_MINUTE, period=ONE_MINUTE)
     def fetch_commits(self, ref: str, since_date: str | datetime) -> List[GHCommit]:
         """
         Fetch commits with PR numbers (for merge commits)
@@ -84,6 +89,8 @@ class GitHubClient:
 
         return commits
 
+    @sleep_and_retry
+    @limits(calls=MAX_CALLS_PER_MINUTE, period=ONE_MINUTE)
     def pr_for_commit(self, commit_sha: str) -> GHPullRequest | None:
         """
         Fetch pull request information from GitHub API given the commit SHA.
@@ -103,6 +110,8 @@ class GitHubClient:
         pr_id = self.pr_id_for_commit(commit_sha)
         return self.fetch_pr(pr_id) if pr_id else None
 
+    @sleep_and_retry
+    @limits(calls=MAX_CALLS_PER_MINUTE, period=ONE_MINUTE)
     def pr_id_for_commit(self, commit_sha: str) -> int | None:
         """
         Find PR number associated with a commit
@@ -120,6 +129,8 @@ class GitHubClient:
             return results["items"][0]["number"]
         return None
 
+    @sleep_and_retry
+    @limits(calls=MAX_CALLS_PER_MINUTE, period=ONE_MINUTE)
     def fetch_pr(self, pr_number: int) -> GHPullRequest:
         """
         Fetch pull request information from GitHub API.
@@ -171,6 +182,8 @@ class GitHubClient:
         prs = [self.pr_for_commit(c.sha) for c in commits]
         return [pr for pr in prs if pr is not None]
 
+    @sleep_and_retry
+    @limits(calls=MAX_CALLS_PER_MINUTE, period=ONE_MINUTE)
     def fetch_unlabeled_commits(
         self, ref: str, since_date: str | datetime
     ) -> List[Tuple[GHCommit, GHPullRequest]]:
