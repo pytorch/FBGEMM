@@ -157,7 +157,7 @@ bucketize_sparse_features_cuda(
   CUDA_DEVICE_GUARD(lengths);
 
   // allocate tensors and buffers
-  const int lengths_size = lengths.numel();
+  const auto lengths_size = lengths.numel();
   const int new_lengths_size = lengths_size * my_size;
   auto offsets = at::empty({lengths_size}, lengths.options());
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());

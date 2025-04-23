@@ -437,7 +437,7 @@ void copy_to_shared(const Tensor& t) {
   int total_shared_mem = prop.sharedMemPerBlock;
   int num_sms = prop.multiProcessorCount;
   // Make sure that input tensor can fit on shared memory.
-  int input_size = t.numel() * t.element_size();
+  auto input_size = t.numel() * t.element_size();
   TORCH_CHECK(
       input_size <= total_shared_mem,
       "Input tensor is too large to fit on shared memory");

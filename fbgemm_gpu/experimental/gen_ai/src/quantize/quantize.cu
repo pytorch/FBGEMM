@@ -670,7 +670,7 @@ at::Tensor get_fp8_per_tensor_scale(
   auto _st = input.scalar_type();
   TORCH_CHECK(_st == torch::kBFloat16, "Invalid datatype. input must be BF16");
 
-  int out_size = input.numel() == 0 ? 0 : 1;
+  auto out_size = input.numel() == 0 ? 0 : 1;
 
   at::Tensor scale = torch::empty(
       {out_size},

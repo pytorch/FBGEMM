@@ -369,7 +369,7 @@ void _block_bucketize_sparse_features_cpu_kernel(
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
-  const int32_t T = block_sizes.numel();
+  const auto T = block_sizes.numel();
   const int32_t B = lengths_size / T;
   auto offsets = at::empty({lengths_size + 1}, lengths.options());
   auto new_offsets = at::empty({new_lengths_size + 1}, lengths.options());
@@ -1945,8 +1945,8 @@ Tensor batched_unary_embeddings_forward_cpu(
 
   // N: number of tasks, T: number of tables, B: batch size
   const int32_t N = weight.sizes()[0];
-  const int32_t T = table_offsets.numel() - 1;
-  const int32_t B = (offsets.numel() - 1) / T;
+  const auto T = table_offsets.numel() - 1;
+  const auto B = (offsets.numel() - 1) / T;
   TORCH_CHECK(N > 0);
   TORCH_CHECK(T > 0);
   TORCH_CHECK(B > 0);

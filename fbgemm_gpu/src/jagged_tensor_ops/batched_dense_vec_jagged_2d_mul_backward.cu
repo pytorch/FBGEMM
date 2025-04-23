@@ -93,7 +93,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(grad_output, a_values, a_offsets, v);
   CUDA_DEVICE_GUARD(grad_output);
 
-  const int B = a_offsets.numel() - 1;
+  const auto B = a_offsets.numel() - 1;
   const int D = grad_output.size(-1);
 
   Tensor a_values_grad = at::zeros_like(a_values);

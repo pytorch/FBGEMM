@@ -797,7 +797,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
   TENSOR_ON_CPU(a_values);
   TENSOR_ON_CPU(a_offsets);
 
-  const int B = a_offsets.numel() - 1;
+  const auto B = a_offsets.numel() - 1;
   TORCH_CHECK(
       B == 0 || v.size(0) % B == 0,
       "B, ",
@@ -834,7 +834,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
   Tensor a_values_grad = at::zeros_like(a_values);
   Tensor v_grad = at::empty_like(v);
 
-  const int B = a_offsets.numel() - 1;
+  const auto B = a_offsets.numel() - 1;
   const int D = grad_output.size(-1);
 
   if (B > 0 && D > 0) {
@@ -1316,7 +1316,7 @@ Tensor jagged_softmax_forward(
     const int64_t max_L) {
   TENSOR_ON_CPU(values);
   TENSOR_ON_CPU(offsets);
-  const int B = offsets.numel() - 1;
+  const auto B = offsets.numel() - 1;
   const int D = values.size(1);
   auto output = at::empty_like(values);
 
@@ -1374,7 +1374,7 @@ Tensor jagged_softmax_backward(
   TENSOR_ON_CPU(grad_output);
   TENSOR_ON_CPU(output);
   TENSOR_ON_CPU(offsets);
-  const int B = offsets.numel() - 1;
+  const auto B = offsets.numel() - 1;
   const int D = grad_output.size(1);
   auto grad_input = at::empty_like(grad_output);
 
