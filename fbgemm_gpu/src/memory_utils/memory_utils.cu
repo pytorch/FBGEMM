@@ -419,6 +419,46 @@ Tensor uvm_to_cpu_clone(const Tensor& t) {
   return cpu_clone;
 }
 
+__global__ void copy_kernel(uint8_t* x, int x_size, int shared_mem_size) {
+  // Create dynamically allocated shared memory array.
+  extern __shared__ uint8_t shared_mem[];
+  for (int i = 0; i < shared_mem_size && i < x_size; i++) {
+    shared_mem[i] = x[i];
+  }
+}
+
+void copy_to_shared(const Tensor& t) {
+  // Make sure input is on GPU and get proper index.
+  TORCH_CHECK(t.device().is_cuda(), "Input tensor must be on CUDA device");
+  int device_index = t.device().index();
+  // Extract device information.
+  cudaDeviceProp prop;
+  cudaGetDeviceProperties(&prop, device_index);
+  int total_shared_mem = prop.sharedMemPerBlock;
+  int num_sms = prop.multiProcessorCount;
+  // Make sure that input tensor can fit on shared memory.
+  int input_size = t.numel() * t.element_size();
+  TORCH_CHECK(
+      input_size <= total_shared_mem,
+      "Input tensor is too large to fit on shared memory");
+  copy_kernel<<<num_sms, 1, total_shared_mem>>>(
+      reinterpret_cast<uint8_t*>(t.data_ptr()), input_size, total_shared_mem);
+}
+
+void initialize_nan_shared_mem(int64_t device_index) {
+  cudaDeviceProp prop;
+  cudaGetDeviceProperties(&prop, device_index);
+  int total_shared_mem = prop.sharedMemPerBlock;
+  // Allocate tensor of NaNs that we will copy to gpu.
+  at::Device device = at::Device(at::kCUDA, device_index);
+  Tensor nan_tensor = at::empty(
+      total_shared_mem / sizeof(float),
+      at::TensorOptions(at::kCUDA).dtype(at::kFloat).device(device));
+  nan_tensor.fill_(std::numeric_limits<float>::quiet_NaN());
+  // Invoke kernel to copy to shared memory.
+  copy_to_shared(nan_tensor);
+}
+
 FBGEMM_GPU_ENUM_GLOGAL(uvm)
 
 FBGEMM_GPU_ENUM_REGISTER_START(uvm, cudaMemory, Advise){

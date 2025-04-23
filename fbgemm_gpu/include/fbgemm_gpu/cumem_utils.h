@@ -195,4 +195,20 @@ void uvm_mem_advice_dont_fork(const Tensor& self);
 /// @return A new CPU tensor containing the data copied from the UVM tensor
 Tensor uvm_to_cpu_clone(const Tensor& self);
 
+/// @ingroup cumem-utils
+///
+/// Copy a tensors contents to shared memory. This can be useful for forcing
+/// the initialization state of gpu memory, which is relevant for testing.
+///
+/// @param self The input tensor
+void copy_to_shared(const Tensor& self);
+
+/// @ingroup cumem-utils
+///
+/// Copy nan values into a gpu's shared memory. This is useful for debugging or
+/// testing.
+///
+/// @param self The input tensor
+void initialize_nan_shared_mem(int64_t device_index);
+
 } // namespace fbgemm_gpu
