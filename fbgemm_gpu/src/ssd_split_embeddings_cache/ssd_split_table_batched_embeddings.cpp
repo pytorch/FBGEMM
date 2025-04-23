@@ -13,6 +13,7 @@
 
 #include <torch/custom_class.h>
 
+#include "../dram_kv_embedding_cache/dram_kv_embedding_cache_wrapper.h"
 #include "./ssd_table_batched_embeddings.h"
 #include "embedding_rocksdb_wrapper.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
@@ -20,6 +21,7 @@
 
 using namespace at;
 using namespace ssd;
+using namespace kv_mem;
 
 std::tuple<Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor>
 ssd_cache_populate_actions_cuda(
@@ -545,6 +547,68 @@ static auto kv_tensor_wrapper =
             std::string(
                 "Returns the shape of the original tensor. Only the narrowed part is materialized."))
         .def_property("strides", &KVTensorWrapper::strides);
+
+static auto dram_kv_embedding_cache_wrapper =
+    torch::class_<DramKVEmbeddingCacheWrapper>(
+        "fbgemm",
+        "DramKVEmbeddingCacheWrapper")
+        .def(
+            torch::init<
+                int64_t,
+                double,
+                double,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t>(),
+            "",
+            {
+                torch::arg("max_D"),
+                torch::arg("uniform_init_lower"),
+                torch::arg("uniform_init_upper"),
+                torch::arg("num_shards") = 8,
+                torch::arg("num_threads") = 32,
+                torch::arg("row_storage_bitwidth") = 32,
+                torch::arg("weight_ttl_in_hours") = 2,
+            })
+        .def(
+            "set_cuda",
+            &DramKVEmbeddingCacheWrapper::set_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("timestep"),
+                torch::arg("is_bwd") = false,
+            })
+        .def("get_cuda", &DramKVEmbeddingCacheWrapper::get_cuda)
+        .def("set", &DramKVEmbeddingCacheWrapper::set)
+        .def(
+            "set_range_to_storage",
+            &DramKVEmbeddingCacheWrapper::set_range_to_storage)
+        .def(
+            "get",
+            &DramKVEmbeddingCacheWrapper::get,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("sleep_ms") = 0,
+            })
+        .def(
+            "wait_util_filling_work_done",
+            &DramKVEmbeddingCacheWrapper::wait_util_filling_work_done)
+        .def(
+            "get_keys_in_range",
+            &DramKVEmbeddingCacheWrapper::get_keys_in_range,
+            "",
+            {
+                torch::arg("start"),
+                torch::arg("end"),
+            })
+        .def("flush", &DramKVEmbeddingCacheWrapper::flush);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
