@@ -10,7 +10,6 @@
 import functools
 import itertools
 import logging
-import os
 import unittest
 from typing import List, Optional, Tuple
 
@@ -24,16 +23,11 @@ from fbgemm_gpu.experimental.gen_ai.moe import (
 )
 from hypothesis import given, settings, strategies as st, Verbosity
 
-from triton.testing import do_bench_cudagraph
-
-from .utils import do_bench_cudagraph_and_clear_cache
-
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 torch._dynamo.config.cache_size_limit = 128
 
-_BENCHMARK_IN_TEST: bool = os.environ.get("BENCHMARK_IN_TEST", "0") == "1"
 _MAX_SAMPLES: int = 100
 
 
@@ -52,8 +46,7 @@ class ShufflingTests(unittest.TestCase):
         num_experts=st.sampled_from([16, 128]),
         rowmajor=st.sampled_from([True, False]),
         padded=st.sampled_from([True, False]),
-        compile_=st.sampled_from([True, False]),
-        benchmark=st.sampled_from([_BENCHMARK_IN_TEST]),
+        compiled=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_top1_index_shuffling(
@@ -62,8 +55,7 @@ class ShufflingTests(unittest.TestCase):
         num_experts: int,
         rowmajor: bool,
         padded: bool,
-        benchmark: bool,
-        compile_: bool,
+        compiled: bool,
     ) -> None:
         torch.manual_seed(0)
 
@@ -87,7 +79,7 @@ class ShufflingTests(unittest.TestCase):
 
         def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             op = index_shuffling
-            if compile_:
+            if compiled:
                 op = torch.compile(op, backend="inductor", fullgraph=True)
             return op(scores, num_valid_tokens_tensor)
 
@@ -169,15 +161,6 @@ class ShufflingTests(unittest.TestCase):
             )
         )
 
-        # Performance check
-        if benchmark:
-            fbgemm_time = do_bench_cudagraph(fn) * 1e3
-            torch_time = do_bench_cudagraph(ref_fn) * 1e3
-            print(
-                f"num_tokens={num_tokens:4}, num_experts={num_experts:4}, rowmajor={int(rowmajor)}, padded={int(padded)}, "
-                f"fbgemm_time={fbgemm_time:7.3f}us, torch_time={torch_time:7.3f}us"
-            )
-
     @given(
         num_tokens=st.sampled_from(
             [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
@@ -187,7 +170,6 @@ class ShufflingTests(unittest.TestCase):
         dim=st.sampled_from([5120]),
         sparse=st.sampled_from([True, False]),
         balanced=st.sampled_from([False]),
-        benchmark=st.sampled_from([_BENCHMARK_IN_TEST]),
         target_fn=st.sampled_from(["combine_shuffling", "split_shuffling"]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
@@ -199,7 +181,6 @@ class ShufflingTests(unittest.TestCase):
         dim: int,
         sparse: bool,
         balanced: bool,
-        benchmark: bool,
         target_fn: str,
     ) -> None:
         torch.manual_seed(0)
@@ -336,24 +317,6 @@ class ShufflingTests(unittest.TestCase):
             self.assertTrue(reverse_input_tokens.equal(tokens[:num_valid_tokens]))
         else:
             self.assertTrue(output_tokens[:num_valid_tokens].equal(ref_output_tokens))
-
-        if benchmark:
-            # Benchmark padded API with large shapes is meanigless. We won't use it.
-            if sparse and num_tokens > 1024:
-                return
-
-            mem_bytes = ref_output_tokens.numel() * 2 * 2
-            fbgemm_time = do_bench_cudagraph_and_clear_cache(fn) * 1e3
-            fbgemm_bw = mem_bytes * 1e-9 / (fbgemm_time * 1e-6)
-            # We don't benchmark counting on CPU
-            torch_time = do_bench_cudagraph_and_clear_cache(ref_fn) * 1e3
-            torch_bw = mem_bytes * 1e-9 / (torch_time * 1e-6)
-
-            logger.info(
-                f"\nnum_tokens={num_tokens:4}, ep_size={ep_size:4}, num_local_experts={num_local_experts:4}, balanced={int(balanced)}, "
-                f"fbgemm_time={fbgemm_time:7.3f}us, fbgemm_bw={fbgemm_bw:8.3f}GBytes/s,  "
-                f"torch_time={torch_time:7.3f}us, torch_bw={torch_bw:8.3f}GBytes/s, speedup={torch_time / fbgemm_time:7.3f}x",
-            )
 
 
 if __name__ == "__main__":

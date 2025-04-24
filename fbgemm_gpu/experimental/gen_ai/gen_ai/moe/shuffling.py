@@ -13,6 +13,7 @@ import triton
 import triton.language as tl
 
 
+# Function APIs
 def combine_shuffling(
     tokens: torch.Tensor,
     token_counts: torch.Tensor,
@@ -115,6 +116,92 @@ def _combine_or_split_shuffling(
         return output_tokens
 
 
+# Torch Custom Op Registrations
+_COMBINE_SHUFFLING_OP_NAME = "fbgemm::combine_shuffling"
+
+torch.library.define(
+    "fbgemm::combine_shuffling",
+    "(Tensor tokens, Tensor token_counts, int expert_start, int expert_end, bool is_balanced) -> (Tensor, Tensor)",
+)
+
+
+@torch.library.impl(_COMBINE_SHUFFLING_OP_NAME, "Meta")
+def combine_shuffling_meta(
+    tokens,
+    token_counts,
+    expert_start,
+    expert_end,
+    is_balanced,
+):
+    _, E = token_counts.shape
+    if expert_start is None:
+        expert_start = 0
+    if expert_end is None:
+        expert_end = E
+
+    EG: int = expert_end - expert_start
+    output_tokens = torch.empty_like(tokens)
+    output_token_counts = torch.empty(
+        EG + 1, dtype=token_counts.dtype, device=token_counts.device
+    )
+    return output_tokens, output_token_counts
+
+
+@torch.library.impl(_COMBINE_SHUFFLING_OP_NAME, "CUDA")
+def combine_shuffling_cuda(
+    tokens,
+    token_counts,
+    expert_start=None,
+    expert_end=None,
+    is_balanced=False,
+):
+    return combine_shuffling(
+        tokens,
+        token_counts,
+        expert_start,
+        expert_end,
+        is_balanced,
+    )
+
+
+_SPLIT_SHUFFLING_OP_NAME = "fbgemm::split_shuffling"
+
+torch.library.define(
+    "fbgemm::split_shuffling",
+    "(Tensor tokens, Tensor token_counts, int expert_start, int expert_end, bool is_balanced) -> Tensor",
+)
+
+
+@torch.library.impl(_SPLIT_SHUFFLING_OP_NAME, "Meta")
+def split_shuffling_meta(
+    tokens,
+    token_counts,
+    expert_start,
+    expert_end,
+    is_balanced,
+):
+    output_tokens = torch.empty_like(tokens)
+    return output_tokens
+
+
+@torch.library.impl(_SPLIT_SHUFFLING_OP_NAME, "CUDA")
+def split_shuffling_cuda(
+    tokens,
+    token_counts,
+    expert_start=None,
+    expert_end=None,
+    is_balanced=False,
+):
+    return split_shuffling(
+        tokens,
+        token_counts,
+        expert_start,
+        expert_end,
+        is_balanced,
+    )
+
+
+# Kernel Implementations
 _NV_CONFIGS = [
     triton.Config(
         {

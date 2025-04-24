@@ -8,7 +8,6 @@
 # pyre-ignore-all-errors[16,21,53,56]
 
 import logging
-import os
 import unittest
 from typing import Tuple
 
@@ -26,7 +25,6 @@ from hypothesis import given, settings, strategies as st, Verbosity
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-_BENCHMARK_IN_TEST: bool = os.environ.get("BENCHMARK_IN_TEST", "0") == "1"
 _MAX_SAMPLES: int = 100
 
 
