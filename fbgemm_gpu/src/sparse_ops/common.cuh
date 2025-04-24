@@ -32,7 +32,7 @@
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/log2.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 #ifdef USE_ROCM
 #include <hipblas/hipblas.h>

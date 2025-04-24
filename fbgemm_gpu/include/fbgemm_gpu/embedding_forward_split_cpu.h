@@ -11,7 +11,7 @@
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
 #include "fbgemm/Utils.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 at::Tensor split_embedding_codegen_forward_cpu(
     at::Tensor weights,

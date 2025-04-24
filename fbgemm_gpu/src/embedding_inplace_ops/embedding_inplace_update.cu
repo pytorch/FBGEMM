@@ -12,7 +12,7 @@
 #include "fbgemm_gpu/embedding_inplace_update.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;

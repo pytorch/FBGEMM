@@ -11,7 +11,7 @@
 #include <ATen/ATen.h>
 
 ////////////////////////////////////////////////////////////////////////////////
-// Extended TensorAccessor
+// Extended *TensorAccessor
 //
 // This file contains TensorAccessor and PackedTensorAccessor implementations
 // that are used in FBGEMM_GPU for additional bounds checks that are not
@@ -82,8 +82,8 @@ copy_str(char* dst, const char* src, const size_t max_len) {
 ////////////////////////////////////////////////////////////////////////////////
 // TensorAccessor
 //
-// This is an extension of at::TensorAccessorBase that consolidates some methods
-// defined in at::TensorAccessor.
+// This is an extension of at::TensorAccessorBase that consolidates template
+// specializations of operator[] defined in at::TensorAccessor.
 ////////////////////////////////////////////////////////////////////////////////
 
 template <
@@ -193,7 +193,8 @@ class TensorAccessor : public at::TensorAccessorBase<T, N, PtrTraits, index_t> {
 // PackedTensorAccessor
 //
 // This is an extension of at::GeneticPackedTensorAccessorBase that consolidates
-// some methods defined in at::GeneticPackedTensorAccessor.
+// template specializations of operator[] defined in
+// at::GeneticPackedTensorAccessor.
 //
 // `GenericPackedTensorAccessor`s are used on for CUDA `Tensor`s on the host and
 // as In contrast to `TensorAccessor`s, they copy the strides and sizes on
@@ -354,15 +355,20 @@ class PackedTensorAccessor
         0 <= i && i < index_t{N},
         "[",
         context_,
-        "][",
+        "] [",
         name_,
         "]: ",
-        "Index ",
+        "Dimension ",
         i,
-        " is not within bounds of a tensor of dimension ",
-        N);
+        " is not within bounds of tensor of ",
+        N,
+        "dimension(s).");
   }
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// PackedTensorAccessor Aliases
+////////////////////////////////////////////////////////////////////////////////
 
 template <
     typename T,
@@ -376,92 +382,14 @@ template <
     template <typename U> class PtrTraits = DefaultPtrTraits>
 using PackedTensorAccessor64 = PackedTensorAccessor<T, N, PtrTraits, int64_t>;
 
-////////////////////////////////////////////////////////////////////////////////
-// NOTE: The following code will be removed once all FBGEMM kernels are migrated
-// over to the FBGEMM_LAUNCH_KERNEL macro.
-////////////////////////////////////////////////////////////////////////////////
-
-template <typename T>
-inline at::ScalarType scalar_type_for_2() {
-#define TYPE_CASE(U, name)              \
-  if constexpr (std::is_same_v<T, U>) { \
-    return at::ScalarType::name;        \
-  }
-
-  AT_FORALL_SCALAR_TYPES_WITH_COMPLEX(TYPE_CASE)
-
-#undef TYPE_CASE
-
-  return at::ScalarType::Undefined;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Tensor Checks with Descriptive Error Messages
-////////////////////////////////////////////////////////////////////////////////
-
-template <size_t N>
-inline void check_tensor_dim(
-    const at::TensorBase& tensor
-#ifdef FBGEMM_GPU_MEMCHECK
-    ,
-    const char* const func_name,
-    const char* const tensor_name
-#endif
-) {
-  TORCH_CHECK(
-      tensor.dim() == N,
-#ifdef FBGEMM_GPU_MEMCHECK
-      "[ ",
-      func_name,
-      " ]: ",
-#endif
-      "Expected tensor ",
-#ifdef FBGEMM_GPU_MEMCHECK
-      "'",
-      tensor_name,
-      "' ",
-#endif
-      "to have ",
-      N,
-      " dims, but found ",
-      tensor.dim(),
-      " instead!");
-}
-
-template <typename T>
-inline void check_scalar_type(
-    const at::TensorBase& tensor
-#ifdef FBGEMM_GPU_MEMCHECK
-    ,
-    const char* const func_name,
-    const char* const tensor_name
-#endif
-) {
-  const auto expected_type = scalar_type_for_2<T>();
-
-  TORCH_CHECK(
-      tensor.scalar_type() == expected_type ||
-          (isQIntType(tensor.scalar_type()) &&
-           toUnderlying(tensor.scalar_type()) == expected_type),
-#ifdef FBGEMM_GPU_MEMCHECK
-      "[ ",
-      func_name,
-      " ]: ",
-#endif
-      "Expected tensor ",
-#ifdef FBGEMM_GPU_MEMCHECK
-      "'",
-      tensor_name,
-      "' ",
-#endif
-      "to have scalar type ",
-      expected_type,
-      ", but found ",
-      tensor.scalar_type(),
-      " instead!");
-}
-
 } // namespace fbgemm_gpu::utils
+
+////////////////////////////////////////////////////////////////////////////////
+// *TensorAccessor Selector
+//
+// Select fbgemm_gpu::utils::*TensorAccessor or at::*TensorAccessor based on
+// FBGEMM_GPU_MEMCHECK flag
+////////////////////////////////////////////////////////////////////////////////
 
 #ifdef FBGEMM_GPU_MEMCHECK
 namespace pta = fbgemm_gpu::utils;
@@ -477,222 +405,11 @@ using PackedTensorAccessor =
     at::GenericPackedTensorAccessor<T, N, PtrTraits, index_t>;
 #endif
 
-template <
-    typename T,
-    size_t N,
-    template <typename U> class PtrTraits = at::DefaultPtrTraits,
-    typename index_t = int64_t>
-inline pta::TensorAccessor<T, N, PtrTraits, index_t> make_tensor_accessor(
-#ifdef FBGEMM_GPU_MEMCHECK
-    const at::Tensor& tensor,
-    const char* const tensor_name,
-    const char* const func_name) {
-#else
-    const at::Tensor& tensor) {
-#endif
-
-  static_assert(
-      N > 0,
-      "Accessor is used for indexing tensor, for scalars use *data_ptr<T>()");
-
-  // If the tensor is defined, then check the tensor dimensions and scalar type
-  // before building and returning the accessor.
-  if (tensor.defined()) {
-    fbgemm_gpu::utils::check_tensor_dim<N>(
-        tensor
-#ifdef FBGEMM_GPU_MEMCHECK
-        ,
-        func_name,
-        tensor_name
-#endif
-    );
-
-    fbgemm_gpu::utils::check_scalar_type<T>(
-        tensor
-#ifdef FBGEMM_GPU_MEMCHECK
-        ,
-        func_name,
-        tensor_name
-#endif
-    );
-
-#ifdef FBGEMM_GPU_MEMCHECK
-    return fbgemm_gpu::utils::TensorAccessor<T, N, PtrTraits, index_t>(
-        static_cast<typename PtrTraits<T>::PtrType>(tensor.data_ptr<T>()),
-        tensor.sizes().data(),
-        tensor.strides().data(),
-        tensor_name,
-        func_name);
-#else
-    return tensor.accessor<T, N>();
-#endif
-
-  } else {
-    // Else, just return a null tensor accessor - this is useful for cases where
-    // optionals are not used.
-
-#ifdef FBGEMM_GPU_MEMCHECK
-    return fbgemm_gpu::utils::TensorAccessor<T, N, PtrTraits, index_t>(
-        nullptr, nullptr, nullptr, tensor_name, func_name);
-#else
-    return at::TensorAccessor<T, N, PtrTraits, index_t>(
-        nullptr, nullptr, nullptr);
-#endif
-  }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
-// *TensorAccessor Builder Functions
-////////////////////////////////////////////////////////////////////////////////
-
-template <
-    typename T,
-    size_t N,
-    template <typename U> class PtrTraits = at::DefaultPtrTraits,
-    typename index_t = int64_t>
-inline pta::PackedTensorAccessor<T, N, PtrTraits, index_t>
-make_generic_packed_tensor_accessor(
-#ifdef FBGEMM_GPU_MEMCHECK
-    const at::Tensor& tensor,
-    const char* const tensor_name,
-    const char* const func_name) {
-#else
-    const at::Tensor& tensor) {
-#endif
-  static_assert(
-      N > 0,
-      "accessor is used for indexing tensor, for scalars use *data_ptr<T>()");
-
-  fbgemm_gpu::utils::check_tensor_dim<N>(
-      tensor
-#ifdef FBGEMM_GPU_MEMCHECK
-      ,
-      func_name,
-      tensor_name
-#endif
-  );
-
-  fbgemm_gpu::utils::check_scalar_type<T>(
-      tensor
-#ifdef FBGEMM_GPU_MEMCHECK
-      ,
-      func_name,
-      tensor_name
-#endif
-  );
-
-#ifdef FBGEMM_GPU_MEMCHECK
-  return fbgemm_gpu::utils::PackedTensorAccessor<T, N, PtrTraits, index_t>(
-      static_cast<typename PtrTraits<T>::PtrType>(tensor.data_ptr<T>()),
-      tensor.sizes().data(),
-      tensor.strides().data(),
-      tensor_name,
-      func_name);
-#else
-  return tensor.generic_packed_accessor<T, N, PtrTraits, index_t>();
-#endif
-}
-
-template <
-    typename T,
-    size_t N,
-    template <typename U> class PtrTraits = at::DefaultPtrTraits>
-pta::PackedTensorAccessor32<T, N, PtrTraits> make_packed_tensor_accessor32(
-#ifdef FBGEMM_GPU_MEMCHECK
-    const at::Tensor& tensor,
-    const char* const tensor_name,
-    const char* const func_name) {
-#else
-    const at::Tensor& tensor) {
-#endif
-
-  TORCH_CHECK(
-      tensor.numel() <=
-          static_cast<int64_t>(std::numeric_limits<int32_t>::max()),
-#ifdef FBGEMM_GPU_MEMCHECK
-      "[ ",
-      func_name,
-      " ]: Tensor ",
-      tensor_name,
-      " ",
-#endif
-      "numel needs to be smaller than int32_t max; otherwise, please use packed_accessor64");
-
-#ifdef FBGEMM_GPU_MEMCHECK
-  return make_generic_packed_tensor_accessor<T, N, PtrTraits, int32_t>(
-      tensor, tensor_name, func_name);
-#else
-  return tensor.packed_accessor32<T, N, PtrTraits>();
-#endif
-}
-
-template <
-    typename T,
-    size_t N,
-    template <typename U> class PtrTraits = at::DefaultPtrTraits>
-pta::PackedTensorAccessor64<T, N, PtrTraits> make_packed_tensor_accessor64(
-#ifdef FBGEMM_GPU_MEMCHECK
-    const at::Tensor& tensor,
-    const char* const tensor_name,
-    const char* const func_name) {
-#else
-    const at::Tensor& tensor) {
-#endif
-
-#ifdef FBGEMM_GPU_MEMCHECK
-  return make_generic_packed_tensor_accessor<T, N, PtrTraits, int64_t>(
-      tensor, tensor_name, func_name);
-#else
-  return tensor.packed_accessor64<T, N, PtrTraits>();
-#endif
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// *TensorAccessor Builder Macros
-////////////////////////////////////////////////////////////////////////////////
-
-#ifdef FBGEMM_GPU_MEMCHECK
-#define MAKE_TA_WITH_NAME(FUNC_NAME, TENSOR, T, N) \
-  make_tensor_accessor<T, N>(TENSOR, #TENSOR, FUNC_NAME)
-
-#define MAKE_PACKED_TENSOR_ACCESSOR_BASE(                     \
-    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS)         \
-  make_packed_tensor_accessor##INDEX_NBITS<T, N, PTR_TRAITS>( \
-      TENSOR, #TENSOR, FUNC_NAME)
-
-#define MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE(    \
-    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
-  make_packed_tensor_accessor##INDEX_NBITS<           \
-      at::acc_type<T, true>,                          \
-      N,                                              \
-      PTR_TRAITS>(TENSOR, #TENSOR, FUNC_NAME)
-
-#else
-#define MAKE_TA_WITH_NAME(FUNC_NAME, TENSOR, T, N) \
-  make_tensor_accessor<T, N>(TENSOR)
-
-#define MAKE_PACKED_TENSOR_ACCESSOR_BASE(             \
-    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
-  make_packed_tensor_accessor##INDEX_NBITS<T, N, PTR_TRAITS>(TENSOR)
-
-#define MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE(    \
-    FUNC_NAME, TENSOR, T, N, PTR_TRAITS, INDEX_NBITS) \
-  make_packed_tensor_accessor##INDEX_NBITS<           \
-      at::acc_type<T, true>,                          \
-      N,                                              \
-      PTR_TRAITS>(TENSOR)
-#endif
-
-#define MAKE_PTA_WITH_NAME(FUNC_NAME, TENSOR, T, N, INDEX_NBITS) \
-  MAKE_PACKED_TENSOR_ACCESSOR_BASE(                              \
-      FUNC_NAME, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)
-
-#define MAKE_PTA_ACC_WITH_NAME(FUNC_NAME, TENSOR, T, N, INDEX_NBITS) \
-  MAKE_PACKED_TENSOR_ACCESSOR_ACC_TYPE_BASE(                         \
-      FUNC_NAME, TENSOR, T, N, at::RestrictPtrTraits, INDEX_NBITS)
-
-// !! Please do not modify the overflow_safe_int_t value unless you absolutely
-// understand what you are doing !!
+// Integer datatype for preventing the integer overflow problem
 //
-// An integer datatype for preventing the integer overflow problem
+// NOTE: !! Please do not modify the overflow_safe_int_t value unless you
+// absolutely　understand what you are doing !!
+////////////////////////////////////////////////////////////////////////////////
+
 using overflow_safe_int_t = int64_t;

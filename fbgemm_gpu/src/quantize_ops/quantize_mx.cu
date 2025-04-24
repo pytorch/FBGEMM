@@ -19,7 +19,7 @@
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 #include <ATen/core/TensorAccessor.h>
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "quantize_mx.cuh"
 
 namespace fbgemm_gpu {

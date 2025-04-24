@@ -9,7 +9,7 @@
 // clang-format off
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 
 using namespace fbgemm_gpu;
@@ -233,8 +233,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     const static bool use_rocm_packed_bag_mode = kIsRocm && fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_INFERENCE_PACKED_BAGS);
     /*
      * Helper macro for run-time packed mode dispatch. Computes maximum number of bags
-     * (num_packed_bags) that fits into NumUint4LoadsPerRow given embeddings' type and 
-     * size. num_packed_bags is to be used for additional bags indexing 
+     * (num_packed_bags) that fits into NumUint4LoadsPerRow given embeddings' type and
+     * size. num_packed_bags is to be used for additional bags indexing
      *
      * Current support range: ROCm and output_t != uint8_t and sparse_type != FP32
      */
@@ -331,9 +331,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         if (max_int4_128b_rows > 8) {
           if(use_rocm_packed_bag_mode) {
             Y(1, 1, 8, 16);
-          } else { 
+          } else {
             Y(1, 4, 8, 16);
-          } 
+          }
         }
       }
     }));
@@ -390,7 +390,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
             Y(1, 1, 16, 32);
           } else {
             Y(1, 2, 16, 32);
-          }   
+          }
         }
       }
     }));

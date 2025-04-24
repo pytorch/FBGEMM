@@ -13,7 +13,7 @@
 
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/embedding_forward_split_cpu.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "torch/types.h" // @manual=//caffe2:torch-cpp-cpu
 
 #if FBGEMM_GPU_MEMCHECK
