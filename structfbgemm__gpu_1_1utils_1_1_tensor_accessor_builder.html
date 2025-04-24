@@ -111,8 +111,12 @@ struct fbgemm_gpu::utils::TensorAccessorBuilder&lt; T, N, index_nbits, packed, P
 <div class="line"><span class="keyword">const</span> <span class="keyword">auto</span> x = TA_B(tensor, T, N, INB);</div>
 <div class="line"><span class="keyword">const</span> <span class="keyword">auto</span> x = PTA_B(tensor, T, N, INB);</div>
 </div><!-- fragment --><p>NOTE: When logging debug information and assertion errors, we would like to log the name of the relevant kernel function as well as the tensor variable name. Because C++ does not support reflection, we have collect this information through C macros in two locations - at tensor accessor creation site, and at the kernel function call site. The <a class="el" href="structfbgemm__gpu_1_1utils_1_1_tensor_accessor_builder.html">TensorAccessorBuilder</a> abstraction and the separation of tensor accessor creation into the creation and execution of the builder is meant to facilitate this. </p>
-</div><hr/>The documentation for this struct was generated from the following file:<ul>
+</div><hr/>The documentation for this struct was generated from the following files:<ul>
 <li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/utils/<b>tensor_accessor_builder.h</b></li>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/<b>embedding_forward_split_kernel_nobag_small_template.cu</b></li>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/<b>embedding_forward_split_kernel_template.cu</b></li>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/<b>embedding_forward_split_kernel_v2_template.cu</b></li>
+<li>/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/<b>embedding_forward_split_template.cu</b></li>
 </ul>
 </div><!-- contents -->
 <!-- start footer part -->
