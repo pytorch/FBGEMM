@@ -60,7 +60,7 @@ using namespace fbgemm_gpu;
 
     In-code variables that are defined outside:
         emb_t, cache_t, cache_t
-        idx_j
+        offset_idx_j
         D_emb
         lxu_cache_weights
         {{ locs_or_addrs_idx }}_j
@@ -96,7 +96,7 @@ using namespace fbgemm_gpu;
         {%- if from_cache %}
         cache_weights, // Load from the cache
         {%- else %}
-        &weights[idx_j * D_emb], // Load from the embedding table
+        &weights[offset_idx_j], // Load from the embedding table
         {%- endif %}
         D);
 
@@ -158,7 +158,7 @@ using namespace fbgemm_gpu;
 
     In-code variables that are defined outside:
         emb_t, cache_t, cache_t
-        idx_j
+        offset_idx_j
         inner_j
         D_emb
         lxu_cache_weights
@@ -194,7 +194,7 @@ using namespace fbgemm_gpu;
         {%- if from_cache %}
         cache_weights, // Load from the cache
         {%- else %}
-        &weights[idx_j * D_emb], // Load from the embedding table
+        &weights[offset_idx_j], // Load from the embedding table
         {%- endif %}
         D);
 
@@ -243,7 +243,7 @@ using namespace fbgemm_gpu;
 
     In-code variables that are defined outside:
         emb_t, cache_t, cache_t
-        idx_j
+        offset_idx_j
         inner_j
         D_emb
         lxu_cache_weights
@@ -289,18 +289,21 @@ using namespace fbgemm_gpu;
         // Determine the L index that this thread will load data from in cooperative load
         auto l = l_start + threadIdx.x;
 
-        {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
+        {%- if (
+              dense
+              or (lxu_miss_rate != "cache_conflict_miss_rate::zero")
+              or (lxu_miss_rate == "cache_conflict_miss_rate::zero" and is_gwd_kernel)
+            )
+        %}
         // Cooperatively load the indices
-        [[maybe_unused]] int64_t idx = l < L ? indices[indices_start + l] : 0;
+        const overflow_safe_int_t idx = l < L ? indices[indices_start + l] : 0;
+        // If idx is loaded
+        const auto offset_idx = idx * D_emb;
         {%- endif %}
 
         {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
         // Cooperatively load the cache's indices
         [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} = (use_lxu_cache && placement == PlacementType::MANAGED_CACHING && l < L) ? {{ locs_or_addrs_tensor }}[indices_start + l] : 0;
-        {%- endif %}
-
-        {%- if lxu_miss_rate == "cache_conflict_miss_rate::zero" and is_gwd_kernel %}
-        int64_t idx = l < L ? indices[indices_start + l] : 0; // only used for accessing prev_iter
         {%- endif %}
 
         {%- if is_gwd_kernel %}
@@ -323,10 +326,10 @@ using namespace fbgemm_gpu;
         {
             {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
             // Load index from thread j in the group
-            [[maybe_unused]] int64_t idx_j_[kManualUnrollLength];
+            overflow_safe_int_t offset_idx_j_[kManualUnrollLength];
             for (auto inner_j = 0; inner_j < kManualUnrollLength; ++inner_j)
             {
-                idx_j_[inner_j] = SHFL_SYNC(idx, outer_j + inner_j);
+                offset_idx_j_[inner_j] = SHFL_SYNC(offset_idx, outer_j + inner_j);
             }
             {%- endif %}
 
@@ -353,13 +356,13 @@ using namespace fbgemm_gpu;
             {
                 auto j = outer_j + inner_j;
                 {%- if is_index_select %}
-                int64_t output_j = L_start + l_start + j;
+                overflow_safe_int_t output_j = L_start + l_start + j;
                 {%- elif nobag %}
-                int64_t output_j = indices_start + l_start + j;
+                overflow_safe_int_t output_j = indices_start + l_start + j;
                 {%- endif %}
 
                 {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
-                [[maybe_unused]] int64_t idx_j = idx_j_[inner_j];
+                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
                 {%- endif %}
                 {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
                 [[maybe_unused]] {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }}_j
@@ -411,13 +414,13 @@ using namespace fbgemm_gpu;
                 auto j = outer_j + inner_j;
 
                 {%- if is_index_select %}
-                int64_t output_j = L_start + l_start + j;
+                overflow_safe_int_t output_j = L_start + l_start + j;
                 {%- elif nobag %}
-                int64_t output_j = indices_start + l_start + j;
+                overflow_safe_int_t output_j = indices_start + l_start + j;
                 {%- endif %}
 
                 {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
-                [[maybe_unused]] int64_t idx_j = idx_j_[inner_j];
+                [[maybe_unused]] auto offset_idx_j = offset_idx_j_[inner_j];
                 {%- endif %}
                 {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
                 [[maybe_unused]] int32_t {{ locs_or_addrs_idx }}_j = {{ locs_or_addrs_idx }}_j_[inner_j];
@@ -473,13 +476,13 @@ using namespace fbgemm_gpu;
         {%- endif %}
             {%- if dense or lxu_miss_rate != "cache_conflict_miss_rate::zero" %}
             // Load index from thread j in the group
-            [[maybe_unused]] int64_t idx_j = SHFL_SYNC(idx, j);
+            [[maybe_unused]] auto offset_idx_j = SHFL_SYNC(offset_idx, j);
             {%- endif %}
 
             {%- if is_index_select %}
-            int64_t output_j = L_start + l_start + j;
+            overflow_safe_int_t output_j = L_start + l_start + j;
             {%- elif nobag %}
-            int64_t output_j = indices_start + l_start + j;
+            overflow_safe_int_t output_j = indices_start + l_start + j;
             {%- endif %}
 
             {%- if not dense and lxu_miss_rate != "cache_conflict_miss_rate::all" %}
@@ -664,15 +667,15 @@ batch_index_select_dim0_codegen_forward_kernel(
     int32_t T = weights_offsets.size(0);
 
     {%- if is_index_select %}
-    index_t indices_start;
+    overflow_safe_int_t indices_start;
     int32_t L;
-    int32_t L_start;
+    overflow_safe_int_t L_start;
     if (t >= T) {
         return;
     }
     const auto total_L_start = total_L_offsets[t];
     const auto total_L = total_L_offsets[t + 1] - total_L_start;
-    L_start = b * fixed_L_per_warp;
+    L_start = static_cast<overflow_safe_int_t>(b) * fixed_L_per_warp;
     if (L_start >= total_L) {
         return;
     }
@@ -680,7 +683,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     L = (total_L - L_start >= fixed_L_per_warp) ? fixed_L_per_warp : (total_L - L_start);
     {%- else %}
     // Determine the number of indices Vec4(pooling factor) to look up within the bag
-    index_t indices_start = offsets[b_t];
+    overflow_safe_int_t indices_start = offsets[b_t];
     int32_t L = offsets[b_t + 1] - indices_start;
     {%- endif %}
 
@@ -694,8 +697,8 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- if is_index_select %}
     // Check D in the kernel to avoid iterating through the list on host
     CUDA_KERNEL_ASSERT(D % 4 == 0 && "The column size must be multiple of 4");
-    const auto output_offset = permute_output_dim_0_1 ? D_start : output_offsets[t];
-    const auto output_stride = permute_output_dim_0_1 ? D_offsets[T] : D;
+    const overflow_safe_int_t output_offset = permute_output_dim_0_1 ? D_start : output_offsets[t];
+    const overflow_safe_int_t output_stride = permute_output_dim_0_1 ? D_offsets[T] : D;
     {%- endif %}
 
     {%- if is_gwd_kernel %}
@@ -707,7 +710,7 @@ batch_index_select_dim0_codegen_forward_kernel(
 
     // From the Table ID, fetch its weight tensor offset, locate that position
     // in the input weights tensor, and set the weights table pointer
-    int64_t weights_offset = weights_offsets[t];
+    const auto weights_offset = weights_offsets[t];
     const emb_t* __restrict__ weights;
     {%- if not dense %}
     const auto placement = static_cast<PlacementType>(weights_placements[t]);
