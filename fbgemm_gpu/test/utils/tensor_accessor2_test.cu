@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
-#include "fbgemm_gpu/utils/tensor_accessor2.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
 namespace fbgemm_gpu::utils {
 
@@ -73,7 +73,9 @@ TEST(PackedTensorAccessorTest, tensor_access) {
         << "tensor1 is not equal to tensor2";
 
     // Transpose should work as expected
-    EXPECT_EQ(accessor.transpose(0, 1)[6][1], accessor[1][6]);
+    auto i = rand() % accessor.size(0);
+    auto j = rand() % accessor.size(1);
+    EXPECT_EQ(accessor.transpose(0, 1)[j][i], accessor[i][j]);
   });
 
 #ifndef __HIPCC__
