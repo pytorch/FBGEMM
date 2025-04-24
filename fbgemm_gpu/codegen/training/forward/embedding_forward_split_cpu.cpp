@@ -14,7 +14,7 @@
 #include "fbgemm_gpu/utils/cpu_utils.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #ifdef FBCODE_CAFFE2
 #include <libdivide.h>
 #else

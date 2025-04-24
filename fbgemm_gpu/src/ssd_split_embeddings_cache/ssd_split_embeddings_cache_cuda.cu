@@ -18,7 +18,7 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/bitonic_sort.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
@@ -49,7 +49,7 @@ vec4_copy(scalar_t* dst, const scalar_t* src, const int32_t D) {
   constexpr int32_t VEC_SIZE = 4;
   const scalar_t* __restrict__ src_ = src;
   scalar_t* __restrict__ dst_ = dst;
-  for (int32_t d = threadIdx.x * VEC_SIZE; d < D; d += blockDim.x * VEC_SIZE) {
+  for (auto d = threadIdx.x * VEC_SIZE; d < D; d += blockDim.x * VEC_SIZE) {
     Vec4T<scalar_t>::copy(&src_[d], &dst_[d]);
   }
 }
@@ -61,7 +61,7 @@ vec4_copy(uint8_t* dst, const uint8_t* src, const int32_t D) {
   // be multiple of 16 bytes (uint4 = 32bit x 4 = 16 bytes).
   const uint4* __restrict__ src_ = reinterpret_cast<const uint4*>(src);
   uint4* __restrict__ dst_ = reinterpret_cast<uint4*>(dst);
-  for (int32_t d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
+  for (auto d = threadIdx.x; d * sizeof(uint4) < D; d += blockDim.x) {
     dst_[d] = src_[d];
   }
 }
@@ -77,7 +77,7 @@ __global__ __launch_bounds__(kMaxThreads) void masked_index_kernel(
   const int32_t N = indices.size(0);
   const auto count_ = count[0];
   CUDA_KERNEL_ASSERT(count_ <= N);
-  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < count_;
+  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < count_;
        n += blockDim.y * gridDim.x) {
     // idx == -1 if it is conflict miss
     const auto idx = indices[n];
@@ -218,7 +218,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
   const int32_t C = lxu_cache_state.size(0);
 
   const int32_t N = sorted_cache_sets.size(0);
-  const int32_t n = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto n = blockIdx.x * blockDim.y + threadIdx.y;
   if (n >= N) {
     return;
   }
@@ -265,7 +265,7 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
 
   // Now, we need to insert the (unique!) values in indices[n:n + SL] into
   // our slots.
-  const int32_t slot = threadIdx.x;
+  const auto slot = threadIdx.x;
   const int64_t slot_time = lru_state[cache_set][slot];
 
   // Check if the slot is locked
@@ -286,13 +286,13 @@ __global__ __launch_bounds__(kMaxThreads) void ssd_cache_actions_insert_kernel(
 
   // Prepare key-value pair for sorting
   int64_t costs[1] = {slot_cost};
-  int32_t slots[1] = {slot};
+  int64_t slots[1] = {slot};
 
   // Sort the slots based on their costs
-  BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+  BitonicSort<int64_t, int64_t, 1, Comparator<int64_t>>::sort(costs, slots);
 
   // Get the sorted results
-  const int32_t insert_slot = slots[0];
+  const int64_t insert_slot = slots[0];
   const int64_t insert_cost = costs[0];
 
   auto l = threadIdx.x;

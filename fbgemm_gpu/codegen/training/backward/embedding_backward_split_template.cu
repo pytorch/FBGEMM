@@ -26,7 +26,7 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/barrier_isolation.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 {%- if is_rocm %}
 #include "fbgemm_gpu/rocm/cdna_guard.h"

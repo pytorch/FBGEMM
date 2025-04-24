@@ -17,7 +17,7 @@
 
 #include "fbgemm_gpu/permute_multi_embedding_function.h"
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 
 using Tensor = at::Tensor;
