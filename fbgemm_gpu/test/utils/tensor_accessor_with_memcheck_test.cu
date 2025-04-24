@@ -15,7 +15,7 @@
 #define FBGEMM_GPU_MEMCHECK
 #endif
 
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 template <typename T>
 void test_ta_create_1(const at::Tensor& tensor) {
