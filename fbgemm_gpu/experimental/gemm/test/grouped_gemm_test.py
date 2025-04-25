@@ -8,32 +8,19 @@
 # pyre-ignore-all-errors[53]
 
 import logging
-import os
 import unittest
 from typing import Tuple
 
 import torch
 
-try:
-    # pyre-ignore[21]
-    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
-    from fbgemm_gpu import open_source
-except Exception:
-    open_source: bool = False
-
-
-if not open_source and torch.cuda.is_available():
-    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
-    from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
-        grouped_gemm,
-        grouped_gemm_fp8_rowwise,
-    )
-
-
-@unittest.skipIf(
-    open_source,
-    "TypeError: __init__() got an unexpected keyword argument 'num_consumer_groups'",
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
+from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
+    _HAS_WS_SUPPORT,
+    grouped_gemm,
+    grouped_gemm_fp8_rowwise,
 )
+
+
 @unittest.skipIf(
     not torch.cuda.is_available(),
     "Skip when CUDA is not available",
@@ -42,10 +29,11 @@ class TestGroupedGEMM(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
 
-    # pyre-ignore [56]
-    @unittest.skipIf(
-        os.getenv("GITHUB_ENV") is not None,
-        """This test fails on the GitHub runners: module 'triton.language' has no attribute 'async_task'""",
+    @unittest.skipIf(  # pyre-ignore [56]
+        (not torch.cuda.is_available())
+        or (torch.version.hip is None)
+        and (torch.cuda.get_device_properties(0).major < 9),
+        "Skip FP8 test on architectures before SM90.",
     )
     def test_grouped_gemm_fp8_rowwise(self) -> None:
         def _test_grouped_gemm_fp8_rowwise(
@@ -154,6 +142,8 @@ class TestGroupedGEMM(unittest.TestCase):
                 for fast_accu in (True, False):
                     for ws in (True, False):
                         for fuse_scatter_add in (True, False):
+                            if ws and not _HAS_WS_SUPPORT:
+                                continue
                             if not ws and fuse_scatter_add:
                                 continue
                             logging.info(
@@ -168,9 +158,12 @@ class TestGroupedGEMM(unittest.TestCase):
                                 fuse_scatter_add=fuse_scatter_add,
                             )
 
+    # TODO(shikaili): Re-enable the test for SM80 after fixing TMA issues.
     @unittest.skipIf(  # pyre-ignore [56]
-        os.getenv("GITHUB_ENV") is not None,
-        """This test fails on the GitHub runners: "type fp8e4nv not supported in this architecture. The supported fp8 dtypes are ('fp8e4b15', 'fp8e5')""",
+        (not torch.cuda.is_available())
+        or (torch.version.hip is None)
+        and (torch.cuda.get_device_properties(0).major < 9),
+        "Skip BF16 test on architectures before SM90.",
     )
     def test_grouped_gemm_bf16(self) -> None:
         def _test_grouped_gemm_bf16(
@@ -251,6 +244,8 @@ class TestGroupedGEMM(unittest.TestCase):
             for M in (0, 64, 512, 1000000):
                 for ws in (True, False):
                     for fuse_scatter_add in (True, False):
+                        if ws and not _HAS_WS_SUPPORT:
+                            continue
                         if not ws and fuse_scatter_add:
                             continue
                         logging.info(
