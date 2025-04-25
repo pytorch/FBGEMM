@@ -38,10 +38,10 @@ endif()
 # Set the source file for FB only CPP
 if(USE_FB_ONLY AND (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA))
   file(GLOB fb_only_sources_cpu
-      fb/src/trt_llm/*.cpp)
+      fb/src/*/*.cpp)
 
   file(GLOB fb_only_sources_gpu
-      fb/src/trt_llm/*.cu)
+      fb/src/*/*.cu)
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_sources_gpu})
