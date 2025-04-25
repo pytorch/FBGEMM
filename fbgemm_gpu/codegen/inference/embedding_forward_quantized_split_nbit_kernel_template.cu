@@ -9,7 +9,7 @@
 // clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
@@ -102,7 +102,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
 
   // Index of packed bag during load stage in current warp/wave. Should fit into NumUint4LoadsPerRow (3rd) shared
-  // memory buffer's dimension w.r.t. the actual size of the row in the bag. 
+  // memory buffer's dimension w.r.t. the actual size of the row in the bag.
   const uint32_t packed_bag_load_idx = PackedMode ? (threadIdx.x % NumUint4LoadsPerRow) / uint4_loads_per_row : 0;
   constexpr int32_t kUintsInUint4 = 4;
   const int32_t uints_per_row = kUintsInUint4 * uint4_loads_per_row;
@@ -212,20 +212,17 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             buffers[warp_idx][i][input_row_idx][row_load_idx] = data;
           }
           {% if weighted %}
-          {%- if is_rocm %}
-          if (valid && row_load_idx == 0)  {
+          if (row_load_idx == 0)  {
             // Use only one thread to load the index weight to prevent a race
             // condition when writing to the shared memory
-            buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
+            buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] =
+              valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
           }
-          {%- else %}
-          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
-          {%- endif %}
           {% endif %}
         }
       }
       {%- endif %}
-      
+
       {%- if is_rocm %}
       if constexpr (OutputRowsPerThread % kRowUnroll)
       {
@@ -249,21 +246,18 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           row = reinterpret_cast<const uint4*>(&weights[0]);
         }
         if constexpr (PackedMode) {
-          // Load valid packed row data w.r.t. packed_bag offset 
+          // Load valid packed row data w.r.t. packed_bag offset
           cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx], &row[row_load_idx], valid);
         } else {
           cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
         }
         {% if weighted %}
-        {%- if is_rocm %}
-        if (valid && row_load_idx == 0) {
+        if (row_load_idx == 0) {
           // Use only one thread to load the index weight to prevent a race
           // condition when writing to the shared memory
-          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
+          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] =
+            valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
         }
-        {%- else %}
-        buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
-        {%- endif %}
         {% endif %}
       }
       {%- if is_rocm %}
@@ -286,7 +280,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         Ls[i] = shfl_sync(Ls[i], packed_bag_acc_idx * uint4_loads_per_row);
       }
     }
-    
+
     for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
       #pragma unroll OutputRowsPerThread
       for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
@@ -389,8 +383,8 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
         if constexpr (PackedMode) {
           // Offset global output_d index with the size of outputs per bag w.r.t. current
-          // packed bag index 
-          output_d -= packed_bag_store_idx * kOutputsPerThread * uints_per_row; 
+          // packed bag index
+          output_d -= packed_bag_store_idx * kOutputsPerThread * uints_per_row;
         }
         accumulators[i][j].mul(inv_L);
 

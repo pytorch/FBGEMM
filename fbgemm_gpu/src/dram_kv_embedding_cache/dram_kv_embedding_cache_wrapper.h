@@ -8,7 +8,14 @@
 
 #pragma once
 
+#include "../ssd_split_embeddings_cache/kv_tensor_wrapper.h"
 #include "dram_kv_embedding_cache.h"
+
+namespace {
+using DramKVEmbeddingCacheVariant = std::variant<
+    std::shared_ptr<kv_mem::DramKVEmbeddingCache<float>>,
+    std::shared_ptr<kv_mem::DramKVEmbeddingCache<at::Half>>>;
+}
 
 namespace kv_mem {
 
@@ -21,15 +28,29 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
-      int64_t weight_ttl_in_hours = 2)
-      : impl_(std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
-            max_D,
-            uniform_init_lower,
-            uniform_init_upper,
-            num_shards,
-            num_threads,
-            row_storage_bitwidth,
-            weight_ttl_in_hours)) {}
+      int64_t weight_ttl_in_hours = 2) {
+    if (row_storage_bitwidth == 16) {
+      impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
+          max_D,
+          uniform_init_lower,
+          uniform_init_upper,
+          num_shards,
+          num_threads,
+          row_storage_bitwidth,
+          weight_ttl_in_hours);
+    } else if (row_storage_bitwidth == 32) {
+      impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
+          max_D,
+          uniform_init_lower,
+          uniform_init_upper,
+          num_shards,
+          num_threads,
+          row_storage_bitwidth,
+          weight_ttl_in_hours);
+    } else {
+      throw std::runtime_error("Failed to create recording device");
+    }
+  }
 
   void set_cuda(
       at::Tensor indices,
@@ -37,26 +58,56 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor count,
       int64_t timestep,
       bool is_bwd) {
-    return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
+    return std::visit(
+        [&indices, &weights, &count, &timestep](auto& ptr) {
+          if (ptr) {
+            ptr->set_cuda(indices, weights, count, timestep);
+          }
+        },
+        impl_);
   }
 
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
-    return impl_->get_cuda(indices, weights, count);
+    return std::visit(
+        [&indices, &weights, &count](auto& ptr) {
+          if (ptr) {
+            ptr->get_cuda(indices, weights, count);
+          }
+        },
+        impl_);
   }
 
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
-    return impl_->set(indices, weights, count);
+    return std::visit(
+        [&indices, &weights, &count](auto& ptr) {
+          if (ptr) {
+            ptr->set(indices, weights, count);
+          }
+        },
+        impl_);
   }
 
   void flush() {
-    return impl_->flush();
+    return std::visit(
+        [](auto& ptr) {
+          if (ptr) {
+            ptr->flush();
+          }
+        },
+        impl_);
   }
 
   void set_range_to_storage(
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) {
-    return impl_->set_range_to_storage(weights, start, length);
+    return std::visit(
+        [&weights, &start, &length](auto& ptr) {
+          if (ptr) {
+            ptr->set_range_to_storage(weights, start, length);
+          }
+        },
+        impl_);
   }
 
   void get(
@@ -64,18 +115,41 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor weights,
       at::Tensor count,
       int64_t sleep_ms) {
-    return impl_->get(indices, weights, count, sleep_ms);
+    return std::visit(
+        [&indices, &weights, &count, sleep_ms](auto& ptr) {
+          if (ptr) {
+            ptr->get(indices, weights, count, sleep_ms);
+          }
+        },
+        impl_);
   }
 
   void wait_util_filling_work_done() {
-    return impl_->wait_util_filling_work_done();
+    return std::visit(
+        [](auto& ptr) {
+          if (ptr) {
+            ptr->wait_util_filling_work_done();
+          }
+        },
+        impl_);
   }
 
   at::Tensor get_keys_in_range(int64_t start, int64_t end) {
-    return impl_->get_keys_in_range(start, end);
+    return std::visit(
+        [&start, &end](auto& ptr) {
+          if (ptr) {
+            return ptr->get_keys_in_range(start, end);
+          }
+          return at::empty({0});
+        },
+        impl_);
   }
 
-  std::shared_ptr<kv_mem::DramKVEmbeddingCache<float>> impl_;
+ private:
+  // friend class EmbeddingRocksDBWrapper;
+  friend class ssd::KVTensorWrapper;
+
+  DramKVEmbeddingCacheVariant impl_;
 };
 
 } // namespace kv_mem

@@ -26,7 +26,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/float.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 #define QUANTIZE_OPS_MAX(a, b) ((a) > (b) ? (a) : (b))

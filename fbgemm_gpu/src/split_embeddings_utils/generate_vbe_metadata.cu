@@ -10,7 +10,7 @@
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h" // @manual
-#include "fbgemm_gpu/utils/tensor_accessor.h" // @manual
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h" // @manual
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
