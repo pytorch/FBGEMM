@@ -69,7 +69,7 @@ decltype(auto) transform_kernel_arg(const SourceContext& context, T&& arg) {
 // routines when launching GPU kernels.
 ////////////////////////////////////////////////////////////////////////////////
 
-template <bool EnableDSA = false>
+template <bool EnableDSA = false, bool EnableBarrierIsolation = false>
 struct KernelLauncher {
   const SourceContext context;
 
@@ -180,7 +180,10 @@ struct KernelLauncher {
   constexpr inline void checkSharedMemoryPerBlockNotExceeded(
       const cudaDeviceProp& properties,
       const size_t shared_mem_per_block) const {
-    const auto smem_limits = properties.sharedMemPerBlock;
+    // NOTE: sharedMemPerBlockOptin is the maximum possible shared memory that
+    // can be used per block by explicit special opt-in, and is larger than
+    // sharedMemPerBlock.
+    const auto smem_limits = properties.sharedMemPerBlockOptin;
 
     TORCH_CHECK(
         shared_mem_per_block <= smem_limits,
@@ -230,10 +233,19 @@ struct KernelLauncher {
           // CUDAKernelLaunchRegistry has only been recently added to Torch
           // HIPify mappings, so wrap this with USE_ROCM until the mappings land
           // in PyTorch OSS.
+          //
+          // TODO: Remove when CUDAKernelLaunchRegistry lands in the nightlies
           c10::hip::HIPKernelLaunchRegistry::get_singleton_ref();
 #else
           c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref();
 #endif
+
+      // If barrier isolation is enabled, synchronize the stream first before
+      // launching the kernel.  This has roughly the same effect as setting
+      // `CUDA_LAUNCH_BLOCKING=1` as an environment variable.
+      if constexpr (EnableBarrierIsolation) {
+        cudaDeviceSynchronize();
+      }
 
       // Launch the kernel
       kernel<<<grid, block, shared_mem_per_block, stream>>>(
@@ -252,6 +264,12 @@ struct KernelLauncher {
       kernel<<<grid, block, shared_mem_per_block, stream>>>(
           // Transform arguments to the kernel before forwarding them.
           transform_kernel_arg(context, std::forward<Args>(args))...);
+    }
+
+    // If barrier isolation is enabled, synchronize the stream again to wait for
+    // kernel execution to complete
+    if constexpr (EnableBarrierIsolation) {
+      cudaDeviceSynchronize();
     }
 
     // Check for CUDA errors
@@ -279,30 +297,42 @@ struct KernelLauncher {
 //  - The constexpr decltype(KERNEL) declaration is added to enable for better
 //  compilation error messages upon template argument and function overload
 //  mismatches.
+//
+//  - The macro expression is wrapped inside a parenthesis to avoid commas from
+//  interfering with preoprocessing when this macro is invoked inside another
+//  macro.
 ////////////////////////////////////////////////////////////////////////////////
 
 #ifdef __TEMPLATE_SOURCE_FILE__
-#define T_FILE __TEMPLATE_SOURCE_FILE__
+#define _FKL_TFILE_ __TEMPLATE_SOURCE_FILE__
 #else
-#define T_FILE ""
+#define _FKL_TFILE_ ""
 #endif
 
-#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)           \
-  [&] {                                                                        \
-    using source_location = fbgemm_gpu::utils::source_location;                \
-    constexpr auto location = source_location::current();                      \
-    constexpr decltype(KERNEL)& kernel = KERNEL;                               \
-                                                                               \
-    return fbgemm_gpu::utils::KernelLauncher<false>(location, #KERNEL, T_FILE) \
-        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);        \
-  }()
+#ifdef FBGEMM_GPU_KERNEL_DEBUG
+#define _FKL_KDEBUG_ true
+#else
+#define _FKL_KDEBUG_ false
+#endif
 
-#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)      \
-  [&] {                                                                       \
-    using source_location = fbgemm_gpu::utils::source_location;               \
-    constexpr auto location = source_location::current();                     \
-    constexpr decltype(KERNEL)& kernel = KERNEL;                              \
-                                                                              \
-    return fbgemm_gpu::utils::KernelLauncher<true>(location, #KERNEL, T_FILE) \
-        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);       \
-  }()
+#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)    \
+  ([&] {                                                                \
+    using source_location = fbgemm_gpu::utils::source_location;         \
+    constexpr auto location = source_location::current();               \
+    decltype(KERNEL)& kernel = KERNEL;                                  \
+                                                                        \
+    return fbgemm_gpu::utils::KernelLauncher<false, _FKL_KDEBUG_>(      \
+               location, #KERNEL, _FKL_TFILE_)                          \
+        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+  }())
+
+#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...) \
+  ([&] {                                                                 \
+    using source_location = fbgemm_gpu::utils::source_location;          \
+    constexpr auto location = source_location::current();                \
+    decltype(KERNEL)& kernel = KERNEL;                                   \
+                                                                         \
+    return fbgemm_gpu::utils::KernelLauncher<true, _FKL_KDEBUG_>(        \
+               location, #KERNEL, _FKL_TFILE_)                           \
+        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);  \
+  }())

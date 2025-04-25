@@ -296,8 +296,8 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
             tensor_sum_kernel<float>,
             8,
             1024,
-            // shared memory size is too large
-            properties.sharedMemPerBlock + 1,
+            // Requested shared memory size is too large
+            properties.sharedMemPerBlockOptin + 1,
             at::cuda::getCurrentCUDAStream(),
             PTA_B(C, float, 1, 64),
             PTA_B(A, float, 1, 64),
