@@ -7,6 +7,7 @@
 # pyre-unsafe
 
 import functools
+import inspect
 import logging
 
 from typing import Optional
@@ -41,34 +42,63 @@ _NV_CONFIGS = [
     for num_ctas in [1]
 ]
 
-_NV_WS_CONFIGS = [
-    triton.Config(
-        {
-            "BLOCK_SIZE_M": block_size_m,
-            "BLOCK_SIZE_N": block_size_n,
-            "BLOCK_SIZE_K": block_size_k,
-            "NUM_CONSUMER_GROUPS": max(1, num_consumer_groups),
-            "USE_TMA_LOAD_ON_SCALES": use_tma_load_on_scales,
-            "USE_TMA_STORE": use_tma_store,
-        },
-        num_stages=num_stages,
-        num_warps=num_warps,
-        num_ctas=num_ctas,
-        num_consumer_groups=num_consumer_groups,
-        num_buffers_warp_spec=num_stages,
-    )
-    for block_size_m in [64, 128, 256]
-    for block_size_n in [64, 128, 256]
-    for block_size_k in [64, 128, 256]
-    for num_stages in [2, 3, 4]
-    for num_warps in [4, 8, 16]
-    # TODO(shikaili): Resolve LLVM error.
-    for num_ctas in [1]
-    for num_consumer_groups in [0, 2]
-    for use_tma_load_on_scales in [True, False]
-    # TODO(shikaili): Resolve compatibility with ws.
-    for use_tma_store in [False]
-]
+_HAS_WS_SUPPORT = None
+
+
+def _check_ws_support():
+    if not hasattr(tl, "async_task"):
+        return False
+    config_signature = inspect.signature(triton.Config).parameters
+    if (
+        "num_consumer_groups" not in config_signature
+        or "num_buffers_warp_spec" not in config_signature
+    ):
+        return False
+    if not utils.HAS_TMA_DESC:
+        return False
+    return True
+
+
+def _set_ws_support():
+    global _HAS_WS_SUPPORT
+    if _HAS_WS_SUPPORT is None:
+        _HAS_WS_SUPPORT = _check_ws_support()
+
+
+_set_ws_support()
+
+if _HAS_WS_SUPPORT:
+    _NV_WS_CONFIGS = [
+        triton.Config(
+            {
+                "BLOCK_SIZE_M": block_size_m,
+                "BLOCK_SIZE_N": block_size_n,
+                "BLOCK_SIZE_K": block_size_k,
+                "NUM_CONSUMER_GROUPS": max(1, num_consumer_groups),
+                "USE_TMA_LOAD_ON_SCALES": use_tma_load_on_scales,
+                "USE_TMA_STORE": use_tma_store,
+            },
+            num_stages=num_stages,
+            num_warps=num_warps,
+            num_ctas=num_ctas,
+            num_consumer_groups=num_consumer_groups,
+            num_buffers_warp_spec=num_stages,
+        )
+        for block_size_m in [64, 128, 256]
+        for block_size_n in [64, 128, 256]
+        for block_size_k in [64, 128, 256]
+        for num_stages in [2, 3, 4]
+        for num_warps in [4, 8, 16]
+        # TODO(shikaili): Resolve LLVM error.
+        for num_ctas in [1]
+        for num_consumer_groups in [0, 2]
+        for use_tma_load_on_scales in [True, False]
+        # TODO(shikaili): Resolve compatibility with ws.
+        for use_tma_store in [False]
+    ]
+else:
+    _NV_WS_CONFIGS = _NV_CONFIGS
+
 
 _AMD_CONFIGS = [
     triton.Config(
@@ -880,15 +910,16 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
 
 
 def _grouped_gemm(
+    *,
     x: torch.Tensor,
     w: torch.Tensor,
     m_sizes: torch.Tensor,
-    x_scale: Optional[torch.Tensor] = None,
-    w_scale: Optional[torch.Tensor] = None,
-    use_fast_accum: bool = False,
-    use_warp_specialization: bool = False,
-    output_tensor: Optional[torch.Tensor] = None,
-    scatter_add_indices: Optional[torch.Tensor] = None,
+    x_scale: Optional[torch.Tensor],
+    w_scale: Optional[torch.Tensor],
+    use_fast_accum: bool,
+    use_warp_specialization: bool,
+    output_tensor: Optional[torch.Tensor],
+    scatter_add_indices: Optional[torch.Tensor],
 ) -> torch.Tensor:
 
     USE_TMA_LOAD = not torch.version.hip
@@ -902,9 +933,16 @@ def _grouped_gemm(
         USE_TMA_STORE = False
         logging.warning("TMA store is disabled as there is no TMA descriptor support!")
 
+    # TODO(shikaili): Check the readniess of WS on ROCm side in Meta's Triton.
     if use_warp_specialization and torch.version.hip:
         logging.warning(
             "Warp specialization is disabled as it is not supported on ROCm."
+        )
+        use_warp_specialization = False
+
+    if use_warp_specialization and not _HAS_WS_SUPPORT:
+        logging.warning(
+            "Warp specialization is disabled as the Triton build in current environment doesn't have such support. Please build from https://github.com/facebookexperimental/triton/tree/ws-3.2.x to enable it for best performance on Nvidia's SM90 GPUs."
         )
         use_warp_specialization = False
 
@@ -1063,14 +1101,16 @@ def grouped_gemm(
     m_sizes: torch.Tensor,
     use_fast_accum: bool = True,
     *,
-    _use_warp_specialization: bool = False,
+    _use_warp_specialization: bool = True,
     _output_tensor: Optional[torch.Tensor] = None,
     _scatter_add_indices: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     return _grouped_gemm(
-        x,
-        w,
-        m_sizes,
+        x=x,
+        w=w,
+        m_sizes=m_sizes,
+        x_scale=None,
+        w_scale=None,
         use_fast_accum=use_fast_accum,
         use_warp_specialization=_use_warp_specialization,
         output_tensor=_output_tensor,
@@ -1086,16 +1126,16 @@ def grouped_gemm_fp8_rowwise(
     w_scale: torch.Tensor,
     use_fast_accum: bool = True,
     *,
-    _use_warp_specialization: bool = False,
+    _use_warp_specialization: bool = True,
     _output_tensor: Optional[torch.Tensor] = None,
     _scatter_add_indices: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     return _grouped_gemm(
-        x,
-        w,
-        m_sizes,
-        x_scale,
-        w_scale,
+        x=x,
+        w=w,
+        m_sizes=m_sizes,
+        x_scale=x_scale,
+        w_scale=w_scale,
         use_fast_accum=use_fast_accum,
         use_warp_specialization=_use_warp_specialization,
         output_tensor=_output_tensor,
