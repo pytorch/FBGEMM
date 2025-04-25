@@ -162,7 +162,14 @@ DEVICE_INLINE float bfx4_dot(bfx4 a, bfx4 b) {
   // auto r = bf1622float2(acc);
   // return r.x + r.y;
 }
-
+DEVICE_INLINE fx4 fx4_abs(const fx4& src) {
+  fx4 result;
+  result.x = fabsf(src.x);
+  result.y = fabsf(src.y);
+  result.z = fabsf(src.z);
+  result.w = fabsf(src.w);
+  return result;
+}
 DEVICE_INLINE fx4 bfx4_scale_acc(fx4 acc, bfx4 a, float b) {
   auto axy = bf1622float2(a.vals[0]);
   auto azw = bf1622float2(a.vals[1]);
