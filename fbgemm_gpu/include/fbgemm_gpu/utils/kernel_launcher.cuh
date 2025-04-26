@@ -229,16 +229,7 @@ struct KernelLauncher {
       // transformation.
 
       auto& launch_registry =
-#ifdef __HIPCC__
-          // CUDAKernelLaunchRegistry has only been recently added to Torch
-          // HIPify mappings, so wrap this with USE_ROCM until the mappings land
-          // in PyTorch OSS.
-          //
-          // TODO: Remove when CUDAKernelLaunchRegistry lands in the nightlies
-          c10::hip::HIPKernelLaunchRegistry::get_singleton_ref();
-#else
           c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref();
-#endif
 
       // If barrier isolation is enabled, synchronize the stream first before
       // launching the kernel.  This has roughly the same effect as setting
