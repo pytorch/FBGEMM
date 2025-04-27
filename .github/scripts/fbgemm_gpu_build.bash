@@ -141,7 +141,7 @@ __configure_fbgemm_gpu_build_cpu () {
   # Update the package name and build args depending on if CUDA is specified
   echo "[BUILD] Setting CPU-only build args ..."
   build_args=(
-    --package_variant=cpu
+    --build-variant=cpu
   )
 }
 
@@ -149,7 +149,7 @@ __configure_fbgemm_gpu_build_docs () {
   # Update the package name and build args depending on if CUDA is specified
   echo "[BUILD] Setting CPU-only (docs) build args ..."
   build_args=(
-    --package_variant=docs
+    --build-variant=docs
   )
 }
 
@@ -206,7 +206,7 @@ __configure_fbgemm_gpu_build_rocm () {
   #   https://rocm.docs.amd.com/en/docs-6.1.1/reference/rocmcc.html
   echo "[BUILD] Setting ROCm build args ..."
   build_args=(
-    --package_variant=rocm
+    --build-variant=rocm
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
     -DHIP_ROOT_DIR=/opt/rocm
     # ROCm CMake complains about missing AMDGPU_TARGETS, so we explicitly set this
@@ -284,7 +284,7 @@ __configure_fbgemm_gpu_build_cuda () {
 
   echo "[BUILD] Setting CUDA build args ..."
   build_args=(
-    --package_variant=cuda
+    --build-variant=cuda
     --nvml_lib_path="${nvml_lib_path}"
     --nccl_lib_path="${nccl_lib_path}"
     # Pass to PyTorch CMake
@@ -303,10 +303,9 @@ __configure_fbgemm_gpu_build_genai () {
 
   __configure_fbgemm_gpu_build_cuda "$fbgemm_variant_targets" || return 1
 
-  # Replace the package_variant flag, since GenAI is also a CUDA-type build
-  for i in "${!build_args[@]}"; do
-    build_args[i]="${build_args[i]/--package_variant=cuda/--package_variant=genai}"
-  done
+  build_args+=(
+    --build-target=genai
+  )
 }
 
 # shellcheck disable=SC2120

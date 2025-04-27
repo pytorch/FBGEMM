@@ -7,6 +7,7 @@
 # @licenselint-loose-mode
 
 import argparse
+import logging
 import os
 import re
 import subprocess
@@ -22,6 +23,8 @@ import torch
 from setuptools.command.install import install as PipInstall
 from skbuild import setup
 from tabulate import tabulate
+
+logging.basicConfig(level=logging.INFO)
 
 
 @dataclass(frozen=True)
@@ -50,9 +53,16 @@ class FbgemmGpuBuild:
             help="Print build information only.",
         )
         parser.add_argument(
-            "--package_variant",
+            "--build-target",
             type=str,
-            choices=["docs", "cpu", "cuda", "rocm", "genai"],
+            choices=["default", "genai"],
+            default="default",
+            help="The FBGEMM_GPU variant to build.",
+        )
+        parser.add_argument(
+            "--build-variant",
+            type=str,
+            choices=["docs", "cpu", "cuda", "rocm"],
             default="cuda",
             help="The FBGEMM_GPU variant to build.",
         )
@@ -102,37 +112,30 @@ class FbgemmGpuBuild:
         else:
             return None
 
+    def nova_non_prebuild_step(self) -> bool:
+        # When running in Nova workflow context, the actual package build is run
+        # in the Nova CI's "pre-script" step, as denoted by the `BUILD_FROM_NOVA`
+        # flag.  As such, we skip building in the clean and build wheel steps.
+        return self.nova_flag() == 1
+
+    def target(self) -> str:
+        return self.args.build_target
+
+    def variant(self) -> str:
+        return self.args.build_variant
+
     def package_name(self) -> str:
-        pkg_name: str = "fbgemm_gpu"
+        pkg_name: str = "fbgemm_gpu_genai" if self.target() == "genai" else "fbgemm_gpu"
 
-        if self.nova_flag() == 1:
-            # When running in Nova workflow context, the actual package build is
-            # run in the Nova CI's "pre-script" step, as denoted by the
-            # `BUILD_FROM_NOVA` flag.  As such, we skip building in the clean
-            # and build wheel steps.
-            print(
-                "[SETUP.PY] Running under Nova workflow context (clean or build wheel step) ... exiting"
-            )
-            sys.exit(0)
-
-        elif self.nova_flag() == 0:
-            # In Nova, we are publishing genai packages separately from the main
-            # fbgemm_gpu package, so if the package variant is genai, we need to
-            # update the package name accordingly.  Otherwise, the package name
-            # is the same for all other build variants in Nova
-            if self.args.package_variant == "genai":
-                pkg_name = "fbgemm_gpu_genai"
-
-        else:
+        if self.nova_flag() is None:
             # If running outside of Nova workflow context, append the channel
             # and variant to the package name as needed
             if self.args.package_channel != "release":
                 pkg_name += f"_{self.args.package_channel}"
 
-            if self.args.package_variant != "cuda":
-                pkg_name += f"-{self.args.package_variant}"
+            if self.variant() != "cuda":
+                pkg_name += f"-{self.variant()}"
 
-        print(f"[SETUP.PY] Determined the Python package name: '{pkg_name}'")
         return pkg_name
 
     def variant_version(self) -> str:
@@ -143,25 +146,24 @@ class FbgemmGpuBuild:
             # `python setup.py`, this script is invoked twice, once as
             # `setup.py egg_info`, and once as `setup.py bdist_wheel`.
             # Ignore determining the variant_version for the first case.
-            print(
+            logging.debug(
                 "[SETUP.PY] Script was invoked as `setup.py egg_info`, ignoring variant_version"
             )
-            return pkg_vver
+            return ""
 
         elif self.nova_flag() is None:
-            # If not running in a Nova workflow, then use the
-            # `fbgemm_gpu-<variant>` naming convention for the package, since
-            # PyPI does not accept version+xx in the naming convention.
-            print(
+            # If not running in a Nova workflow, ignore the variant version and
+            # use the `fbgemm_gpu-<variant>` package naming convention instead,
+            # since PyPI does not accept version+xx in the naming convention.
+            logging.debug(
                 "[SETUP.PY] Not running under Nova workflow context; ignoring variant_version"
             )
-            return pkg_vver
+            return ""
 
         # NOTE: This is a workaround for the fact that we currently overload
         # package target (e.g. GPU, GenAI), and variant (e.g. CPU, CUDA, ROCm)
-        # into the same `package_variant` variable, and should be fixed soon.
-        if self.args.package_variant == "cuda" or self.args.package_variant == "genai":
-            CudaUtils.set_cuda_environment_variables()
+        # into the same `build_variant` variable, and should be fixed soon.
+        if self.variant() == "cuda":
             if torch.version.cuda is not None:
                 cuda_version = torch.version.cuda.split(".")
                 pkg_vver = f"+cu{cuda_version[0]}{cuda_version[1]}"
@@ -170,7 +172,7 @@ class FbgemmGpuBuild:
                     "[SETUP.PY] The installed PyTorch variant is not CUDA; cannot determine the CUDA version!"
                 )
 
-        elif self.args.package_variant == "rocm":
+        elif self.variant() == "rocm":
             if torch.version.hip is not None:
                 rocm_version = torch.version.hip.split(".")
                 # NOTE: Unlike CUDA-based releases, which ignores the minor patch version,
@@ -190,20 +192,19 @@ class FbgemmGpuBuild:
         else:
             pkg_vver = "+cpu"
 
-        print(f"[SETUP.PY] Extracted the package variant+version: '{pkg_vver}'")
         return pkg_vver
 
     def package_version(self):
         pkg_vver = self.variant_version()
 
-        print("[SETUP.PY] Extracting the package version ...")
-        print(
+        logging.debug("[SETUP.PY] Extracting the package version ...")
+        logging.debug(
             f"[SETUP.PY] TAG: {gitversion.get_tag()}, BRANCH: {gitversion.get_branch()}, SHA: {gitversion.get_sha()}"
         )
 
         if self.args.package_channel == "nightly":
             # Use date stamp for nightly versions
-            print(
+            logging.debug(
                 "[SETUP.PY] Package is for NIGHTLY; using timestamp for the versioning"
             )
             today = date.today()
@@ -241,12 +242,12 @@ class FbgemmGpuBuild:
             )
 
         full_version_string = f"{pkg_version}{pkg_vver}"
-        print(
+        logging.debug(
             f"[SETUP.PY] Setting the full package version string: {full_version_string}"
         )
         return full_version_string
 
-    def cmake_args(self) -> None:
+    def cmake_args(self) -> List[str]:
         def _get_cxx11_abi():
             try:
                 value = int(torch._C._GLIBCXX_USE_CXX11_ABI)
@@ -257,7 +258,7 @@ class FbgemmGpuBuild:
             return f"-D_GLIBCXX_USE_CXX11_ABI={value}"
 
         torch_root = os.path.dirname(torch.__file__)
-        os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str(os.cpu_count() // 2)
+        os.environ["CMAKE_BUILD_PARALLEL_LEVEL"] = str((os.cpu_count() or 4) // 2)
 
         cmake_args = [
             f"-DCMAKE_PREFIX_PATH={torch_root}",
@@ -267,36 +268,31 @@ class FbgemmGpuBuild:
         cxx_flags = []
 
         if self.args.verbose:
-            print("[SETUP.PY] Building in VERBOSE mode ...")
+            # Enable verbose logging in CMake
             cmake_args.extend(
                 ["-DCMAKE_VERBOSE_MAKEFILE=ON", "-DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE"]
             )
 
         if self.args.debug:
-            # Enable device-side assertions in CUDA and HIP
+            # Enable torch device-side assertions for CUDA and HIP
             # https://stackoverflow.com/questions/44284275/passing-compiler-options-in-cmake-command-line
             cxx_flags.extend(["-DTORCH_USE_CUDA_DSA", "-DTORCH_USE_HIP_DSA"])
 
-        if self.args.package_variant in ["docs", "cpu"]:
-            # NOTE: The docs variant is a fake variant that is effectively the
-            # cpu variant, but marks __VARIANT__ as "docs" instead of "cpu".
-            #
-            # This minor change lets the library loader know not throw
-            # exceptions on failed load, which is the workaround for a bug in
-            # the Sphinx documentation generation process, see:
-            #
-            #   https://github.com/pytorch/FBGEMM/pull/3477
-            #   https://github.com/pytorch/FBGEMM/pull/3717
-            print("[SETUP.PY] Building the CPU ...")
-            cmake_args.append("-DFBGEMM_BUILD_VARIANT=cpu")
+        print(f"[SETUP.PY] Setting the FBGEMM build target: {self.target()} ...")
+        cmake_args.append(f"-DFBGEMM_BUILD_TARGET={self.target()}")
 
-        if self.args.package_variant == "rocm":
-            print("[SETUP.PY] Building the ROCm variant ...")
-            cmake_args.append("-DFBGEMM_BUILD_VARIANT=rocm")
-
-        if self.args.package_variant == "genai":
-            print("[SETUP.PY] Building the GENAI-ONLY variant of FBGEMM_GPU ...")
-            cmake_args.append("-DFBGEMM_BUILD_TARGET=genai")
+        # NOTE: The docs variant is a fake variant that is effectively the
+        # cpu variant, but marks __VARIANT__ as "docs" instead of "cpu".
+        #
+        # This minor change lets the library loader know not throw
+        # exceptions on failed load, which is the workaround for a bug in
+        # the Sphinx documentation generation process, see:
+        #
+        #   https://github.com/pytorch/FBGEMM/pull/3477
+        #   https://github.com/pytorch/FBGEMM/pull/3717
+        cmake_bvariant = "cpu" if self.variant() == "docs" else self.variant()
+        print(f"[SETUP.PY] Setting the FBGEMM build variant: {cmake_bvariant} ...")
+        cmake_args.append(f"-DFBGEMM_BUILD_VARIANT={cmake_bvariant}")
 
         if self.args.nvml_lib_path:
             cmake_args.append(f"-DNVML_LIB_PATH={self.args.nvml_lib_path}")
@@ -316,7 +312,7 @@ class FbgemmGpuBuild:
             cmake_args.append("-DUSE_FB_ONLY=ON")
 
         if self.args.cxxprefix:
-            print("[SETUP.PY] Setting CMake flags ...")
+            logging.debug("[SETUP.PY] Setting CMake flags ...")
             path = self.args.cxxprefix
 
             cxx_flags.extend(
@@ -353,7 +349,7 @@ class CudaUtils:
     """CUDA Utilities"""
 
     @classmethod
-    def nvcc_ok(cls, cuda_home: str, major: int, minor: int) -> bool:
+    def nvcc_ok(cls, cuda_home: Optional[str], major: int, minor: int) -> bool:
         if not cuda_home:
             return False
 
@@ -455,7 +451,8 @@ class FbgemmGpuInstall(PipInstall):
                 # LICENSE file in the root directory of this source tree.
 
                 __version__: str = "{package_version}"
-                __variant__: str = "{build.args.package_variant}"
+                __target__: str = "{build.target()}"
+                __variant__: str = "{build.variant()}"
                 """
             )
             file.write(text)
@@ -521,8 +518,19 @@ class FbgemmGpuInstall(PipInstall):
 def main(argv: List[str]) -> None:
     # Handle command line args before passing to main setup() method.
     build = FbgemmGpuBuild.from_args(argv)
-    # Repair command line args for setup.
+    # Repair command line args for setup() method.
     sys.argv = [sys.argv[0]] + build.other_args
+
+    # Skip the build step if running under Nova non-prebuild step
+    if build.nova_non_prebuild_step():
+        print(
+            "[SETUP.PY] Running under Nova workflow context (clean or build wheel step) ... exiting"
+        )
+        sys.exit(0)
+
+    # Set the CUDA environment variables if needed
+    if build.variant() == "cuda":
+        CudaUtils.set_cuda_environment_variables()
 
     # Extract the package name
     package_name = build.package_name()
@@ -532,9 +540,8 @@ def main(argv: List[str]) -> None:
 
     if build.args.dryrun:
         print(
-            f"[SETUP.PY] Extracted package name and version: ({package_name} : {package_version})"
+            f"[SETUP.PY] Determined the package name and variant+version: ({package_name} : {package_version})\n"
         )
-        print("")
         sys.exit(0)
 
     # Generate the version file
