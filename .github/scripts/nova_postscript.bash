@@ -66,7 +66,7 @@ fi
 
 $CONDA_RUN python3 -c "import torch; print('cuda.is_available() ', torch.cuda.is_available()); print ('device_count() ',torch.cuda.device_count());"
 cd "${FBGEMM_REPO}" || { echo "[NOVA] Failed to cd to ${FBGEMM_REPO} from $(pwd)"; };
-test_all_fbgemm_gpu_modules "${BUILD_ENV_NAME}" "${fbgemm_variant}"
+test_all_fbgemm_gpu_modules "${BUILD_ENV_NAME}"
 end_time=$(date +%s)
 runtime=$((end_time-start_time))
 start_time=${end_time}
