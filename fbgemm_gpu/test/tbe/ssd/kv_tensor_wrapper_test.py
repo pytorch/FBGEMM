@@ -58,7 +58,6 @@ class KvTensorWrapperTest(TestCase):
         weights_dtype = weights_precision.as_dtype()
 
         with tempfile.TemporaryDirectory() as ssd_directory:
-            # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
             ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
                 ssd_directory,
                 8,  # num_shards
@@ -142,8 +141,9 @@ class KvTensorWrapperTest(TestCase):
         weights_precision, dtype_width = precision
         weights_dtype = weights_precision.as_dtype()
 
+        table_offsets = [0, E]
+
         with tempfile.TemporaryDirectory() as ssd_directory:
-            # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
             ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
                 ssd_directory,
                 8,  # num_shards
@@ -162,45 +162,57 @@ class KvTensorWrapperTest(TestCase):
                 dtype_width,  # row_storage_bitwidth
                 10 * (2**20),  # block cache size
             )
-            weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
-            padded_weights = torch.nn.functional.pad(weights, (0, max_D - D))
-            output_weights = torch.empty_like(padded_weights, dtype=weights_dtype)
 
-            # no snapshot needed for writing to rocksdb
-            tensor_wrapper0 = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0
-            )
-            step = N
-            for i in range(0, E, step):
-                tensor_wrapper0.set_range(0, i, step, weights)
+            weights = [
+                torch.randn(N * D, dtype=weights_dtype).view(N, D),
+                torch.randn(N * D, dtype=weights_dtype).view(N, D),
+            ]
 
-            # force waiting for set to complete
-            indices = torch.arange(step)
-            for i in range(0, E, step):
-                ssd_db.get(i + indices, output_weights, torch.tensor(indices.shape[0]))
+            for table_idx, offset in enumerate(table_offsets):
+                # no snapshot needed for writing to rocksdb
+                tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                    ssd_db, [E, D], weights[table_idx].dtype, offset
+                )
+                step = N
+                for i in range(0, E, step):
+                    tensor_wrapper.set_range(0, i, step, weights[table_idx])
 
             # create a view tensor wrapper
             snapshot = ssd_db.create_snapshot()
-            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0, snapshot
-            )
-            self.assertEqual(tensor_wrapper.shape, [E, D])
 
-            # table has a total of E rows
-            # load 1000 rows at a time
-            step = 1000
-            for i in range(0, E, step):
-                narrowed = tensor_wrapper.narrow(0, i, step)
-                self.assertTrue(
-                    torch.equal(narrowed, weights),
-                    msg=(
-                        f"Tensor value mismatch :\n"
-                        f"actual\n{narrowed}\n\nexpected\n{weights}"
-                    ),
+            for table_idx, offset in enumerate(table_offsets):
+                wrong_tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                    ssd_db, [E, D], weights[table_idx].dtype, 1, snapshot
                 )
+                tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                    ssd_db, [E, D], weights[table_idx].dtype, offset, snapshot
+                )
+                self.assertEqual(tensor_wrapper.shape, [E, D])
 
-            del tensor_wrapper0
-            del tensor_wrapper
+                # table has a total of E rows
+                # load 1000 rows at a time
+                step = N
+                for i in range(0, E, step):
+                    narrowed = tensor_wrapper.narrow(0, i, step)
+                    self.assertTrue(
+                        torch.equal(narrowed, weights[table_idx]),
+                        msg=(
+                            f"Tensor value mismatch :\n"
+                            f"actual\n{narrowed}\n\nexpected\n{weights[table_idx]}"
+                        ),
+                    )
+
+                    wrong_narrowed = wrong_tensor_wrapper.narrow(0, i, step)
+                    self.assertTrue(
+                        not torch.equal(wrong_narrowed, weights[table_idx]),
+                        msg=(
+                            f"Tensor value shouldn't match :\n"
+                            f"actual\n{wrong_narrowed}\n\nexpected\n{weights[table_idx]}"
+                        ),
+                    )
+                del wrong_tensor_wrapper
+                del tensor_wrapper
+
             del snapshot
             self.assertEqual(ssd_db.get_snapshot_count(), 0)
 
@@ -224,6 +236,8 @@ class KvTensorWrapperTest(TestCase):
         weights_precision, dtype_width = precision
         weights_dtype = weights_precision.as_dtype()
 
+        table_offsets = [0, N]
+
         with tempfile.TemporaryDirectory() as ssd_directory:
             # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
             ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
@@ -245,33 +259,56 @@ class KvTensorWrapperTest(TestCase):
                 10 * (2**20),  # block cache size
             )
             indices = torch.randperm(N)
-            weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
+            weights = [
+                torch.randn(N * D, dtype=weights_dtype).view(N, D),
+                torch.randn(N * D, dtype=weights_dtype).view(N, D),
+            ]
             new_weights_after_snapshot = torch.randn(N, D, dtype=weights_dtype)
 
             # no snapshot needed for writing to rocksdb
-            tensor_wrapper0 = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0
-            )
-            tensor_wrapper0.set_weights_and_ids(indices, weights)
+            for table_idx, offset in enumerate(table_offsets):
+                tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                    ssd_db, [E, D], weights[table_idx].dtype, offset
+                )
+                tensor_wrapper.set_weights_and_ids(weights[table_idx], indices)
 
             # create a view tensor wrapper
             snapshot = ssd_db.create_snapshot()
-            tensor_wrapper0.set_weights_and_ids(indices, new_weights_after_snapshot)
-            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0, snapshot
-            )
-            self.assertEqual(tensor_wrapper.shape, [E, D])
 
-            out_weights = tensor_wrapper.get_weights_by_ids(indices)
-            self.assertTrue(
-                torch.equal(out_weights, weights),
-                msg=(
-                    f"Tensor value mismatch :\n"
-                    f"actual\n{out_weights}\n\nexpected\n{weights}"
-                ),
-            )
+            for table_idx, offset in enumerate(table_offsets):
+                tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                    ssd_db, [E, D], weights[table_idx].dtype, offset
+                )
+                tensor_wrapper.set_weights_and_ids(new_weights_after_snapshot, indices)
 
-            del tensor_wrapper0
-            del tensor_wrapper
+            for table_idx, offset in enumerate(table_offsets):
+                wrong_tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                    ssd_db, [E, D], weights[table_idx].dtype, 1, snapshot
+                )
+                tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                    ssd_db, [E, D], weights[table_idx].dtype, offset, snapshot
+                )
+                self.assertEqual(tensor_wrapper.shape, [E, D])
+
+                wrong_out_weights = wrong_tensor_wrapper.get_weights_by_ids(indices)
+                self.assertTrue(
+                    not torch.equal(wrong_out_weights, weights[table_idx]),
+                    msg=(
+                        f"Tensor value should be mismatch but actually matches:\n"
+                        f"actual\n{wrong_out_weights}\n\nexpected\n{weights[table_idx]}"
+                    ),
+                )
+
+                out_weights = tensor_wrapper.get_weights_by_ids(indices)
+                self.assertTrue(
+                    torch.equal(out_weights, weights[table_idx]),
+                    msg=(
+                        f"Tensor value mismatch :\n"
+                        f"actual\n{out_weights}\n\nexpected\n{weights[table_idx]}"
+                    ),
+                )
+                del tensor_wrapper
+                del wrong_tensor_wrapper
+
             del snapshot
             self.assertEqual(ssd_db.get_snapshot_count(), 0)

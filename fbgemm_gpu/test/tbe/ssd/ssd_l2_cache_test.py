@@ -291,11 +291,11 @@ class SSDCheckpointTest(unittest.TestCase):
         tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
             emb.ssd_db, [E, D], weights.dtype, 0
         )
-        tensor_wrapper.set_weights_and_ids(indices + offset, weights)
+        tensor_wrapper.set_weights_and_ids(weights, indices + offset)
 
         snapshot = emb.ssd_db.create_snapshot()
         tensor_wrapper.set_weights_and_ids(
-            new_indices + offset, new_weights_after_snapshot
+            new_weights_after_snapshot, new_indices + offset
         )
         start_id = 0
         end_id = int(E / 2)
