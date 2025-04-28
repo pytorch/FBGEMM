@@ -1104,8 +1104,7 @@ class DeepGemmRowwise(QuantizeOpBase):
 
     @property
     def cuda(self) -> bool:
-        # Temporarily disabled due to DeepGemm update removing support.
-        return False
+        return DEEPGEMM_ENABLED
 
 
 @register_quantize_op
