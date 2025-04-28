@@ -276,7 +276,23 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
   at::Tensor shuffled_expert_indices = allocate_index_tensor(num_tokens);
   at::Tensor shuffled_token_indices = allocate_index_tensor(num_tokens);
 
+#ifdef USE_ROCM
   counts.zero_();
+  // TODO(shikaili): hipMetsetAsync is more expensive than ATen set zero.
+  /*
+  hipMemsetAsync(
+      counts.data_ptr(),
+      0,
+      counts.numel() * counts.dtype().itemsize(),
+      at::cuda::getCurrentCUDAStream());
+  */
+#else
+  cudaMemsetAsync(
+      counts.data_ptr(),
+      0,
+      counts.numel() * counts.dtype().itemsize(),
+      at::cuda::getCurrentCUDAStream());
+#endif
 
   // Avoid expensive `cudaGetDeviceProperties` call.
   if (num_sms < 0) {
@@ -298,7 +314,6 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
   kernel = (void*)index_shuffling_kernel<DataType, IndexType, E, B>; \
   smem_size = sizeof(SharedStorage<DataType, IndexType, E, B>);
 
-  int num_tokens_per_tile;
   if (num_experts == 16) {
     DISPATCH(16, kNumTokensPerTile);
   } else {
