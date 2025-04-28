@@ -57,25 +57,14 @@ class TBEBenchmarkParamsReporter:
         self.logger: logging.Logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
 
-    def report_stats(
+    def extract_params(
         self,
         embedding_op: SplitTableBatchedEmbeddingBagsCodegen,
         indices: torch.Tensor,
         offsets: torch.Tensor,
         per_sample_weights: Optional[torch.Tensor] = None,
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
-    ) -> None:
-        """
-        Print input stats (for debugging purpose only)
-
-        Args:
-            indices (Tensor): Input indices
-            offsets (Tensor): Input offsets
-            per_sample_weights (Optional[Tensor]): Input per
-                sample weights
-        """
-        if embedding_op.iter.item() % self.report_interval == 0:
-            pass
+    ) -> TBEDataConfig:
 
         # Transfer indices back to CPU for EEG analysis
         indices_cpu = indices.cpu()
@@ -89,12 +78,12 @@ class TBEBenchmarkParamsReporter:
 
         # Set T to be the number of features we are looking at
         T = len(embedding_op.feature_table_map)
-        # Set E to be the median of the rowcounts to avoid biasing the
+        # Set E to be the mean of the rowcounts to avoid biasing
         E = rowcounts[0] if len(set(rowcounts)) == 1 else np.ceil((np.mean(rowcounts)))
         # Set mixed_dim to be True if there are multiple dims
         mixed_dim = len(set(dims)) > 1
-        # Set D to be the median of the dims to avoid biasing
-        D = dims[0] if mixed_dim else np.ceil((np.mean(dims)))
+        # Set D to be the mean of the dims to avoid biasing
+        D = dims[0] if not mixed_dim else np.ceil((np.mean(dims)))
 
         # Compute indices distribution parameters
         heavy_hitters, q, s, _, _ = torch.ops.fbgemm.tbe_estimate_indices_distribution(
@@ -123,7 +112,7 @@ class TBEBenchmarkParamsReporter:
         )
 
         # Compute pooling parameters
-        bag_sizes = offsets[1:] - offsets[:-1]
+        bag_sizes = (offsets[1:] - offsets[:-1]).tolist()
         mixed_bag_sizes = len(set(bag_sizes)) > 1
         pooling_params = PoolingParams(
             L=np.ceil(np.mean(bag_sizes)) if mixed_bag_sizes else bag_sizes[0],
@@ -131,7 +120,7 @@ class TBEBenchmarkParamsReporter:
             length_distribution=("normal" if mixed_bag_sizes else None),
         )
 
-        config = TBEDataConfig(
+        return TBEDataConfig(
             T=T,
             E=E,
             D=D,
@@ -143,8 +132,31 @@ class TBEBenchmarkParamsReporter:
             use_cpu=(not torch.cuda.is_available()),
         )
 
-        # Write the TBE config to FileStore
-        self.filestore.write(
-            f"tbe-{embedding_op.uuid}-config-estimation-{embedding_op.iter.item()}.json",
-            io.BytesIO(config.json(format=True).encode()),
-        )
+    def report_stats(
+        self,
+        embedding_op: SplitTableBatchedEmbeddingBagsCodegen,
+        indices: torch.Tensor,
+        offsets: torch.Tensor,
+        per_sample_weights: Optional[torch.Tensor] = None,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+    ) -> None:
+        """
+        Print input stats (for debugging purpose only)
+
+        Args:
+            indices (Tensor): Input indices
+            offsets (Tensor): Input offsets
+            per_sample_weights (Optional[Tensor]): Input per
+                sample weights
+        """
+        if embedding_op.iter.item() % self.report_interval == 0:
+            # Extract TBE config
+            config = self.extract_params(
+                embedding_op, indices, offsets, per_sample_weights
+            )
+
+            # Write the TBE config to FileStore
+            self.filestore.write(
+                f"tbe-{embedding_op.uuid}-config-estimation-{embedding_op.iter.item()}.json",
+                io.BytesIO(config.json(format=True).encode()),
+            )
