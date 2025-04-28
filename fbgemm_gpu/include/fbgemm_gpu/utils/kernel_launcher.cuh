@@ -181,8 +181,8 @@ struct KernelLauncher {
       const cudaDeviceProp& properties,
       const size_t shared_mem_per_block) const {
     // NOTE: sharedMemPerBlockOptin is the maximum possible shared memory that
-    // can be used per block by explicit special opt-in, and is larger than
-    // sharedMemPerBlock.
+    // can be used per block by explicit special opt-in, and is generally larger
+    // than sharedMemPerBlock.
     const auto smem_limits = properties.sharedMemPerBlockOptin;
 
     TORCH_CHECK(
