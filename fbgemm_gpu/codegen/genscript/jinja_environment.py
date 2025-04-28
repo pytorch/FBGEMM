@@ -388,30 +388,6 @@ def make_pta_acc_format(pta_str_list: List[str], func_name: str) -> List[str]:
     return new_str_list
 
 
-def make_pta_acc_builder_format(pta_str_list: List[str]) -> List[str]:
-    new_str_list = []
-    for pta_str in pta_str_list:
-        if "packed_accessor" in pta_str:
-            match = re.search(
-                r"([a-zA-z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
-            )
-            assert match is not None and len(match.groups()) == 3
-            tensor, acc_nbits, args = match.groups()
-            if "acc_type" in args:
-                match = re.search("at::acc_type<([a-zA-Z_0-9]*), true>", args)
-                assert match is not None and len(match.groups()) == 1
-                new_type = match.group(1)
-                args = re.sub("at::acc_type<[a-zA-Z_]*, true>", new_type, args)
-                macro_name = "PTA_ACC_B"
-            else:
-                macro_name = "PTA_B"
-            args = args.replace(", at::RestrictPtrTraits", "")
-            new_str_list.append(f"{macro_name}({tensor}, {args}, {acc_nbits})")
-        else:
-            new_str_list.append(pta_str)
-    return new_str_list
-
-
 def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
     return [
         pta_str.replace("at::PackedTensorAccessor", "pta::PackedTensorAccessor")
@@ -455,7 +431,6 @@ def to_upper_placeholder_types(arg_str_list: List[str]) -> List[str]:
 ################################################################################
 
 env.filters["make_pta_acc_format"] = make_pta_acc_format
-env.filters["make_pta_acc_builder_format"] = make_pta_acc_builder_format
 env.filters["replace_pta_namespace"] = replace_pta_namespace
 env.filters["replace_placeholder_types"] = replace_placeholder_types
 env.filters["to_upper_placeholder_types"] = to_upper_placeholder_types
