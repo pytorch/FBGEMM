@@ -38,6 +38,9 @@ at::Tensor asynchronous_complete_cumsum_gpu(const at::Tensor& t_in);
 ///@ingroup sparse-data-cuda
 at::Tensor asynchronous_inclusive_cumsum_gpu(const at::Tensor& t_in);
 
+///@ingroup sparse-data-cuda
+at::Tensor asynchronous_batched_complete_cumsum_gpu(const at::Tensor& t_in);
+
 ///@ingroup sparse-data-cpu
 at::Tensor asynchronous_exclusive_cumsum_cpu(const at::Tensor& t_in);
 
@@ -48,6 +51,9 @@ void asynchronous_exclusive_cumsum_cpu_out(
 
 ///@ingroup sparse-data-cpu
 at::Tensor asynchronous_complete_cumsum_cpu(const at::Tensor& t_in);
+
+///@ingroup sparse-data-cuda
+at::Tensor asynchronous_batched_complete_cumsum_cpu(const at::Tensor& t_in);
 
 ///@ingroup sparse-data-cpu
 at::Tensor asynchronous_complete_cumsum_cpu_out(
