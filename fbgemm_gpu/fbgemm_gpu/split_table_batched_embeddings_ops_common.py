@@ -106,6 +106,12 @@ class BoundsCheckMode(enum.IntEnum):
     V2_FATAL = 6
 
 
+class ComputeDevice(enum.IntEnum):
+    CPU = 0
+    CUDA = 1
+    MTIA = 2
+
+
 class EmbeddingSpecInfo(enum.IntEnum):
     feature_names = 0
     rows = 1
