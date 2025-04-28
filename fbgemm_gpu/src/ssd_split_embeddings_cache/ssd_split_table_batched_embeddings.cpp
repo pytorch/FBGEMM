@@ -308,8 +308,12 @@ KVTensorWrapper::KVTensorWrapper(
     int64_t dtype,
     int64_t row_offset,
     std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-        snapshot_handle)
-    : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
+        snapshot_handle,
+    std::optional<std::vector<int64_t>> materialized_shape)
+    : db_(db->impl_),
+      shape_(std::move(shape)),
+      materialized_shape_(materialized_shape),
+      row_offset_(row_offset) {
   CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
   options_ = at::TensorOptions()
                  .dtype(static_cast<c10::ScalarType>(dtype))
@@ -380,7 +384,11 @@ at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
 }
 
 c10::IntArrayRef KVTensorWrapper::sizes() {
-  return shape_;
+  if (materialized_shape_.has_value()) {
+    return materialized_shape_.value();
+  } else {
+    return shape_;
+  }
 }
 
 c10::IntArrayRef KVTensorWrapper::strides() {
@@ -521,7 +529,8 @@ static auto kv_tensor_wrapper =
                 int64_t,
                 int64_t,
                 std::optional<
-                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>>(),
+                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>,
+                std::optional<std::vector<int64_t>>>(),
             "",
             {torch::arg("db"),
              torch::arg("shape"),
@@ -529,7 +538,8 @@ static auto kv_tensor_wrapper =
              torch::arg("row_offset"),
              // snapshot must be provided for reading
              // not needed for writing
-             torch::arg("snapshot_handle") = std::nullopt})
+             torch::arg("snapshot_handle") = std::nullopt,
+             torch::arg("materialized_shape") = std::nullopt})
         .def(
             "narrow",
             &KVTensorWrapper::narrow,
@@ -544,8 +554,7 @@ static auto kv_tensor_wrapper =
         .def_property(
             "shape",
             &KVTensorWrapper::sizes,
-            std::string(
-                "Returns the shape of the original tensor. Only the narrowed part is materialized."))
+            std::string("Returns the shape of the original tensor."))
         .def_property("strides", &KVTensorWrapper::strides);
 
 static auto dram_kv_embedding_cache_wrapper =
