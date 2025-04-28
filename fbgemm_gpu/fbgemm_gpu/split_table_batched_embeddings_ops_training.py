@@ -37,6 +37,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
     CacheState,
+    ComputeDevice,
     construct_cache_state,
     EmbeddingLocation,
     MAX_PREFETCH_DEPTH,
@@ -78,12 +79,6 @@ INT8_EMB_ROW_DIM_OFFSET = 8
 
 class DoesNotHavePrefix(Exception):
     pass
-
-
-class ComputeDevice(enum.IntEnum):
-    CPU = 0
-    CUDA = 1
-    MTIA = 2
 
 
 class WeightDecayMode(enum.IntEnum):
