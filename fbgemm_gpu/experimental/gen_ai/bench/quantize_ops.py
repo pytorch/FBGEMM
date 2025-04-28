@@ -25,7 +25,10 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
     grouped_gemm,
     grouped_gemm_fp8_rowwise,
 )
-from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
+from fbgemm_gpu.experimental.gen_ai.quantize import (
+    quantize_int4_preshuffle,
+    scaled_fp4_quant,
+)
 
 try:
     from tinygemm.utils import group_quantize_tensor
@@ -1962,3 +1965,43 @@ class MacheteBF16I4(QuantizeOpBase):
     def cuda(self) -> bool:
         # This op is not always supported.
         return MACHETE_ENABLED
+
+
+@register_quantize_op
+class FP4Gemm(QuantizeOpBase):
+    """
+    FP4 matmul with block-wise scaling.
+    """
+
+    def quantize(self, x, w):
+        x_global_scale = ((448.0 * 6.0) / torch.amax(x.flatten(), dim=-1)).to(
+            torch.float32
+        )
+        w_global_scale = ((448.0 * 6.0) / torch.amax(w.flatten(), dim=-1)).to(
+            torch.float32
+        )
+        global_scale = 1 / (x_global_scale * w_global_scale)
+
+        xq, x_scale = scaled_fp4_quant(x, x_global_scale)
+        wq, w_scale = scaled_fp4_quant(w, w_global_scale)
+        return xq, wq, x_scale, w_scale, global_scale
+
+    def compute(self, xq, wq, x_scale, w_scale, global_scale):
+        return torch.ops.fbgemm.f4f4bf16(xq, wq, x_scale, w_scale, global_scale)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale, global_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, global_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_f4f4bf16"
+
+    @property
+    def hip(self) -> bool:
+        # F4F4BF16 only supported for cuda.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True

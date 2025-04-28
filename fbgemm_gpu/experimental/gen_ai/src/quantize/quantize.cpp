@@ -45,6 +45,13 @@ at::Tensor i8i8bf16_dynamic(
 at::Tensor silu_mul_quantize_i8(at::Tensor X1, at::Tensor X2, double scale);
 
 // Cutlass kernel
+at::Tensor f4f4bf16(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor global_scale,
+    bool use_mx = false);
 at::Tensor f8f8bf16(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -212,6 +219,12 @@ at::Tensor get_fp8_per_tensor_scale(
     std::optional<at::Tensor> bs,
     std::optional<at::Tensor> scale_ub); // scale upperbound
 
+void scaled_fp4_quant(
+    at::Tensor const& output,
+    at::Tensor const& input,
+    at::Tensor const& output_sf,
+    at::Tensor const& input_sf);
+
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.set_python_module("fbgemm_gpu.experimental.gen_ai.quantize_ops");
 
@@ -220,6 +233,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // quantize_ops with
   // torch.ops.load_library, similar to below for quantize_fp8_per_tensor
   m.def("i8i8bf16(Tensor XQ, Tensor WQ, float scale, int split_k=1) -> Tensor");
+  m.def(
+      "f4f4bf16(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor global_scale, bool use_mx=False) -> Tensor");
   m.def(
       "f8f8bf16(Tensor XQ, Tensor WQ, Tensor scale, bool use_fast_accum=True) -> Tensor");
   m.def(
@@ -299,6 +314,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "quantize_fp8_per_tensor_fixed_scale",
       quantize_fp8_per_tensor_fixed_scale);
 
+  m.def(
+      "scaled_fp4_quant(Tensor! output, Tensor input, Tensor! output_scale, Tensor input_scale) -> ()");
+  m.impl("scaled_fp4_quant", scaled_fp4_quant);
+
 #ifdef USE_ROCM
   m.def("flush_icache_hip() -> ()");
   m.impl("flush_icache_hip", flush_icache_ck);
@@ -325,6 +344,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16);
+  m.impl("f4f4bf16", f4f4bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
@@ -339,6 +359,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("preshuffle_i4", preshuffle_i4);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
+  m.impl("scaled_fp4_quant", scaled_fp4_quant);
 #endif
 }
 
@@ -361,6 +382,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("bf16bf16bf16_grouped_stacked", bf16bf16bf16_grouped_stacked);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16);
+  m.impl("f4f4bf16", f4f4bf16);
   m.impl("f8f8bf16", f8f8bf16);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas);
   m.impl("bf16_fast_gemv", bf16_fast_gemv);
@@ -375,6 +397,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("preshuffle_i4", preshuffle_i4);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
+  m.impl("scaled_fp4_quant", scaled_fp4_quant);
 #endif
 }
 
@@ -384,6 +407,19 @@ at::Tensor i8i8bf16_meta(
     at::Tensor WQ, // INT8
     double scale,
     int64_t split_k) {
+  int M = XQ.size(0);
+  int N = WQ.size(0);
+  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
+at::Tensor f4f4bf16_meta(
+    at::Tensor XQ, // FP4
+    at::Tensor WQ, // FP4
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    at::Tensor /* global_scale */,
+    bool /* use_mx */) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
@@ -572,6 +608,14 @@ std::vector<at::Tensor> quantize_fp8_per_row_meta(
   return {Y, scale};
 }
 
+void scaled_fp4_quant_meta(
+    at::Tensor const& output,
+    at::Tensor const& input,
+    at::Tensor const& output_sf,
+    at::Tensor const& input_sf) {
+  return;
+}
+
 std::vector<at::Tensor> quantize_fp8_per_col_meta(
     at::Tensor input,
     std::optional<at::Tensor> /* bs */,
@@ -617,6 +661,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("bf16bf16bf16_grouped_dynamic", bf16bf16bf16_grouped_dynamic_meta);
 #ifndef USE_ROCM
   m.impl("i8i8bf16", i8i8bf16_meta);
+  m.impl("f4f4bf16", f4f4bf16_meta);
   m.impl("f8f8bf16", f8f8bf16_meta);
   m.impl("f8f8bf16_cublas", f8f8bf16_cublas_meta);
   m.impl("bf16_fast_gemv", bf16_fast_gemv_meta);
@@ -627,6 +672,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
   m.impl("f8f8bf16_lite", f8f8bf16_lite_meta);
+  m.impl("scaled_fp4_quant", scaled_fp4_quant_meta);
 #endif
 }
 
