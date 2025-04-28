@@ -542,16 +542,16 @@ For CPU-only builds, the ``--cpu_only`` flag needs to be specified.
 
   # Build the wheel artifact only
   python setup.py bdist_wheel \
-      --package_variant=cpu \
+      --build-variant=cpu \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}"
 
   # Build and install the library into the Conda environment (GCC)
   python setup.py install \
-      --package_variant=cpu
+      --build-variant=cpu
 
   # NOTE: To build the package as part of generating the documentation, use
-  # `--package_variant=docs` flag instead!
+  # `--build-variant=docs` flag instead!
 
 To build using Clang + ``libstdc++`` instead of GCC, simply append the
 ``--cxxprefix`` flag:
@@ -562,14 +562,14 @@ To build using Clang + ``libstdc++`` instead of GCC, simply append the
 
   # Build the wheel artifact only
   python setup.py bdist_wheel \
-      --package_variant=cpu \
+      --build-variant=cpu \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --cxxprefix=$CONDA_PREFIX
 
   # Build and install the library into the Conda environment (Clang)
   python setup.py install \
-      --package_variant=cpu
+      --build-variant=cpu
       --cxxprefix=$CONDA_PREFIX
 
 Note that this presumes the Clang toolchain is properly installed along with the
@@ -642,7 +642,7 @@ toolchains have been properly installed.
 
   # Build the wheel artifact only
   python setup.py bdist_wheel \
-      --package_variant=cuda \
+      --build-variant=cuda \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --nvml_lib_path=${NVML_LIB_PATH} \
@@ -651,7 +651,7 @@ toolchains have been properly installed.
 
   # Build and install the library into the Conda environment
   python setup.py install \
-      --package_variant=cuda \
+      --build-variant=cuda \
       --nvml_lib_path=${NVML_LIB_PATH} \
       --nccl_lib_path=${NCCL_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
@@ -684,7 +684,7 @@ presuming the toolchains have been properly installed.
 
   # Build the wheel artifact only
   python setup.py bdist_wheel \
-      --package_variant=rocm \
+      --build-variant=rocm \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
@@ -694,7 +694,7 @@ presuming the toolchains have been properly installed.
 
   # Build and install the library into the Conda environment
   python setup.py install \
-      --package_variant=rocm \
+      --build-variant=rocm \
       -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
       -DHIP_ROOT_DIR="${ROCM_PATH}" \
       -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
