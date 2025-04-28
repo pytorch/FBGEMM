@@ -147,7 +147,8 @@ toolchains have been properly installed.
 
   # Build the wheel artifact only
   python setup.py bdist_wheel \
-      --package_variant=genai \
+      --build-target=genai \
+      --build-variant=cuda \
       --python-tag="${python_tag}" \
       --plat-name="${python_plat_name}" \
       --nvml_lib_path=${NVML_LIB_PATH} \
@@ -156,11 +157,57 @@ toolchains have been properly installed.
 
   # Build and install the library into the Conda environment
   python setup.py install \
-      --package_variant=genai \
+      --build-target=genai \
+      --build-variant=cuda \
       --nvml_lib_path=${NVML_LIB_PATH} \
       --nccl_lib_path=${NCCL_LIB_PATH} \
       -DTORCH_CUDA_ARCH_LIST="${cuda_arch_list}"
 
+.. _fbgemm-gpu.build.process.rocm:
+
+ROCm Build
+----------
+
+For ROCm builds, ``ROCM_PATH`` and ``PYTORCH_ROCM_ARCH`` need to be specified.
+The presence of a ROCm device, however, is not required for building
+the package.
+
+Similar to CUDA builds, building with Clang + ``libstdc++`` can be enabled by
+appending ``--cxxprefix=$CONDA_PREFIX`` to the build command, presuming the
+toolchains have been properly installed.
+
+.. code:: sh
+
+  # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
+
+  export ROCM_PATH=/path/to/rocm
+
+  # [OPTIONAL] Enable verbose HIPCC logs
+  export HIPCC_VERBOSE=1
+
+  # Build for the target architecture of the ROCm device installed on the machine (e.g. 'gfx908,gfx90a,gfx942')
+  # See https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html for list
+  export PYTORCH_ROCM_ARCH=$(${ROCM_PATH}/bin/rocminfo | grep -o -m 1 'gfx.*')
+
+  # Build the wheel artifact only
+  python setup.py bdist_wheel \
+      --build-target=genai \
+      --build-variant=rocm \
+      --python-tag="${python_tag}" \
+      --plat-name="${python_plat_name}" \
+      -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
+      -DHIP_ROOT_DIR="${ROCM_PATH}" \
+      -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
+      -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
+
+  # Build and install the library into the Conda environment
+  python setup.py install \
+      --build-target=genai \
+      --build-variant=rocm \
+      -DAMDGPU_TARGETS="${PYTORCH_ROCM_ARCH}" \
+      -DHIP_ROOT_DIR="${ROCM_PATH}" \
+      -DCMAKE_C_FLAGS="-DTORCH_USE_HIP_DSA" \
+      -DCMAKE_CXX_FLAGS="-DTORCH_USE_HIP_DSA"
 
 Post-Build Checks (For Developers)
 ----------------------------------
