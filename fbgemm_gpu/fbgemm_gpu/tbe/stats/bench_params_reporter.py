@@ -45,6 +45,7 @@ class TBEBenchmarkParamsReporter:
     ) -> None:
         self.report_interval = report_interval
         self.report_once = report_once
+        self.has_reported = False
 
         default_bucket = "/tmp" if open_source else "tlparse_reports"
         bucket = (
@@ -149,7 +150,9 @@ class TBEBenchmarkParamsReporter:
             per_sample_weights (Optional[Tensor]): Input per
                 sample weights
         """
-        if embedding_op.iter.item() % self.report_interval == 0:
+        if embedding_op.iter.item() % self.report_interval == 0 and (
+            not self.report_once or (self.report_once and not self.has_reported)
+        ):
             # Extract TBE config
             config = self.extract_params(
                 embedding_op, indices, offsets, per_sample_weights
@@ -160,3 +163,5 @@ class TBEBenchmarkParamsReporter:
                 f"tbe-{embedding_op.uuid}-config-estimation-{embedding_op.iter.item()}.json",
                 io.BytesIO(config.json(format=True).encode()),
             )
+
+            self.has_reported = True
