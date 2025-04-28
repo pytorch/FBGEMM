@@ -36,8 +36,6 @@ class FileStore:
     bucket: str
 
     def __post_init__(self) -> None:
-        # self.bucket = bucket
-
         if not os.path.isdir(self.bucket):
             raise ValueError(f"Directory {self.bucket} does not exist")
 
