@@ -61,6 +61,16 @@ runtime=$((end_time-start_time))
 start_time=${end_time}
 echo "[NOVA] Time taken to collect PyTorch environment information: ${runtime} seconds"
 
+# Set the build target
+if [[ ${BUILD_TARGET} == "genai" ]]; then
+  echo "[NOVA] Setting the FBGEMM build target: genai ..."
+  export fbgemm_build_target="genai"
+else
+  echo "[NOVA] Setting the FBGEMM build target: default ..."
+  export fbgemm_build_target="default"
+fi
+
+# Set the build variant
 if [[ $CU_VERSION = cu* ]]; then
   # shellcheck disable=SC2155
   env_prefix=$(env_name_or_prefix "${BUILD_ENV_NAME}")
@@ -99,21 +109,16 @@ if [[ $CU_VERSION = cu* ]]; then
   start_time=${end_time}
   echo "[NOVA] Time taken to find NVML_LIB_PATH: ${runtime} seconds"
 
-  if [[ ${BUILD_TARGET} == "genai" ]]; then
-    echo "[NOVA] Building the GenAI variant of FBGEMM_GPU ..."
-    export fbgemm_variant="genai"
-  else
-    echo "[NOVA] Building the CUDA variant of FBGEMM_GPU ..."
-    export fbgemm_variant="cuda"
-  fi
+  echo "[NOVA] Setting the FBGEMM build variant: cuda ..."
+  export fbgemm_build_variant="cuda"
 
 elif [[ $CU_VERSION = rocm* ]]; then
-  echo "[NOVA] Building the ROCm variant of FBGEMM_GPU ..."
-  export fbgemm_variant="rocm"
+  echo "[NOVA] Setting the FBGEMM build variant: rocm ..."
+  export fbgemm_build_variant="rocm"
 
 else
-  echo "[NOVA] Building the CPU variant of FBGEMM_GPU ..."
-  export fbgemm_variant="cpu"
+  echo "[NOVA] Setting the FBGEMM build variant: cpu ..."
+  export fbgemm_build_variant="cpu"
 fi
 
 # Install the necessary Python eggs for building
@@ -134,7 +139,7 @@ if [[ ${CHANNEL} == "" ]]; then
 fi
 
 # Build the wheel
-build_fbgemm_gpu_package "${BUILD_ENV_NAME}" "${CHANNEL}" "${fbgemm_variant}"
+build_fbgemm_gpu_package "${BUILD_ENV_NAME}" "${CHANNEL}" "${fbgemm_build_target}/${fbgemm_build_variant}"
 end_time=$(date +%s)
 runtime=$((end_time-start_time))
 start_time=${end_time}

@@ -90,7 +90,7 @@ install_triton_pip () {
   local triton_version="nightly/3.2.0+git4b3bb1f8"
 
   # BUILD_VARIANT is provided by the github workflow file
-  if [ "$BUILD_VARIANT" == "cuda" ] || [ "$BUILD_VARIANT" == "genai" ]; then
+  if [ "$BUILD_VARIANT" == "cuda" ]; then
     echo "[BUILD] Installing pytorch-triton ${triton_version} from PIP ..."
     # shellcheck disable=SC2086
     install_from_pytorch_pip "${env_name}" pytorch-triton "${triton_version}" || return 1

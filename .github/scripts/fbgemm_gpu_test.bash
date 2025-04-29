@@ -392,7 +392,7 @@ test_fbgemm_gpu_build_and_install () {
   # Assume we are starting from the repository root directory
   cd "${repo}/fbgemm_gpu"                                                     || return 1
   prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
-  build_fbgemm_gpu_package    "${env_name}" release "${pytorch_variant_type}" || return 1
+  build_fbgemm_gpu_package    "${env_name}" release "default/${pytorch_variant_type}" || return 1
 
   cd "${repo}"                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1

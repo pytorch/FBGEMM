@@ -29,7 +29,8 @@ jobs:
       os: linux-aarch64
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
-      with-cuda: disable
+      with-cuda: enable
+      with-cpu: disable
 
   build:
     if: ${{ github.repository_owner == 'pytorch' }}
