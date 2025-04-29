@@ -110,8 +110,8 @@ Inheritance diagram for DramKVEmbeddingCache&lt; weight_type &gt;:</div>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a95660508eb9d3993d6801470fe45038f" id="r_a95660508eb9d3993d6801470fe45038f"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a95660508eb9d3993d6801470fe45038f">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, int64_t weight_ttl_in_hours=2)</td></tr>
 <tr class="separator:a95660508eb9d3993d6801470fe45038f"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a7a3e86203553194325dbf71077b8a70e" id="r_a7a3e86203553194325dbf71077b8a70e"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7a3e86203553194325dbf71077b8a70e">get_keys_in_range</a> (int64_t start, int64_t end)</td></tr>
-<tr class="separator:a7a3e86203553194325dbf71077b8a70e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5d2cd0eb820f39a1b921168cb6be94c0" id="r_a5d2cd0eb820f39a1b921168cb6be94c0"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5d2cd0eb820f39a1b921168cb6be94c0">get_keys_in_range</a> (int64_t start, int64_t end) override</td></tr>
+<tr class="separator:a5d2cd0eb820f39a1b921168cb6be94c0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab197c34bb53bdad19a2521898a341ffc" id="r_ab197c34bb53bdad19a2521898a341ffc"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab197c34bb53bdad19a2521898a341ffc">set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const <a class="el" href="group__embedding-ssd.html#gaf1ce371b1e598c817791f840612cc1a3">kv_db::RocksdbWriteMode</a> w_mode=kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override</td></tr>
 <tr class="separator:ab197c34bb53bdad19a2521898a341ffc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a21db5ba27d58aedfbc4dbd8997975135" id="r_a21db5ba27d58aedfbc4dbd8997975135"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a21db5ba27d58aedfbc4dbd8997975135">get_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count) override</td></tr>
@@ -198,8 +198,8 @@ template&lt;typename weight_type&gt; </div>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
-<a id="a7a3e86203553194325dbf71077b8a70e" name="a7a3e86203553194325dbf71077b8a70e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7a3e86203553194325dbf71077b8a70e">&#9670;&#160;</a></span>get_keys_in_range()</h2>
+<a id="a5d2cd0eb820f39a1b921168cb6be94c0" name="a5d2cd0eb820f39a1b921168cb6be94c0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5d2cd0eb820f39a1b921168cb6be94c0">&#9670;&#160;</a></span>get_keys_in_range()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -222,12 +222,14 @@ template&lt;typename weight_type&gt; </div>
       </table>
   </td>
   <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
 <p>get all ids in the kvstore</p>
 <dl class="section return"><dt>Returns</dt><dd>a Tensor contained ids </dd></dl>
+
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>
