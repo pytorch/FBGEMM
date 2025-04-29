@@ -88,6 +88,7 @@ void fp8fp8FastGemvKernel(
     cutlass::float_e4m3_t* mat,
     cutlass::float_e4m3_t* vec,
     __nv_bfloat16* res,
+    const unsigned int b,
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
@@ -99,7 +100,7 @@ void fp8fp8FastGemvKernel(
   // grid_dim is accordingly calculated based on the number of threadblocks
   // needed to cover the given problem size
   dim3 block_dim = get_best_block_dim(m, n, k);
-  dim3 grid_dim(m / TILE_M, n / TILE_N * block_dim.y);
+  dim3 grid_dim(b, m / TILE_M, n / TILE_N * block_dim.y);
   // total number of memory loads needed per thread
   unsigned int num_iter_per_thread = ((k >> 4) + block_dim.x - 1) / block_dim.x;
 
@@ -110,22 +111,58 @@ void fp8fp8FastGemvKernel(
   if (block_dim.x == 128) {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 128>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
+            mat,
+            vec,
+            res,
+            b,
+            k,
+            m,
+            n,
+            mat_scale,
+            vec_scale,
+            num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (block_dim.x == 64) {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 64>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
+            mat,
+            vec,
+            res,
+            b,
+            k,
+            m,
+            n,
+            mat_scale,
+            vec_scale,
+            num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (block_dim.x == 256) {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 256>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
+            mat,
+            vec,
+            res,
+            b,
+            k,
+            m,
+            n,
+            mat_scale,
+            vec_scale,
+            num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     gemv_quantized_fp8_fp8<TILE_M, TILE_N, 32>
         <<<grid_dim, block_dim, 0, stream>>>(
-            mat, vec, res, k, m, n, mat_scale, vec_scale, num_iter_per_thread);
+            mat,
+            vec,
+            res,
+            b,
+            k,
+            m,
+            n,
+            mat_scale,
+            vec_scale,
+            num_iter_per_thread);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 }
@@ -135,6 +172,7 @@ bool fastGemvTemplateCaller(
     cutlass::float_e4m3_t* mat,
     cutlass::float_e4m3_t* vec,
     __nv_bfloat16* res,
+    const unsigned int b,
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
@@ -142,13 +180,13 @@ bool fastGemvTemplateCaller(
     float const* vec_scale) {
   if (m == TILE_M) {
     fp8fp8FastGemvKernel<TILE_M, TILE_N>(
-        mat, vec, res, k, m, n, mat_scale, vec_scale);
+        mat, vec, res, b, k, m, n, mat_scale, vec_scale);
     return true;
   }
 
   if constexpr (TILE_M < MAX_M_SIZE) {
     return fastGemvTemplateCaller<TILE_M + 1, TILE_N>(
-        mat, vec, res, k, m, n, mat_scale, vec_scale);
+        mat, vec, res, b, k, m, n, mat_scale, vec_scale);
   }
   return false;
 }
@@ -157,6 +195,7 @@ bool fastGemvLauncher(
     cutlass::float_e4m3_t* mat,
     cutlass::float_e4m3_t* vec,
     __nv_bfloat16* res,
+    const unsigned int b,
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
@@ -166,28 +205,43 @@ bool fastGemvLauncher(
   // performance over larger TILE_N value. this is potentially because smaller
   // tile_n leads to more threadblocks and thus increase the block concurrency.
   return fastGemvTemplateCaller</* TILE_M=*/1, /* TILE_N=*/2>(
-      mat, vec, res, k, m, n, mat_scale, vec_scale);
+      mat, vec, res, b, k, m, n, mat_scale, vec_scale);
 }
 
 at::Tensor fp8fp8bf16_fast_gemv(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
-    at::Tensor w_scale) {
-  const unsigned int m = XQ.size(0);
-  const unsigned int n = WQ.size(0);
-  const unsigned int k = WQ.size(1);
-
+    at::Tensor w_scale,
+    bool is_batched) {
+  unsigned int b, m, n, k;
+  if (is_batched) {
+    TORCH_CHECK(XQ.dim() == 3 && WQ.dim() == 3);
+    b = XQ.size(0);
+    m = XQ.size(1);
+    n = WQ.size(1);
+    k = WQ.size(2);
+  } else {
+    m = XQ.size(0);
+    n = WQ.size(0);
+    k = WQ.size(1);
+    TORCH_CHECK(XQ.size(-1) == k);
+  }
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
-  TORCH_CHECK(XQ.size(-1) == k);
+  std::vector<int64_t> shape =
+      is_batched ? std::vector<int64_t>{b, m, n} : std::vector<int64_t>{m, n};
+  auto Y = at::empty(shape, XQ.options().dtype(at::kBFloat16));
 
-  auto Y = at::empty({m, n}, XQ.options().dtype(at::kBFloat16));
+  if (!is_batched) {
+    b = 1;
+  }
 
   bool dispatched = fastGemvLauncher(
       reinterpret_cast<cutlass::float_e4m3_t*>(WQ.data_ptr()), // mat
       reinterpret_cast<cutlass::float_e4m3_t*>(XQ.data_ptr()), // vec
       reinterpret_cast<__nv_bfloat16*>(Y.data_ptr()), // res
+      b,
       k,
       m,
       n,

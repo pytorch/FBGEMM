@@ -478,7 +478,9 @@ class Fp8Fp8OSSFastGemv(QuantizeOpBase):
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
-        out = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(xq, wq, x_scale, w_scale)
+        out = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(
+            xq, wq, x_scale, w_scale, is_batched=False
+        )
         return out
 
     def quantize_and_compute(self, x, w):
@@ -488,6 +490,42 @@ class Fp8Fp8OSSFastGemv(QuantizeOpBase):
     @property
     def name(self) -> str:
         return "fp8fp8_oss_fast_gemv"
+
+    @property
+    def hip(self) -> bool:
+        # This implementation is specific to cublas.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class Fp8OSSFastGemvBatched(QuantizeOpBase):
+    """
+    Batched fp8 fast gemv kernel
+    """
+
+    def quantize(self, x, w):
+        # rowwise quantize
+        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(x)
+        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        out = torch.ops.fbgemm.fp8fp8bf16_fast_gemv(
+            xq, wq, x_scale, w_scale, is_batched=True
+        )
+        return out
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        return "fp8fp8_oss_fast_gemv_batched"
 
     @property
     def hip(self) -> bool:
