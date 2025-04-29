@@ -270,7 +270,8 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
       },
       std::exception);
 
-#if defined(USE_ROCM) || (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700))
+#if defined(__HIP_PLATFORM_AMD__) || \
+    (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ < 700))
   // Test max thread count
   EXPECT_THROW(
       {
@@ -296,8 +297,12 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
             tensor_sum_kernel<float>,
             8,
             1024,
-            // Requested shared memory size is too large
+    // Requested shared memory size is too large
+#ifdef __HIP_PLATFORM_AMD__
+            properties.sharedMemPerBlock + 1,
+#else
             properties.sharedMemPerBlockOptin + 1,
+#endif
             at::cuda::getCurrentCUDAStream(),
             PTA_B(C, float, 1, 64),
             PTA_B(A, float, 1, 64),
