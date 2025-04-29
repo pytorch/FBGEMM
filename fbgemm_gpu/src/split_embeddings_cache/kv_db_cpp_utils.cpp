@@ -23,10 +23,10 @@ int64_t _get_bucket_id(
     std::optional<int64_t> total_num_buckets = std::nullopt) {
   if (hash_mode == 0) {
     CHECK(bucket_size.has_value());
-    // hash by mod
+    // chunk-based hashing
     return id / bucket_size.value();
   } else {
-    // hash by interleave
+    // interleave-based hashing
     CHECK(total_num_buckets.has_value());
     return id % total_num_buckets.value();
   }
@@ -42,7 +42,7 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
   TORCH_CHECK(unordered_indices.is_contiguous());
   TORCH_CHECK(
       hash_mode == 0 || hash_mode == 1,
-      "only support hash by mod and interleaved for now");
+      "only support hash by chunk-based or interleaved-based hashing for now");
   TORCH_CHECK(
       bucket_start <= bucket_end,
       "bucket_start:",
@@ -73,11 +73,16 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
   for (int64_t i = 0; i < num_indices; ++i) {
     auto global_bucket_id = _get_bucket_id(
         indices_data_ptr[i], hash_mode, bucket_size, total_num_buckets);
-    CHECK(global_bucket_id >= bucket_start && global_bucket_id < bucket_end)
-        << "indices: " << indices_data_ptr[i]
-        << " bucket id: " << global_bucket_id
-        << " must fall into the range between:" << bucket_start << " and "
-        << bucket_end;
+    TORCH_CHECK(
+        global_bucket_id >= bucket_start && global_bucket_id < bucket_end,
+        "indices: ",
+        indices_data_ptr[i],
+        " bucket id: ",
+        global_bucket_id,
+        " must fall into the range between:",
+        bucket_start,
+        " and ",
+        bucket_end);
     if (bucket_id_to_cnt.find(global_bucket_id) == bucket_id_to_cnt.end()) {
       bucket_id_to_cnt[global_bucket_id] = 0;
     }

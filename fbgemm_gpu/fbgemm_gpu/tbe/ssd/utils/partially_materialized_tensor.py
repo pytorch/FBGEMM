@@ -33,7 +33,7 @@ class PartiallyMaterializedTensor:
     or use `full_tensor()` to get the full tensor (this could OOM).
     """
 
-    def __init__(self, wrapped) -> None:
+    def __init__(self, wrapped, is_virtual_size: bool = False) -> None:
         """
         Ensure caller loads the module before creating this object.
 
@@ -48,6 +48,7 @@ class PartiallyMaterializedTensor:
             wrapped: torch.classes.fbgemm.KVTensorWrapper
         """
         self._wrapped = wrapped
+        self._is_virtual_size = is_virtual_size
         self._requires_grad = False
 
     @property
@@ -56,6 +57,15 @@ class PartiallyMaterializedTensor:
         Get the wrapped extension class for C++ interop.
         """
         return self._wrapped
+
+    @property
+    def is_virtual(self):
+        """
+        Indicate whether PMT is a virtual tensor, in which the actual tensor shape would be different from virtual size
+        This indicator is needed for checkpoint or publish. They need to call all-gather to recalculate the correct
+        metadata of the ShardedTensor
+        """
+        return self._is_virtual_size
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
@@ -74,6 +84,12 @@ class PartiallyMaterializedTensor:
             a torch tensor
         """
         return self._wrapped.narrow(dim, start, length)
+
+    def set_weights_and_ids(self, weights: torch.Tensor, ids: torch.Tensor) -> None:
+        self._wrapped.set_weights_and_ids(weights, ids)
+
+    def get_weights_by_ids(self, ids: torch.Tensor) -> torch.Tensor:
+        return self._wrapped.get_weights_by_ids(ids)
 
     def full_tensor(self) -> torch.Tensor:
         """

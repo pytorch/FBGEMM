@@ -308,8 +308,12 @@ KVTensorWrapper::KVTensorWrapper(
     int64_t dtype,
     int64_t row_offset,
     std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-        snapshot_handle)
-    : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
+        snapshot_handle,
+    std::optional<std::vector<int64_t>> materialized_shape)
+    : db_(db->impl_),
+      shape_(std::move(shape)),
+      materialized_shape_(materialized_shape),
+      row_offset_(row_offset) {
   CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
   options_ = at::TensorOptions()
                  .dtype(static_cast<c10::ScalarType>(dtype))
@@ -356,31 +360,38 @@ void KVTensorWrapper::set_range(
 }
 
 void KVTensorWrapper::set_weights_and_ids(
-    const at::Tensor& ids,
-    const at::Tensor& weights) {
+    const at::Tensor& weights,
+    const at::Tensor& ids) {
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
   CHECK_GE(db_->get_max_D(), shape_[1]);
+  auto linearized_ids = ids + row_offset_;
   int pad_right = db_->get_max_D() - weights.size(1);
   if (pad_right == 0) {
-    db_->set_kv_to_storage(ids, weights);
+    db_->set_kv_to_storage(linearized_ids, weights);
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
     CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
-    db_->set_kv_to_storage(ids, padded_weights);
+    db_->set_kv_to_storage(linearized_ids, padded_weights);
   }
 }
 
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
   auto weights =
       at::empty(c10::IntArrayRef({ids.size(0), db_->get_max_D()}), options_);
-  db_->get_kv_from_storage_by_snapshot(ids, weights, snapshot_handle_->handle);
+  auto linearized_ids = ids + row_offset_;
+  db_->get_kv_from_storage_by_snapshot(
+      linearized_ids, weights, snapshot_handle_->handle);
   return weights.narrow(1, 0, shape_[1]);
 }
 
 c10::IntArrayRef KVTensorWrapper::sizes() {
-  return shape_;
+  if (materialized_shape_.has_value()) {
+    return materialized_shape_.value();
+  } else {
+    return shape_;
+  }
 }
 
 c10::IntArrayRef KVTensorWrapper::strides() {
@@ -521,7 +532,8 @@ static auto kv_tensor_wrapper =
                 int64_t,
                 int64_t,
                 std::optional<
-                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>>(),
+                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>,
+                std::optional<std::vector<int64_t>>>(),
             "",
             {torch::arg("db"),
              torch::arg("shape"),
@@ -529,7 +541,8 @@ static auto kv_tensor_wrapper =
              torch::arg("row_offset"),
              // snapshot must be provided for reading
              // not needed for writing
-             torch::arg("snapshot_handle") = std::nullopt})
+             torch::arg("snapshot_handle") = std::nullopt,
+             torch::arg("materialized_shape") = std::nullopt})
         .def(
             "narrow",
             &KVTensorWrapper::narrow,
@@ -544,8 +557,7 @@ static auto kv_tensor_wrapper =
         .def_property(
             "shape",
             &KVTensorWrapper::sizes,
-            std::string(
-                "Returns the shape of the original tensor. Only the narrowed part is materialized."))
+            std::string("Returns the shape of the original tensor."))
         .def_property("strides", &KVTensorWrapper::strides);
 
 static auto dram_kv_embedding_cache_wrapper =

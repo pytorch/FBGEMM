@@ -49,6 +49,24 @@ class EmbeddingLocation(enum.IntEnum):
             raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
 
 
+class BackendType(enum.IntEnum):
+    SSD = 0
+    DRAM = 1
+    PS = 2
+
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "ssd": BackendType.SSD,
+            "dram": BackendType.DRAM,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into BackendType: {key}")
+
+
 class CacheAlgorithm(enum.Enum):
     LRU = 0
     LFU = 1

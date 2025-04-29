@@ -37,7 +37,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       int64_t dtype,
       int64_t row_offset,
       std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-          snapshot_handle);
+          snapshot_handle = std::nullopt,
+      std::optional<std::vector<int64_t>> materialized_shape = std::nullopt);
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 
@@ -47,7 +48,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       const int64_t length,
       const at::Tensor& weights);
 
-  void set_weights_and_ids(const at::Tensor& ids, const at::Tensor& weights);
+  void set_weights_and_ids(const at::Tensor& weights, const at::Tensor& ids);
 
   at::Tensor get_weights_by_ids(const at::Tensor& ids);
 
@@ -70,6 +71,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
   at::TensorOptions options_;
   std::vector<int64_t> shape_;
+  std::optional<std::vector<int64_t>> materialized_shape_;
   std::vector<int64_t> strides_;
   int64_t row_offset_;
 };

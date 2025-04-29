@@ -34,9 +34,13 @@ KVTensorWrapper::KVTensorWrapper(
     [[maybe_unused]] int64_t dtype,
     int64_t row_offset,
     [[maybe_unused]] std::optional<
-        c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>> snapshot_handle)
+        c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>> snapshot_handle,
+    [[maybe_unused]] std::optional<std::vector<int64_t>> materialized_shape)
     // @lint-ignore CLANGTIDY clang-diagnostic-missing-noreturn
-    : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
+    : db_(db->impl_),
+      shape_(std::move(shape)),
+      materialized_shape_(materialized_shape),
+      row_offset_(row_offset) {
   FBEXCEPTION("Not implemented");
 }
 
