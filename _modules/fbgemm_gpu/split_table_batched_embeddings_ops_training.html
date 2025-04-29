@@ -488,6 +488,7 @@
     <span class="n">BoundsCheckMode</span><span class="p">,</span>
     <span class="n">CacheAlgorithm</span><span class="p">,</span>
     <span class="n">CacheState</span><span class="p">,</span>
+    <span class="n">ComputeDevice</span><span class="p">,</span>
     <span class="n">construct_cache_state</span><span class="p">,</span>
     <span class="n">EmbeddingLocation</span><span class="p">,</span>
     <span class="n">MAX_PREFETCH_DEPTH</span><span class="p">,</span>
@@ -529,12 +530,6 @@
 
 <span class="k">class</span><span class="w"> </span><span class="nc">DoesNotHavePrefix</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
     <span class="k">pass</span>
-
-
-<span class="k">class</span><span class="w"> </span><span class="nc">ComputeDevice</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
-    <span class="n">CPU</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="n">CUDA</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">MTIA</span> <span class="o">=</span> <span class="mi">2</span>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">WeightDecayMode</span><span class="p">(</span><span class="n">enum</span><span class="o">.</span><span class="n">IntEnum</span><span class="p">):</span>
