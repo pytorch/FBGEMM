@@ -303,13 +303,12 @@ EmbeddingSnapshotHandleWrapper::~EmbeddingSnapshotHandleWrapper() {
 }
 
 KVTensorWrapper::KVTensorWrapper(
-    c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
     std::vector<int64_t> shape,
     int64_t dtype,
     int64_t row_offset,
     std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
         snapshot_handle)
-    : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
+    : db_(nullptr), shape_(std::move(shape)), row_offset_(row_offset) {
   CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
   options_ = at::TensorOptions()
                  .dtype(static_cast<c10::ScalarType>(dtype))
@@ -325,9 +324,20 @@ KVTensorWrapper::KVTensorWrapper(
   }
 }
 
+void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
+    c10::intrusive_ptr<EmbeddingRocksDBWrapper> db) {
+  db_ = db->impl_;
+}
+
+void KVTensorWrapper::set_dram_db_wrapper(
+    c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
+  db_ = db->impl_;
+}
+
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   CHECK_GE(db_->get_max_D(), shape_[1]);
+  CHECK_TRUE(db_ != nullptr);
   CHECK_TRUE(snapshot_handle_ != nullptr);
   auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
   db_->get_range_from_snapshot(
@@ -343,6 +353,7 @@ void KVTensorWrapper::set_range(
     const int64_t length,
     const at::Tensor& weights) {
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
+  CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D(), shape_[1]);
   int pad_right = db_->get_max_D() - weights.size(1);
   if (pad_right == 0) {
@@ -358,6 +369,7 @@ void KVTensorWrapper::set_range(
 void KVTensorWrapper::set_weights_and_ids(
     const at::Tensor& ids,
     const at::Tensor& weights) {
+  CHECK_TRUE(db_ != nullptr);
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
   CHECK_GE(db_->get_max_D(), shape_[1]);
@@ -373,6 +385,7 @@ void KVTensorWrapper::set_weights_and_ids(
 }
 
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
+  CHECK_TRUE(db_ != nullptr);
   auto weights =
       at::empty(c10::IntArrayRef({ids.size(0), db_->get_max_D()}), options_);
   db_->get_kv_from_storage_by_snapshot(ids, weights, snapshot_handle_->handle);
@@ -512,42 +525,6 @@ static auto embedding_rocks_db_wrapper =
             "get_keys_in_range_by_snapshot",
             &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot);
 
-static auto kv_tensor_wrapper =
-    torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
-        .def(
-            torch::init<
-                c10::intrusive_ptr<EmbeddingRocksDBWrapper>,
-                std::vector<int64_t>,
-                int64_t,
-                int64_t,
-                std::optional<
-                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>>(),
-            "",
-            {torch::arg("db"),
-             torch::arg("shape"),
-             torch::arg("dtype"),
-             torch::arg("row_offset"),
-             // snapshot must be provided for reading
-             // not needed for writing
-             torch::arg("snapshot_handle") = std::nullopt})
-        .def(
-            "narrow",
-            &KVTensorWrapper::narrow,
-            "",
-            {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
-        .def("set_range", &KVTensorWrapper::set_range)
-        .def("set_weights_and_ids", &KVTensorWrapper::set_weights_and_ids)
-        .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
-        .def_property("dtype_str", &KVTensorWrapper::dtype_str)
-        .def_property("device_str", &KVTensorWrapper::device_str)
-        .def_property("layout_str", &KVTensorWrapper::layout_str)
-        .def_property(
-            "shape",
-            &KVTensorWrapper::sizes,
-            std::string(
-                "Returns the shape of the original tensor. Only the narrowed part is materialized."))
-        .def_property("strides", &KVTensorWrapper::strides);
-
 static auto dram_kv_embedding_cache_wrapper =
     torch::class_<DramKVEmbeddingCacheWrapper>(
         "fbgemm",
@@ -609,6 +586,50 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("end"),
             })
         .def("flush", &DramKVEmbeddingCacheWrapper::flush);
+
+static auto kv_tensor_wrapper =
+    torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
+        .def(
+            torch::init<
+                std::vector<int64_t>,
+                int64_t,
+                int64_t,
+                std::optional<
+                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>>(),
+            "",
+            {torch::arg("shape"),
+             torch::arg("dtype"),
+             torch::arg("row_offset"),
+             // snapshot must be provided for reading
+             // not needed for writing
+             torch::arg("snapshot_handle") = std::nullopt})
+        .def(
+            "set_embedding_rocks_dp_wrapper",
+            &KVTensorWrapper::set_embedding_rocks_dp_wrapper,
+            "",
+            {torch::arg("db")})
+        .def(
+            "set_dram_db_wrapper",
+            &KVTensorWrapper::set_dram_db_wrapper,
+            "",
+            {torch::arg("db")})
+        .def(
+            "narrow",
+            &KVTensorWrapper::narrow,
+            "",
+            {torch::arg("dim"), torch::arg("start"), torch::arg("length")})
+        .def("set_range", &KVTensorWrapper::set_range)
+        .def("set_weights_and_ids", &KVTensorWrapper::set_weights_and_ids)
+        .def("get_weights_by_ids", &KVTensorWrapper::get_weights_by_ids)
+        .def_property("dtype_str", &KVTensorWrapper::dtype_str)
+        .def_property("device_str", &KVTensorWrapper::device_str)
+        .def_property("layout_str", &KVTensorWrapper::layout_str)
+        .def_property(
+            "shape",
+            &KVTensorWrapper::sizes,
+            std::string(
+                "Returns the shape of the original tensor. Only the narrowed part is materialized."))
+        .def_property("strides", &KVTensorWrapper::strides);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(

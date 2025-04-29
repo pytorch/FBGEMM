@@ -1819,12 +1819,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         row_offset = 0
         for emb_height, emb_dim in self.embedding_specs:
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                db=self.ssd_db,
                 shape=[emb_height, emb_dim],
                 dtype=dtype,
                 row_offset=row_offset,
                 snapshot_handle=snapshot_handle,
             )
+            # TODO add if else support in the future for dram integration.
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
             row_offset += emb_height
             splits.append(PartiallyMaterializedTensor(tensor_wrapper))
         return splits

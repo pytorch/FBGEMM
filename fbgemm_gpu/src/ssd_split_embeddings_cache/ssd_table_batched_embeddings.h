@@ -561,7 +561,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length,
-      const SnapshotHandle* snapshot_handle) {
+      const SnapshotHandle* snapshot_handle) override {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
@@ -569,16 +569,6 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     get_kv_db_async_impl</*use_iterator=*/true>(
         seq_indices, weights, count, snapshot_handle)
         .wait();
-  }
-
-  void set_range_to_storage(
-      const at::Tensor& weights,
-      const int64_t start,
-      const int64_t length) {
-    const auto seq_indices =
-        at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
-    const auto count = at::tensor({length}, at::ScalarType::Long);
-    folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
   }
 
   void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
@@ -589,7 +579,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   void get_kv_from_storage_by_snapshot(
       const at::Tensor& ids,
       const at::Tensor& weights,
-      const SnapshotHandle* snapshot_handle) {
+      const SnapshotHandle* snapshot_handle) override {
     const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
     get_kv_db_async_impl</*use_iterator=*/false>(
         ids, weights, count, snapshot_handle)
@@ -641,7 +631,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto_compaction_enabled_ = enable;
   }
 
-  int64_t get_max_D() {
+  int64_t get_max_D() override {
     return max_D_;
   }
 

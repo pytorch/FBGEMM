@@ -22,6 +22,7 @@
 
 #include <folly/Random.h>
 #include <folly/concurrency/UnboundedQueue.h>
+#include <folly/coro/BlockingWait.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 #include <folly/hash/Hash.h>
@@ -40,6 +41,10 @@
 #include <folly/coro/Task.h>
 #include "fbgemm_gpu/split_embeddings_cache/cachelib_cache.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+
+namespace ssd {
+class SnapshotHandle;
+}
 
 namespace kv_db {
 
@@ -240,25 +245,73 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // finished, it could also be called in unitest to sync
   void wait_util_filling_work_done();
 
+  virtual at::Tensor get_keys_in_range(int64_t start, int64_t end) {
+    (void)start;
+    (void)end;
+    FBEXCEPTION("Not implemented");
+  }
+
+  void set_range_to_storage(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length) {
+    const auto seq_indices =
+        at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
+    const auto count = at::tensor({length}, at::ScalarType::Long);
+    folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
+  }
+
+  virtual void get_range_from_snapshot(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length,
+      const ssd::SnapshotHandle* snapshot_handle) {
+    (void)weights;
+    (void)start;
+    (void)length;
+    (void)snapshot_handle;
+    FBEXCEPTION("Not implemented");
+  }
+
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
+    const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+    folly::coro::blockingWait(set_kv_db_async(ids, weights, count));
+  }
+
+  virtual void get_kv_from_storage_by_snapshot(
+      const at::Tensor& ids,
+      const at::Tensor& weights,
+      const ssd::SnapshotHandle* snapshot_handle) {
+    (void)ids;
+    (void)weights;
+    (void)snapshot_handle;
+    FBEXCEPTION("Not implemented");
+  }
+
+  virtual int64_t get_max_D() {
+    return max_D_;
+  }
+
  private:
   /// Find non-negative embedding indices in <indices> and shard them into
   /// #cachelib_pools pieces to be lookedup in parallel
   ///
   /// @param indices The 1D embedding index tensor, should skip on negative
   /// value
-  /// @param count A single element tensor that contains the number of indices
-  /// to be processed
+  /// @param count A single element tensor that contains the number of
+  /// indices to be processed
   ///
-  /// @return preallocated list of memory pointer with <count> size, cache miss
-  /// or invalid embedding indices will have sentinel pointer(nullptr)
-  /// @note element in <indices> will be updated to sentinel value on cache hit
+  /// @return preallocated list of memory pointer with <count> size, cache
+  /// miss or invalid embedding indices will have sentinel pointer(nullptr)
+  /// @note element in <indices> will be updated to sentinel value on cache
+  /// hit
   std::shared_ptr<CacheContext> get_cache(
       const at::Tensor& indices,
       const at::Tensor& count);
 
   /// Find non-negative embedding indices in <indices> and shard them into
-  /// #cachelib_pools pieces, insert into Cachelib in parallel with their paired
-  /// embeddings from <weights>
+  /// #cachelib_pools pieces, insert into Cachelib in parallel with their
+  /// paired embeddings from <weights>
   ///
   /// @param indices The 1D embedding index tensor, should skip on negative
   /// value
@@ -268,8 +321,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// to be processed
   ///
   /// @return None if L2 is missing or no eviction, other wise return tuple of
-  /// tensors with length of <count> containing L2 evicted embedding indices and
-  /// embeddings, invalid pairs will have sentinel value(-1) on <indices>
+  /// tensors with length of <count> containing L2 evicted embedding indices
+  /// and embeddings, invalid pairs will have sentinel value(-1) on <indices>
   folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>> set_cache(
       const at::Tensor& indices,
       const at::Tensor& weights,
@@ -284,8 +337,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /// relative slot in <cached_addr_list>
   ///
   /// @return None
-  /// @note weigths will be updated on the slot that paired up with valid cache
-  /// addr pointer
+  /// @note weigths will be updated on the slot that paired up with valid
+  /// cache addr pointer
   folly::SemiFuture<std::vector<folly::Unit>> cache_memcpy(
       const at::Tensor& weights,
       const std::vector<void*>& cached_addr_list);
@@ -337,11 +390,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   //                 bg L2 write
   //   - L1 cache eviction: insert into bg queue for L2 write
   //   - ScratchPad update: insert into bg queue for L2 write
-  // in non-prefetch pipeline, cuda synchronization guarantee get_cuda() happen
-  // after SP update
-  // in prefetch pipeline, cuda sync only guarantee get_cuda() happen after L1
-  // cache eviction pipeline case, SP bwd update could happen in parallel with
-  // L2 read mutex is used for l2 cache to do read / write exclusively
+  // in non-prefetch pipeline, cuda synchronization guarantee get_cuda()
+  // happen after SP update in prefetch pipeline, cuda sync only guarantee
+  // get_cuda() happen after L1 cache eviction pipeline case, SP bwd update
+  // could happen in parallel with L2 read mutex is used for l2 cache to do
+  // read / write exclusively
   std::mutex l2_cache_mtx_;
 
   // perf stats

@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <ATen/ATen.h>
 #include "../ssd_split_embeddings_cache/kv_tensor_wrapper.h"
 #include "dram_kv_embedding_cache.h"
 
@@ -58,56 +59,26 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor count,
       int64_t timestep,
       bool is_bwd) {
-    return std::visit(
-        [&indices, &weights, &count, &timestep](auto& ptr) {
-          if (ptr) {
-            ptr->set_cuda(indices, weights, count, timestep);
-          }
-        },
-        impl_);
+    return impl_->set_cuda(indices, weights, count, timestep);
   }
 
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
-    return std::visit(
-        [&indices, &weights, &count](auto& ptr) {
-          if (ptr) {
-            ptr->get_cuda(indices, weights, count);
-          }
-        },
-        impl_);
+    return impl_->get_cuda(indices, weights, count);
   }
 
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
-    return std::visit(
-        [&indices, &weights, &count](auto& ptr) {
-          if (ptr) {
-            ptr->set(indices, weights, count);
-          }
-        },
-        impl_);
+    return impl_->set(indices, weights, count);
   }
 
   void flush() {
-    return std::visit(
-        [](auto& ptr) {
-          if (ptr) {
-            ptr->flush();
-          }
-        },
-        impl_);
+    return impl_->flush();
   }
 
   void set_range_to_storage(
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) {
-    return std::visit(
-        [&weights, &start, &length](auto& ptr) {
-          if (ptr) {
-            ptr->set_range_to_storage(weights, start, length);
-          }
-        },
-        impl_);
+    return impl_->set_range_to_storage(weights, start, length);
   }
 
   void get(
@@ -115,41 +86,22 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor weights,
       at::Tensor count,
       int64_t sleep_ms) {
-    return std::visit(
-        [&indices, &weights, &count, sleep_ms](auto& ptr) {
-          if (ptr) {
-            ptr->get(indices, weights, count, sleep_ms);
-          }
-        },
-        impl_);
+    return impl_->get(indices, weights, count, sleep_ms);
   }
 
   void wait_util_filling_work_done() {
-    return std::visit(
-        [](auto& ptr) {
-          if (ptr) {
-            ptr->wait_util_filling_work_done();
-          }
-        },
-        impl_);
+    return impl_->wait_util_filling_work_done();
   }
 
   at::Tensor get_keys_in_range(int64_t start, int64_t end) {
-    return std::visit(
-        [&start, &end](auto& ptr) {
-          if (ptr) {
-            return ptr->get_keys_in_range(start, end);
-          }
-          return at::empty({0});
-        },
-        impl_);
+    return impl_->get_keys_in_range(start, end);
   }
 
  private:
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;
 
-  DramKVEmbeddingCacheVariant impl_;
+  std::shared_ptr<kv_db::EmbeddingKVDB> impl_;
 };
 
 } // namespace kv_mem

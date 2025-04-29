@@ -94,8 +94,9 @@ class KvTensorWrapperTest(TestCase):
             # create a view tensor wrapper
             snapshot = ssd_db.create_snapshot()
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0, snapshot
+                [E, D], weights.dtype, 0, snapshot
             )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
             self.assertEqual(tensor_wrapper.shape, [E, D])
 
             # read one row as an extreme case
@@ -168,8 +169,9 @@ class KvTensorWrapperTest(TestCase):
 
             # no snapshot needed for writing to rocksdb
             tensor_wrapper0 = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0
+                [E, D], weights.dtype, 0
             )
+            tensor_wrapper0.set_embedding_rocks_dp_wrapper(ssd_db)
             step = N
             for i in range(0, E, step):
                 tensor_wrapper0.set_range(0, i, step, weights)
@@ -182,8 +184,9 @@ class KvTensorWrapperTest(TestCase):
             # create a view tensor wrapper
             snapshot = ssd_db.create_snapshot()
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0, snapshot
+                [E, D], weights.dtype, 0, snapshot
             )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
             self.assertEqual(tensor_wrapper.shape, [E, D])
 
             # table has a total of E rows
@@ -250,16 +253,20 @@ class KvTensorWrapperTest(TestCase):
 
             # no snapshot needed for writing to rocksdb
             tensor_wrapper0 = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0
+                [E, D], weights.dtype, 0
             )
+
+            tensor_wrapper0.set_embedding_rocks_dp_wrapper(ssd_db)
             tensor_wrapper0.set_weights_and_ids(indices, weights)
 
             # create a view tensor wrapper
             snapshot = ssd_db.create_snapshot()
             tensor_wrapper0.set_weights_and_ids(indices, new_weights_after_snapshot)
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                ssd_db, [E, D], weights.dtype, 0, snapshot
+                [E, D], weights.dtype, 0, snapshot
             )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+
             self.assertEqual(tensor_wrapper.shape, [E, D])
 
             out_weights = tensor_wrapper.get_weights_by_ids(indices)
