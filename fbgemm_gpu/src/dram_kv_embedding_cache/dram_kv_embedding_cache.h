@@ -107,7 +107,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// get all ids in the kvstore
   ///
   /// @return a Tensor contained ids
-  at::Tensor get_keys_in_range(int64_t start, int64_t end) {
+  at::Tensor get_keys_in_range(int64_t start, int64_t end) override {
     std::vector<std::vector<int64_t>> ids;
     for (int i = 0; i < num_shards_; i++) {
       ids.push_back(std::vector<int64_t>());
