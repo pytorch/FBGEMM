@@ -9,7 +9,6 @@
 // clang-format off
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
-#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -173,6 +172,9 @@ void split_embedding_{{ optimizer }}_update(
 #else
                 constexpr int kThreadGroupSize = kWarpSize;
 #endif
+#ifdef FBGEMM_GPU_MEMCHECK
+                const auto func_name = "split_{{ optimizer }}_update_kernel";
+#endif
 
                 DISPATCH_PLACEHOLDER_TYPES(
                   {%- for ph_name in args.placeholder_tensor_names %}
@@ -180,36 +182,38 @@ void split_embedding_{{ optimizer }}_update(
                   {%- endfor %}
                   "split_embedding_{{ optimizer }}_update_placeholder_type_kernel",
                   [&] {
-                    FBGEMM_LAUNCH_KERNEL(
-                        (split_{{ optimizer }}_update_kernel<
-                            emb_t,
-                            cache_t,
-                            {%- for ph_name in args.placeholder_tensor_names %}
-                            {{ ph_name + "_ph_t" }},
-                            {%- endfor %}
-                            kMaxVecsPerThread,
-                            kThreadGroupSize,
-                            4>),
-                        div_round_up(grad_dev_indices.numel(), kMaxThreads / kThreadGroupSize),
-                        dim3(kThreadGroupSize, kMaxThreads / kThreadGroupSize, 1),
-                        0, // Shared memory is not needed because uint8_t is not supported
-                        at::cuda::getCurrentCUDAStream(),
-                        PTA_B(dev_weights, emb_t, 1, 64),
-                        PTA_B(uvm_weights, emb_t, 1, 64),
-                        PTA_B(lxu_cache_weights, cache_t, 2, 64),
-                        PTA_B(flatten_grad_dev_weights, emb_t, 1, 64),
-                        PTA_B(flatten_grad_dev_indices, int64_t, 1, 64),
-                        PTA_B(weights_placements, int32_t, 1, 32),
-                        PTA_B(weights_offsets, int64_t, 1, 32),
-                        // Use weights_placements instead of
-                        // sorted_lxu_cache_locations because LXU cache is not
-                        // supported right now
-                        PTA_B(weights_placements, int32_t, 1, 32),
-                        max_D,
-                        stochastic_rounding,
-                        rng_engine_inputs,
-                        {{ args.split_kernel_arg_constructors | make_pta_acc_builder_format() | join(", ") }}
-                    );
+                    split_{{ optimizer }}_update_kernel<
+                        emb_t,
+                        cache_t,
+                        {%- for ph_name in args.placeholder_tensor_names %}
+                        {{ ph_name + "_ph_t" }},
+                        {%- endfor %}
+                        kMaxVecsPerThread,
+                        kThreadGroupSize,
+                        4>
+                        <<<div_round_up(grad_dev_indices.numel(), kMaxThreads / kThreadGroupSize),
+                           dim3(kThreadGroupSize, kMaxThreads / kThreadGroupSize, 1),
+                           0, // Shared memory is not needed because uint8_t is not supported
+                           at::cuda::getCurrentCUDAStream()
+                        >>>
+                        (
+                            MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
+                            MAKE_PTA_WITH_NAME(func_name, flatten_grad_dev_weights, emb_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(func_name, flatten_grad_dev_indices, int64_t, 1, 64),
+                            MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
+                            MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
+                            // Use weights_placements instead of
+                            // sorted_lxu_cache_locations because LXU cache is not
+                            // supported right now
+                            MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
+                            max_D,
+                            stochastic_rounding,
+                            rng_engine_inputs,
+                            {{ args.split_kernel_arg_constructors | make_pta_acc_format("func_name") | join(", ") }}
+                        );
+                    C10_CUDA_KERNEL_LAUNCH_CHECK();
                 }); // DISPATCH_PLACEHOLDER_TYPES
                 return;
             }
