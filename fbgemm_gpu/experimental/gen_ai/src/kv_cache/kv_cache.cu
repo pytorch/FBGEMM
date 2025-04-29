@@ -168,9 +168,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
   auto D_H = (D_HQ - int4_qparam_offset) * 2;
 
   auto cache_K_dq =
-      at::empty({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
+      at::zeros({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
   auto cache_V_dq =
-      at::empty({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
+      at::zeros({B, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
 
   if (B == 0) {
     return {cache_K_dq, cache_V_dq};
@@ -648,7 +648,14 @@ DEVICE_INLINE fx4 rope_xpos(
 }
 
 template <int KVQuantNumGroups = 1>
-DEVICE_INLINE void quantize_int4_kv(fx4 dst, uint8_t* dst_row_q) {
+DEVICE_INLINE void quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm) {
+  if (do_norm) {
+    float sum = fx4_dot(dst, dst);
+    // Warp reduce sum
+    sum = warpReduceSum(sum);
+    float rsqr = rsqrtf(sum / D_H);
+    dst = fx4_scale(dst, rsqr);
+  }
   auto thread_min = fminf(fminf(fminf(dst.x, dst.y), dst.z), dst.w);
   auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
 
@@ -984,7 +991,8 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
       quantize_fp8_kv(dst, dst_row_q, qparam_row, (qkv == QKV::K && k_norm));
     } else if (kCacheDtype == CacheLogicalDtype::INT4) {
       CUDA_KERNEL_ASSERT(D_H_q - D_H / 2 == 4 * KVQuantNumGroups);
-      quantize_int4_kv<KVQuantNumGroups>(dst, dst_row_q);
+      quantize_int4_kv<KVQuantNumGroups>(
+          dst, dst_row_q, (qkv == QKV::K && k_norm));
     }
   }
 }
@@ -1000,6 +1008,8 @@ at::Tensor nope_qkv_varseq_prefill(
     std::optional<at::Tensor> block_tables,
     int64_t page_size,
     std::optional<at::Tensor> varseq_cache_seqpos,
+    int64_t cache_logical_dtype_int,
+    std::optional<int64_t> num_groups,
     std::optional<at::Tensor> qparam_k = std::nullopt,
     std::optional<at::Tensor> qparam_v = std::nullopt,
     bool k_norm = false,
@@ -1043,7 +1053,8 @@ at::Tensor nope_qkv_varseq_prefill(
     block_tables_ptr = static_cast<int32_t*>(block_tables.value().data_ptr());
     block_tables_b_stride = block_tables.value().stride(0);
   }
-
+  CacheLogicalDtype cache_logical_dtype =
+      static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
   if (cache_K.dtype() == at::kBFloat16) {
     nope_qkv_varseq_prefill_kernel<<<
         blocks,
@@ -1068,7 +1079,7 @@ at::Tensor nope_qkv_varseq_prefill(
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return XQ_O;
   } else {
-    // TODO: Pass Logical datatype to differentiate INT4 and FP8
+    auto num_groups_ = num_groups ? num_groups.value() : 1;
     int32_t* qparam_k_ptr = nullptr;
     int32_t* qparam_v_ptr = nullptr;
     if (qparam_k.has_value()) {
@@ -1078,33 +1089,66 @@ at::Tensor nope_qkv_varseq_prefill(
     auto varseq_batch_ = varseq_batch.data_ptr<int32_t>();
     auto varseq_seqpos_ =
         varseq_seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>();
-
-    CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
-        1,
-        CacheLogicalDtype::FP8,
-        PositionEmbeddingMode::NOPE,
-        varseq_batch_,
-        varseq_seqpos_,
-        0,
-        0,
-        0,
-        0,
-        block_tables_ptr,
-        page_size,
-        block_tables_b_stride,
-        (varseq_cache_seqpos_
-             .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-        nullptr,
-        false,
-        0,
-        0,
-        0,
-        0,
-        false,
-        k_norm);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-    return XQ_O;
+    if (cache_logical_dtype == CacheLogicalDtype::FP8) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+      CUDA_KERNEL_ASSERT(num_groups_ == 1);
+      CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
+          1,
+          CacheLogicalDtype::FP8,
+          PositionEmbeddingMode::NOPE,
+          varseq_batch_,
+          varseq_seqpos_,
+          0,
+          0,
+          0,
+          0,
+          block_tables_ptr,
+          page_size,
+          block_tables_b_stride,
+          (varseq_cache_seqpos_
+               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+          nullptr,
+          false,
+          0,
+          0,
+          0,
+          0,
+          false,
+          k_norm);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+#else
+      throw std::runtime_error("CUDA version is older than 12.0");
+#endif
+    } else {
+      CALL_INT4_KERNEL_WITH_KV_GROUPWISE_QUANT_CHECK(
+          CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL,
+          num_groups_,
+          CacheLogicalDtype::INT4,
+          PositionEmbeddingMode::NOPE,
+          varseq_batch_,
+          varseq_seqpos_,
+          0,
+          0,
+          0,
+          0,
+          block_tables_ptr,
+          page_size,
+          block_tables_b_stride,
+          (varseq_cache_seqpos_
+               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+          nullptr,
+          false,
+          0,
+          0,
+          0,
+          0,
+          false,
+          k_norm);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
   }
+  return XQ_O;
 }
 
 at::Tensor nope_qkv_decoding(
@@ -1119,6 +1163,8 @@ at::Tensor nope_qkv_decoding(
     std::optional<at::Tensor> actual_batch_size,
     std::optional<at::Tensor> batch,
     std::optional<at::Tensor> cache_seqpos,
+    int64_t cache_logical_dtype_int,
+    std::optional<int64_t> num_groups,
     std::optional<at::Tensor> qparam_k = std::nullopt,
     std::optional<at::Tensor> qparam_v = std::nullopt,
     bool k_norm = false,
@@ -1160,7 +1206,8 @@ at::Tensor nope_qkv_decoding(
         static_cast<int64_t*>(actual_batch_size.value().data_ptr());
   }
   auto cache_seqpos_ = cache_seqpos.value_or(seqpos);
-
+  CacheLogicalDtype cache_logical_dtype =
+      static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
   if (cache_K.dtype() == at::kBFloat16) {
     nope_qkv_varseq_prefill_kernel<<<
         blocks,
@@ -1183,9 +1230,8 @@ at::Tensor nope_qkv_decoding(
         update_kv);
 
     C10_CUDA_KERNEL_LAUNCH_CHECK();
-    return XQ_O;
   } else {
-    // TODO: Pass KV logical Dtype
+    auto num_groups_ = num_groups ? num_groups.value() : 1;
     int32_t* qparam_k_ptr = nullptr;
     int32_t* qparam_v_ptr = nullptr;
     if (qparam_k.has_value()) {
@@ -1196,32 +1242,67 @@ at::Tensor nope_qkv_decoding(
         batch.has_value() ? batch.value().data_ptr<int32_t>() : nullptr;
     auto seqpos_ =
         seqpos.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>();
-    CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
-        1,
-        CacheLogicalDtype::FP8,
-        PositionEmbeddingMode::NOPE,
-        batch_,
-        seqpos_,
-        0,
-        0,
-        0,
-        0,
-        block_tables_ptr,
-        page_size,
-        block_tables_b_stride,
-        (cache_seqpos_.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-        actual_batch_size_ptr,
-        false,
-        0,
-        0,
-        0,
-        0,
-        false,
-        k_norm);
+    if (cache_logical_dtype == CacheLogicalDtype::FP8) {
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
+    (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
+      CUDA_KERNEL_ASSERT(num_groups_ == 1);
+      CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
+          1,
+          CacheLogicalDtype::FP8,
+          PositionEmbeddingMode::NOPE,
+          batch_,
+          seqpos_,
+          0,
+          0,
+          0,
+          0,
+          block_tables_ptr,
+          page_size,
+          block_tables_b_stride,
+          (cache_seqpos_
+               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+          actual_batch_size_ptr,
+          false,
+          0,
+          0,
+          0,
+          0,
+          false,
+          k_norm);
 
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-    return XQ_O;
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+#else
+      throw std::runtime_error("CUDA version is older than 12.0");
+#endif
+    } else {
+      CALL_INT4_KERNEL_WITH_KV_GROUPWISE_QUANT_CHECK(
+          CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL,
+          num_groups_,
+          CacheLogicalDtype::INT4,
+          PositionEmbeddingMode::NOPE,
+          batch_,
+          seqpos_,
+          0,
+          0,
+          0,
+          0,
+          block_tables_ptr,
+          page_size,
+          block_tables_b_stride,
+          (cache_seqpos_
+               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+          actual_batch_size_ptr,
+          false,
+          0,
+          0,
+          0,
+          0,
+          false,
+          k_norm);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
   }
+  return XQ_O;
 }
 
 at::Tensor rope_qkv_varseq_prefill(
@@ -1385,7 +1466,7 @@ at::Tensor rope_qkv_varseq_prefill(
           lo_freq_factor,
           hi_freq_factor,
           write_k_back,
-          false);
+          k_norm);
 
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
@@ -1705,7 +1786,7 @@ at::Tensor rope_qkv_decoding(
           lo_freq_factor,
           hi_freq_factor,
           false,
-          false);
+          k_norm);
 
       C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
