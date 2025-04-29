@@ -57,14 +57,14 @@ class FbgemmGpuBuild:
             type=str,
             choices=["default", "genai"],
             default="default",
-            help="The FBGEMM_GPU variant to build.",
+            help="The FBGEMM build target to build.",
         )
         parser.add_argument(
             "--build-variant",
             type=str,
             choices=["docs", "cpu", "cuda", "rocm"],
             default="cuda",
-            help="The FBGEMM_GPU variant to build.",
+            help="The FBGEMM build (pseudo-)variant to build.",
         )
         parser.add_argument(
             "--package_channel",
