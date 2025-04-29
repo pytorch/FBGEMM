@@ -215,6 +215,8 @@ DEVICE_INLINE void quantize_fp8_kv(
     uint8_t* dst_row_q,
     __half2* qparam = nullptr,
     bool do_norm = false);
+
+DEVICE_INLINE void per_row_norm(fx4& dst);
 __global__ void nope_qkv_varseq_prefill_kernel(
     at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ, // [B_T][N_H][D_H]
@@ -648,13 +650,10 @@ DEVICE_INLINE fx4 rope_xpos(
 }
 
 template <int KVQuantNumGroups = 1>
-DEVICE_INLINE void quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm) {
+DEVICE_INLINE void
+quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm = false) {
   if (do_norm) {
-    float sum = fx4_dot(dst, dst);
-    // Warp reduce sum
-    sum = warpReduceSum(sum);
-    float rsqr = rsqrtf(sum / D_H);
-    dst = fx4_scale(dst, rsqr);
+    per_row_norm(dst);
   }
   auto thread_min = fminf(fminf(fminf(dst.x, dst.y), dst.z), dst.w);
   auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
@@ -912,54 +911,37 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
   *reinterpret_cast<uint2*>(&src) =
       *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]);
 
+  fx4 dst = rope_xpos<EmbMode>(
+      src,
+      seqpos_t,
+      qkv,
+      theta,
+      gamma,
+      scale_base,
+      exponent_offset,
+      rope_scaling,
+      old_context_len,
+      scaling_factor,
+      lo_freq_factor,
+      hi_freq_factor);
+  if (k_norm && qkv != QKV::V) {
+    // fusing K/Q norm into the kernel
+    per_row_norm(dst);
+  }
+
+  if (qkv == QKV::K && write_k_back) {
+    // Also write back to the source row
+    bfx4 dst_bf16 = fx4_to_bfx4(dst);
+    *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]) =
+        *reinterpret_cast<uint2*>(&dst_bf16);
+  }
   if (qkv == QKV::Q) {
-    // Store Q without quantization
-    bfx4 dst_bf16{};
-    if (EmbMode == PositionEmbeddingMode::NOPE) {
-      dst_bf16 = src;
-    } else {
-      fx4 dst = rope_xpos<EmbMode>(
-          src,
-          seqpos_t,
-          qkv,
-          theta,
-          gamma,
-          scale_base,
-          exponent_offset,
-          rope_scaling,
-          old_context_len,
-          scaling_factor,
-          lo_freq_factor,
-          hi_freq_factor);
-      dst_bf16 = fx4_to_bfx4(dst);
-    }
-
+    // write to dst_row
+    bfx4 dst_bf16 = fx4_to_bfx4(dst);
     CUDA_KERNEL_ASSERT(uintptr_t(&dst_row[4 * threadIdx.x]) % 8 == 0);
-
     *reinterpret_cast<uint2*>(&dst_row[4 * threadIdx.x]) =
         *reinterpret_cast<uint2*>(&dst_bf16);
   } else {
-    // Converts BF16 to float in case of NoPE
-    fx4 dst = rope_xpos<EmbMode>(
-        src,
-        seqpos_t,
-        qkv,
-        theta,
-        gamma,
-        scale_base,
-        exponent_offset,
-        rope_scaling,
-        old_context_len,
-        scaling_factor,
-        lo_freq_factor,
-        hi_freq_factor);
-    if (write_k_back && qkv == QKV::K &&
-        EmbMode != PositionEmbeddingMode::NOPE) {
-      // Also write back to the source row
-      bfx4 dst_bf16 = fx4_to_bfx4(dst);
-      *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]) =
-          *reinterpret_cast<uint2*>(&dst_bf16);
-    }
     // quantize and write to dst_row
     auto D_H = XQ.size(2);
     auto D_H_q = cache_K.size(3);
@@ -988,11 +970,10 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
           qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
         }
       }
-      quantize_fp8_kv(dst, dst_row_q, qparam_row, (qkv == QKV::K && k_norm));
+      quantize_fp8_kv(dst, dst_row_q, qparam_row);
     } else if (kCacheDtype == CacheLogicalDtype::INT4) {
       CUDA_KERNEL_ASSERT(D_H_q - D_H / 2 == 4 * KVQuantNumGroups);
-      quantize_int4_kv<KVQuantNumGroups>(
-          dst, dst_row_q, (qkv == QKV::K && k_norm));
+      quantize_int4_kv<KVQuantNumGroups>(dst, dst_row_q);
     }
   }
 }
@@ -2336,14 +2317,36 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   return {cache_K_dq, cache_V_dq};
 }
 
+// Function to convert and pack a single component
+DEVICE_INLINE uint32_t
+convertAndPack(float component, float inv_scale, float shift = 0.0) {
+  auto val = (component - shift) * inv_scale;
+  val = fmaxf(val, -FP8_E4M3_MAX::value);
+  val = fminf(val, FP8_E4M3_MAX::value);
+  auto x = __nv_fp8_e4m3(val);
+  return *reinterpret_cast<uint32_t*>(&x);
+}
+// Function to pack four components into a single uint32_t
+DEVICE_INLINE uint32_t packComponents(uint32_t x_bits[4]) {
+  uint32_t packed = 0;
+  packed |= (x_bits[0] << 0);
+  packed |= (x_bits[1] << 8);
+  packed |= (x_bits[2] << 16);
+  packed |= (x_bits[3] << 24);
+  return packed;
+}
+
+DEVICE_INLINE void per_row_norm(fx4& dst) {
+  float sum = fx4_dot(dst, dst);
+  // Warp reduce sum
+  sum = warpReduceSum(sum);
+  float rsqr = rsqrtf(sum / D_H);
+  dst = fx4_scale(dst, rsqr);
+}
 DEVICE_INLINE void
 quantize_fp8_kv(fx4 dst, uint8_t* dst_row_q, __half2* qparam, bool do_norm) {
   if (do_norm) {
-    float sum = fx4_dot(dst, dst);
-    // Warp reduce sum
-    sum = warpReduceSum(sum);
-    float rsqr = rsqrtf(sum / D_H);
-    dst = fx4_scale(dst, rsqr);
+    per_row_norm(dst);
   }
   auto thread_min = fminf(fminf(fminf(dst.x, dst.y), dst.z), dst.w);
   auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
@@ -2370,23 +2373,12 @@ quantize_fp8_kv(fx4 dst, uint8_t* dst_row_q, __half2* qparam, bool do_norm) {
   float inv_scale = 1 / scale;
   float shift = warp_min + FP8_E4M3_MAX::value * scale;
 
-  auto x_0 = __nv_fp8_e4m3((dst.x - shift) * inv_scale);
-  auto x_1 = __nv_fp8_e4m3((dst.y - shift) * inv_scale);
-  auto x_2 = __nv_fp8_e4m3((dst.z - shift) * inv_scale);
-  auto x_3 = __nv_fp8_e4m3((dst.w - shift) * inv_scale);
-
   uint32_t x_bits[4];
-  x_bits[0] = *reinterpret_cast<uint32_t*>(&x_0);
-  x_bits[1] = *reinterpret_cast<uint32_t*>(&x_1);
-  x_bits[2] = *reinterpret_cast<uint32_t*>(&x_2);
-  x_bits[3] = *reinterpret_cast<uint32_t*>(&x_3);
-
-  uint32_t packed = 0;
-
-  packed |= (x_bits[0] << 0);
-  packed |= (x_bits[1] << 8);
-  packed |= (x_bits[2] << 16);
-  packed |= (x_bits[3] << 24);
+  x_bits[0] = convertAndPack(dst.x, inv_scale, shift);
+  x_bits[1] = convertAndPack(dst.y, inv_scale, shift);
+  x_bits[2] = convertAndPack(dst.z, inv_scale, shift);
+  x_bits[3] = convertAndPack(dst.w, inv_scale, shift);
+  uint32_t packed = packComponents(x_bits);
 
   CUDA_KERNEL_ASSERT(
       uintptr_t(&dst_row_q[4 * threadIdx.x + fp8_qparam_offset]) % 4 == 0);
