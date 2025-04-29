@@ -8,7 +8,7 @@
 # pyre-strict
 
 import logging
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import torch
 
