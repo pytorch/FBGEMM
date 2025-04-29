@@ -154,16 +154,16 @@ __setup_fbgemm_gpu_test () {
 
   # Configure the environment for ignored test suites for each FBGEMM_GPU
   # variant
-  if [ "$fbgemm_gpu_variant" == "cpu" ]; then
+  if [ "$fbgemm_build_variant" == "cpu" ]; then
     echo "[TEST] Configuring for CPU-based testing ..."
     __configure_fbgemm_gpu_test_cpu
 
-  elif [ "$fbgemm_gpu_variant" == "rocm" ]; then
+  elif [ "$fbgemm_build_variant" == "rocm" ]; then
     echo "[TEST] Configuring for ROCm-based testing ..."
     __configure_fbgemm_gpu_test_rocm
 
   else
-    echo "[TEST] FBGEMM_GPU variant is ${fbgemm_gpu_variant}; configuring for CUDA-based testing ..."
+    echo "[TEST] FBGEMM_GPU variant is ${fbgemm_build_variant}; configuring for CUDA-based testing ..."
     __configure_fbgemm_gpu_test_cuda
   fi
 
@@ -189,9 +189,6 @@ __setup_fbgemm_gpu_test () {
 
   echo "[TEST] Checking imports ..."
   (test_python_import_package "${env_name}" fbgemm_gpu) || return 1
-  if [ "$fbgemm_gpu_variant" != "genai" ]; then
-    (test_python_import_package "${env_name}" fbgemm_gpu.split_embedding_codegen_lookup_invokers) || return 1
-  fi
 
   # Set the feature flags to enable experimental features as needed
   __set_feature_flags
@@ -251,21 +248,19 @@ __run_fbgemm_gpu_tests_in_directory () {
 __determine_test_directories () {
   target_directories=()
 
-  if [ "$fbgemm_gpu_variant" != "genai" ]; then
-    target_directories+=(
-      fbgemm_gpu/test
-    )
-  fi
-
-  if [ "$fbgemm_gpu_variant" == "genai" ]; then
+  if [ "$fbgemm_build_target" == "genai" ]; then
     target_directories+=(
       fbgemm_gpu/experimental/example/test
       fbgemm_gpu/experimental/gemm/test
       fbgemm_gpu/experimental/gen_ai/test
     )
+  else
+    target_directories+=(
+      fbgemm_gpu/test
+    )
   fi
 
-  echo "[TEST] Determined the testing directories:"
+  echo "[TEST] Determined the test directories:"
   for test_dir in "${target_directories[@]}"; do
     echo "$test_dir"
   done
@@ -274,14 +269,10 @@ __determine_test_directories () {
 
 test_all_fbgemm_gpu_modules () {
   env_name="$1"
-  fbgemm_gpu_variant="$2"
   if [ "$env_name" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME [FBGEMM_GPU_VARIANT]"
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME"
     echo "Example(s):"
     echo "    ${FUNCNAME[0]} build_env        # Test all FBGEMM_GPU modules applicable to to the installed variant"
-    echo "    ${FUNCNAME[0]} build_env cpu    # Test all FBGEMM_GPU modules applicable to CPU"
-    echo "    ${FUNCNAME[0]} build_env cuda   # Test all FBGEMM_GPU modules applicable to CUDA"
-    echo "    ${FUNCNAME[0]} build_env rocm   # Test all FBGEMM_GPU modules applicable to ROCm"
     return 1
   else
     echo "################################################################################"
@@ -295,14 +286,13 @@ test_all_fbgemm_gpu_modules () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  # Determine the FBGEMM_GPU varaiant if needed
-  if [ "$fbgemm_gpu_variant" == "" ]; then
-    echo "[TEST] FBGEMM_GPU variant not explicitly provided by user; will automatically determine from the FBGEMM_GPU installation ..."
-    # shellcheck disable=SC2086
-    fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
-    echo "[TEST] Determined FBGEMM_GPU variant from installation: ${fbgemm_gpu_variant}"
-    echo "[TEST] Will be running tests specific to this variant ..."
-  fi
+  # Determine the FBGEMM build target and variant
+  # shellcheck disable=SC2086
+  fbgemm_build_target=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__target__)")
+  # shellcheck disable=SC2086
+  fbgemm_build_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
+  echo "[TEST] Determined FBGEMM_GPU (target : variant) from installation: (${fbgemm_build_target} : ${fbgemm_build_variant})"
+  echo "[TEST] Will be running tests specific to this target and variant ..."
 
   # Determine the test directories to include for testing
   __determine_test_directories
@@ -312,9 +302,9 @@ test_all_fbgemm_gpu_modules () {
 
   # Iterate through the test directories and run bulk tests
   for test_dir in "${target_directories[@]}"; do
-    cd "${test_dir}"                                                          || return 1
-    __run_fbgemm_gpu_tests_in_directory "${env_name}" "${fbgemm_gpu_variant}" || return 1
-    cd -                                                                      || return 1
+    cd "${test_dir}"                                    || return 1
+    __run_fbgemm_gpu_tests_in_directory "${env_name}"   || return 1
+    cd -                                                || return 1
   done
 }
 
@@ -402,7 +392,7 @@ test_fbgemm_gpu_build_and_install () {
   # Assume we are starting from the repository root directory
   cd "${repo}/fbgemm_gpu"                                                     || return 1
   prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
-  build_fbgemm_gpu_package    "${env_name}" release "${pytorch_variant_type}" || return 1
+  build_fbgemm_gpu_package    "${env_name}" release "default/${pytorch_variant_type}" || return 1
 
   cd "${repo}"                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1

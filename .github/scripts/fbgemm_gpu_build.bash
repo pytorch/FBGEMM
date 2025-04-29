@@ -140,16 +140,16 @@ __configure_fbgemm_gpu_cuda_home () {
 __configure_fbgemm_gpu_build_cpu () {
   # Update the package name and build args depending on if CUDA is specified
   echo "[BUILD] Setting CPU-only build args ..."
-  build_args=(
-    --package_variant=cpu
+  build_args+=(
+    --build-variant=cpu
   )
 }
 
 __configure_fbgemm_gpu_build_docs () {
   # Update the package name and build args depending on if CUDA is specified
   echo "[BUILD] Setting CPU-only (docs) build args ..."
-  build_args=(
-    --package_variant=docs
+  build_args+=(
+    --build-variant=docs
   )
 }
 
@@ -205,8 +205,8 @@ __configure_fbgemm_gpu_build_rocm () {
   # For more info on rocmcc flags:
   #   https://rocm.docs.amd.com/en/docs-6.1.1/reference/rocmcc.html
   echo "[BUILD] Setting ROCm build args ..."
-  build_args=(
-    --package_variant=rocm
+  build_args+=(
+    --build-variant=rocm
     # HIP_ROOT_DIR now required for HIP to be correctly detected by CMake
     -DHIP_ROOT_DIR=/opt/rocm
     # ROCm CMake complains about missing AMDGPU_TARGETS, so we explicitly set this
@@ -251,7 +251,7 @@ __configure_fbgemm_gpu_build_cuda () {
     #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
     #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
     if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="7.0;8.0;9.0;9.0a;10.0;10.0a;12.0;12.0a"
+      local arch_list="7.0;8.0;9.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
@@ -283,8 +283,8 @@ __configure_fbgemm_gpu_build_cuda () {
   print_exec conda env config vars set ${env_prefix} NVCC_VERBOSE=1
 
   echo "[BUILD] Setting CUDA build args ..."
-  build_args=(
-    --package_variant=cuda
+  build_args+=(
+    --build-variant=cuda
     --nvml_lib_path="${nvml_lib_path}"
     --nccl_lib_path="${nccl_lib_path}"
     # Pass to PyTorch CMake
@@ -296,17 +296,6 @@ __configure_fbgemm_gpu_build_cuda () {
 
   # Set NVCC flags
   __configure_fbgemm_gpu_build_nvcc
-}
-
-__configure_fbgemm_gpu_build_genai () {
-  local fbgemm_variant_targets="$1"
-
-  __configure_fbgemm_gpu_build_cuda "$fbgemm_variant_targets" || return 1
-
-  # Replace the package_variant flag, since GenAI is also a CUDA-type build
-  for i in "${!build_args[@]}"; do
-    build_args[i]="${build_args[i]/--package_variant=cuda/--package_variant=genai}"
-  done
 }
 
 # shellcheck disable=SC2120
@@ -321,21 +310,29 @@ __configure_fbgemm_gpu_build () {
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
-  if [ "$fbgemm_variant" == "cpu" ]; then
+  # Set build args list to be populated, and set verbosity
+  build_args=(
+    --verbose
+  )
+
+  # Set the build target
+  echo "[BUILD] Setting the build target: ${fbgemm_build_target} ..."
+  build_args+=(
+    --build-target="${fbgemm_build_target}"
+  )
+
+  # Append build args based on the build variant
+  if [ "$fbgemm_build_variant" == "cpu" ]; then
     echo "[BUILD] Configuring build as CPU variant ..."
     __configure_fbgemm_gpu_build_cpu
 
-  elif [ "$fbgemm_variant" == "docs" ]; then
+  elif [ "$fbgemm_build_variant" == "docs" ]; then
     echo "[BUILD] Configuring build as CPU (docs) variant ..."
     __configure_fbgemm_gpu_build_docs
 
-  elif [ "$fbgemm_variant" == "rocm" ]; then
+  elif [ "$fbgemm_build_variant" == "rocm" ]; then
     echo "[BUILD] Configuring build as ROCm variant ..."
     __configure_fbgemm_gpu_build_rocm "${fbgemm_variant_targets}"
-
-  elif [ "$fbgemm_variant" == "genai" ]; then
-    echo "[BUILD] Configuring build as GenAI variant ..."
-    __configure_fbgemm_gpu_build_genai "${fbgemm_variant_targets}"
 
   else
     echo "[BUILD] Configuring build as CUDA variant (this is the default behavior) ..."
@@ -349,11 +346,6 @@ __configure_fbgemm_gpu_build () {
   if print_exec "conda run ${env_prefix} c++ --version | grep -i clang"; then
     __configure_fbgemm_gpu_build_clang
   fi
-
-  # Set verbosity
-  build_args+=(
-    --verbose
-  )
 
   # Set debugging options
   if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
@@ -373,6 +365,33 @@ __configure_fbgemm_gpu_build () {
 
   # shellcheck disable=SC2145
   echo "[BUILD] FBGEMM_GPU build arguments have been set:  ${build_args[@]}"
+}
+
+__export_target_variant_info () {
+  local fbgemm_build_target_variant="$1"
+
+  # Extract the package channel and version from the tuple-string
+  if  [ "$fbgemm_build_target_variant" == "docs" ] ||
+      [ "$fbgemm_build_target_variant" == "cpu" ] ||
+      [ "$fbgemm_build_target_variant" == "cuda" ] ||
+      [ "$fbgemm_build_target_variant" == "rocm" ]; then
+    export fbgemm_build_target="default"
+    export fbgemm_build_variant="${fbgemm_build_target_variant}"
+
+  else
+    # shellcheck disable=SC2207
+    local fbgemm_build_target_variant_arr=($(echo "${fbgemm_build_target_variant}" | tr '/' '\n'))
+
+    # Assume that if the input is a single string, and is not one of the
+    # designated build variants, then the it is referring to the build target
+    if [ ${#fbgemm_build_target_variant_arr[@]} -lt 2 ]; then
+      export fbgemm_build_target="${fbgemm_build_target_variant_arr[0]}"
+      export fbgemm_build_variant="cuda"
+    else
+      export fbgemm_build_target="${fbgemm_build_target_variant_arr[0]}"
+      export fbgemm_build_variant="${fbgemm_build_target_variant_arr[1]}"
+    fi
+  fi
 }
 
 __build_fbgemm_gpu_set_python_tag () {
@@ -446,16 +465,26 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" c++) || return 1
   (test_binpath "${env_name}" g++) || return 1
 
-  # Set the default the FBGEMM_GPU variant to be CUDA
-  if  [ "$fbgemm_variant" != "cpu" ] &&
-      [ "$fbgemm_variant" != "docs" ] &&
-      [ "$fbgemm_variant" != "rocm" ] &&
-      [ "$fbgemm_variant" != "genai" ]; then
+  # Set the default the FBGEMM build variant to be default (i.e. FBGEMM_GPU)
+  if  [ "$fbgemm_build_target" != "genai" ] &&
+      [ "$fbgemm_build_target" != "default" ]; then
     echo "################################################################################"
-    echo "[BUILD] Unknown FBGEMM_GPU variant: $fbgemm_variant"
+    echo "[BUILD] Unknown FBGEMM build TARGET: ${fbgemm_build_target}"
+    echo "[BUILD] Defaulting to 'default'"
+    echo "################################################################################"
+    export fbgemm_build_target="default"
+  fi
+
+  # Set the default the FBGEMM build variant to be CUDA
+  if  [ "$fbgemm_build_variant" != "docs" ] &&
+      [ "$fbgemm_build_variant" != "cpu" ] &&
+      [ "$fbgemm_build_variant" != "cuda" ] &&
+      [ "$fbgemm_build_variant" != "rocm" ]; then
+    echo "################################################################################"
+    echo "[BUILD] Unknown FBGEMM build VARIANT: ${fbgemm_build_variant}"
     echo "[BUILD] Defaulting to CUDA"
     echo "################################################################################"
-    export fbgemm_variant="cuda"
+    export fbgemm_build_variant="cuda"
   fi
 
   # Extract and set the Python tag
@@ -548,31 +577,25 @@ __verify_library_symbols () {
 
   # Prepare a sample set of symbols whose existence in the built library should be checked
   # This is by no means an exhaustive set, and should be updated accordingly
-  if  [ "${fbgemm_variant}" == "cpu" ] ||
-      [ "${fbgemm_variant}" == "docs" ]; then
-    local lib_symbols_to_check=(
-      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
-      fbgemm_gpu::jagged_2d_to_dense
-    )
-  elif [ "${fbgemm_variant}" == "cuda" ]; then
-    local lib_symbols_to_check=(
-      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
-      fbgemm_gpu::jagged_2d_to_dense
-      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
-      fbgemm_gpu::merge_pooled_embeddings
-    )
-  elif [ "${fbgemm_variant}" == "rocm" ]; then
-    local lib_symbols_to_check=(
-      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
-      fbgemm_gpu::jagged_2d_to_dense
-      fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
-      fbgemm_gpu::merge_pooled_embeddings
-    )
-  elif [ "${fbgemm_variant}" == "genai" ]; then
+  if [ "${fbgemm_build_target}" == "genai" ]; then
     local lib_symbols_to_check=(
       fbgemm_gpu::car_init
       fbgemm_gpu::per_tensor_quantize_i8
     )
+
+  else
+    local lib_symbols_to_check=(
+      fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
+      fbgemm_gpu::jagged_2d_to_dense
+    )
+
+    if  [ "${fbgemm_build_variant}" == "cuda" ] &&
+        [ "${fbgemm_build_variant}" == "rocm" ]; then
+      lib_symbols_to_check+=(
+        fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
+        fbgemm_gpu::merge_pooled_embeddings
+      )
+    fi
   fi
 
   echo "[CHECK] Verifying sample subset of symbols in the built libraries ..."
@@ -581,19 +604,7 @@ __verify_library_symbols () {
   done
 }
 
-run_fbgemm_gpu_postbuild_checks () {
-  fbgemm_variant="$1"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} FBGEMM_VARIANT"
-    echo "Example(s):"
-    echo "    ${FUNCNAME[0]} cpu"
-    echo "    ${FUNCNAME[0]} docs"
-    echo "    ${FUNCNAME[0]} cuda"
-    echo "    ${FUNCNAME[0]} rocm"
-    echo "    ${FUNCNAME[0]} genai"
-    return 1
-  fi
-
+__run_fbgemm_gpu_postbuild_checks () {
   # Find the .SO file
   # shellcheck disable=SC2035,SC2061,SC2062,SC2155,SC2178
   local fbgemm_gpu_so_files=$(find . -name *.so | grep .*cmake-build/.*)
@@ -607,7 +618,7 @@ run_fbgemm_gpu_postbuild_checks () {
   __verify_library_symbols  || return 1
 }
 
-run_fbgemm_gpu_audit_wheel () {
+__run_audit_wheel () {
   fbgemm_wheel="$1"
   if [ "$fbgemm_wheel" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} FBGEMM_WHEEL_PATH"
@@ -633,22 +644,26 @@ run_fbgemm_gpu_audit_wheel () {
 build_fbgemm_gpu_package () {
   env_name="$1"
   fbgemm_release_channel="$2"
-  fbgemm_variant="$3"
+  fbgemm_build_target_variant="$3"
   fbgemm_variant_targets="$4"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_CHANNEL VARIANT [VARIANT_TARGETS]"
+  if [ "$fbgemm_build_target_variant" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME RELEASE_CHANNEL TARGET/VARIANT [VARIANT_TARGETS]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env release cpu                      # CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env release docs                     # CPU-only (docs) variant"
-    echo "    ${FUNCNAME[0]} build_env nightly cuda                     # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'              # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env test rocm                        # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env test rocm 'gfx906;gfx908;gfx90a' # ROCm variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env release cpu                            # Default build target, CPU-only build variant"
+    echo "    ${FUNCNAME[0]} build_env release docs                           # Default build target, CPU-only (docs) build variant"
+    echo "    ${FUNCNAME[0]} build_env nightly genai/cuda                     # GenAI build target, CUDA build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'                    # Default build target, CUDA build variant, custom variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test rocm                              # Default build target, ROCm build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx906;gfx908;gfx90a' # GenAI build target, ROCm build variant, default variant target(s)"
     return 1
   fi
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # Extract the build target and variant from the tuple-string, and export
+  # variables to environment
+  __export_target_variant_info "${fbgemm_build_target_variant}"
 
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
@@ -677,17 +692,17 @@ build_fbgemm_gpu_package () {
 
   # Build the wheel.  Invoke using `python -m build`
   #   https://blog.ganssle.io/articles/2021/10/setup-py-deprecated.html
-  echo "[BUILD] Building FBGEMM-GPU wheel (VARIANT=${fbgemm_variant}) ..."
+  echo "[BUILD] Building FBGEMM wheel (TARGET=${fbgemm_build_target}, VARIANT=${fbgemm_build_variant}) ..."
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python -m build --wheel --no-isolation \
       "${build_args[@]}" || return 1
 
   # Run checks on the built libraries
-  (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
+  __run_fbgemm_gpu_postbuild_checks || return 1
 
   for wheelfile in dist/*.whl; do
-    run_fbgemm_gpu_audit_wheel "${wheelfile}"
+    __run_audit_wheel "${wheelfile}"
   done
 
   echo "[BUILD] Enumerating the built wheels ..."
@@ -703,22 +718,26 @@ build_fbgemm_gpu_package () {
 
 build_fbgemm_gpu_install () {
   env_name="$1"
-  fbgemm_variant="$2"
+  fbgemm_build_target_variant="$2"
   fbgemm_variant_targets="$3"
-  if [ "$fbgemm_variant" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME VARIANT [TARGETS]"
+  if [ "$fbgemm_build_target_variant" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME TARGET/VARIANT [TARGETS]"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env cpu                          # CPU-only variant"
-    echo "    ${FUNCNAME[0]} build_env docs                         # CPU-only (docs) variant"
-    echo "    ${FUNCNAME[0]} build_env cuda                         # CUDA variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env cuda '7.0;8.0'               # CUDA variant for custom target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm                         # ROCm variant for default target(s)"
-    echo "    ${FUNCNAME[0]} build_env rocm 'gfx906;gfx908;gfx90a'  # ROCm variant for custom target(s)"
+    echo "    ${FUNCNAME[0]} build_env release cpu                            # Default build target, CPU-only build variant"
+    echo "    ${FUNCNAME[0]} build_env release docs                           # Default build target, CPU-only (docs) build variant"
+    echo "    ${FUNCNAME[0]} build_env nightly genai/cuda                     # GenAI build target, CUDA build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test cuda '7.0;8.0'                    # Default build target, CUDA build variant, custom variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test rocm                              # Default build target, ROCm build variant, default variant target(s)"
+    echo "    ${FUNCNAME[0]} build_env test genai/rocm 'gfx906;gfx908;gfx90a' # GenAI build target, ROCm build variant, default variant target(s)"
     return 1
   fi
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # Extract the build target and variant from the tuple-string, and export
+  # variables to environment
+  __export_target_variant_info "${fbgemm_build_target_variant}"
 
   # Set up and configure the build
   __build_fbgemm_gpu_common_pre_steps || return 1
@@ -733,14 +752,14 @@ build_fbgemm_gpu_install () {
 
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
-  echo "[BUILD] Building + installing FBGEMM-GPU (VARIANT=${fbgemm_variant}) ..."
+  echo "[BUILD] Building + installing FBGEMM wheel (TARGET=${fbgemm_build_target}, VARIANT=${fbgemm_build_variant}) ..."
   # shellcheck disable=SC2086
   print_exec conda run --no-capture-output ${env_prefix} \
     python setup.py "${run_multicore}" install \
       "${build_args[@]}" || return 1
 
   # Run checks on the built libraries
-  (run_fbgemm_gpu_postbuild_checks "${fbgemm_variant}") || return 1
+  __run_fbgemm_gpu_postbuild_checks || return 1
 
   echo "[INSTALL] Checking imports ..."
   # Exit this directory to prevent import clashing, since there is an

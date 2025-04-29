@@ -39,12 +39,15 @@ __install_fetch_version_and_variant_info () {
 
   echo "[CHECK] Printing out the FBGEMM-GPU version ..."
   # shellcheck disable=SC2086,SC2155
-  installed_fbgemm_gpu_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
+  installed_fbgemm_target=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__target__)")
   # shellcheck disable=SC2086,SC2155
-  installed_fbgemm_gpu_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
+  installed_fbgemm_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
+  # shellcheck disable=SC2086,SC2155
+  installed_fbgemm_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
   echo "################################################################################"
-  echo "[CHECK] The installed VERSION of FBGEMM_GPU is: ${installed_fbgemm_gpu_version}"
-  echo "[CHECK] The installed VARIANT of FBGEMM_GPU is: ${installed_fbgemm_gpu_variant}"
+  echo "[CHECK] The installed FBGEMM TARGET is: ${installed_fbgemm_target}"
+  echo "[CHECK] The installed FBGEMM VARIANT is: ${installed_fbgemm_variant}"
+  echo "[CHECK] The installed FBGEMM VERSION is: ${installed_fbgemm_version}"
   echo "################################################################################"
   echo ""
 }
@@ -53,7 +56,7 @@ __install_check_subpackages () {
   # shellcheck disable=SC2086,SC2155
   local fbgemm_gpu_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(dir(fbgemm_gpu))")
 
-  if [ "$installed_fbgemm_gpu_variant" == "cuda" ] || [ "$installed_fbgemm_gpu_variant" == "genai" ]; then
+  if [ "$installed_fbgemm_target" == "genai" ]; then
     # shellcheck disable=SC2086,SC2155
     local experimental_packages=$(conda run ${env_prefix} python -c "import fbgemm_gpu.experimental; print(dir(fbgemm_gpu.experimental))")
   fi
@@ -74,7 +77,7 @@ __install_check_subpackages () {
     "fbgemm_gpu.tbe.cache"
   )
 
-  if [ "$installed_fbgemm_gpu_variant" != "genai" ]; then
+  if [ "$installed_fbgemm_target" != "genai" ]; then
     subpackages+=(
       "fbgemm_gpu.split_embedding_codegen_lookup_invokers"
       "fbgemm_gpu.tbe.ssd"
@@ -89,7 +92,7 @@ __install_check_subpackages () {
 
 __install_check_operator_registrations () {
   echo "[INSTALL] Check for operator registrations ..."
-  if [ "$installed_fbgemm_gpu_variant" == "genai" ]; then
+  if [ "$installed_fbgemm_target" == "genai" ]; then
     local test_operators=(
       "torch.ops.fbgemm.nccl_init"
       "torch.ops.fbgemm.gqa_attn_splitk"

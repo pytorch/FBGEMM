@@ -57,7 +57,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     const int32_t max_vecs_per_thread,
     {{ args.split_ref_kernel_args | replace_pta_namespace() | join(",\n    ") }}
 ) {
-    constexpr auto kIsInt8 = std::is_same<emb_t, uint8_t>::value;
+    constexpr auto kIsInt8 = std::is_same_v<emb_t, uint8_t>;
     // Copy value to max_vecs to make max_vecs_per_thread known at compile time
     // when kUseVecBlocking == false
     const int32_t max_vecs =
@@ -107,8 +107,10 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
             threadIdx.x + run_id * blockDim.x);
 
     float2 qparams_template;
-    if (kIsInt8 && !cache_weights) {
-        qparams_template = weight_row_template.load_qparams();
+    if constexpr (kIsInt8) {
+        if (!cache_weights) {
+            qparams_template = weight_row_template.load_qparams();
+        }
     }
 
     {{ split_precomputation }}
@@ -142,23 +144,25 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
        )
     }}
 
-    if (kIsInt8 && !cache_weights) {
-        // Calculate new qparams after row update
-        qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(
-            shared_weight_update_row, D);
-        weight_row_template.store_qparams(qparams_new);
+    if constexpr (kIsInt8) {
+        if (!cache_weights) {
+            // Calculate new qparams after row update
+            qparams_new = thrust_find_qparams<at::acc_type<cache_t, true>>(
+                shared_weight_update_row, D);
+            weight_row_template.store_qparams(qparams_new);
 
-        // Fetch cached updated row from shared mem and quantize on-the-fly
-        // when saving to lowp embedding
-        for (int32_t vec = 0;
-            (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
-            ++vec) {
-            const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
-            const int32_t d = d_vec * VEC_WIDTH;
-            weight_row_template.store(
-                shared_weight_update_row[d_vec],
-                d,
-                qparams_new);
+            // Fetch cached updated row from shared mem and quantize on-the-fly
+            // when saving to lowp embedding
+            for (int32_t vec = 0;
+                (vec * kThreadGroupSize + threadIdx.x) * VEC_WIDTH < D;
+                ++vec) {
+                const auto d_vec = vec * kThreadGroupSize + threadIdx.x;
+                const int32_t d = d_vec * VEC_WIDTH;
+                weight_row_template.store(
+                    shared_weight_update_row[d_vec],
+                    d,
+                    qparams_new);
+            }
         }
     }
 
