@@ -29,14 +29,23 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 class SnapshotHandle {};
 
 KVTensorWrapper::KVTensorWrapper(
-    c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
     std::vector<int64_t> shape,
     [[maybe_unused]] int64_t dtype,
     int64_t row_offset,
     [[maybe_unused]] std::optional<
         c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>> snapshot_handle)
     // @lint-ignore CLANGTIDY clang-diagnostic-missing-noreturn
-    : db_(db->impl_), shape_(std::move(shape)), row_offset_(row_offset) {
+    : shape_(std::move(shape)), row_offset_(row_offset) {
+  FBEXCEPTION("Not implemented");
+}
+
+void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
+    c10::intrusive_ptr<EmbeddingRocksDBWrapper> db) {
+  FBEXCEPTION("Not implemented");
+}
+
+void KVTensorWrapper::set_dram_db_wrapper(
+    c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db) {
   FBEXCEPTION("Not implemented");
 }
 

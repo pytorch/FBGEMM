@@ -11,6 +11,14 @@
 #include <ATen/Tensor.h> // @manual=//caffe2:ATen-core
 #include <torch/custom_class.h>
 
+namespace kv_mem {
+class DramKVEmbeddingCacheWrapper;
+}
+
+namespace kv_db {
+class EmbeddingKVDB;
+}
+
 namespace ssd {
 
 class EmbeddingRocksDB;
@@ -32,7 +40,6 @@ struct EmbeddingSnapshotHandleWrapper : public torch::jit::CustomClassHolder {
 class KVTensorWrapper : public torch::jit::CustomClassHolder {
  public:
   explicit KVTensorWrapper(
-      c10::intrusive_ptr<EmbeddingRocksDBWrapper> db,
       std::vector<int64_t> shape,
       int64_t dtype,
       int64_t row_offset,
@@ -40,6 +47,22 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
           snapshot_handle);
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
+
+  /// @brief if the backend storage is SSD, use this function
+  /// to set db_ inside KVTensorWrapper
+  /// this function should be called right after KVTensorWrapper
+  /// initialization
+  /// @param db: the DB wrapper
+  void set_embedding_rocks_dp_wrapper(
+      c10::intrusive_ptr<EmbeddingRocksDBWrapper> db);
+
+  /// @brief if the backend storage is DramKV, use this function
+  /// to set db_ inside KVTensorWrapper
+  /// this function should be called right after KVTensorWrapper
+  /// initialization
+  /// @param db: the DB wrapper
+  void set_dram_db_wrapper(
+      c10::intrusive_ptr<kv_mem::DramKVEmbeddingCacheWrapper> db);
 
   void set_range(
       int64_t dim,
@@ -66,7 +89,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   std::string layout_str();
 
  private:
-  std::shared_ptr<EmbeddingRocksDB> db_;
+  std::shared_ptr<kv_db::EmbeddingKVDB> db_;
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
   at::TensorOptions options_;
   std::vector<int64_t> shape_;
