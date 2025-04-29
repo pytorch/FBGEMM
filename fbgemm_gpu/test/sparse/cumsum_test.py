@@ -131,6 +131,38 @@ class CumSumTest(unittest.TestCase):
             zc.cpu(),
         )
 
+    @given(
+        batch_size=st.integers(10, 1000),
+        max_len=st.integers(10, 1000),
+        dtype=st.sampled_from([torch.int32, torch.int64]),
+        device=cpu_and_maybe_gpu(),
+    )
+    @settings(
+        verbosity=Verbosity.verbose,
+        max_examples=50,
+        deadline=None,
+    )
+    def test_batched_complete_cumsum(
+        self,
+        batch_size: int,
+        max_len: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> None:
+        def cumsum_base(values: torch.Tensor) -> torch.Tensor:
+            out = [
+                torch.ops.fbgemm.asynchronous_complete_cumsum(values[i])
+                for i in range(values.shape[0])
+            ]
+            return torch.stack(out, dim=0)
+
+        values = torch.randint(
+            0, 1000, (batch_size, max_len), device=device, dtype=dtype
+        )
+        out = torch.ops.fbgemm.asynchronous_batched_complete_cumsum(values)
+        out2 = cumsum_base(values)
+        torch.testing.assert_close(out, out2)
+
 
 extend_test_class(CumSumTest)
 
