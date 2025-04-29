@@ -214,7 +214,10 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                 {%- if not dense %}
                 const auto {{ locs_or_addrs_idx }}_j = shfl_sync({{ locs_or_addrs_idx }}, j);
                 {%- endif %}
+
                 at::acc_type<cache_t, true> grad_indice_weight = 0.0;
+                [[maybe_unused]] const auto weight_row =
+                    WeightRowAccessor<emb_t, at::acc_type<cache_t, true>>(&weights[offset_idx_j], D);
 
                 #pragma unroll kFixedMaxVecsPerThread
                 for (int32_t vec = 0;
@@ -241,32 +244,15 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
                             weight.acc.z * grad_out[vec].acc.z +
                             weight.acc.w * grad_out[vec].acc.w;
                     } else {
-                        auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-                            &weights[offset_idx_j],
-                            nullptr,
-                            D);
-                        float2 qparams;
-                        if (std::is_same<emb_t, uint8_t>::value) {
-                            qparams = weight_row.load_qparams();
-                        }
-                        Vec4TAcc<cache_t> weight =
-                        weight_row.load(d, qparams);
+                        const auto weight = weight_row.load(d);
                         grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
                             weight.acc.y * grad_out[vec].acc.y +
                             weight.acc.z * grad_out[vec].acc.z +
                             weight.acc.w * grad_out[vec].acc.w;
                     }
                     {%- else %}
-                    auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
-                        &weights[offset_idx_j],
-                        nullptr,
-                        D);
-                    float2 qparams;
-                    if (std::is_same<emb_t, uint8_t>::value) {
-                        qparams = weight_row.load_qparams();
-                    }
-                    Vec4TAcc<cache_t> weight =
-                    weight_row.load(d, qparams);
+                    const auto weight = weight_row.load(d);
+
                     grad_indice_weight += weight.acc.x * grad_out[vec].acc.x +
                         weight.acc.y * grad_out[vec].acc.y +
                         weight.acc.z * grad_out[vec].acc.z +

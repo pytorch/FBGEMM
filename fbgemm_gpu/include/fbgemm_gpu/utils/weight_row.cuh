@@ -84,6 +84,7 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
   auto ptr_as_uint = reinterpret_cast<uintptr_t>(ptr);
   if (ptr_as_uint % 8 == 0) {
     *reinterpret_cast<float2*>(ptr) = qparams;
+
   } else if (ptr_as_uint % 4 == 0) {
     auto* ptr_float = reinterpret_cast<float*>(ptr);
     auto* qparam_ptr = reinterpret_cast<const float*>(&qparams.x);
@@ -91,6 +92,7 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
     for (int i = 0; i < 2; ++i) {
       ptr_float[i] = qparam_ptr[i];
     }
+
   } else if (ptr_as_uint % 2 == 0) {
     auto* ptr_16bit = reinterpret_cast<uint16_t*>(ptr);
     auto* qparam_ptr = reinterpret_cast<const uint16_t*>(&qparams.x);
@@ -98,6 +100,7 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
     for (int i = 0; i < 4; ++i) {
       ptr_16bit[i] = qparam_ptr[i];
     }
+
   } else {
     auto* qparam_ptr = reinterpret_cast<const uint8_t*>(&qparams.x);
 #pragma unroll
