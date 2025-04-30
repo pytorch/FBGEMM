@@ -55,7 +55,7 @@ class FbgemmGpuBuild:
         parser.add_argument(
             "--build-target",
             type=str,
-            choices=["default", "genai"],
+            choices=["default", "genai", "hstu"],
             default="default",
             help="The FBGEMM build target to build.",
         )
@@ -125,7 +125,12 @@ class FbgemmGpuBuild:
         return self.args.build_variant
 
     def package_name(self) -> str:
-        pkg_name: str = "fbgemm_gpu_genai" if self.target() == "genai" else "fbgemm_gpu"
+        if self.target() == "genai":
+            pkg_name: str = "fbgemm_gpu_genai"
+        elif self.target() == "hstu":
+            pkg_name: str = "fbgemm_gpu_hstu"
+        else:
+            pkg_name: str = "fbgemm_gpu"
 
         if self.nova_flag() is None:
             # If running outside of Nova workflow context, append the channel
