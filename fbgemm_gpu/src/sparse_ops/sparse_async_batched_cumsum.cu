@@ -6,10 +6,18 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#ifdef __HIP_PLATFORM_AMD__
+#include <hipcub/block/block_scan.hpp>
+#else
 #include <cub/block/block_scan.cuh>
+#endif
 #include "common.cuh"
 
 static constexpr uint32_t kMaxThreads = 1024;
+
+#ifdef __HIP_PLATFORM_AMD__
+namespace cub = hipcub;
+#endif
 
 namespace fbgemm_gpu {
 
