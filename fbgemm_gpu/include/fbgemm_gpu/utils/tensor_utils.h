@@ -299,14 +299,16 @@ inline at::Tensor aligned_grad_output_tensor_for_cuda_backwards(
   auto aligned_grad_output = grad_output;
   // FIXME: to support aligned memory access in Vec4T load/store function
   // 16 for FP32 and 8 for FP16
-  if (grad_output.dim() > 1 &&
-      (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0 ||
-       grad_output.stride(1) != 1 || grad_output.stride(0) % 4 != 0)) {
-    aligned_grad_output = grad_output.contiguous();
+  if (!aligned_grad_output.is_contiguous()) {
+    aligned_grad_output = aligned_grad_output.contiguous();
   }
-  if (reinterpret_cast<uint64_t>(grad_output.data_ptr()) % 16 != 0) {
-    aligned_grad_output = at::empty_like(grad_output).copy_(grad_output);
+  if (reinterpret_cast<uint64_t>(aligned_grad_output.data_ptr()) % 16 != 0) {
+    aligned_grad_output =
+        at::empty_like(aligned_grad_output).copy_(aligned_grad_output);
   }
+  TORCH_CHECK(aligned_grad_output.is_contiguous());
+  TORCH_CHECK(
+      reinterpret_cast<uint64_t>(aligned_grad_output.data_ptr()) % 16 == 0);
   return aligned_grad_output;
 }
 
