@@ -39,6 +39,7 @@ set(fbgemm_gpu_sources_cpu_static
     src/layout_transform_ops/layout_transform_ops_cpu.cpp
     src/quantize_ops/quantize_ops_cpu.cpp
     src/quantize_ops/quantize_ops_meta.cpp
+    src/sparse_ops/sparse_async_batched_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     ${tbe_eeg_cpu_sources})
@@ -101,6 +102,7 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/quantize_ops/quantize_msfp.cu
       src/quantize_ops/quantize_padded_fp8_rowwise.cu
       src/quantize_ops/quantize_mx.cu
+      src/sparse_ops/sparse_async_batched_cumsum.cu
       src/sparse_ops/sparse_block_bucketize_features.cu
       src/sparse_ops/sparse_bucketize_features.cu
       src/sparse_ops/sparse_batched_unary_embeddings.cu
