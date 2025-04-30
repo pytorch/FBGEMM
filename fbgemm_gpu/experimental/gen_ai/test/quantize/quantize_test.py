@@ -227,7 +227,7 @@ class FP8Tests(unittest.TestCase):
     @given(
         B_T=st.sampled_from([0, 2048, 4096]),
         D=st.sampled_from([128, 256]),
-        HD_L=st.sampled_from([256, 512]),
+        HD_L=st.sampled_from([256, 512, 4096, 8192]),
         Mode=st.sampled_from(
             ["rowwise", "blockwise"]
             + (["tensorwise_broadcast", "tensorwise"] if torch.version.cuda else [])
@@ -236,6 +236,7 @@ class FP8Tests(unittest.TestCase):
         Bias=st.sampled_from([True, False]),
         CudaGraph=st.sampled_from([True, False]),
         UseTriton=st.sampled_from([False] + ([True] if torch.version.cuda else [])),
+        UseFastAccum=st.booleans(),
         InputMultiDim=st.booleans(),
     )
     def test_quantize_fp8_matmul(
@@ -248,8 +249,13 @@ class FP8Tests(unittest.TestCase):
         Bias: bool,
         CudaGraph: bool,
         UseTriton: bool,
+        UseFastAccum: bool,
         InputMultiDim: bool,
     ) -> None:
+        # Slow accumulation is only supported on Nvidia.
+        if torch.version.hip:
+            UseFastAccum = True
+        # Setup input shapes.
         if InputMultiDim and not torch.version.hip:
             x = torch.randn(size=(3, B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         else:
@@ -285,12 +291,16 @@ class FP8Tests(unittest.TestCase):
             if CudaGraph:
                 g = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(g):
-                    zq = torch.ops.fbgemm.f8f8bf16_tensorwise(xq, wq, x_scale * w_scale)
+                    zq = torch.ops.fbgemm.f8f8bf16_tensorwise(
+                        xq, wq, x_scale * w_scale, use_fast_accum=UseFastAccum
+                    )
                     if bias is not None:
                         zq += bias
                 g.replay()
             else:
-                zq = torch.ops.fbgemm.f8f8bf16_tensorwise(xq, wq, x_scale * w_scale)
+                zq = torch.ops.fbgemm.f8f8bf16_tensorwise(
+                    xq, wq, x_scale * w_scale, use_fast_accum=UseFastAccum
+                )
                 if bias is not None:
                     zq += bias
         elif Mode == "rowwise":
@@ -299,7 +309,9 @@ class FP8Tests(unittest.TestCase):
                 xq, x_scale = quantize_fp8_row(x)
                 wq, w_scale = quantize_fp8_row(w)
                 if UseTriton and torch.version.cuda:
-                    zq = matmul_fp8_row(xq, wq, x_scale, w_scale)
+                    zq = matmul_fp8_row(
+                        xq, wq, x_scale, w_scale, fp8_fast_accum=UseFastAccum
+                    )
                 g = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(g):
                     if torch.version.cuda:
@@ -321,6 +333,7 @@ class FP8Tests(unittest.TestCase):
                             x_scale,
                             w_scale,
                             bias=bias if torch.version.cuda else None,
+                            use_fast_accum=UseFastAccum,
                         )
                         # Bias fusion not yet supported on AMD.
                         if bias is not None and torch.version.hip:
@@ -336,7 +349,9 @@ class FP8Tests(unittest.TestCase):
                     xq, x_scale = quantize_fp8_row(x)
                     wq, w_scale = quantize_fp8_row(w)
                 if UseTriton and torch.version.cuda:
-                    zq = matmul_fp8_row(xq, wq, x_scale, w_scale)
+                    zq = matmul_fp8_row(
+                        xq, wq, x_scale, w_scale, fp8_fast_accum=UseFastAccum
+                    )
                     if bias is not None:
                         zq += bias
                 else:
@@ -346,6 +361,7 @@ class FP8Tests(unittest.TestCase):
                         x_scale,
                         w_scale,
                         bias=bias if torch.version.cuda else None,
+                        use_fast_accum=UseFastAccum,
                     )
                     # Bias fusion not yet supported on AMD.
                     if bias is not None and torch.version.hip:
@@ -369,7 +385,7 @@ class FP8Tests(unittest.TestCase):
                         block_m,
                         block_n,
                         block_k,
-                        fp8_fast_accum=True,
+                        fp8_fast_accum=UseFastAccum,
                     )
                 else:
                     zq = torch.ops.fbgemm.f8f8bf16_blockwise(
@@ -393,7 +409,7 @@ class FP8Tests(unittest.TestCase):
                             block_m,
                             block_n,
                             block_k,
-                            fp8_fast_accum=True,
+                            fp8_fast_accum=UseFastAccum,
                         )
                     else:
                         zq = torch.ops.fbgemm.f8f8bf16_blockwise(
@@ -416,7 +432,7 @@ class FP8Tests(unittest.TestCase):
                         block_m,
                         block_n,
                         block_k,
-                        fp8_fast_accum=True,
+                        fp8_fast_accum=UseFastAccum,
                     )
                 else:
                     zq = torch.ops.fbgemm.f8f8bf16_blockwise(
