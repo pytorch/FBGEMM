@@ -37,7 +37,7 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
   const int32_t C = lxu_cache_state.size(0);
-  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
     const bool segment_start =
@@ -64,21 +64,21 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
 
     // now, we need to insert the (unique!) values in indices[n:n + SL] into
     // our slots.
-    const int32_t slot = threadIdx.x;
+    const auto slot = threadIdx.x;
     const int64_t current_idx = lxu_cache_state[cache_set][slot];
     const int64_t current_lfu_cost =
         (current_idx != static_cast<int64_t>(kCacheStateInvalid))
         ? lfu_state[current_idx]
         : -1;
     int64_t costs[1] = {current_lfu_cost};
-    int32_t slots[1] = {slot};
+    uint32_t slots[1] = {slot};
 
-    BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-    const int32_t sorted_slot = slots[0];
-    const int64_t sorted_lfu_cost = costs[0];
+    BitonicSort<int64_t, uint32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+    const auto sorted_slot = slots[0];
+    const auto sorted_lfu_cost = costs[0];
 
     for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
-      const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      const auto insert_slot = shfl_sync(sorted_slot, l);
       const int64_t insert_current_lfu_cost = shfl_sync(sorted_lfu_cost, l);
       const int64_t insert_idx = cache_set_sorted_indices[n + l];
       const int64_t insert_lfu_cost = lfu_state[insert_idx];

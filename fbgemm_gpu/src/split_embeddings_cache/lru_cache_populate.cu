@@ -45,7 +45,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         lxu_cache_locking_counter) {
   const int32_t C = lxu_cache_state.size(0);
   int32_t n_conflict_misses = 0;
-  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
     const bool segment_start =
@@ -70,20 +70,20 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
 
     // now, we need to insert the (unique!) values in indices[n:n + SL] into
     // our slots.
-    const int32_t slot = threadIdx.x;
+    const auto slot = threadIdx.x;
     const int64_t slot_time = lru_state[cache_set][slot];
     int64_t costs[1] = {slot_time};
-    int32_t slots[1] = {slot};
+    uint32_t slots[1] = {slot};
 
-    BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-    const int32_t sorted_slot = slots[0];
-    const int64_t sorted_lru_cost = costs[0];
+    BitonicSort<int64_t, uint32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+    const auto sorted_slot = slots[0];
+    const auto sorted_lru_cost = costs[0];
     const auto stoc_rounding_salt = kWarpSize *
         (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
          threadIdx.x);
 
     for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
-      const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      const auto insert_slot = shfl_sync(sorted_slot, l);
       if (lock_cache_line) {
         auto count = lxu_cache_locking_counter[cache_set][insert_slot];
         if (count > 0) {

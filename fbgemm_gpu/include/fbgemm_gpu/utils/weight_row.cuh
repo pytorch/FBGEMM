@@ -214,12 +214,12 @@ struct WeightRow {
 
   DEVICE_INLINE void warp_copy_to_cache(
       cache_t* dst_row,
-      const int32_t dim_length,
-      const int32_t num_lanes,
-      const int32_t lane_id) {
+      const uint32_t dim_length,
+      const uint32_t num_lanes,
+      const uint32_t lane_id) {
     if constexpr (std::is_same_v<emb_t, cache_t>) {
       // No conversion required when emb_t and cache_t are the same type
-      for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+      for (auto d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
         same_type_vector_copy(
             dst_row + d, reinterpret_cast<const cache_t*>(row_ + d));
       }
@@ -229,7 +229,7 @@ struct WeightRow {
 
       // Copy over for each warp-sized slice of Vec4's
       // Does 2-step conversion: weight_t -> FP32 -> cache_t
-      for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+      for (auto d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
         const auto slice = load(d, qparams);
         quantize_store(dst_row + d, slice, stoc_rounding_state_ptr_, qparams);
       }
@@ -237,9 +237,9 @@ struct WeightRow {
   }
 
   DEVICE_INLINE void warp_evict_cache(
-      const int32_t dim_length,
-      const int32_t num_lanes,
-      const int32_t lane_id) {
+      const uint32_t dim_length,
+      const uint32_t num_lanes,
+      const uint32_t lane_id) {
     float2 qparams;
 
     if constexpr (std::is_same_v<emb_t, uint8_t>) {
@@ -248,7 +248,7 @@ struct WeightRow {
           std::numeric_limits<at::acc_type<cache_t, true>>::lowest();
 
       // Compute the qparams from the cache row (not embedding row) weights
-      for (int32_t d = lane_id; d * 4 < dim_length; d += num_lanes) {
+      for (auto d = lane_id; d * 4 < dim_length; d += num_lanes) {
         const auto cache_slice = load(d * 4, qparams); // qparams not used
         local_max = max(local_max, cache_slice.vmax());
         local_min = min(local_min, cache_slice.vmin());
@@ -263,7 +263,7 @@ struct WeightRow {
       }
     }
 
-    for (int32_t d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
+    for (auto d = lane_id * 4; d < dim_length; d += num_lanes * 4) {
       // Evict the slice into the embedding row
       evict_cache(d, qparams);
     }

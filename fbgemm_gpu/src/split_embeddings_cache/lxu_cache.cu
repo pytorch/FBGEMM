@@ -35,7 +35,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
     bool stochastic_rounding,
     at::PhiloxCudaState stochastic_rounding_philox_args) {
   const int32_t B = lxu_cache_weights.size(0);
-  const int32_t b = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto b = blockIdx.x * blockDim.y + threadIdx.y;
   if (b >= B) {
     return;
   }
@@ -55,7 +55,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
     if constexpr (std::is_same_v<emb_t, uint8_t>) {
       D_emb += kINT8QparamsBytes;
     }
-    StochasticRoundingRNGState state;
+
     auto weight_row = WeightRow<emb_t, cache_t, at::acc_type<cache_t, true>>(
         &weights[weights_offset_current + idx_current * D_emb + 0],
         &lxu_cache_weights[b][0],
@@ -73,7 +73,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
         weight_row.store_qparams(qparams);
       }
     }
-    for (int32_t d = threadIdx.x * 4; d < D_current; d += blockDim.x * 4) {
+    for (auto d = threadIdx.x * 4; d < D_current; d += blockDim.x * 4) {
       weight_row.evict_cache(d, qparams);
     }
   }
@@ -175,7 +175,7 @@ __launch_bounds__(kMaxThreads) void lxu_cache_locking_counter_decrement_kernel(
         lxu_cache_locking_counter,
     pta::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> count) {
   const int32_t C = lxu_cache_locking_counter.size(0);
-  for (int32_t i = blockIdx.x * blockDim.y + threadIdx.y; i < C;
+  for (auto i = blockIdx.x * blockDim.y + threadIdx.y; i < C;
        i += gridDim.x * blockDim.y) {
     const auto j = threadIdx.x;
     if (count[i][j] > 0) {
@@ -259,7 +259,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
   const int32_t C = lxu_cache_state.size(0);
   const int32_t N =
       N_unique == nullptr ? linear_cache_indices.size(0) : *N_unique;
-  const int32_t n0 =
+  const auto n0 =
       blockIdx.x * blockDim.y * blockDim.x + threadIdx.y * blockDim.x;
   if (n0 >= N) {
     return;
@@ -270,7 +270,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
   int32_t n_hits = 0;
   const auto slot = threadIdx.x;
   for (int i = 0; i < blockDim.x; ++i) {
-    int32_t n = n0 + i;
+    const auto n = n0 + i;
     if (n >= N) {
       continue;
     }
@@ -303,7 +303,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_lookup_kernel(
     }
   }
 
-  const int32_t n = n0 + threadIdx.x;
+  const auto n = n0 + threadIdx.x;
   if (n < N) {
     lxu_cache_locations[n] = cache_location;
   }
