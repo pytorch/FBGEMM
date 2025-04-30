@@ -730,7 +730,7 @@ batch_index_select_dim0_codegen_forward_kernel(
     // D is computed in the bag case or provided as function arg in the nobag case
     // (nobag only supports the case where the embedding dimensions are the same for all tables)
     int32_t D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
         D_emb += kINT8QparamsBytes;
     }
 
