@@ -95,21 +95,25 @@ __global__ void gemv_quantized_bf16_fp8(
     unsigned int num_per_thread);
 
 ///////////////////////////// QUANTIZED-FLOAT8 //////////////////////////////
-template <SizeType32 TILE_M, SizeType32 TILE_N, SizeType32 BLOCK_DIM_X>
+template <
+    SizeType32 TILE_M,
+    SizeType32 TILE_N,
+    SizeType32 BLOCK_DIM_X>
 __global__ void gemv_quantized_fp8_fp8(
-    cutlass::float_e4m3_t* mat,
-    cutlass::float_e4m3_t* vec,
+    cutlass::float_e4m3_t* mat, // B x N x K
+    cutlass::float_e4m3_t* vec, // B x M x K
     __nv_bfloat16* res,
+    const unsigned int b,
     const unsigned int k,
     const unsigned int m,
     const unsigned int n,
-    float const* mat_scale, // N x 1
-    float const* vec_scale, // M x 1
+    float const* mat_scale, // B x N x 1
+    float const* vec_scale, // B x M x 1
     unsigned int num_iter_per_thread) {
   float sum[TILE_N][TILE_M] = {{0.0f}, {0.0f}};
   const auto tid = threadIdx.x;
-  float4* mat8 = reinterpret_cast<float4*>(mat);
-  float4* vec8 = reinterpret_cast<float4*>(vec);
+  float4* mat8 = reinterpret_cast<float4*>(mat + blockIdx.x * n * k);
+  float4* vec8 = reinterpret_cast<float4*>(vec + blockIdx.x * m * k);
   cutlass::NumericArrayConverter<float, cutlass::float_e4m3_t, 4> converter;
   cutlass::Array<float, 4> mat_elements[TILE_N][4];
 
@@ -119,7 +123,7 @@ __global__ void gemv_quantized_fp8_fp8(
     if (j < k >> 4) {
 #pragma unroll
       for (SizeType32 i = 0; i < TILE_N; i++) {
-        auto row = TILE_N * blockIdx.y + i;
+        auto row = TILE_N * blockIdx.z + i;
         auto mat_val = mat8[row * (k >> 4) + j]; // float4
         mat_elements[i][0] = converter(
             reinterpret_cast<cutlass::Array<cutlass::float_e4m3_t, 4>&>(
@@ -174,21 +178,22 @@ __global__ void gemv_quantized_fp8_fp8(
   for (SizeType32 i = 0; i < TILE_N; i++) {
 #pragma unroll
     for (SizeType32 col = 0; col < TILE_M; col++) {
-      sum[i][col] *= (mat_scale[TILE_N * blockIdx.y + i] * vec_scale[col]);
+      sum[i][col] *= (mat_scale[TILE_N * blockIdx.z + i] * vec_scale[col]);
       sum[i][col] = warpReduceSum(sum[i][col], BLOCK_DIM_X);
       if (laneId == 0)
         warpLevelSums[i * TILE_M + col][warpId] = sum[i][col];
     }
   }
 
+  auto offset = blockIdx.x * m * n;
   if (blockDim.x <= WARP_SIZE) {
     if (tid == 0) {
 #pragma unroll
       for (SizeType32 ni = 0; ni < TILE_N; ni++) {
-        auto row = TILE_N * blockIdx.y + ni;
+        auto row = TILE_N * blockIdx.z + ni;
 #pragma unroll
         for (SizeType32 mi = 0; mi < TILE_M; mi++) {
-          res[row + mi * n] = __float2bfloat16(sum[ni][mi]);
+          res[row + mi * n + offset] = __float2bfloat16(sum[ni][mi]);
         }
       }
       return;
@@ -200,14 +205,14 @@ __global__ void gemv_quantized_fp8_fp8(
   assert(TILE_M * TILE_N < BLOCK_DIM_X);
 
   if (tid < TILE_M * TILE_N) {
-    SizeType32 row = tid / TILE_M + TILE_N * blockIdx.y;
+    SizeType32 row = tid / TILE_M + TILE_N * blockIdx.z;
     SizeType32 col = tid % TILE_M;
     float val = 0;
 #pragma unroll
     for (SizeType32 s = 0; s < numWarps; s++) {
       val += warpLevelSums[tid][s];
     }
-    res[row + col * n] = __float2bfloat16(val);
+    res[row + col * n + blockIdx.x * m * n] = __float2bfloat16(val);
   }
 }
 
