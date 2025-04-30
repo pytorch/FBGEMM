@@ -181,9 +181,20 @@ struct KernelLauncher {
       const cudaDeviceProp& properties,
       const size_t shared_mem_per_block) const {
     // NOTE: sharedMemPerBlockOptin is the maximum possible shared memory that
-    // can be used per block by explicit special opt-in, and is larger than
-    // sharedMemPerBlock.
+    // can be used per block by explicit special opt-in, and is generally larger
+    // than sharedMemPerBlock.
+    //
+    // However, this feature does not exist in HIP at the moment, and while more
+    // recent versions of ROCm (6.4+?) set the value of sharedMemPerBlockOptin
+    // to be sharedMemPerBlock, older versions of ROCm set the value to zero.
+    //
+    // See:
+    //  https://github.com/ROCm/HIP/issues/3516
+#ifdef __HIP_PLATFORM_AMD__
+    const auto smem_limits = properties.sharedMemPerBlock;
+#else
     const auto smem_limits = properties.sharedMemPerBlockOptin;
+#endif
 
     TORCH_CHECK(
         shared_mem_per_block <= smem_limits,
