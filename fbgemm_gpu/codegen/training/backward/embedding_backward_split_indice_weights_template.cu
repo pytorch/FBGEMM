@@ -122,7 +122,7 @@ __global__ __launch_bounds__(kForwardMaxThreads) void
     const auto D_end = D_offsets[t + 1];
     const auto D = D_end - D_start;
     auto D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
       D_emb += kINT8QparamsBytes;
     }
     const auto indices_start = offsets[b_t];

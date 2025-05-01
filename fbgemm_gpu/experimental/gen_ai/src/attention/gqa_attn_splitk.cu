@@ -1066,7 +1066,6 @@ __global__ void gqa_attn_splitk_attn_kernel(
   // Each block handles a single batch and head
   auto b = blockIdx.x;
   auto h = blockIdx.y;
-  int32_t split_k = XQ_out.size(0);
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.

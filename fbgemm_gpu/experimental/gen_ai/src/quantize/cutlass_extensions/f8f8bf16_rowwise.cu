@@ -87,7 +87,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
     } else if (N <= 2048) {
       return f8f8bf16_rowwise_64_128_128_1_1_1_f_f(
           XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
-    } else if (N <= 4096) {
+    } else if (N <= 4096 || use_fast_accum == false) {
       return f8f8bf16_rowwise_64_256_128_1_1_1_f_f(
           XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
     } else {
@@ -98,7 +98,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
     if (N <= 1024) {
       return f8f8bf16_rowwise_64_128_128_1_1_1_f_f(
           XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
-    } else if (N <= 2048) {
+    } else if (N <= 2048 || use_fast_accum == false) {
       return f8f8bf16_rowwise_64_256_128_1_1_1_f_f(
           XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
     } else {
@@ -109,7 +109,7 @@ at::Tensor dispatch_fp8_rowwise_kernel(
     if (M <= 2048 && N <= 1024) {
       return f8f8bf16_rowwise_64_256_128_2_1_1_f_f(
           XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
-    } else if (K <= 4096) {
+    } else if (K <= 4096 || use_fast_accum == false) {
       return f8f8bf16_rowwise_128_128_128_2_1_1_t_f(
           XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
     } else if (M > 8192 && N > 8192) {
