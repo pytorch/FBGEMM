@@ -153,11 +153,19 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
     at::Tensor cache_K,
     at::Tensor cache_V,
     at::Tensor kv_seqlen,
-    std::optional<int64_t> num_groups) {
+    std::optional<int64_t> num_groups,
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v) {
   // allocate DQ outputs
   TORCH_CHECK(cache_K.is_cuda());
   TORCH_CHECK(cache_V.is_cuda());
   TORCH_CHECK(kv_seqlen.is_cuda());
+  TORCH_CHECK(
+      !qparam_k.has_value(),
+      "CUDA doesn't support external qparams in dequantize_int4_cache");
+  TORCH_CHECK(
+      !qparam_v.has_value(),
+      "CUDA doesn't support external qparams in dequantize_int4_cache");
   auto B = cache_K.size(0);
   auto MAX_T = cache_K.size(1);
   auto N_KVH = cache_K.size(2);
