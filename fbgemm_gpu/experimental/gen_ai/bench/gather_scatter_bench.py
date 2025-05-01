@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import functools
 import itertools
 from typing import List, Optional, Tuple
 
@@ -17,6 +18,7 @@ from fbgemm_gpu.experimental.gen_ai.moe import (
     gather_scale_quant_dense_tokens,
     index_shuffling,
     scatter_add_along_first_dim,
+    scatter_add_dense_tokens,
     split_shuffling,
 )
 from triton.testing import do_bench, do_bench_cudagraph
@@ -55,7 +57,7 @@ def bench_gather_along_first_dim(M: int, N: int, K: int) -> None:
     )
 
 
-def bench_scatter_add_along_first_dim(M: int, N: int, K: int) -> None:
+def bench_scatter_add_along_first_dim_(op, M: int, N: int, K: int) -> None:
     src = torch.randn([M, K], device=_ACCELERATOR_TAG, dtype=torch.bfloat16).abs()
     dst = torch.randn([N, K], device=_ACCELERATOR_TAG, dtype=torch.bfloat16).abs()
     if M == N:
@@ -71,7 +73,7 @@ def bench_scatter_add_along_first_dim(M: int, N: int, K: int) -> None:
     ref_dst = dst.clone()
 
     def fn():
-        scatter_add_along_first_dim(test_dst, src, indices_1d)
+        op(test_dst, src, indices_1d)
 
     def ref_fn():
         ref_dst.scatter_add_(0, indices_2d, src)
@@ -88,10 +90,19 @@ def bench_scatter_add_along_first_dim(M: int, N: int, K: int) -> None:
     ref_gigabytes_per_second = data_size_in_gigabytes / ref_time_in_second
 
     print(
-        f"Benchmark scatter_add_along_first_dim: {M=:5d}, {N=:5d}, {K=:5d}, "
+        f"Benchmark {op.__name__}: {M=:5d}, {N=:5d}, {K=:5d}, "
         f"FBGEMM time: {time_in_us:10.3f} us. Bandwidth: {gigabytes_per_second:10.3f} GB/s, "
         f"Torch time: {ref_time_in_us:10.3f} us. Bandwidth: {ref_gigabytes_per_second:10.3f} GB/s"
     )
+
+
+bench_scatter_add_along_first_dim = functools.partial(
+    bench_scatter_add_along_first_dim_, scatter_add_along_first_dim
+)
+
+bench_scatter_add_dense_tokens = functools.partial(
+    bench_scatter_add_along_first_dim_, scatter_add_dense_tokens
+)
 
 
 def bench_gather_scale_dense_tokens(E: int, T: int, D: int, quantize: bool):
@@ -295,6 +306,10 @@ def main(kernels: Optional[str]):
     if should_bench_kernel(scatter_add_along_first_dim):
         for T, D in itertools.product(Ts, Ds):
             bench_scatter_add_along_first_dim(T, T, D)
+
+    if should_bench_kernel(scatter_add_dense_tokens):
+        for T, D in itertools.product(Ts, Ds):
+            bench_scatter_add_dense_tokens(T, T, D)
 
     # Shuffling
     if should_bench_kernel(index_shuffling):

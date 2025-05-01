@@ -6,7 +6,7 @@
 
 # pyre-unsafe
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 import triton
@@ -21,7 +21,7 @@ def gather_scale_dense_tokens(
     token_indices: torch.Tensor,
     expert_indices: torch.Tensor,
     scores: torch.Tensor,
-):
+) -> torch.Tensor:
     T, D = x.shape
     E = scores.shape[1]
     # a = K * T
@@ -71,7 +71,7 @@ def gather_scale_quant_dense_tokens(
     expert_indices: torch.Tensor,
     scores: torch.Tensor,
     scale_ub: Optional[torch.Tensor] = None,
-):
+) -> Tuple[torch.Tensor, torch.Tensor]:
     T, D = x.shape
     E = scores.shape[1]
     # a = K * T
@@ -111,6 +111,43 @@ def gather_scale_quant_dense_tokens(
         CLAMP_MAX=scale_ub is not None,
     )
     return out, out_scale
+
+
+def scatter_add_dense_tokens(
+    out_tokens: torch.Tensor,  # [T, D]
+    in_tokens: torch.Tensor,  # [a, D]
+    token_indices: torch.Tensor,  # [a]
+) -> None:
+    assert torch.version.hip is not None or (
+        torch.version.cuda is not None and torch.version.cuda >= "12.4"
+    ), "Requires CUDA version 12.4 or later on Nvidia GPUs!"
+
+    assert in_tokens.is_contiguous()
+    assert token_indices.is_contiguous()
+    assert out_tokens.is_contiguous()
+
+    a, D = in_tokens.shape
+    assert token_indices.shape == (a,)
+    assert out_tokens.ndim == 2 and out_tokens.shape[1] == D
+
+    NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
+    if a >= NUM_SMS:
+        BLOCK_D_OUTER = D
+        BLOCK_D_INNER = 1024
+        assert D % BLOCK_D_INNER == 0
+    else:
+        BLOCK_D_OUTER = 512
+        BLOCK_D_INNER = 256
+        assert D % BLOCK_D_OUTER == 0
+    grid = (a, D // BLOCK_D_OUTER)
+    _fbgemm_scatter_add_dense_tokens[grid](
+        out_tokens,
+        in_tokens,
+        token_indices,
+        D,  # pyre-ignore
+        BLOCK_D_OUTER,  # pyre-ignore
+        BLOCK_D_INNER,  # pyre-ignore
+    )
 
 
 def scatter_add_padded_tokens(
@@ -231,6 +268,32 @@ def gather_scale_quant_dense_tokens_cuda(
     )
 
 
+_SCATTER_ADD_DENSE_TOKENS_OP_NAME = "fbgemm::scatter_add_dense_tokens"
+
+torch.library.define(
+    "fbgemm::scatter_add_dense_tokens",
+    "(Tensor out_tokens, Tensor in_tokens, Tensor token_indices) -> None",
+)
+
+
+@torch.library.impl(_SCATTER_ADD_DENSE_TOKENS_OP_NAME, "Meta")
+def scatter_add_dense_tokens_meta(
+    out_tokens,
+    in_tokens,
+    token_indices,
+):
+    return None
+
+
+@torch.library.impl(_SCATTER_ADD_DENSE_TOKENS_OP_NAME, "CUDA")
+def scatter_add_dense_tokens_cuda(
+    out_tokens,
+    in_tokens,
+    token_indices,
+):
+    return scatter_add_dense_tokens(out_tokens, in_tokens, token_indices)
+
+
 _SCATTER_ADD_PADDED_TOKENS_OP_NAME = "fbgemm::scatter_add_padded_tokens"
 
 torch.library.define(
@@ -311,6 +374,38 @@ def _fbgemm_gather_scale_dense_tokens(
             + tl.arange(0, BLOCK_D_INNER)[:],
             output_token_value,
             None,
+        )
+        feature_offset += BLOCK_D_INNER
+
+
+@triton.jit
+def _fbgemm_scatter_add_dense_tokens(
+    out_tokens,
+    in_tokens,
+    token_indices,
+    D: tl.constexpr,
+    BLOCK_D_OUTER: tl.constexpr,
+    BLOCK_D_INNER: tl.constexpr,
+):
+    input_token_index = tl.program_id(0).to(tl.int64)
+    feature_offset = tl.program_id(1) * BLOCK_D_OUTER + tl.arange(0, BLOCK_D_INNER)[:]
+
+    output_token_index = tl.load(
+        token_indices + input_token_index, None, eviction_policy="evict_last"
+    ).to(tl.int64)
+
+    for _ in range(0, BLOCK_D_OUTER // BLOCK_D_INNER):
+        input_token_value = tl.load(
+            in_tokens + input_token_index * D + feature_offset,
+            None,
+            eviction_policy="evict_first",
+        )
+
+        tl.atomic_add(
+            out_tokens + output_token_index * D + feature_offset,
+            input_token_value,
+            None,
+            sem="relaxed",
         )
         feature_offset += BLOCK_D_INNER
 

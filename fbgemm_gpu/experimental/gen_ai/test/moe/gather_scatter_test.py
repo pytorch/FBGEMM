@@ -18,6 +18,7 @@ from fbgemm_gpu.experimental.gen_ai.moe import (
     gather_scale_dense_tokens,
     gather_scale_quant_dense_tokens,
     open_source,
+    scatter_add_dense_tokens,
     scatter_add_padded_tokens,
 )
 from hypothesis import given, settings, strategies as st, Verbosity
@@ -35,7 +36,7 @@ _MAX_SAMPLES: int = 100
     "Skip when no GPU is available or CUDA version is older than `12.4`.",
 )
 class GatherScatterTests(unittest.TestCase):
-    """Test shuffling kernels."""
+    """Test gather/scatter kernels."""
 
     @given(
         E=st.sampled_from([2, 4, 8]),
@@ -147,6 +148,61 @@ class GatherScatterTests(unittest.TestCase):
         test_output = test_output_q.to(torch.float32) * test_output_scales.view(-1, 1)
 
         torch.testing.assert_close(torch_output, test_output, atol=1e-3, rtol=1.6e-2)
+
+    @given(
+        num_tokens=st.sampled_from([1, 128, 2048, 4096, 16384]),
+        dim=st.sampled_from([5120]),
+        compiled=st.sampled_from([True, False]),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
+    def test_scatter_add_dense_tokens(
+        self,
+        num_tokens: int,
+        dim: int,
+        compiled: bool,
+    ) -> None:
+        torch.manual_seed(0)
+
+        in_tokens: torch.Tensor = torch.randn(
+            num_tokens, dim, device="cuda", dtype=torch.bfloat16
+        )
+        out_tokens: torch.Tensor = torch.randn(
+            num_tokens, dim, device="cuda", dtype=torch.bfloat16
+        )
+
+        token_indices: torch.Tensor = torch.randperm(num_tokens, device="cuda").to(
+            torch.int32
+        )
+
+        test_out_tokens: torch.Tensor = out_tokens.clone()
+        ref_out_tokens: torch.Tensor = out_tokens.clone()
+
+        def fn() -> None:
+            op = scatter_add_dense_tokens
+            if compiled:
+                op = torch.compile(op)
+            op(
+                test_out_tokens,
+                in_tokens,
+                token_indices,
+            )
+
+        fn()
+
+        token_indices: torch.Tensor = token_indices.to(torch.int64)
+
+        def ref_fn() -> None:
+            ref_out_tokens.scatter_add_(
+                dim=0,
+                index=token_indices.view(-1, 1).expand(-1, dim),
+                src=in_tokens.view(-1, dim),
+            )
+
+        ref_fn()
+
+        torch.testing.assert_close(
+            test_out_tokens, ref_out_tokens, atol=1e-3, rtol=1.6e-2
+        )
 
     @given(
         num_tokens=st.sampled_from([64, 128, 256]),
