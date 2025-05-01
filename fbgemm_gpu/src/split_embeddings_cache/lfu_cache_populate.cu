@@ -116,7 +116,6 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
         if constexpr (std::is_same_v<emb_t, uint8_t>) {
           D_emb += kINT8QparamsBytes;
         }
-
         auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
             &weights[weights_offset_current + idx_current * D_emb + 0],
             &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
@@ -128,7 +127,7 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
                     kWarpSize +
                 l);
 
-        weight_row.warp_cache_evict(blockDim.x, threadIdx.x);
+        weight_row.warp_evict_cache(D_current, blockDim.x, threadIdx.x);
       }
 
       // insert into cache
@@ -139,10 +138,14 @@ __global__ __launch_bounds__(kCacheMaxThreads) void lfu_cache_insert_kernel(
 
       auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
           &weights[weights_offset_insert + idx_insert * D_emb + 0],
-          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+          nullptr,
           D_insert);
 
-      weight_row_emb.warp_cache_load(blockDim.x, threadIdx.x);
+      weight_row_emb.warp_copy_to_cache(
+          &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
+          D_insert,
+          blockDim.x,
+          threadIdx.x);
 
       if (threadIdx.x == 0) {
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
