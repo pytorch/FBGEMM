@@ -28,6 +28,19 @@ from triton.runtime.jit import reinterpret as tl_reinterpret, TensorWrapper  # @
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+try:
+    # pyre-ignore[21]
+    from triton.fb.compat import disable_bufferops  # @manual
+except ModuleNotFoundError:
+    # Ensure we can call disable_bufferops if compat is not included (e.g. opensource)
+    # TODO(njriasan): Remove when we integrate triton.fb.compat into every Triton
+    # version.
+    from contextlib import contextmanager
+
+    @contextmanager
+    def disable_bufferops(_unused: bool):
+        yield None
+
 
 def get_fp8_constants() -> Tuple[torch.dtype, tl.dtype, float, float]:
     """
@@ -2351,33 +2364,36 @@ def triton_quantize_fp8_row(
     # If input tensor is sufficiently large, we need to use int64 indexing.
     use_int64 = a.numel() > (2**31 - 1)
     grid = (num_rows,)
-    _kernel_quantize_fp8_row[grid](
-        a,
-        a_scale,
-        a_fp8,
-        scale_ub,
-        zero_start_index_M,
-        a.shape[0],
-        a.shape[1],
-        a.shape[2],
-        a.shape[3],
-        a.stride(0),
-        a.stride(1),
-        a.stride(2),
-        a.stride(3),
-        a_fp8.stride(0),
-        a_fp8.stride(1),
-        a_fp8.stride(2),
-        a_fp8.stride(3),
-        zero_start_index_M.stride(0) if zero_start_index_M is not None else None,
-        zero_start_index_M.stride(1) if zero_start_index_M is not None else None,
-        TL_FP8_DTYPE=tl_dtype,
-        MAX_FP8=max_fp8,
-        EPS=eps,
-        CLAMP_MAX=scale_ub is not None,
-        JAGGED=zero_start_index_M is not None,
-        USE_INT64=use_int64,
-    )
+    # Pick a conservative value for inference shapes for disabling BufferOps.
+    should_disable_bufferops = torch.version.hip is not None and a_shape[0] < 32
+    with disable_bufferops(should_disable_bufferops):
+        _kernel_quantize_fp8_row[grid](
+            a,
+            a_scale,
+            a_fp8,
+            scale_ub,
+            zero_start_index_M,
+            a.shape[0],
+            a.shape[1],
+            a.shape[2],
+            a.shape[3],
+            a.stride(0),
+            a.stride(1),
+            a.stride(2),
+            a.stride(3),
+            a_fp8.stride(0),
+            a_fp8.stride(1),
+            a_fp8.stride(2),
+            a_fp8.stride(3),
+            zero_start_index_M.stride(0) if zero_start_index_M is not None else None,
+            zero_start_index_M.stride(1) if zero_start_index_M is not None else None,
+            TL_FP8_DTYPE=tl_dtype,
+            MAX_FP8=max_fp8,
+            EPS=eps,
+            CLAMP_MAX=scale_ub is not None,
+            JAGGED=zero_start_index_M is not None,
+            USE_INT64=use_int64,
+        )
 
     return a_fp8.view(a_shape), a_scale.view(a_shape[:-1])
 
