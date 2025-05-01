@@ -19,7 +19,7 @@ from fbgemm_gpu.tbe.bench import EEG_MAX_HEAVY_HITTERS
 
 class TBEIndicesEstimatorTest(unittest.TestCase):
     def test_indices_estimation(self) -> None:
-        max_i = random.randint(0, 200)
+        max_i = random.randint(1, 200)
         num_i = random.randint(100, 1000)
         indices = torch.randint(0, max_i, (num_i,), dtype=torch.int64)
 
