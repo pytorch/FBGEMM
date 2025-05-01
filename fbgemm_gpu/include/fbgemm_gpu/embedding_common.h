@@ -86,7 +86,7 @@ inline SparseType getSparseType(at::ScalarType dtype) {
 
 namespace nbit {
 
-C10_HOST_DEVICE C10_ALWAYS_INLINE uint32_t round_up(uint32_t a, uint32_t b) {
+C10_HOST_DEVICE C10_ALWAYS_INLINE uint64_t round_up(uint64_t a, uint64_t b) {
   return ((a + b - 1) / b) * b;
 }
 
@@ -126,7 +126,8 @@ C10_HOST_DEVICE C10_ALWAYS_INLINE int32_t padded_row_size_in_bytes(
     const int32_t row_alignment,
     const int32_t scale_bias_bytes = 4) {
   auto r = unpadded_row_size_in_bytes(dim, weight_ty, scale_bias_bytes);
-  return static_cast<int32_t>(round_up(r, row_alignment));
+  return static_cast<int32_t>(
+      round_up(static_cast<uint64_t>(r), static_cast<uint64_t>(row_alignment)));
 }
 
 } // namespace nbit
