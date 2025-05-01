@@ -172,7 +172,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
     at::Tensor cache_K,
     at::Tensor cache_V,
     at::Tensor kv_seqlen,
-    std::optional<int64_t> num_groups);
+    std::optional<int64_t> num_groups,
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v);
 
 std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
     at::Tensor cache_K,
@@ -220,7 +222,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("xpos_qkv_decoding(Tensor XQ, Tensor XK, Tensor XV, Tensor(a!) cache_K, Tensor(b!) cache_V,  Tensor seqpos, float theta, float gamma, float scale_base, float exponent_offset, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
       DEFAULT_PAGE_SIZE) ", Tensor? actual_batch_size=None, Tensor? batch=None, Tensor? cache_seqpos=None, int cache_logical_dtype_int=0, bool rope_scaling=False, int old_context_len=8192, float scaling_factor=16, float lo_freq_factor=1, float hi_freq_factor=32,  Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor");
   m.def(
-      "dequantize_int4_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, int? num_groups=1) -> (Tensor, Tensor)");
+      "dequantize_int4_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, int? num_groups=1, Tensor? qparam_k=None, Tensor? qparam_v=None) -> (Tensor, Tensor)");
   m.def(
       "dequantize_fp8_cache(Tensor cache_K, Tensor cache_V, Tensor kv_seqlen, Tensor? qparam_k=None, Tensor? qparam_v=None, Tensor? block_tables=None, int page_size=" STRING(
           DEFAULT_PAGE_SIZE) ") -> (Tensor, Tensor)");
@@ -416,7 +418,9 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache_meta(
     at::Tensor cache_K,
     at::Tensor /* cache_V */,
     at::Tensor /* kv_seqlen */,
-    std::optional<int64_t> num_groups) {
+    std::optional<int64_t> num_groups,
+    std::optional<at::Tensor> /* qparam_k */,
+    std::optional<at::Tensor> /* qparam_v */) {
   const at::SymInt B = cache_K.sym_size(0);
   const at::SymInt MAX_T = cache_K.sym_size(1);
   const at::SymInt N_KVH = cache_K.sym_size(2);
