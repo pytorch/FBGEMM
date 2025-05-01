@@ -155,14 +155,26 @@ DEVICE_INLINE float bfx4_dot(bfx4 a, bfx4 b) {
   auto a1 = bf1622float2(a.vals[1]);
   auto b0 = bf1622float2(b.vals[0]);
   auto b1 = bf1622float2(b.vals[1]);
-  return a0.x * b0.x + a0.y * b0.y + a1.x * b1.x + a1.y * b1.y;
+
+  // s1 = a0.x*b0.x + a0.y*b0.y
+  float s1 = fmaf(a0.x, b0.x, a0.y * b0.y);
+  // s2 = a1.x*b1.x + a1.y*b1.y
+  float s2 = fmaf(a1.x, b1.x, a1.y * b1.y);
+  return s1 + s2;
 
   // acc = __hfma2(a.vals[0], b.vals[0], acc);
   // acc = __hfma2(a.vals[1], b.vals[1], acc);
   // auto r = bf1622float2(acc);
   // return r.x + r.y;
 }
-
+DEVICE_INLINE fx4 fx4_abs(const fx4& src) {
+  fx4 result;
+  result.x = fabsf(src.x);
+  result.y = fabsf(src.y);
+  result.z = fabsf(src.z);
+  result.w = fabsf(src.w);
+  return result;
+}
 DEVICE_INLINE fx4 bfx4_scale_acc(fx4 acc, bfx4 a, float b) {
   auto axy = bf1622float2(a.vals[0]);
   auto azw = bf1622float2(a.vals[1]);
@@ -191,7 +203,9 @@ DEVICE_INLINE fx4 fx4_acc(fx4 a, fx4 b) {
   return a;
 }
 DEVICE_INLINE float fx4_dot(fx4 a, fx4 b) {
-  return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+  float s1 = fmaf(a.x, b.x, a.y * b.y); // a.x*b.x + a.y*b.y
+  float s2 = fmaf(a.z, b.z, a.w * b.w); // a.z*b.z + a.w*b.w
+  return s1 + s2;
 }
 
 DEVICE_INLINE fx4 fx4_scale(fx4 a, float scale) {
