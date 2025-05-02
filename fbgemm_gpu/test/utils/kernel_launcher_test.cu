@@ -233,7 +233,7 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
   at::Tensor A, B, C;
   std::tie(A, B, C) = sample_tensors(size);
 
-  const auto device = get_device_for_stream(at::cuda::getCurrentCUDAStream());
+  const auto device = at::cuda::getCurrentCUDAStream().device_index();
   const auto properties = get_device_properties(device);
   const auto grid_max = properties.maxGridSize;
   const auto block_max = properties.maxThreadsDim;
