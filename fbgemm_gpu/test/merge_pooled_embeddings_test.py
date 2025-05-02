@@ -150,6 +150,48 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
         )
         torch.testing.assert_close(output, ref_output)
 
+    # pyre-fixme[56]: Pyre was not able to infer the type of argument
+    #  `hypothesis.strategies.integers($parameter$min_value = 1, $parameter$max_value =
+    #  10)` to decorator factory `hypothesis.given`.
+    @given(
+        num_inputs=st.integers(min_value=1, max_value=8),
+        num_gpus=st.integers(min_value=1, max_value=torch.cuda.device_count()),
+        r=st.randoms(use_true_random=False),
+        target_deivce=st.integers(min_value=0, max_value=torch.cuda.device_count() - 1),
+    )
+    # Can instantiate 8 contexts which takes a long time.
+    @settings(verbosity=Verbosity.verbose, max_examples=40, deadline=None)
+    def test_merge_pooled_embeddings_gpu_to_cuda_without_index(
+        self,
+        # pyre-fixme[2]: Parameter must be annotated.
+        num_inputs,
+        # pyre-fixme[2]: Parameter must be annotated.
+        num_gpus,
+        # pyre-fixme[2]: Parameter must be annotated.
+        r,
+        # pyre-fixme[2]: Parameter must be annotated.
+        target_deivce,
+    ) -> None:
+
+        out_device = torch.device(f"cuda:{target_deivce}")
+        with torch.cuda.device(out_device):
+            inputs = [torch.randn(10, 20) for _ in range(num_inputs)]
+            cuda_inputs = [
+                input.to(f"cuda:{r.randint(0, num_gpus - 1)}")
+                for i, input in enumerate(inputs)
+            ]
+            uncat_size = inputs[0].size(1)
+            output = torch.ops.fbgemm.merge_pooled_embeddings(
+                cuda_inputs,
+                uncat_size,
+                torch.device("cuda"),
+                0,
+            )
+            ref_output = torch.ops.fbgemm.merge_pooled_embeddings(
+                cuda_inputs, uncat_size, out_device, 0
+            )
+        torch.testing.assert_close(output, ref_output)
+
     def test_merge_pooled_embeddings_cpu_with_different_target_device(self) -> None:
         uncat_size = 2
         pooled_embeddings = [torch.ones(uncat_size, 4), torch.ones(uncat_size, 8)]
