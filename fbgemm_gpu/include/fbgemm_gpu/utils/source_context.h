@@ -80,6 +80,11 @@ struct SourceContext {
 
     return *desc_;
   }
+
+  inline SourceContext withSummary(
+      const std::string_view& sum_) const noexcept {
+    return SourceContext(location, sum_, secondaryLocation);
+  }
 };
 
 } // namespace fbgemm_gpu::utils
