@@ -69,16 +69,12 @@ inline auto get_device_for_stream(const cudaStream_t& stream) {
   } else {
     int device = 0;
 
-#if CUDA_VERSION >= 12080
-    // CUDA 12.8+ introduced a new API to straightforwardly fetch the device
-    // from a given stream
-    cudaStreamGetDevice(stream, &device);
+    // CUDA 12.8+ introduced cudaStreamGetDevice() to straightforwardly fetch
+    // the device from a given stream, but since the runtime drivers may not be
+    // at the latest, it will not support the API.  As such, we fetch the device
+    // ID can be fetched by context capture instead.
 
-#else
-    // In the absence of cudaStreamGetDevice() API, the device ID can be fetched
-    // by context capture.
-
-    // Save current device
+    // Save the current device
     int current_device;
     C10_CUDA_CHECK(cudaGetDevice(&current_device));
 
@@ -90,7 +86,6 @@ inline auto get_device_for_stream(const cudaStream_t& stream) {
     // current device
     C10_CUDA_CHECK(cudaGetDevice(&device));
     C10_CUDA_CHECK(cudaSetDevice(current_device));
-#endif
 
     table.insert({stream, device});
     return device;
