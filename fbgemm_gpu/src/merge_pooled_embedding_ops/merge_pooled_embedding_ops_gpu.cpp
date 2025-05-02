@@ -642,13 +642,18 @@ Tensor merge_pooled_embeddings(
     at::Device target_device,
     int64_t cat_dim = 1) {
   at::cuda::OptionalCUDAGuard g;
+
+  at::Device out_device = target_device;
   if (target_device.is_cuda()) {
     init_p2p_access();
     g.set_device(target_device);
+    out_device = target_device.index() == -1
+        ? at::Device(at::kCUDA, at::cuda::current_device())
+        : target_device;
   }
 
   TORCH_CHECK(!pooled_embeddings.empty());
-  return cat_dim_2d(pooled_embeddings, uncat_dim_size, target_device, cat_dim);
+  return cat_dim_2d(pooled_embeddings, uncat_dim_size, out_device, cat_dim);
 }
 
 std::vector<Tensor> all_to_one_device(
