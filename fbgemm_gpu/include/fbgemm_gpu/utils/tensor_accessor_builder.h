@@ -220,6 +220,26 @@ struct TensorAccessorBuilder {
       return build_ta(context);
     }
   }
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Check Tensor values for NaN
+  //////////////////////////////////////////////////////////////////////////////
+
+  C10_ALWAYS_INLINE void checkValues(const std::string_view& context) const {
+    TORCH_CHECK(
+        !at::isnan(tensor).any().item<bool>(),
+        context,
+        ": Tensor '",
+        name,
+        "' contains NaN values!");
+
+    TORCH_CHECK(
+        !at::isinf(tensor).any().item<bool>(),
+        context,
+        ": Tensor '",
+        name,
+        "' contains (+/-) Inf values!");
+  }
 };
 
 } // namespace fbgemm_gpu::utils
