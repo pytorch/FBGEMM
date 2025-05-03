@@ -63,13 +63,34 @@ decltype(auto) transform_kernel_arg(const SourceContext& context, T&& arg) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Verify Kernel Argument
+//
+// Verify certain arguments before and after kernel invocation
+////////////////////////////////////////////////////////////////////////////////
+
+template <typename T>
+decltype(auto) check_kernel_arg(const SourceContext& context, T&& arg) {
+  if constexpr (is_tensor_accessor_builder_v<std::decay_t<T>>) {
+    // If the arg is a TensorAccessorBuilder, run verifications on the tensor it
+    // is ref-wrapping, e.g. NaN value checks.
+    return arg.checkValues(context.description());
+  } else {
+    // Otherwise, perfect-forward the argument as is
+    return std::forward<T>(arg);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // GPU Kernel Launcher
 //
 // This class encapsulates the common ceremonial pre- and post-execution
 // routines when launching GPU kernels.
 ////////////////////////////////////////////////////////////////////////////////
 
-template <bool EnableDSA = false, bool EnableBarrierIsolation = false>
+template <
+    bool EnableDSA = false,
+    bool EnableBarrierIsolation = false,
+    bool EnableNaNChecks = false>
 struct KernelLauncher {
   const SourceContext context;
 
@@ -234,6 +255,21 @@ struct KernelLauncher {
     // device associated with the compute stream
     checkSharedMemoryPerBlockNotExceeded(properties, shared_mem_per_block);
 
+    // If NaN checks are enabled, run verifications on all kernel arguments that
+    // are tensors
+    if constexpr (EnableNaNChecks) {
+      const auto summary = std::string(context.summary) + " (pre-execution)";
+      (check_kernel_arg(context.withSummary(summary), std::forward<Args>(args)),
+       ...);
+    }
+
+    // If barrier isolation is enabled, synchronize the stream first before
+    // launching the kernel.  This has roughly the same effect as setting
+    // `CUDA_LAUNCH_BLOCKING=1` as an environment variable.
+    if constexpr (EnableBarrierIsolation) {
+      cudaDeviceSynchronize();
+    }
+
     if constexpr (EnableDSA) {
       // This launch code here is essentially the same as the contents of
       // TORCH_USE_CUDA_DSA macro, but with the addition of kernel argument
@@ -250,13 +286,6 @@ struct KernelLauncher {
 #else
           c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref();
 #endif
-
-      // If barrier isolation is enabled, synchronize the stream first before
-      // launching the kernel.  This has roughly the same effect as setting
-      // `CUDA_LAUNCH_BLOCKING=1` as an environment variable.
-      if constexpr (EnableBarrierIsolation) {
-        cudaDeviceSynchronize();
-      }
 
       // Launch the kernel
       kernel<<<grid, block, shared_mem_per_block, stream>>>(
@@ -285,6 +314,14 @@ struct KernelLauncher {
 
     // Check for CUDA errors
     C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    // If NaN checks are enabled, run post-kernel verifications on all kernel
+    // arguments that are tensors
+    if constexpr (EnableNaNChecks) {
+      const auto summary = std::string(context.summary) + " (post-execution)";
+      (check_kernel_arg(context.withSummary(summary), std::forward<Args>(args)),
+       ...);
+    }
   }
 };
 
@@ -320,30 +357,38 @@ struct KernelLauncher {
 #define _FKL_TFILE_ ""
 #endif
 
-#ifdef FBGEMM_GPU_KERNEL_DEBUG
-#define _FKL_KDEBUG_ true
+#ifdef FBGEMM_GPU_ISOLATE_KERNEL_LAUNCH
+#define _FKL_BLOCKING_ true
 #else
-#define _FKL_KDEBUG_ false
+#define _FKL_BLOCKING_ false
 #endif
 
-#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)    \
-  ([&] {                                                                \
-    using source_location = fbgemm_gpu::utils::source_location;         \
-    constexpr auto location = source_location::current();               \
-    decltype(KERNEL)& kernel = KERNEL;                                  \
-                                                                        \
-    return fbgemm_gpu::utils::KernelLauncher<false, _FKL_KDEBUG_>(      \
-               location, #KERNEL, _FKL_TFILE_)                          \
-        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+#ifdef FBGEMM_GPU_TENSORCHECK
+#define _FKL_TENSORCHECK_ true
+#else
+#define _FKL_TENSORCHECK_ false
+#endif
+
+#define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)        \
+  ([&] {                                                                    \
+    using source_location = fbgemm_gpu::utils::source_location;             \
+    constexpr auto location = source_location::current();                   \
+    decltype(KERNEL)& kernel = KERNEL;                                      \
+                                                                            \
+    return fbgemm_gpu::utils::                                              \
+        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(           \
+               location, #KERNEL, _FKL_TFILE_)                              \
+            .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
   }())
 
-#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...) \
-  ([&] {                                                                 \
-    using source_location = fbgemm_gpu::utils::source_location;          \
-    constexpr auto location = source_location::current();                \
-    decltype(KERNEL)& kernel = KERNEL;                                   \
-                                                                         \
-    return fbgemm_gpu::utils::KernelLauncher<true, _FKL_KDEBUG_>(        \
-               location, #KERNEL, _FKL_TFILE_)                           \
-        .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__);  \
+#define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)    \
+  ([&] {                                                                    \
+    using source_location = fbgemm_gpu::utils::source_location;             \
+    constexpr auto location = source_location::current();                   \
+    decltype(KERNEL)& kernel = KERNEL;                                      \
+                                                                            \
+    return fbgemm_gpu::utils::                                              \
+        KernelLauncher<true, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(            \
+               location, #KERNEL, _FKL_TFILE_)                              \
+            .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
   }())
