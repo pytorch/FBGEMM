@@ -269,7 +269,6 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         weights_precision: SparseType,
     ) -> None:
-        weights_precision: SparseType = SparseType.FP32
         emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
             T, D, log_E, weights_precision, mixed, False, 8
         )
@@ -306,7 +305,7 @@ class SSDCheckpointTest(unittest.TestCase):
             start_id + offset, end_id + offset, offset, snapshot
         )
         ids_in_range_ordered, _ = torch.sort(ids_in_range)
-        id_tensor_ordered, _ = torch.sort(id_tensor)
+        id_tensor_ordered, _ = torch.sort(id_tensor.view(-1))
 
         assert torch.equal(ids_in_range_ordered, id_tensor_ordered)
 
@@ -377,7 +376,8 @@ class SSDCheckpointTest(unittest.TestCase):
         else:
             # test failure
             with self.assertRaisesRegex(
-                RuntimeError, "only support hash by mod and interleaved for now"
+                RuntimeError,
+                "only support hash by chunk-based or interleaved-based hashing for now",
             ):
                 torch.ops.fbgemm.get_bucket_sorted_indices_and_bucket_tensor(
                     indices,
@@ -400,7 +400,7 @@ class SSDCheckpointTest(unittest.TestCase):
             last_bucket_id = cur_bucket_id
         # Calculate expected tensor output
         expected_bucket_tensor = torch.zeros(
-            bucket_end - bucket_start, 1, dtype=torch.int64
+            bucket_end - bucket_start, dtype=torch.int64
         )
         for index in indices:
             self.assertTrue(hash_mode >= 0 and hash_mode <= 1)
@@ -412,4 +412,4 @@ class SSDCheckpointTest(unittest.TestCase):
             expected_bucket_tensor[bucket_id - bucket_start] += 1
 
         # Compare actual and expected tensor outputs
-        self.assertTrue(torch.equal(bucket_t, expected_bucket_tensor))
+        self.assertTrue(torch.equal(bucket_t.view(-1), expected_bucket_tensor))
