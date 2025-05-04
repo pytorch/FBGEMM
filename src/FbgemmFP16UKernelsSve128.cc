@@ -11,7 +11,7 @@
 namespace fbgemm {
 
 void NOINLINE gemmkernel_1x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
   asm volatile(
 
       "mov x0, %[gp]\t\n"
@@ -275,7 +275,7 @@ void NOINLINE gemmkernel_1x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_2x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
   asm volatile(
 
       "mov x0, %[gp]\t\n"
@@ -612,7 +612,7 @@ void NOINLINE gemmkernel_2x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_3x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
   asm volatile(
 
       "mov x0, %[gp]\t\n"
@@ -997,7 +997,7 @@ void NOINLINE gemmkernel_3x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_4x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
   asm volatile(
 
       "mov x0, %[gp]\t\n"
@@ -1427,7 +1427,7 @@ void NOINLINE gemmkernel_4x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_5x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
   asm volatile(
 
       "mov x0, %[gp]\t\n"
@@ -1901,7 +1901,7 @@ void NOINLINE gemmkernel_5x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_6x2_Sve128_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
   asm volatile(
 
       "mov x0, %[gp]\t\n"
