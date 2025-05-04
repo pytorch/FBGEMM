@@ -86,9 +86,14 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       int64_t start_id,
       int64_t end_id,
       int64_t id_offset,
-      c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle) {
+      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+          snapshot_handle) {
     return impl_->get_keys_in_range_by_snapshot(
-        start_id, end_id, id_offset, snapshot_handle->handle);
+        start_id,
+        end_id,
+        id_offset,
+        snapshot_handle.has_value() ? snapshot_handle.value()->handle
+                                    : nullptr);
   }
 
   void toggle_compaction(bool enable) {

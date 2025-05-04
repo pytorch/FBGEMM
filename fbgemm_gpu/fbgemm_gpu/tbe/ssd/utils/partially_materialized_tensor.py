@@ -33,7 +33,7 @@ class PartiallyMaterializedTensor:
     or use `full_tensor()` to get the full tensor (this could OOM).
     """
 
-    def __init__(self, wrapped) -> None:
+    def __init__(self, wrapped, is_virtual: bool = False) -> None:
         """
         Ensure caller loads the module before creating this object.
 
@@ -48,6 +48,7 @@ class PartiallyMaterializedTensor:
             wrapped: torch.classes.fbgemm.KVTensorWrapper
         """
         self._wrapped = wrapped
+        self._is_virtual = is_virtual
         self._requires_grad = False
 
     @property
@@ -56,6 +57,17 @@ class PartiallyMaterializedTensor:
         Get the wrapped extension class for C++ interop.
         """
         return self._wrapped
+
+    @property
+    def is_virtual(self):
+        """
+        Indicate whether PMT is a virtual tensor.
+        This indicator is needed for checkpoint or publish.
+        They need to know wheether it is PMT for kvzch or for normal emb table
+        for kvzch, checkpoint and publish need to call all-gather to recalculate the correct
+        metadata of the ShardedTensor
+        """
+        return self._is_virtual
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):

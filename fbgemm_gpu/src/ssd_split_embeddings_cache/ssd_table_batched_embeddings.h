@@ -547,7 +547,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
 
     at::Tensor returned_keys = at::empty(
-        total_num, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
+        {total_num, 1}, at::TensorOptions().device(at::kCPU).dtype(at::kLong));
     auto key_ptr = returned_keys.data_ptr<int64_t>();
     int64_t offset = 0;
     for (const auto& keys : keys_in_db_shards) {
