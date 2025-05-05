@@ -659,7 +659,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         # Compare optimizer states
-        split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
+        split_optimizer_states = [s for (s, _, _) in emb.debug_split_optimizer_states()]
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
             # pyre-fixme[16]: Optional type has no attribute `float`.
             ref_optimizer_state = emb_ref[f].weight.grad.float().to_dense().pow(2)
@@ -801,11 +801,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else 1.0e-2
         )
 
-        split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
+        split_optimizer_states = [s for (s, _, _) in emb.debug_split_optimizer_states()]
         emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict = emb.split_embedding_weights(no_snapshot=False)
+        emb_state_dict, _, _ = emb.split_embedding_weights(no_snapshot=False)
         for feature_index, table_index in self.get_physical_table_arg_indices_(
             emb.feature_table_map
         ):
@@ -886,7 +886,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         optimizer_states_ref = [
-            s.clone().float() for (s,) in emb.debug_split_optimizer_states()
+            s.clone().float() for (s, _, _) in emb.debug_split_optimizer_states()
         ]
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
@@ -1032,7 +1032,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 emb.flush()
 
             # Compare optimizer states
-            split_optimizer_states = [s for (s,) in emb.debug_split_optimizer_states()]
+            split_optimizer_states = [
+                s for (s, _, _) in emb.debug_split_optimizer_states()
+            ]
             for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
                 optim_state_r = optimizer_states_ref[t]
                 optim_state_t = split_optimizer_states[t]
