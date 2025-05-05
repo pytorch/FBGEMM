@@ -57,6 +57,12 @@ class KVZCHParams(NamedTuple):
     # the value indicates corresponding input space for each bucket id, e.g. 2^50 / total_num_buckets
     bucket_sizes: List[int] = []
 
+    def validate(self) -> None:
+        assert len(self.bucket_offsets) == len(self.bucket_sizes), (
+            "bucket_offsets and bucket_sizes must have the same length, "
+            f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
+        )
+
 
 class BackendType(enum.IntEnum):
     SSD = 0
