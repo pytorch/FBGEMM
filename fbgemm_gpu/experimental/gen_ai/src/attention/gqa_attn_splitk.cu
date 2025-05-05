@@ -2473,13 +2473,21 @@ at::Tensor mqa_attn(
     at::Tensor seq_positions, // [B]
     double qk_scale,
     std::optional<int64_t> num_groups,
-    int64_t cache_logical_dtype_int) {
+    int64_t cache_logical_dtype_int,
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v) {
   at::OptionalDeviceGuard guard(XQ.device());
   TORCH_CHECK(XQ.is_cuda());
   TORCH_CHECK(cache_K.is_cuda());
   TORCH_CHECK(cache_V.is_cuda());
   TORCH_CHECK(cache_K.is_contiguous());
   TORCH_CHECK(cache_V.is_contiguous());
+  TORCH_CHECK(
+      !qparam_k.has_value(),
+      "CUDA doesn't support external qparams in mqa_attn");
+  TORCH_CHECK(
+      !qparam_v.has_value(),
+      "CUDA doesn't support external qparams in mqa_attn");
 
   TORCH_CHECK(seq_positions.is_cuda());
 

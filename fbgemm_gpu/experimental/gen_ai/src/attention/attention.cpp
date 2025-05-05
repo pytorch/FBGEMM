@@ -30,7 +30,9 @@ at::Tensor mqa_attn(
     at::Tensor seq_positions,
     double qk_scale,
     std::optional<int64_t> num_groups,
-    int64_t cache_logical_dtype_int);
+    int64_t cache_logical_dtype_int,
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v);
 
 } // namespace fbgemm_gpu::gen_ai::attention
 
@@ -48,7 +50,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    int cache_logical_dtype_int=0"
       ") -> (Tensor, Tensor, Tensor)");
   m.def(
-      "mqa_attn(Tensor XQ, Tensor cache_K, Tensor cache_V, Tensor seq_positions, float qk_scale, int? num_groups=1, int cache_logical_dtype_int=0) -> Tensor");
+      "mqa_attn("
+      "    Tensor XQ, "
+      "    Tensor cache_K, "
+      "    Tensor cache_V, "
+      "    Tensor seq_positions, "
+      "    float qk_scale, "
+      "    int? num_groups=1, "
+      "    int cache_logical_dtype_int=0, "
+      "    Tensor? qparam_k=None, "
+      "    Tensor? qparam_v=None"
+      ") -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
