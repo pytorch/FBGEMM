@@ -6,30 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
-
-#include <c10/cuda/CUDADeviceAssertion.h>
-#include <c10/cuda/CUDAException.h>
-
-using Tensor = at::Tensor;
-using namespace fbgemm_gpu;
-
-template <typename index_t>
-__device__ void adjust_offset_kernel(
-    index_t& indices_start,
-    index_t& indices_end,
-    const index_t num_indices,
-    index_t* const offset_acc_start,
-    index_t* const offset_acc_end) {
-  indices_start =
-      std::max(static_cast<index_t>(0), std::min(indices_start, num_indices));
-  indices_end = std::max(indices_start, std::min(indices_end, num_indices));
-  if (threadIdx.x == 0) {
-    *offset_acc_start = indices_start;
-    *offset_acc_end = indices_end;
-  }
-}
+#include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
 template <typename index_t, bool vbe, BoundsCheckMode bounds_check_mode>
 __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
@@ -195,56 +172,28 @@ void _bounds_check_indices_cuda_v2(
     Tensor& rows_per_table,
     Tensor& indices,
     Tensor& offsets,
-    int64_t bounds_check_mode_,
+    BoundsCheckMode bounds_check_mode,
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t /*max_B*/,
+    int64_t /*max_B*/,
     const std::optional<Tensor>& b_t_map,
-    const int32_t info_B_num_bits,
-    const uint32_t info_B_mask,
-    const bool prefetch_pipeline) {
-  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      rows_per_table, indices, offsets, warning, weights, B_offsets, b_t_map);
-  TENSOR_NDIM_EQUALS(rows_per_table, 1);
-  TENSOR_NDIM_EQUALS(indices, 1);
-  TENSOR_NDIM_EQUALS(offsets, 1);
-  TENSOR_NDIM_EQUALS(warning, 1);
-
-  const auto vbe = B_offsets.has_value();
+    int32_t info_B_num_bits,
+    uint32_t info_B_mask,
+    int64_t /*T*/,
+    int64_t B,
+    int64_t total_B,
+    bool vbe,
+    bool prefetch_pipeline) {
   if (vbe) {
-    TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
     TORCH_CHECK(b_t_map.has_value());
     TENSOR_NDIM_EQUALS(b_t_map.value(), 1);
   }
 
   CUDA_DEVICE_GUARD(rows_per_table);
 
-  const int32_t T = rows_per_table.size(0);
-  const int32_t total_B = offsets.size(0) - 1;
-  const int32_t B = (total_B) / T;
-  if (total_B == 0 || T == 0) {
-    return;
-  }
-  const auto bounds_check_mode =
-      static_cast<BoundsCheckMode>(bounds_check_mode_);
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
     warning.zero_();
-  }
-  const int64_t num_indices = indices.size(0);
-
-  if (!vbe) {
-    TORCH_CHECK(
-        offsets.size(0) == B * T + 1,
-        "offsets size " + std::to_string(offsets.size(0)) +
-            " is not equal to B (" + std::to_string(B) + ") * T (" +
-            std::to_string(T) + ") + 1");
-  }
-  if (weights.has_value()) {
-    TORCH_CHECK(
-        weights.value().size(0) == num_indices,
-        "weights size " + std::to_string(weights.value().size(0)) +
-            " is not equal to indices size " + std::to_string(num_indices));
   }
 
   constexpr size_t kNumThreads = 1024;
