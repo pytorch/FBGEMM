@@ -551,4 +551,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_AUTOGRAD_CUDA(
       "keyed_jagged_index_select_dim1",
       fbgemm_gpu::keyed_jagged_index_select_dim_1_gpu);
+  DISPATCH_TO_CUDA(
+      "keyed_jagged_index_select_dim1",
+      fbgemm_gpu::keyed_jagged_index_select_dim_1_gpu);
 }
