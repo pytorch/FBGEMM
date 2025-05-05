@@ -44,7 +44,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       int64_t dtype,
       int64_t row_offset,
       std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-          snapshot_handle);
+          snapshot_handle = std::nullopt);
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 

@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Tuple
 
 import torch
 from torch import Tensor
@@ -47,6 +47,39 @@ class EmbeddingLocation(enum.IntEnum):
             return lookup[key]
         else:
             raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
+
+
+class KVZCHParams(NamedTuple):
+    # global bucket id start and global bucket id end offsets for each logical table,
+    # where start offset is inclusive and end offset is exclusive
+    bucket_offsets: List[Tuple[int, int]] = []
+    # bucket size for each logical table
+    # the value indicates corresponding input space for each bucket id, e.g. 2^50 / total_num_buckets
+    bucket_sizes: List[int] = []
+
+    def validate(self) -> None:
+        assert len(self.bucket_offsets) == len(self.bucket_sizes), (
+            "bucket_offsets and bucket_sizes must have the same length, "
+            f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
+        )
+
+
+class BackendType(enum.IntEnum):
+    SSD = 0
+    DRAM = 1
+    PS = 2
+
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "ssd": BackendType.SSD,
+            "dram": BackendType.DRAM,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into BackendType: {key}")
 
 
 class CacheAlgorithm(enum.Enum):
