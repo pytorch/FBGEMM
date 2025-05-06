@@ -8,6 +8,7 @@
 # pyre-strict
 
 import dataclasses
+import json
 from typing import Any, Dict, Optional
 
 import click
@@ -40,6 +41,37 @@ class EmbeddingOpsCommonConfig:
     # Bounds check mode
     bounds_check_mode: BoundsCheckMode
 
+    @classmethod
+    # pyre-ignore [3]
+    def from_dict(cls, data: Dict[str, Any]):
+        data["weights_dtype"] = SparseType[data["weights_dtype"]]
+        data["cache_dtype"] = (
+            SparseType[data["cache_dtype"]] if data.get("cache_dtype", None) else None
+        )
+        data["output_dtype"] = SparseType[data["output_dtype"]]
+        data["pooling_mode"] = PoolingMode[data["pooling_mode"]]
+        data["embedding_location"] = EmbeddingLocation[data["embedding_location"]]
+        data["bounds_check_mode"] = BoundsCheckMode[data["bounds_check_mode"]]
+        return cls(**data)
+
+    @classmethod
+    # pyre-ignore [3]
+    def from_json(cls, data: str):
+        return cls.from_dict(json.loads(data))
+
+    def dict(self) -> Dict[str, Any]:
+        tmp = dataclasses.asdict(self)
+        tmp["weights_dtype"] = self.weights_dtype.name
+        tmp["cache_dtype"] = self.cache_dtype.name if self.cache_dtype else None
+        tmp["output_dtype"] = self.output_dtype.name
+        tmp["pooling_mode"] = self.pooling_mode.name
+        tmp["embedding_location"] = self.embedding_location.name
+        tmp["bounds_check_mode"] = self.bounds_check_mode.name
+        return tmp
+
+    def json(self, format: bool = False) -> str:
+        return json.dumps(self.dict(), indent=(2 if format else -1), sort_keys=True)
+
     # pyre-ignore [3]
     def validate(self):
         return self
@@ -57,68 +89,77 @@ class EmbeddingOpsCommonConfig:
 
 class EmbeddingOpsCommonConfigLoader:
     @classmethod
-    # pyre-ignore [2]
-    def options(cls, func) -> click.Command:
-        options = [
-            click.option(
-                "--emb-weights-dtype",
-                type=SparseType,
-                default=SparseType.FP32,
-                help="Precision of the embedding weights",
-            ),
-            click.option(
-                "--emb-cache-dtype",
-                type=SparseType,
-                default=None,
-                help="Precision of the embedding cache",
-            ),
-            click.option(
-                "--emb-output-dtype",
-                type=SparseType,
-                default=SparseType.FP32,
-                help="Precision of the embedding output",
-            ),
-            click.option(
-                "--emb-stochastic-rounding",
-                is_flag=True,
-                default=False,
-                help="Enable stochastic rounding when performing quantization",
-            ),
-            click.option(
-                "--emb-pooling-mode",
-                type=click.Choice(["sum", "mean", "none"], case_sensitive=False),
-                default="sum",
-                help="Pooling operation to perform",
-            ),
-            click.option(
-                "--emb-uvm-host-mapped",
-                is_flag=True,
-                default=False,
-                help="Use host-mapped UVM buffers",
-            ),
-            click.option(
-                "--emb-location",
-                default="device",
-                type=click.Choice(
-                    ["device", "managed", "managed_caching"], case_sensitive=False
+    # pyre-ignore [2,3]
+    def options(cls, emb_location: bool = True):
+        # pyre-ignore [2]
+        def decorator(func) -> click.Command:
+            options = [
+                click.option(
+                    "--emb-weights-dtype",
+                    type=SparseType,
+                    default=SparseType.FP32,
+                    help="Precision of the embedding weights",
                 ),
-                help="Memory location of the embeddings",
-            ),
-            click.option(
-                "--emb-bounds-check",
-                type=int,
-                default=BoundsCheckMode.WARNING.value,
-                help="Bounds check mode"
-                f"Available modes: FATAL={BoundsCheckMode.FATAL.value}, "
-                f"WARNING={BoundsCheckMode.WARNING.value}, "
-                f"IGNORE={BoundsCheckMode.IGNORE.value}, "
-                f"NONE={BoundsCheckMode.NONE.value}",
-            ),
-        ]
+                click.option(
+                    "--emb-cache-dtype",
+                    type=SparseType,
+                    default=None,
+                    help="Precision of the embedding cache",
+                ),
+                click.option(
+                    "--emb-output-dtype",
+                    type=SparseType,
+                    default=SparseType.FP32,
+                    help="Precision of the embedding output",
+                ),
+                click.option(
+                    "--emb-stochastic-rounding",
+                    is_flag=True,
+                    default=False,
+                    help="Enable stochastic rounding when performing quantization",
+                ),
+                click.option(
+                    "--emb-pooling-mode",
+                    type=click.Choice(["sum", "mean", "none"], case_sensitive=False),
+                    default="sum",
+                    help="Pooling operation to perform",
+                ),
+                click.option(
+                    "--emb-uvm-host-mapped",
+                    is_flag=True,
+                    default=False,
+                    help="Use host-mapped UVM buffers",
+                ),
+                click.option(
+                    "--emb-bounds-check",
+                    type=int,
+                    default=BoundsCheckMode.WARNING.value,
+                    help="Bounds check mode"
+                    f"Available modes: FATAL={BoundsCheckMode.FATAL.value}, "
+                    f"WARNING={BoundsCheckMode.WARNING.value}, "
+                    f"IGNORE={BoundsCheckMode.IGNORE.value}, "
+                    f"NONE={BoundsCheckMode.NONE.value}",
+                ),
+            ]
 
-        for option in reversed(options):
-            func = option(func)
-        return func
+            if emb_location:
+                options.append(
+                    click.option(
+                        "--emb-location",
+                        default="device",
+                        type=click.Choice(
+                            ["device", "managed", "managed_caching"],
+                            case_sensitive=False,
+                        ),
+                        help="Memory location of the embeddings",
+                    )
+                )
+
+            for option in reversed(options):
+                func = option(func)
+            return func
+
+        return decorator
 
     @classmethod
     def load(cls, context: click.Context) -> EmbeddingOpsCommonConfig:
@@ -128,16 +169,18 @@ class EmbeddingOpsCommonConfigLoader:
         cache_dtype = params["emb_cache_dtype"]
         output_dtype = params["emb_output_dtype"]
         stochastic_rounding = params["emb_stochastic_rounding"]
-        pooling_mode = PoolingMode.from_str(str(params["emb_pooling_mode"]))
+        pooling_mode = PoolingMode[str(params["emb_pooling_mode"]).upper()]
         uvm_host_mapped = params["emb_uvm_host_mapped"]
         bounds_check_mode = BoundsCheckMode(params["emb_bounds_check"])
 
-        embedding_location = EmbeddingLocation.from_str(str(params["emb_location"]))
+        embedding_location = EmbeddingLocation[str(params["emb_location"]).upper()]
         if (
             embedding_location is EmbeddingLocation.DEVICE
             and not torch.cuda.is_available()
         ):
             embedding_location = EmbeddingLocation.HOST
+
+        print(f"\n\n\n{weights_dtype}")
 
         return EmbeddingOpsCommonConfig(
             weights_dtype,

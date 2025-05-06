@@ -33,21 +33,6 @@ class EmbeddingLocation(enum.IntEnum):
     HOST = 3
     MTIA = 4
 
-    @classmethod
-    # pyre-ignore[3]
-    def from_str(cls, key: str):
-        lookup = {
-            "device": EmbeddingLocation.DEVICE,
-            "managed": EmbeddingLocation.MANAGED,
-            "managed_caching": EmbeddingLocation.MANAGED_CACHING,
-            "host": EmbeddingLocation.HOST,
-            "mtia": EmbeddingLocation.MTIA,
-        }
-        if key in lookup:
-            return lookup[key]
-        else:
-            raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
-
 
 class KVZCHParams(NamedTuple):
     # global bucket id start and global bucket id end offsets for each logical table,
@@ -107,19 +92,6 @@ class PoolingMode(enum.IntEnum):
 
     def do_pooling(self) -> bool:
         return self is not PoolingMode.NONE
-
-    @classmethod
-    # pyre-ignore[3]
-    def from_str(cls, key: str):
-        lookup = {
-            "sum": PoolingMode.SUM,
-            "mean": PoolingMode.MEAN,
-            "none": PoolingMode.NONE,
-        }
-        if key in lookup:
-            return lookup[key]
-        else:
-            raise ValueError(f"Cannot parse value into PoolingMode: {key}")
 
 
 class BoundsCheckMode(enum.IntEnum):

@@ -22,7 +22,10 @@ from .bench_runs import (  # noqa F401
     benchmark_requests_refer,
     benchmark_vbe,
 )
-from .embedding_ops_common_config import EmbeddingOpsCommonConfigLoader  # noqa F401
+from .embedding_ops_common_config import (  # noqa F401
+    EmbeddingOpsCommonConfig,
+    EmbeddingOpsCommonConfigLoader,
+)
 from .eval_compression import (  # noqa F401
     benchmark_eval_compression,
     EvalCompressionBenchmarkOutput,
