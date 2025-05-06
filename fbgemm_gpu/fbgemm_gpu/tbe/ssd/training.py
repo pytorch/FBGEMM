@@ -33,6 +33,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
     EmbeddingLocation,
+    get_bounds_check_version_for_platform,
     KVZCHParams,
     PoolingMode,
     SplitState,
@@ -736,6 +737,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.l2_num_cache_evictions_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_free_mem_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_capacity_stats_name)
+
+        self.bounds_check_version: int = get_bounds_check_version_for_platform()
 
     @property
     # pyre-ignore
@@ -2013,6 +2016,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 per_sample_weights,
                 B_offsets=vbe_metadata.B_offsets,
                 max_B=vbe_metadata.max_B,
+                bounds_check_version=self.bounds_check_version,
             )
 
         return indices, offsets, per_sample_weights, vbe_metadata
