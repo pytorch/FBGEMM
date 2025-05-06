@@ -20,7 +20,7 @@ namespace fbgemm_gpu {
 
 __global__ __launch_bounds__(
     kMaxThreads) void flush_gpu(char* d_flush, char* d_flush2, bool do_write) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   char val = d_flush[idx];
   if (do_write * val) {
     d_flush2[idx] = val;
