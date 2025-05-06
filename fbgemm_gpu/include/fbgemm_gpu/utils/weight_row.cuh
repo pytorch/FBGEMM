@@ -17,8 +17,30 @@
 
 namespace fbgemm_gpu {
 
+namespace utils {
+
 template <typename T, typename... Ts>
 constexpr inline bool is_one_of_v = (std::is_same_v<T, Ts> || ...);
+
+template <typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>
+constexpr inline T pad4(T value) {
+  // Compute the first multiple of 4 that is greater than or equal to the given
+  // value
+  //
+  // First convert value to unsigned type before doing bitwise math, to avoid
+  // undefined behavior.  Move x just past the next multiple of 4, then round
+  // down to the nearest multiple of 4 by clearing the 2 least significant bits.
+  //
+  // Example:
+  //   pad4(3) = 4
+  //   pad4(4) = 4
+  //   pad4(5) = 8
+  //   pad4(-5) = -4
+  using U = std::make_unsigned_t<T>;
+  return static_cast<T>((static_cast<U>(value) + U{3}) & ~U{3});
+}
+
+} // namespace utils
 
 ////////////////////////////////////////////////////////////////////////////////
 // Quantized Load and Store
@@ -42,7 +64,8 @@ DEVICE_INLINE Vec4T<dst_t> dequantize_load(
     const src_t* value,
     [[maybe_unused]] const float2 qparams) {
   if constexpr (
-      std::is_same_v<src_t, uint8_t> && is_one_of_v<dst_t, float, at::Half>) {
+      std::is_same_v<src_t, uint8_t> &&
+      utils::is_one_of_v<dst_t, float, at::Half>) {
     Vec4T<dst_t> out;
     out.acc.x = value[0] * qparams.x + qparams.y;
     out.acc.y = value[1] * qparams.x + qparams.y;
@@ -97,11 +120,25 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
 ////////////////////////////////////////////////////////////////////////////////
 // Weight Row
 //
-// This is a memory accessor around a row of dim_ number of embedding weights.
-// It provides for loading and storing of 4 elements at a time (Vec4T<dst_t>)
-// from and to the embedding table or cache.  It also provides for quantization
-// and de-quantization of the data.  The cache row pointer is optional, and if
-// not provided, then the embedding table is assumed to be the source of truth.
+// A row in the embedding table is a sequence of dim_ elements of type emb_t,
+// followed by the quantization parameters (only when emb_t is uint8_t), and the
+// optimizer state (WIP):
+//
+// |----------------|-----------------------------|--------------------------|
+// | <-- [dim_] --> | <-- [kINT8QparamsBytes] --> | <-- [kOptimizerSize] --> |
+// |----------------|-----------------------------|--------------------------|
+// |      emb_t     |            float            |      T*                  |
+// |     weights    |           qparams           |      optimizer state     |
+// |----------------|-----------------------------|--------------------------|
+//
+// Note that the qparams and optimizer state are aligned to 4-element
+// boundaries.
+//
+// The WeightRow class is a memory accessor around this abstraction, that loads
+// and stores elements 4 at a time (Vec4T<dst_t>) from and to the embedding
+// table or cache.  It also provides for quantization and de-quantization of the
+// data if the emb_t is uint8_t.  The cache row pointer is optional, and if not
+// provided, then the embedding table is assumed to be the source of truth.
 //
 // Template parameters:
 //  emb_t   : The type of the embedding table (e.g. uint8_t, float, at::Half)
@@ -115,7 +152,8 @@ template <typename emb_t, typename cache_t, typename dst_t>
 class WeightRow {
  public:
   // Constructor for no stochastic rounding
-  DEVICE_INLINE WeightRow(emb_t* row, cache_t* cache_row, int dim)
+  DEVICE_INLINE
+  WeightRow(emb_t* const row, cache_t* const cache_row, const uint32_t dim)
       : row_(row),
         cache_row_(cache_row),
         dim_(dim),
@@ -123,10 +161,10 @@ class WeightRow {
 
   // Constructor for stochastic rounding
   DEVICE_INLINE WeightRow(
-      emb_t* row,
-      cache_t* cache_row,
-      int dim,
-      bool stochastic_rounding,
+      emb_t* const row,
+      cache_t* const cache_row,
+      const uint32_t dim,
+      const bool stochastic_rounding,
       const at::PhiloxCudaState* stochastic_rounding_philox_args,
       const uint64_t salt_value)
       : row_(row), cache_row_(cache_row), dim_(dim) {
@@ -301,6 +339,49 @@ class WeightRow {
     }
   }
 
+  //////////////////////////////////////////////////////////////////////////////
+  // Return a raw pointer to the optimizer state for the row.
+  //
+  // This computes the address at where the optimizer state is stored along the
+  // embedding table row, and returns a reinterpret-casted pointer.  It takes
+  // into account 4-element alignment.
+  //////////////////////////////////////////////////////////////////////////////
+
+  template <typename T>
+  DEVICE_INLINE T* optimizer_state_ptr() const {
+    static_assert(
+        std::is_same_v<
+            T,
+            std::remove_cv_t<
+                std::remove_pointer_t<std::remove_reference_t<T>>>>,
+        "T must be a pure type (no pointers, references, or cv-qualifiers)");
+
+    auto d_emb_ = dim_;
+
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
+      // If the row is quantized, then count that into d_emb_
+      d_emb_ += kINT8QparamsBytes;
+    }
+
+    // Compute the offset along the row where the optimizer data is stored.
+    // Since elements are fetched in groups of 4, the offset should be at the
+    // first multiple of 4 that is greater than or equal to D
+    const auto d_opt_ = utils::pad4(d_emb_);
+
+    // Return the address at the first position
+    //
+    // Note: In TBE SSD, we should only ever be using cache_row_, however, the
+    // WeightRow class has been overloaded to be used for both UVM and SSD
+    // contexts.
+    //
+    // TODO: Move TBE SSD to use WeightRowAccessor instead in the future.
+    if (cache_row_) {
+      return reinterpret_cast<T*>(cache_row_ + d_opt_);
+    } else {
+      return reinterpret_cast<T*>(row_ + d_opt_);
+    }
+  }
+
  private:
   // The pointer to the row of weights in the embedding table
   emb_t* const row_;
@@ -309,7 +390,7 @@ class WeightRow {
   cache_t* const cache_row_;
 
   // The number of elements per table row
-  int32_t const dim_;
+  const uint32_t dim_;
 
   // The state for stochastic rounding
   StochasticRoundingRNGState stoc_rounding_state_;
@@ -323,7 +404,7 @@ class WeightRow {
 
   template <
       typename T,
-      typename = std::enable_if_t<is_one_of_v<T, float, at::Half>>>
+      typename = std::enable_if_t<utils::is_one_of_v<T, float, at::Half>>>
   DEVICE_INLINE void same_type_vector_copy(T* dst_vec, const T* src_vec) {
     // Copy vector from src_vec to dst_vec (both are float)
     using ptr_t = std::conditional_t<std::is_same_v<T, float>, float4, float2>;
@@ -336,10 +417,10 @@ class WeightRow {
 // Weight Row Accessor
 //
 // This is a lightweight memory accessor around a row of dim_ number of
-// embedding weights of type row_t (can be HBM or UVM), and provides for loading
-// 4 elements at a time into Vec4T<dst_t> with de-quantization support.  Unlike
-// the heavyweight WeightRow class, this accessor is for reading values only,
-// and does not handle embedding vs cache tables, etc.
+// embedding weights of type row_t (can be HBM or UVM), and loads elements 4
+// at a time into Vec4T<dst_t> with de-quantization support.  Unlike the
+// WeightRow class, this accessor is for reading values only, and does not
+// handle embedding vs cache tables, etc.
 //
 // Template parameters:
 //  row_t   : The type of the table row (e.g. uint8_t, float, at::Half)
@@ -353,21 +434,21 @@ class WeightRowAccessor {
 
   // The number of elements per table row.
   //
-  // This is NOT necessarily equivalent to the row stride D_emb, as there may be
-  // quantization parameters and optimizer states packed into the back of the
-  // row.
+  // This is NOT necessarily equivalent to the row stride D_emb, as there may
+  // be quantization parameters and optimizer states packed into the back of
+  // the row.
   //
-  // dim_ is presumed to be a multiple of 4, since it loads data into Vec4T for
-  // max register occupancy.
-  const int32_t dim_;
+  // dim_ is presumed to be a multiple of 4, since it loads data into Vec4T
+  // for max register occupancy.
+  const uint32_t dim_;
 
-  // [OPTIONAL] The quantization parameters for the row.  If the row type is not
-  // uint8_t, i.e. not quantized, then it is set to (0.0f, 0.0f).
+  // [OPTIONAL] The quantization parameters for the row.  If the row type is
+  // not uint8_t, i.e. not quantized, then it is set to (0.0f, 0.0f).
   float2 qparams_ = make_float2(0.0f, 0.0f);
 
  public:
   DEVICE_INLINE
-  WeightRowAccessor(const row_t* const row, const int32_t dim)
+  WeightRowAccessor(const row_t* const row, const uint32_t dim)
       : row_(row), dim_(dim) {
     if constexpr (std::is_same_v<row_t, uint8_t>) {
       qparams_ = qparams();
@@ -382,6 +463,25 @@ class WeightRowAccessor {
 
   DEVICE_INLINE Vec4T<dst_t> load(const int32_t d) const {
     return dequantize_load<dst_t, row_t>(row_ + d, qparams_);
+  }
+
+  template <typename T>
+  DEVICE_INLINE T* optimizer_state_ptr() const {
+    static_assert(
+        std::is_same_v<
+            T,
+            std::remove_cv_t<
+                std::remove_pointer_t<std::remove_reference_t<T>>>>,
+        "T must be a pure type (no pointers, references, or cv-qualifiers)");
+
+    auto d_emb_ = dim_;
+
+    if constexpr (std::is_same_v<row_t, uint8_t>) {
+      d_emb_ += kINT8QparamsBytes;
+    }
+
+    const auto d_opt_ = utils::pad4(d_emb_);
+    return reinterpret_cast<T*>(const_cast<float*>(row_ + d_opt_));
   }
 };
 
