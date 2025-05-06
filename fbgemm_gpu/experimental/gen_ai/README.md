@@ -59,7 +59,7 @@ pip install fbgemm-gpu-genai
 
 ## 2.2 **Llama4 MoE support**
 
-More coming soon in [token shuffling](gen_ai/moe/README.md) kernels.
+More coming soon in [MetaShuffling](gen_ai/moe/README.md) kernels.
 
 # 3. **Llama 3 Related External Coverage**
 

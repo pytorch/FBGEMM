@@ -4,11 +4,14 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
+from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import List, Optional, Tuple
+from typing import Callable, List, Mapping, Optional, Tuple
 
 import torch
+
 from fairscale.nn.model_parallel.initialize import get_model_parallel_world_size
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
@@ -16,79 +19,175 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
     grouped_gemm,
     grouped_gemm_fp8_rowwise,
 )
-from fbgemm_gpu.experimental.gen_ai.moe import (
-    combine_shuffling,
+from fbgemm_gpu.experimental.gen_ai.moe.activation import silu_mul, silu_mul_quant
+from fbgemm_gpu.experimental.gen_ai.moe.gather_scatter import (
     gather_scale_dense_tokens,
     gather_scale_quant_dense_tokens,
-    index_shuffling,
     scatter_add_dense_tokens,
     scatter_add_padded_tokens,
-    silu_mul,
-    silu_mul_quant,
+)
+from fbgemm_gpu.experimental.gen_ai.moe.shuffling import (
+    combine_shuffling,
     split_shuffling,
 )
 from pyre_extensions import none_throws
 from torch.distributed import get_rank, ProcessGroup
+
+try:
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu import open_source
+
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu.docs.version import __version__  # noqa: F401
+except Exception:
+    open_source: bool = False
+
+if open_source:
+    torch.ops.load_library(
+        os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "fbgemm_gpu_experimental_gen_ai.so",
+        )
+    )
+    torch.classes.load_library(
+        os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "fbgemm_gpu_experimental_gen_ai.so",
+        )
+    )
+else:
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu/experimental/gen_ai:index_shuffling_ops"
+    )
+
+if torch.cuda.is_available():
+    index_shuffling = torch.ops.fbgemm.index_shuffling  # noqa F401
+else:
+    index_shuffling = None
+
+
+__all__ = ["MoEArgs", "BaselineMoE", "MetaShufflingMoE"]
 
 
 @dataclass(frozen=True)
 class MoEArgs:
     dim: int
     hidden_dim: int
-    ffn_dim_multiplier: float
-    multiple_of: int
     mp_size: int
     ep_size: int
     num_experts: int
     mp_size_for_routed_experts: Optional[int]
     top_k: int
-    auto_scale_F: bool
     use_fast_accum: bool
-    dedup_all2all: bool
+    dedup_comm: bool
 
     @cached_property
     def num_local_experts(self) -> int:
         return self.num_experts // self.ep_size
 
 
-class Experts(torch.nn.Module):
+INIT_METHODS_TYPE = Mapping[str, Callable[[torch.Tensor], torch.Tensor]]
+
+
+# Helper functions/modules to perform weights sharding and initialization.
+def init_params(
+    key: str,
+    param: torch.nn.Parameter,
+    init_methods: INIT_METHODS_TYPE,
+):
+    if key in init_methods:
+        param.data = init_methods[key](param.data)
+    else:
+        torch.nn.init.kaiming_uniform_(param)
+
+
+class Experts(torch.nn.Module, metaclass=ABCMeta):
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int,
+    ):
+        super().__init__()
+
+        self.dim: int = dim
+        self.hidden_dim: int = hidden_dim
+
+        self.dtype: torch.dtype = torch.get_default_dtype()
+        self.divide_factor: int = get_model_parallel_world_size()
+
+        assert self.dim % self.divide_factor == 0
+        assert self.hidden_dim % self.divide_factor == 0
+
+        self._w13: Optional[torch.nn.Parameter] = None
+        self._w2: Optional[torch.nn.Parameter] = None
+
+    @abstractmethod
+    def build(self, init_methods: Optional[INIT_METHODS_TYPE] = None) -> "Experts":
+        pass
+
+    @property
+    def w13(self) -> torch.nn.Parameter:
+        assert self._w13 is not None, "Parameters are not initialized!"
+        return self._w13
+
+    @property
+    def w2(self) -> torch.nn.Parameter:
+        assert self._w2 is not None, "Parameters are not initialized!"
+        return self._w2
+
+    @property
+    def is_fp8_rowwise(self) -> bool:
+        return self.w13.dtype == torch.float8_e4m3fn
+
+
+class RoutedExperts(Experts):
     def __init__(
         self,
         num_local_experts: int,
         dim: int,
         hidden_dim: int,
     ) -> None:
-        super().__init__()
+        super().__init__(dim, hidden_dim)
 
-        dtype = torch.get_default_dtype()
-        divide_factor = get_model_parallel_world_size()
+        self.num_local_experts: int = num_local_experts
+
+    def build(
+        self, init_methods: Optional[INIT_METHODS_TYPE] = None
+    ) -> "RoutedExperts":
+        init_methods = {} if init_methods is None else init_methods
 
         moe_w_in_eDF: torch.nn.Parameter = torch.nn.Parameter(
             torch.empty(
-                num_local_experts,
-                dim,
-                hidden_dim // divide_factor,
-                dtype=dtype,
+                self.num_local_experts,
+                self.dim,
+                self.hidden_dim // self.divide_factor,
+                dtype=self.dtype,
             )
         )
+        init_params("moe_w_in_eDF", moe_w_in_eDF, init_methods)
 
         moe_w_out_eFD: torch.nn.Parameter = torch.nn.Parameter(
             torch.empty(
-                num_local_experts,
-                hidden_dim // divide_factor,
-                dim,
-                dtype=dtype,
+                self.num_local_experts,
+                self.hidden_dim // self.divide_factor,
+                self.dim,
+                dtype=self.dtype,
             )
         )
+        init_params("moe_w_out_eFD", moe_w_out_eFD, init_methods)
 
         moe_w_swiglu_eDF: torch.nn.Parameter = torch.nn.Parameter(
             torch.empty(
-                num_local_experts,
-                dim,
-                hidden_dim // divide_factor,
-                dtype=dtype,
+                self.num_local_experts,
+                self.dim,
+                self.hidden_dim // self.divide_factor,
+                dtype=self.dtype,
             )
         )
+        init_params("moe_w_swiglu_eDF", moe_w_swiglu_eDF, init_methods)
+
         self._w13 = torch.nn.Parameter(
             torch.cat(
                 [
@@ -105,40 +204,42 @@ class Experts(torch.nn.Module):
         del moe_w_swiglu_eDF
 
         self._w2 = torch.nn.Parameter(moe_w_out_eFD.transpose(1, 2).contiguous())
-
-    @cached_property
-    def w13(self) -> torch.nn.Parameter:
-        return self._w13
-
-    @cached_property
-    def w2(self) -> torch.nn.Parameter:
-        return self._w2
-
-    @cached_property
-    def is_fp8_rowwise(self) -> bool:
-        return self._w13.dtype == torch.float8_e4m3fn
+        return self
 
 
-class SharedExperts(torch.nn.Module):
-    def __init__(self, dim: int, hidden_dim: int):
-        super().__init__()
+class SharedExperts(Experts):
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int,
+    ):
+        super().__init__(dim, hidden_dim)
 
-        divide_factor = get_model_parallel_world_size()
-        dtype = torch.get_default_dtype()
+    def build(
+        self, init_methods: Optional[INIT_METHODS_TYPE] = None
+    ) -> "SharedExperts":
+        init_methods = {} if init_methods is None else init_methods
 
-        assert dim % divide_factor == 0
-        assert hidden_dim % divide_factor == 0
         w_in_shared_FD = torch.nn.Parameter(
-            torch.empty((hidden_dim // divide_factor, dim), dtype=dtype)
+            torch.empty(
+                (self.hidden_dim // self.divide_factor, self.dim), dtype=self.dtype
+            )
         )
+        init_params("w_in_shared_FD", w_in_shared_FD, init_methods)
 
         w_out_shared_DF = torch.nn.Parameter(
-            torch.empty((dim, hidden_dim // divide_factor), dtype=dtype)
+            torch.empty(
+                (self.dim, self.hidden_dim // self.divide_factor), dtype=self.dtype
+            )
         )
+        init_params("w_out_shared_DF", w_out_shared_DF, init_methods)
 
         w_swiglu_FD = torch.nn.Parameter(
-            torch.empty((hidden_dim // divide_factor, dim), dtype=dtype)
+            torch.empty(
+                (self.hidden_dim // self.divide_factor, self.dim), dtype=self.dtype
+            )
         )
+        init_params("w_swiglu_FD", w_swiglu_FD, init_methods)
 
         self._w13 = torch.nn.Parameter(
             torch.cat(
@@ -146,71 +247,25 @@ class SharedExperts(torch.nn.Module):
                     w_in_shared_FD,
                     w_swiglu_FD,
                 ]
-            )
+            ).contiguous()
         )
         del w_in_shared_FD
         del w_swiglu_FD
 
-        self._w2 = w_out_shared_DF
-
-    @cached_property
-    def w13(self) -> torch.nn.Parameter:
-        return self._w13
-
-    @cached_property
-    def w2(self) -> torch.nn.Parameter:
-        return self._w2
-
-    @property
-    def is_fp8_rowwise(self) -> bool:
-        return self._w13.dtype == torch.float8_e4m3fn
+        self._w2 = torch.nn.Parameter(w_out_shared_DF.contiguous())
+        return self
 
 
-class MoE(torch.nn.Module):
+class BaselineMoE(torch.nn.Module):
     def __init__(
         self,
-        moe_args: MoEArgs,
-    ) -> None:
-        super().__init__()
-
-        self.moe_args = moe_args
-
-        hidden_dim_denom: float = 1.0
-        if moe_args.auto_scale_F:
-            hidden_dim_denom = 1 + moe_args.top_k
-
-        hidden_dim = int(2 * moe_args.hidden_dim / 3)
-        hidden_dim = int(moe_args.ffn_dim_multiplier * moe_args.hidden_dim)
-
-        if moe_args.auto_scale_F:
-            hidden_dim = int(hidden_dim / hidden_dim_denom)
-
-        hidden_dim += -hidden_dim % moe_args.multiple_of
-
-        self.routed_experts = Experts(
-            moe_args.num_local_experts,
-            moe_args.dim,
-            hidden_dim,
-        )
-
-        dtype: torch.dtype = torch.get_default_dtype()
-        self.router_DE: torch.nn.Parameter = torch.nn.Parameter(
-            torch.empty(moe_args.dim, moe_args.num_experts, dtype=dtype)
-        )
-        torch.nn.init.normal_(self.router_DE, mean=0.0, std=0.8 * moe_args.dim**-0.5)
-
-        self.shared_experts = SharedExperts(moe_args.dim, moe_args.hidden_dim)
-
-
-class TokenShufflingMoE(torch.nn.Module):
-    def __init__(
-        self,
-        feed_forward: MoE,
         ep_group: ProcessGroup,
         ep_mp_group: ProcessGroup,
         moe_args: MoEArgs,
     ) -> None:
         super().__init__()
+
+        self.moe_args = moe_args
         self.mp_size: int = moe_args.mp_size
         self.ep_size: int = moe_args.ep_size
         self.ep_mp_size: int = (
@@ -218,9 +273,6 @@ class TokenShufflingMoE(torch.nn.Module):
             if moe_args.mp_size_for_routed_experts is None
             else moe_args.mp_size_for_routed_experts
         )
-        assert (
-            self.mp_size == self.ep_mp_size
-        ), "Token Shuffling only supports mp_size = mp_size_for_routed_experts now"
 
         self.ep_rank: int = get_rank(ep_group)
         self.ep_mp_rank: int = get_rank(ep_mp_group)
@@ -228,34 +280,42 @@ class TokenShufflingMoE(torch.nn.Module):
         self.ep_mp_group: ProcessGroup = ep_mp_group
         self.ep_group: ProcessGroup = ep_group
 
+        self.num_experts: int = moe_args.num_experts
         self.num_local_experts: int = none_throws(moe_args.num_local_experts)
+        assert self.num_experts == self.num_local_experts * self.ep_size
 
         self.top_k: int = moe_args.top_k
-        assert (
-            self.top_k == 1
-        ), "Token Shuffling only supports top 1 routing at the moment"
 
-        self.comm_stream: torch.cuda.Stream = torch.cuda.Stream()
-        self.comp_end_event: torch.cuda.Event = torch.cuda.Event()
-        self.comm_end_event: torch.cuda.Event = torch.cuda.Event()
+        self.dtype: torch.dtype = torch.get_default_dtype()
 
-        self.router_DE: torch.Tensor = feed_forward.router_DE
-        self.E: int = self.router_DE.shape[1]
-        assert (
-            self.E == self.num_local_experts * self.ep_size
-        ), f"{self.E=} != {self.num_local_experts=} * {self.ep_size=}"
+        self._router_DE: Optional[torch.nn.Parameter] = None
+        self.routed_experts = RoutedExperts(
+            moe_args.num_local_experts,
+            moe_args.dim,
+            moe_args.hidden_dim,
+        )
+        self.shared_experts = SharedExperts(
+            moe_args.dim,
+            moe_args.hidden_dim,
+        )
 
-        self.shared_experts = feed_forward.shared_experts
-        self.routed_experts = feed_forward.routed_experts
+    def build(self, init_methods: Optional[INIT_METHODS_TYPE] = None) -> "BaselineMoE":
+        init_methods = {} if init_methods is None else init_methods
 
-        self.use_fast_accum: bool = moe_args.use_fast_accum
-        self.dedup_comm: bool = moe_args.dedup_all2all
-        if self.dedup_comm:
-            assert (
-                self.ep_mp_size == self.mp_size
-            ), "TP2EP is not supported for dedup at the moment."
+        router_DE = torch.nn.Parameter(
+            torch.empty(self.moe_args.dim, self.moe_args.num_experts, dtype=self.dtype)
+        )
+        init_params("router_DE", router_DE, init_methods)
+        self._router_DE = router_DE
 
-        self.activation_scale_ub = None
+        self.routed_experts.build(init_methods)
+        self.shared_experts.build(init_methods)
+        return self
+
+    @property
+    def router_DE(self) -> torch.nn.Parameter:
+        assert self._router_DE is not None, "Parameters are not initialized!"
+        return self._router_DE
 
     # User should overwrite this property
     @property
@@ -265,6 +325,125 @@ class TokenShufflingMoE(torch.nn.Module):
     @property
     def is_routed_fp8_rowwise(self) -> bool:
         return self.routed_experts.is_fp8_rowwise
+
+    @property
+    def E(self) -> int:
+        return self.num_experts
+
+    @property
+    def EG(self) -> int:
+        return self.num_local_experts
+
+    @property
+    def K(self) -> int:
+        return self.top_k
+
+    def forward(self, x: torch.Tensor, use_static_shape: bool) -> torch.Tensor:
+        (B, T, D) = x.shape
+        T *= B
+        tokens = x.view(T, D)
+
+        assert (
+            not self.routed_experts.is_fp8_rowwise
+            and not self.shared_experts.is_fp8_rowwise
+        ), "FP8 is not supported in baseline run yet!"
+
+        # Shared Experts
+        shared_y = torch.mm(tokens, self.shared_experts.w13.T)
+        shared_y0, shared_y1 = torch.chunk(shared_y, chunks=2, dim=-1)
+        shared_z = shared_y0 * torch.sigmoid(shared_y0) * shared_y1
+        shared_z = torch.mm(shared_z, self.shared_experts.w2.T)
+
+        # Routing Scores
+        E: int = self.E
+        scores = torch.nn.functional.linear(tokens, self.router_DE.T)
+        scores = torch.sigmoid(scores)
+        assert scores.shape == (T, E)
+
+        # Routing
+        K: int = self.K
+        topk_values, topk_indices = torch.topk(scores, K, dim=-1)
+        assert topk_values.shape == (T, K)
+        assert topk_indices.shape == (T, K)
+
+        masked_scores = torch.zeros_like(scores)
+        masked_scores = (
+            masked_scores.scatter_(dim=1, index=topk_indices, src=topk_values)
+            .transpose(0, 1)  # (E, T)
+            .reshape(E, T, 1)
+            .expand(E, T, D)
+        )
+
+        tokens = tokens.view(1, T, D).expand(E, T, D)
+        masked_tokens = tokens * masked_scores
+
+        # Routed Experts
+        EG: int = self.EG
+        if self.ep_size > 1:
+            send_tokens = masked_tokens.contiguous()
+            send_list = list(torch.chunk(send_tokens, chunks=self.ep_size, dim=0))
+            recv_tokens = torch.empty_like(send_tokens)
+            recv_list = list(torch.chunk(recv_tokens, chunks=self.ep_size, dim=0))
+
+            torch.distributed.all_to_all(
+                output_tensor_list=recv_list,
+                input_tensor_list=send_list,
+                group=self.ep_group,
+            )
+
+            masked_tokens = recv_tokens.reshape(EG, -1, D)
+
+        routed_y = torch.bmm(masked_tokens, self.routed_experts.w13.transpose(1, 2))
+        routed_y0, routed_y1 = torch.chunk(routed_y, chunks=2, dim=-1)
+        routed_z = routed_y0 * torch.sigmoid(routed_y0) * routed_y1
+        routed_z = torch.bmm(routed_z, self.routed_experts.w2.transpose(1, 2))
+
+        if self.ep_size > 1:
+            send_tokens = routed_z.reshape(E * T, D).contiguous()
+            send_list = list(torch.chunk(send_tokens, chunks=self.ep_size, dim=0))
+            recv_tokens = torch.empty_like(send_tokens)
+            recv_list = list(torch.chunk(recv_tokens, chunks=self.ep_size, dim=0))
+
+            torch.distributed.all_to_all(
+                output_tensor_list=recv_list,
+                input_tensor_list=send_list,
+                group=self.ep_group,
+            )
+
+            routed_z = recv_tokens.reshape(E, T, D)
+
+        return (shared_z + routed_z.sum(dim=0)).reshape(B, -1, D)
+
+
+class MetaShufflingMoE(BaselineMoE):
+    def __init__(
+        self,
+        ep_group: ProcessGroup,
+        ep_mp_group: ProcessGroup,
+        moe_args: MoEArgs,
+    ) -> None:
+        super().__init__(ep_group=ep_group, ep_mp_group=ep_mp_group, moe_args=moe_args)
+
+        assert (
+            self.mp_size == self.ep_mp_size
+        ), "MetaShuffling only supports mp_size = mp_size_for_routed_experts now"
+
+        assert (
+            self.top_k == 1
+        ), "MetaShuffling only supports top 1 routing at the moment"
+
+        self.comm_stream: torch.cuda.Stream = torch.cuda.Stream()
+        self.comp_end_event: torch.cuda.Event = torch.cuda.Event()
+        self.comm_end_event: torch.cuda.Event = torch.cuda.Event()
+
+        self.use_fast_accum: bool = moe_args.use_fast_accum
+        self.dedup_comm: bool = moe_args.dedup_comm
+        if self.dedup_comm:
+            assert (
+                self.ep_mp_size == self.mp_size
+            ), "TP2EP is not supported for dedup at the moment."
+
+        self.activation_scale_ub = None
 
     def forward(self, x: torch.Tensor, use_static_shape: bool) -> torch.Tensor:
         if self.ep_size == 1:
@@ -787,7 +966,14 @@ class TokenShufflingMoE(torch.nn.Module):
         token_counts, expert_indices, token_indices = index_shuffling(
             scores,  # num_tokens
         )
+        token_counts = token_counts[: self.E]
+
         if self.dedup_comm:
+            split_sizes = [
+                token_counts.shape[0],
+                expert_indices.shape[0],
+                token_indices.shape[0],
+            ]
             output = torch.concat([token_counts, expert_indices, token_indices], dim=0)
             # Require broadcast as index_shuffling is not deterministic.
             torch.distributed.broadcast(
@@ -795,11 +981,9 @@ class TokenShufflingMoE(torch.nn.Module):
                 src=(torch.distributed.get_rank() // self.ep_mp_size) * self.ep_mp_size,
                 group=self.ep_mp_group,
             )
-            token_counts = output[: self.E]
-            expert_indices = output[self.E + 1 : self.E + 1 + B * T]
-            token_indices = output[self.E + 1 + B * T :]
-        else:
-            token_counts = token_counts[: self.E]
+            token_counts, expert_indices, token_indices = torch.split(
+                output, split_sizes, dim=0
+            )
 
         if self.is_routed_fp8_rowwise and self.ep_size == 1:
             routed_tokens, routed_tokens_scales = gather_scale_quant_dense_tokens(
@@ -807,7 +991,6 @@ class TokenShufflingMoE(torch.nn.Module):
                 token_indices=token_indices.flatten(),
                 expert_indices=expert_indices.flatten(),
                 scores=scores,
-                # pyre-ignore
                 scale_ub=self.activation_scale_ub,
             )
         else:
@@ -828,18 +1011,16 @@ class TokenShufflingMoE(torch.nn.Module):
 
         if not self.is_shared_fp8_rowwise:
             # TODO(shikaili): Skip padded tokens.
-            # pyre-ignore
             return x @ w13.T
         else:
-            # pyre-ignore
             x, x_scale = triton_quantize_fp8_row(x, self.activation_scale_ub)
             # TODO(shikaili): Skip padded tokens.
             return torch.ops.fbgemm.f8f8bf16_rowwise(
                 x,
-                # pyre-ignore
+                # pyre-ignore[16]
                 w13.weight,
                 x_scale,
-                # pyre-ignore
+                # pyre-ignore[16]
                 w13.scale,
                 use_fast_accum=self.use_fast_accum,
             )
@@ -866,10 +1047,10 @@ class TokenShufflingMoE(torch.nn.Module):
             # TODO(shikaili): Skip padded tokens.
             return torch.ops.fbgemm.f8f8bf16_rowwise(
                 z,
-                # pyre-ignore
+                # pyre-ignore[16]
                 w2.weight,
                 z_scale,
-                # pyre-ignore
+                # pyre-ignore[16]
                 w2.scale,
                 use_fast_accum=self.use_fast_accum,
             )
@@ -904,7 +1085,6 @@ class TokenShufflingMoE(torch.nn.Module):
                 use_fast_accum=self.use_fast_accum,
                 _use_warp_specialization=not torch.version.hip,
             )
-            # TODO: Replace with external def
             z, _ = self._fused_silu_mul(y[:, :HD_L], y[:, HD_L:], False)
             return grouped_gemm(
                 z,
@@ -917,17 +1097,16 @@ class TokenShufflingMoE(torch.nn.Module):
             )
         else:
             if token_scales is None:
-                # pyre-ignore
                 x, x_scale = triton_quantize_fp8_row(x, self.activation_scale_ub)
             else:
                 x_scale = token_scales
             y = grouped_gemm_fp8_rowwise(
                 x,
-                # pyre-ignore
+                # pyre-ignore[16]
                 w13.weights.view(-1, D),
                 token_counts,
                 x_scale.view(-1),
-                # pyre-ignore
+                # pyre-ignore[16]
                 w13.scale.view(-1),
                 use_fast_accum=self.use_fast_accum,
                 _use_warp_specialization=not torch.version.hip,
@@ -939,11 +1118,9 @@ class TokenShufflingMoE(torch.nn.Module):
             assert z_scale is not None
             return grouped_gemm_fp8_rowwise(
                 z,
-                # pyre-ignore
                 w2.weights.view(-1, HD_L),
                 token_counts,
                 z_scale.view(-1),
-                # pyre-ignore
                 w2.scale.view(-1),
                 use_fast_accum=self.use_fast_accum,
                 _use_warp_specialization=not torch.version.hip,

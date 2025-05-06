@@ -41,12 +41,12 @@ def get_global_rank() -> int:
 
 @functools.lru_cache
 def get_ep_group() -> ProcessGroup:
-    global _EP_GROUP
+    global _EP_GROUP  # noqa: F824
     return none_throws(_EP_GROUP)
 
 
 def get_routed_experts_mp_group() -> ProcessGroup:
-    global _ROUTED_EXPERTS_MP_GROUP
+    global _ROUTED_EXPERTS_MP_GROUP  # noqa: F824
     return none_throws(_ROUTED_EXPERTS_MP_GROUP)
 
 
