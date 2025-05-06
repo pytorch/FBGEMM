@@ -491,6 +491,7 @@
     <span class="n">ComputeDevice</span><span class="p">,</span>
     <span class="n">construct_cache_state</span><span class="p">,</span>
     <span class="n">EmbeddingLocation</span><span class="p">,</span>
+    <span class="n">get_bounds_check_version_for_platform</span><span class="p">,</span>
     <span class="n">MAX_PREFETCH_DEPTH</span><span class="p">,</span>
     <span class="n">MultiPassPrefetchConfig</span><span class="p">,</span>
     <span class="n">PoolingMode</span><span class="p">,</span>
@@ -1143,7 +1144,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="p">(</span>
             <span class="mi">2</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span><span class="n">FeatureGateName</span><span class="o">.</span><span class="n">BOUNDS_CHECK_INDICES_V2</span><span class="p">)</span>
-            <span class="k">else</span> <span class="mi">1</span>
+            <span class="k">else</span> <span class="n">get_bounds_check_version_for_platform</span><span class="p">()</span>
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">bounds_check_mode_int</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
             <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FBGEMM_TBE_BOUNDS_CHECK_MODE&quot;</span><span class="p">,</span> <span class="n">bounds_check_mode</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
@@ -1186,6 +1187,7 @@
             <span class="c1"># See:</span>
             <span class="c1">#   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/</span>
             <span class="n">cache_precision</span> <span class="o">=</span> <span class="n">SparseType</span><span class="o">.</span><span class="n">FP32</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="s2">&quot;Override cache_precision=SparseType.FP32 on ROCm&quot;</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># NOTE: The changes from D65865527 are retained here until we can</span>
             <span class="c1"># test that the the hack also works for non-ROCm environments.</span>
