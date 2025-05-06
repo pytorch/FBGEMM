@@ -115,10 +115,10 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
     indices = indices.contiguous();
 
     {%- if not nobag %}
-    const int32_t T = D_offsets.numel() - 1;
+    const auto T = D_offsets.numel() - 1;
     {%- else %}
-    const int32_t total_L = indices.numel();
-    const int32_t T = weights_offsets.numel();
+    const auto total_L = indices.numel();
+    const auto T = weights_offsets.numel();
     {%- endif %}
 
     TORCH_CHECK(T > 0);
