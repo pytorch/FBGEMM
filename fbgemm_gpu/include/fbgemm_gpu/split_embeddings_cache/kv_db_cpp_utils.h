@@ -46,7 +46,7 @@ inline size_t hash_shard(int64_t id, size_t num_shards) {
 ///
 /// @param unordered_indices unordered ids, the id here might be
 /// original(unlinearized) id
-/// @param hash_mode 0 for hash by mod, 1 for hash by interleave
+/// @param hash_mode 0 for chunk-based hashing, 1 for interleaved-based hashing
 /// @param bucket_start global bucket id, the start of the bucket range
 /// @param bucket_end global bucket id, the end of the bucket range
 /// @param bucket_size an optional, virtual size(input space, e.g. 2^50) of a

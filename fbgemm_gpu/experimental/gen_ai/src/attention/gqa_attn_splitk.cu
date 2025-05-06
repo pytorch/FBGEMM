@@ -1066,7 +1066,6 @@ __global__ void gqa_attn_splitk_attn_kernel(
   // Each block handles a single batch and head
   auto b = blockIdx.x;
   auto h = blockIdx.y;
-  int32_t split_k = XQ_out.size(0);
 
   // Note: this is decoding case where we attent to current and all previous
   // tokens.
@@ -2474,13 +2473,21 @@ at::Tensor mqa_attn(
     at::Tensor seq_positions, // [B]
     double qk_scale,
     std::optional<int64_t> num_groups,
-    int64_t cache_logical_dtype_int) {
+    int64_t cache_logical_dtype_int,
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v) {
   at::OptionalDeviceGuard guard(XQ.device());
   TORCH_CHECK(XQ.is_cuda());
   TORCH_CHECK(cache_K.is_cuda());
   TORCH_CHECK(cache_V.is_cuda());
   TORCH_CHECK(cache_K.is_contiguous());
   TORCH_CHECK(cache_V.is_contiguous());
+  TORCH_CHECK(
+      !qparam_k.has_value(),
+      "CUDA doesn't support external qparams in mqa_attn");
+  TORCH_CHECK(
+      !qparam_v.has_value(),
+      "CUDA doesn't support external qparams in mqa_attn");
 
   TORCH_CHECK(seq_positions.is_cuda());
 

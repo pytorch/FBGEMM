@@ -153,11 +153,19 @@ std::tuple<at::Tensor, at::Tensor> dequantize_int4_cache(
     at::Tensor cache_K,
     at::Tensor cache_V,
     at::Tensor kv_seqlen,
-    std::optional<int64_t> num_groups) {
+    std::optional<int64_t> num_groups,
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v) {
   // allocate DQ outputs
   TORCH_CHECK(cache_K.is_cuda());
   TORCH_CHECK(cache_V.is_cuda());
   TORCH_CHECK(kv_seqlen.is_cuda());
+  TORCH_CHECK(
+      !qparam_k.has_value(),
+      "CUDA doesn't support external qparams in dequantize_int4_cache");
+  TORCH_CHECK(
+      !qparam_v.has_value(),
+      "CUDA doesn't support external qparams in dequantize_int4_cache");
   auto B = cache_K.size(0);
   auto MAX_T = cache_K.size(1);
   auto N_KVH = cache_K.size(2);
@@ -209,12 +217,19 @@ __device__ void get_dst_row(
 }
 
 enum class PositionEmbeddingMode { ROPE = 0, XPOS = 1, NOPE = 2 };
+enum class KVQuantRecipe { perTokenScaling = 0, perHeadScaling = 1 };
 enum class QKV { Q, K, V };
+
+template <typename T, KVQuantRecipe recipe = KVQuantRecipe::perTokenScaling>
 DEVICE_INLINE void quantize_fp8_kv(
     fx4 dst,
-    uint8_t* dst_row_q,
+    T* dst_row_q,
     __half2* qparam = nullptr,
     bool do_norm = false);
+
+DEVICE_INLINE void per_row_norm(fx4& dst);
+DEVICE_INLINE void per_row_amax(fx4& dst, float* amax);
+DEVICE_INLINE void per_head_amax(fx4& dst, float* amax);
 __global__ void nope_qkv_varseq_prefill_kernel(
     at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ, // [B_T][N_H][D_H]
@@ -648,13 +663,10 @@ DEVICE_INLINE fx4 rope_xpos(
 }
 
 template <int KVQuantNumGroups = 1>
-DEVICE_INLINE void quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm) {
+DEVICE_INLINE void
+quantize_int4_kv(fx4 dst, uint8_t* dst_row_q, bool do_norm = false) {
   if (do_norm) {
-    float sum = fx4_dot(dst, dst);
-    // Warp reduce sum
-    sum = warpReduceSum(sum);
-    float rsqr = rsqrtf(sum / D_H);
-    dst = fx4_scale(dst, rsqr);
+    per_row_norm(dst);
   }
   auto thread_min = fminf(fminf(fminf(dst.x, dst.y), dst.z), dst.w);
   auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
@@ -912,54 +924,37 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
   *reinterpret_cast<uint2*>(&src) =
       *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]);
 
+  fx4 dst = rope_xpos<EmbMode>(
+      src,
+      seqpos_t,
+      qkv,
+      theta,
+      gamma,
+      scale_base,
+      exponent_offset,
+      rope_scaling,
+      old_context_len,
+      scaling_factor,
+      lo_freq_factor,
+      hi_freq_factor);
+  if (k_norm && qkv != QKV::V) {
+    // fusing K/Q norm into the kernel
+    per_row_norm(dst);
+  }
+
+  if (qkv == QKV::K && write_k_back) {
+    // Also write back to the source row
+    bfx4 dst_bf16 = fx4_to_bfx4(dst);
+    *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]) =
+        *reinterpret_cast<uint2*>(&dst_bf16);
+  }
   if (qkv == QKV::Q) {
-    // Store Q without quantization
-    bfx4 dst_bf16{};
-    if (EmbMode == PositionEmbeddingMode::NOPE) {
-      dst_bf16 = src;
-    } else {
-      fx4 dst = rope_xpos<EmbMode>(
-          src,
-          seqpos_t,
-          qkv,
-          theta,
-          gamma,
-          scale_base,
-          exponent_offset,
-          rope_scaling,
-          old_context_len,
-          scaling_factor,
-          lo_freq_factor,
-          hi_freq_factor);
-      dst_bf16 = fx4_to_bfx4(dst);
-    }
-
+    // write to dst_row
+    bfx4 dst_bf16 = fx4_to_bfx4(dst);
     CUDA_KERNEL_ASSERT(uintptr_t(&dst_row[4 * threadIdx.x]) % 8 == 0);
-
     *reinterpret_cast<uint2*>(&dst_row[4 * threadIdx.x]) =
         *reinterpret_cast<uint2*>(&dst_bf16);
   } else {
-    // Converts BF16 to float in case of NoPE
-    fx4 dst = rope_xpos<EmbMode>(
-        src,
-        seqpos_t,
-        qkv,
-        theta,
-        gamma,
-        scale_base,
-        exponent_offset,
-        rope_scaling,
-        old_context_len,
-        scaling_factor,
-        lo_freq_factor,
-        hi_freq_factor);
-    if (write_k_back && qkv == QKV::K &&
-        EmbMode != PositionEmbeddingMode::NOPE) {
-      // Also write back to the source row
-      bfx4 dst_bf16 = fx4_to_bfx4(dst);
-      *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]) =
-          *reinterpret_cast<uint2*>(&dst_bf16);
-    }
     // quantize and write to dst_row
     auto D_H = XQ.size(2);
     auto D_H_q = cache_K.size(3);
@@ -988,12 +983,186 @@ __global__ void rope_xpos_qkv_varseq_prefill_kernel_quantized(
           qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
         }
       }
-      quantize_fp8_kv(dst, dst_row_q, qparam_row, (qkv == QKV::K && k_norm));
+      quantize_fp8_kv(dst, dst_row_q, qparam_row);
     } else if (kCacheDtype == CacheLogicalDtype::INT4) {
       CUDA_KERNEL_ASSERT(D_H_q - D_H / 2 == 4 * KVQuantNumGroups);
-      quantize_int4_kv<KVQuantNumGroups>(
-          dst, dst_row_q, (qkv == QKV::K && k_norm));
+      quantize_int4_kv<KVQuantNumGroups>(dst, dst_row_q);
     }
+  }
+}
+
+template <
+    PositionEmbeddingMode EmbMode,
+    CacheLogicalDtype kCacheDtype,
+    int KVQuantNumGroups = 1>
+__global__ void rope_xpos_qkv_varseq_prefill_kernel_fp8(
+    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+        XQ, // [B_T][N_H][D_H]
+    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+        XK, // [B_T][N_KVH][D_H]
+    at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
+        XV, // [B_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
+        cache_K, // [B][MAX_T][N_KVH][D_H +4]
+    at::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
+        cache_V, // [B][MAX_T][N_KVH][D_H + 4]
+    int32_t* qparam_k_ptr,
+    int32_t* qparam_v_ptr,
+    int32_t* varseq_batch, // in decoding case we have T == 1 and so just
+                           // pass nullptr
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> varseq_seqpos,
+    double theta,
+    double gamma,
+    double scale_base,
+    double exponent_offset,
+    int32_t* block_tables, // [B][MAX_PAGES], maps logical pages to physical
+                           // ones for paged attention
+    int32_t page_size,
+    int32_t block_tables_b_stride,
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        varseq_cache_seqpos,
+    int64_t* actual_batch_size =
+        nullptr, // When running in CUDA graph mode, the actual batch size
+                 // can be smaller than block_tables.size(0). In this case
+                 // rows of block_tables beyond actual_batch_size are not
+                 // initialized, and using them wil cause undefined
+                 // behavior. To prevent this, when actual_batch_size is
+                 // provided, the kernel exits if the current batch index is
+                 // larger of equal to actual_batch_size,
+    bool rope_scaling = false,
+    int64_t old_context_len = 8192,
+    double scaling_factor = 16,
+    double lo_freq_factor = 1,
+    double hi_freq_factor = 32,
+    bool write_k_back = false,
+    bool k_norm = false,
+    float* amax = nullptr) {
+  // Launch b_t_(sum(h)) warps.
+  auto b_t_hh = blockIdx.x * blockDim.y +
+      threadIdx.y; // Block = [kThreadsPerWarp, kWarpsPerBlock]
+  // Each warp handles a single head XQ or XK or XV of a single token..
+  // That would be 1 x 128 distributed among 32 threads in the warp.
+  // Each thread should handle 4 elements.
+  auto B_T = XQ.size(0);
+  auto N_KVH = XK.size(1);
+  auto N_H = XQ.size(1);
+  auto D_H = XQ.size(2);
+
+  auto HH = 2 * N_KVH + N_H;
+
+  auto hh = b_t_hh % HH;
+  auto b_t = b_t_hh / HH;
+  if (b_t >= B_T) {
+    return;
+  }
+  auto seqpos_t = varseq_seqpos[b_t];
+  if (seqpos_t == -1) {
+    return;
+  }
+  auto cache_loc_t = varseq_cache_seqpos[b_t];
+  auto b = varseq_batch ? varseq_batch[b_t] : b_t;
+
+  if (actual_batch_size != nullptr && b_t >= *actual_batch_size) {
+    return;
+  }
+
+  at::BFloat16* src_row = nullptr;
+  // dst_row_q dtype is fp8 not uint8_t
+  at::Float8_e4m3fn* dst_row_q = nullptr;
+  auto h = 0;
+  QKV qkv;
+  if (hh < N_H) {
+    h = hh;
+    src_row = &XQ[b_t][h][0];
+    qkv = QKV::Q;
+  } else if (hh < N_H + N_KVH) {
+    h = hh - N_H;
+    src_row = &XK[b_t][h][0];
+    get_dst_row(
+        &dst_row_q,
+        cache_K,
+        b,
+        h,
+        cache_loc_t,
+        page_size,
+        block_tables,
+        block_tables_b_stride);
+    qkv = QKV::K;
+  } else {
+    h = hh - N_H - N_KVH;
+    src_row = &XV[b_t][h][0];
+    get_dst_row(
+        &dst_row_q,
+        cache_V,
+        b,
+        h,
+        cache_loc_t,
+        page_size,
+        block_tables,
+        block_tables_b_stride);
+    qkv = QKV::V;
+  }
+
+  // load 4 elements per thread in a warp.
+
+  // Each thread should handle D_H//32 = 4 elements.
+  CUDA_KERNEL_ASSERT(D_H <= 4 * kThreadsPerWarp);
+  if (4 * threadIdx.x >= D_H) {
+    return;
+  }
+  bfx4 src;
+  *reinterpret_cast<uint2*>(&src) =
+      *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]);
+
+  fx4 dst = rope_xpos<EmbMode>(
+      src,
+      seqpos_t,
+      qkv,
+      theta,
+      gamma,
+      scale_base,
+      exponent_offset,
+      rope_scaling,
+      old_context_len,
+      scaling_factor,
+      lo_freq_factor,
+      hi_freq_factor);
+  if (k_norm && qkv != QKV::V) {
+    // fusing K/Q norm into the kernel
+    per_row_norm(dst);
+  }
+  // Write back to the source row for Q and K
+  if (qkv != QKV::V && write_k_back) {
+    // Also write back to the source row
+    bfx4 dst_bf16 = fx4_to_bfx4(dst);
+    *reinterpret_cast<uint2*>(&src_row[4 * threadIdx.x]) =
+        *reinterpret_cast<uint2*>(&dst_bf16);
+  }
+  // This kernel does not write to xq_o
+  if (qkv != QKV::Q) {
+    // only write to cache if batch lane has a pre-calculated qparam
+    // quantize and write to dst_row
+    CUDA_KERNEL_ASSERT(qparam_k_ptr != nullptr)
+    // TODO: Change qparam ptr to float*
+    __half2* qparam_row = nullptr;
+
+    size_t idx = b * N_KVH + h;
+    if (qkv == QKV::K) {
+      qparam_row = reinterpret_cast<__half2*>(&qparam_k_ptr[idx]);
+    } else {
+      qparam_row = reinterpret_cast<__half2*>(&qparam_v_ptr[idx]);
+    }
+    quantize_fp8_kv<at::Float8_e4m3fn, KVQuantRecipe::perHeadScaling>(
+        dst, dst_row_q, qparam_row);
+  }
+  // amax calculation for QKV
+  // TODO: avoid amax calculation for KV if batch lane has a pre-calculated
+  // qparam if (qkv != QKV::Q && is_precalculated_qparam[b_t] ){
+  //   return;
+  // }
+  if (amax != nullptr) {
+    // per_row_amax(dst, &amax[b_t * HH + hh]);
+    per_head_amax(dst, &amax[b * HH + hh]);
   }
 }
 
@@ -1013,7 +1182,8 @@ at::Tensor nope_qkv_varseq_prefill(
     std::optional<at::Tensor> qparam_k = std::nullopt,
     std::optional<at::Tensor> qparam_v = std::nullopt,
     bool k_norm = false,
-    bool update_kv = true) {
+    bool update_kv = true,
+    std::optional<at::Tensor> amax_qkv = std::nullopt) {
   auto B_T = XQ.size(0);
   auto N_H = XQ.size(1);
 
@@ -1077,7 +1247,6 @@ at::Tensor nope_qkv_varseq_prefill(
         nullptr,
         update_kv);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
-    return XQ_O;
   } else {
     auto num_groups_ = num_groups ? num_groups.value() : 1;
     int32_t* qparam_k_ptr = nullptr;
@@ -1093,30 +1262,75 @@ at::Tensor nope_qkv_varseq_prefill(
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
       CUDA_KERNEL_ASSERT(num_groups_ == 1);
-      CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
-          1,
-          CacheLogicalDtype::FP8,
-          PositionEmbeddingMode::NOPE,
-          varseq_batch_,
-          varseq_seqpos_,
-          0,
-          0,
-          0,
-          0,
-          block_tables_ptr,
-          page_size,
-          block_tables_b_stride,
-          (varseq_cache_seqpos_
-               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          nullptr,
-          false,
-          0,
-          0,
-          0,
-          0,
-          false,
-          k_norm);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      if (cache_K.dtype() == at::kFloat8_e4m3fn) {
+        float* amax_ptr = nullptr;
+        if (amax_qkv.has_value()) {
+          amax_ptr = static_cast<float*>(amax_qkv.value().data_ptr());
+        }
+        rope_xpos_qkv_varseq_prefill_kernel_fp8<
+            PositionEmbeddingMode::NOPE,
+            CacheLogicalDtype::FP8,
+            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            cache_K.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            cache_V.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            qparam_k_ptr,
+            qparam_v_ptr,
+            varseq_batch_,
+            varseq_seqpos_,
+            0,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            varseq_cache_seqpos_
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            nullptr,
+            false,
+            0,
+            0,
+            0,
+            0,
+            true, // write_k_back and q too if we are doing norm.
+            k_norm,
+            amax_ptr);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      } else {
+        CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
+            1,
+            CacheLogicalDtype::FP8,
+            PositionEmbeddingMode::NOPE,
+            varseq_batch_,
+            varseq_seqpos_,
+            0,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            (varseq_cache_seqpos_
+                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+            nullptr,
+            false,
+            0,
+            0,
+            0,
+            0,
+            false,
+            k_norm);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }
 #else
       throw std::runtime_error("CUDA version is older than 12.0");
 #endif
@@ -1168,7 +1382,8 @@ at::Tensor nope_qkv_decoding(
     std::optional<at::Tensor> qparam_k = std::nullopt,
     std::optional<at::Tensor> qparam_v = std::nullopt,
     bool k_norm = false,
-    bool update_kv = true) {
+    bool update_kv = true,
+    std::optional<at::Tensor> amax_qkv = std::nullopt) {
   auto B = XQ.size(0);
   auto N_H = XQ.size(1);
   // auto N_KVH = XK.size(1);
@@ -1246,31 +1461,77 @@ at::Tensor nope_qkv_decoding(
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
       CUDA_KERNEL_ASSERT(num_groups_ == 1);
-      CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
-          1,
-          CacheLogicalDtype::FP8,
-          PositionEmbeddingMode::NOPE,
-          batch_,
-          seqpos_,
-          0,
-          0,
-          0,
-          0,
-          block_tables_ptr,
-          page_size,
-          block_tables_b_stride,
-          (cache_seqpos_
-               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          actual_batch_size_ptr,
-          false,
-          0,
-          0,
-          0,
-          0,
-          false,
-          k_norm);
+      if (cache_K.dtype() == at::kFloat8_e4m3fn) {
+        float* amax_ptr = nullptr;
+        if (amax_qkv.has_value()) {
+          amax_ptr = static_cast<float*>(amax_qkv.value().data_ptr());
+        }
+        rope_xpos_qkv_varseq_prefill_kernel_fp8<
+            PositionEmbeddingMode::NOPE,
+            CacheLogicalDtype::FP8,
+            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            cache_K.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            cache_V.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            qparam_k_ptr,
+            qparam_v_ptr,
+            batch_,
+            seqpos_,
+            0,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            cache_seqpos_
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            actual_batch_size_ptr,
+            false,
+            0,
+            0,
+            0,
+            0,
+            true, // write_k_back and q too if we are doing norm.
+            k_norm,
+            amax_ptr);
 
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+      } else {
+        CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
+            1,
+            CacheLogicalDtype::FP8,
+            PositionEmbeddingMode::NOPE,
+            batch_,
+            seqpos_,
+            0,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            (cache_seqpos_
+                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+            actual_batch_size_ptr,
+            false,
+            0,
+            0,
+            0,
+            0,
+            false,
+            k_norm);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }
 #else
       throw std::runtime_error("CUDA version is older than 12.0");
 #endif
@@ -1328,7 +1589,8 @@ at::Tensor rope_qkv_varseq_prefill(
     std::optional<at::Tensor> qparam_v = std::nullopt,
     bool write_k_back = false,
     bool k_norm = false,
-    bool update_kv = true) {
+    bool update_kv = true,
+    std::optional<at::Tensor> amax_qkv = std::nullopt) {
   auto B_T = XQ.size(0);
   auto N_H = XQ.size(1);
   auto N_KVH = 0;
@@ -1415,30 +1677,76 @@ at::Tensor rope_qkv_varseq_prefill(
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
       CUDA_KERNEL_ASSERT(num_groups_ == 1);
-      CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
-          1,
-          CacheLogicalDtype::FP8,
-          PositionEmbeddingMode::ROPE,
-          varseq_batch_,
-          varseq_seqpos_,
-          theta,
-          0,
-          0,
-          0,
-          block_tables_ptr,
-          page_size,
-          block_tables_b_stride,
-          (varseq_cache_seqpos_
-               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          nullptr,
-          rope_scaling,
-          old_context_len,
-          scaling_factor,
-          lo_freq_factor,
-          hi_freq_factor,
-          write_k_back,
-          k_norm);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      if (cache_K.dtype() == at::kFloat8_e4m3fn) {
+        float* amax_ptr = nullptr;
+        if (amax_qkv.has_value()) {
+          amax_ptr = static_cast<float*>(amax_qkv.value().data_ptr());
+        }
+        rope_xpos_qkv_varseq_prefill_kernel_fp8<
+            PositionEmbeddingMode::ROPE,
+            CacheLogicalDtype::FP8,
+            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            cache_K.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            cache_V.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            qparam_k_ptr,
+            qparam_v_ptr,
+            varseq_batch_,
+            varseq_seqpos_,
+            theta,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            varseq_cache_seqpos_
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            nullptr,
+            rope_scaling,
+            old_context_len,
+            scaling_factor,
+            lo_freq_factor,
+            hi_freq_factor,
+            true,
+            k_norm,
+            amax_ptr);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+      } else {
+        CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
+            1,
+            CacheLogicalDtype::FP8,
+            PositionEmbeddingMode::ROPE,
+            varseq_batch_,
+            varseq_seqpos_,
+            theta,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            (varseq_cache_seqpos_
+                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+            nullptr,
+            rope_scaling,
+            old_context_len,
+            scaling_factor,
+            lo_freq_factor,
+            hi_freq_factor,
+            write_k_back,
+            k_norm);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }
 #else
       throw std::runtime_error("CUDA version is older than 12.0");
 #endif
@@ -1651,7 +1959,8 @@ at::Tensor rope_qkv_decoding(
     std::optional<at::Tensor> qparam_k = std::nullopt,
     std::optional<at::Tensor> qparam_v = std::nullopt,
     bool k_norm = false,
-    bool update_kv = true) {
+    bool update_kv = true,
+    std::optional<at::Tensor> amax_qkv = std::nullopt) {
   auto B = XQ.size(0);
   auto N_H = XQ.size(1);
   auto N_KVH = 0;
@@ -1674,6 +1983,7 @@ at::Tensor rope_qkv_decoding(
 
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
   dim3 blocks(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
+  // TODO: not needed for fp8 attn case
   auto XQ_O = at::empty_like(XQ);
 
   CacheLogicalDtype cache_logical_dtype =
@@ -1734,31 +2044,77 @@ at::Tensor rope_qkv_decoding(
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
       CUDA_KERNEL_ASSERT(num_groups_ == 1);
-      CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
-          1,
-          CacheLogicalDtype::FP8,
-          PositionEmbeddingMode::ROPE,
-          nullptr,
-          seqpos_,
-          theta,
-          0,
-          0,
-          0,
-          block_tables_ptr,
-          page_size,
-          block_tables_b_stride,
-          (cache_seqpos_
-               .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          actual_batch_size_ptr,
-          rope_scaling,
-          old_context_len,
-          scaling_factor,
-          lo_freq_factor,
-          hi_freq_factor,
-          false,
-          k_norm);
+      if (cache_K.dtype() == at::kFloat8_e4m3fn) {
+        float* amax_ptr = nullptr;
+        if (amax_qkv.has_value()) {
+          amax_ptr = static_cast<float*>(amax_qkv.value().data_ptr());
+        }
+        rope_xpos_qkv_varseq_prefill_kernel_fp8<
+            PositionEmbeddingMode::ROPE,
+            CacheLogicalDtype::FP8,
+            1><<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
+            XQ.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XK.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            XV.packed_accessor32<at::BFloat16, 3, at::RestrictPtrTraits>(),
+            cache_K.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            cache_V.packed_accessor64<
+                at::Float8_e4m3fn,
+                4,
+                at::RestrictPtrTraits>(),
+            qparam_k_ptr,
+            qparam_v_ptr,
+            batch.has_value() ? batch.value().data_ptr<int32_t>() : nullptr,
+            seqpos_,
+            theta,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            cache_seqpos_
+                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+            actual_batch_size_ptr,
+            rope_scaling,
+            old_context_len,
+            scaling_factor,
+            lo_freq_factor,
+            hi_freq_factor,
+            true,
+            k_norm,
+            amax_ptr);
 
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      } else {
+        CALL_ROPE_XPOS_QKV_VARSEQ_PREFILL_GROUPWISE_KERNEL(
+            1,
+            CacheLogicalDtype::FP8,
+            PositionEmbeddingMode::ROPE,
+            nullptr,
+            seqpos_,
+            theta,
+            0,
+            0,
+            0,
+            block_tables_ptr,
+            page_size,
+            block_tables_b_stride,
+            (cache_seqpos_
+                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
+            actual_batch_size_ptr,
+            rope_scaling,
+            old_context_len,
+            scaling_factor,
+            lo_freq_factor,
+            hi_freq_factor,
+            false,
+            k_norm);
+
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }
 #else
       throw std::runtime_error("CUDA version is older than 12.0");
 #endif
@@ -2336,65 +2692,279 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   return {cache_K_dq, cache_V_dq};
 }
 
-DEVICE_INLINE void
-quantize_fp8_kv(fx4 dst, uint8_t* dst_row_q, __half2* qparam, bool do_norm) {
-  if (do_norm) {
-    float sum = fx4_dot(dst, dst);
-    // Warp reduce sum
-    sum = warpReduceSum(sum);
-    float rsqr = rsqrtf(sum / D_H);
-    dst = fx4_scale(dst, rsqr);
-  }
-  auto thread_min = fminf(fminf(fminf(dst.x, dst.y), dst.z), dst.w);
-  auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
-
-  float warp_min, warp_max;
-
-  int32_t fp8_qparam_offset = 0;
-  if (qparam == nullptr) {
-    fp8_qparam_offset = 4;
-  }
-  unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
-  warp_min = -warpReduceMax(-thread_min, mask);
-  warp_max = warpReduceMax(thread_max, mask);
-
-  auto bounded_max = (warp_max - warp_min) / 2;
-  //  TODO: Pass scale_ub
-  const float* scale_ub = nullptr;
-  constexpr float min_scaling_factor = 1.0f / (FP8_E4M3_MAX::value * 512.f);
-  if (scale_ub != nullptr) {
-    bounded_max = std::min(bounded_max, *scale_ub);
-  }
-  float scale = static_cast<float>(
-      std::max(bounded_max / FP8_E4M3_MAX::value, min_scaling_factor));
-  float inv_scale = 1 / scale;
-  float shift = warp_min + FP8_E4M3_MAX::value * scale;
-
-  auto x_0 = __nv_fp8_e4m3((dst.x - shift) * inv_scale);
-  auto x_1 = __nv_fp8_e4m3((dst.y - shift) * inv_scale);
-  auto x_2 = __nv_fp8_e4m3((dst.z - shift) * inv_scale);
-  auto x_3 = __nv_fp8_e4m3((dst.w - shift) * inv_scale);
-
-  uint32_t x_bits[4];
-  x_bits[0] = *reinterpret_cast<uint32_t*>(&x_0);
-  x_bits[1] = *reinterpret_cast<uint32_t*>(&x_1);
-  x_bits[2] = *reinterpret_cast<uint32_t*>(&x_2);
-  x_bits[3] = *reinterpret_cast<uint32_t*>(&x_3);
-
+// Function to convert and pack a single component
+DEVICE_INLINE uint32_t
+convertAndPack(float component, float inv_scale, float shift = 0.0) {
+  auto val = (component - shift) * inv_scale;
+  val = fmaxf(val, -FP8_E4M3_MAX::value);
+  val = fminf(val, FP8_E4M3_MAX::value);
+  auto x = __nv_fp8_e4m3(val);
+  return *reinterpret_cast<uint32_t*>(&x);
+}
+// Function to pack four components into a single uint32_t
+DEVICE_INLINE uint32_t packComponents(uint32_t x_bits[4]) {
   uint32_t packed = 0;
-
   packed |= (x_bits[0] << 0);
   packed |= (x_bits[1] << 8);
   packed |= (x_bits[2] << 16);
   packed |= (x_bits[3] << 24);
+  return packed;
+}
 
+__global__ void quantizeQKVPerHead(
+    const float* xqkv_amax_head, // [B, HH]
+    at::BFloat16* xqkv, // [B_T, HH, D_H]
+    const int32_t* varseq_seqpos, // [B_T]
+    const int32_t* varseq_batch, // [B_T]
+    at::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        q_seqstarts, // [B+1]
+    at::PackedTensorAccessor64<at::Float8_e4m3fn, 3, at::RestrictPtrTraits>
+        XQ_O, // [B_T][N_H][D]
+    at::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
+        cache_K, // [B][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>
+        cache_V, // [B][MAX_T][N_KVH][D_H]
+    float* const scale_q,
+    float* const scale_k,
+    float* const scale_v,
+    float kv_multiplier = 64.f) {
+  extern __shared__ float
+      shared_max[]; // Shared memory for block-level reduction
+  // Launch one warp per token. Each thread handles 4 elements.
+  // warps = B_T * HH
+  auto b_t_hh = blockIdx.x * blockDim.y + threadIdx.y;
+  auto N_KVH = cache_K.size(2);
+  auto N_H = XQ_O.size(1);
+
+  auto B_T = XQ_O.size(0);
+  // TODO: Support N_KVH > 1
+  CUDA_KERNEL_ASSERT(N_KVH == 1);
+
+  // TODO: Support amax_head of size [B, N_H] for decode case
+  // auto HH = (scale_k == nullptr) ? N_H : N_KVH * 2 + N_H;
+  auto HH = N_H + N_KVH * 2;
+
+  auto hh = b_t_hh % HH;
+  auto b_t = b_t_hh / HH;
+
+  // Boundary check
+  if (b_t >= B_T || hh >= HH)
+    return;
+
+  auto seqpos_t = varseq_seqpos[b_t];
+  auto b = varseq_batch ? varseq_batch[b_t] : b_t;
+
+  int h = 0;
+  float* qparam = nullptr;
+  QKV qkv;
+  at::Float8_e4m3fn* dst_row_q = nullptr;
+  if (hh < N_H) {
+    qkv = QKV::Q;
+    h = hh;
+    qparam = scale_q + b * N_KVH + hh / (N_H / N_KVH);
+    dst_row_q = &XQ_O[b_t][h][0];
+  } else if (hh < N_H + N_KVH) {
+    qkv = QKV::K;
+    h = hh - N_H;
+    if (scale_k == nullptr)
+      return;
+    qparam = scale_k + b * N_KVH + h;
+    dst_row_q = &cache_K[b][seqpos_t][h][0];
+  } else {
+    qkv = QKV::V;
+    h = hh - N_H - N_KVH;
+    if (scale_k == nullptr)
+      return;
+    qparam = scale_v + b * N_KVH + h;
+    dst_row_q = &cache_V[b][seqpos_t][h][0];
+  }
+  // Skip quantization if scale is pre-calculated for K/V
+  // as in decode and partial prefill cases
+  int start = q_seqstarts[b];
+  if (qkv != QKV::Q && varseq_seqpos[start] > 0)
+    return;
+
+  CUDA_KERNEL_ASSERT(uintptr_t(qparam) % 4 == 0);
+  float val = 0;
+  if (qkv == QKV::Q) {
+    // assert N_KVH == 1
+    for (int _h = 0; _h < N_H; _h++) {
+      val = fmaxf(val, xqkv_amax_head[b * HH + _h]);
+    }
+    val *= 8; // [Experimental] improves accuracy
+  } else {
+    val = kv_multiplier * xqkv_amax_head[b * HH + hh];
+  }
+  // Calculate scaling factor
+  constexpr float min_scaling_factor = 1.0f / (FP8_E4M3_MAX::value * 512.f);
+  val = fminf(val, 12000);
+  float scale = fmaxf(val / FP8_E4M3_MAX::value, min_scaling_factor);
+  bool is_first_token =
+      (b_t == 0 || !varseq_batch || varseq_batch[b_t - 1] != b);
+  if (threadIdx.x == 0 && h == 0 && is_first_token) {
+    *qparam = scale;
+  }
+  // Write scaling factor
+  auto inv_scale = 1 / scale;
+  CUDA_KERNEL_ASSERT(uintptr_t(&xqkv[b_t * HH * D_H + hh * D_H]) % 16 == 0);
+  at::BFloat16* src_row = &xqkv[b_t * HH * D_H + hh * D_H];
+
+  // Convert and pack data
+  bfx4 src;
+  fx4 dst;
+  uint32_t x_bits[4];
+  auto d = threadIdx.x * 4;
+  CUDA_KERNEL_ASSERT(uintptr_t(&src_row[d]) % 8 == 0);
+  // 8 bytes are 4 elements of type bf16
+  *reinterpret_cast<uint2*>(&src) = *reinterpret_cast<uint2*>(&src_row[d]);
+  dst = bfx4_to_fx4(src);
+  x_bits[0] = convertAndPack(dst.x, inv_scale);
+  x_bits[1] = convertAndPack(dst.y, inv_scale);
+  x_bits[2] = convertAndPack(dst.z, inv_scale);
+  x_bits[3] = convertAndPack(dst.w, inv_scale);
+  uint32_t packed = packComponents(x_bits);
+  CUDA_KERNEL_ASSERT(uintptr_t(&dst_row_q[d]) % 4 == 0);
+  *reinterpret_cast<uint32_t*>(&dst_row_q[d]) = packed;
+}
+
+at::Tensor quantize_qkv_per_head(
+    at::Tensor xqkv_amax_row, // [B_T, HH]
+    at::Tensor xqkv, // [B_T, HH, D_H]
+    at::Tensor varseq_seqpos, // [B_T]
+    std::optional<at::Tensor> varseq_batch, // [B_T]
+    at::Tensor q_seqstarts, // [B+1]
+    at::Tensor cache_K, // [B][MAX_T][N_KVH][D_H]
+    at::Tensor cache_V, // [B][MAX_T][N_KVH][D_H]
+    at::Tensor XQ_O, // [B_T][N_H][D]
+    int64_t max_seq_length, // Length of the sequence
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v) {
+  auto B_T = XQ_O.size(0);
+  auto N_KVH_L = cache_K.size(2);
+  auto N_H_L = XQ_O.size(1);
+  auto HH = N_H_L + N_KVH_L * 2;
+  float* qparam_k_ptr = nullptr;
+  float* qparam_v_ptr = nullptr;
+  if (qparam_k.has_value()) {
+    // prefill case
+    // HH += N_KVH_L * 2;
+    qparam_k_ptr = qparam_k.value().data_ptr<float>();
+    qparam_v_ptr = qparam_v.value().data_ptr<float>();
+    CHECK_EQ(HH, 7);
+  }
+  auto num_warps = B_T * HH;
+  dim3 block_size(kThreadsPerWarp, kWarpsPerBlock);
+  dim3 grid_size(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
+
+  auto scale_q = at::zeros(
+      {q_seqstarts.size(0) - 1, N_KVH_L}, XQ_O.options().dtype(at::kFloat));
+  float* const scale_q_ptr = scale_q.data_ptr<float>();
+  // Launch the kernel
+  // TODO: Launch the kernel with B_T * N_H_L blocks only in case of decode.
+  // Currently, we are launching the kernel with B_T * HH blocks for decode and
+  // KV blocks just return when qparam_k is passed as nullptr.
+  quantizeQKVPerHead<<<
+      grid_size,
+      block_size,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      xqkv_amax_row.data_ptr<float>(),
+      xqkv.data_ptr<at::BFloat16>(),
+      varseq_seqpos.data_ptr<int32_t>(),
+      varseq_batch.has_value() ? varseq_batch.value().data_ptr<int32_t>()
+                               : nullptr, // not needed for decode
+      q_seqstarts.packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
+      XQ_O.packed_accessor64<at::Float8_e4m3fn, 3, at::RestrictPtrTraits>(),
+      cache_K.packed_accessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>(),
+      cache_V.packed_accessor64<at::Float8_e4m3fn, 4, at::RestrictPtrTraits>(),
+      scale_q_ptr,
+      qparam_k_ptr,
+      qparam_v_ptr);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return scale_q;
+}
+DEVICE_INLINE void per_row_norm(fx4& dst) {
+  float sum = fx4_dot(dst, dst);
+  // Warp reduce sum
+  sum = warpReduceSum(sum);
+  float rsqr = rsqrtf(sum / D_H);
+  dst = fx4_scale(dst, rsqr);
+}
+
+DEVICE_INLINE void per_head_amax(fx4& dst, float* amax) {
+  dst = fx4_abs(dst);
+  auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
+  CUDA_KERNEL_ASSERT(thread_max >= 0)
+  unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
+  float warp_max = warpReduceMax(thread_max, mask);
+  // Use atomic operation to update the global maximum
+  if (threadIdx.x == 0) {
+    // CUDA_KERNEL_ASSERT(warp_max >= 0);
+    atomicMax(reinterpret_cast<int*>(amax), __float_as_int(warp_max));
+  }
+}
+DEVICE_INLINE void per_row_amax(fx4& dst, float* amax) {
+  dst = fx4_abs(dst);
+  auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
+  unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
+  float warp_max = warpReduceMax(thread_max, mask);
+  // write amax
+  if (threadIdx.x == 0) {
+    CUDA_KERNEL_ASSERT(uintptr_t(amax) % 4 == 0);
+    *amax = warp_max;
+  }
+}
+template <typename T, KVQuantRecipe recipe>
+DEVICE_INLINE void
+quantize_fp8_kv(fx4 dst, T* dst_row_q, __half2* qparam, bool do_norm) {
+  if (do_norm) {
+    per_row_norm(dst);
+  }
+  float shift, scale;
+  int32_t fp8_qparam_offset = 0;
+  if (qparam == nullptr) {
+    fp8_qparam_offset = 4;
+  }
+  if (recipe == KVQuantRecipe::perTokenScaling) {
+    auto thread_min = fminf(fminf(fminf(dst.x, dst.y), dst.z), dst.w);
+    auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
+
+    float warp_min, warp_max;
+    unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
+    warp_min = -warpReduceMax(-thread_min, mask);
+    warp_max = warpReduceMax(thread_max, mask);
+
+    auto bounded_max = (warp_max - warp_min) / 2;
+    //  TODO: Pass scale_ub
+    const float* scale_ub = nullptr;
+    constexpr float min_scaling_factor = 1.0f / (FP8_E4M3_MAX::value * 512.f);
+    if (scale_ub != nullptr) {
+      bounded_max = std::min(bounded_max, *scale_ub);
+    }
+    scale = static_cast<float>(
+        std::max(bounded_max / FP8_E4M3_MAX::value, min_scaling_factor));
+    shift = warp_min + FP8_E4M3_MAX::value * scale;
+  } else {
+    // Support of per-head scaling is limited to reading a
+    // pre-calculated scale from qparam tensor and using it for scaling the
+    // row.
+    scale = *reinterpret_cast<float*>(qparam);
+    shift = 0.0f;
+  }
+  float inv_scale = 1 / scale;
+  uint32_t x_bits[4];
+  x_bits[0] = convertAndPack(dst.x, inv_scale, shift);
+  x_bits[1] = convertAndPack(dst.y, inv_scale, shift);
+  x_bits[2] = convertAndPack(dst.z, inv_scale, shift);
+  x_bits[3] = convertAndPack(dst.w, inv_scale, shift);
+  uint32_t packed = packComponents(x_bits);
   CUDA_KERNEL_ASSERT(
       uintptr_t(&dst_row_q[4 * threadIdx.x + fp8_qparam_offset]) % 4 == 0);
 
   *reinterpret_cast<uint32_t*>(
       &dst_row_q[4 * threadIdx.x + fp8_qparam_offset]) = packed;
   // write qparams
-  if (threadIdx.x == 0) {
+  if (threadIdx.x == 0 && recipe == KVQuantRecipe::perTokenScaling) {
     __half2* param_store = qparam;
     if (param_store == nullptr) {
       // If no external qparam, store the params at beginning of the quantized
@@ -2406,8 +2976,9 @@ quantize_fp8_kv(fx4 dst, uint8_t* dst_row_q, __half2* qparam, bool do_norm) {
   }
 }
 #else
+template <typename T, KVQuantRecipe recipe>
 DEVICE_INLINE void
-quantize_fp8_kv(fx4 dst, uint8_t* dst_row_, __half2* qparam, bool do_norm) {}
+quantize_fp8_kv(fx4 dst, T* dst_row_, __half2* qparam, bool do_norm) {}
 std::vector<at::Tensor> quantize_fp8_per_tensor(
     at::Tensor input,
     std::optional<at::Tensor> bs, // batch size

@@ -10,6 +10,9 @@
 // FBGEMM codebase to denote the template source file in auto-generated code.
 #define __TEMPLATE_SOURCE_FILE__ "FOO/BAR/BAZ-123.cpp"
 
+// Enable tensor value checking before and after executing kernels
+#define FBGEMM_GPU_TENSORCHECK
+
 #include <ATen/ATen.h>
 #include <c10/cuda/CUDADeviceAssertion.h>
 #include <cuda.h>
@@ -68,6 +71,44 @@ __global__ void tensor_sum_kernel(
   const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < C.size(0)) {
     C[idx] = A[idx] + B[idx];
+  }
+}
+
+__device__ unsigned int xor128_rand_int(uint32_t seed) {
+  auto x = seed ^ (blockIdx.x * blockDim.x + threadIdx.x);
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  return x;
+}
+
+template <typename T>
+__global__ void tensor_sum_kernel_bad_output(
+    pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> C,
+    const pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> A,
+    const pta::PackedTensorAccessor64<T, 1, at::RestrictPtrTraits> B,
+    TORCH_DSA_KERNEL_ARGS) {
+  const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
+  auto seed = xor128_rand_int(42);
+
+  if (idx < C.size(0)) {
+    if (seed = xor128_rand_int(seed); seed % 100 != 0) {
+      // 99% chance of normal value
+      C[idx] = A[idx] + B[idx];
+
+    } else {
+      seed = xor128_rand_int(seed);
+
+      if (seed % 3 == 0) {
+        C[idx] = std::numeric_limits<T>::quiet_NaN();
+
+      } else if (seed % 3 == 1) {
+        C[idx] = std::numeric_limits<T>::infinity();
+
+      } else {
+        C[idx] = std::numeric_limits<T>::infinity();
+      }
+    }
   }
 }
 
@@ -197,7 +238,7 @@ TEST(KernelLauncherTest, array_kernel_launch_dsa) {
   });
 }
 
-TEST(KernelLauncherTest, tensor_array_kernel_launch) {
+TEST(KernelLauncherTest, tensor_kernel_launch) {
   const auto size = 1024;
   // Not using structured bindings bc it fails on ROCm with:
   // `capturing a structured binding is not yet supported in OpenMP`
@@ -233,7 +274,7 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
   at::Tensor A, B, C;
   std::tie(A, B, C) = sample_tensors(size);
 
-  const auto device = get_device_for_stream(at::cuda::getCurrentCUDAStream());
+  const auto device = at::cuda::getCurrentCUDAStream().device_index();
   const auto properties = get_device_properties(device);
   const auto grid_max = properties.maxGridSize;
   const auto block_max = properties.maxThreadsDim;
@@ -277,8 +318,8 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
       {
         FBGEMM_LAUNCH_DSA_KERNEL(
             tensor_sum_kernel<float>,
-            // Both grid and block dims conform, but the total number of threads
-            // exceeds the max
+            // Both grid and block dims conform, but the total number of
+            // threads exceeds the max
             {U32(grid_max[0]), U32(grid_max[1]), U32(grid_max[2])},
             {U32(block_max[0]), U32(block_max[1]), U32(block_max[2])},
             0,
@@ -309,6 +350,88 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
             PTA_B(B, float, 1, 64));
       },
       std::exception);
+}
+
+TEST(KernelLauncherTest, tensor_value_checks) {
+  const auto size = 1024;
+  // Not using structured bindings bc it fails on ROCm with:
+  // `capturing a structured binding is not yet supported in OpenMP`
+  at::Tensor A, B, C;
+  std::tie(A, B, C) = sample_tensors(size);
+
+  {
+    // Test for bad INPUT tensors
+
+    const float values[] = {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity(),
+    };
+
+    for (const auto value : values) {
+      // Set a bad value
+      auto i = rand() % size;
+      A[i] = value;
+
+      EXPECT_THROW(
+          {
+            FBGEMM_LAUNCH_DSA_KERNEL(
+                tensor_sum_kernel<float>,
+                8,
+                1024,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                PTA_B(C, float, 1, 64),
+                PTA_B(A, float, 1, 64),
+                PTA_B(B, float, 1, 64));
+          },
+          std::exception);
+
+      // Unset the bad value
+      A[i] = 1;
+    }
+
+    for (const auto value : values) {
+      // Set a bad value
+      auto i = rand() % size;
+      B[i] = value;
+
+      EXPECT_THROW(
+          {
+            FBGEMM_LAUNCH_DSA_KERNEL(
+                tensor_sum_kernel<float>,
+                8,
+                1024,
+                0,
+                at::cuda::getCurrentCUDAStream(),
+                PTA_B(C, float, 1, 64),
+                PTA_B(A, float, 1, 64),
+                PTA_B(B, float, 1, 64));
+          },
+          std::exception);
+
+      // Unset the bad value
+      B[i] = 1;
+    }
+  }
+
+  {
+    // Test for bad OUTPUT tensors
+
+    EXPECT_THROW(
+        {
+          FBGEMM_LAUNCH_DSA_KERNEL(
+              tensor_sum_kernel_bad_output<float>,
+              8,
+              1024,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              PTA_B(C, float, 1, 64),
+              PTA_B(A, float, 1, 64),
+              PTA_B(B, float, 1, 64));
+        },
+        std::exception);
+  }
 }
 
 // NOTE: This test currently fails in fbcode CI for HIP with the following

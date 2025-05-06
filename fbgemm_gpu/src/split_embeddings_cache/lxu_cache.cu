@@ -66,7 +66,7 @@ __global__ __launch_bounds__(kMaxThreads) void lxu_cache_flush_kernel(
             threadIdx.x);
 
     float2 qparams;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
       qparams =
           thrust_find_qparams<cache_t>(&lxu_cache_weights[b][0], D_current);
       if (threadIdx.x == 0) {
