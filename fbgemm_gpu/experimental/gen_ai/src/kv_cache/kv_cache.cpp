@@ -205,7 +205,9 @@ at::Tensor mqa_attn(
     at::Tensor seq_positions,
     double qk_scale,
     std::optional<int64_t> num_groups,
-    int64_t cache_logical_dtype_int);
+    int64_t cache_logical_dtype_int,
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def("rope_qkv_varseq_prefill(Tensor XQ, Tensor(a!)? XK, Tensor? XV, Tensor(b!) cache_K, Tensor(c!) cache_V,  Tensor varseq_batch, Tensor varseq_seqpos, float theta, int? num_groups=1, Tensor? block_tables=None, int page_size=" STRING(
