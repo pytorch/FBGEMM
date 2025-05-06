@@ -41,7 +41,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.12xlarge" },
+          { arch: x86, instance: "amz2023.linux.12xlarge" },
         ]
         library-type: [ static, shared ]
         compiler: [ "gcc", "clang" ]
@@ -126,7 +126,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.12xlarge" },
+          { arch: x86, instance: "amz2023.linux.12xlarge" },
         ]
         compiler: [ "gcc", "clang" ]
 
