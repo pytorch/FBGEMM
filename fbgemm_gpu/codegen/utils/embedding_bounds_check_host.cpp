@@ -74,12 +74,11 @@ void bounds_check_indices_cuda(
     int8_t bounds_check_version,
     bool prefetch_pipeline) {
   TORCH_CHECK(bounds_check_version == 1 || bounds_check_version == 2);
-  const static bool use_v2 =
-      fbgemm_gpu::config::is_feature_enabled(
-          fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_INDICES_V2) ||
-      bounds_check_version == 2;
-  const auto bounds_check_indices_fn =
-      use_v2 ? _bounds_check_indices_cuda_v2 : _bounds_check_indices_cuda_v1;
+  const static bool use_v2_jk = fbgemm_gpu::config::is_feature_enabled(
+      fbgemm_gpu::config::FeatureGateName::BOUNDS_CHECK_INDICES_V2);
+  const auto bounds_check_indices_fn = (use_v2_jk || bounds_check_version == 2)
+      ? _bounds_check_indices_cuda_v2
+      : _bounds_check_indices_cuda_v1;
   const auto bounds_check_mode_ =
       static_cast<fbgemm_gpu::BoundsCheckMode>(bounds_check_mode);
 
