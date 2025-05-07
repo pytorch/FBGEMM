@@ -253,12 +253,14 @@ void one_shot_car_allreduce(
     at::Tensor dst,
     at::Tensor src,
     std::optional<at::Tensor> bias,
-    int64_t comm_idx);
+    int64_t comm_idx,
+    bool enable_pipelining);
 void two_shot_car_allreduce(
     at::Tensor dst,
     at::Tensor src,
     std::optional<at::Tensor> bias,
-    int64_t comm_idx);
+    int64_t comm_idx,
+    bool enable_pipelining);
 void car_reducescatter(
     at::Tensor dst,
     at::Tensor src,
@@ -303,10 +305,10 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("car_init", car_init);
 
   m.def(
-      "one_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+      "one_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0, bool enable_pipelining=False) -> ()");
 
   m.def(
-      "two_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+      "two_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0, bool enable_pipelining=False) -> ()");
 
   m.def(
       "car_reducescatter(Tensor(a!) dst, Tensor src, bool split_last_dim=False, int comm_idx=0) -> ()");
@@ -378,7 +380,8 @@ void one_shot_car_allreduce_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
     std::optional<at::Tensor> /* bias */,
-    int64_t /* comm_idx */) {
+    int64_t /* comm_idx */,
+    bool /* enable_pipelining */) {
   return;
 }
 
@@ -386,7 +389,8 @@ void two_shot_car_allreduce_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
     std::optional<at::Tensor> /* bias */,
-    int64_t /* comm_idx */) {
+    int64_t /* comm_idx */,
+    bool /* enable_pipelining */) {
   return;
 }
 
