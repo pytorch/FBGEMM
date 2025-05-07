@@ -1,10 +1,10 @@
 var searchData=
 [
   ['fbgemm_0',['fbgemm',['../namespacefbgemm.html',1,'']]],
-  ['fbgemm_20fbgemm_20fbgemm_5fgpu_20codegen_20training_20forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_1',['41 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
-  ['fbgemm_20fbgemm_5fgpu_20codegen_20training_20forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_2',['41 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['fbgemm_20fbgemm_20fbgemm_5fgpu_20codegen_20training_20forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_1',['42 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['fbgemm_20fbgemm_5fgpu_20codegen_20training_20forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_2',['42 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
   ['fbgemm_5fgpu_3',['fbgemm_gpu',['../namespacefbgemm__gpu.html',1,'']]],
-  ['fbgemm_5fgpu_20codegen_20training_20forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_4',['41 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['fbgemm_5fgpu_20codegen_20training_20forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_4',['42 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
   ['fbgemm_5fgpu_20configuration_5',['FBGEMM_GPU Configuration',['../group__fbgemm-gpu-config.html',1,'']]],
   ['fbgemmalignedalloc_6',['fbgemmAlignedAlloc',['../namespacefbgemm.html#ab55953ea0d8867577ef9b096d68cfce4',1,'fbgemm']]],
   ['fbgemmalignedfree_7',['fbgemmAlignedFree',['../namespacefbgemm.html#a539e708e033ffe98b075a6b6c5cb4b46',1,'fbgemm']]],
@@ -50,7 +50,7 @@ var searchData=
   ['floattofloat16_5fsve2_47',['FloatToFloat16_sve2',['../namespacefbgemm.html#a150beacb26a913c4a012ec1d4a092eaf',1,'fbgemm']]],
   ['floattofloat8_5fref_48',['FloatToFloat8_ref',['../namespacefbgemm.html#a32a45639603e1584965b471846fd067f',1,'fbgemm']]],
   ['flush_49',['flush',['../classkv__db_1_1_embedding_k_v_d_b.html#adac116554b543b7c4228c018a85882f5',1,'kv_db::EmbeddingKVDB']]],
-  ['forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_50',['41 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['forward_20embedding_5fforward_5fsplit_5ftemplate_20cu_202_50',['42 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
   ['fp8_2016_2032_51',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalf_52',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalf',['../namespacefbgemm.html#a42aefaaf238d065625a64a757f998eef',1,'fbgemm']]],
   ['fused8bitrowwisequantizedsbfloattofloatorhalfref_53',['Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef',['../namespacefbgemm.html#a19217d3a8551a7b251ecb1eba79669bc',1,'fbgemm']]],
