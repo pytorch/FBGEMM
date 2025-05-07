@@ -290,11 +290,11 @@ class SSDCheckpointTest(unittest.TestCase):
         # use kvtensor to directly set KVs into rocksdb wrapper
         tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper([E, D], weights.dtype, 0)
         tensor_wrapper.set_embedding_rocks_dp_wrapper(emb.ssd_db)
-        tensor_wrapper.set_weights_and_ids(indices + offset, weights)
+        tensor_wrapper.set_weights_and_ids(weights, indices + offset)
 
         snapshot = emb.ssd_db.create_snapshot()
         tensor_wrapper.set_weights_and_ids(
-            new_indices + offset, new_weights_after_snapshot
+            new_weights_after_snapshot, new_indices + offset
         )
         start_id = 0
         end_id = int(E / 2)
