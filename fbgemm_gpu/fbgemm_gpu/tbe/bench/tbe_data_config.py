@@ -43,7 +43,7 @@ class TBEDataConfig:
     D: int
     # Generate mixed dimensions if true
     mixed_dim: bool
-    # Whether the table is weighted or not
+    # Whether the lookup rows are weighted or not
     weighted: bool
     # Batch parameters
     batch_params: BatchParams
@@ -102,7 +102,7 @@ class TBEDataConfig:
         return self.pooling_params.sigma_L is not None
 
     def _new_weights(self, size: int) -> Optional[torch.Tensor]:
-        # per sample weights will always be FP32
+        # Per-sample weights will always be FP32
         return None if not self.weighted else torch.randn(size, device=get_device())
 
     def _generate_batch_sizes(self) -> Tuple[List[int], Optional[List[List[int]]]]:
