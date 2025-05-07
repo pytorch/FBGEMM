@@ -28,6 +28,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
     EmbeddingSpecInfo,
+    get_bounds_check_version_for_platform,
     get_new_embedding_location,
     MAX_PREFETCH_DEPTH,
     PoolingMode,
@@ -635,6 +636,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             self.fp8_exponent_bits = -1
             self.fp8_exponent_bias = -1
 
+        self.bounds_check_version: int = get_bounds_check_version_for_platform()
+
     @torch.jit.ignore
     def log(self, msg: str) -> None:
         """
@@ -975,6 +978,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.bounds_check_mode_int,
                     self.bounds_check_warning,
                     per_sample_weights,
+                    bounds_check_version=self.bounds_check_version,
                 )
 
         # Index remapping changes input indices, and some of them becomes -1 (prunned rows).
@@ -1017,6 +1021,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
                 per_sample_weights,
+                bounds_check_version=self.bounds_check_version,
             )
         # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
         # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
