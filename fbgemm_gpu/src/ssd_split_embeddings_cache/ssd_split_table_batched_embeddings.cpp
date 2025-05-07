@@ -367,20 +367,21 @@ void KVTensorWrapper::set_range(
 }
 
 void KVTensorWrapper::set_weights_and_ids(
-    const at::Tensor& ids,
-    const at::Tensor& weights) {
+    const at::Tensor& weights,
+    const at::Tensor& ids) {
   CHECK_TRUE(db_ != nullptr);
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
   CHECK_GE(db_->get_max_D(), shape_[1]);
+  auto linearized_ids = ids + row_offset_;
   int pad_right = db_->get_max_D() - weights.size(1);
   if (pad_right == 0) {
-    db_->set_kv_to_storage(ids, weights);
+    db_->set_kv_to_storage(linearized_ids, weights);
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
     CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
-    db_->set_kv_to_storage(ids, padded_weights);
+    db_->set_kv_to_storage(linearized_ids, padded_weights);
   }
 }
 
@@ -388,7 +389,9 @@ at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
   CHECK_TRUE(db_ != nullptr);
   auto weights =
       at::empty(c10::IntArrayRef({ids.size(0), db_->get_max_D()}), options_);
-  db_->get_kv_from_storage_by_snapshot(ids, weights, snapshot_handle_->handle);
+  auto linearized_ids = ids + row_offset_;
+  db_->get_kv_from_storage_by_snapshot(
+      linearized_ids, weights, snapshot_handle_->handle);
   return weights.narrow(1, 0, shape_[1]);
 }
 
