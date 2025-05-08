@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAStream.h>
 
 #include "fbgemm_gpu/utils/device_properties.cuh"
@@ -237,7 +238,7 @@ struct KernelLauncher {
       Args&&... args) const {
     // Fetch device properties from the stream information
     const auto device = stream.device_index();
-    const auto properties = get_device_properties(device);
+    const auto properties = *at::cuda::getDeviceProperties(device);
     const auto streamId = stream.id();
 
     // Check that the grid sizes are within the range per the device associated

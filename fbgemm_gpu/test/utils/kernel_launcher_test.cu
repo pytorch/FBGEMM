@@ -14,6 +14,7 @@
 #define FBGEMM_GPU_TENSORCHECK
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDADeviceAssertion.h>
 #include <cuda.h>
 #include <gmock/gmock.h>
@@ -275,7 +276,7 @@ TEST(KernelLauncherTest, kernel_launch_checks) {
   std::tie(A, B, C) = sample_tensors(size);
 
   const auto device = at::cuda::getCurrentCUDAStream().device_index();
-  const auto properties = get_device_properties(device);
+  const auto properties = *at::cuda::getDeviceProperties(device);
   const auto grid_max = properties.maxGridSize;
   const auto block_max = properties.maxThreadsDim;
 
