@@ -276,16 +276,7 @@ struct KernelLauncher {
       // transformation.
 
       auto& launch_registry =
-#ifdef __HIPCC__
-          // CUDAKernelLaunchRegistry has only been recently added to Torch
-          // HIPify mappings, so wrap this with USE_ROCM until the mappings land
-          // in PyTorch OSS.
-          //
-          // TODO: Remove when CUDAKernelLaunchRegistry lands in the nightlies
-          c10::hip::HIPKernelLaunchRegistry::get_singleton_ref();
-#else
           c10::cuda::CUDAKernelLaunchRegistry::get_singleton_ref();
-#endif
 
       // Launch the kernel
       kernel<<<grid, block, shared_mem_per_block, stream>>>(
