@@ -75,6 +75,7 @@ gpu_cpp_library(
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/kv_cache
   CPU_SRCS
     ${experimental_gen_ai_cpp_source_files_cpu}
   GPU_SRCS
