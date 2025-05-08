@@ -8,7 +8,7 @@ import os
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Callable, List, Mapping, Optional, Tuple
+from typing import Callable, List, Mapping, Optional, Tuple, Union
 
 import torch
 
@@ -73,13 +73,14 @@ __all__ = ["MoEArgs", "BaselineMoE", "MetaShufflingMoE"]
 
 @dataclass(frozen=True)
 class MoEArgs:
+    precision: str
     dim: int
     hidden_dim: int
+    num_experts: int
+    top_k: int
     mp_size: int
     ep_size: int
-    num_experts: int
     mp_size_for_routed_experts: Optional[int]
-    top_k: int
     use_fast_accum: bool
     dedup_comm: bool
 
@@ -88,17 +89,57 @@ class MoEArgs:
         return self.num_experts // self.ep_size
 
 
-INIT_METHODS_TYPE = Mapping[str, Callable[[torch.Tensor], torch.Tensor]]
+INIT_METHODS_TYPE = Mapping[
+    str,
+    Callable[[torch.Tensor], Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]],
+]
+
+
+class ScaledParameter(torch.nn.Parameter):
+    def __new__(
+        cls,
+        data: torch.Tensor,
+        scale: Optional[torch.Tensor] = None,
+    ) -> "ScaledParameter":
+        return super().__new__(cls, data, False)
+
+    def __init__(
+        self,
+        data: torch.Tensor,
+        scale: Optional[torch.Tensor] = None,
+    ):
+        self._scale: Optional[torch.Tensor] = scale
+
+    @property
+    def weights(self) -> torch.Tensor:
+        return self.data
+
+    @property
+    def scales(self) -> torch.Tensor:
+        assert self._scale is not None
+        return self._scale
+
+    @scales.setter
+    def scales(self, s: torch.Tensor) -> None:
+        self._scale = s
+
+    @property
+    def is_scaled(self) -> bool:
+        return self._scale is not None
 
 
 # Helper functions/modules to perform weights sharding and initialization.
 def init_params(
     key: str,
-    param: torch.nn.Parameter,
+    param: ScaledParameter,
     init_methods: INIT_METHODS_TYPE,
 ):
     if key in init_methods:
-        param.data = init_methods[key](param.data)
+        ret = init_methods[key](param.data)
+        if isinstance(ret, torch.Tensor):
+            param.data = ret
+        else:
+            param.data, param.scales = ret
     else:
         torch.nn.init.kaiming_uniform_(param)
 
@@ -120,20 +161,20 @@ class Experts(torch.nn.Module, metaclass=ABCMeta):
         assert self.dim % self.divide_factor == 0
         assert self.hidden_dim % self.divide_factor == 0
 
-        self._w13: Optional[torch.nn.Parameter] = None
-        self._w2: Optional[torch.nn.Parameter] = None
+        self._w13: Optional[ScaledParameter] = None
+        self._w2: Optional[ScaledParameter] = None
 
     @abstractmethod
     def build(self, init_methods: Optional[INIT_METHODS_TYPE] = None) -> "Experts":
         pass
 
     @property
-    def w13(self) -> torch.nn.Parameter:
+    def w13(self) -> ScaledParameter:
         assert self._w13 is not None, "Parameters are not initialized!"
         return self._w13
 
     @property
-    def w2(self) -> torch.nn.Parameter:
+    def w2(self) -> ScaledParameter:
         assert self._w2 is not None, "Parameters are not initialized!"
         return self._w2
 
@@ -158,7 +199,7 @@ class RoutedExperts(Experts):
     ) -> "RoutedExperts":
         init_methods = {} if init_methods is None else init_methods
 
-        moe_w_in_eDF: torch.nn.Parameter = torch.nn.Parameter(
+        moe_w_in_eDF: ScaledParameter = ScaledParameter(
             torch.empty(
                 self.num_local_experts,
                 self.dim,
@@ -168,7 +209,7 @@ class RoutedExperts(Experts):
         )
         init_params("moe_w_in_eDF", moe_w_in_eDF, init_methods)
 
-        moe_w_out_eFD: torch.nn.Parameter = torch.nn.Parameter(
+        moe_w_out_eFD: ScaledParameter = ScaledParameter(
             torch.empty(
                 self.num_local_experts,
                 self.hidden_dim // self.divide_factor,
@@ -178,7 +219,7 @@ class RoutedExperts(Experts):
         )
         init_params("moe_w_out_eFD", moe_w_out_eFD, init_methods)
 
-        moe_w_swiglu_eDF: torch.nn.Parameter = torch.nn.Parameter(
+        moe_w_swiglu_eDF: ScaledParameter = ScaledParameter(
             torch.empty(
                 self.num_local_experts,
                 self.dim,
@@ -188,8 +229,17 @@ class RoutedExperts(Experts):
         )
         init_params("moe_w_swiglu_eDF", moe_w_swiglu_eDF, init_methods)
 
-        self._w13 = torch.nn.Parameter(
-            torch.cat(
+        assert (
+            moe_w_in_eDF.dtype == moe_w_out_eFD.dtype
+            and moe_w_in_eDF.dtype == moe_w_swiglu_eDF.dtype
+        )
+        assert (
+            moe_w_in_eDF.is_scaled == moe_w_out_eFD.is_scaled
+            and moe_w_in_eDF.is_scaled == moe_w_swiglu_eDF.is_scaled
+        )
+
+        self._w13 = ScaledParameter(
+            data=torch.cat(
                 [
                     moe_w_in_eDF,
                     moe_w_swiglu_eDF,
@@ -197,13 +247,32 @@ class RoutedExperts(Experts):
                 dim=-1,
             )
             .transpose(1, 2)
-            .contiguous()
+            .contiguous(),
+            scale=(
+                torch.cat(
+                    [
+                        moe_w_in_eDF.scales,
+                        moe_w_swiglu_eDF.scales,
+                    ],
+                    dim=-1,
+                ).contiguous()
+                if moe_w_in_eDF.is_scaled
+                else None
+            ),
         )
 
         del moe_w_in_eDF
         del moe_w_swiglu_eDF
 
-        self._w2 = torch.nn.Parameter(moe_w_out_eFD.transpose(1, 2).contiguous())
+        self._w2 = ScaledParameter(
+            data=moe_w_out_eFD.transpose(1, 2).contiguous(),
+            scale=(
+                moe_w_out_eFD.scales.contiguous() if moe_w_out_eFD.is_scaled else None
+            ),
+        )
+
+        del moe_w_out_eFD
+
         return self
 
 
@@ -220,39 +289,65 @@ class SharedExperts(Experts):
     ) -> "SharedExperts":
         init_methods = {} if init_methods is None else init_methods
 
-        w_in_shared_FD = torch.nn.Parameter(
+        w_in_shared_FD = ScaledParameter(
             torch.empty(
                 (self.hidden_dim // self.divide_factor, self.dim), dtype=self.dtype
             )
         )
         init_params("w_in_shared_FD", w_in_shared_FD, init_methods)
 
-        w_out_shared_DF = torch.nn.Parameter(
+        w_out_shared_DF = ScaledParameter(
             torch.empty(
                 (self.dim, self.hidden_dim // self.divide_factor), dtype=self.dtype
             )
         )
         init_params("w_out_shared_DF", w_out_shared_DF, init_methods)
 
-        w_swiglu_FD = torch.nn.Parameter(
+        w_swiglu_FD = ScaledParameter(
             torch.empty(
                 (self.hidden_dim // self.divide_factor, self.dim), dtype=self.dtype
             )
         )
         init_params("w_swiglu_FD", w_swiglu_FD, init_methods)
 
-        self._w13 = torch.nn.Parameter(
-            torch.cat(
+        assert (w_in_shared_FD.dtype == w_out_shared_DF.dtype) and (
+            w_in_shared_FD.dtype == w_swiglu_FD.dtype
+        )
+        assert (w_in_shared_FD.is_scaled == w_out_shared_DF.is_scaled) and (
+            w_in_shared_FD.is_scaled == w_swiglu_FD.is_scaled
+        )
+
+        self._w13 = ScaledParameter(
+            data=torch.cat(
                 [
                     w_in_shared_FD,
                     w_swiglu_FD,
                 ]
-            ).contiguous()
+            ).contiguous(),
+            scale=(
+                torch.cat(
+                    [
+                        w_in_shared_FD.scales,
+                        w_swiglu_FD.scales,
+                    ]
+                ).contiguous()
+                if w_in_shared_FD.is_scaled
+                else None
+            ),
         )
         del w_in_shared_FD
         del w_swiglu_FD
 
-        self._w2 = torch.nn.Parameter(w_out_shared_DF.contiguous())
+        self._w2 = ScaledParameter(
+            data=w_out_shared_DF.data.contiguous(),
+            scale=(
+                w_out_shared_DF.scales.contiguous()
+                if w_out_shared_DF.is_scaled
+                else None
+            ),
+        )
+        del w_out_shared_DF
+
         return self
 
 
@@ -288,7 +383,7 @@ class BaselineMoE(torch.nn.Module):
 
         self.dtype: torch.dtype = torch.get_default_dtype()
 
-        self._router_DE: Optional[torch.nn.Parameter] = None
+        self._router_DE: Optional[ScaledParameter] = None
         self.routed_experts = RoutedExperts(
             moe_args.num_local_experts,
             moe_args.dim,
@@ -302,7 +397,7 @@ class BaselineMoE(torch.nn.Module):
     def build(self, init_methods: Optional[INIT_METHODS_TYPE] = None) -> "BaselineMoE":
         init_methods = {} if init_methods is None else init_methods
 
-        router_DE = torch.nn.Parameter(
+        router_DE = ScaledParameter(
             torch.empty(self.moe_args.dim, self.moe_args.num_experts, dtype=self.dtype)
         )
         init_params("router_DE", router_DE, init_methods)
@@ -313,7 +408,7 @@ class BaselineMoE(torch.nn.Module):
         return self
 
     @property
-    def router_DE(self) -> torch.nn.Parameter:
+    def router_DE(self) -> ScaledParameter:
         assert self._router_DE is not None, "Parameters are not initialized!"
         return self._router_DE
 
@@ -339,20 +434,19 @@ class BaselineMoE(torch.nn.Module):
         return self.top_k
 
     def forward(self, x: torch.Tensor, use_static_shape: bool) -> torch.Tensor:
+        with torch.no_grad():
+            return self._forward(x, use_static_shape)
+
+    def _forward(self, x: torch.Tensor, use_static_shape: bool) -> torch.Tensor:
         (B, T, D) = x.shape
         T *= B
         tokens = x.view(T, D)
 
-        assert (
-            not self.routed_experts.is_fp8_rowwise
-            and not self.shared_experts.is_fp8_rowwise
-        ), "FP8 is not supported in baseline run yet!"
-
         # Shared Experts
-        shared_y = torch.mm(tokens, self.shared_experts.w13.T)
+        shared_y = self._fake_quant(torch.mm, tokens, self.shared_experts.w13)
         shared_y0, shared_y1 = torch.chunk(shared_y, chunks=2, dim=-1)
         shared_z = shared_y0 * torch.sigmoid(shared_y0) * shared_y1
-        shared_z = torch.mm(shared_z, self.shared_experts.w2.T)
+        shared_z = self._fake_quant(torch.mm, shared_z, self.shared_experts.w2)
 
         # Routing Scores
         E: int = self.E
@@ -393,10 +487,10 @@ class BaselineMoE(torch.nn.Module):
 
             masked_tokens = recv_tokens.reshape(EG, -1, D)
 
-        routed_y = torch.bmm(masked_tokens, self.routed_experts.w13.transpose(1, 2))
+        routed_y = self._fake_quant(torch.bmm, masked_tokens, self.routed_experts.w13)
         routed_y0, routed_y1 = torch.chunk(routed_y, chunks=2, dim=-1)
         routed_z = routed_y0 * torch.sigmoid(routed_y0) * routed_y1
-        routed_z = torch.bmm(routed_z, self.routed_experts.w2.transpose(1, 2))
+        routed_z = self._fake_quant(torch.bmm, routed_z, self.routed_experts.w2)
 
         if self.ep_size > 1:
             send_tokens = routed_z.reshape(E * T, D).contiguous()
@@ -413,6 +507,20 @@ class BaselineMoE(torch.nn.Module):
             routed_z = recv_tokens.reshape(E, T, D)
 
         return (shared_z + routed_z.sum(dim=0)).reshape(B, -1, D)
+
+    def _fake_quant(self, op, x: torch.Tensor, w: ScaledParameter) -> torch.Tensor:
+        if not w.is_scaled:
+            return op(x, w.transpose(-1, -2))
+
+        xq, xs = triton_quantize_fp8_row(x)
+        wq, ws = w.weights, w.scales
+
+        y = (
+            op(xq.to(x.dtype), wq.transpose(-1, -2).to(x.dtype))
+            * xs.unsqueeze(-1)
+            * ws.unsqueeze(-2)
+        )
+        return y.to(x.dtype)
 
 
 class MetaShufflingMoE(BaselineMoE):
@@ -446,14 +554,15 @@ class MetaShufflingMoE(BaselineMoE):
         self.activation_scale_ub = None
 
     def forward(self, x: torch.Tensor, use_static_shape: bool) -> torch.Tensor:
-        if self.ep_size == 1:
-            return self._forward(x, use_static_shape)
-        if use_static_shape:
-            return self._static_forward(x)
-        else:
-            return self._dynamic_forward(x)
+        with torch.no_grad():
+            if self.ep_size == 1:
+                return self._no_comm_forward(x, use_static_shape)
+            if use_static_shape:
+                return self._static_comm_forward(x)
+            else:
+                return self._dynamic_comm_forward(x)
 
-    def _dynamic_forward(self, tokens: torch.Tensor) -> torch.Tensor:
+    def _dynamic_comm_forward(self, tokens: torch.Tensor) -> torch.Tensor:
         comp_stream = torch.cuda.current_stream()
 
         (B, T, D) = tokens.shape
@@ -547,7 +656,7 @@ class MetaShufflingMoE(BaselineMoE):
         T //= B
         return final_output.view(B, T, D)
 
-    def _static_forward(self, tokens: torch.Tensor) -> torch.Tensor:
+    def _static_comm_forward(self, tokens: torch.Tensor) -> torch.Tensor:
         comp_stream = torch.cuda.current_stream()
 
         (B, T, D) = tokens.shape
@@ -638,7 +747,7 @@ class MetaShufflingMoE(BaselineMoE):
         T //= B
         return final_output.view(B, T, D)
 
-    def _forward(
+    def _no_comm_forward(
         self, tokens: torch.Tensor, overlap_router_and_shared_expert: bool
     ) -> torch.Tensor:
         # Default stream for compute
@@ -777,6 +886,7 @@ class MetaShufflingMoE(BaselineMoE):
                 for r in range(self.ep_size)
             ]
 
+        # TODO: Add FP8 A2A to example.
         if self.dedup_comm:
             if is_input:
                 sliced_recv_tokens = torch.empty(
@@ -897,6 +1007,7 @@ class MetaShufflingMoE(BaselineMoE):
         if self.ep_size == 1:
             return send_tokens
 
+        # TODO: Add FP8 AG to example.
         T, D = send_tokens.shape
         if self.dedup_comm:
             inter_node_recv_tokens = torch.empty(
@@ -959,6 +1070,7 @@ class MetaShufflingMoE(BaselineMoE):
         B, T, D = tokens.shape
         tokens = tokens.view(-1, D)
 
+        assert not self.router_DE.is_scaled
         scores = torch.nn.functional.linear(tokens, self.router_DE.T)
         scores = torch.sigmoid(scores)
         assert scores.shape == (B * T, self.E)
@@ -1017,11 +1129,9 @@ class MetaShufflingMoE(BaselineMoE):
             # TODO(shikaili): Skip padded tokens.
             return torch.ops.fbgemm.f8f8bf16_rowwise(
                 x,
-                # pyre-ignore[16]
-                w13.weight,
+                w13.weights,
                 x_scale,
-                # pyre-ignore[16]
-                w13.scale,
+                w13.scales,
                 use_fast_accum=self.use_fast_accum,
             )
 
@@ -1031,7 +1141,6 @@ class MetaShufflingMoE(BaselineMoE):
         HD_L = HD_L_2 // 2
         w2 = self.shared_experts.w2
 
-        # TODO: fix with external version of fused_silu
         z, z_scale = self._fused_silu_mul(
             y[:, :HD_L],
             y[:, HD_L:],
@@ -1047,11 +1156,9 @@ class MetaShufflingMoE(BaselineMoE):
             # TODO(shikaili): Skip padded tokens.
             return torch.ops.fbgemm.f8f8bf16_rowwise(
                 z,
-                # pyre-ignore[16]
-                w2.weight,
+                w2.weights,
                 z_scale,
-                # pyre-ignore[16]
-                w2.scale,
+                w2.scales,
                 use_fast_accum=self.use_fast_accum,
             )
 
@@ -1102,12 +1209,10 @@ class MetaShufflingMoE(BaselineMoE):
                 x_scale = token_scales
             y = grouped_gemm_fp8_rowwise(
                 x,
-                # pyre-ignore[16]
                 w13.weights.view(-1, D),
                 token_counts,
                 x_scale.view(-1),
-                # pyre-ignore[16]
-                w13.scale.view(-1),
+                w13.scales.view(-1),
                 use_fast_accum=self.use_fast_accum,
                 _use_warp_specialization=not torch.version.hip,
             )
@@ -1121,7 +1226,7 @@ class MetaShufflingMoE(BaselineMoE):
                 w2.weights.view(-1, HD_L),
                 token_counts,
                 z_scale.view(-1),
-                w2.scale.view(-1),
+                w2.scales.view(-1),
                 use_fast_accum=self.use_fast_accum,
                 _use_warp_specialization=not torch.version.hip,
                 _output_tensor=shared_output,
@@ -1151,9 +1256,8 @@ class MetaShufflingMoE(BaselineMoE):
         scatter_add_dense_tokens(
             shared_output_tokens,
             routed_output_tokens.view(-1, D),
-            token_indices.view(-1, 1).expand(-1, D),
+            token_indices,
         )
-
         return shared_output_tokens
 
     def _fused_silu_mul(

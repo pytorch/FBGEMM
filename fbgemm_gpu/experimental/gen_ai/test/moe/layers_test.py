@@ -6,14 +6,15 @@
 
 # pyre-unsafe
 import argparse
+import itertools
 import logging
 import os
 import tempfile
 import traceback
 from datetime import datetime
 from functools import partial
+from typing import Callable, Mapping, Tuple, Union
 
-import pytest
 import torch
 from deeplearning.fbgemm.fbgemm_gpu.experimental.gen_ai.test.moe.parallelism import (
     get_ep_group,
@@ -21,6 +22,7 @@ from deeplearning.fbgemm.fbgemm_gpu.experimental.gen_ai.test.moe.parallelism imp
     get_routed_experts_mp_group,
     init_parallel,
 )
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
 from fbgemm_gpu.experimental.gen_ai.moe.layers import (
     BaselineMoE,
     MetaShufflingMoE,
@@ -64,45 +66,19 @@ def get_launch_config() -> LaunchConfig:
     )
 
 
-@pytest.mark.node_only
-@pytest.mark.parametrize("dim", [4096])
-@pytest.mark.parametrize("hidden_dim", [16384])
-@pytest.mark.parametrize("ffn_dim_multiplier", [1.2])
-@pytest.mark.parametrize("multiple_of", [2048])
-@pytest.mark.parametrize("mp_size", [4])
-@pytest.mark.parametrize("ep_size", [2])
-@pytest.mark.parametrize("num_experts", [128])
-@pytest.mark.parametrize("mp_size_for_routed_experts", [4])
-@pytest.mark.parametrize("num_local_experts", [64])
-@pytest.mark.parametrize("top_k", [1])
-@pytest.mark.parametrize("auto_scale_F", [True, False])
-@pytest.mark.parametrize("use_fast_accum", [True, False])
-@pytest.mark.parametrize("dedup_comm", [True, False])
-def test_demo(
-    dim: int,
-    hidden_dim: int,
-    ffn_dim_multiplier: float,
-    multiple_of: int,
-    mp_size: int,
-    ep_size: int,
-    num_experts: int,
-    mp_size_for_routed_experts: int,
-    num_local_experts: int,
-    top_k: int,
-    auto_scale_F: bool,
-    use_fast_accum: bool,
-    dedup_comm: bool,
-):
-    torch.manual_seed(43)
-    cmd_args = argparse.Namespace(**locals())
-    moe_args = MoEArgs(**vars(cmd_args))
-    with tempfile.TemporaryDirectory():
-        launcher.elastic_launch(get_launch_config(), entrypoint=run_demo)(moe_args)
+def run_demo(cmd_args: argparse.Namespace) -> None:
+    kwargs = dict(vars(cmd_args))
+    use_static_shape = kwargs.pop("use_static_shape")
+    profiling = kwargs.pop("profiling")
+    kwargs.pop("testing")
 
-
-def run_demo(args: MoEArgs) -> None:
+    moe_args = MoEArgs(**kwargs)
     try:
-        init_parallel(args.mp_size, args.ep_size, args.mp_size_for_routed_experts)
+        init_parallel(
+            moe_args.mp_size,
+            moe_args.ep_size,
+            moe_args.mp_size_for_routed_experts,
+        )
 
         global_rank = get_global_rank()
         logging.info(f"Running demo in child process at {global_rank=}.")
@@ -112,23 +88,61 @@ def run_demo(args: MoEArgs) -> None:
 
         torch.set_default_dtype(torch.bfloat16)
         torch.random.manual_seed(global_rank)
+
+        def default_init_method(x: torch.Tensor) -> torch.Tensor:
+            torch.nn.init.kaiming_uniform_(x)
+            return x
+
+        def fp8_rowwise_init_method(
+            x: torch.Tensor,
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            default_init_method(x)
+            if x.ndim == 3:
+                E, K, N = x.shape
+                x = x.transpose(1, 2)
+                x = x.reshape(-1, K)
+                xq, xs = triton_quantize_fp8_row(x.cuda())
+                return xq.reshape(E, N, K).transpose(1, 2), xs.reshape(E, N)
+            else:
+                assert x.ndim == 2
+                xq, xs = triton_quantize_fp8_row(x.cuda())
+                return xq, xs
+
+        param_names = (
+            "moe_w_in_eDF",
+            "moe_w_out_eFD",
+            "moe_w_swiglu_eDF",
+            "w_in_shared_FD",
+            "w_out_shared_DF",
+            "w_swiglu_FD",
+            "router_DE",
+        )
+
+        if moe_args.precision == "bf16":
+            init_methods = {name: default_init_method for name in param_names}
+        else:
+            assert moe_args.precision == "fp8_rowwise"
+            init_methods = {name: fp8_rowwise_init_method for name in param_names}
+            # pyre-ignore[6]
+            init_methods["router_DE"] = default_init_method
+
         baseline_moe = BaselineMoE(
             ep_group=ep_group,
             ep_mp_group=mp_group,
-            moe_args=args,
-        ).build()
+            moe_args=moe_args,
+        ).build(init_methods)
         baseline_moe.to("cuda")
 
         torch.random.manual_seed(global_rank)
         shuffling_moe = MetaShufflingMoE(
             ep_group=ep_group,
             ep_mp_group=mp_group,
-            moe_args=args,
-        ).build()
+            moe_args=moe_args,
+        ).build(init_methods)
         shuffling_moe.to("cuda")
 
         tokens = torch.empty(
-            size=(32, 32, args.dim), device="cuda", dtype=torch.bfloat16
+            size=(32, 32, moe_args.dim), device="cuda", dtype=torch.bfloat16
         )
         torch.nn.init.trunc_normal_(tokens, std=0.1, a=-0.2, b=0.2)
 
@@ -139,13 +153,13 @@ def run_demo(args: MoEArgs) -> None:
             group=mp_group,
         )
 
-        baseline_output = baseline_moe(tokens, use_static_shape=True)
+        baseline_output = baseline_moe(tokens, use_static_shape=use_static_shape)
         torch.distributed.all_reduce(
             baseline_output,
             group=mp_group,
         )
 
-        shuffling_output = shuffling_moe(tokens, use_static_shape=True)
+        shuffling_output = shuffling_moe(tokens, use_static_shape=use_static_shape)
         torch.distributed.all_reduce(
             shuffling_output,
             group=mp_group,
@@ -154,37 +168,48 @@ def run_demo(args: MoEArgs) -> None:
         logging.info(
             f"{global_rank=}, {baseline_output.norm()=}, {shuffling_output.norm()=}"
         )
+
+        if moe_args.precision == "bf16":
+            atol = 2e-3
+            rtol = 1.6e-2
+        else:
+            atol = 4e-3
+            rtol = 1.6e-2
         torch.testing.assert_close(
-            baseline_output, shuffling_output, atol=1.1e-3, rtol=1.6e-2
+            baseline_output,
+            shuffling_output,
+            atol=atol,
+            rtol=rtol,
         )
 
-        def run_profiling(moe: torch.nn.Module, name: str):
-            timestamp = datetime.timestamp(datetime.now())
-            trace_filename = f"bench_{name}_{timestamp}_{global_rank}.json"
-            for _ in range(WARM_UP_ITERS):
-                _ = moe.forward(tokens, use_static_shape=True)
-            with profile(
-                # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                on_trace_ready=partial(
-                    kineto_trace_handler,
-                    trace_filename=trace_filename,
-                ),
-                record_shapes=True,
-                with_stack=True,
-                with_modules=True,
-            ):
-                for _ in range(PROFILE_ITERS):
-                    _ = moe.forward(tokens, use_static_shape=True)
-            if global_rank == 0:
-                logging.info(f"Finished run {name} successfully")
+        if profiling:
 
-        run_profiling(baseline_moe, "baseline")
-        run_profiling(shuffling_moe, "shuffling")
+            def run_profiling(moe: torch.nn.Module, name: str):
+                timestamp = datetime.timestamp(datetime.now())
+                trace_filename = f"bench_{name}_{timestamp}_{global_rank}.json"
+                for _ in range(WARM_UP_ITERS):
+                    _ = moe.forward(tokens, use_static_shape=use_static_shape)
+                with profile(
+                    # pyre-fixme[16]: Module `profiler` has no attribute `ProfilerActivity`.
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    on_trace_ready=partial(
+                        kineto_trace_handler,
+                        trace_filename=trace_filename,
+                    ),
+                    record_shapes=True,
+                    with_stack=True,
+                    with_modules=True,
+                ):
+                    for _ in range(PROFILE_ITERS):
+                        _ = moe.forward(tokens, use_static_shape=use_static_shape)
+
+            run_profiling(baseline_moe, "baseline")
+            run_profiling(shuffling_moe, "shuffling")
+        logging.info(f"Successed to run demo with {cmd_args}!")
 
     except Exception as e:
-        logging.info(f"Failed to run tests due to {e}")
-        logging.error(traceback.format_exc())
+        logging.info(f"Failed to run demo with {cmd_args}! Reason: {e}.")
+        logging.info(traceback.format_exc())
 
     torch.distributed.destroy_process_group()
 
@@ -194,20 +219,55 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Arguments for testing MetaShuffling MoE."
     )
+
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="bf16",
+        choices=["bf16", "fp8_rowwise"],
+    )
     parser.add_argument("--dim", type=int, default=5120)
     parser.add_argument("--hidden-dim", type=int, default=16384)
-    parser.add_argument("--mp-size", type=int, required=True)
-    parser.add_argument("--ep-size", type=int, required=True)
-    parser.add_argument("--num-experts", "-e", type=int, required=True)
-    parser.add_argument("--mp-size-for-routed-experts", type=int)
+    parser.add_argument("--num-experts", "-e", type=int, default=128)
     parser.add_argument("--top-k", type=int, default=1)
-    parser.add_argument("--use-fast-accum", action="store_true", default=False)
-    parser.add_argument("--dedup-comm", action="store_true", default=False)
+    parser.add_argument("--mp-size", type=int, default=4)
+    parser.add_argument("--ep-size", type=int, default=2)
+    parser.add_argument("--mp-size-for-routed-experts", type=int)
+    parser.add_argument("--use-static-shape", type=bool, default=False)
+    parser.add_argument("--dedup-comm", type=bool, default=False)
+    parser.add_argument("--use-fast-accum", type=bool, default=False)
+
+    parser.add_argument("--testing", "-t", action="store_true", default=False)
+    parser.add_argument("--profiling", "-p", action="store_true", default=False)
+
     args = parser.parse_args()
-    moe_args = MoEArgs(**vars(args))
-    with tempfile.TemporaryDirectory():
-        logging.info("Launching demo in parent process.")
-        launcher.elastic_launch(get_launch_config(), entrypoint=run_demo)(moe_args)
+    if args.testing:
+        setting_dict = {
+            "precision": ["bf16", "fp8_rowwise"],
+            "dim": [5120],
+            "hidden_dim": [16384],
+            "num_experts": [128],
+            "top_k": [1],
+            "ep_size": [1, 2],
+            "use_static_shape": [True, False],
+            "dedup_comm": [True, False],
+            "use_fast_accum": [True],
+        }
+        for setting in itertools.product(*setting_dict.values()):
+            for name, value in zip(setting_dict.keys(), setting):
+                setattr(args, name, value)
+            # TODO: Cleanup this hardcoded setting.
+            world_size = 8
+            args.mp_size = world_size // args.ep_size
+            args.mp_size_for_routed_experts = args.mp_size
+
+            with tempfile.TemporaryDirectory():
+                launcher.elastic_launch(get_launch_config(), entrypoint=run_demo)(args)
+
+            break
+    else:
+        with tempfile.TemporaryDirectory():
+            launcher.elastic_launch(get_launch_config(), entrypoint=run_demo)(args)
 
 
 if __name__ == "__main__":
