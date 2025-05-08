@@ -42,6 +42,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     apply_split_helper,
     CounterBasedRegularizationDefinition,
     CowClipDefinition,
+    RESParams,
     UVMCacheStatsIndex,
     WeightDecayMode,
 )
@@ -89,6 +90,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     weights_placements: Tensor
     weights_offsets: Tensor
     _local_instance_index: int = -1
+    res_params: RESParams
 
     def __init__(
         self,
@@ -158,6 +160,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         backend_type: BackendType = BackendType.SSD,
         kv_zch_params: Optional[KVZCHParams] = None,
         enable_raw_embedding_streaming: bool = False,  # whether enable raw embedding streaming
+        res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -171,6 +174,18 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.current_device: torch.device = torch.cuda.current_device()
 
         self.enable_raw_embedding_streaming = enable_raw_embedding_streaming
+        # initialize the raw embedding streaming related variables
+        self.res_params: RESParams = res_params or RESParams()
+        if self.enable_raw_embedding_streaming:
+            self.res_params.table_sizes = [0] + list(itertools.accumulate(rows))
+            res_port_from_env = os.getenv("LOCAL_RES_PORT")
+            self.res_params.res_server_port = (
+                int(res_port_from_env) if res_port_from_env else 0
+            )
+            logging.info(
+                f"get env {self.res_params.res_server_port=}, at rank {dist.get_rank()}, with {self.res_params=}"
+            )
+
         self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
@@ -492,6 +507,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 l2_cache_size,
                 enable_async_update,
                 self.enable_raw_embedding_streaming,
+                self.res_params.res_store_shards,
+                self.res_params.res_server_port,
+                self.res_params.table_names,
+                self.res_params.table_offsets,
+                self.res_params.table_sizes,
             )
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower

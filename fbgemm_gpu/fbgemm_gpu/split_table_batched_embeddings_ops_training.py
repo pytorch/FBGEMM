@@ -185,6 +185,19 @@ class UVMCacheStatsIndex(enum.IntEnum):
     num_conflict_misses = 5
 
 
+@dataclass
+class RESParams:
+    res_server_port: int = 0  # the port of the res server
+    res_store_shards: int = 1  # the number of shards to store the raw embeddings
+    table_names: List[str] = field(default_factory=list)  # table names the TBE holds
+    table_offsets: List[int] = field(
+        default_factory=list
+    )  # table offsets for the global rows the TBE holds
+    table_sizes: List[int] = field(
+        default_factory=list
+    )  # table sizes for the global rows the TBE holds
+
+
 def construct_split_state(
     embedding_specs: List[Tuple[int, int, EmbeddingLocation, ComputeDevice]],
     rowwise: bool,

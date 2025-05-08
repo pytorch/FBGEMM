@@ -36,7 +36,12 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       int64_t tbe_unique_id = 0,
       int64_t l2_cache_size_gb = 0,
       bool enable_async_update = false,
-      bool enable_raw_embedding_streaming = false)
+      bool enable_raw_embedding_streaming = false,
+      int64_t res_store_shards = 0,
+      int64_t res_server_port = 0,
+      std::vector<std::string> table_names = {},
+      std::vector<int64_t> table_offsets = {},
+      const std::vector<int64_t>& table_sizes = {})
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -58,7 +63,12 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             tbe_unique_id,
             l2_cache_size_gb,
             enable_async_update,
-            enable_raw_embedding_streaming)) {}
+            enable_raw_embedding_streaming,
+            res_store_shards,
+            res_server_port,
+            std::move(table_names),
+            std::move(table_offsets),
+            table_sizes)) {}
 
   void set_cuda(
       at::Tensor indices,
