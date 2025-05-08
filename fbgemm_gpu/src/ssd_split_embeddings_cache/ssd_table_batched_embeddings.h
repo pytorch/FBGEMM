@@ -96,7 +96,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t tbe_unqiue_id = 0,
       int64_t l2_cache_size_gb = 0,
       bool enable_async_update = false,
-      bool enable_raw_embedding_streaming = false)
+      bool enable_raw_embedding_streaming = false,
+      int64_t res_store_shards = 0,
+      int64_t res_server_port = 0,
+      std::vector<std::string> table_names = {},
+      std::vector<int64_t> table_offsets = {},
+      const std::vector<int64_t>& table_sizes = {})
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -104,7 +109,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             tbe_unqiue_id,
             row_storage_bitwidth / 8,
             enable_async_update,
-            enable_raw_embedding_streaming),
+            enable_raw_embedding_streaming,
+            res_store_shards,
+            res_server_port,
+            std::move(table_names),
+            std::move(table_offsets),
+            table_sizes),
         auto_compaction_enabled_(true),
         max_D_(max_D),
         elem_size_(row_storage_bitwidth / 8) {
