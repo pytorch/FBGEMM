@@ -138,7 +138,7 @@ at::Tensor f8f8bf16_rowwise_impl(
       0,
       TileShape,
       ElementBias,
-      ElementBias,
+      ElementComputeEpilogue,
       cute::Stride<cute::Int<1>, cute::Int<0>, cute::Int<0>>>;
 
   using Accum = cutlass::epilogue::fusion::Sm90AccFetch;
@@ -156,7 +156,7 @@ at::Tensor f8f8bf16_rowwise_impl(
       cutlass::multiplies,
       cute::conditional_t< // Second stage output type.
           USE_BIAS,
-          ElementBias,
+          ElementComputeEpilogue,
           ElementOutput>,
       ElementComputeEpilogue, // Second stage input types.
       cutlass::FloatRoundStyle::round_to_nearest>;
@@ -167,7 +167,7 @@ at::Tensor f8f8bf16_rowwise_impl(
   using ComputeBias = cutlass::epilogue::fusion::Sm90Compute<
       cutlass::plus,
       ElementOutput, // Final (optional) stage output type.
-      ElementBias, // Final stage input types.
+      ElementComputeEpilogue, // Final stage input types.
       cutlass::FloatRoundStyle::round_to_nearest>;
 
   using EVTComputeBias =
