@@ -13,7 +13,7 @@
 namespace kleidiai {
 
 void NOINLINE gemmkernel_1x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x25, #0x1\n"
@@ -175,7 +175,7 @@ void NOINLINE gemmkernel_1x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_2x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x26, #0x1\n"
@@ -382,7 +382,7 @@ void NOINLINE gemmkernel_2x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_3x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x27, #0x1\n"
@@ -630,7 +630,7 @@ void NOINLINE gemmkernel_3x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_4x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x28, #0x1\n"
@@ -919,7 +919,7 @@ void NOINLINE gemmkernel_4x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_5x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x9, #0x1\n"
@@ -1249,7 +1249,7 @@ void NOINLINE gemmkernel_5x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_6x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x10, #0x1\n"
@@ -1618,7 +1618,7 @@ void NOINLINE gemmkernel_6x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_7x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x11, #0x1\n"
@@ -2025,7 +2025,7 @@ void NOINLINE gemmkernel_7x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
 }
 
 void NOINLINE gemmkernel_8x1_Neon_fp16_fA0fB0fC0(GemmParamsFP16* gp) {
-#if defined(__aarch64__) && __ARM_FEATURE_FP16FML
+#if defined(__aarch64__) && __ARM_FEATURE_FP16_FML
   __asm__ __volatile__(
       "ldr s16, [%x[gp], %[offsetof_beta]]\n"
       "mov x12, #0x1\n"
