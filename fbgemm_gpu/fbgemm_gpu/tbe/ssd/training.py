@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 from math import floor, log2
-from typing import Any, Callable, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 
 # @manual=//deeplearning/fbgemm/fbgemm_gpu/codegen:split_embedding_codegen_lookup_invokers
@@ -70,6 +70,14 @@ class IterData:
     cache_set_inverse_indices: Tensor
     B_offsets: Optional[Tensor] = None
     max_B: Optional[int] = -1
+
+
+@dataclass
+class KVZCHCachedData:
+    cached_id_tensor_per_table: List[torch.Tensor]
+    cached_weight_tensor_per_table: List[torch.Tensor]
+    cached_optimizer_state_per_table: List[torch.Tensor]
+    cached_bucket_splits: List[torch.Tensor]
 
 
 class SSDTableBatchedEmbeddingBags(nn.Module):
@@ -435,8 +443,34 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # zero collision TBE configurations
         self.kv_zch_params = kv_zch_params
         self.backend_type = backend_type
+        self.enable_optimizer_offloading: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
+            self.enable_optimizer_offloading = (
+                # pyre-ignore [16]
+                self.kv_zch_params.enable_optimizer_offloading
+            )
+
+        """
+        ##################### for ZCH v.Next loading checkpoints Short Term Solution #######################
+        weight_id tensor is the weight and optimizer keys, to load from checkpoint, weight_id tensor
+        needs to be loaded first, then we can load the weight and optimizer tensors.
+        However, the stateful checkpoint loading does not guarantee the tensor loading order, so we need
+        to cache the weight_id, weight and optimizer tensors untils all data are loaded, then we can apply
+        them to backend.
+        Currently, we'll cache the weight_id, weight and optimizer tensors in the KVZCHCachedData class,
+        and apply them to backend when all data are loaded. The downside of this solution is that we'll
+        have to duplicate a whole tensor memory to backend before we can release the python tensor memory,
+        which is not ideal.
+        The longer term solution is to support the caching from the backend side, and allow streaming based
+        data move from cached weight and optimizer to key/value format without duplicate one whole tensor's
+        memory.
+        """
+        self._cached_kvzch_data: Optional[KVZCHCachedData] = None
+        # initial embedding rows on this rank per table, this is used for loading checkpoint
+        self.local_weight_counts: List[int] = [0] * T_
+        # loading checkpoint flag, set by checkpoint loader, and cleared after weight is applied to backend
+        self.load_state_dict: bool = False
 
         # create tbe unique id using rank index | local tbe idx
         if tbe_unique_id == -1:
@@ -1786,6 +1820,46 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             ]
 
     @torch.jit.export
+    def split_optimizer_states(
+        self,
+        sorted_id_tensor: Optional[List[torch.Tensor]] = None,
+    ) -> List[torch.Tensor]:
+        """
+        Returns a list of optimizer states split by table. So far, we only support EXACT_ROWWISE_ADAGRAD,
+        so only momentum1 state is returned.
+
+        Since EXACT_ROWWISE_ADAGRAD has small optimizer states, we would generate
+        a full tensor for each table (shard). When other optimizer types are supported,
+        we should integrate with KVTensorWrapper (ssd_split_table_batched_embeddings.cpp)
+        to allow caller to read the optimizer states using `narrow()` in a rolling-window manner.
+
+        Args:
+            sorted_id_tensor (Optional[List[torch.Tensor]]): sorted id tensor by table, used to query optimizer
+            state from backend. Call should reuse the generated id tensor from weight state_dict, to guarantee
+            id consistency between weight and optimizer states.
+
+        """
+        raise NotImplementedError(
+            "split_optimizer_states is not implemented for SSDTableBatchedEmbeddingBags"
+        )
+
+    @torch.jit.export
+    def get_optimizer_state(
+        self,
+        sorted_id_tensor: Optional[List[torch.Tensor]],
+    ) -> List[Dict[str, torch.Tensor]]:
+        """
+        Returns a list of optimizer states split by table. So far, we only support EXACT_ROWWISE_ADAGRAD
+        so only momentum1 state is returned.
+        """
+        return [
+            ({"momentum1": states})
+            for states in self.split_optimizer_states(
+                sorted_id_tensor=sorted_id_tensor,
+            )
+        ]
+
+    @torch.jit.export
     def debug_split_embedding_weights(self) -> List[torch.Tensor]:
         """
         Returns a list of weights, split by table.
@@ -1830,6 +1904,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         return splits
 
+    def clear_cache(self) -> None:
+        self._cached_kvzch_data = None
+
     @torch.jit.export
     def split_embedding_weights(
         self,
@@ -1867,10 +1944,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if not no_snapshot:
                 if should_flush:
                     # Flush L1 and L2 caches
-                    self.flush()
+                    self.flush(force=True)
                 snapshot_handle = self.ssd_db.create_snapshot()
         elif self.backend_type == BackendType.DRAM:
-            self.flush()
+            self.flush(force=True)
 
         dtype = self.weights_precision.as_dtype()
         pmt_splits = []
@@ -1938,6 +2015,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
 
+    @torch.jit.ignore
+    def apply_state_dict(self) -> None:
+        # After checkpoint loading, the _cached_kvzch_data will be loaded from checkpoint.
+        # Caller should call this function to apply the cached states to backend.
+        pass
+
+    @torch.jit.ignore
+    def enable_load_state_dict_mode(self) -> None:
+        # Enable load state dict mode before loading checkpoint
+        pass
+
     @torch.jit.export
     def set_learning_rate(self, lr: float) -> None:
         """
@@ -1965,8 +2053,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         return 0.0
 
-    def flush(self) -> None:
-        if self.step == self.last_flush_step:
+    def flush(self, force: bool = False) -> None:
+        # allow force flush from split_embedding_weights to cover edge cases, e.g. checkpointing
+        # after trained 0 batches
+        if self.step == self.last_flush_step and not force:
             logging.info(
                 f"SSD TBE has been flushed at {self.last_flush_step=} already for tbe:{self.tbe_unique_id}"
             )
