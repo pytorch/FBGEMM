@@ -73,12 +73,14 @@ EmbeddingKVDB::EmbeddingKVDB(
     int64_t cache_size_gb,
     int64_t unique_id,
     int64_t ele_size_bytes,
-    bool enable_async_update)
+    bool enable_async_update,
+    bool enable_raw_embedding_streaming)
     : unique_id_(unique_id),
       num_shards_(num_shards),
       max_D_(max_D),
       executor_tp_(std::make_unique<folly::CPUThreadPoolExecutor>(num_shards)),
-      enable_async_update_(enable_async_update) {
+      enable_async_update_(enable_async_update),
+      enable_raw_embedding_streaming_(enable_raw_embedding_streaming) {
   CHECK(num_shards > 0);
   if (cache_size_gb > 0) {
     l2_cache::CacheLibCache::CacheConfig cache_config;
@@ -93,7 +95,9 @@ EmbeddingKVDB::EmbeddingKVDB(
   }
   XLOG(INFO) << "[TBE_ID" << unique_id_ << "] L2 created with " << num_shards_
              << " shards, dimension:" << max_D_
-             << ", enable_async_update_:" << enable_async_update_;
+             << ", enable_async_update_:" << enable_async_update_
+             << ", enable_raw_embedding_streaming_:"
+             << enable_raw_embedding_streaming_;
 
   if (enable_async_update_) {
     cache_filling_thread_ = std::make_unique<std::thread>([=] {
