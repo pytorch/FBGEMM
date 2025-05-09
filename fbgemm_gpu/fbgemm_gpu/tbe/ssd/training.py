@@ -33,6 +33,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     BoundsCheckMode,
     CacheAlgorithm,
     EmbeddingLocation,
+    get_bounds_check_version_for_platform,
     KVZCHParams,
     PoolingMode,
     SplitState,
@@ -258,7 +259,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
             f"weights precision: {weights_precision}, "
             f"output dtype: {output_dtype}, "
-            f"chunk size in bulk init: {bulk_init_chunk_size} bytes"
+            f"chunk size in bulk init: {bulk_init_chunk_size} bytes, backend_type: {backend_type}, "
+            f"zero_collision_config: {kv_zch_params}"
         )
         self.register_buffer(
             "lxu_cache_state",
@@ -736,6 +738,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.l2_num_cache_evictions_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_free_mem_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_capacity_stats_name)
+
+        self.bounds_check_version: int = get_bounds_check_version_for_platform()
 
     @property
     # pyre-ignore
@@ -1745,8 +1749,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[t]
                 # pyre-ignore
                 bucket_size = self.kv_zch_params.bucket_sizes[t]
-                table_input_id_start = bucket_id_start * bucket_size + table_offset
-                table_input_id_end = bucket_id_end * bucket_size + table_offset
+                table_input_id_start = (
+                    min(bucket_id_start * bucket_size, row) + table_offset
+                )
+                table_input_id_end = (
+                    min(bucket_id_end * bucket_size, row) + table_offset
+                )
 
                 # TODO: this is a hack for preallocated optimizer, update this part once we have optimizer offloading
                 unlinearized_id_tensor = self._ssd_db.get_keys_in_range_by_snapshot(
@@ -1879,8 +1887,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 bucket_size = self.kv_zch_params.bucket_sizes[i]
 
                 # linearize with table offset
-                table_input_id_start = bucket_id_start * bucket_size + table_offset
-                table_input_id_end = bucket_id_end * bucket_size + table_offset
+                table_input_id_start = (
+                    min(bucket_id_start * bucket_size, emb_height) + table_offset
+                )
+                table_input_id_end = (
+                    min(bucket_id_end * bucket_size, emb_height) + table_offset
+                )
                 # 1. get all keys from backend for one table
                 unordered_id_tensor = self._ssd_db.get_keys_in_range_by_snapshot(
                     table_input_id_start,
@@ -1955,7 +1967,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     def flush(self) -> None:
         if self.step == self.last_flush_step:
-            logging.info(f"SSD TBE has been flushed at {self.last_flush_step=} already")
+            logging.info(
+                f"SSD TBE has been flushed at {self.last_flush_step=} already for tbe:{self.tbe_unique_id}"
+            )
             return
         logging.info(
             f"SSD TBE flush at {self.step=}, it is an expensive call please be cautious"
@@ -2013,6 +2027,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 per_sample_weights,
                 B_offsets=vbe_metadata.B_offsets,
                 max_B=vbe_metadata.max_B,
+                bounds_check_version=self.bounds_check_version,
             )
 
         return indices, offsets, per_sample_weights, vbe_metadata

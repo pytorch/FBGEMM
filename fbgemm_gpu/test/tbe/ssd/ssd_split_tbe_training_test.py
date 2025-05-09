@@ -1717,7 +1717,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             new_ref_weight = torch.addcdiv(
                 emb_r.weight.float()[id_range_start:id_range_end,],
                 value=-lr,
-                tensor1=emb_r.weight.grad.float().to_dense()[id_range_start:id_range_end,],  # pyre-ignore[16]
+                tensor1=emb_r.weight.grad.float().to_dense()[
+                    id_range_start:id_range_end,
+                ],
                 tensor2=split_optimizer_states[table_index]
                 .float()
                 .sqrt_()

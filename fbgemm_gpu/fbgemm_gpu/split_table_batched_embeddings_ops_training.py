@@ -40,6 +40,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     ComputeDevice,
     construct_cache_state,
     EmbeddingLocation,
+    get_bounds_check_version_for_platform,
     MAX_PREFETCH_DEPTH,
     MultiPassPrefetchConfig,
     PoolingMode,
@@ -692,7 +693,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.bounds_check_version: int = (
             2
             if self._feature_is_enabled(FeatureGateName.BOUNDS_CHECK_INDICES_V2)
-            else 1
+            else get_bounds_check_version_for_platform()
         )
         self.bounds_check_mode_int: int = int(
             os.environ.get("FBGEMM_TBE_BOUNDS_CHECK_MODE", bounds_check_mode.value)
@@ -735,6 +736,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             # See:
             #   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/
             cache_precision = SparseType.FP32
+            self.log("Override cache_precision=SparseType.FP32 on ROCm")
         else:
             # NOTE: The changes from D65865527 are retained here until we can
             # test that the the hack also works for non-ROCm environments.

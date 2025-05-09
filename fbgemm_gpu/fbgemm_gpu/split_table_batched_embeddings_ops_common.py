@@ -254,3 +254,13 @@ def get_new_embedding_location(
     # UVM caching
     else:
         return EmbeddingLocation.MANAGED_CACHING
+
+
+def get_bounds_check_version_for_platform() -> int:
+    # NOTE: Use bounds_check_indices v2 on ROCm because ROCm has a
+    # constraint that the gridDim * blockDim has to be smaller than
+    # 2^32. The v1 kernel can be launched with gridDim * blockDim >
+    # 2^32 while the v2 kernel limits the gridDim size to 64 * # of
+    # SMs.  Thus, its gridDim * blockDim is guaranteed to be smaller
+    # than 2^32
+    return 2 if (torch.cuda.is_available() and torch.version.hip) else 1

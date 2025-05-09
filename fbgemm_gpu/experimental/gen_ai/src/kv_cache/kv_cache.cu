@@ -16,6 +16,7 @@
 #include <algorithm>
 #include "c10/core/ScalarType.h"
 #include "c10/util/BFloat16.h"
+#include "kv_cache.h"
 
 #ifndef USE_ROCM
 #include <mma.h>
@@ -227,9 +228,37 @@ DEVICE_INLINE void quantize_fp8_kv(
     __half2* qparam = nullptr,
     bool do_norm = false);
 
-DEVICE_INLINE void per_row_norm(fx4& dst);
-DEVICE_INLINE void per_row_amax(fx4& dst, float* amax);
-DEVICE_INLINE void per_head_amax(fx4& dst, float* amax);
+DEVICE_INLINE void per_row_norm(fx4& dst) {
+  float sum = fx4_dot(dst, dst);
+  // Warp reduce sum
+  sum = warpReduceSum(sum);
+  float rsqr = rsqrtf(sum / D_H);
+  dst = fx4_scale(dst, rsqr);
+}
+
+DEVICE_INLINE void per_head_amax(fx4& dst, float* amax) {
+  dst = fx4_abs(dst);
+  auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
+  CUDA_KERNEL_ASSERT(thread_max >= 0)
+  unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
+  float warp_max = warpReduceMax(thread_max, mask);
+  // Use atomic operation to update the global maximum
+  if (threadIdx.x == 0) {
+    // CUDA_KERNEL_ASSERT(warp_max >= 0);
+    atomicMax(reinterpret_cast<int*>(amax), __float_as_int(warp_max));
+  }
+}
+DEVICE_INLINE void per_row_amax(fx4& dst, float* amax) {
+  dst = fx4_abs(dst);
+  auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
+  unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
+  float warp_max = warpReduceMax(thread_max, mask);
+  // write amax
+  if (threadIdx.x == 0) {
+    CUDA_KERNEL_ASSERT(uintptr_t(amax) % 4 == 0);
+    *amax = warp_max;
+  }
+}
 __global__ void nope_qkv_varseq_prefill_kernel(
     at::PackedTensorAccessor32<at::BFloat16, 3, at::RestrictPtrTraits>
         XQ, // [B_T][N_H][D_H]
@@ -2850,7 +2879,7 @@ at::Tensor quantize_qkv_per_head(
     // HH += N_KVH_L * 2;
     qparam_k_ptr = qparam_k.value().data_ptr<float>();
     qparam_v_ptr = qparam_v.value().data_ptr<float>();
-    CHECK_EQ(HH, 7);
+    TORCH_CHECK(HH == 7);
   }
   auto num_warps = B_T * HH;
   dim3 block_size(kThreadsPerWarp, kWarpsPerBlock);
@@ -2883,37 +2912,7 @@ at::Tensor quantize_qkv_per_head(
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return scale_q;
 }
-DEVICE_INLINE void per_row_norm(fx4& dst) {
-  float sum = fx4_dot(dst, dst);
-  // Warp reduce sum
-  sum = warpReduceSum(sum);
-  float rsqr = rsqrtf(sum / D_H);
-  dst = fx4_scale(dst, rsqr);
-}
 
-DEVICE_INLINE void per_head_amax(fx4& dst, float* amax) {
-  dst = fx4_abs(dst);
-  auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
-  CUDA_KERNEL_ASSERT(thread_max >= 0)
-  unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
-  float warp_max = warpReduceMax(thread_max, mask);
-  // Use atomic operation to update the global maximum
-  if (threadIdx.x == 0) {
-    // CUDA_KERNEL_ASSERT(warp_max >= 0);
-    atomicMax(reinterpret_cast<int*>(amax), __float_as_int(warp_max));
-  }
-}
-DEVICE_INLINE void per_row_amax(fx4& dst, float* amax) {
-  dst = fx4_abs(dst);
-  auto thread_max = fmaxf(fmaxf(fmaxf(dst.x, dst.y), dst.z), dst.w);
-  unsigned mask = ballot_sync(4 * threadIdx.x < D_H, 0xFFFFFFFF);
-  float warp_max = warpReduceMax(thread_max, mask);
-  // write amax
-  if (threadIdx.x == 0) {
-    CUDA_KERNEL_ASSERT(uintptr_t(amax) % 4 == 0);
-    *amax = warp_max;
-  }
-}
 template <typename T, KVQuantRecipe recipe>
 DEVICE_INLINE void
 quantize_fp8_kv(fx4 dst, T* dst_row_q, __half2* qparam, bool do_norm) {
