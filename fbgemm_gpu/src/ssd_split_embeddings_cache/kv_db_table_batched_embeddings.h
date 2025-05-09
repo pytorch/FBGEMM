@@ -136,7 +136,13 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t cache_size_gb = 0,
       int64_t unique_id = 0,
       int64_t ele_size_bytes = 2 /*assume by default fp16*/,
-      bool enable_async_update = false);
+      bool enable_async_update = false,
+      bool enable_raw_embedding_streamnig = false,
+      int64_t res_store_shards = 0,
+      int64_t res_server_port = 0,
+      std::vector<std::string> table_names = {},
+      std::vector<int64_t> table_offsets = {},
+      const std::vector<int64_t>& table_sizes = {});
 
   virtual ~EmbeddingKVDB();
 
@@ -292,6 +298,12 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return max_D_;
   }
 
+#ifdef FBGEMM_FBCODE
+  folly::coro::Task<void> tensor_stream(
+      const at::Tensor& indices,
+      const at::Tensor& weights);
+#endif
+
  private:
   /// Find non-negative embedding indices in <indices> and shard them into
   /// #cachelib_pools pieces to be lookedup in parallel
@@ -418,6 +430,16 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   // -- commone path
   std::atomic<int64_t> total_cache_update_duration_{0};
+
+  // -- raw embedding streaming
+  bool enable_raw_embedding_streaming_;
+  int64_t res_store_shards_;
+  int64_t res_server_port_;
+  std::vector<std::string> table_names_;
+  std::vector<int64_t> table_offsets_;
+  at::Tensor table_sizes_;
+  std::unique_ptr<std::thread> weights_stream_thread_;
+  folly::USPSCQueue<QueueItem, true> weights_to_stream_queue_;
 }; // class EmbeddingKVDB
 
 } // namespace kv_db
