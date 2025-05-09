@@ -323,7 +323,7 @@ Returns:
 add_docs(
     torch.ops.fbgemm.block_bucketize_sparse_features,
     """
-block_bucketize_sparse_features(lengths, indices, bucketize_pos, sequence, block_sizes, my_size, weights=None, batch_size_per_feature=None, max_B= -1, block_bucketize_pos=None, keep_orig_idx=False) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor]]
+block_bucketize_sparse_features(lengths, indices, bucketize_pos, sequence, block_sizes, my_size, weights=None, batch_size_per_feature=None, max_B= -1, block_bucketize_pos=None, keep_orig_idx=False, total_num_blocks=None, keep_orig_idx_per_feature=None) -> Tuple[Tensor, Tensor, Optional[Tensor], Optional[Tensor], Optional[Tensor]]
 
 Preprocess sparse features by partitioning sparse features into multiple
 buckets. Every feature is split into the same number of buckets, but the bucket
@@ -387,6 +387,11 @@ Args:
         where we scale up/down the number of GPUs but want to maintain
         same numerical behavior.
 
+    keep_orig_idx_per_feature (Optional[Tensor] = None): An optional tensor that
+        contains whether to keep original indices for each feature. If not None,
+        the operator will use this tensor to determine whether to keep original
+        indices for each feature. if None, will fallback to `keep_orig_idx`
+
 Return:
     A tuple of tensors containing
 
@@ -448,6 +453,24 @@ Return:
             dtype=torch.int32),
      tensor([ 0,  1,  5,  2,  6,  7,  3,  8,  9, 10, 11,  4, 12, 13, 14],
             device='cuda:0', dtype=torch.int32))
+    >>> # Invoke with keep_orig_idx_per_feature
+    >>> keep_orig_idx_per_feature = torch.tensor([False, True, False, True], dtype=torch.bool)
+    >>> torch.ops.fbgemm.block_bucketize_sparse_features(
+    >>>     lengths,
+    >>>     indices,
+    >>>     bucketize_pos=False,
+    >>>     sequence=False,
+    >>>     block_sizes=block_sizes,
+    >>>     my_size=my_size,
+    >>>     keep_orig_idx=False,
+    >>>     keep_orig_idx_per_feature=keep_orig_idx_per_feature)
+    (tensor([0, 0, 0, 1, 1, 1, 2, 1, 0, 2, 1, 2, 1, 2, 1, 0], device='cuda:0',
+            dtype=torch.int32),
+     tensor([ 3,  4, 11,  1, 11, 15, 28, 29,  0,  1,  2,  3,  22, 20, 20],
+            device='cuda:0', dtype=torch.int32),
+     None,
+     None,
+     None)
     >>> # Invoke with block_bucketize_pos
     >>> block_bucketize_pos = [
     >>>     torch.tensor([0, 2, 8], dtype=torch.int),
