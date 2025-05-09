@@ -1036,7 +1036,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
         const bool no_bag /*=false*/,
         int output_bit_rate /*=-1*/) {
   if (output_bit_rate == -1) {
-    output_bit_rate = input_bit_rate;
+    output_bit_rate = sizeof(outType) * 8;
   }
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
