@@ -457,7 +457,12 @@ static auto embedding_rocks_db_wrapper =
                 int64_t,
                 int64_t,
                 bool,
-                bool>(),
+                bool,
+                int64_t,
+                int64_t,
+                std::vector<std::string>,
+                std::vector<int64_t>,
+                std::vector<int64_t>>(),
             "",
             {
                 torch::arg("path"),
@@ -481,6 +486,11 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("l2_cache_size_gb") = 0,
                 torch::arg("enable_async_update") = true,
                 torch::arg("enable_raw_embedding_streaming") = false,
+                torch::arg("res_store_shards") = 0,
+                torch::arg("res_server_port") = 0,
+                torch::arg("table_names") = torch::List<std::string>(),
+                torch::arg("table_offsets") = torch::List<int64_t>(),
+                torch::arg("table_sizes") = torch::List<int64_t>(),
             })
         .def(
             "set_cuda",
