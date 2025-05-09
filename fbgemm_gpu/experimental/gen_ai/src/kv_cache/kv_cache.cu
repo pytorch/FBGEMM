@@ -2998,4 +2998,5 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 #endif
+
 } // namespace fbgemm_gpu
