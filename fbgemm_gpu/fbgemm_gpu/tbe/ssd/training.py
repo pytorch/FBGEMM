@@ -157,6 +157,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         lazy_bulk_init_enabled: bool = False,
         backend_type: BackendType = BackendType.SSD,
         kv_zch_params: Optional[KVZCHParams] = None,
+        enable_raw_embedding_streaming: bool = False,  # whether enable raw embedding streaming
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -169,6 +170,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # pyre-fixme[8]: Attribute has type `device`; used as `int`.
         self.current_device: torch.device = torch.cuda.current_device()
 
+        self.enable_raw_embedding_streaming = enable_raw_embedding_streaming
         self.feature_table_map: List[int] = (
             feature_table_map if feature_table_map is not None else list(range(T_))
         )
@@ -464,7 +466,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size},max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num},"
                 f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
                 f"row_storage_bitwidth={weights_precision.bit_rate()},block_cache_size_per_tbe={ssd_block_cache_size_per_tbe},"
-                f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB"
+                f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB, enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}"
             )
             # pyre-fixme[4]: Attribute must be annotated.
             # pyre-ignore[16]
@@ -489,6 +491,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 tbe_unique_id,
                 l2_cache_size,
                 enable_async_update,
+                self.enable_raw_embedding_streaming,
             )
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
