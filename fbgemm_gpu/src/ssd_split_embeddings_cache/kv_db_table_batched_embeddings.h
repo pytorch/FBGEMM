@@ -136,7 +136,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t cache_size_gb = 0,
       int64_t unique_id = 0,
       int64_t ele_size_bytes = 2 /*assume by default fp16*/,
-      bool enable_async_update = false);
+      bool enable_async_update = false,
+      bool enable_raw_embedding_streamnig = false);
 
   virtual ~EmbeddingKVDB();
 
@@ -418,6 +419,9 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   // -- commone path
   std::atomic<int64_t> total_cache_update_duration_{0};
+
+  // -- raw embedding streaming
+  bool enable_raw_embedding_streaming_;
 }; // class EmbeddingKVDB
 
 } // namespace kv_db

@@ -456,6 +456,7 @@ static auto embedding_rocks_db_wrapper =
                 bool,
                 int64_t,
                 int64_t,
+                bool,
                 bool>(),
             "",
             {
@@ -479,6 +480,7 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("tbe_unique_id") = 0,
                 torch::arg("l2_cache_size_gb") = 0,
                 torch::arg("enable_async_update") = true,
+                torch::arg("enable_raw_embedding_streaming") = false,
             })
         .def(
             "set_cuda",

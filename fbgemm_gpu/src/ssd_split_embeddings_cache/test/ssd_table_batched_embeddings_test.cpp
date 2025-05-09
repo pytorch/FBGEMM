@@ -35,7 +35,8 @@ class MockEmbeddingRocksDB : public ssd::EmbeddingRocksDB {
       bool use_passed_in_path = false,
       int64_t tbe_unqiue_id = 0,
       int64_t l2_cache_size_gb = 0,
-      bool enable_async_update = false)
+      bool enable_async_update = false,
+      bool enable_raw_embedding_streaming = false)
       : ssd::EmbeddingRocksDB(
             path,
             num_shards,
@@ -56,7 +57,8 @@ class MockEmbeddingRocksDB : public ssd::EmbeddingRocksDB {
             use_passed_in_path,
             tbe_unqiue_id,
             l2_cache_size_gb,
-            enable_async_update){};
+            enable_async_update,
+            enable_raw_embedding_streaming) {}
   MOCK_METHOD(
       rocksdb::Status,
       set_rocksdb_option,
