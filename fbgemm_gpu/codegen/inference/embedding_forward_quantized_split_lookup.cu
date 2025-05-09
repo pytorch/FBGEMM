@@ -7,6 +7,7 @@
  */
 
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 using namespace fbgemm_gpu;
@@ -170,28 +171,24 @@ Tensor pruned_hashmap_lookup_cuda(
 
         AT_DISPATCH_INDEX_TYPES(
             indices.scalar_type(), "pruned_hashmap_lookup_cuda_1", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-              const auto func_name =
-                  "int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel";
-#endif
-
-              int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<<<
+              FBGEMM_LAUNCH_KERNEL(
+                  (int_nbit_split_embedding_codegen_forward_pruned_hashmap_lookup_kernel<
+                      index_t,
+                      hash_t>),
                   nbit::div_round_up(B * T + 1, kForwardMaxThreads / kWarpSize),
                   dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                   0,
-                  at::cuda::getCurrentCUDAStream()>>>(
-                  MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(func_name, hash_table, hash_t, 2, 64),
-                  MAKE_PTA_WITH_NAME(
-                      func_name, hash_table_offsets, int64_t, 1, 32),
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(indices, index_t, 1, 32),
+                  PTA_B(offsets, index_t, 1, 32),
+                  PTA_B(hash_table, hash_t, 2, 64),
+                  PTA_B(hash_table_offsets, int64_t, 1, 32),
                   B,
                   T,
-                  MAKE_PTA_WITH_NAME(func_name, dense_indices, index_t, 1, 32));
+                  PTA_B(dense_indices, index_t, 1, 32));
             });
       });
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
 }
 
@@ -235,29 +232,24 @@ Tensor pruned_array_lookup_cuda(
 
         AT_DISPATCH_INDEX_TYPES(
             indices.scalar_type(), "pruned_array_lookup_cuda_1", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-              const auto func_name =
-                  "int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel";
-#endif
-
-              int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<<<
+              FBGEMM_LAUNCH_KERNEL(
+                  (int_nbit_split_embedding_codegen_forward_pruned_array_lookup_kernel<
+                      index_t,
+                      remap_t>),
                   nbit::div_round_up(
                       offsets.size(0), kForwardMaxThreads / kWarpSize),
                   dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
                   0,
-                  at::cuda::getCurrentCUDAStream()>>>(
-                  MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(
-                      func_name, index_remappings, remap_t, 1, 64),
-                  MAKE_PTA_WITH_NAME(
-                      func_name, index_remappings_offsets, int64_t, 1, 32),
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(indices, index_t, 1, 32),
+                  PTA_B(offsets, index_t, 1, 32),
+                  PTA_B(index_remappings, remap_t, 1, 64),
+                  PTA_B(index_remappings_offsets, int64_t, 1, 32),
                   B,
                   T,
-                  MAKE_PTA_WITH_NAME(func_name, dense_indices, index_t, 1, 32));
+                  PTA_B(dense_indices, index_t, 1, 32));
             });
       });
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dense_indices;
 }
