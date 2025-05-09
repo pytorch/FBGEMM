@@ -90,7 +90,7 @@ __launch_bounds__(kMaxThreads) void tbe_input_combine_with_length_kernel(
                          lengths_start + src_idx,
                          lengths_end - lengths_start);
 
-  if (per_sample_weights_addrs) {
+  if (per_sample_weights_addrs && per_sample_weights_addrs[list_id] > 0) {
     vec_copy_with_implicit_type_cast<float, float, VEC_WIDTH>(
         combined_weights,
         per_sample_weights_addrs[list_id],
@@ -124,7 +124,7 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_cuda(
   Tensor combined_lengths =
       at::empty({static_cast<int64_t>(total_lengths)}, int_options);
   // combined_weights is a float tensor
-  Tensor combined_weights = at::empty(
+  Tensor combined_weights = at::ones(
       {per_sample_weights_addrs ? static_cast<int64_t>(total_indices)
                                 : static_cast<int64_t>(0)},
       at::TensorOptions()
