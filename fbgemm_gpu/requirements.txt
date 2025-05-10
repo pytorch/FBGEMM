@@ -26,3 +26,4 @@ setuptools
 setuptools_git_versioning
 tabulate
 patchelf
+fairscale

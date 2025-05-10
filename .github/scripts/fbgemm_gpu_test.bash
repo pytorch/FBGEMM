@@ -79,7 +79,7 @@ __configure_fbgemm_gpu_test_cpu () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} CUDA_VISIBLE_DEVICES=-1
 
-  ignored_tests=(
+  export ignored_tests=(
     # These tests have non-CPU operators referenced in @given
     ./uvm/copy_test.py
     ./uvm/uvm_test.py
@@ -99,7 +99,8 @@ __configure_fbgemm_gpu_test_cuda () {
   # shellcheck disable=SC2086
   print_exec conda env config vars unset ${env_prefix} CUDA_VISIBLE_DEVICES
 
-  ignored_tests=(
+  export ignored_tests=(
+    ./moe/layers_test.py # not a UnitTest
   )
 }
 
@@ -123,7 +124,7 @@ __configure_fbgemm_gpu_test_rocm () {
     print_exec conda env config vars set ${env_prefix} HSA_XNACK=1
   fi
 
-  ignored_tests=(
+  export ignored_tests=(
     # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
     ./sll/triton_sll_test.py
