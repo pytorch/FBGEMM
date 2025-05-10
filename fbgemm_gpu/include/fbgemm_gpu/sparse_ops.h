@@ -192,7 +192,8 @@ block_bucketize_sparse_features_cuda(
     const int64_t max_batch_size,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool keep_orig_idx,
-    const std::optional<at::Tensor>& total_num_blocks);
+    const std::optional<at::Tensor>& total_num_blocks,
+    const std::optional<at::Tensor>& keep_orig_idx_per_feature);
 
 std::tuple<
     at::Tensor,
@@ -214,7 +215,8 @@ block_bucketize_sparse_features_cpu(
     const int64_t max_batch_size,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool keep_orig_idx,
-    const std::optional<at::Tensor>& total_num_blocks);
+    const std::optional<at::Tensor>& total_num_blocks,
+    const std::optional<at::Tensor>& keep_orig_idx_per_feature);
 
 std::tuple<
     at::Tensor,
@@ -237,7 +239,8 @@ block_bucketize_sparse_features_inference_cuda(
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping,
     const bool keep_orig_idx,
-    const std::optional<at::Tensor>& total_num_blocks);
+    const std::optional<at::Tensor>& total_num_blocks,
+    const std::optional<at::Tensor>& keep_orig_idx_per_feature);
 
 ///@ingroup sparse-data-cuda
 at::Tensor populate_bucketized_permute_cuda(
@@ -267,7 +270,8 @@ block_bucketize_sparse_features_inference_cpu(
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping,
     const bool keep_orig_idx,
-    const std::optional<at::Tensor>& total_num_blocks);
+    const std::optional<at::Tensor>& total_num_blocks,
+    const std::optional<at::Tensor>& keep_orig_idx_per_feature);
 
 ///@ingroup sparse-data-cpu
 at::Tensor populate_bucketized_permute_cpu(
