@@ -43,6 +43,7 @@ jobs:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
       BUILD_VARIANT: rocm
+      BUILD_ROCM_VERSION: ${{ matrix.rocm-version }}
     strategy:
       fail-fast: false
       matrix:

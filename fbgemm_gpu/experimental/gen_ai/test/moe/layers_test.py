@@ -13,7 +13,7 @@ import tempfile
 import traceback
 from datetime import datetime
 from functools import partial
-from typing import Callable, Mapping, Tuple, Union
+from typing import Tuple
 
 import torch
 from deeplearning.fbgemm.fbgemm_gpu.experimental.gen_ai.test.moe.parallelism import (

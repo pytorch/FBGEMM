@@ -250,7 +250,9 @@ class Int4GQATest(unittest.TestCase):
     )
     # pyre-fixme[56]
     @unittest.skipIf(
-        not torch.cuda.is_available() or not HAS_XFORMERS,
+        not torch.cuda.is_available()
+        or torch.cuda.get_device_capability()[0] < 8
+        or not HAS_XFORMERS,
         "Skip when CUDA is not available or xformers is not available",
     )
     def test_mqa_main(  # noqa C901

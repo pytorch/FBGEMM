@@ -111,10 +111,12 @@ if [[ $CU_VERSION = cu* ]]; then
 
   echo "[NOVA] Setting the FBGEMM build variant: cuda ..."
   export fbgemm_build_variant="cuda"
+  export BUILD_CUDA_VERSION="$CU_VERSION"
 
 elif [[ $CU_VERSION = rocm* ]]; then
   echo "[NOVA] Setting the FBGEMM build variant: rocm ..."
   export fbgemm_build_variant="rocm"
+  export BUILD_ROCM_VERSION="${CU_VERSION:4}"
 
 else
   echo "[NOVA] Setting the FBGEMM build variant: cpu ..."

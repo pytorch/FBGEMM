@@ -8,17 +8,17 @@
 name: FBGEMM_GPU-GenAI CI
 
 on:
-  # PR Trigger (enabled for regression checks and debugging)
-  #
-  pull_request:
-    branches:
-      - main
+  # # PR Trigger (enabled for regression checks and debugging)
+  # #
+  # pull_request:
+  #   branches:
+  #     - main
 
-  # Push Trigger (enable to catch errors coming out of multiple merges)
-  #
-  push:
-    branches:
-      - main
+  # # Push Trigger (enable to catch errors coming out of multiple merges)
+  # #
+  # push:
+  #   branches:
+  #     - main
 
   # Cron Trigger (UTC)
   #

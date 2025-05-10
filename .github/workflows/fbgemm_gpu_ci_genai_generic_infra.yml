@@ -10,11 +10,11 @@ name: FBGEMM_GPU-GenAI CI (Generic Runner)
 on:
   # PR Trigger
   #
-  pull_request:
+  pull_request: {}
 
   # Push Trigger (enable to catch errors coming out of multiple merges)
   #
-  push:
+  push: {}
 
   # Manual Trigger
   #

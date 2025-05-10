@@ -100,3 +100,50 @@ function(add_to_package)
     "${args_FILES}"
   )
 endfunction()
+
+function(glob_files variable)
+  # This function is similar to file(GLOB) in that it returns a list of files
+  # that match the given file patterns but filters out those that match the
+  # exclude regexes
+
+  set(options)
+  set(oneValueArgs EXCLUDE_REGEX)
+  set(multiValueArgs PATTERNS)  # List of glob patterns
+  cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+  # Set default exclude regex to match nothing
+  if(NOT ARG_EXCLUDE_REGEX)
+    set(ARG_EXCLUDE_REGEX "^$")
+  endif()
+
+  set(all_matched_files)
+
+  # Loop over each pattern and glob files
+  foreach(pattern IN LISTS ARG_PATTERNS)
+    file(GLOB matched_files "${pattern}")
+    list(APPEND all_matched_files ${matched_files})
+  endforeach()
+
+  # Remove duplicates and apply exclusion filter
+  if(all_matched_files)
+    list(REMOVE_DUPLICATES all_matched_files)
+    list(FILTER all_matched_files EXCLUDE REGEX "${ARG_EXCLUDE_REGEX}")
+  endif()
+
+  # Set output variable in parent scope
+  set(${variable} ${all_matched_files} PARENT_SCOPE)
+endfunction()
+
+function(glob_files_nohip variable)
+  # This function is a wrapper around glob_files that excludes files with the
+  # *_hip.cpp suffix
+
+  set(args ${ARGN})  # All arguments except function name
+
+  glob_files(
+    tmp_list
+    PATTERNS ${ARGN}
+    EXCLUDE_REGEX  ".*_hip\\.cpp$")
+
+  set(${variable} ${tmp_list} PARENT_SCOPE)
+endfunction()
