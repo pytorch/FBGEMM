@@ -44,7 +44,11 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       int64_t dtype,
       int64_t row_offset,
       std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-          snapshot_handle = std::nullopt);
+          snapshot_handle = std::nullopt,
+      std::optional<std::vector<int64_t>> materialized_shape = std::nullopt,
+      // using reference here to avoid copy, please make sure the lifetime of
+      // sorted_indices is longer than KVTensorWrapper
+      const at::Tensor& sorted_indices = at::Tensor());
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 
@@ -95,6 +99,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   std::vector<int64_t> shape_;
   std::vector<int64_t> strides_;
   int64_t row_offset_;
+  std::optional<std::vector<int64_t>> materialized_shape_;
+  std::optional<at::Tensor> sorted_indices_ = std::nullopt;
 };
 
 } // namespace ssd
