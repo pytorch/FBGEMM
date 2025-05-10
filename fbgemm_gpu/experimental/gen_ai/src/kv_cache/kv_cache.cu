@@ -2997,5 +2997,21 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   throw std::runtime_error(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
+
+at::Tensor quantize_qkv_per_head(
+    at::Tensor xqkv_amax_row, // [B_T, HH]
+    at::Tensor xqkv, // [B_T, HH, D_H]
+    at::Tensor varseq_seqpos, // [B_T]
+    std::optional<at::Tensor> varseq_batch, // [B_T]
+    at::Tensor q_seqstarts, // [B+1]
+    at::Tensor cache_K, // [B][MAX_T][N_KVH][D_H]
+    at::Tensor cache_V, // [B][MAX_T][N_KVH][D_H]
+    at::Tensor XQ_O, // [B_T][N_H][D]
+    int64_t max_seq_length, // Length of the sequence
+    std::optional<at::Tensor> qparam_k,
+    std::optional<at::Tensor> qparam_v) {
+  throw std::runtime_error(
+      "CUDA version is older than 12.0"); // requires CUDA>=12
+}
 #endif
 } // namespace fbgemm_gpu

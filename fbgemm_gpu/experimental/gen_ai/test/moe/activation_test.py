@@ -71,6 +71,11 @@ class ActivationTests(unittest.TestCase):
 
         torch.testing.assert_allclose(y, y_ref, rtol=1.6e-2, atol=1e-3)
 
+    @unittest.skipIf(
+        not torch.cuda.is_available()
+        or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
+        "Skip when H100 is not available",
+    )
     @given(
         T=st.sampled_from([1, 128, 2048, 4096, 16384]),
         D=st.sampled_from([5120, 7168]),

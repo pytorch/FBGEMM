@@ -13,15 +13,9 @@ import tempfile
 import traceback
 from datetime import datetime
 from functools import partial
-from typing import Callable, Mapping, Tuple, Union
+from typing import Tuple
 
 import torch
-from deeplearning.fbgemm.fbgemm_gpu.experimental.gen_ai.test.moe.parallelism import (
-    get_ep_group,
-    get_global_rank,
-    get_routed_experts_mp_group,
-    init_parallel,
-)
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
 from fbgemm_gpu.experimental.gen_ai.moe.layers import (
     BaselineMoE,
@@ -33,6 +27,13 @@ from torch.distributed.launcher.api import LaunchConfig
 
 # pyre-fixme[21]: Could not find name `ProfilerActivity` in `torch.profiler`.
 from torch.profiler import profile, ProfilerActivity
+
+from .parallelism import (
+    get_ep_group,
+    get_global_rank,
+    get_routed_experts_mp_group,
+    init_parallel,
+)
 
 TRACE_DIR: str = "/tmp/"
 WARM_UP_ITERS = 15
