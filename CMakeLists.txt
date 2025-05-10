@@ -105,6 +105,15 @@ option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
+option(USE_SYSTEM_LIBS "Use system libraries. Does not affect fbgemm_gpu" OFF)
+option(USE_SYSTEM_ASMJIT "Use system asmjit. Does not affect fbgemm_gpu" ${USE_SYSTEM_LIBS})
+option(USE_SYSTEM_CPUINFO "Use system cpuinfo. Does not affect fbgemm_gpu" ${USE_SYSTEM_LIBS})
+option(USE_SYSTEM_GOOGLETEST "Use system Google Test. Does not affect fbgemm_gpu" ${USE_SYSTEM_LIBS})
+
+# If any of the USE_SYSTEM_* options are set, FBGEMM_BUILD_FBGEMM_GPU must be false.
+if((USE_SYSTEM_LIBS OR USE_SYSTEM_ASMJIT OR USE_SYSTEM_CPUINFO OR USE_SYSTEM_GOOGLETEST) AND FBGEMM_BUILD_FBGEMM_GPU)
+  message(FATAL_ERROR "USE_SYSTEM_* options are not supported for fbgemm_gpu")
+endif()
 
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
@@ -248,10 +257,16 @@ message(STATUS "==========")
 message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
 message(STATUS "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
 message(STATUS "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
+message(STATUS "USE_SYSTEM_LIBS is ${USE_SYSTEM_LIBS}")
+message(STATUS "USE_SYSTEM_ASMJIT is ${USE_SYSTEM_ASMJIT}")
+message(STATUS "USE_SYSTEM_CPUINFO is ${USE_SYSTEM_CPUINFO}")
+message(STATUS "USE_SYSTEM_GOOGLETEST is ${USE_SYSTEM_GOOGLETEST}")
 message(STATUS "==========")
 
-if(NOT TARGET asmjit)
-  # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
+if(USE_SYSTEM_ASMJIT)
+  find_package(asmjit REQUIRED)
+elseif(NOT TARGET asmjit)
+  #Download asmjit from github if ASMJIT_SRC_DIR is not specified.
   if(NOT DEFINED ASMJIT_SRC_DIR)
     set(ASMJIT_SRC_DIR "${FBGEMM_SOURCE_DIR}/external/asmjit"
       CACHE STRING "asmjit source directory from submodules")
@@ -283,7 +298,9 @@ if(NOT TARGET asmjit)
   endif()
 endif()
 
-if(NOT TARGET cpuinfo)
+if(USE_SYSTEM_CPUINFO)
+  find_package(cpuinfo REQUIRED)
+elseif(NOT TARGET cpuinfo)
   #Download cpuinfo from github if CPUINFO_SOURCE_DIR is not specified.
   if(NOT DEFINED CPUINFO_SOURCE_DIR)
     set(CPUINFO_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/cpuinfo"
@@ -301,23 +318,30 @@ if(NOT TARGET cpuinfo)
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-target_include_directories(fbgemm_generic BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+target_include_directories(fbgemm_generic
+  PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
+target_include_directories(fbgemm_avx2
+  PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
+target_include_directories(fbgemm_avx512
+  PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
 
-target_include_directories(fbgemm_avx2 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+if(NOT USE_SYSTEM_ASMJIT)
+  target_include_directories(fbgemm_generic BEFORE
+    PRIVATE "${ASMJIT_SRC_DIR}/src")
+  target_include_directories(fbgemm_avx2 BEFORE
+    PRIVATE "${ASMJIT_SRC_DIR}/src")
+  target_include_directories(fbgemm_avx512 BEFORE
+    PRIVATE "${ASMJIT_SRC_DIR}/src")
+endif()
 
-target_include_directories(fbgemm_avx512 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+if(NOT USE_SYSTEM_CPUINFO)
+  target_include_directories(fbgemm_generic BEFORE
+    PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+  target_include_directories(fbgemm_avx2 BEFORE
+    PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+  target_include_directories(fbgemm_avx512 BEFORE
+    PRIVATE "${CPUINFO_SOURCE_DIR}/include")
+endif()
 
 target_include_directories(fbgemm_autovec BEFORE
       PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
@@ -358,31 +382,35 @@ else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()
 
+target_include_directories(fbgemm
+  PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
+set_target_properties(fbgemm PROPERTIES PUBLIC_HEADER "${FBGEMM_PUBLIC_HEADERS}")
+
 if(USE_SANITIZER)
   target_link_options(fbgemm PRIVATE
     "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
 endif()
 
-target_include_directories(fbgemm BEFORE
-    PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-    PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
-
-target_link_libraries(fbgemm
-  $<BUILD_INTERFACE:asmjit>
-  $<BUILD_INTERFACE:cpuinfo>)
-add_dependencies(fbgemm
-  asmjit
-  cpuinfo)
+target_link_libraries(fbgemm PUBLIC asmjit cpuinfo)
 
 if(OpenMP_FOUND)
-  target_link_libraries(fbgemm OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/${CMAKE_PROJECT_NAME}-config.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}-config.cmake
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${CMAKE_PROJECT_NAME}
+  PATH_VARS OpenMP_FOUND
+)
+
 install(
-  TARGETS fbgemm
-  EXPORT fbgemmLibraryConfig
+  TARGETS ${CMAKE_PROJECT_NAME}
+  EXPORT ${CMAKE_PROJECT_NAME}Targets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/${CMAKE_PROJECT_NAME}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) #For windows
 
 install(
@@ -390,9 +418,9 @@ install(
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fbgemm")
 
 install(
-  EXPORT fbgemmLibraryConfig
-  DESTINATION share/cmake/fbgemm
-  FILE fbgemmLibraryConfig.cmake)
+  EXPORT ${CMAKE_PROJECT_NAME}Targets
+  FILE ${CMAKE_PROJECT_NAME}-config.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${CMAKE_PROJECT_NAME})
 
 if(MSVC)
   if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
@@ -403,9 +431,6 @@ if(MSVC)
   install(TARGETS fbgemm DESTINATION ${CMAKE_INSTALL_LIBDIR})
   install(TARGETS asmjit DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
-
-#Make project importable from the build directory
-#export(TARGETS fbgemm asmjit FILE fbgemmLibraryConfig.cmake)
 
 if(FBGEMM_BUILD_TESTS)
   add_subdirectory(test)
