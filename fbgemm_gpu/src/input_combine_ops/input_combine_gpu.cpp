@@ -182,8 +182,6 @@ std::tuple<Tensor, Tensor, Tensor> tbe_input_combine_with_length_gpu(
 
       per_sample_weights_addrs[i] =
           reinterpret_cast<uint64_t>(weights.data_ptr());
-    } else {
-      per_sample_weights_addrs[i] = 0;
     }
   }
   indices_offsets[num_lists] = total_indices;
