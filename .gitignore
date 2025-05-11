@@ -99,3 +99,7 @@ _deps
 
 # Sphinx repos
 pytorch-sphinx-theme/
+
+# HSTU kernels
+fbgemm_gpu/experimental/hstu/src/hstu_ampere/instantiations/*.cu
+fbgemm_gpu/experimental/hstu/src/hstu_hopper/instantiations/*.cu
