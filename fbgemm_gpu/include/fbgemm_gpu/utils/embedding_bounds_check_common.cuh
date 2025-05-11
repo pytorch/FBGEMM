@@ -7,6 +7,7 @@
  */
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
 #include <c10/cuda/CUDADeviceAssertion.h>
