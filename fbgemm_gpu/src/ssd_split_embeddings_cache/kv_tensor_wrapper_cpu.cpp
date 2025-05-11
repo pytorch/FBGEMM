@@ -32,8 +32,10 @@ KVTensorWrapper::KVTensorWrapper(
     std::vector<int64_t> shape,
     [[maybe_unused]] int64_t dtype,
     int64_t row_offset,
-    [[maybe_unused]] std::optional<
-        c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>> snapshot_handle)
+    [[maybe_unused]] const std::optional<
+        c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>> snapshot_handle,
+    [[maybe_unused]] std::optional<std::vector<int64_t>> materialized_shape,
+    [[maybe_unused]] const at::Tensor& sorted_indices)
     // @lint-ignore CLANGTIDY clang-diagnostic-missing-noreturn
     : shape_(std::move(shape)), row_offset_(row_offset) {
   FBEXCEPTION("Not implemented");

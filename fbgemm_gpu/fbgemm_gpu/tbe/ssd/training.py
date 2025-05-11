@@ -2026,6 +2026,22 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 dtype=dtype,
                 row_offset=table_offset,
                 snapshot_handle=snapshot_handle,
+                materialized_shape=(
+                    [bucket_ascending_id_tensor.size(0), emb_dim]
+                    if self.kv_zch_params
+                    # no_snapshot means it is for trec shardedTensor init,
+                    # we don't need to return the materialized size, in order to pass the virtual shardtensor check
+                    and not no_snapshot
+                    else None
+                ),
+                sorted_indices=(
+                    bucket_ascending_id_tensor
+                    if self.kv_zch_params
+                    # no_snapshot means it is for trec shardedTensor init,
+                    # we don't need to return the materialized size, in order to pass the virtual shardtensor check
+                    and not no_snapshot
+                    else None
+                ),
             )
             # TODO add if else support in the future for dram integration.
             tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
