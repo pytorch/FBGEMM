@@ -933,7 +933,6 @@ Tensor {{ embedding_cuda_op }}(
             if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN) {
                 grad_output_mean = at::empty_like(grad_output_reshaped);
 
-                {%- if not dense or not vbe %}
                 FBGEMM_LAUNCH_KERNEL(
                     (grad_mean{{ vdesc }}_kernel<grad_t, index_t>),
                     div_round_up(total_B, kMaxThreads / kWarpSize),
@@ -953,7 +952,6 @@ Tensor {{ embedding_cuda_op }}(
                     FixedDivisor(total_B / T)
                     {%- endif %}
                 );
-                {%- endif %} // if not dense or not vbe
 
                 grad_output_accessor = MAKE_PTA_WITH_NAME("{{ embedding_cuda_op }}.2", grad_output_mean, grad_t, 2, 64);
             }
