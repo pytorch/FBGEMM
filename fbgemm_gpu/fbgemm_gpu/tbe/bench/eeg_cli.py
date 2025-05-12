@@ -65,7 +65,7 @@ def estimate(indices: str) -> None:
     "--max-index",
     type=int,
     default=20,
-    help="Max index value (E)",
+    help="Max index value (< E)",
 )
 @click.option(
     "-n",
