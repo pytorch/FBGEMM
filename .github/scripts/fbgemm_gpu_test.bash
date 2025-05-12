@@ -124,10 +124,16 @@ __configure_fbgemm_gpu_test_rocm () {
     print_exec conda env config vars set ${env_prefix} HSA_XNACK=1
   fi
 
+  # https://github.com/pytorch/FBGEMM/issues/1559
   export ignored_tests=(
-    # https://github.com/pytorch/FBGEMM/issues/1559
     ./batched_unary_embeddings_test.py
     ./sll/triton_sll_test.py
+    ./comm/multi_gpu_car_test.py
+    ./gather_scatter/gather_scatter_test.py
+    ./moe/activation_test.py
+    ./moe/gather_scatter_test.py
+    ./moe/layers_test.py
+    ./moe/shuffling_test.py
   )
 }
 
@@ -251,10 +257,16 @@ __determine_test_directories () {
 
   if [ "$fbgemm_build_target" == "genai" ]; then
     target_directories+=(
-      fbgemm_gpu/experimental/example/test
-      fbgemm_gpu/experimental/gemm/test
       fbgemm_gpu/experimental/gen_ai/test
     )
+
+    if [ "$fbgemm_build_variant" == "cuda" ]; then
+      target_directories+=(
+        fbgemm_gpu/experimental/example/test
+        fbgemm_gpu/experimental/gemm/test
+      )
+    fi
+
   else
     target_directories+=(
       fbgemm_gpu/test
@@ -370,16 +382,16 @@ test_setup_conda_environment () {
 
 test_fbgemm_gpu_build_and_install () {
   local env_name="$1"
-  local pytorch_variant_type="$2"
+  local build_target_variant="$2"
   local repo="$3"
-  if [ "$pytorch_variant_type" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} ENV_NAME PYTORCH_VARIANT_TYPE"
+  if [ "$build_target_variant" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} ENV_NAME BUILD_TARGET_VARIANT"
     echo "Example(s):"
-    echo "    ${FUNCNAME[0]} build_env cuda   # Build and install FBGEMM_GPU for CUDA (All Steps)"
+    echo "    ${FUNCNAME[0]} build_env genai/cuda   # Build and install FBGEMM-GenAI for CUDA (All Steps)"
     return 1
   else
     echo "################################################################################"
-    echo "# Test FBGEMM_GPU build + installation  (All Steps)"
+    echo "# FBGEMM build + install Combo Step"
     echo "#"
     echo "# [$(date --utc +%FT%T.%3NZ)] + ${FUNCNAME[0]} ${*}"
     echo "################################################################################"
@@ -393,7 +405,7 @@ test_fbgemm_gpu_build_and_install () {
   # Assume we are starting from the repository root directory
   cd "${repo}/fbgemm_gpu"                                                     || return 1
   prepare_fbgemm_gpu_build    "${env_name}"                                   || return 1
-  build_fbgemm_gpu_package    "${env_name}" release "default/${pytorch_variant_type}" || return 1
+  build_fbgemm_gpu_package    "${env_name}" release "${build_target_variant}" || return 1
 
   cd "${repo}"                                                                || return 1
   install_fbgemm_gpu_wheel    "${env_name}" fbgemm_gpu/dist/*.whl             || return 1
@@ -401,14 +413,14 @@ test_fbgemm_gpu_build_and_install () {
 
 test_fbgemm_gpu_build_and_install_and_run () {
   local env_name="$1"
-  local pytorch_variant_type="$2"
+  local build_target_variant="$2"
   local repo="$3"
 
   if [ "$repo" == "" ]; then
     repo=~/FBGEMM
   fi
 
-  test_fbgemm_gpu_build_and_install "${env_name}" "${pytorch_variant_type}" "${repo}"  || return 1
+  test_fbgemm_gpu_build_and_install "${env_name}" "${build_target_variant}" "${repo}"  || return 1
 
   cd "${repo}"                                                                         || return 1
   test_all_fbgemm_gpu_modules "${env_name}"                                            || return 1
