@@ -3014,4 +3014,5 @@ at::Tensor quantize_qkv_per_head(
       "CUDA version is older than 12.0"); // requires CUDA>=12
 }
 #endif
+
 } // namespace fbgemm_gpu

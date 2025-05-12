@@ -8,11 +8,19 @@
 # Target Sources
 ################################################################################
 
-file(GLOB_RECURSE experimental_example_cpp_source_files
-  src/*.cu
+glob_files_nohip(experimental_example_cpp_source_files
   src/*.cpp)
 
-file(GLOB_RECURSE experimental_example_python_source_files
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+  # Only include .CU files if CUDA is enabled bc they use CUTLASS and HIPify
+  # isn't able to handle them
+  glob_files_nohip(tmp_files
+    src/*.cu)
+
+  list(APPEND experimental_example_cpp_source_files ${tmp_files})
+endif()
+
+glob_files_nohip(experimental_example_python_source_files
   example/*.py)
 
 

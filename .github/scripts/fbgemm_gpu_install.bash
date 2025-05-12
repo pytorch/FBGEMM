@@ -91,15 +91,32 @@ __install_check_subpackages () {
 }
 
 __install_check_operator_registrations () {
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  local test_operators=()
   echo "[INSTALL] Check for operator registrations ..."
   if [ "$installed_fbgemm_target" == "genai" ]; then
-    local test_operators=(
-      "torch.ops.fbgemm.nccl_init"
-      "torch.ops.fbgemm.gqa_attn_splitk"
-      "torch.ops.fbgemm.rope_qkv_decoding"
-    )
+    # NOTE: Currently, ROCm builds of GenAI only include quantization
+    # operators.
+    if [ "$installed_fbgemm_variant" == "cuda" ]; then
+      test_operators+=(
+        "torch.ops.fbgemm.nccl_init"
+        "torch.ops.fbgemm.gqa_attn_splitk"
+      )
+
+      # NOTE: kv_cache.cu is currently disabled from GenAI CUDA 11.8 builds
+      # shellcheck disable=SC2086,SC2155
+      local installed_cuda_version=$(conda run ${env_prefix} python -c "import torch; print(torch.version.cuda)")
+      local installed_cuda_version_major="${installed_cuda_version%%.*}"
+      if [[ "$installed_cuda_version_major" -ge 12 ]]; then
+        test_operators+=(
+          "torch.ops.fbgemm.rope_qkv_decoding"
+        )
+      fi
+    fi
+
   else
-    local test_operators=(
+    test_operators+=(
       "torch.ops.fbgemm.asynchronous_inclusive_cumsum"
       "torch.ops.fbgemm.split_embedding_codegen_lookup_sgd_function_pt2"
     )

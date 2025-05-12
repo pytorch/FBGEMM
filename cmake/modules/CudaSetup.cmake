@@ -12,6 +12,12 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
 ################################################################################
 
 BLOCK_PRINT(
+  "CMAKE CUDA Flags"
+  ""
+  "CMAKE_CUDA_COMPILER_VERSION=${CMAKE_CUDA_COMPILER_VERSION}"
+)
+
+BLOCK_PRINT(
   "NCCL Flags"
   ""
   "NCCL_INCLUDE_DIRS=${NCCL_INCLUDE_DIRS}"

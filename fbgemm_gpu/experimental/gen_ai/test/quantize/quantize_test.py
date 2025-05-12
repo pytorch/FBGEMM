@@ -7,6 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
+import os
 import unittest
 
 from typing import List, Tuple
@@ -36,6 +37,8 @@ try:
         MARLIN_ENABLED = True
 except ImportError:
     MARLIN_ENABLED = False
+
+running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
 # Supported FP8 format is different on NV and AMD.
 if torch.version.hip is not None:
@@ -219,6 +222,10 @@ class FP8Tests(unittest.TestCase):
 
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
+    @unittest.skipIf(
+        torch.version.hip is not None and running_on_github,
+        "type fp8e4b8 not supported in this architecture. The supported fp8 dtypes are ('fp8e5',)",
+    )
     @unittest.skipIf(
         ((not torch.version.cuda) and (not torch.version.hip)),
         "Skip if no GPU is present.",
@@ -764,6 +771,10 @@ class FP8Tests(unittest.TestCase):
             y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(xq, wq, x_scale, w_scale)
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
+    @unittest.skipIf(
+        torch.version.hip is not None and running_on_github,
+        "type fp8e4b8 not supported in this architecture. The supported fp8 dtypes are ('fp8e5',)",
+    )
     @unittest.skipIf(
         not torch.version.cuda and torch.version.hip < "6.2",
         "Skip on AMD with < RoCM 6.2",
