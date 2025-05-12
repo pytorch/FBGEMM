@@ -57,7 +57,8 @@ struct IndicesDistributionParameters {
   // Parameters for the Zipf distribution (x+q)^{-s}
   ZipfParameters zipfParams;
 
-  // Max index value (i.e. number of rows in the embedding table, or E)
+  // Max index value in the distribution - should be in the range [0, E), where
+  // E is the number of rows in the embedding table
   int64_t maxIndex;
 
   // Number of indices to generate
