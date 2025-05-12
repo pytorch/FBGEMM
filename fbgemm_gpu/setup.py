@@ -317,10 +317,16 @@ class FbgemmGpuBuild:
 
             cxx_flags.extend(
                 [
-                    "-fopenmp=libgomp",
                     "-stdlib=libstdc++",
                     f"-I{path}/include",
                 ]
+                + (
+                    # Starting from ROCm 6.4, HIP clang complains about
+                    # -fopenmp=libgomp being an invalid fopenmp-target
+                    []
+                    if self.variant() == "rocm"
+                    else ["-fopenmp=libgomp"]
+                )
             )
             cmake_args.extend(
                 [
