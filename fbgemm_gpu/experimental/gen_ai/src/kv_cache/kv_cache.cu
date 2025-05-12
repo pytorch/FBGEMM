@@ -2879,7 +2879,6 @@ at::Tensor quantize_qkv_per_head(
     // HH += N_KVH_L * 2;
     qparam_k_ptr = qparam_k.value().data_ptr<float>();
     qparam_v_ptr = qparam_v.value().data_ptr<float>();
-    TORCH_CHECK(HH == 7);
   }
   auto num_warps = B_T * HH;
   dim3 block_size(kThreadsPerWarp, kWarpsPerBlock);
