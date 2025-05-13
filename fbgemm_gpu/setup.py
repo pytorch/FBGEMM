@@ -334,6 +334,9 @@ class FbgemmGpuBuild:
                 ]
             )
 
+        if self.variant() == "rocm":
+            cxx_flags.extend([f"-DROCM_VERSION={RocmUtils.version_int()}"])
+
         cmake_args.extend(
             [
                 f"-DCMAKE_C_FLAGS='{' '.join(cxx_flags)}'",
@@ -348,6 +351,22 @@ class FbgemmGpuBuild:
 
         print(f"[SETUP.PY] Passing CMake arguments: {cmake_args}")
         return cmake_args
+
+
+class RocmUtils:
+    """ROCm Utilities"""
+
+    @classmethod
+    def version_int(cls) -> int:
+        version_string = os.environ.get("BUILD_ROCM_VERSION")
+        if not version_string:
+            raise ValueError("BUILD_ROCM_VERSION is not set in the environment!")
+
+        version_arr = version_string.split(".")
+        if len(version_arr) < 2:
+            raise ValueError("BUILD_ROCM_VERSION is not in X.Y format!")
+
+        return int(f"{version_arr[0]:<02}{version_arr[1]:<03}")
 
 
 class CudaUtils:
@@ -584,7 +603,7 @@ def main(argv: List[str]) -> None:
             "Development Status :: 4 - Beta",
             "Intended Audience :: Developers",
             "Intended Audience :: Science/Research",
-            "License :: OSI Approved :: BSD License",
+            "Apache-2.0",
             "Topic :: Scientific/Engineering :: Artificial Intelligence",
         ]
         + [

@@ -198,6 +198,7 @@ if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/experimental/example
     ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gen_ai)
 
   # HIPify all .CU and .CUH sources under the current directory (`/fbgemm_gpu`)
@@ -269,13 +270,15 @@ if(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_GENAI)
       (${FBGEMM_BUILD_TARGET}, ${FBGEMM_BUILD_VARIANT})")
   endif()
 
+  if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
+    # Add experimental packaging example
+    add_subdirectory(experimental/example)
+  endif()
+
   # Build FBGEMM GenAI
   add_subdirectory(experimental/gen_ai)
 
-  # Add experimental packaging example
-  add_subdirectory(experimental/example)
-
-  # Add Triton GEMM (GenAI) kernels if non-CPU build
+  # Add Triton GEMM kernels
   add_subdirectory(experimental/gemm)
 
 elseif(FBGEMM_BUILD_TARGET STREQUAL BUILD_TARGET_HSTU)
