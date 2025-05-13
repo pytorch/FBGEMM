@@ -33,6 +33,14 @@ Tensor linearize_cache_indices_cpu(
     const int64_t max_B,
     const int64_t indices_base_offset);
 
+Tensor linearize_cache_indices_meta(
+    const Tensor& cache_hash_size_cumsum,
+    const Tensor& indices,
+    const Tensor& offsets,
+    const std::optional<Tensor>& B_offsets,
+    const int64_t max_B,
+    const int64_t indices_base_offset);
+
 Tensor linearize_cache_indices_from_row_idx_cpu(
     Tensor cache_hash_size_cumsum,
     Tensor update_table_indices,
@@ -88,6 +96,15 @@ void lfu_cache_populate_byte_cpu(
     int64_t row_alignment);
 
 Tensor lxu_cache_lookup_cpu(
+    Tensor linear_cache_indices,
+    Tensor lxu_cache_state,
+    int64_t invalid_index,
+    bool gather_cache_stats,
+    std::optional<Tensor> uvm_cache_stats,
+    std::optional<Tensor> num_uniq_cache_indices,
+    std::optional<Tensor> lxu_cache_locations_output);
+
+Tensor lxu_cache_lookup_meta(
     Tensor linear_cache_indices,
     Tensor lxu_cache_state,
     int64_t invalid_index,
