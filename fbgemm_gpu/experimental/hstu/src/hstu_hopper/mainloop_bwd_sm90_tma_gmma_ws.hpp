@@ -808,7 +808,7 @@ struct CollectiveMainloopBwd {
       constexpr bool Is_in_local = decltype(is_local_type)::value;
       constexpr bool Is_in_context = decltype(is_context_type)::value;
       if (threadIdx.x > 9999 ) {
-          printf("This will never run, but if deleted, the registers will overflow. Don't know why and have submitted a bug to compiler team.\n");
+          printf("This will never run, but if deleted, the registers will overflow.");
       }
       CUTLASS_PRAGMA_UNROLL
       for (int i = 0; i < size(tSrS); ++i) {
