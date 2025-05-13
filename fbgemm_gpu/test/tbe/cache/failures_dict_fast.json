@@ -72,68 +72,7 @@
         "status": "xfail"
       }
     },
-    "fbgemm::linearize_cache_indices": {
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
-        "comment": "",
-        "status": "skip"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmNONE": {
-        "comment": "",
-        "status": "skip"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmSUM": {
-        "comment": "",
-        "status": "skip"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
-        "comment": "",
-        "status": "skip"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmNONE": {
-        "comment": "",
-        "status": "skip"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmSUM": {
-        "comment": "",
-        "status": "skip"
-      },
-      "BackwardSGDTest.test_faketensor__test_backward_sgd": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardSGDTest.test_faketensor__test_backward_sgd_really_long_segments": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "CacheTest.test_faketensor__test_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "LinearizeCacheIndicesTest.test_faketensor__test_linearize_cache_indices": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitSplitEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_stb_uvm_cache_stats": {
-        "comment": "",
-        "status": "xfail"
-      }
-    },
+    "fbgemm::linearize_cache_indices": {},
     "fbgemm::linearize_cache_indices_from_row_idx": {
       "LinearizeCacheIndicesTest.test_faketensor__test_linearize_cache_indices_from_row_idx": {
         "comment": "",
@@ -186,67 +125,7 @@
     "fbgemm::lxu_cache_flush": {},
     "fbgemm::lxu_cache_locking_counter_decrement": {},
     "fbgemm::lxu_cache_lookup": {
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmMEAN": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmNONE": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp16_pmSUM": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmMEAN": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmNONE": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardAdagradTest.test_faketensor__test_backward_adagrad_fp32_pmSUM": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardSGDTest.test_faketensor__test_backward_sgd": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "BackwardSGDTest.test_faketensor__test_backward_sgd_really_long_segments": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "CacheTest.test_faketensor__test_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
       "CacheTest.test_schema__test_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "LXUCacheTest.test_faketensor__test_lxu_cache_lookup": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "LXUCacheTest.test_faketensor__test_unique_lxu_cache_lookup": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitCacheTest.test_faketensor__test_nbit_cache_miss_counter": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitForwardTest.test_faketensor__test_nbit_forward_uvm_cache": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "NBitSplitEmbeddingsTest.test_faketensor__test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function": {
-        "comment": "",
-        "status": "xfail"
-      },
-      "SplitTableBatchedEmbeddingsTest.test_faketensor__test_stb_uvm_cache_stats": {
         "comment": "",
         "status": "xfail"
       }

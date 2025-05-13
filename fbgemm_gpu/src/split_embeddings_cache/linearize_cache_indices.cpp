@@ -29,4 +29,14 @@ DLL_PUBLIC Tensor linearize_cache_indices_from_row_idx_cpu(
   return at::empty_like(update_row_indices);
 }
 
+DLL_PUBLIC Tensor linearize_cache_indices_meta(
+    const Tensor& /*cache_hash_size_cumsum*/,
+    const Tensor& indices,
+    const Tensor& /*offsets*/,
+    const std::optional<Tensor>& /*B_offsets*/,
+    const int64_t /*max_B*/,
+    const int64_t /*indices_base_offset*/) {
+  return at::empty_like(indices, indices.options().dtype(at::kLong));
+}
+
 } // namespace fbgemm_gpu

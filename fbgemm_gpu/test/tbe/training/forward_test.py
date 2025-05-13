@@ -80,16 +80,6 @@ additional_decorators.update(
             unittest.skip("Operator not implemented for Meta tensors"),
         ],
         # TODO: Make it compatible with opcheck tests
-        "test_faketensor__test_forward_gpu_uvm_cache_fp16": [
-            unittest.skip(
-                "Failed for fbgemm::linearize_cache_indices. Operator not implemented for Meta tensors."
-            ),
-        ],
-        "test_faketensor__test_forward_gpu_uvm_cache_fp32": [
-            unittest.skip(
-                "Failed for fbgemm::linearize_cache_indices. Operator not implemented for Meta tensors."
-            ),
-        ],
         "test_schema__test_forward_gpu_uvm_cache_fp16": [
             unittest.skip(
                 "Failed with Argument lxu_cache_locations_output is not defined to alias output but was aliasing"
