@@ -49,6 +49,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           DEFAULT_PAGE_SIZE) ") -> (Tensor, Tensor)");
   m.def(
       "quantize_qkv_per_head(Tensor amax, Tensor XQKV, Tensor varseq_seqpos, Tensor? varseq_batch, Tensor q_seqstarts, Tensor cache_K, Tensor cache_V, Tensor XQ_O, int max_seq_len, Tensor? qparam_k=None, Tensor? qparam_v=None) -> Tensor");
+  m.def(
+      "convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(Tensor cache_K, Tensor cache_V, Tensor qparam_K, Tensor qparam_V) -> ()");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
@@ -73,6 +75,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("dequantize_int4_cache", dequantize_int4_cache);
   m.impl("dequantize_fp8_cache", dequantize_fp8_cache);
   m.impl("quantize_qkv_per_head", quantize_qkv_per_head);
+  m.impl(
+      "convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace",
+      fbgemm_gpu::convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace);
 }
 
 at::Tensor rope_qkv_varseq_prefill_meta(
@@ -295,6 +300,13 @@ at::Tensor quantize_qkv_per_head_meta(
       at::empty_symint({B_KV, N_KVH}, cache_K.options().dtype(at::kFloat));
   return at::empty_like(XQKV);
 }
+
+void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_meta(
+    at::Tensor cache_K,
+    at::Tensor cache_V,
+    at::Tensor qparam_K,
+    at::Tensor qparam_v) {};
+
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("rope_qkv_varseq_prefill", rope_qkv_varseq_prefill_meta);
   m.impl("rope_qkv_decoding", rope_qkv_decoding_meta);
@@ -304,6 +316,9 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("xpos_qkv_decoding", xpos_qkv_decoding_meta);
   m.impl("dequantize_int4_cache", dequantize_int4_cache_meta);
   m.impl("dequantize_fp8_cache", dequantize_fp8_cache_meta);
+  m.impl(
+      "convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace",
+      convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_meta);
 }
 
 } // namespace fbgemm_gpu
