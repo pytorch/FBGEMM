@@ -8,39 +8,47 @@
 # Target Sources
 ################################################################################
 
-file(GLOB experimental_gen_ai_cpp_source_files_cpu
+glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
+  src/attention/*.cpp
+  src/coalesce/*.cpp
   src/quantize/*.cpp)
 
-file(GLOB experimental_gen_ai_cpp_source_files_gpu
+glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
+  src/attention/*.cu
+  src/coalesce/*.cu
   src/quantize/*.cu)
 
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
-  file(GLOB tmp_list_cpu
-    src/attention/*.cpp
-    src/coalesce/*.cpp
+  glob_files_nohip(tmp_list_cpu
     src/comm/*.cpp
     src/gather_scatter/*.cpp
-    src/kv_cache/*.cpp
     src/moe/*.cpp)
 
-  file(GLOB tmp_list_gpu
-    src/attention/*.cu
-    src/coalesce/*.cu
+  glob_files_nohip(tmp_list_gpu
     src/comm/*.cu
     src/gather_scatter/*.cu
-    src/kv_cache/*.cu
     src/moe/*.cu)
 
-  list(APPEND experimental_gen_ai_cpp_source_files_cpu ${tmp_list_cpu})
-  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu})
+  # TODO: kv_cache sources need to be updated with proper CUDA_VERSION ifdef
+  # wrapping before this if-clause can be removed
+  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0)
+    glob_files_nohip(tmp_list_cpu2
+      src/kv_cache/*.cpp)
+
+    glob_files_nohip(tmp_list_gpu2
+      src/kv_cache/*.cu)
+  endif()
+
+  list(APPEND experimental_gen_ai_cpp_source_files_cpu ${tmp_list_cpu} ${tmp_list_cpu2})
+  list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu} ${tmp_list_gpu2})
 endif()
 
 # Set the source file for FB only CPP
 if(USE_FB_ONLY AND (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA))
-  file(GLOB fb_only_sources_cpu
+  glob_files_nohip(fb_only_sources_cpu
       fb/src/*/*.cpp)
 
-  file(GLOB fb_only_sources_gpu
+  glob_files_nohip(fb_only_sources_gpu
       fb/src/*/*.cu)
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
@@ -62,6 +70,9 @@ file(GLOB_RECURSE experimental_gen_ai_cpp_source_files_hip
   src/quantize/ck_extensions/*.hip
   src/quantize/ck_extensions/**/*.hip)
 
+# Filter out MoE sources for ROCm for now
+list(FILTER experimental_gen_ai_cpp_source_files_hip
+  EXCLUDE REGEX "src/quantize/ck_extensions/fused_moe(/.*)*\\.hip$")
 
 ################################################################################
 # Build Shared Library

@@ -144,6 +144,10 @@ class Int4GQATest(unittest.TestCase):
         cls.device = device
 
     @unittest.skipIf(
+        torch.version.hip is not None,
+        "gqa_attn_splitk with use_tensor_cores=True is not supported on ROCm",
+    )
+    @unittest.skipIf(
         not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
         "Skip when CUDA is not available or CUDA compute capability is less than 8",
     )
@@ -248,9 +252,15 @@ class Int4GQATest(unittest.TestCase):
         mqa=st.booleans(),
         validate_p_inf_exp=st.booleans(),
     )
+    @unittest.skipIf(
+        torch.version.hip is not None,
+        "gqa_attn_splitk with use_tensor_cores=True is not supported on ROCm",
+    )
     # pyre-fixme[56]
     @unittest.skipIf(
-        not torch.cuda.is_available() or not HAS_XFORMERS,
+        not torch.cuda.is_available()
+        # or torch.cuda.get_device_capability()[0] < 8
+        or not HAS_XFORMERS,
         "Skip when CUDA is not available or xformers is not available",
     )
     def test_mqa_main(  # noqa C901

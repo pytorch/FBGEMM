@@ -392,6 +392,10 @@ __export_target_variant_info () {
       export fbgemm_build_variant="${fbgemm_build_target_variant_arr[1]}"
     fi
   fi
+
+  echo "[BUILD] BUILD_TARGET_VARIANT: ${fbgemm_build_target_variant}"
+  echo "[BUILD] Extracted build target: ${fbgemm_build_target}"
+  echo "[BUILD] Extracted build variant: ${fbgemm_build_variant}"
 }
 
 __build_fbgemm_gpu_set_python_tag () {
@@ -579,9 +583,15 @@ __verify_library_symbols () {
   # This is by no means an exhaustive set, and should be updated accordingly
   if [ "${fbgemm_build_target}" == "genai" ]; then
     local lib_symbols_to_check=(
-      fbgemm_gpu::car_init
+      # fbgemm_gpu::car_init
       fbgemm_gpu::per_tensor_quantize_i8
     )
+
+    if  [ "${fbgemm_build_variant}" == "cuda" ]; then
+      lib_symbols_to_check+=(
+        fbgemm_gpu::car_init
+      )
+    fi
 
   else
     local lib_symbols_to_check=(
