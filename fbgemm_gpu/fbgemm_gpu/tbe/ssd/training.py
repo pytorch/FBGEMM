@@ -2026,6 +2026,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 dtype=dtype,
                 row_offset=table_offset,
                 snapshot_handle=snapshot_handle,
+                sorted_indices=(
+                    bucket_ascending_id_tensor if self.kv_zch_params else None
+                ),
             )
             # TODO add if else support in the future for dram integration.
             tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
