@@ -608,6 +608,7 @@
     <span class="c1"># This is used in Adam to perform rowwise bias correction using `row_counter`</span>
     <span class="c1"># More details can be found in D64848802.</span>
     <span class="n">use_rowwise_bias_correction</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">use_writeback_bwd_prehook</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1598,9 +1599,17 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="p">(</span>
             <span class="n">extra_optimizer_config</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span>
         <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">use_writeback_bwd_prehook</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">extra_optimizer_config</span><span class="o">.</span><span class="n">use_writeback_bwd_prehook</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;self.extra_optimizer_config is </span><span class="si">{</span><span class="n">extra_optimizer_config</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_rowwise_bias_correction</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">ADAM</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
                 <span class="s2">&quot;`use_rowwise_bias_correction` is only supported for OptimType.ADAM&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_writeback_bwd_prehook</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
+                <span class="s2">&quot;`use_writeback_bwd_prehook` is only supported for OptimType.EXACT_SGD&quot;</span><span class="p">,</span>
             <span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">learning_rate_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
@@ -1882,6 +1891,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats_factory</span><span class="p">()</span>
         <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_writeback_bwd_prehook</span><span class="p">:</span>
+            <span class="c1"># Register writeback hook for Exact_SGD optimizer</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
+                <span class="s2">&quot;SplitTableBatchedEmbeddingBagsCodegen:  use_writeback_bwd_prehook is enabled.&quot;</span>
+            <span class="p">)</span>
+            <span class="c1"># pyre-fixme[6]: Expected `typing.Callable[[Module, Union[Tensor, typing.Tuple[Tensor, ...]]], Union[None, Tensor, typing.Tuple[Tensor, ...]]]`</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">register_full_backward_pre_hook</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">writeback_hook</span><span class="p">)</span>
 
         <span class="k">if</span> <span class="n">embedding_table_index_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">int32</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
@@ -2212,6 +2229,41 @@
         <span class="c1"># Define proxy method so that it can be marked with @torch.jit.ignore</span>
         <span class="c1"># This allows models using this class to compile correctly</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">writeback_update_gradient</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">offsets</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">grad</span><span class="p">:</span> <span class="n">Tensor</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">indices</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">num_of_tables</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">feature_table_map</span><span class="p">))</span>
+        <span class="k">assert</span> <span class="n">num_of_tables</span> <span class="o">*</span> <span class="n">indices</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&lt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">iinfo</span><span class="p">(</span><span class="n">indices</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span>
+        <span class="n">batch_size</span> <span class="o">=</span> <span class="n">offsets</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">//</span> <span class="n">num_of_tables</span>
+        <span class="n">max_indices</span> <span class="o">=</span> <span class="n">indices</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+        <span class="n">non_empty_index</span> <span class="o">=</span> <span class="p">(</span><span class="n">offsets</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">-</span> <span class="n">offsets</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="c1"># disable dedup across different table</span>
+        <span class="n">indices</span> <span class="o">=</span> <span class="p">((</span><span class="n">offsets</span><span class="p">[</span><span class="n">non_empty_index</span><span class="p">])</span> <span class="o">//</span> <span class="n">batch_size</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span>
+            <span class="mi">1</span> <span class="o">+</span> <span class="n">max_indices</span>
+        <span class="p">)</span> <span class="o">+</span> <span class="n">indices</span>
+        <span class="n">grad</span> <span class="o">=</span> <span class="n">grad</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">idx</span><span class="p">,</span> <span class="n">counts</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span>
+            <span class="n">indices</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="nb">sorted</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_inverse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">return_counts</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">ind_sorted</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">stable</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">cum_sum</span> <span class="o">=</span> <span class="n">counts</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">cum_sum</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cat</span><span class="p">((</span><span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">([</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">indices</span><span class="o">.</span><span class="n">device</span><span class="p">),</span> <span class="n">cum_sum</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="n">first_indicies</span> <span class="o">=</span> <span class="n">ind_sorted</span><span class="p">[</span><span class="n">cum_sum</span><span class="p">]</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">grad</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">grad</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">original_index</span> <span class="o">=</span> <span class="n">non_empty_index</span><span class="p">[</span><span class="n">first_indicies</span><span class="p">]</span>
+
+        <span class="n">mask</span><span class="p">[</span><span class="n">original_index</span><span class="p">]</span> <span class="o">=</span> <span class="n">grad</span><span class="p">[</span><span class="n">original_index</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">mask</span>
+
+    <span class="c1"># pyre-fixme[2]: For 1st argument expected not ANY</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">writeback_hook</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">grad</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]:</span>
+        <span class="n">indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_indices</span>
+        <span class="n">offsets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_offsets</span>
+
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">writeback_update_gradient</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">grad</span><span class="p">),)</span>
 
 <div class="viewcode-block" id="SplitTableBatchedEmbeddingBagsCodegen.forward"><a class="viewcode-back" href="../../fbgemm_gpu/python-api/tbe_ops_training.html#fbgemm_gpu.split_table_batched_embeddings_ops_training.SplitTableBatchedEmbeddingBagsCodegen.forward">[docs]</a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span>  <span class="c1"># noqa: C901</span>
         <span class="bp">self</span><span class="p">,</span>
