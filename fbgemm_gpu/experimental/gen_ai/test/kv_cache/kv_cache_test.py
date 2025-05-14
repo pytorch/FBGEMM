@@ -70,6 +70,7 @@ def _get_varseq_batch_seqpos(
     return varseq_batch, varseq_seqpos
 
 
+@unittest.skipIf(not torch.cuda.is_available(), "Skipping because no GPU is available.")
 class KVCacheTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -352,6 +353,85 @@ class KVCacheTests(unittest.TestCase):
         torch.testing.assert_close(
             cache_v[:, :T], cache_v_bf16[:, :T], atol=1.0e-2, rtol=5.0e-2
         )
+
+    @settings(deadline=None)
+    @given(
+        MAX_T=st.sampled_from([8000, 16384]),
+        N_KVH_L=st.sampled_from([1, 2]),
+    )
+    @unittest.skipIf(
+        not torch.cuda.is_available() or not HAS_XFORMERS or not torch.version.hip,
+        "Skip when no AMD GPU or xformers is not available",
+    )
+    def test_fp8_kv_e4m3fn_convert_to_e4m3fnuz(self, MAX_T: int, N_KVH_L: int) -> None:
+        B = 2
+        D_H = 128
+
+        qparam_offset = 0
+
+        # Init K to all 1s
+        cache_fp8x4_k = torch.full(
+            size=(B, MAX_T, N_KVH_L, int(D_H) + qparam_offset),
+            fill_value=0x01,
+            dtype=torch.uint8,
+            device=self.device,
+        )
+
+        # Choose random elements to set to negative zero, 0x80
+        cache_fp8x4_k_flat = cache_fp8x4_k.flatten()
+        random_indices = torch.randperm(cache_fp8x4_k_flat.size(0))[
+            : cache_fp8x4_k_flat.size(0) // 2
+        ]
+        cache_fp8x4_k_flat[random_indices] = 0x80
+        cache_fp8x4_k = cache_fp8x4_k_flat.reshape(cache_fp8x4_k.shape)
+
+        # Expected K has +0 in place of -0
+        cache_fp8x4_k_expected_flat = cache_fp8x4_k_flat.clone()
+        cache_fp8x4_k_expected_flat[random_indices] = 0x00
+        cache_fp8x4_k_expected = cache_fp8x4_k_expected_flat.reshape(
+            cache_fp8x4_k.shape
+        )
+
+        # Repeat for V
+        cache_fp8x4_v = torch.full(
+            size=(B, MAX_T, N_KVH_L, int(D_H) + qparam_offset),
+            fill_value=0x01,
+            dtype=torch.uint8,
+            device=self.device,
+        )
+        cache_fp8x4_v_flat = cache_fp8x4_v.flatten()
+        random_indices = torch.randperm(cache_fp8x4_v_flat.size(0))[
+            : cache_fp8x4_v_flat.size(0) // 2
+        ]
+        cache_fp8x4_v_flat[random_indices] = 0x80
+        cache_fp8x4_v = cache_fp8x4_v_flat.reshape(cache_fp8x4_v.shape)
+        cache_fp8x4_v_expected_flat = cache_fp8x4_v_flat.clone()
+        cache_fp8x4_v_expected_flat[random_indices] = 0x00
+        cache_fp8x4_v_expected = cache_fp8x4_v_expected_flat.reshape(
+            cache_fp8x4_v.shape
+        )
+
+        qparam_fp16x2_k = torch.full(
+            size=(B, MAX_T, N_KVH_L, 1), fill_value=0x3C003C00, dtype=torch.uint32
+        ).cuda()
+        qparam_fp16x2_k_expected = torch.full(
+            size=(B, MAX_T, N_KVH_L, 1), fill_value=0x3C004000, dtype=torch.uint32
+        ).cuda()
+        qparam_fp16x2_v = torch.full(
+            size=(B, MAX_T, N_KVH_L, 1), fill_value=0x3C003C00, dtype=torch.uint32
+        ).cuda()
+        qparam_fp16x2_v_expected = torch.full(
+            size=(B, MAX_T, N_KVH_L, 1), fill_value=0x3C004000, dtype=torch.uint32
+        ).cuda()
+
+        torch.ops.fbgemm.convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
+            cache_fp8x4_k, cache_fp8x4_v, qparam_fp16x2_k, qparam_fp16x2_v
+        )
+
+        assert torch.equal(cache_fp8x4_k, cache_fp8x4_k_expected)
+        assert torch.equal(cache_fp8x4_v, cache_fp8x4_v_expected)
+        assert torch.equal(qparam_fp16x2_k, qparam_fp16x2_k_expected)
+        assert torch.equal(qparam_fp16x2_v, qparam_fp16x2_v_expected)
 
     @settings(deadline=None)
     @given(
