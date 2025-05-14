@@ -1147,6 +1147,9 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
 #endif // CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
 
 #ifdef FBGEMM_AUTOVEC_AVAILABLE
+  if (!cpuinfo_initialize()) {
+    throw std::runtime_error("Failed to initialize cpuinfo!");
+  }
   if ((fbgemmHasArmSve2Support() && !is_autovec_disabled()) ||
       is_autovec_forced()) {
     return GenerateEmbeddingSpMDMNBitWithStrides_autovec<
