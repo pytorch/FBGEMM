@@ -921,12 +921,12 @@ Tensor {{ embedding_cuda_op }}(
             const auto grad_output_reshaped = aligned_grad_output;
             {%- endif %}
 
-            auto grad_output_accessor = MAKE_PTA_WITH_NAME(
-                "{{ embedding_cuda_op }}.1",
+            auto grad_output_accessor = PTA_B(
                 grad_output_reshaped,
-                grad_t, {{ "1" if is_index_select else "2" }},
+                grad_t,
+                {{ "1" if is_index_select else "2" }},
                 64
-            );
+            ).build("{{ embedding_cuda_op }}.1");
 
             {%- if not nobag %}
             Tensor grad_output_mean;
@@ -953,7 +953,7 @@ Tensor {{ embedding_cuda_op }}(
                     {%- endif %}
                 );
 
-                grad_output_accessor = MAKE_PTA_WITH_NAME("{{ embedding_cuda_op }}.2", grad_output_mean, grad_t, 2, 64);
+                grad_output_accessor = PTA_B(grad_output_mean, grad_t, 2, 64).build("{{ embedding_cuda_op }}.2");
             }
             {%- endif %}
 
