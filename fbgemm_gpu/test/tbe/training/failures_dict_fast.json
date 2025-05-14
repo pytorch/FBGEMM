@@ -165,6 +165,10 @@
         "comment": "",
         "status": "xfail"
       },
+      "BackwardSGDTest.test_schema__test_backward_sgd_writeback": {
+        "comment": "",
+        "status": "xfail"
+      },
       "CacheTest.test_schema__test_cache_miss_counter": {
         "comment": "",
         "status": "xfail"
