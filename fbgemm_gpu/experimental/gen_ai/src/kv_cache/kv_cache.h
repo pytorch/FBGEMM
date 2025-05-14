@@ -193,4 +193,10 @@ at::Tensor mqa_attn(
     std::optional<at::Tensor> qparam_k,
     std::optional<at::Tensor> qparam_v);
 
+void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
+    at::Tensor cache_K,
+    at::Tensor cache_V,
+    at::Tensor qparam_K,
+    at::Tensor qparam_v);
+
 } // namespace fbgemm_gpu
