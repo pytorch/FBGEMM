@@ -23,6 +23,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
 from fbgemm_gpu.split_table_batched_embeddings_ops_training import (
     ComputeDevice,
     SplitTableBatchedEmbeddingBagsCodegen,
+    UserEnabledConfigDefinition,
 )
 from fbgemm_gpu.tbe.utils import (
     b_indices,
@@ -59,7 +60,6 @@ else:
         use_cpu_strategy,
     )
 
-
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
@@ -82,6 +82,7 @@ class BackwardSGDTest(unittest.TestCase):
         pooling_mode: PoolingMode,
         use_cpu: bool,
         output_dtype: SparseType,
+        use_writeback_bwd_prehook: bool = False,
     ) -> None:
         # NOTE: cache is not applicable to CPU version.
         if use_cpu and use_cache:
@@ -190,11 +191,13 @@ class BackwardSGDTest(unittest.TestCase):
             bs = [b.half() for b in bs]
 
         feature_table_map = list(range(T))
-        table_to_replicate = T // 2
-        # pyre-fixme[6]: For 2nd param expected `Embedding` but got
-        #  `Union[Embedding, EmbeddingBag]`.
-        bs.insert(table_to_replicate, bs[table_to_replicate])
-        feature_table_map.insert(table_to_replicate, table_to_replicate)
+        # Skip the duplicate feature test for use_writeback_bwd_prehook=True case
+        table_to_replicate = 0 if use_writeback_bwd_prehook else T // 2
+        if not use_writeback_bwd_prehook:
+            # pyre-fixme[6]: For 2nd param expected `Embedding` but got
+            #  `Union[Embedding, EmbeddingBag]`.
+            bs.insert(table_to_replicate, bs[table_to_replicate])
+            feature_table_map.insert(table_to_replicate, table_to_replicate)
 
         num_features = len(feature_table_map)
         if not mixed_B:
@@ -250,15 +253,43 @@ class BackwardSGDTest(unittest.TestCase):
             fs = [f.to(output_dtype.as_dtype()) for f in fs]
 
         # Generate gradients
-        gos = [torch.randn_like(f) for f in fs]
+        if use_writeback_bwd_prehook:
+            # require constant grad for the same entity for writeback purpose
+            gos = [torch.ones_like(f) for f in fs]
+        else:
+            gos = [torch.randn_like(f) for f in fs]
+            del bs[table_to_replicate]
         # Run baseline's backward
         [f.backward(go) for (f, go) in zip(fs, gos)]
         # do SGD update
         lr = 0.05
-        del bs[table_to_replicate]
-        # pyre-fixme[58]: `*` is not supported for operand types
-        #  `Optional[torch._tensor.Tensor]` and `float`.
-        new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
+        if use_writeback_bwd_prehook:
+            new_weights = []
+            for b, x in zip(bs, xs):
+                # pyre-ignore[16]
+                grad = b.weight.grad.coalesce()
+                indices = grad.indices()[0]
+                values = grad.values()
+                raw_indices = x
+                unique_indices, counts = torch.unique(raw_indices, return_counts=True)
+                index_to_count = {
+                    index.item(): count.item()
+                    for index, count in zip(unique_indices, counts)
+                }
+                # Create a tensor of counts corresponding to the input indices
+                counts_tensor = torch.tensor(
+                    [index_to_count[index.item()] for index in indices]
+                ).to(values.device)
+                new_grad_value = values / counts_tensor.unsqueeze(1)
+                new_grad = torch.sparse_coo_tensor(
+                    indices.unsqueeze(0), new_grad_value, grad.shape
+                )
+
+                new_weights.append(b.weight - lr * new_grad)
+
+        else:
+            # pyre-ignore[58]
+            new_weights = [(b.weight - b.weight.grad * lr) for b in bs]
 
         # Create a TBE op
         cc = emb_op(
@@ -272,8 +303,10 @@ class BackwardSGDTest(unittest.TestCase):
             cache_algorithm=cache_algorithm,
             pooling_mode=pooling_mode,
             output_dtype=output_dtype,
+            extra_optimizer_config=UserEnabledConfigDefinition(
+                use_writeback_bwd_prehook=use_writeback_bwd_prehook
+            ),
         )
-
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(bs[t].weight)
 
@@ -505,6 +538,71 @@ class BackwardSGDTest(unittest.TestCase):
             PoolingMode.SUM,  # pooling_mode
             False,  # use_cpu
             SparseType.FP32,  # output_dtype
+        )
+
+    @given(
+        T=st.integers(min_value=1, max_value=3),
+        D=st.integers(min_value=2, max_value=256),
+        B=st.integers(min_value=16, max_value=20),
+        log_E=st.integers(min_value=2, max_value=5),
+        L=st.integers(min_value=0, max_value=1),
+        weights_precision=st.sampled_from([SparseType.FP16, SparseType.FP32]),
+        weighted=st.booleans(),
+        mixed=st.booleans(),
+        mixed_B=st.booleans(),
+        use_cache=st.booleans(),
+        cache_algorithm=st.sampled_from(CacheAlgorithm),
+        long_segments=st.booleans(),
+        use_cpu=use_cpu_strategy(),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_backward_sgd_writeback(  # noqa C901
+        self,
+        T: int,
+        D: int,
+        B: int,
+        log_E: int,
+        L: int,
+        weights_precision: SparseType,
+        weighted: bool,
+        mixed: bool,
+        mixed_B: bool,
+        use_cache: bool,
+        cache_algorithm: CacheAlgorithm,
+        long_segments: bool,
+        use_cpu: bool,
+    ) -> None:
+        """
+        This function test writeback functionality on EXACT SGD optimizer, most arguments are the same as other tests, while following arguments are different:
+        Args:
+            L (int): number of indices per sample, this is always set to 1 for writeback features
+            extra_optimizer_config (UserEnabledConfigDefinition): Set use_writeback_bwd_prehook to True to enable this functionality.
+
+        Return:
+            None
+        """
+        self.execute_backward_sgd_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B,
+            use_cache,
+            cache_algorithm,
+            long_segments,
+            PoolingMode.NONE,
+            use_cpu,
+            SparseType.FP32,  # output_dtype
+            use_writeback_bwd_prehook=True,
         )
 
 
