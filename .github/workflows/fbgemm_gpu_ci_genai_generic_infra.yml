@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "8-core-ubuntu" },
+          { arch: x86, instance: "32-core-ubuntu" },
         ]
         python-version: [ "3.13" ]
         cuda-version: [ "12.8.0" ]

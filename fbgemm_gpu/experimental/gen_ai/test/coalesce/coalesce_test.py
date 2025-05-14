@@ -19,7 +19,11 @@ from hypothesis import given, settings
 class CoalesceTest(unittest.TestCase):
     # pyre-ignore
     @given(
-        device=st.sampled_from([torch.device("cpu"), torch.device("cuda")]),
+        device=st.sampled_from(
+            [torch.device("cpu"), torch.device("cuda")]
+            if torch.cuda.is_available()
+            else [torch.device("cpu")]
+        ),
         batch_size=st.integers(min_value=10, max_value=5000),
         num_inputs=st.integers(min_value=1, max_value=50),
     )

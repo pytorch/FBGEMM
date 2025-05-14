@@ -13,12 +13,13 @@ from typing import Tuple
 
 import torch
 
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
-from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
-    _HAS_WS_SUPPORT,
-    grouped_gemm,
-    grouped_gemm_fp8_rowwise,
-)
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import quantize_fp8_row
+    from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
+        _HAS_WS_SUPPORT,
+        grouped_gemm,
+        grouped_gemm_fp8_rowwise,
+    )
 
 
 @unittest.skipIf(
