@@ -598,7 +598,7 @@ def main(argv: List[str]) -> None:
             "Development Status :: 4 - Beta",
             "Intended Audience :: Developers",
             "Intended Audience :: Science/Research",
-            "Apache-2.0",
+            "License :: OSI Approved :: BSD License",
             "Topic :: Scientific/Engineering :: Artificial Intelligence",
         ]
         + [

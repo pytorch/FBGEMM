@@ -70,7 +70,10 @@ def _get_varseq_batch_seqpos(
     return varseq_batch, varseq_seqpos
 
 
-@unittest.skipIf(not torch.cuda.is_available(), "Skipping because no GPU is available.")
+@unittest.skipIf(
+    not torch.cuda.is_available() or torch.cuda.device_count() == 0,
+    "CUDA is not available or no GPUs detected",
+)
 class KVCacheTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
