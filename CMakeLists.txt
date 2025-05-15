@@ -105,6 +105,7 @@ option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
+option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
@@ -421,4 +422,12 @@ endif()
 
 if(FBGEMM_BUILD_FBGEMM_GPU)
   add_subdirectory(fbgemm_gpu)
+endif()
+
+if(HAVE_GNU_F2H_IEEE)
+    add_definitions(-DHAVE_GNU_F2H_IEEE)
+endif()
+
+if(DISABLE_FBGEMM_AUTOVEC)
+  add_definitions(-DDISABLE_FBGEMM_AUTOVEC)
 endif()
