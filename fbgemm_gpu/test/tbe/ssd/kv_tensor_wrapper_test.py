@@ -7,7 +7,6 @@
 # pyre-strict
 
 import gc
-import logging
 import tempfile
 import unittest
 from typing import Any, Dict
