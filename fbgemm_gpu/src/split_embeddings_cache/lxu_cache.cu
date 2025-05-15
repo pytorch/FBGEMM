@@ -126,24 +126,22 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
           rng_engine_inputs = at::check_generator<at::CUDAGeneratorImpl>(gen)
                                   ->philox_cuda_state(4);
         }
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lxu_cache_flush_kernel";
-#endif
-        lxu_cache_flush_kernel<emb_t, cache_t>
-            <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_hash_size_cumsum, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_index_table_map, int32_t, 1, 64),
-                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, lxu_cache_weights, cache_t, 2, 64),
-                stochastic_rounding_,
-                rng_engine_inputs);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+        FBGEMM_LAUNCH_KERNEL(
+            (lxu_cache_flush_kernel<emb_t, cache_t>),
+            blocks,
+            threads,
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(uvm_weights, emb_t, 1, 64),
+            PTA_B(cache_hash_size_cumsum, int64_t, 1, 32),
+            PTA_B(cache_index_table_map, int32_t, 1, 64),
+            PTA_B(weights_offsets, int64_t, 1, 32),
+            PTA_B(D_offsets, int32_t, 1, 32),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
+            PTA_B(lxu_cache_weights, cache_t, 2, 64),
+            stochastic_rounding_,
+            rng_engine_inputs);
       }));
 }
 
@@ -211,34 +209,26 @@ void lxu_cache_locking_counter_decrement_cuda(
       div_round_up(N, kMaxThreads),
       get_max_thread_blocks_for_cache_kernels_()));
 
-#ifdef FBGEMM_GPU_MEMCHECK
-  const char* func_name = "lxu_cache_locations_count_kernel";
-#endif
-
-  lxu_cache_locations_count_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      lxu_cache_locations_count_kernel,
       blocks,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
       MAKE_PTA_WITH_NAME(func_name, count, int32_t, 2, 32),
       fd);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-#ifdef FBGEMM_GPU_MEMCHECK
-  const char* func_name2 = "lxu_cache_locking_counter_decrement_kernel";
-#endif
-
-  lxu_cache_locking_counter_decrement_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      lxu_cache_locking_counter_decrement_kernel,
       std::min(
           div_round_up(C, kMaxThreads / kWarpSize),
           get_max_thread_blocks_for_cache_kernels_()),
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       MAKE_PTA_WITH_NAME(func_name2, lxu_cache_locking_counter, int32_t, 2, 32),
       MAKE_PTA_WITH_NAME(func_name2, count, int32_t, 2, 32));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 namespace {
@@ -445,14 +435,12 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       linear_cache_indices.scalar_type(), "lxu_cache_lookup_cuda", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lxu_cache_lookup_kernel";
-#endif
-        lxu_cache_lookup_kernel<<<
+        FBGEMM_LAUNCH_KERNEL(
+            (lxu_cache_lookup_kernel<index_t>),
             blocks,
             threads,
             0,
-            at::cuda::getCurrentCUDAStream()>>>(
+            at::cuda::getCurrentCUDAStream(),
             MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, index_t, 1, 32),
             MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
             invalid_index,
@@ -462,7 +450,6 @@ DLL_PUBLIC Tensor lxu_cache_lookup_cuda(
             num_uniq_cache_indices.has_value()
                 ? num_uniq_cache_indices.value().data_ptr<int32_t>()
                 : nullptr);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return lxu_cache_locations;
 }
@@ -499,21 +486,18 @@ DLL_PUBLIC Tensor direct_mapped_lxu_cache_lookup_cuda(
       linear_cache_indices.scalar_type(),
       "direct_mapped_lxu_cache_lookup_cuda",
       [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "direct_mapped_lxu_cache_lookup_kernel";
-#endif
-        direct_mapped_lxu_cache_lookup_kernel<<<
+        FBGEMM_LAUNCH_KERNEL(
+            (direct_mapped_lxu_cache_lookup_kernel<index_t>),
             blocks,
             kMaxThreads,
             0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(linear_cache_indices, index_t, 1, 32),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
             invalid_index,
-            MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
+            PTA_B(lxu_cache_locations, int32_t, 1, 32),
             gather_cache_stats,
-            MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats_, int32_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+            PTA_B(uvm_cache_stats_, int32_t, 1, 32));
       });
 
   return lxu_cache_locations;
@@ -559,21 +543,17 @@ DLL_PUBLIC void lxu_cache_locations_update_cuda(
       div_round_up(N, kMaxThreads),
       get_max_thread_blocks_for_cache_kernels_()));
 
-#ifdef FBGEMM_GPU_MEMCHECK
-  const char* func_name = "lxu_cache_locations_update_kernel";
-#endif
-
-  lxu_cache_locations_update_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      lxu_cache_locations_update_kernel,
       blocks,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
+      at::cuda::getCurrentCUDAStream(),
       MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations, int32_t, 1, 32),
       MAKE_PTA_WITH_NAME(func_name, lxu_cache_locations_new, int32_t, 1, 32),
       num_uniq_cache_indices.has_value()
           ? num_uniq_cache_indices.value().data_ptr<int32_t>()
           : nullptr);
 
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return;
 }

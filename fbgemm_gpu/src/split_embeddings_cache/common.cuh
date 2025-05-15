@@ -34,6 +34,7 @@
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/find_qparams.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 #include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/vec4acc.cuh"

@@ -35,8 +35,8 @@ __global__ __launch_bounds__(kMaxThreads) void get_cache_indices_kernel(
         linear_cache_indices) {
   const int64_t index = blockIdx.x * blockDim.x + threadIdx.x;
 
-  const int32_t t_i = blockIdx.x / blocks_per_table;
-  const int32_t threads_per_table = blocks_per_table * blockDim.x;
+  const auto t_i = blockIdx.x / blocks_per_table;
+  const auto threads_per_table = blocks_per_table * blockDim.x;
   const int32_t idx_table = index % threads_per_table;
   const int32_t logical_id = logical_table_ids[t_i];
   const int32_t buffer_id = buffer_ids[t_i];
@@ -112,7 +112,7 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
         lxu_cache_locations) {
   const int64_t index = blockIdx.x * blockDim.x + threadIdx.x;
 
-  const int32_t t_i = blockIdx.x / blocks_per_table;
+  const auto t_i = blockIdx.x / blocks_per_table;
   const int32_t buffer_id = buffer_ids[t_i];
   const int64_t num_indices =
       pruned_indices_offsets[buffer_id + 1] - pruned_indices_offsets[buffer_id];
@@ -126,7 +126,7 @@ __global__ __launch_bounds__(kMaxThreads) void reset_weight_momentum_kernel(
   const int32_t chunk4s_per_row = D / 4;
   const int64_t total_chunk4s_per_table = num_indices * chunk4s_per_row;
 
-  const int32_t threads_per_table = blocks_per_table * blockDim.x;
+  const auto threads_per_table = blocks_per_table * blockDim.x;
   const int64_t chunk4s_per_thread =
       div_round_up(total_chunk4s_per_table, threads_per_table);
   const int32_t idx_table = index % threads_per_table;
@@ -249,23 +249,19 @@ DLL_PUBLIC void reset_weight_momentum_cuda(
     auto linear_cache_indices = at::zeros(
         {num_pruned_indices}, pruned_indices.options().dtype(at::kLong));
 
-#ifdef FBGEMM_GPU_MEMCHECK
-    const char* func_name = "get_cache_indices_kernel";
-#endif
-
-    get_cache_indices_kernel<<<
+    FBGEMM_LAUNCH_KERNEL(
+        get_cache_indices_kernel,
         num_pruned_tables * blocks_per_table,
         kMaxThreads,
         0,
-        at::cuda::getCurrentCUDAStream()>>>(
+        at::cuda::getCurrentCUDAStream(),
         blocks_per_table,
-        MAKE_PTA_WITH_NAME(func_name, cache_hash_size_cumsum, int64_t, 1, 32),
-        MAKE_PTA_WITH_NAME(func_name, pruned_indices, int64_t, 1, 32),
-        MAKE_PTA_WITH_NAME(func_name, pruned_indices_offsets, int64_t, 1, 32),
-        MAKE_PTA_WITH_NAME(func_name, logical_table_ids, int32_t, 1, 32),
-        MAKE_PTA_WITH_NAME(func_name, buffer_ids, int32_t, 1, 32),
-        MAKE_PTA_WITH_NAME(func_name, linear_cache_indices, int64_t, 1, 32));
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+        PTA_B(cache_hash_size_cumsum, int64_t, 1, 32),
+        PTA_B(pruned_indices, int64_t, 1, 32),
+        PTA_B(pruned_indices_offsets, int64_t, 1, 32),
+        PTA_B(logical_table_ids, int32_t, 1, 32),
+        PTA_B(buffer_ids, int32_t, 1, 32),
+        PTA_B(linear_cache_indices, int64_t, 1, 32));
 
     // Look up cache locations
     Tensor uvm_cache_stats =
