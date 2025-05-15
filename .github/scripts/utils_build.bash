@@ -372,11 +372,9 @@ install_build_tools () {
     patchelf \
     rhash \
     scikit-build \
+    tbb \
     wheel \
     pyyaml) || return 1
-
-  (exec_with_retries 3 conda install ${env_prefix} -c anaconda --override-channels -y \
-    intel-openmp) || return 1
 
   echo "[INSTALL] Adding symlink librhash.so.0, which is needed by CMake ..."
   # shellcheck disable=SC2155,SC2086

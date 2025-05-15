@@ -328,6 +328,7 @@ class FbgemmGpuBuild:
                     else ["-fopenmp=libgomp"]
                 )
             )
+
             cmake_args.extend(
                 [
                     f"-DCMAKE_C_COMPILER={path}/bin/cc",

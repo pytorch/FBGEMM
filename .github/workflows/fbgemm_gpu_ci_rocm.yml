@@ -204,6 +204,10 @@ jobs:
       # NOTE: Need to install compilers to set up libomp for the clang case
       run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
 
+    - name: Install Build Tools
+      # NOTE: Need to install build tools to set up libtbb
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
     - name: Install ROCm AMD-SMI
       run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
 
