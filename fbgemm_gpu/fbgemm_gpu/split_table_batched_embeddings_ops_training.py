@@ -157,6 +157,7 @@ class UserEnabledConfigDefinition:
     # This is used in Adam to perform rowwise bias correction using `row_counter`
     # More details can be found in D64848802.
     use_rowwise_bias_correction: bool = False
+    use_writeback_bwd_prehook: bool = False
 
 
 @dataclass(frozen=True)
@@ -1147,9 +1148,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self.use_rowwise_bias_correction: bool = (
             extra_optimizer_config.use_rowwise_bias_correction
         )
+        self.use_writeback_bwd_prehook: bool = (
+            extra_optimizer_config.use_writeback_bwd_prehook
+        )
+        self.log(f"self.extra_optimizer_config is {extra_optimizer_config}")
         if self.use_rowwise_bias_correction and not self.optimizer == OptimType.ADAM:
             raise AssertionError(
                 "`use_rowwise_bias_correction` is only supported for OptimType.ADAM",
+            )
+        if self.use_writeback_bwd_prehook and not self.optimizer == OptimType.EXACT_SGD:
+            raise AssertionError(
+                "`use_writeback_bwd_prehook` is only supported for OptimType.EXACT_SGD",
             )
 
         self.learning_rate_tensor: torch.Tensor = torch.tensor(
@@ -1431,6 +1440,14 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         self._debug_print_input_stats: Callable[..., None] = (
             self._debug_print_input_stats_factory()
         )
+
+        if optimizer == OptimType.EXACT_SGD and self.use_writeback_bwd_prehook:
+            # Register writeback hook for Exact_SGD optimizer
+            self.log(
+                "SplitTableBatchedEmbeddingBagsCodegen:  use_writeback_bwd_prehook is enabled."
+            )
+            # pyre-fixme[6]: Expected `typing.Callable[[Module, Union[Tensor, typing.Tuple[Tensor, ...]]], Union[None, Tensor, typing.Tuple[Tensor, ...]]]`
+            self.register_full_backward_pre_hook(self.writeback_hook)
 
         if embedding_table_index_type not in [torch.int32, torch.int64]:
             raise ValueError(
@@ -1761,6 +1778,41 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         # Define proxy method so that it can be marked with @torch.jit.ignore
         # This allows models using this class to compile correctly
         return FeatureGate.is_enabled(feature)
+
+    def writeback_update_gradient(
+        self, indices: torch.Tensor, offsets: torch.Tensor, grad: Tensor
+    ) -> Tensor:
+        if indices.numel() == 0:
+            return grad[0]
+        num_of_tables = len(set(self.feature_table_map))
+        assert num_of_tables * indices.max() < torch.iinfo(indices.dtype).max
+        batch_size = offsets.shape[0] // num_of_tables
+        max_indices = indices.max()
+        non_empty_index = (offsets[1:] - offsets[:-1]).nonzero().flatten()
+        # disable dedup across different table
+        indices = ((offsets[non_empty_index]) // batch_size) * (
+            1 + max_indices
+        ) + indices
+        grad = grad[0]
+        _, idx, counts = torch.unique(
+            indices, dim=0, sorted=True, return_inverse=True, return_counts=True
+        )
+        _, ind_sorted = torch.sort(idx, stable=True)
+        cum_sum = counts.cumsum(0)
+        cum_sum = torch.cat((torch.tensor([0]).to(indices.device), cum_sum[:-1]))
+        first_indicies = ind_sorted[cum_sum]
+        mask = torch.zeros_like(grad, device=grad.device)
+        original_index = non_empty_index[first_indicies]
+
+        mask[original_index] = grad[original_index]
+        return mask
+
+    # pyre-fixme[2]: For 1st argument expected not ANY
+    def writeback_hook(self, module: Any, grad: Tensor) -> Tuple[Tensor]:
+        indices = self._indices
+        offsets = self._offsets
+
+        return (self.writeback_update_gradient(indices, offsets, grad),)
 
     def forward(  # noqa: C901
         self,
