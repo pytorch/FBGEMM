@@ -13,8 +13,13 @@ from typing import Optional, Tuple
 
 import torch
 import triton  # noqa: F401
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
-from fbgemm_gpu.experimental.gen_ai.moe import silu_mul, silu_mul_quant
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        triton_quantize_fp8_row,
+    )
+    from fbgemm_gpu.experimental.gen_ai.moe import silu_mul, silu_mul_quant
+
 from hypothesis import given, settings, strategies as st, Verbosity
 
 logger: logging.Logger = logging.getLogger()

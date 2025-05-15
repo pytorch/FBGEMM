@@ -16,12 +16,17 @@ from functools import partial
 from typing import Tuple
 
 import torch
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
-from fbgemm_gpu.experimental.gen_ai.moe.layers import (
-    BaselineMoE,
-    MetaShufflingMoE,
-    MoEArgs,
-)
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        triton_quantize_fp8_row,
+    )
+    from fbgemm_gpu.experimental.gen_ai.moe.layers import (
+        BaselineMoE,
+        MetaShufflingMoE,
+        MoEArgs,
+    )
+
 from torch.distributed import launcher
 from torch.distributed.launcher.api import LaunchConfig
 

@@ -15,13 +15,26 @@ from typing import List, Optional, Tuple
 
 import torch
 import triton  # noqa: F401
-from fbgemm_gpu.experimental.gen_ai.moe import (
-    combine_shuffling,
-    index_shuffling,
-    open_source,
-    split_shuffling,
-)
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gen_ai.moe import (
+        combine_shuffling,
+        index_shuffling,
+        split_shuffling,
+    )
+
 from hypothesis import given, settings, strategies as st, Verbosity
+
+try:
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu import open_source
+
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu.docs.version import __version__  # noqa: F401
+except Exception:
+    open_source: bool = False
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)

@@ -51,6 +51,12 @@ if(USE_FB_ONLY AND (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA))
   glob_files_nohip(fb_only_sources_gpu
       fb/src/*/*.cu)
 
+list(FILTER fb_only_sources_cpu
+  EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cpp$")
+
+list(FILTER fb_only_sources_gpu
+  EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cu$")
+
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_sources_gpu})
 endif()

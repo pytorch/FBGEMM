@@ -13,15 +13,31 @@ from typing import Tuple
 
 import torch
 import triton  # noqa: F401
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import triton_quantize_fp8_row
-from fbgemm_gpu.experimental.gen_ai.moe import (
-    gather_scale_dense_tokens,
-    gather_scale_quant_dense_tokens,
-    open_source,
-    scatter_add_dense_tokens,
-    scatter_add_padded_tokens,
-)
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        triton_quantize_fp8_row,
+    )
+    from fbgemm_gpu.experimental.gen_ai.moe import (
+        gather_scale_dense_tokens,
+        gather_scale_quant_dense_tokens,
+        scatter_add_dense_tokens,
+        scatter_add_padded_tokens,
+    )
+
 from hypothesis import given, settings, strategies as st, Verbosity
+
+try:
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu import open_source
+
+    # pyre-ignore[21]
+    # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
+    from fbgemm_gpu.docs.version import __version__  # noqa: F401
+except Exception:
+    open_source: bool = False
+
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
