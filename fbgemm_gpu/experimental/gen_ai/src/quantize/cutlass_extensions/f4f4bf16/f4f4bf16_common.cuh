@@ -22,18 +22,18 @@
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 
 template <
+    typename InputType,
     int TB_M,
     int TB_N,
     int TBS_M,
     int TBS_N,
-    int TBS_K,
-    bool USE_MX>
+    int TBS_K>
 at::Tensor _f4f4bf16(
     at::Tensor XQ, // FP4
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor global_scale) {
+    std::optional<at::Tensor> global_scale) {
   int M = XQ.size(0);
   int N = WQ.size(0);
   int K = XQ.size(1) * 2; // Since K is packed
@@ -45,19 +45,15 @@ at::Tensor _f4f4bf16(
 
   auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
 
-  using QuantType = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
-  if constexpr (USE_MX) {
-    using QuantType = cutlass::mx_float4_t<cutlass::float_e2m1_t>;
-  }
-  constexpr int TileShapeK = 128 * 8 / cutlass::sizeof_bits<QuantType>::value;
+  constexpr int TileShapeK = 128 * 8 / cutlass::sizeof_bits<InputType>::value;
 
-  using ElementA = QuantType;
+  using ElementA = InputType;
   using LayoutATag = cutlass::layout::RowMajor;
   using LayoutATag_Transpose =
       typename cutlass::layout::LayoutTranspose<LayoutATag>::type;
   constexpr int AlignmentA = 32;
 
-  using ElementB = QuantType;
+  using ElementB = InputType;
   using LayoutBTag = cutlass::layout::ColumnMajor;
   using LayoutBTag_Transpose =
       typename cutlass::layout::LayoutTranspose<LayoutBTag>::type;
@@ -178,17 +174,22 @@ at::Tensor _f4f4bf16(
   LayoutSFB layout_SFB = Sm100BlkScaledConfig::tile_atom_to_shape_SFB(
       cute::make_shape(M, N, K, 1));
 
+  using DataTypeA = typename ElementA::DataType;
+  using DataTypeB = typename ElementB::DataType;
+  using SFTypeA = typename ElementA::ScaleFactorType;
+  using SFTypeB = typename ElementB::ScaleFactorType;
+
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
       {N, M, K, 1},
       {// Mainloop arguments
-       reinterpret_cast<ElementB::DataType*>(WQ.data_ptr()),
+       reinterpret_cast<DataTypeB*>(WQ.data_ptr()),
        stride_B,
-       reinterpret_cast<ElementA::DataType*>(XQ.data_ptr()),
+       reinterpret_cast<DataTypeA*>(XQ.data_ptr()),
        stride_A,
-       reinterpret_cast<ElementB::ScaleFactorType*>(w_scale.data_ptr()),
+       reinterpret_cast<SFTypeB*>(w_scale.data_ptr()),
        layout_SFB,
-       reinterpret_cast<ElementA::ScaleFactorType*>(x_scale.data_ptr()),
+       reinterpret_cast<SFTypeA*>(x_scale.data_ptr()),
        layout_SFA},
       {// Epilogue arguments
        {1, 0},
@@ -197,9 +198,14 @@ at::Tensor _f4f4bf16(
        reinterpret_cast<ElementOutput*>(Y.data_ptr()),
        stride_output}};
 
-  auto& fusion_args = arguments.epilogue.thread;
-  fusion_args.alpha_ptr =
-      static_cast<ElementCompute const*>(global_scale.data_ptr());
+  if constexpr (std::is_same_v<
+                    InputType,
+                    cutlass::nv_float4_t<cutlass::float_e2m1_t>>) {
+    TORCH_CHECK(global_scale.has_value(), "global_scale is required in nvfp4.");
+    auto& fusion_args = arguments.epilogue.thread;
+    fusion_args.alpha_ptr =
+        static_cast<ElementCompute const*>(global_scale.value().data_ptr());
+  }
 
   Gemm gemm;
 

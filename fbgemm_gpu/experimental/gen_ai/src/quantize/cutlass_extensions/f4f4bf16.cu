@@ -24,8 +24,8 @@ at::Tensor dispatch_f4f4bf16_kernel(
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor global_scale,
-    bool use_mx = false) {
+    std::optional<at::Tensor> global_scale,
+    bool use_mx = true) {
   auto M = XQ.size(0);
   auto K = XQ.size(1);
   auto N = WQ.size(0);
@@ -173,8 +173,8 @@ at::Tensor f4f4bf16(
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor global_scale,
-    bool use_mx = false) {
+    std::optional<at::Tensor> global_scale,
+    bool use_mx = true) {
   return dispatch_f4f4bf16_kernel(
       XQ, WQ, x_scale, w_scale, global_scale, use_mx);
 }
@@ -186,8 +186,8 @@ at::Tensor f4f4bf16(
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor global_scale,
-    bool use_mx = false) {
+    std::optional<at::Tensor> global_scale,
+    bool use_mx = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.8"); // requires CUDA>=12.8
 }
