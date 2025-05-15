@@ -306,8 +306,9 @@ KVTensorWrapper::KVTensorWrapper(
     std::vector<int64_t> shape,
     int64_t dtype,
     int64_t row_offset,
-    std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
-        snapshot_handle)
+    const std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+        snapshot_handle,
+    std::optional<at::Tensor> sorted_indices)
     : db_(nullptr), shape_(std::move(shape)), row_offset_(row_offset) {
   CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
   options_ = at::TensorOptions()
@@ -317,10 +318,15 @@ KVTensorWrapper::KVTensorWrapper(
   if (snapshot_handle.has_value()) {
     snapshot_handle_ = std::move(snapshot_handle.value());
   }
+
   // derive strides details assuming contiguous tensor
   strides_ = std::vector<int64_t>(shape_.size(), 1);
   for (auto dim = shape_.size() - 1; dim > 0; --dim) {
     strides_[dim - 1] = strides_[dim] * shape_[dim];
+  }
+
+  if (sorted_indices.has_value()) {
+    sorted_indices_ = sorted_indices;
   }
 }
 
@@ -339,12 +345,19 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_GE(db_->get_max_D(), shape_[1]);
   CHECK_TRUE(db_ != nullptr);
   CHECK_TRUE(snapshot_handle_ != nullptr);
-  auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
-  db_->get_range_from_snapshot(
-      t, start + row_offset_, length, snapshot_handle_->handle);
-  // TBE may have multiple embeddings in one table padded to max D
-  // narrow to the actual shape here before returning
-  return t.narrow(1, 0, shape_[1]);
+  if (!sorted_indices_.has_value()) {
+    auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
+    db_->get_range_from_snapshot(
+        t, start + row_offset_, length, snapshot_handle_->handle);
+    // TBE may have multiple embeddings in one table padded to max D
+    // narrow to the actual shape here before returning
+    return t.narrow(1, 0, shape_[1]);
+  } else {
+    at::Tensor sliced_ids =
+        sorted_indices_.value().slice(0, start, start + length);
+    auto out_weights = get_weights_by_ids(sliced_ids);
+    return out_weights.narrow(1, 0, shape_[1]);
+  }
 }
 
 void KVTensorWrapper::set_range(
@@ -610,14 +623,16 @@ static auto kv_tensor_wrapper =
                 int64_t,
                 int64_t,
                 std::optional<
-                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>>(),
+                    c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>,
+                std::optional<at::Tensor>>(),
             "",
             {torch::arg("shape"),
              torch::arg("dtype"),
              torch::arg("row_offset"),
              // snapshot must be provided for reading
              // not needed for writing
-             torch::arg("snapshot_handle") = std::nullopt})
+             torch::arg("snapshot_handle") = std::nullopt,
+             torch::arg("sorted_indices") = std::nullopt})
         .def(
             "set_embedding_rocks_dp_wrapper",
             &KVTensorWrapper::set_embedding_rocks_dp_wrapper,

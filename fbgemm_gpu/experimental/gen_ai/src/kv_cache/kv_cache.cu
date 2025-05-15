@@ -72,7 +72,6 @@ __global__ void dequantize_int4_cache_kernel(
         cache_V_dq // [B][MAX_T][N_KVH][D_H]
 ) {
   auto N_KVH = cache_K.size(2);
-  auto MAX_T = cache_K.size(1);
   auto D_H = cache_K_dq.size(3);
 
   auto b = blockIdx.x;
@@ -2331,6 +2330,112 @@ at::Tensor xpos_qkv_decoding(
   return XQ_O;
 }
 
+#if (defined(USE_ROCM))
+/**
+ * Converts the contents of a FP8 KV cache from e4m3fn (NV) to e4m3fnuz (AMD).
+ * These formats differ in their support for negative zero, and in their
+ * exponent bias. Negative zeros are replaced with positive zero, and the scale
+ * qparam is multiplied by 2.0, because we know that the scale will be applied
+ * to the k/v value and is equivalent to recomputing the exponent bias.
+ *
+ * This in an inplace operation.
+ *
+ * It is assumed that inputs will have been generated with scale_ub = max(fp16)
+ * / 2 to avoid overflow. Some debug mode assertions are in place, but there are
+ * no runtime guarantees.
+ *
+ * As written, this kernel is only valid on AMD, because it relies on threads
+ * 32-63 to convert the V tensors. NV only has threads 0-31 per warp.
+ */
+__global__ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel(
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_K, // [B][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
+        cache_V, // [B][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<uint32_t, 4, at::RestrictPtrTraits> qparam_K,
+    at::PackedTensorAccessor64<uint32_t, 4, at::RestrictPtrTraits> qparam_V) {
+  auto N_KVH = cache_K.size(2);
+  auto MAX_T = cache_K.size(1);
+  auto D_H = cache_K.size(3);
+  CUDA_KERNEL_ASSERT(D_H == 128);
+
+  auto b = blockIdx.x;
+  int h = 0, t = 0;
+  uint8_t* head;
+  __half* qparam_scale_ptr;
+
+  for (auto t_h = threadIdx.y + blockIdx.y * blockDim.y; t_h < MAX_T * N_KVH;
+       t_h += blockDim.y * gridDim.y) {
+    h = t_h % N_KVH;
+    t = t_h / N_KVH;
+
+    auto tidx = threadIdx.x;
+    if (threadIdx.x < 32) {
+      head = &cache_K[b][t][h][0];
+      qparam_scale_ptr = reinterpret_cast<__half*>(&qparam_K[b][t][h][0]);
+    } else {
+      head = &cache_V[b][t][h][0];
+      qparam_scale_ptr = reinterpret_cast<__half*>(&qparam_V[b][t][h][0]);
+      tidx -= 32;
+    }
+    auto D_H_idx = tidx * 4; // Reading 4 bytes at once.
+
+    // Our only goal here is to detect negative zeros that are valid
+    // in e4m3fn, but not valid in e4m3fnuz, and overwrite them with zeros.
+    // E.g. 0x80708070u ^ 0x80808080u = 0xf000f0u & 0x80708070u = 0x00700070u
+    uint32_t packed_fp8x4_vals = *reinterpret_cast<uint32_t*>(&head[D_H_idx]);
+    *reinterpret_cast<uint32_t*>(&head[D_H_idx]) =
+        (packed_fp8x4_vals ^ 0x80808080) & packed_fp8x4_vals;
+
+    // Multiply qparam scale (member x) by 2 to compensate for the exponent
+    // bias difference (1) between e4m3fn and e4m3fnuz. We only need to do this
+    // once per row. In debug mode, assert that 2.0*scale as a float would not
+    // exceed the max value of __half.
+    if (tidx == 0) {
+      CUDA_KERNEL_ASSERT(
+          __half2float(*qparam_scale_ptr) * 2.0f <=
+          __half2float(std::numeric_limits<__half>::max()));
+      *qparam_scale_ptr = __float2half(__half2float(*qparam_scale_ptr) * 2.0f);
+    }
+  }
+}
+
+void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
+    at::Tensor cache_K,
+    at::Tensor cache_V,
+    at::Tensor qparam_K,
+    at::Tensor qparam_V) {
+  TORCH_CHECK(cache_K.is_cuda());
+  TORCH_CHECK(cache_V.is_cuda());
+
+  auto B = cache_K.size(0);
+
+  constexpr int32_t kMaxBlocks = 1;
+  dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
+  dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
+
+  convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel<<<
+      blocks,
+      threads,
+      0,
+      at::cuda::getCurrentCUDAStream()>>>(
+      cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+      cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
+      qparam_K.packed_accessor64<uint32_t, 4, at::RestrictPtrTraits>(),
+      qparam_V.packed_accessor64<uint32_t, 4, at::RestrictPtrTraits>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+#else
+void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
+    at::Tensor cache_K,
+    at::Tensor cache_V,
+    at::Tensor qparam_K,
+    at::Tensor qparam_V) {
+  throw std::runtime_error(
+      "convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace is only supported on AMD");
+}
+#endif
+
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || \
     (defined(CUDA_VERSION) && CUDA_VERSION >= 12000)
 
@@ -2550,7 +2655,6 @@ __global__ void dequantize_fp8_cache_kernel_paged(
     int32_t block_tables_b_stride,
     int32_t page_size) {
   auto N_KVH = cache_K.size(2);
-  auto MAX_T = cache_K.size(1);
   auto D_H = cache_K_dq.size(3);
   auto D_H_q = cache_K.size(3);
   CUDA_KERNEL_ASSERT(D_H == 128);
@@ -2647,20 +2751,20 @@ std::tuple<at::Tensor, at::Tensor> dequantize_fp8_cache(
   auto D_H = (D_HQ - fp8_qparam_offset);
 
   // TODO:
-  // The below allocates Tensors that have the same shape as cache_K and cache_V
-  // to store their dequantize results. For paged KV cache, this can be a bit
-  // inefficient because it has the shape of [1 x (MAX_PAGES * PAGE_SIZE) x
-  // N_KVH x D_H] to accommodate pages globally across batch instances, and
-  // if we have very large MAX_PAGES then we are essentially allocating a very
-  // huge Tensor here. The benefit is that the following users of this
-  // dequantized results can reuse the existing block_tables to access their
-  // elements. If we want to be more efficient, there are two possible
-  // approaches: (1) Allocate a shorter Tensor here and store the dequantize
-  // results in a more compact manner, but that requires creating a new
-  // block_tables here and making sure the following users all use the
-  // correct block_tables. (2) From outside, keep a persistent buffer that has a
-  // matching shape with the original paged KV and feed the same buffer
-  // into this function at every layer to reuse it and prevent allocation.
+  // The below allocates Tensors that have the same shape as cache_K and
+  // cache_V to store their dequantize results. For paged KV cache, this can
+  // be a bit inefficient because it has the shape of [1 x (MAX_PAGES *
+  // PAGE_SIZE) x N_KVH x D_H] to accommodate pages globally across batch
+  // instances, and if we have very large MAX_PAGES then we are essentially
+  // allocating a very huge Tensor here. The benefit is that the following
+  // users of this dequantized results can reuse the existing block_tables to
+  // access their elements. If we want to be more efficient, there are two
+  // possible approaches: (1) Allocate a shorter Tensor here and store the
+  // dequantize results in a more compact manner, but that requires creating a
+  // new block_tables here and making sure the following users all use the
+  // correct block_tables. (2) From outside, keep a persistent buffer that has
+  // a matching shape with the original paged KV and feed the same buffer into
+  // this function at every layer to reuse it and prevent allocation.
 
   auto cache_K_dq = at::empty(
       {B_KV, MAX_T, N_KVH, D_H}, cache_K.options().dtype(at::kBFloat16));
@@ -2889,8 +2993,8 @@ at::Tensor quantize_qkv_per_head(
   float* const scale_q_ptr = scale_q.data_ptr<float>();
   // Launch the kernel
   // TODO: Launch the kernel with B_T * N_H_L blocks only in case of decode.
-  // Currently, we are launching the kernel with B_T * HH blocks for decode and
-  // KV blocks just return when qparam_k is passed as nullptr.
+  // Currently, we are launching the kernel with B_T * HH blocks for decode
+  // and KV blocks just return when qparam_k is passed as nullptr.
   quantizeQKVPerHead<<<
       grid_size,
       block_size,

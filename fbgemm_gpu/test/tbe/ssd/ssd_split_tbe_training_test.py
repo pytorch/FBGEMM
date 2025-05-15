@@ -109,8 +109,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices = torch.as_tensor(
                 np.random.choice(E, replace=False, size=(N,)), dtype=torch.int32
             )
-        weights = torch.randn(N, D, dtype=weights_precision.as_dtype())
-        output_weights = torch.empty_like(weights)
         count = torch.tensor([N])
 
         feature_table_map = list(range(1))
@@ -124,6 +122,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             l2_cache_size=8,
         )
+
+        weights = torch.randn(N, emb.cache_row_dim, dtype=weights_precision.as_dtype())
+        output_weights = torch.empty_like(weights)
+
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
         assert (output_weights <= 0.1).all().item()
@@ -1652,6 +1654,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         split_optimizer_states = []
         table_input_id_range = []
+
+        # Compare emb state dict with expected values from nn.EmbeddingBag
+        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
+            emb.split_embedding_weights(no_snapshot=False, should_flush=True)
+        )
         for s, input_id_start, input_id_end in emb.debug_split_optimizer_states():
             split_optimizer_states.append(s)
             # the ref_emb might contains ids out of the bucket input range
@@ -1674,10 +1681,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
 
-        # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
-            emb.split_embedding_weights(no_snapshot=False, should_flush=True)
-        )
         for feature_index, table_index in self.get_physical_table_arg_indices_(
             emb.feature_table_map
         ):
@@ -1708,31 +1711,37 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             """
             validate embeddings
             """
-            id_range_start = table_input_id_range[table_index][
-                0
-            ]  # should be 0 because ref_emb is preallocated
-            id_range_end = min(table_input_id_range[table_index][1], Es[table_index])
-            emb_r = emb_ref[feature_index]
+            num_ids = len(bucket_asc_ids_list[table_index])
+            emb_r_w = emb_ref[feature_index].weight[
+                bucket_asc_ids_list[table_index].view(-1)
+            ]
+            emb_r_w_g = (
+                emb_ref[feature_index]
+                .weight.grad.float()
+                .to_dense()[bucket_asc_ids_list[table_index].view(-1)]
+            )
             self.assertLess(table_index, len(emb_state_dict_list))
+            assert len(split_optimizer_states[table_index]) == num_ids
+            opt = split_optimizer_states[table_index][
+                bucket_asc_ids_list[table_index].view(-1)
+            ]
             new_ref_weight = torch.addcdiv(
-                emb_r.weight.float()[id_range_start:id_range_end,],
+                emb_r_w.float(),
                 value=-lr,
-                tensor1=emb_r.weight.grad.float().to_dense()[
-                    id_range_start:id_range_end,
-                ],
-                tensor2=split_optimizer_states[table_index]
-                .float()
+                tensor1=emb_r_w_g,
+                tensor2=opt.float()
                 .sqrt_()
                 .add_(eps)
                 .view(
-                    id_range_end - id_range_start,
+                    num_ids,
                     1,
-                ),
+                )
+                .cuda(),
             ).cpu()
 
             emb_w = (
                 emb_state_dict_list[table_index]
-                .narrow(0, 0, id_range_end - id_range_start)
+                .narrow(0, 0, bucket_asc_ids_list[table_index].size(0))
                 .float()
             )
             torch.testing.assert_close(
