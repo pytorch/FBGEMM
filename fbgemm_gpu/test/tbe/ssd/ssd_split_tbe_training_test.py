@@ -109,8 +109,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices = torch.as_tensor(
                 np.random.choice(E, replace=False, size=(N,)), dtype=torch.int32
             )
-        weights = torch.randn(N, D, dtype=weights_precision.as_dtype())
-        output_weights = torch.empty_like(weights)
         count = torch.tensor([N])
 
         feature_table_map = list(range(1))
@@ -124,6 +122,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             l2_cache_size=8,
         )
+
+        weights = torch.randn(N, emb.cache_row_dim, dtype=weights_precision.as_dtype())
+        output_weights = torch.empty_like(weights)
+
         emb.ssd_db.get_cuda(indices, output_weights, count)
         torch.cuda.synchronize()
         assert (output_weights <= 0.1).all().item()

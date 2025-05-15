@@ -57,7 +57,7 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         enable_l2: bool = True,
         ssd_rocksdb_shards: int = 1,
-    ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int], int]:
+    ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int]]:
         E = int(10**log_E)
         D = D * 4
         if not mixed:
@@ -84,7 +84,7 @@ class SSDCheckpointTest(unittest.TestCase):
             l2_cache_size=1 if enable_l2 else 0,
             ssd_rocksdb_shards=ssd_rocksdb_shards,
         )
-        return emb, Es, Ds, max(Ds)
+        return emb, Es, Ds
 
     @given(**default_st, do_flush=st.sampled_from([True, False]))
     @settings(**default_settings)
@@ -97,12 +97,10 @@ class SSDCheckpointTest(unittest.TestCase):
         weights_precision: SparseType,
         do_flush: bool,
     ) -> None:
-        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
-            T, D, log_E, weights_precision, mixed
-        )
+        emb, Es, _ = self.generate_fbgemm_ssd_tbe(T, D, log_E, weights_precision, mixed)
         indices = torch.arange(start=0, end=sum(Es))
         weights = torch.randn(
-            indices.numel(), max_D, dtype=weights_precision.as_dtype()
+            indices.numel(), emb.cache_row_dim, dtype=weights_precision.as_dtype()
         )
         weights_from_l2 = torch.empty_like(weights)
         count = torch.as_tensor([indices.numel()])
@@ -134,7 +132,7 @@ class SSDCheckpointTest(unittest.TestCase):
         weights_precision: SparseType,
         enable_l2: bool,
     ) -> None:
-        emb, _, _, max_D = self.generate_fbgemm_ssd_tbe(
+        emb, _, _ = self.generate_fbgemm_ssd_tbe(
             T, D, log_E, weights_precision, mixed, enable_l2
         )
         E = int(10**log_E)
@@ -146,7 +144,7 @@ class SSDCheckpointTest(unittest.TestCase):
             np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
         )
         weights = torch.randn(
-            indices.numel(), max_D, dtype=weights_precision.as_dtype()
+            indices.numel(), emb.cache_row_dim, dtype=weights_precision.as_dtype()
         )
         sub_N = N // num_rounds
 
@@ -191,15 +189,13 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         weights_precision: SparseType,
     ) -> None:
-        emb, _, _, max_D = self.generate_fbgemm_ssd_tbe(
-            T, D, log_E, weights_precision, mixed
-        )
+        emb, _, _ = self.generate_fbgemm_ssd_tbe(T, D, log_E, weights_precision, mixed)
         E = int(10**log_E)
         N = E
         indices = torch.as_tensor(
             np.random.choice(E, replace=False, size=(N,)), dtype=torch.int64
         )
-        weights = torch.randn(N, max_D, dtype=weights_precision.as_dtype())
+        weights = torch.randn(N, emb.cache_row_dim, dtype=weights_precision.as_dtype())
         new_weights = weights + 1
         weights_out = torch.empty_like(weights)
         count = torch.as_tensor([E])
@@ -242,9 +238,7 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         weights_precision: SparseType,
     ) -> None:
-        emb, _, _, _ = self.generate_fbgemm_ssd_tbe(
-            T, D, log_E, weights_precision, mixed
-        )
+        emb, _, _ = self.generate_fbgemm_ssd_tbe(T, D, log_E, weights_precision, mixed)
 
         with patch.object(torch.cuda, "synchronize") as mock_calls:
             mock_calls.side_effect = None
@@ -269,7 +263,7 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         weights_precision: SparseType,
     ) -> None:
-        emb, Es, Ds, max_D = self.generate_fbgemm_ssd_tbe(
+        emb, Es, _ = self.generate_fbgemm_ssd_tbe(
             T, D, log_E, weights_precision, mixed, False, 8
         )
         E = int(10**log_E)

@@ -18,3 +18,25 @@ except Exception:
     pass
 
 ASSOC = 32
+
+
+def pad4(value: int) -> int:
+    """
+    Compute the smallest multiple of 4 that is greater than or equal to the given value.
+
+    Parameters:
+        value (int): The integer to align (must be non-negative).
+
+    Returns:
+        int: The aligned value.
+
+    Raises:
+        ValueError: If the input is negative.
+        TypeError: If the input is not an integer.
+    """
+    if not isinstance(value, int):
+        raise TypeError("Input must be an integer")
+    if value < 0:
+        raise ValueError("Input must be a non-negative integer")
+
+    return (value + 3) & ~3

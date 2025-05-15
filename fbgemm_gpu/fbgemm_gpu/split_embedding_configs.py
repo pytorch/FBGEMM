@@ -8,6 +8,7 @@
 # pyre-strict
 
 import enum
+import math
 from typing import Any, Dict  # noqa: F401
 
 import torch
@@ -39,6 +40,23 @@ class EmbOptimType(enum.Enum):
 
     def __str__(self) -> str:
         return self.value
+
+    def state_size(self) -> int:
+        """
+        Returns the size of the data (in bytes) required to hold the optimizer
+        state (per table row), or 0 if none needed
+        """
+        return {
+            # Only holds the momentum float value per row
+            EmbOptimType.EXACT_ROWWISE_ADAGRAD: torch.float32.itemsize,
+        }.get(self, 0)
+
+    def state_size_dim(self, dtype: torch.dtype) -> int:
+        """
+        Returns the size of the data (in units of elements of dtype) rquired to
+        hold optimizer information (per table row)
+        """
+        return int(math.ceil(self.state_size() / dtype.itemsize))
 
 
 # Base class for quantization configuration (in case other numeric types have

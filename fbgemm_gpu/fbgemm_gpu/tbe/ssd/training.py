@@ -16,6 +16,7 @@ import os
 import tempfile
 import threading
 import time
+from functools import cached_property
 from math import floor, log2
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
@@ -57,7 +58,7 @@ from torch.autograd.profiler import record_function
 
 from ..cache import get_unique_indices_v2
 
-from .common import ASSOC
+from .common import ASSOC, pad4
 from .utils.partially_materialized_tensor import PartiallyMaterializedTensor
 
 
@@ -172,6 +173,29 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
+        assert optimizer in (
+            OptimType.EXACT_ROWWISE_ADAGRAD,
+        ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
+        self.optimizer = optimizer
+
+        assert weights_precision in (SparseType.FP32, SparseType.FP16)
+        self.weights_precision = weights_precision
+        self.output_dtype: int = output_dtype.as_int()
+
+        # Zero collision TBE configurations
+        self.kv_zch_params = kv_zch_params
+        self.backend_type = backend_type
+        self.enable_optimizer_offloading: bool = False
+        if self.kv_zch_params:
+            self.kv_zch_params.validate()
+            self.enable_optimizer_offloading = (
+                # pyre-ignore [16]
+                self.kv_zch_params.enable_optimizer_offloading
+            )
+
+            if self.enable_optimizer_offloading:
+                logging.info("Optimizer state offloading is enabled")
+
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
@@ -207,7 +231,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         feature_dims = [dims[t] for t in self.feature_table_map]
         D_offsets = [dims[t] for t in self.feature_table_map]
         D_offsets = [0] + list(itertools.accumulate(D_offsets))
+
+        # Sum of row length of all tables
         self.total_D: int = D_offsets[-1]
+
+        # Max number of elements required to store a row in the cache
         self.max_D: int = max(dims)
         self.register_buffer(
             "D_offsets",
@@ -273,7 +301,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert (
             element_size == 4 or element_size == 2
         ), f"Invalid element size {element_size}"
-        cache_size = cache_sets * ASSOC * element_size * self.max_D
+        cache_size = cache_sets * ASSOC * element_size * self.cache_row_dim
         logging.info(
             f"Using cache for SSD with admission algorithm "
             f"{CacheAlgorithm.LRU}, {cache_sets} sets, stored on {'DEVICE' if ssd_cache_location is EmbeddingLocation.DEVICE else 'MANAGED'} with {ssd_rocksdb_shards} shards, "
@@ -281,7 +309,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"Memtable Flush Period: {ssd_memtable_flush_period}, "
             f"Memtable Flush Offset: {ssd_memtable_flush_offset}, "
             f"Desired L0 files per compaction: {ssd_l0_files_per_compact}, "
-            f"{cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
+            f"Cache size: {cache_size / 1024.0 / 1024.0 / 1024.0 : .2f}GB, "
             f"weights precision: {weights_precision}, "
             f"output dtype: {output_dtype}, "
             f"chunk size in bulk init: {bulk_init_chunk_size} bytes, backend_type: {backend_type}, "
@@ -331,10 +359,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             EmbeddingLocation.DEVICE,
         )
 
-        assert weights_precision in (SparseType.FP32, SparseType.FP16)
-        self.weights_precision = weights_precision
-        self.output_dtype: int = output_dtype.as_int()
-
         cache_dtype = weights_precision.as_dtype()
         if ssd_cache_location == EmbeddingLocation.MANAGED:
             self.register_buffer(
@@ -345,7 +369,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         device=self.current_device,
                         dtype=cache_dtype,
                     ),
-                    [cache_sets * ASSOC, self.max_D],
+                    [cache_sets * ASSOC, self.cache_row_dim],
                     is_host_mapped=self.uvm_host_mapped,
                 ),
             )
@@ -354,7 +378,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "lxu_cache_weights",
                 torch.zeros(
                     cache_sets * ASSOC,
-                    self.max_D,
+                    self.cache_row_dim,
                     device=self.current_device,
                     dtype=cache_dtype,
                 ),
@@ -457,17 +481,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         # logging.info("DEBUG: weights_precision {}".format(weights_precision))
 
-        # zero collision TBE configurations
-        self.kv_zch_params = kv_zch_params
-        self.backend_type = backend_type
-        self.enable_optimizer_offloading: bool = False
-        if self.kv_zch_params:
-            self.kv_zch_params.validate()
-            self.enable_optimizer_offloading = (
-                # pyre-ignore [16]
-                self.kv_zch_params.enable_optimizer_offloading
-            )
-
         """
         ##################### for ZCH v.Next loading checkpoints Short Term Solution #######################
         weight_id tensor is the weight and optimizer keys, to load from checkpoint, weight_id tensor
@@ -510,7 +523,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, enable_async_update:{enable_async_update}"
                 f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
                 f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
-                f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},rate_limit_mbps={ssd_rate_limit_mbps},"
+                f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},cache_row_dim={self.cache_row_dim},rate_limit_mbps={ssd_rate_limit_mbps},"
                 f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger}, lazy_bulk_init_enabled={lazy_bulk_init_enabled},"
                 f"write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size},max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num},"
                 f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
@@ -526,7 +539,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ssd_memtable_flush_period,
                 ssd_memtable_flush_offset,
                 ssd_l0_files_per_compact,
-                self.max_D,
+                self.cache_row_dim,
                 ssd_rate_limit_mbps,
                 ssd_size_ratio,
                 ssd_compaction_trigger,
@@ -567,7 +580,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 ps_client_thread_num if ps_client_thread_num is not None else 32,
                 ps_max_key_per_request if ps_max_key_per_request is not None else 500,
                 l2_cache_size,
-                self.max_D,
+                self.cache_row_dim,
             )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
@@ -707,11 +720,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self._update_cache_counter_and_pointers
             )
 
-        assert optimizer in (
-            OptimType.EXACT_ROWWISE_ADAGRAD,
-        ), f"Optimizer {optimizer} is not supported by SSDTableBatchedEmbeddingBags"
-        self.optimizer = optimizer
-
         # stats reporter
         self.gather_ssd_cache_stats = gather_ssd_cache_stats
         self.stats_reporter: Optional[TBEStatsReporter] = (
@@ -798,6 +806,22 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         self.bounds_check_version: int = get_bounds_check_version_for_platform()
 
+    @cached_property
+    def cache_row_dim(self) -> int:
+        """
+        Compute the effective physical cache row size taking into account
+        padding to the nearest 4 elements and the optimizer state appended to
+        the back of the row
+        """
+        if self.enable_optimizer_offloading:
+            return self.max_D + pad4(
+                # Compute the number of elements of cache_dtype needed to store the
+                # optimizer state
+                self.optimizer.state_size_dim(self.weights_precision.as_dtype())
+            )
+        else:
+            return self.max_D
+
     @property
     # pyre-ignore
     def ssd_db(self):
@@ -854,7 +878,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         row_offset = 0
         row_count = floor(
             self.bulk_init_chunk_size
-            / (self.max_D * self.weights_precision.as_dtype().itemsize)
+            / (self.cache_row_dim * self.weights_precision.as_dtype().itemsize)
         )
         total_dim0 = 0
         for dim0, _ in self.embedding_specs:
@@ -863,7 +887,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         start_ts = time.time()
         chunk_tensor = torch.empty(
             row_count,
-            self.max_D,
+            self.cache_row_dim,
             dtype=self.weights_precision.as_dtype(),
             device="cuda",
         )
@@ -1397,7 +1421,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             # Allocation a scratch pad for the current iteration. The scratch
             # pad is a UVA tensor
-            inserted_rows_shape = (assigned_cache_slots.numel(), self.max_D)
+            inserted_rows_shape = (assigned_cache_slots.numel(), self.cache_row_dim)
             if linear_cache_indices.numel() > 0:
                 inserted_rows = torch.ops.fbgemm.new_unified_tensor(
                     torch.zeros(
@@ -2093,7 +2117,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         active_slots_mask = self.lxu_cache_state != -1
 
         active_weights_gpu = self.lxu_cache_weights[active_slots_mask.view(-1)].view(
-            -1, self.max_D
+            -1, self.cache_row_dim
         )
         active_ids_gpu = self.lxu_cache_state.view(-1)[active_slots_mask.view(-1)]
 
@@ -2195,7 +2219,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 data_bytes=int(
                     ssd_cache_stats_delta[stat_index.value]
                     * element_size
-                    * self.max_D
+                    * self.cache_row_dim
                     / passed_steps
                 ),
             )
