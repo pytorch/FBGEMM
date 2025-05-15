@@ -228,39 +228,30 @@ void lru_cache_insert_cuda(
             ? div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO)
             : div_round_up(N, kMaxThreads / kWarpSize);
 
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lru_cache_insert_kernel";
-#endif
-        lru_cache_insert_kernel<emb_t, cache_t>
-            <<<grid_size,
-               dim3(kWarpSize, kMaxThreads / kWarpSize),
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_hash_size_cumsum, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_index_table_map, int32_t, 1, 64),
-                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, sorted_cache_sets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_set_sorted_unique_indices, int64_t, 1, 32),
-                unique_indices_length.data_ptr<int32_t>(),
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, lxu_cache_weights, cache_t, 2, 64),
-                time_stamp,
-                MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
-                stochastic_rounding_,
-                rng_engine_inputs,
-                gather_cache_stats,
-                MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
-                lock_cache_line,
-                MAKE_PTA_WITH_NAME(
-                    func_name, lxu_cache_locking_counter, int32_t, 2, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (lru_cache_insert_kernel<emb_t, cache_t>),
+            grid_size,
+            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(weights, emb_t, 1, 64),
+            PTA_B(cache_hash_size_cumsum, int64_t, 1, 32),
+            PTA_B(cache_index_table_map, int32_t, 1, 64),
+            PTA_B(weights_offsets, int64_t, 1, 32),
+            PTA_B(D_offsets, int32_t, 1, 32),
+            PTA_B(sorted_cache_sets, int32_t, 1, 32),
+            PTA_B(cache_set_sorted_unique_indices, int64_t, 1, 32),
+            unique_indices_length.data_ptr<int32_t>(),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
+            PTA_B(lxu_cache_weights, cache_t, 2, 64),
+            time_stamp,
+            PTA_B(lru_state, int64_t, 2, 32),
+            stochastic_rounding_,
+            rng_engine_inputs,
+            gather_cache_stats,
+            PTA_B(uvm_cache_stats, int32_t, 1, 32),
+            lock_cache_line,
+            PTA_B(lxu_cache_locking_counter, int32_t, 2, 32));
       }));
 }
 
