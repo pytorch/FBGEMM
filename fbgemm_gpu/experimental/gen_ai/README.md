@@ -19,7 +19,7 @@ Besides FP8/INT4 support, FBGEMM GenAI operators also support:
 * GQA: optimized specifically for decoding cases, as detailed in PyTorch's blog on [INT4 decoding](https://pytorch.org/blog/int4-decoding/).
 * KV cache quantizations.
 * Rotary Positional Embedding (RoPE).
-* MoE [token shuffling](gen_ai/moe/README.md) operators.
+* [MetaShuffling](gen_ai/moe/README.md) MoE operators and examples.
 
 ## **1.1 FP8 core API functions**
 
@@ -59,7 +59,7 @@ pip install fbgemm-gpu-genai
 
 ## 2.2 **Llama4 MoE support**
 
-More coming soon in [MetaShuffling](gen_ai/moe/README.md) kernels.
+* [MetaShuffling](gen_ai/moe/README.md) MoE operators and examples.
 
 # 3. **Llama 3 Related External Coverage**
 
