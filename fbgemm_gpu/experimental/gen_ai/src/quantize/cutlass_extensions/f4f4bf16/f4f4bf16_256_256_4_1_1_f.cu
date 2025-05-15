@@ -17,10 +17,15 @@ at::Tensor f4f4bf16_256_256_4_1_1_f(
     at::Tensor WQ, // FP4
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor global_scale) {
+    std::optional<at::Tensor> global_scale = std::nullopt) {
   // Dispatch this kernel to the correct underlying implementation.
-  return _f4f4bf16<256, 256, 4, 1, 1, false>(
-      XQ, WQ, x_scale, w_scale, global_scale);
+  return _f4f4bf16<
+      cutlass::nv_float4_t<cutlass::float_e2m1_t>,
+      256,
+      256,
+      4,
+      1,
+      1>(XQ, WQ, x_scale, w_scale, global_scale);
 }
 
 #endif

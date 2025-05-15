@@ -50,8 +50,8 @@ at::Tensor f4f4bf16(
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale,
-    at::Tensor global_scale,
-    bool use_mx = false);
+    std::optional<at::Tensor> global_scale = std::nullopt,
+    bool use_mx = true);
 at::Tensor f8f8bf16(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -235,7 +235,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   // torch.ops.load_library, similar to below for quantize_fp8_per_tensor
   m.def("i8i8bf16(Tensor XQ, Tensor WQ, float scale, int split_k=1) -> Tensor");
   m.def(
-      "f4f4bf16(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor global_scale, bool use_mx=False) -> Tensor");
+      "f4f4bf16(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? global_scale=None, bool use_mx=True) -> Tensor");
   m.def(
       "f8f8bf16(Tensor XQ, Tensor WQ, Tensor scale, bool use_fast_accum=True) -> Tensor");
   m.def(
@@ -419,7 +419,7 @@ at::Tensor f4f4bf16_meta(
     at::Tensor WQ, // FP4
     at::Tensor /* x_scale */,
     at::Tensor /* w_scale */,
-    at::Tensor /* global_scale */,
+    std::optional<at::Tensor> /* global_scale = std::nullopt */,
     bool /* use_mx */) {
   int M = XQ.size(0);
   int N = WQ.size(0);

@@ -27,7 +27,8 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
 )
 from fbgemm_gpu.experimental.gen_ai.quantize import (
     quantize_int4_preshuffle,
-    scaled_fp4_quant,
+    scale_mxfp4_quant,
+    scale_nvfp4_quant,
 )
 
 try:
@@ -2005,9 +2006,9 @@ class MacheteBF16I4(QuantizeOpBase):
 
 
 @register_quantize_op
-class FP4Gemm(QuantizeOpBase):
+class NVFP4Gemm(QuantizeOpBase):
     """
-    FP4 matmul with block-wise scaling.
+    NVFP4 matmul with block-wise scaling.
     """
 
     def quantize(self, x, w):
@@ -2019,16 +2020,52 @@ class FP4Gemm(QuantizeOpBase):
         )
         global_scale = 1 / (x_global_scale * w_global_scale)
 
-        xq, x_scale = scaled_fp4_quant(x, x_global_scale)
-        wq, w_scale = scaled_fp4_quant(w, w_global_scale)
+        xq, x_scale = scale_nvfp4_quant(x, x_global_scale)
+        wq, w_scale = scale_nvfp4_quant(w, w_global_scale)
         return xq, wq, x_scale, w_scale, global_scale
 
     def compute(self, xq, wq, x_scale, w_scale, global_scale):
-        return torch.ops.fbgemm.f4f4bf16(xq, wq, x_scale, w_scale, global_scale)
+        return torch.ops.fbgemm.f4f4bf16(
+            xq, wq, x_scale, w_scale, global_scale=global_scale, use_mx=False
+        )
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale, global_scale = self.quantize(x, w)
-        return self.compute(xq, wq, x_scale, w_scale, global_scale)
+        return self.compute(
+            xq, wq, x_scale, w_scale, global_scale=global_scale, use_mx=False
+        )
+
+    @property
+    def name(self) -> str:
+        return "cutlass_nv_f4f4bf16"
+
+    @property
+    def hip(self) -> bool:
+        # F4F4BF16 only supported for cuda.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class MXFP4Gemm(QuantizeOpBase):
+    """
+    MXFP4 matmul with block-wise scaling.
+    """
+
+    def quantize(self, x, w):
+        xq, x_scale = scale_mxfp4_quant(x)
+        wq, w_scale = scale_mxfp4_quant(w)
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f4f4bf16(xq, wq, x_scale, w_scale)
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale)
 
     @property
     def name(self) -> str:
