@@ -8,6 +8,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[56]
 
+import torch
 from fbgemm_gpu.utils.loader import load_torch_module
 
 try:
@@ -34,9 +35,11 @@ def pad4(value: int) -> int:
         ValueError: If the input is negative.
         TypeError: If the input is not an integer.
     """
-    if not isinstance(value, int):
-        raise TypeError("Input must be an integer")
-    if value < 0:
-        raise ValueError("Input must be a non-negative integer")
+    return (int(value) + 3) & ~3
 
+
+def tensor_pad4(value: torch.Tensor) -> torch.Tensor:
+    """
+    The equivalent of pad4 for tensors.
+    """
     return (value + 3) & ~3
