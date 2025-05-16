@@ -253,8 +253,8 @@ def _fbgemm_grouped_gemm(
     NUM_CONSUMER_GROUPS: tl.constexpr,
 ) -> None:
     tl.static_assert(
-        not FUSE_SCATTER_ADD,
-        "FUSE_SCATTER_ADD not supported at _fbgemm_grouped_gemm at the moment!",
+        not (FUSE_SCATTER_ADD and USE_TMA_STORE),
+        "Cannot fuse scatter add with TMA store!",
     )
 
     tidx = tl.program_id(0)
@@ -352,6 +352,22 @@ def _fbgemm_grouped_gemm(
                         c_desc_ptr,
                         accumulator.to(c_ptr.dtype.element_ty),
                         [m_offset, n_offset],
+                    )
+                elif FUSE_SCATTER_ADD:
+                    offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                    mask = offs_am < m_size
+                    m_offsets = tl.load(
+                        scatter_add_indices + M_start_offset + offs_am,
+                        mask=mask,
+                        cache_modifier=".ca",
+                    )
+                    offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                    c = accumulator.to(c_ptr.dtype.element_ty)
+                    tl.atomic_add(
+                        c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
+                        c,
+                        mask=mask[:, None] and offs_bn[None, :] < n_size,
+                        sem="relaxed",
                     )
                 else:
                     offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
@@ -576,8 +592,8 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
     NUM_CONSUMER_GROUPS: tl.constexpr,
 ) -> None:
     tl.static_assert(
-        not FUSE_SCATTER_ADD,
-        "FUSE_SCATTER_ADD not supported at _fbgemm_grouped_gemm_fp8_rowwise at the moment!",
+        not (FUSE_SCATTER_ADD and USE_TMA_STORE),
+        "Cannot fuse scatter add with TMA store!",
     )
 
     tidx = tl.program_id(0)
@@ -687,6 +703,21 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
                         c_desc_ptr,
                         c.to(c_ptr.dtype.element_ty),
                         [m_offset, n_offset],
+                    )
+                elif FUSE_SCATTER_ADD:
+                    offs_am = tile_m_idx * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+                    mask = offs_am < m_size
+                    m_offsets = tl.load(
+                        scatter_add_indices + M_start_offset + offs_am,
+                        mask=mask,
+                        cache_modifier=".ca",
+                    )
+                    offs_bn = tile_n_idx * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+                    tl.atomic_add(
+                        c_ptr + m_offsets[:, None] * N + offs_bn[None, :],
+                        c.to(c_ptr.dtype.element_ty),
+                        mask=mask[:, None] and offs_bn[None, :] < n_size,
+                        sem="relaxed",
                     )
                 else:
                     tl.store(
