@@ -574,15 +574,14 @@ bf16bf16bf16_grouped_stacked(at::Tensor X, at::Tensor W, at::Tensor M_sizes) {
       "M_sizes must be on same device as inputs.");
   TORCH_CHECK(
       W.dim() == 3 && W.size(0) == G, "Weights should be shape [G, N, K].")
-  at::Tensor Y = at::empty(total_M * N, X.options().dtype(at::kBFloat16));
+  at::Tensor Y = at::empty({total_M, N}, X.options().dtype(at::kBFloat16));
   // Early exit for empty inputs.
   if (total_M == 0) {
-    return Y.view({total_M, N});
+    return Y;
   }
   // Return continuous view of output.
-  at::Tensor out = dispatch_bf16_grouped_kernel<at::Tensor>(
+  return dispatch_bf16_grouped_kernel<at::Tensor>(
       total_M, X, W, Y, std::nullopt, M_sizes);
-  return out.view({total_M, N});
 }
 
 at::Tensor bf16bf16bf16_grouped_dynamic(
