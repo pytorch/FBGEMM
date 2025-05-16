@@ -72,19 +72,26 @@ def get_llama_shapes() -> List[Tuple[int, int, int, int]]:
 
     llama_shapes = []
     for M in [1, 16, 32, 64, 96, 128, 16384]:
-        # Add shapes for llama 70B
+        # Add shapes for llama3 70B
         llama_shapes += [
             (1, M, 1280, 8192),
             (1, M, 8192, 1024),
             (1, M, 7168, 8192),
             (1, M, 8192, 3584),
         ]
-        # Add shapes for llama 405B
+        # Add shapes for llama3 405B
         llama_shapes += [
             (1, M, 13312, 6656),
             (1, M, 13312, 16384),
             (1, M, 16384, 6656),
             (1, M, 16384, 16384),
+        ]
+        # Add shapes for llama4 Scout/Maverick (17Bx{16,128})
+        llama_shapes += [
+            (1, M, 896, 5120),
+            (1, M, 5120, 640),
+            (1, M, 2048, 5120),
+            (1, M, 5120, 1024),
         ]
 
     return llama_shapes
