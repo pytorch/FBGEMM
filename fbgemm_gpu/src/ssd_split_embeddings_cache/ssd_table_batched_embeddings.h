@@ -101,7 +101,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t res_server_port = 0,
       std::vector<std::string> table_names = {},
       std::vector<int64_t> table_offsets = {},
-      const std::vector<int64_t>& table_sizes = {})
+      const std::vector<int64_t>& table_sizes = {},
+      std::optional<at::Tensor> table_dims = std::nullopt,
+      std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -266,6 +268,29 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
         shard_flush_compaction_deadlines_.push_back(
             memtable_flush_offset_ + (i * period_per_shard));
       }
+    }
+    if (table_dims.has_value()) {
+      TORCH_CHECK(table_dims->dim() == 1);
+      TORCH_CHECK(table_dims->dtype() == at::ScalarType::Long);
+      TORCH_CHECK(table_dims->is_contiguous());
+      TORCH_CHECK(table_dims->device().is_cpu());
+      TORCH_CHECK(hash_size_cumsum.has_value());
+      TORCH_CHECK(hash_size_cumsum->dim() == 1);
+      TORCH_CHECK(hash_size_cumsum->dtype() == at::ScalarType::Long);
+      TORCH_CHECK(hash_size_cumsum->is_contiguous());
+      TORCH_CHECK(hash_size_cumsum->device().is_cpu());
+      TORCH_CHECK(
+          table_dims->numel() + 1 == hash_size_cumsum->numel(),
+          "hash_size_cumsum length must be one more than table_dims length, but got ",
+          hash_size_cumsum->numel(),
+          " and ",
+          table_dims->numel());
+      sub_table_dims_.assign(
+          table_dims->data_ptr<int64_t>(),
+          table_dims->data_ptr<int64_t>() + table_dims->numel());
+      sub_table_hash_cumsum_.assign(
+          hash_size_cumsum->data_ptr<int64_t>() + 1, // skip the first 0
+          hash_size_cumsum->data_ptr<int64_t>() + hash_size_cumsum->numel());
     }
   }
 
@@ -759,18 +784,40 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
+  int64_t get_dim_from_index(int64_t index) const {
+    if (sub_table_dims_.empty()) {
+      return max_D_;
+    }
+    for (int i = 0; i < sub_table_hash_cumsum_.size(); i++) {
+      if (index < sub_table_hash_cumsum_[i]) {
+        return sub_table_dims_[i];
+      }
+    }
+    return max_D_;
+  }
+
   void fill_from_row_storage(
       int shard_id,
       unsigned char* weights_data_ptr,
       int64_t weights_row_index,
-      unsigned char* row_storage_data_ptr) {
+      unsigned char* row_storage_data_ptr,
+      const rocksdb::Slice& weight_key) {
+    // get the exact row dimension from the feature dimension list, so that
+    // we can fill the correct number of elements into the weights tensor
+    // for the given row. the rest of the row will stay as 0s, so untrained
+    auto weight_index = *reinterpret_cast<const int64_t*>(weight_key.data());
+    auto dim = get_dim_from_index(weight_index);
     int64_t row_width = elem_size_ * max_D_;
+    auto copy_width = elem_size_ * dim;
+    CHECK_LE(copy_width, row_width);
     int64_t row_index;
     initializers_[shard_id]->producer_queue_.dequeue(row_index);
-    std::copy(
+    auto copied = std::copy_n(
         &(row_storage_data_ptr[row_index * row_width]),
-        &(row_storage_data_ptr[row_index * row_width + row_width]),
+        copy_width,
         &(weights_data_ptr[weights_row_index * row_width]));
+    std::fill(
+        copied, &(weights_data_ptr[(weights_row_index + 1) * row_width]), 0);
     initializers_[shard_id]->consumer_queue_.enqueue(row_index);
   }
 
@@ -802,7 +849,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             shard_id,
             reinterpret_cast<unsigned char*>(weights_data_ptr),
             i,
-            reinterpret_cast<unsigned char*>(row_storage_data_ptr));
+            reinterpret_cast<unsigned char*>(row_storage_data_ptr),
+            keys[j]);
         continue;
       }
 
@@ -814,7 +862,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             shard_id,
             reinterpret_cast<unsigned char*>(weights_data_ptr),
             i,
-            reinterpret_cast<unsigned char*>(row_storage_data_ptr));
+            reinterpret_cast<unsigned char*>(row_storage_data_ptr),
+            keys[j]);
       } else {
         const auto value = it->value();
         if (!std::is_same<VALUE_T, uint8_t>::value) {
@@ -871,7 +920,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             shard_id,
             reinterpret_cast<unsigned char*>(weights_data_ptr),
             i,
-            reinterpret_cast<unsigned char*>(row_storage_data_ptr));
+            reinterpret_cast<unsigned char*>(row_storage_data_ptr),
+            keys[j]);
       }
     }
   }
@@ -1037,6 +1087,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       snapshots_;
   int64_t max_D_;
   int64_t elem_size_;
+  std::vector<int64_t> sub_table_dims_;
+  std::vector<int64_t> sub_table_hash_cumsum_;
 }; // class EmbeddingRocksDB
 
 } // namespace ssd

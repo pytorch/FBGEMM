@@ -475,7 +475,9 @@ static auto embedding_rocks_db_wrapper =
                 int64_t,
                 std::vector<std::string>,
                 std::vector<int64_t>,
-                std::vector<int64_t>>(),
+                std::vector<int64_t>,
+                std::optional<at::Tensor>,
+                std::optional<at::Tensor>>(),
             "",
             {
                 torch::arg("path"),
@@ -504,6 +506,8 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("table_names") = torch::List<std::string>(),
                 torch::arg("table_offsets") = torch::List<int64_t>(),
                 torch::arg("table_sizes") = torch::List<int64_t>(),
+                torch::arg("table_dims") = std::nullopt,
+                torch::arg("hash_size_cumsum") = std::nullopt,
             })
         .def(
             "set_cuda",

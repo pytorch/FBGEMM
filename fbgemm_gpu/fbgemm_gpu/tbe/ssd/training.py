@@ -54,6 +54,8 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_training_common import (
 from torch import distributed as dist, nn, Tensor  # usort:skip
 from dataclasses import dataclass
 
+from fbgemm_gpu.tbe.ssd.common import tensor_pad4
+
 from torch.autograd.profiler import record_function
 
 from ..cache import get_unique_indices_v2
@@ -531,7 +533,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB, enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}"
             )
             # pyre-fixme[4]: Attribute must be annotated.
-            # pyre-ignore[16]
             self._ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
                 ssd_directory,
                 ssd_rocksdb_shards,
@@ -559,6 +560,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.res_params.table_names,
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
+                (
+                    tensor_pad4(self.feature_dims.cpu())
+                    if self.enable_optimizer_offloading
+                    else None
+                ),
+                (
+                    self.hash_size_cumsum.cpu()
+                    if self.enable_optimizer_offloading
+                    else None
+                ),
             )
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
