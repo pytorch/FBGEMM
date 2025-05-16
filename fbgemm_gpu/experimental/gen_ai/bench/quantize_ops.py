@@ -2079,3 +2079,217 @@ class MXFP4Gemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+@register_quantize_op
+class MXFP4GroupedGemm(QuantizeOpBase):
+    """
+    MXFP4 grouped matmul with blockwise scaling.
+    """
+
+    def preprocess(self, x, w):
+        wq, w_scale = zip(*[scale_mxfp4_quant(i) for i in w])
+        return x, wq, w_scale
+
+    def quantize(self, x, wq, w_scale):
+        xq, x_scale = zip(*[scale_mxfp4_quant(i) for i in x])
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f4f4bf16_grouped(
+            xq,
+            wq,
+            x_scale,
+            w_scale,
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale):
+        xq, wq, x_scale, w_scale = self.quantize(x, wq, w_scale)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_f4f4bf16_grouped"
+
+    @property
+    def hip(self) -> bool:
+        # F4F4BF16_grouped only supported for cuda.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class NVFP4GroupedGemm(QuantizeOpBase):
+    """
+    NVFP4 grouped matmul with blockwise scaling.
+    """
+
+    def quantize(self, x, w):
+        def get_global_scale(x, w):
+            x_global_scale = ((448.0 * 6.0) / torch.amax(x.flatten(), dim=-1)).to(
+                torch.float32
+            )
+            w_global_scale = ((448.0 * 6.0) / torch.amax(w.flatten(), dim=-1)).to(
+                torch.float32
+            )
+            global_scale = 1 / (x_global_scale * w_global_scale)
+            return x_global_scale, w_global_scale, global_scale
+
+        # Compute global scale for each group
+        G = len(x)
+        x_global_scale = []
+        w_global_scale = []
+        global_scale = []
+        for i in range(G):
+            x_global_scale_, w_global_scale_, global_scale_ = get_global_scale(
+                x[i], w[i]
+            )
+            x_global_scale.append(x_global_scale_)
+            w_global_scale.append(w_global_scale_)
+            global_scale.append(global_scale_)
+
+        # Quantize weights and activations
+        wq, w_scale = zip(
+            *[scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
+        )
+        xq, x_scale = zip(
+            *[scale_nvfp4_quant(x[i], x_global_scale[i]) for i in range(G)]
+        )
+        return xq, wq, x_scale, w_scale, global_scale
+
+    def compute(self, xq, wq, x_scale, w_scale, global_scale):
+        return torch.ops.fbgemm.f4f4bf16_grouped(
+            xq, wq, x_scale, w_scale, global_scale, use_mx=False
+        )
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale, global_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, global_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_nv_f4f4bf16_grouped"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class MXFP4StackedGroupedGemm(QuantizeOpBase):
+    """
+    MXFP4 grouped matmul with blockwise scaling and stacked inputs.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        wq, w_scale = zip(*[scale_mxfp4_quant(i) for i in w])
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+        return x, wq, w_scale, m_sizes
+
+    def quantize(self, x, wq, w_scale, m_sizes):
+        xq, x_scale = zip(*[scale_mxfp4_quant(i) for i in x])
+        xq = torch.stack(xq, dim=0).contiguous()
+        x_scale = torch.stack(x_scale, dim=0).contiguous()
+        xq = xq.view(-1, xq.shape[-1])
+        return xq, wq, x_scale, w_scale, m_sizes
+
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes):
+        return torch.ops.fbgemm.f4f4bf16_grouped_stacked(
+            xq, wq, x_scale, w_scale, m_sizes
+        )
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, m_sizes)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_f4f4bf16_grouped_stacked"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class NVFP4StackedGroupedGemm(QuantizeOpBase):
+    """
+    NVFP4 grouped matmul with blockwise scaling and stacked inputs.
+    """
+
+    def quantize(self, x, w):
+        def get_global_scale(x, w):
+            x_global_scale = ((448.0 * 6.0) / torch.amax(x.flatten(), dim=-1)).to(
+                torch.float32
+            )
+            w_global_scale = ((448.0 * 6.0) / torch.amax(w.flatten(), dim=-1)).to(
+                torch.float32
+            )
+            global_scale = 1 / (x_global_scale * w_global_scale)
+            return x_global_scale, w_global_scale, global_scale
+
+        m_values = [i.shape[0] for i in x]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+
+        # Compute global scale for each group
+        G = len(x)
+        x_global_scale = []
+        w_global_scale = []
+        global_scale = []
+        for i in range(G):
+            x_global_scale_, w_global_scale_, global_scale_ = get_global_scale(
+                x[i], w[i]
+            )
+            x_global_scale.append(x_global_scale_)
+            w_global_scale.append(w_global_scale_)
+            global_scale.append(global_scale_)
+
+        wq, w_scale = zip(
+            *[scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
+        )
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+
+        xq, x_scale = zip(
+            *[scale_nvfp4_quant(x[i], x_global_scale[i]) for i in range(G)]
+        )
+        xq = torch.stack(xq, dim=0).contiguous()
+        x_scale = torch.stack(x_scale, dim=0).contiguous()
+        xq = xq.view(-1, xq.shape[-1])
+        global_scale = torch.stack(global_scale, dim=0).contiguous()
+        return xq, wq, x_scale, w_scale, m_sizes, global_scale
+
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes, global_scale):
+        return torch.ops.fbgemm.f4f4bf16_grouped_stacked(
+            xq, wq, x_scale, w_scale, m_sizes, global_scale, use_mx=False
+        )
+
+    def quantize_and_compute(self, x, w):
+        xq, wq, x_scale, w_scale, m_sizes, global_scale = self.quantize(x, w)
+        return self.compute(xq, wq, x_scale, w_scale, m_sizes, global_scale)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_nv_f4f4bf16_grouped_stacked"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
