@@ -1,0 +1,9 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(asmjit REQUIRED)
+find_dependency(cpuinfo REQUIRED)
+if(@OpenMP_FOUND@)
+  find_dependency(OpenMP REQUIRED)
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/fbgemmTargets.cmake")
+check_required_components(fbgemm)
