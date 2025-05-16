@@ -14,7 +14,9 @@
 
 #include "fbgemm/FbgemmEmbedding.h"
 
+#ifndef DISABLE_FBGEMM_AUTOVEC
 #define FBGEMM_AUTOVEC_AVAILABLE
+#endif
 
 namespace fbgemm {
 
