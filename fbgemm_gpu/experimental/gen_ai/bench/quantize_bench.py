@@ -446,21 +446,22 @@ def main(args: Any):
             MNK = list(itertools.product(B, M, N, K))
     # When groups is provided transform shapes into grouped format.
     if args.groups:
-        groups = int(args.groups)
+        groups = [int(g) for g in args.groups.strip().split(",")]
         if args.total_M:
-            M = generate_group_tensor(groups, int(args.total_M))
             MNK = [
                 [
-                    [b] * groups,
-                    generate_group_tensor(groups, int(args.total_M)),
-                    [n] * groups,
-                    [k] * groups,
+                    [b] * g,
+                    generate_group_tensor(g, int(args.total_M)),
+                    [n] * g,
+                    [k] * g,
                 ]
+                for g in groups
                 for b, _, n, k in MNK
             ]
         else:
             MNK = [
-                [[b] * groups, [m] * groups, [n] * groups, [k] * groups]
+                [[b] * g, [m] * g, [n] * g, [k] * g]
+                for g in groups
                 for b, m, n, k in MNK
             ]
 
@@ -558,7 +559,7 @@ def invoke_main() -> None:
     parser.add_argument(
         "--groups",
         default=None,
-        help="If set with grouped mode, repeat input shapes this many times.",
+        help="If set with grouped mode, repeat input shapes this many times. Comma separated list of groups to benchmark",
     )
     parser.add_argument(
         "--total_M",
