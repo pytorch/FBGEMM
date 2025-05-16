@@ -10,7 +10,7 @@
 
 # A minimum CMake version of 3.21+ is needed to support the required C and C++
 # standard versions
-cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
@@ -105,6 +105,7 @@ option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
+option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
@@ -421,4 +422,12 @@ endif()
 
 if(FBGEMM_BUILD_FBGEMM_GPU)
   add_subdirectory(fbgemm_gpu)
+endif()
+
+if(HAVE_GNU_F2H_IEEE)
+    add_definitions(-DHAVE_GNU_F2H_IEEE)
+endif()
+
+if(DISABLE_FBGEMM_AUTOVEC)
+  add_definitions(-DDISABLE_FBGEMM_AUTOVEC)
 endif()
