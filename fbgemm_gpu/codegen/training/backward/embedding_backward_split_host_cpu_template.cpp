@@ -226,6 +226,13 @@ Tensor split_embedding_codegen_lookup_{{ optimizer }}_function_cpu(
   // The unified PT2 interface already accepts learning rate as tensor.
   const auto learning_rate_tensor = at::tensor({learning_rate}, at::TensorOptions().dtype(at::kFloat).device(at::kCPU));
   {%- endif %}
+
+  // V1 API is frozen. New features/functionability can only be enabled in V2 API
+  // // New arguments are added here for compatibility
+  {%- if "enable_optimizer_offloading" in args.split_function_arg_names %}
+  const bool enable_optimizer_offloading = false;
+  {%- endif %}
+
   return SplitLookupFunction_{{ optimizer }}_Op::apply(
       host_weights,
       weights_placements,
