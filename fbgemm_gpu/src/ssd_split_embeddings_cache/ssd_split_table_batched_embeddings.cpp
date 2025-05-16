@@ -344,19 +344,23 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   CHECK_GE(db_->get_max_D(), shape_[1]);
   CHECK_TRUE(db_ != nullptr);
-  CHECK_TRUE(snapshot_handle_ != nullptr);
+  // Do not force snapshot handle is not nullptr since DRAM DB does not have
+  // rocksdb snapshot
   if (!sorted_indices_.has_value()) {
     auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
     db_->get_range_from_snapshot(
-        t, start + row_offset_, length, snapshot_handle_->handle);
+        t,
+        start + row_offset_,
+        length,
+        snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr);
     // TBE may have multiple embeddings in one table padded to max D
     // narrow to the actual shape here before returning
-    return t.narrow(1, 0, shape_[1]);
+    return t.narrow(1, 0, shape_[1]).contiguous();
   } else {
     at::Tensor sliced_ids =
         sorted_indices_.value().slice(0, start, start + length);
     auto out_weights = get_weights_by_ids(sliced_ids);
-    return out_weights.narrow(1, 0, shape_[1]);
+    return out_weights.narrow(1, 0, shape_[1]).contiguous();
   }
 }
 
@@ -404,7 +408,9 @@ at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
       at::empty(c10::IntArrayRef({ids.size(0), db_->get_max_D()}), options_);
   auto linearized_ids = ids + row_offset_;
   db_->get_kv_from_storage_by_snapshot(
-      linearized_ids, weights, snapshot_handle_->handle);
+      linearized_ids,
+      weights,
+      snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr);
   return weights.narrow(1, 0, shape_[1]);
 }
 
