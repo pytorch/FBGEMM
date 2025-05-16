@@ -123,7 +123,7 @@ class PackMatrix {
    * @return true if this is the first input matrix in GEMM (i.e., A in C = A *
    *         B)
    */
-  static constexpr bool isA() {
+  static bool isA() {
     return PT::isA();
   }
 
