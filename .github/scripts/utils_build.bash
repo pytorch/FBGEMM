@@ -98,7 +98,6 @@ __conda_install_glibc () {
   else
     (test_filepath "${CONDA_PREFIX}" 'libstdc++.so.6') || return 1
   fi
-
 }
 
 __set_glibcxx_preload () {
