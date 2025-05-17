@@ -323,7 +323,7 @@ class FbgemmGpuBuild:
                 + (
                     # Starting from ROCm 6.4, HIP clang complains about
                     # -fopenmp=libgomp being an invalid fopenmp-target
-                    []
+                    [ "-ltbb" ]
                     if self.variant() == "rocm"
                     else ["-fopenmp=libgomp"]
                 )
