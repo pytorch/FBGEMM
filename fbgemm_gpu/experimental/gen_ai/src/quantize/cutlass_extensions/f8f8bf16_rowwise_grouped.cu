@@ -732,15 +732,14 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
       "M_sizes must be on same device as inputs.");
   TORCH_CHECK(
       WQ.dim() == 3 && WQ.size(0) == G, "Weights should be shape [G, N, K].")
-  at::Tensor Y = at::empty(total_M * N, XQ.options().dtype(at::kBFloat16));
+  at::Tensor Y = at::empty({total_M, N}, XQ.options().dtype(at::kBFloat16));
   // Early exit for empty inputs.
   if (total_M == 0) {
-    return Y.view({total_M, N});
+    return Y;
   }
   // Return continuous view of output.
-  at::Tensor out = dispatch_fp8_grouped_kernel<at::Tensor>(
+  return dispatch_fp8_grouped_kernel<at::Tensor>(
       total_M, XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_sizes);
-  return out.view({total_M, N});
 }
 
 at::Tensor f8f8bf16_rowwise_grouped_dynamic(
