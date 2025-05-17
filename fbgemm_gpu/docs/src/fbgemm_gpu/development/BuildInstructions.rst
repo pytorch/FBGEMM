@@ -47,7 +47,7 @@ environment is recommended for reproducible builds:
   . ~/.bashrc
 
   # Run updates
-  conda update -n base -c defaults -y conda
+  conda update -n base -c conda-forge -y conda
 
 From here on out, all installation commands will be run against or
 inside a Conda environment.
