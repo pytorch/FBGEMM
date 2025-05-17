@@ -1359,6 +1359,13 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     OptimType.EMAINPLACE_ROWWISE_ADAGRAD,
                 )
                 or self._used_rowwise_adagrad_with_global_weight_decay
+                or (
+                    self._used_rowwise_adagrad_with_counter
+                    and self.optimizer_args.regularization_mode
+                    == WeightDecayMode.COUNTER.value
+                    and self.optimizer_args.weight_decay_mode
+                    == CounterWeightDecayMode.ADAGRADW.value
+                )
             ):
                 self.register_buffer(
                     "iter",
