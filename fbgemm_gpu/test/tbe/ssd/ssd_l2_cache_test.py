@@ -7,6 +7,7 @@
 # pyre-strict
 # pyre-ignore-all-errors[3,6,56]
 
+import logging
 import math
 import tempfile
 
@@ -14,7 +15,7 @@ import threading
 import time
 import unittest
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 import hypothesis.strategies as st
@@ -22,6 +23,7 @@ import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
+from fbgemm_gpu.tbe.ssd.training import KVZCHParams
 from fbgemm_gpu.tbe.utils import round_up
 from hypothesis import given, settings, Verbosity
 
@@ -57,6 +59,7 @@ class SSDCheckpointTest(unittest.TestCase):
         mixed: bool,
         enable_l2: bool = True,
         ssd_rocksdb_shards: int = 1,
+        kv_zch_params: Optional[KVZCHParams] = None,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int]]:
         E = int(10**log_E)
         D = D * 4
@@ -83,6 +86,7 @@ class SSDCheckpointTest(unittest.TestCase):
             weights_precision=weights_precision,
             l2_cache_size=1 if enable_l2 else 0,
             ssd_rocksdb_shards=ssd_rocksdb_shards,
+            kv_zch_params=kv_zch_params,
         )
         return emb, Es, Ds
 
@@ -407,3 +411,100 @@ class SSDCheckpointTest(unittest.TestCase):
 
         # Compare actual and expected tensor outputs
         self.assertTrue(torch.equal(bucket_t.view(-1), expected_bucket_tensor))
+
+    @given(
+        T=st.integers(min_value=2, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        log_E=st.integers(min_value=2, max_value=3),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        enable_l2=st.sampled_from([True, False]),
+    )
+    @settings(**default_settings)
+    def test_all_zero_opt_state_offloading(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        weights_precision: SparseType,
+        enable_l2: bool,
+    ) -> None:
+        kv_zch_params = KVZCHParams(
+            enable_optimizer_offloading=True,
+        )
+        emb, Es, Ds = self.generate_fbgemm_ssd_tbe(
+            T,
+            D,
+            log_E,
+            weights_precision,
+            mixed=True,
+            enable_l2=enable_l2,
+            kv_zch_params=kv_zch_params,
+        )
+        dtype = weights_precision.as_dtype()
+        opt_dim = int(math.ceil(4 / dtype.itemsize))
+        snapshot = emb.ssd_db.create_snapshot()
+        offsets = 0
+        max_D = max(Ds)
+        for E, D in zip(Es, Ds):
+            if D + opt_dim > max_D:
+                # skip this case, we need enough space to simulate optimizer state query
+                offsets += E
+                continue
+
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, max_D], dtype, offsets, snapshot
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(emb.ssd_db)
+            weight_opt = tensor_wrapper.narrow(0, 0, 1)
+            pad4_d = (D + 3) & ~3
+            torch.testing.assert_close(
+                weight_opt[:, pad4_d:], torch.zeros(1, max_D - pad4_d, dtype=dtype)
+            )
+            offsets += E
+
+    @given(
+        T=st.integers(min_value=2, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        log_E=st.integers(min_value=2, max_value=3),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        enable_l2=st.sampled_from([True, False]),
+    )
+    @settings(**default_settings)
+    def test_contiguous_narrow_w_offloading(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        weights_precision: SparseType,
+        enable_l2: bool,
+    ) -> None:
+        kv_zch_params = KVZCHParams(
+            enable_optimizer_offloading=True,
+        )
+        emb, Es, Ds = self.generate_fbgemm_ssd_tbe(
+            T,
+            D,
+            log_E,
+            weights_precision,
+            mixed=True,
+            enable_l2=enable_l2,
+            kv_zch_params=kv_zch_params,
+        )
+        dtype = weights_precision.as_dtype()
+        opt_dim = int(math.ceil(4 / dtype.itemsize))
+        snapshot = emb.ssd_db.create_snapshot()
+        offsets = 0
+        max_D = max(Ds)
+        for E, D in zip(Es, Ds):
+            if D + opt_dim > max_D:
+                # skip this case, we need enough space to simulate optimizer state query
+                offsets += E
+                continue
+
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, D], dtype, offsets, snapshot
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(emb.ssd_db)
+            weight_opt = tensor_wrapper.narrow(0, 0, 1)
+            self.assertTrue(weight_opt.is_contiguous())
+            offsets += E
