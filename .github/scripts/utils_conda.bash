@@ -67,7 +67,7 @@ setup_miniconda () {
     libarchive) || return 1
 
   echo "[SETUP] Updating Miniconda base packages ..."
-  (exec_with_retries 3 conda update -n base -c defaults --update-deps -y conda) || return 1
+  (exec_with_retries 3 conda update -n base -c conda-forge --override-channels --update-deps -y conda) || return 1
 
   # Clean up packages
   conda_cleanup

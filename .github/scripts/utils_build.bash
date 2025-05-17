@@ -372,6 +372,7 @@ install_build_tools () {
     patchelf \
     rhash \
     scikit-build \
+    tbb \
     wheel \
     pyyaml) || return 1
 

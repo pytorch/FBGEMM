@@ -14,7 +14,7 @@ older than the one that the FBGEMM release corresponds to.
 | FBGEMM Release  | Corresponding    | Supported        | Supported      | Supported CUDA     | (Experimental) Supported  | (Experimental) Supported  |
 |                 | PyTorch Release  | Python Versions  | CUDA Versions  | Architectures      | ROCm Versions             | ROCm Architectures        |
 +=================+==================+==================+================+====================+===========================+===========================+
-| 1.2.0           | 2.7.x            | 3.9, 3.10, 3.11, | 11.8, 12.6,    | 7.0, 8.0, 9.0,     | 6.1, 6.2.4, 6.3           | gfx908, gfx90a, gfx942    |
+| 1.2.0           | 2.7.x            | 3.9, 3.10, 3.11, | 11.8, 12.6,    | 7.0, 8.0, 9.0,     | 6.2.4, 6.3                | gfx908, gfx90a, gfx942    |
 |                 |                  | 3.12, 3.13       | 12.8           | 9.0a, 10.0a, 12.0a |                           |                           |
 +-----------------+------------------+------------------+----------------+----------------------+---------------------------+---------------------------+
 | 1.1.0           | 2.6.x            | 3.9, 3.10, 3.11, | 11.8, 12.4,    | 7.0, 8.0, 9.0,     | 6.1, 6.2.4, 6.3           | gfx908, gfx90a, gfx942    |
