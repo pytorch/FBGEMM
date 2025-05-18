@@ -89,15 +89,11 @@ __conda_install_glibc () {
       "libstdcxx-ng=${gcc_version}") || return 1
   fi
 
-  echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
   # Ensure libstdc++.so.6 is found
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2153
-  if [ "${CONDA_PREFIX}" == '' ]; then
-    echo "[CHECK] CONDA_PREFIX is not set."
-    (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
-  else
-    (test_filepath "${CONDA_PREFIX}" 'libstdc++.so.6') || return 1
-  fi
+  (test_filepath "${conda_prefix}" 'libstdc++.so.6') || return 1
 }
 
 __set_glibcxx_preload () {
@@ -281,6 +277,10 @@ __compiler_post_install_checks () {
   # https://stackoverflow.com/questions/2324658/how-to-determine-the-version-of-the-c-standard-used-by-the-compiler
   echo "[INFO] Printing the default version of the C++ standard used by the compiler ..."
   print_exec "conda run ${env_prefix} c++ -dM -E -x c++ - < /dev/null | grep __cplusplus"
+
+  # shellcheck disable=SC2155,SC2086
+  local ld_library_path=$(conda run ${env_prefix} printenv LD_LIBRARY_PATH)
+  echo "[CHECK] LD_LIBRARY_PATH = ${ld_library_path}"
 }
 
 install_cxx_compiler () {

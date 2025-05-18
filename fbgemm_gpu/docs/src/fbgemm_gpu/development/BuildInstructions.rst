@@ -63,7 +63,7 @@ Create a Conda environment with the specified Python version:
   python_version=3.13
 
   # Create the environment
-  conda create -y --name ${env_name} python="${python_version}"
+  conda create -y -n ${env_name} -c conda-forge python="${python_version}"
 
   # Upgrade PIP and pyOpenSSL package
   conda run -n ${env_name} pip install --upgrade pip

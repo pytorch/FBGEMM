@@ -175,7 +175,7 @@ create_conda_environment () {
   # The `-y` flag removes any existing Conda environment with the same name
   echo "[SETUP] Creating new Conda environment (Python ${python_version}) ..."
   # shellcheck disable=SC2086
-  (exec_with_retries 3 conda create -y ${env_prefix} python="${python_version}") || return 1
+  (exec_with_retries 3 conda create ${env_prefix} -c conda-forge -y python="${python_version}") || return 1
 
   echo "[SETUP] Upgrading PIP to latest ..."
   # shellcheck disable=SC2086
