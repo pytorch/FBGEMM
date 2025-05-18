@@ -90,10 +90,8 @@ __conda_install_glibc () {
   fi
 
   # Ensure libstdc++.so.6 is found
-  # shellcheck disable=SC2155,SC2086
-  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   # shellcheck disable=SC2153
-  (test_filepath "${conda_prefix}" 'libstdc++.so.6') || return 1
+  (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
 }
 
 __set_glibcxx_preload () {
