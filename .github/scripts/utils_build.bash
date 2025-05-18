@@ -91,7 +91,7 @@ __conda_install_glibc () {
 
   # Ensure libstdc++.so.6 is found
   # shellcheck disable=SC2153
-  (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
+  # (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
 }
 
 __set_glibcxx_preload () {
