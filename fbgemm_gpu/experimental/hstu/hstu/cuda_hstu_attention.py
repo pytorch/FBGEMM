@@ -10,9 +10,8 @@
 
 from typing import Tuple
 
-import fbgemm_gpu.experimental.hstu
-
 import torch
+
 
 class HstuAttnVarlenFunc(torch.autograd.Function):
     @staticmethod
@@ -40,8 +39,6 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
         assert q.dim() == 3, "q shape should be (L, num_heads, head_dim)"
         assert k.dim() == 3, "k shape should be (L, num_heads, head_dim)"
         assert v.dim() == 3, "v shape should be (L, num_heads, hidden_dim)"
-        num_heads = q.size(1)
-        head_dim = q.size(2)
 
         major_version = torch.cuda.get_device_capability()[0]
         assert major_version == 8 or major_version == 9, "Only support sm80 and sm90"
@@ -99,7 +96,6 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
         ctx.max_seqlen_q = max_seqlen_q
         ctx.max_seqlen_k = max_seqlen_k
         ctx.target_group_size = target_group_size
-        ctx.num_heads = num_heads
         ctx.alpha = alpha
         ctx.window_size_left = window_size[0]
         ctx.window_size_right = window_size[1]
@@ -143,7 +139,6 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
             rab_padded,
         ) = ctx.saved_tensors
 
-        num_heads = ctx.num_heads
         max_seqlen_q = ctx.max_seqlen_q
         max_seqlen_k = ctx.max_seqlen_k
         target_group_size = ctx.target_group_size
@@ -195,11 +190,6 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
                 is_delta_q,
                 False,  # deterministic
             )
-
-        if has_drab:
-            rab_head = rab_padded.size(1)
-            qkv_head = q.size(1)
-            dRab = dRab.view(-1, num_heads, max_seqlen_k, max_seqlen_k)
 
         # q & k grad shape
         return (
@@ -271,11 +261,11 @@ def hstu_attn_varlen_func(
     """
     if has_drab and (rab is None):
         raise ValueError("AssertError: rab is None, but has_drab is True, is not allowed in backward")
-    if num_contexts != None and window_size != (-1, 0):
+    if num_contexts is not None and window_size != (-1, 0):
         raise ValueError("AssertError: context is True and causal is not True, this is undefined behavior")
-    if num_targets != None and window_size != (-1, 0):
+    if num_targets is not None and window_size != (-1, 0):
         raise ValueError("AssertError: target is True and causal is not True, this is undefined behavior")
-    if (num_contexts != None and is_delta_q is True) or (num_targets != None and is_delta_q is True):
+    if (num_contexts is not None and is_delta_q is True) or (num_targets is not None and is_delta_q is True):
         raise ValueError("AssertError: delta_q is True, but num_contexts or num_targets is not None, this is undefined behavior")
     if num_targets is None and target_group_size < 1:
         raise ValueError("AssertError: target_group_size should be greater than 0 when target is True")
