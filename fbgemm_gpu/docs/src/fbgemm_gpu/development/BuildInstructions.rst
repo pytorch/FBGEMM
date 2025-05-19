@@ -47,7 +47,7 @@ environment is recommended for reproducible builds:
   . ~/.bashrc
 
   # Run updates
-  conda update -n base -c defaults -y conda
+  conda update -n base -c conda-forge -y conda
 
 From here on out, all installation commands will be run against or
 inside a Conda environment.
@@ -63,7 +63,7 @@ Create a Conda environment with the specified Python version:
   python_version=3.13
 
   # Create the environment
-  conda create -y --name ${env_name} python="${python_version}"
+  conda create -y -n ${env_name} -c conda-forge python="${python_version}"
 
   # Upgrade PIP and pyOpenSSL package
   conda run -n ${env_name} pip install --upgrade pip
