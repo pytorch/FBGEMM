@@ -354,6 +354,7 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
       ninja \
       numpy \
       scikit-build \
+      tbb \
       wheel
 
 .. _fbgemm-gpu.build.setup.pytorch.install:
@@ -674,6 +675,9 @@ presuming the toolchains have been properly installed.
   # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
   export ROCM_PATH=/path/to/rocm
+
+  # [OPTIONAL] If libtbb.so is missing, create the symlink (presuming libtbb.so.12 is present)
+  ln -s "${CONDA_PREFIX}/lib/libtbb.so.12" "${CONDA_PREFIX}/lib/libtbb.so"
 
   # [OPTIONAL] Enable verbose HIPCC logs
   export HIPCC_VERBOSE=1
