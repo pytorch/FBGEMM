@@ -187,8 +187,8 @@ desired ROCm version:
 
 .. code:: sh
 
-  # Run for ROCm 6.2.0
-  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:6.2.0
+  # Run for ROCm 6.3
+  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:6.3
 
 While the `full ROCm Docker image <https://hub.docker.com/r/rocm/dev-ubuntu-22.04>`__
 comes with all ROCm packages pre-installed, it results in a very large Docker
