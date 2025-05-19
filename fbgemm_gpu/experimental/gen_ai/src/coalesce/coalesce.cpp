@@ -14,6 +14,11 @@
 #include <execution>
 #include "coalesce.h"
 
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "coalesce_batches(Tensor(a!)[] input_tensors, Tensor(a!)[] output_tensors, Tensor old_bids, Tensor new_bids) -> Tensor[]");
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   DISPATCH_TO_CUDA("coalesce_batches", fbgemm_gpu::coalesce_batches_gpu);
 }
