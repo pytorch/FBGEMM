@@ -503,8 +503,8 @@ test_fbgemm_gpu_setup_and_pip_install () {
     )
   elif [ "$variant_type" == "rocm" ]; then
     local variant_versions=(
-      6.2.4
       6.3
+      6.4
     )
   elif [ "$variant_type" == "cpu" ]; then
     local variant_versions=(
