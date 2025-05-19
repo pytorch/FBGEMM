@@ -492,7 +492,7 @@ bash<span class="w"> </span>miniconda.sh<span class="w"> </span>-b<span class="w
 .<span class="w"> </span>~/.bashrc
 
 <span class="c1"># Run updates</span>
-conda<span class="w"> </span>update<span class="w"> </span>-n<span class="w"> </span>base<span class="w"> </span>-c<span class="w"> </span>defaults<span class="w"> </span>-y<span class="w"> </span>conda
+conda<span class="w"> </span>update<span class="w"> </span>-n<span class="w"> </span>base<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>-y<span class="w"> </span>conda
 </pre></div>
 </div>
 <p>From here on out, all installation commands will be run against or
@@ -505,7 +505,7 @@ inside a Conda environment.</p>
 <span class="nv">python_version</span><span class="o">=</span><span class="m">3</span>.13
 
 <span class="c1"># Create the environment</span>
-conda<span class="w"> </span>create<span class="w"> </span>-y<span class="w"> </span>--name<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_version</span><span class="si">}</span><span class="s2">&quot;</span>
+conda<span class="w"> </span>create<span class="w"> </span>-y<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">python_version</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <span class="c1"># Upgrade PIP and pyOpenSSL package</span>
 conda<span class="w"> </span>run<span class="w"> </span>-n<span class="w"> </span><span class="si">${</span><span class="nv">env_name</span><span class="si">}</span><span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>pip
