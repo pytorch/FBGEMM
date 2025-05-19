@@ -41,7 +41,9 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       int64_t res_server_port = 0,
       std::vector<std::string> table_names = {},
       std::vector<int64_t> table_offsets = {},
-      const std::vector<int64_t>& table_sizes = {})
+      const std::vector<int64_t>& table_sizes = {},
+      std::optional<at::Tensor> table_dims = std::nullopt,
+      std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -68,7 +70,9 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             res_server_port,
             std::move(table_names),
             std::move(table_offsets),
-            table_sizes)) {}
+            table_sizes,
+            table_dims,
+            hash_size_cumsum)) {}
 
   void set_cuda(
       at::Tensor indices,
