@@ -88,10 +88,6 @@ __conda_install_glibc () {
     (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
       "libstdcxx-ng=${gcc_version}") || return 1
   fi
-
-  # Ensure libstdc++.so.6 is found
-  # shellcheck disable=SC2153
-  # (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
 }
 
 __set_glibcxx_preload () {
