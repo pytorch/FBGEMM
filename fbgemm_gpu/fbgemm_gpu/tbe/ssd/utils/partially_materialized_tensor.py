@@ -159,6 +159,8 @@ class PartiallyMaterializedTensor:
 
     @property
     def dtype(self) -> torch.dtype:
+        if isinstance(self._wrapped, torch.Tensor):
+            return self._wrapped.dtype
         mapping = {"c10::Half": "half"}
         dtype_str: str = self._wrapped.dtype_str
         dtype_str = mapping.get(dtype_str, dtype_str)
@@ -169,6 +171,8 @@ class PartiallyMaterializedTensor:
 
     @property
     def device(self) -> torch.device:
+        if isinstance(self._wrapped, torch.Tensor):
+            return self._wrapped.device
         device_str: str = self._wrapped.device_str
         device = torch.device(device_str)
         assert isinstance(device, torch.device)
@@ -176,7 +180,8 @@ class PartiallyMaterializedTensor:
 
     @property
     def layout(self) -> torch.layout:
-        pass
+        if isinstance(self._wrapped, torch.Tensor):
+            return self._wrapped.layout
         layout_str_mapping = {
             "SparseCsr": "sparse_csr",
             "Strided": "strided",
