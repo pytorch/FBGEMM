@@ -198,35 +198,27 @@ void lfu_cache_insert_cuda(
                                   ->philox_cuda_state(4);
         }
 
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lfu_cache_insert_kernel";
-#endif
-
-        lfu_cache_insert_kernel<emb_t, cache_t>
-            <<<std::min(
-                   div_round_up(N, kCacheMaxThreads / kWarpSize),
-                   get_max_thread_blocks_for_cache_kernels_()),
-               dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_hash_size_cumsum, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_index_table_map, int32_t, 1, 64),
-                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_set_sorted_unique_indices, int64_t, 1, 32),
-                unique_indices_length.data_ptr<int32_t>(),
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, lxu_cache_weights, cache_t, 2, 64),
-                MAKE_PTA_WITH_NAME(func_name, lfu_state, int64_t, 1, 64),
-                stochastic_rounding_,
-                rng_engine_inputs);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (lfu_cache_insert_kernel<emb_t, cache_t>),
+            std::min(
+                div_round_up(N, kCacheMaxThreads / kWarpSize),
+                get_max_thread_blocks_for_cache_kernels_()),
+            dim3(kWarpSize, kCacheMaxThreads / kWarpSize),
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(weights, emb_t, 1, 64),
+            PTA_B(cache_hash_size_cumsum, int64_t, 1, 32),
+            PTA_B(cache_index_table_map, int32_t, 1, 64),
+            PTA_B(weights_offsets, int64_t, 1, 32),
+            PTA_B(D_offsets, int32_t, 1, 32),
+            (uint64_t*)sorted_cache_sets.data_ptr<int64_t>(),
+            PTA_B(cache_set_sorted_unique_indices, int64_t, 1, 32),
+            unique_indices_length.data_ptr<int32_t>(),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
+            PTA_B(lxu_cache_weights, cache_t, 2, 64),
+            PTA_B(lfu_state, int64_t, 1, 64),
+            stochastic_rounding_,
+            rng_engine_inputs);
       }));
 }
 
