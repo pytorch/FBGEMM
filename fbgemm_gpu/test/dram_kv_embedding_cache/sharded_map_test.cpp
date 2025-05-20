@@ -14,7 +14,6 @@ std::vector<float> generateFixedEmbedding(int dimension) {
 void memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
   const size_t numShards = 1;
 
-  // 初始化带内存池的哈希表
   SynchronizedShardedMap<unsigned long, float*> embeddingMap(
       numShards,
       dimension * sizeof(float),  // block_size
@@ -73,14 +72,12 @@ void memPoolEmbeddingWithTime(int dimension,
   size_t block_size = StoreValueUtils::calculate_block_size<float>(dimension);
   size_t block_alignment = StoreValueUtils::calculate_block_alignment<float>();
 
-  // 初始化带内存池的哈希表
   SynchronizedShardedMap<unsigned long, float*> embeddingMap(
       numShards,
       block_size,       // block_size
       block_alignment,  // block_alignment
       8192);            // blocks_per_chunk
   double insertTime, lookupTime;
-  // 测试插入性能
   {
     std::vector<float> fixedEmbedding = generateFixedEmbedding(dimension);
 
@@ -132,7 +129,6 @@ void memPoolEmbeddingWithTime(int dimension,
 
 int benchmark() {
   std::vector<int> dimensions = {4, 8, 16, 32, 64};
-  // 操作数量
   const size_t numInserts = 1'000'000;  // 1 million insert
   const size_t numLookups = 1'000'000;  // 1 million find
 

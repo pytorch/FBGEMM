@@ -8,6 +8,7 @@ namespace kv_mem {
 class StoreValueUtils {
  public:
   // Metadata structure (publicly accessible)
+  // alignas(8) MetaHeader >= sizeof(void*), avoid mempool block too small.
   struct alignas(8) MetaHeader {
     int64_t timestamp;  // 8 bytes
     // Can be extended with other fields: uint32_t counter, uint64_t key, etc.
