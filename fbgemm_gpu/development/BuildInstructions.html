@@ -738,6 +738,7 @@ ln<span class="w"> </span>-sf<span class="w"> </span><span class="s2">&quot;</sp
 <span class="w">    </span>ninja<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>numpy<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>scikit-build<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>tbb<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>wheel
 </pre></div>
 </div>
@@ -1012,6 +1013,9 @@ presuming the toolchains have been properly installed.</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run in fbgemm_gpu/ directory inside the Conda environment !!</span>
 
 <span class="nb">export</span><span class="w"> </span><span class="nv">ROCM_PATH</span><span class="o">=</span>/path/to/rocm
+
+<span class="c1"># [OPTIONAL] If libtbb.so is missing, create the symlink (presuming libtbb.so.12 is present)</span>
+ln<span class="w"> </span>-s<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONDA_PREFIX</span><span class="si">}</span><span class="s2">/lib/libtbb.so.12&quot;</span><span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">CONDA_PREFIX</span><span class="si">}</span><span class="s2">/lib/libtbb.so&quot;</span>
 
 <span class="c1"># [OPTIONAL] Enable verbose HIPCC logs</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">HIPCC_VERBOSE</span><span class="o">=</span><span class="m">1</span>
