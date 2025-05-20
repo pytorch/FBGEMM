@@ -1,7 +1,12 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -236,6 +241,7 @@ struct CollectiveMainloopBwd {
     const int window_size_left;
     const int window_size_right;
     const int target_group_size;
+    const float target_group_size_inv;
     const float alpha;
     int* dq_semaphore;
   };
@@ -261,6 +267,7 @@ struct CollectiveMainloopBwd {
     const int window_size_left;
     const int window_size_right;
     const int target_group_size;
+    const float target_group_size_inv;
     const float alpha;
     int* dq_semaphore;
   };
@@ -322,7 +329,7 @@ struct CollectiveMainloopBwd {
             cutlass::FastDivmod(cute::ceil_div(get<2>(args.layout_Q.shape()), get<2>(args.layout_Rab.shape()))),
             tma_load_Q, tma_load_dO, tma_load_Rab, tma_load_K, tma_load_V, tma_add_dQ, tma_store_dRab,
             args.num_batch, args.window_size_left, args.window_size_right,
-            args.target_group_size, args.alpha, args.dq_semaphore};
+            args.target_group_size, args.target_group_size_inv, args.alpha, args.dq_semaphore};
   }
 
   /// Issue Tma Descriptor Prefetch -- ideally from a single thread for best performance
@@ -807,8 +814,8 @@ struct CollectiveMainloopBwd {
       constexpr bool Is_in_causal = decltype(is_causal_type)::value;
       constexpr bool Is_in_local = decltype(is_local_type)::value;
       constexpr bool Is_in_context = decltype(is_context_type)::value;
-      if (threadIdx.x > 9999 ) {
-          printf("This will never run, but if deleted, the registers will overflow.");
+      if (threadIdx.x > 9999) {
+          printf("This would never run. But this is neccessary to avoid register overflow.\n");
       }
       CUTLASS_PRAGMA_UNROLL
       for (int i = 0; i < size(tSrS); ++i) {
@@ -836,9 +843,9 @@ struct CollectiveMainloopBwd {
             }
           }
           if constexpr (Is_target) {
+            const int target_index = (row - actual_seqlen_h) * mainloop_params.target_group_size_inv;
+            const int target_col_limit_left = actual_seqlen_h + target_index * mainloop_params.target_group_size;
             if (row >= actual_seqlen_h && col >= actual_seqlen_h) {
-              const int target_index = (row - actual_seqlen_h) / mainloop_params.target_group_size;
-              const int target_col_limit_left = actual_seqlen_h + target_index * mainloop_params.target_group_size;
               if (col < target_col_limit_left) {
                 tSrS(i) = -INFINITY;
               }

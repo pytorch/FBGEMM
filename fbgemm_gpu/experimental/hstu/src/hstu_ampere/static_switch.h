@@ -66,10 +66,10 @@
 #endif
 
 #ifdef HSTU_DISABLE_RAB
-  #define RAB_SWITCH(COND, CONST_NAME, ...)   \
-  [&] {                                       \
-    constexpr static bool CONST_NAME = false  \
-    return __VA_ARGS__();                     \
+  #define RAB_SWITCH(COND, CONST_NAME, ...)    \
+  [&] {                                        \
+    constexpr static bool CONST_NAME = false;  \
+    return __VA_ARGS__();                      \
   }()
 #else
   #define RAB_SWITCH BOOL_SWITCH
@@ -99,6 +99,17 @@
     #define RAB_DRAB_SWITCH TWO_BOOL_SWITCH
   #endif
 #endif
+
+#define ARCH_SWITCH(ARCH, ARCH_NAME, ...)   \
+[&] {                                       \
+  if (ARCH == 86 || ARCH == 89) {           \
+    constexpr static int ARCH_NAME = 89;    \
+    return __VA_ARGS__();                   \
+  } else {                                  \
+    constexpr static int ARCH_NAME = 80;    \
+    return __VA_ARGS__();                   \
+  }                                         \
+}()
 
 #ifdef HSTU_DISABLE_FP16
   #define FP16_BF16_SWITCH(BF16_COND, ...) \

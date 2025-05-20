@@ -1,7 +1,12 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -34,7 +39,7 @@ void run_hstu_bwd(Hstu_bwd_params &params, cudaStream_t stream) {
   using Seqlen_traits = flash::VarSeqLenTraits;
   using CollectiveMainloop = flash::CollectiveMainloopBwd<Kernel_traits, Seqlen_traits>;
   using CollectiveEpilogue = flash::CollectiveEpilogueBwd<Kernel_traits, Seqlen_traits>;
-  using Scheduler = flash::SingleTileSchedulerBwd;
+  using Scheduler = flash::SingleTileSchedulerBwd<Kernel_traits::Is_balance_bwd>;
   Seqlen_traits seqlen_traits_q(
       params.total_q, params.seqlen_q, params.cu_seqlens_q, params.num_targets, params.num_contexts);
   Seqlen_traits seqlen_traits_k(
@@ -70,7 +75,7 @@ void run_hstu_bwd(Hstu_bwd_params &params, cudaStream_t stream) {
       make_layout(make_shape(Is_delta_q ? params.seqlen_k : params.seqlen_q, params.seqlen_k, params.h_rab, params.b),
                   make_stride((int64_t)params.drab_row_stride, _1{}, (int64_t)params.drab_head_stride, (int64_t)params.drab_batch_stride)),  // layout_dRab
       params.b, params.window_size_left, params.window_size_right,
-      params.target_group_size, params.alpha, params.dq_semaphore
+      params.target_group_size, 1.0 / params.target_group_size, params.alpha, params.dq_semaphore
   });
 
   typename CollectiveEpilogue::Params epilogue_params = CollectiveEpilogue::to_underlying_arguments({
@@ -140,19 +145,23 @@ void run_hstu_bwd(Hstu_bwd_params &params, cudaStream_t stream) {
 template<int Arch, typename T, int Headdim, bool Has_rab, bool Has_drab, bool Is_local,
          bool Is_causal, bool Is_context, bool Is_target, bool Is_delta_q>
 void run_hstu_bwd_(Hstu_bwd_params &params, cudaStream_t stream) {
+  static constexpr auto tile_size = flash::get_tile_size_bwd<Headdim, Has_rab>();
+  static constexpr int kBlockM = std::get<0>(tile_size);
+  static constexpr int kBlockN = std::get<1>(tile_size);
+  static constexpr int kNWarpGroups = std::get<2>(tile_size);
   // BOOL_SWITCH(params.deterministic, Deterministic, [&] {
-    if constexpr (Headdim == 32) {
-      run_hstu_bwd<Arch, Hstu_bwd_kernel_traits<Headdim, 64, 128, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, Has_drab, false, 1, 2, true, false, false, 2, 1, 2, 1, T>
-                   >(params, stream);
-    } else if constexpr (Headdim == 64) {
-      run_hstu_bwd<Arch, Hstu_bwd_kernel_traits<Headdim, 64, 128, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, Has_drab, false, 1, 2, true, false, true, 2, 1, 2, 2, T>
-                   >(params, stream);
-    } else if constexpr (Headdim == 128) {
-      run_hstu_bwd<Arch, Hstu_bwd_kernel_traits<Headdim, 64, 64, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, Has_drab, false, 1, 2, false, true, true, 2, 1, 1, 1, T>
-                   >(params, stream);
-    } else if constexpr (Headdim == 256) {
-      run_hstu_bwd<Arch, Hstu_bwd_kernel_traits<Headdim, 64, 64, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, Has_drab, false, 1, 2, false, true, true, 2, 1, 1, 1, T>
-                   >(params, stream);
-    }
+  // BOOL_SWITCH(params.is_balance_bwd, Is_balance_bwd, [&] {
+  static constexpr bool Is_balance_bwd = false;
+  if constexpr (Headdim == 32) {
+    run_hstu_bwd<Arch, Hstu_bwd_kernel_traits<Headdim, kBlockM, kBlockN, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, Has_drab, false, 1, 2, true, false, false, kNWarpGroups, 1, 2, 1, Is_balance_bwd, T>
+                  >(params, stream);
+  } else if constexpr (Headdim == 64) {
+    run_hstu_bwd<Arch, Hstu_bwd_kernel_traits<Headdim, kBlockM, kBlockN, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, Has_drab, false, 1, 2, true, false, true, kNWarpGroups, 1, 2, 2, Is_balance_bwd, T>
+                  >(params, stream);
+  } else {
+    run_hstu_bwd<Arch, Hstu_bwd_kernel_traits<Headdim, kBlockM, kBlockN, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, Has_drab, false, 1, 2, false, true, true, kNWarpGroups, 1, 1, 1, Is_balance_bwd, T>
+                  >(params, stream);
+  }
+  // });
   // });
 }

@@ -1,7 +1,12 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -170,7 +175,7 @@ __global__ void __launch_bounds__(Ktraits::kNWarps *cutlass::NumThreadsPerWarp, 
 
       int work_idx = 0;
 
-      TileScheduler scheduler;
+      TileScheduler scheduler(&shared_storage.tile_count_semaphore);
       for (auto work_tile_info = scheduler.get_initial_work();
             work_tile_info.is_valid(scheduler_params);
             work_tile_info = scheduler.template get_next_work</*IsProducer=*/true>(scheduler_params, work_tile_info)) {
@@ -179,12 +184,12 @@ __global__ void __launch_bounds__(Ktraits::kNWarps *cutlass::NumThreadsPerWarp, 
 
         auto [n_block_max, n_block_min, n_masking_steps, is_jump, n_block_history, actual_seqlen_q] = get_block_info(m_block, bidb);
         if (m_block * kBlockM >= actual_seqlen_q) {
+          scheduler.prefetch_next_work(scheduler_params, work_tile_info);
           continue;
         }
 
         if ((Is_causal || Is_local) && n_block_max <= n_block_min) {
           scheduler.prefetch_next_work(scheduler_params, work_tile_info);
-          scheduler.broadcast_next_work(work_tile_info);
           continue;
         }
         collective_mainloop.load(mainloop_params, pipeline_k, pipeline_rab, pipeline_v, smem_pipe_write_k, smem_pipe_write_rab, smem_pipe_write_v,
@@ -197,9 +202,9 @@ __global__ void __launch_bounds__(Ktraits::kNWarps *cutlass::NumThreadsPerWarp, 
   } else {
     // Consumer
     // TODO: Tune the reg num
-    cutlass::arch::warpgroup_reg_alloc<Ktraits::kNWarps == 12 ? 224 : 160>();
+    cutlass::arch::warpgroup_reg_alloc<Ktraits::kNWarps == 12 ? 240 : 160>();
 
-    TileScheduler scheduler;
+    TileScheduler scheduler(&shared_storage.tile_count_semaphore);
     // Initialize matmul objects.
     typename Ktraits::TiledMma1 tiled_mma1;
 
@@ -338,7 +343,6 @@ __global__ void __launch_bounds__(Ktraits::kNWarps *cutlass::NumThreadsPerWarp, 
   static_assert(Ktraits::kNWarps == 12 || Ktraits::kNWarps == 16);
   if (warp_group_idx == 0) {
     // Producer
-    // TODO: Tune the reg num
     cutlass::arch::warpgroup_reg_dealloc<Ktraits::kNWarps == 12 ? 40 : 32>();
 
     PipelineState smem_pipe_write = cutlass::make_producer_start_state<MainloopPipeline>();
@@ -346,7 +350,7 @@ __global__ void __launch_bounds__(Ktraits::kNWarps *cutlass::NumThreadsPerWarp, 
 
     int work_idx = 0;
 
-    TileScheduler scheduler;
+    TileScheduler scheduler(&shared_storage.tile_count_semaphore);
     for (auto work_tile_info = scheduler.get_initial_work();
           work_tile_info.is_valid(scheduler_params);
           work_tile_info = scheduler.template get_next_work</*IsProducer=*/true>(scheduler_params, work_tile_info)) {
@@ -363,7 +367,6 @@ __global__ void __launch_bounds__(Ktraits::kNWarps *cutlass::NumThreadsPerWarp, 
       if constexpr (Is_causal) {
         if (n_block_max <= 0) {
           scheduler.prefetch_next_work(scheduler_params, work_tile_info);
-          scheduler.broadcast_next_work(work_tile_info);
           // need to sync producer warpgroup
           cutlass::arch::NamedBarrier::sync(NumCopyThreads, static_cast<int>(FwdNamedBarriers::ProducerWG));
           continue;
@@ -379,9 +382,8 @@ __global__ void __launch_bounds__(Ktraits::kNWarps *cutlass::NumThreadsPerWarp, 
     collective_mainloop.load_tail_one_write(pipeline_k, pipeline_rab, pipeline_v, smem_pipe_write);
   } else {
     // Consumer
-    // TODO: Tune the reg num
     cutlass::arch::warpgroup_reg_alloc<Ktraits::kNWarps == 12 ? 232 : 160>();
-    TileScheduler scheduler;
+    TileScheduler scheduler(&shared_storage.tile_count_semaphore);
     // Initialize matmul objects.
     typename Ktraits::TiledMma1 tiled_mma1;
     PipelineState smem_pipe_read;

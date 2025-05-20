@@ -488,11 +488,17 @@ inline __device__ void hstu_compute_attn_1rowblock(const Params& params,
 
 template <typename Kernel_traits, typename Params>
 __global__ void hstu_fwd_kernel(Params params) {
-  int m_block = gridDim.x - blockIdx.x - 1;
-  // The block index for the batch.
-  const int bidb = blockIdx.y;
-  // The block index for the head.
-  const int bidh = blockIdx.z;
+  constexpr bool Is_balance = Kernel_traits::Is_balance;
+  int m_block, bidb, bidh;
+  if constexpr (Is_balance) {
+    m_block = gridDim.z - blockIdx.z - 1;
+    bidh = blockIdx.x;
+    bidb = blockIdx.y;
+  } else {
+    m_block = gridDim.x - blockIdx.x - 1;
+    bidh = blockIdx.y;
+    bidb = blockIdx.z;
+  }
 
   hstu_compute_attn_1rowblock<Kernel_traits>(params, bidb, bidh, m_block);
 }
@@ -510,17 +516,23 @@ template <typename elem_type,
           bool Is_context,
           bool Is_local,
           bool Has_rab,
+          bool Is_balance = false,
           bool Is_even_rab = true,
           bool Is_Q_in_regs = false,
           bool Share_Q_K_smem = false>
 void run_hstu_fwd_impl(Hstu_fwd_params& params, cudaStream_t stream) {
   using Kernel_traits = Hstu_fwd_kernel_traits<
       kHeadDim, kBlockM, kBlockN, kNWarps, Is_delta_q, Is_causal, Is_target, Is_context, Is_local,
-      Has_rab, Is_even_rab, Is_Q_in_regs, Share_Q_K_smem, elem_type>;
+      Has_rab, Is_balance, Is_even_rab, Is_Q_in_regs, Share_Q_K_smem, elem_type>;
 
   constexpr size_t smem_size = Kernel_traits::kSmemSize;
   const int num_m_block = (params.seqlen_q + kBlockM - 1) / kBlockM;
-  dim3 grid(num_m_block, params.b, params.h);
+  dim3 grid;
+  if constexpr (Is_balance) {
+    grid = dim3(params.h, params.b, num_m_block);
+  } else {
+    grid = dim3(num_m_block, params.h, params.b);
+  }
   auto kernel = &flash::hstu_fwd_kernel<Kernel_traits, Hstu_fwd_params>;
 
   if constexpr (smem_size >= 48 * 1024) {
@@ -535,15 +547,20 @@ void run_hstu_fwd_impl(Hstu_fwd_params& params, cudaStream_t stream) {
 template <typename elem_type, int kHeadDim, bool Has_rab, bool Is_local,
           bool Is_causal, bool Is_context, bool Is_target, bool Is_delta_q>
 void run_hstu_fwd_80(Hstu_fwd_params& params, cudaStream_t stream) {
-  const bool even_rab = params.seqlen_q % 128 == 0 && params.seqlen_k % 64 == 0; // BLOCK_M = 128, BLOCK_N = 64
-  params.alpha = 0.5f * params.alpha; // 0.5 for fast_silu
-  BOOL_SWITCH(even_rab, Is_even_rab, [&] {
-    if constexpr (kHeadDim <= 128) {
-      run_hstu_fwd_impl<elem_type, kHeadDim, 128, 64, 8, Is_delta_q, Is_causal, Is_target, Is_context, Is_local,
-                        Has_rab, Is_even_rab, /*Is_Q_in_regs=*/true, /*Share_Q_K_smem=*/true>(params, stream);
-    } else {
-      run_hstu_fwd_impl<elem_type, kHeadDim, 128, 64, 8, Is_delta_q, Is_causal, Is_target, Is_context, Is_local,
-                        Has_rab, Is_even_rab>(params, stream);
-    }
+  // BOOL_SWITCH(params.is_balance_fwd, Is_balance, [&] {
+  static constexpr bool Is_balance = false;
+  ARCH_SWITCH(params.arch, Arch, [&] {
+    static constexpr auto tile_size = flash::get_tile_size_fwd<Arch, kHeadDim, Has_rab>();
+    static constexpr int kBlockM = std::get<0>(tile_size);
+    static constexpr int kBlockN = std::get<1>(tile_size);
+    static constexpr int kNWarps = std::get<2>(tile_size);
+    const bool even_rab = params.seqlen_q % kBlockM == 0 && params.seqlen_k % kBlockN == 0;
+    BOOL_SWITCH(even_rab, Is_even_rab, [&] {
+      static constexpr bool Is_Q_in_regs = kHeadDim <= 128;
+      static constexpr bool Share_Q_K_smem = kHeadDim <= 128;
+      run_hstu_fwd_impl<elem_type, kHeadDim, kBlockM, kBlockN, kNWarps, Is_delta_q, Is_causal, Is_target, Is_context, Is_local,
+                        Has_rab, Is_balance, Is_even_rab, Is_Q_in_regs, Share_Q_K_smem>(params, stream);
+    });
   });
+  // });
 }

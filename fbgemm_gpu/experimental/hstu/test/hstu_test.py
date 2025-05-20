@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from fbgemm_gpu.experimental.hstu.cuda_hstu_attention import hstu_attn_varlen_func
 import math
-from einops import rearrange, repeat
+from einops import rearrange
 
 from hypothesis import given, settings, strategies as st, Verbosity
 
@@ -22,6 +22,7 @@ logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 _MAX_SAMPLES: int = 100
+
 
 def pad_input(unpadded_input, cu_seqlen, batch, seqlen):
     indices = []
@@ -31,6 +32,7 @@ def pad_input(unpadded_input, cu_seqlen, batch, seqlen):
     output = torch.zeros((batch * seqlen), *unpadded_input.shape[1:], device=unpadded_input.device, dtype=unpadded_input.dtype)
     output[indices] = unpadded_input
     return rearrange(output, "(b s) ... -> b s ...", b=batch)
+
 
 def pad_input_delta_q(unpadded_input, cu_seqlen_q, cu_seqlen_k, batch, seqlen):
     indices = []
@@ -43,12 +45,14 @@ def pad_input_delta_q(unpadded_input, cu_seqlen_q, cu_seqlen_k, batch, seqlen):
     output[indices] = unpadded_input
     return rearrange(output, "(b s) ... -> b s ...", b=batch)
 
+
 def unpad_input(padded_input, cu_seqlen):
     padded_input.reshape(padded_input.size(0), padded_input.size(1), -1)
     output = []
     for i in range(len(cu_seqlen) - 1):
         output.append(padded_input[i, :(cu_seqlen[i + 1] - cu_seqlen[i]), :])
     return torch.cat(output, dim=0)
+
 
 def unpad_input_delta_q(padded_input, cu_seqlen_q, cu_seqlen_k, batch, seqlen):
     padded_input.reshape(padded_input.size(0), padded_input.size(1), -1)
@@ -58,6 +62,7 @@ def unpad_input_delta_q(padded_input, cu_seqlen_q, cu_seqlen_k, batch, seqlen):
         act_seqlen_k = (cu_seqlen_k[i + 1] - cu_seqlen_k[i]).item()
         output.append(padded_input[i, act_seqlen_k - act_seqlen_q:act_seqlen_k, :])
     return torch.cat(output, dim=0)
+
 
 def construct_mask(
     seqlen_c,
@@ -76,20 +81,20 @@ def construct_mask(
     if window_size[0] < 0 and window_size[1] == 0:
         # causal mask
         for i in range(seqlen):
-            mask[i, :i+1] = True
+            mask[i, :i + 1] = True
 
         # context mask
         if seqlen_c != 0:
             mask = mask.unsqueeze(0).unsqueeze(0).repeat(bs, 1, 1, 1)
             for i in range(bs):
-                target_start = (num_contexts[i] + seq_offsets[i+1] - seq_offsets[i]).item()
+                target_start = (num_contexts[i] + seq_offsets[i + 1] - seq_offsets[i]).item()
                 mask[i, 0, :num_contexts[i], :target_start] = True
 
         # target mask
         if seqlen_t != 0:
             mask = mask.unsqueeze(0).unsqueeze(0).repeat(bs, 1, 1, 1) if mask.ndim == 2 else mask
             for i in range(bs):
-                target_start = (num_contexts[i] + seq_offsets[i+1] - seq_offsets[i]).item()
+                target_start = (num_contexts[i] + seq_offsets[i + 1] - seq_offsets[i]).item()
                 # target group mask
                 if target_group_size > 1:
                     group_num = math.ceil((seqlen - target_start) / target_group_size)
@@ -105,8 +110,9 @@ def construct_mask(
         window_size_0 = window_size[0] if window_size[0] >= 0 else seqlen
         window_size_1 = window_size[1] if window_size[1] >= 0 else seqlen
         for i in range(seqlen):
-            mask[i, max(0, i-window_size_0):min(seqlen, i+window_size_1+1)] = True
+            mask[i, max(0, i - window_size_0):min(seqlen, i + window_size_1 + 1)] = True
     return mask
+
 
 def generate_input(
     batch_size: int,
@@ -127,7 +133,6 @@ def generate_input(
 ):
     has_context = max_context_len > 0
     has_target = max_target_len > 0
-    group_target = target_group_size > 1
     # Generate lengths for context
     if max_context_len > 0:
         if full_batch:
@@ -257,6 +262,7 @@ def generate_input(
         q, k, v, rab, attn_mask
     )
 
+
 def _hstu_attention_maybe_from_cache(
     num_heads: int,
     attention_dim: int,
@@ -299,7 +305,7 @@ def _hstu_attention_maybe_from_cache(
     qk_attn = torch.einsum("bnhd,bmhd->bhnm", padded_q, padded_k,)
 
     if rab is not None:
-        padding = (0, qk_attn.shape[-1]-rab.shape[-1], 0, qk_attn.shape[-2]-rab.shape[-2])
+        padding = (0, qk_attn.shape[-1] - rab.shape[-1], 0, qk_attn.shape[-2] - rab.shape[-2])
         rab = F.pad(rab, padding, value=0)
         masked_qk_attn = qk_attn + rab
     else:
@@ -347,7 +353,7 @@ class HSTU16Test(unittest.TestCase):
             (1000, 1111, True),
             (160, 2000, True),
         ]),
-        max_context_len=st.sampled_from([0]), #, 11, 99, 160, 333]),
+        max_context_len=st.sampled_from([0, 11, 99, 160, 333]),
         target_params=st.sampled_from([
             (0, (-1, -1), 1),
             (0, (11, 111), 1),
@@ -369,7 +375,7 @@ class HSTU16Test(unittest.TestCase):
         alpha=st.sampled_from([1.0, 0.1]),
         rab_params=st.sampled_from([
             (False, False, None),
-            (True, False, None), # None means heads_rab=heads
+            (True, False, None),  # None means heads_rab=heads
             (True, True, None),
             (True, False, 1),
             (True, True, 1),
@@ -398,7 +404,6 @@ class HSTU16Test(unittest.TestCase):
 
         has_context = max_context_len > 0
         has_target = max_target_len > 0
-        group_target = target_group_size > 1
         is_causal = window_size[0] == -1 and window_size[1] == 0
         if is_delta_q and has_target:
             logger.info("Skipping test for is_delta_q and has_target")
@@ -435,8 +440,8 @@ class HSTU16Test(unittest.TestCase):
             num_heads=heads,
             attention_dim=attn_dim,
             linear_dim=hidden_dim,
-            seqlen_q=max_context_len+max_seq_len_q+max_target_len,
-            seqlen_k=max_context_len+max_seq_len_k+max_target_len,
+            seqlen_q=max_context_len + max_seq_len_q + max_target_len,
+            seqlen_k=max_context_len + max_seq_len_k + max_target_len,
             q=q.view(L_q, -1),
             k=k.view(L_k, -1),
             v=v.view(L_k, -1),
@@ -452,8 +457,8 @@ class HSTU16Test(unittest.TestCase):
             num_heads=heads,
             attention_dim=attn_dim,
             linear_dim=hidden_dim,
-            seqlen_q=max_context_len+max_seq_len_q+max_target_len,
-            seqlen_k=max_context_len+max_seq_len_k+max_target_len,
+            seqlen_q=max_context_len + max_seq_len_q + max_target_len,
+            seqlen_k=max_context_len + max_seq_len_k + max_target_len,
             q=q.view(L_q, -1),
             k=k.view(L_k, -1),
             v=v.view(L_k, -1),
@@ -472,8 +477,8 @@ class HSTU16Test(unittest.TestCase):
             v=v.to(dtype),
             seq_offsets_q=seq_offsets_q,
             seq_offsets_k=seq_offsets_k,
-            max_seqlen_q=max_context_len+max_seq_len_q+max_target_len,
-            max_seqlen_k=max_context_len+max_seq_len_k+max_target_len,
+            max_seqlen_q=max_context_len + max_seq_len_q + max_target_len,
+            max_seqlen_k=max_context_len + max_seq_len_k + max_target_len,
             num_contexts=num_contexts,
             num_targets=num_targets,
             target_group_size=target_group_size,
@@ -544,8 +549,8 @@ def _hstu_attention_maybe_from_cache_fp8(
 ):
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
     B: int = q_offsets.size(0) - 1
-    n_q: int = seqlen_q # max_seq_len
-    n_k: int = seqlen_k # max_seq_len
+    n_q: int = seqlen_q  # max_seq_len
+    n_k: int = seqlen_k  # max_seq_len
     ori_n_q: int = n_q
     ori_n_k: int = n_k
     n_q = 16 * math.ceil(seqlen_q / 16)
@@ -568,7 +573,7 @@ def _hstu_attention_maybe_from_cache_fp8(
     qk_attn = qk_attn.view(B, num_heads, n_q, n_k)
 
     if rab is not None:
-        padding = (0, qk_attn.shape[-1]-rab.shape[-1], 0, qk_attn.shape[-2]-rab.shape[-2])
+        padding = (0, qk_attn.shape[-1] - rab.shape[-1], 0, qk_attn.shape[-2] - rab.shape[-2])
         rab = F.pad(rab, padding, value=0)
         masked_qk_attn = qk_attn + rab
     else:
@@ -633,7 +638,7 @@ class HSTU8Test(unittest.TestCase):
         alpha=st.sampled_from([1.0, 0.1]),
         rab_params=st.sampled_from([
             (False, False, None),
-            (True, False, None), # None is heads_rab=heads
+            (True, False, None),  # None is heads_rab=heads
             (True, False, 1),
         ]),
         full_batch=st.sampled_from([True, False]),

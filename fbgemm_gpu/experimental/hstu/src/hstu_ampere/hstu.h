@@ -47,6 +47,10 @@ struct Hstu_params {
   // could be different from nheads (query).
   int h_h_k_ratio;  // precompute h / h_k,
   bool is_delta_q;
+
+  bool is_balance_fwd;
+  bool is_balance_bwd;
+  int arch;
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -8,6 +8,7 @@
 import os
 import itertools
 
+
 def generate_kernels_ampere():
     DTYPE_16 = ["bf16", "fp16"]
     HEAD_DIMENSIONS = [32, 64, 128, 256]
@@ -20,8 +21,7 @@ def generate_kernels_ampere():
         "fp16": "cutlass::half_t",
     }
 
-    ampere_fwd_file_head =\
-    """
+    ampere_fwd_file_head = """
 /*
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
  * Copyright (c) Meta Platforms, Inc. and affiliates.
@@ -52,8 +52,7 @@ template void run_hstu_fwd_80<{}, {}, {}, {}, {}, {}, {}, {}>
                                                     "true" if "target" in mask else "false",
                                                     "true" if "deltaq" in mask else "false"))
 
-    ampere_bwd_file_head =\
-    """
+    ampere_bwd_file_head = """
 /*
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
  * Copyright (c) Meta Platforms, Inc. and affiliates.
@@ -85,6 +84,7 @@ template void run_hstu_bwd_80<{}, {}, {}, {}, {}, {}, {}, {}, {}>
                                                     "true" if "target" in mask else "false",
                                                     "true" if "deltaq" in mask else "false"))
 
+
 def generate_kernels_hopper():
     DTYPE_16 = ["bf16", "fp16"]
     HEAD_DIMENSIONS = [32, 64, 128, 256]
@@ -98,8 +98,7 @@ def generate_kernels_hopper():
         "fp16": "cutlass::half_t",
     }
 
-    hopper_fwd_file_head =\
-    """
+    hopper_fwd_file_head = """
 /*
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
  * Copyright (c) Meta Platforms, Inc. and affiliates.
@@ -141,12 +140,11 @@ template void run_hstu_fwd_<90, {}, {}, {}, {}, {}, {}, {}, {}>
                                                     "true" if "_rab" in rab else "false",
                                                     "true" if "local" in mask else "false",
                                                     "true" if "causal" in mask else "false",
-                                                    "false", # context
-                                                    "false", # target
-                                                    "false")) # deltaq
+                                                    "false",   # context
+                                                    "false",   # target
+                                                    "false"))  # deltaq
 
-    hopper_bwd_file_head =\
-    """
+    hopper_bwd_file_head = """
 /*
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
  * Copyright (c) Meta Platforms, Inc. and affiliates.

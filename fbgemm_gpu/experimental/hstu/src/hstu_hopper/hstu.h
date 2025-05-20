@@ -1,7 +1,12 @@
-/******************************************************************************
- * Copyright (c) 2023, Tri Dao.
+/*
+ * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -75,11 +80,16 @@ struct Hstu_fwd_params : public Qkv_params {
     bool is_delta_q;
     bool is_context;
 
+    int * __restrict__ tile_count_semaphore;
     float * __restrict__ descale_q_ptr;
     float * __restrict__ descale_k_ptr;
     float * __restrict__ descale_v_ptr;
 
     int arch;
+    int num_sm;
+
+    bool is_balance_fwd;
+    bool is_balance_bwd;
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

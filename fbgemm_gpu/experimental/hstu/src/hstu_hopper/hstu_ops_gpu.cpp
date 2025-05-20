@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, Tri Dao.
+ * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
  * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
@@ -8,7 +8,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// Include these 2 headers instead of torch/extension.h since we don't need all of the torch headers.
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
@@ -116,6 +115,26 @@ void set_params_fprop(Hstu_fwd_params &params,
       bool(params.cu_seqlens_q) == bool(params.cu_seqlens_k),
       "cu_seqlens_q and cu_seqlens_k must be both null or non-null"
   );
+  // Set num SM
+  params.num_sm = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
+  // Set the block scheduling
+  // float coeff = 0.3;
+  params.is_balance_fwd = false;
+  params.is_balance_bwd = false;
+  // auto dprops = at::cuda::getCurrentDeviceProperties();
+  // int l2_size = dprops->l2CacheSize;
+  // int sm_count = dprops->multiProcessorCount;
+  // int num_KV = std::min(sm_count, int(b * h_k));
+  // int kv_cache_size = 2 * seqlen_k * num_KV * d * sizeof(k.dtype()) * coeff;
+  // int do_cache_size = seqlen_q * num_KV * d * sizeof(out.dtype()) * coeff;
+  // if (kv_cache_size < l2_size) {
+  //   params.is_balance_fwd = true;
+  // }
+  // if (kv_cache_size + do_cache_size < l2_size) {
+  //   params.is_balance_bwd = true;
+  // }
+
   // Set the dimensions.
   params.b = b;
   params.h = h;
@@ -463,6 +482,10 @@ std::tuple<at::Tensor, at::Tensor> hstu_varlen_fwd_90(const at::Tensor &q,  // t
                     is_delta_q,
                     window_size_left,
                     window_size_right);
+
+  auto tile_count_semaphore = torch::zeros({1}, opts.dtype(torch::kInt32));
+  params.tile_count_semaphore = tile_count_semaphore.data_ptr<int>();
+
   params.total_q = total_q;
   params.total_k = total_k;
 

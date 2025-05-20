@@ -1,7 +1,12 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -180,6 +185,7 @@ struct CollectiveMainloopFwd {
     const int window_size_left;
     const int window_size_right;
     const int target_group_size;
+    const float target_group_size_inv;
     const float alpha;
   };
 
@@ -201,6 +207,7 @@ struct CollectiveMainloopFwd {
     const int window_size_left;
     const int window_size_right;
     const int target_group_size;
+    const float target_group_size_inv;
     const float alpha;
   };
 
@@ -239,8 +246,7 @@ struct CollectiveMainloopFwd {
             cutlass::FastDivmod(cute::ceil_div(get<2>(args.layout_Q.shape()), get<2>(args.layout_Rab.shape()))),
             tma_load_Q, tma_load_Rab, tma_load_K, tma_load_V,
             args.descale_q_ptr, args.descale_k_ptr, args.descale_v_ptr,
-            args.window_size_left, args.window_size_right, args.target_group_size,
-            args.alpha * 0.5}; // 0.5 for fast_silu
+            args.window_size_left, args.window_size_right, args.target_group_size, args.target_group_size_inv, args.alpha};
   }
 
   /// Issue Tma Descriptor Prefetch -- ideally from a single thread for best performance
@@ -458,7 +464,6 @@ struct CollectiveMainloopFwd {
         ++smem_pipe_write_v;
       }
     }
-    scheduler.broadcast_next_work(work_tile_info);
   }
 
   template <typename Scheduler, typename SharedStorage>
@@ -626,7 +631,6 @@ struct CollectiveMainloopFwd {
       }
 
       scheduler.prefetch_next_work(scheduler_params, work_tile_info);
-      scheduler.broadcast_next_work(work_tile_info);
 
       pipeline_v.consumer_wait(smem_pipe_read);
       if (n_block_max > kStages)
@@ -895,9 +899,9 @@ struct CollectiveMainloopFwd {
             }
           }
           if constexpr (Is_target) {
+            const int target_index = (row - actual_seqlen_h) * mainloop_params.target_group_size_inv;
+            const int target_col_limit_left = actual_seqlen_h + target_index * mainloop_params.target_group_size;
             if (row >= actual_seqlen_h) {
-              const int target_index = (row - actual_seqlen_h) / mainloop_params.target_group_size;
-              const int target_col_limit_left = actual_seqlen_h + target_index * mainloop_params.target_group_size;
               if (col < target_col_limit_left && col >= actual_seqlen_h) {
                 tensor(i) = -INFINITY;
               }

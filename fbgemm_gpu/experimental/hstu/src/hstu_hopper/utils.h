@@ -1,13 +1,19 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <tuple>
 
 #include <cuda_fp16.h>
 
@@ -69,7 +75,7 @@ CUTLASS_DEVICE void fast_silu(Tensor<Engine, Layout>& t) {
   using ValT = typename Engine::value_type;
   CUTLASS_PRAGMA_UNROLL
   for (int i = 0; i < size(t); ++i) {
-    float v = static_cast<float>(t(i));
+    float v = static_cast<float>(t(i)) * 0.5f;
     float tanh_v   = tanh_fast(v);
     t(i) = v > -10.0f ? __fmaf_rn(v, tanh_v, v) : 0.f;
   }
@@ -331,5 +337,65 @@ CUTLASS_DEVICE void write_tiled(
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// {kBlockM, kBlockN, kNWarps}
+template <int Headdim, bool Has_rab, bool Is_fp8>
+constexpr std::tuple<int, int, int> get_tile_size_fwd() {
+  if constexpr (Is_fp8) {
+    if constexpr (Has_rab) {
+      if constexpr (Headdim == 64) {
+        return {192, 128, 16};
+      } else {
+        return {128, 64, 12};
+      }
+    } else {
+      if constexpr (Headdim == 64) {
+        return {192, 128, 16};
+      } else if constexpr (Headdim == 128) {
+        return {128, 128, 12};
+      } else {
+        return {128, 64, 12};
+      }
+    }
+  } else {
+    if constexpr (Has_rab) {
+      if constexpr (Headdim == 32) {
+        return {192, 128, 16};
+      } else if constexpr (Headdim == 64) {
+        return {128, 128, 12};
+      } else {
+        return {128, 64, 12};
+      }
+    } else {
+      if constexpr (Headdim <= 64) {
+        return {192, 128, 16};
+      } else if constexpr (Headdim == 128) {
+        return {128, 128, 12};
+      } else {
+        return {128, 64, 12};
+      }
+    }
+  }
+}
+
+// {kBlockM, kBlockN, kNWarpGroups}
+template <int Headdim, bool Has_rab>
+constexpr std::tuple<int, int, int> get_tile_size_bwd() {
+  if constexpr (Has_rab) {
+    if constexpr (Headdim <= 64) {
+      return {64, 128, 3};
+    } else {
+      return {64, 64, 3};
+    }
+  } else {
+    if constexpr (Headdim <= 64) {
+      return {128, 128, 3};
+    } else if constexpr (Headdim <= 128) {
+      return {64, 128, 3};
+    } else {
+      return {64, 64, 3};
+    }
+  }
+}
 
 }  // namespace flash

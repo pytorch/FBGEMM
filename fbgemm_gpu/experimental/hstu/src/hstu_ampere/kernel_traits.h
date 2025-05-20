@@ -49,6 +49,7 @@ template <
     bool Is_context_,
     bool Is_local_,
     bool Has_rab_,
+    bool Is_balance_,
     bool Is_even_rab_,
     bool Is_Q_in_regs_ = false,
     bool Share_Q_K_smem_ = false,
@@ -62,6 +63,7 @@ struct Hstu_fwd_kernel_traits : public Base {
   static constexpr bool Is_context = Is_context_;
   static constexpr bool Is_local = Is_local_;
   static constexpr bool Has_rab = Has_rab_;
+  static constexpr bool Is_balance = Is_balance_;
   static constexpr bool Is_even_rab = Is_even_rab_;
 
   using Element = typename Base::Element;
@@ -193,6 +195,7 @@ template <
     bool Is_deterministic_,
     bool Has_rab_,
     bool Has_drab_,
+    bool Is_balance_,
     bool Is_even_rab_,
     bool Rab_one_head_,
     int AtomLayoutMSdP_ = 2,
@@ -217,6 +220,7 @@ struct Hstu_bwd_kernel_traits : public Base {
   static constexpr bool Is_deterministic = Is_deterministic_;
   static constexpr bool Has_rab = Has_rab_;
   static constexpr bool Has_drab = Has_drab_;
+  static constexpr bool Is_balance = Is_balance_;
   static constexpr bool Is_even_rab = Is_even_rab_;
   static constexpr bool Rab_one_head = Rab_one_head_;
   static constexpr bool Is_V_in_regs = Is_V_in_regs_;

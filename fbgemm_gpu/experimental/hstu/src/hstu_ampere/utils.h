@@ -14,6 +14,7 @@
 #include <cuda_fp16.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <tuple>
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 #include <cuda_bf16.h>
@@ -63,7 +64,7 @@ CUTLASS_DEVICE void fast_silu(Tensor<Engine, Layout>& t) {
   using ValT = typename Engine::value_type;
   CUTLASS_PRAGMA_UNROLL
   for (int i = 0; i < size(t); ++i) {
-    float v = static_cast<float>(t(i));
+    float v = static_cast<float>(t(i)) * 0.5f;
     float tanh_v   = tanh_fast(v);
     t(i) = v > -10.0f ? __fmaf_rn(v, tanh_v, v) : 0.f;
   }
@@ -280,5 +281,51 @@ __forceinline__ __device__ void copy(
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// {kBlockM, kBlockN, kNWarps}
+template <int Arch, int kHeadDim, bool Has_rab>
+constexpr std::tuple<int, int, int> get_tile_size_fwd() {
+  if constexpr (Arch == 80) {
+    if constexpr (Has_rab) {
+      return {128, 64, 8};
+    } else {
+      if constexpr (kHeadDim <= 64) {
+        return {128, 96, 4};
+      } else if constexpr (kHeadDim <= 128) {
+        return {128, 64, 4};
+      } else {
+        return {128, 96, 8};
+      }
+    }
+  } else {
+    if constexpr (Has_rab) {
+      if constexpr (kHeadDim <= 128) {
+        return {128, 64, 4};
+      } else {
+        return {64, 32, 4};
+      }
+    } else {
+      if constexpr (kHeadDim <= 128) {
+        return {128, 96, 4};
+      } else {
+        return {64, 64, 4};
+      }
+    }
+  }
+}
+
+// {kBlockM, kBlockN, kNWarps}
+template <int kHeadDim, bool Has_rab>
+constexpr std::tuple<int, int, int> get_tile_size_bwd() {
+  if constexpr (Has_rab) {
+    return {64, 64, 8};
+  } else {
+    if constexpr (kHeadDim <= 128) {
+      return {128, 64, 8};
+    } else {
+      return {64, 64, 8};
+    }
+  }
+}
 
 }  // namespace flash

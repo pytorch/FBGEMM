@@ -1,7 +1,12 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -14,6 +19,7 @@ namespace flash {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+template<bool Is_balance_bwd = false>
 class SingleTileSchedulerBwd {
 
 public:
@@ -33,7 +39,11 @@ public:
 
     static dim3
     get_grid_dim(Arguments const& args) {
-        return {uint32_t(args.num_blocks_m), uint32_t(args.num_head), uint32_t(args.num_batch)};
+        if constexpr (Is_balance_bwd) {
+            return {uint32_t(args.num_head), uint32_t(args.num_batch), uint32_t(args.num_blocks_m)};
+        } else {
+            return {uint32_t(args.num_blocks_m), uint32_t(args.num_head), uint32_t(args.num_batch)};
+        }
     }
 
     struct WorkTileInfo {
@@ -62,7 +72,11 @@ public:
     CUTLASS_DEVICE
     WorkTileInfo
     get_initial_work() const {
-        return {int(blockIdx.x), int(blockIdx.y), int(blockIdx.z), true};
+        if constexpr (Is_balance_bwd) {
+            return {int(blockIdx.z), int(blockIdx.x), int(blockIdx.y), true};
+        } else {
+            return {int(blockIdx.x), int(blockIdx.y), int(blockIdx.z), true};
+        }
     }
 
     CUTLASS_DEVICE

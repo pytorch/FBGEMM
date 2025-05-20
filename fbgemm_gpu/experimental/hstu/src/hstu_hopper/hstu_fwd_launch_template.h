@@ -1,7 +1,12 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -30,7 +35,11 @@ void run_hstu_fwd(Hstu_fwd_params &params, cudaStream_t stream) {
   using Seqlen_traits = flash::VarSeqLenTraits;
   using CollectiveMainloop = flash::CollectiveMainloopFwd<Kernel_traits, Seqlen_traits>;
   using CollectiveEpilogue = flash::CollectiveEpilogueFwd<Kernel_traits, Seqlen_traits>;
-  using Scheduler = flash::SingleTileScheduler;
+  using Scheduler = std::conditional_t<
+    cutlass::sizeof_bits_v<Element> == 8,
+    flash::SingleTileScheduler<Kernel_traits::Is_balance_fwd>,
+    flash::DynamicPersistentTileScheduler<Kernel_traits::kNThreads - cutlass::NumThreadsPerWarpGroup, Kernel_traits::NumProducerThreads>
+  >;
   Seqlen_traits seqlen_traits_q(
       params.total_q, params.seqlen_q, params.cu_seqlens_q, params.num_targets, params.num_contexts);
   Seqlen_traits seqlen_traits_k(
@@ -57,13 +66,9 @@ void run_hstu_fwd(Hstu_fwd_params &params, cudaStream_t stream) {
               params.seqlen_k, params.d, params.h_k, params.b,
               params.v_row_stride, params.v_head_stride
           ),  // layout_V
-          params.descale_q_ptr,
-          params.descale_k_ptr,
-          params.descale_v_ptr,
-          params.window_size_left,
-          params.window_size_right,
-          params.target_group_size,
-          params.alpha
+          params.descale_q_ptr, params.descale_k_ptr, params.descale_v_ptr,
+          params.window_size_left, params.window_size_right,
+          params.target_group_size, 1.0 / params.target_group_size, params.alpha
       });
   typename CollectiveEpilogue::Params epilogue_params =
       CollectiveEpilogue::to_underlying_arguments({
@@ -76,7 +81,7 @@ void run_hstu_fwd(Hstu_fwd_params &params, cudaStream_t stream) {
 
   int num_blocks_m = cutlass::ceil_div(params.seqlen_q, Kernel_traits::kBlockM);
   num_blocks_m = cutlass::ceil_div(num_blocks_m, size<0>(ClusterShape{})) * size<0>(ClusterShape{});
-  typename Scheduler::Arguments scheduler_args = {num_blocks_m, params.h, params.b};
+  typename Scheduler::Arguments scheduler_args = {num_blocks_m, params.h, params.b, params.tile_count_semaphore};
   typename Scheduler::Params scheduler_params = Scheduler::to_underlying_arguments(scheduler_args);
 
   // Get the ptr to kernel function.
@@ -90,9 +95,7 @@ void run_hstu_fwd(Hstu_fwd_params &params, cudaStream_t stream) {
       CHECK_CUDA(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
   }
 
-  int device;
-  cudaGetDevice(&device);
-  dim3 grid_dims = Scheduler::get_grid_dim(scheduler_args);
+  dim3 grid_dims = Scheduler::get_grid_dim(scheduler_args, params.num_sm);
   static constexpr int ctaSize = Kernel_traits::kNWarps * cutlass::NumThreadsPerWarp;
   dim3 block_dims(ctaSize);
   dim3 cluster_dims(size<0>(ClusterShape{}), size<1>(ClusterShape{}), size<2>(ClusterShape{}));
@@ -107,30 +110,18 @@ template<int Arch, typename T, int Headdim, bool Has_rab, bool Is_local,
          bool Is_causal, bool Is_context, bool Is_target, bool Is_delta_q>
 void run_hstu_fwd_(Hstu_fwd_params &params, cudaStream_t stream) {
   constexpr static bool Is_fp8 = cutlass::sizeof_bits_v<T> == 8;
+  // BOOL_SWITCH(params.is_balance_fwd, Is_balance_fwd, [&] {
+  static constexpr bool Is_balance_fwd = false;
+  static constexpr auto tile_size = flash::get_tile_size_fwd<Headdim, Has_rab, Is_fp8>();
+  static constexpr int kBlockM = std::get<0>(tile_size);
+  static constexpr int kBlockN = std::get<1>(tile_size);
+  static constexpr int kNWarps = std::get<2>(tile_size);
   if constexpr (Is_fp8) {
-    if constexpr (Headdim == 64) {
-      run_hstu_fwd<90, Hstu_fwd_kernel_traits_fp8<64, 192, 128, 16, 2, Is_causal, false, false, false, Is_local, Has_rab, 1>
-                  >(params, stream);
-    } else if constexpr (Headdim == 128) {
-      run_hstu_fwd<90, Hstu_fwd_kernel_traits_fp8<128, 128, 64, 12, 2, Is_causal, false, false, false, Is_local, Has_rab, 1>
-                  >(params, stream);
-    } else if constexpr (Headdim == 256) {
-      run_hstu_fwd<90, Hstu_fwd_kernel_traits_fp8<256, 128, 64, 12, 2, Is_causal, false, false, false, Is_local, Has_rab, 1>
-                  >(params, stream);
-    }
+    run_hstu_fwd<90, Hstu_fwd_kernel_traits_fp8<Headdim, kBlockM, kBlockN, kNWarps, 2, Is_causal, false, false, false, Is_local, Has_rab, 1, Is_balance_fwd>
+                >(params, stream);
   } else {
-    if constexpr (Headdim == 32) {
-      run_hstu_fwd<Arch, Hstu_fwd_kernel_traits<Headdim, 192, 128, 16, 2, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, 1, T>
-                  >(params, stream);
-    } else if constexpr (Headdim == 64) {
-      run_hstu_fwd<Arch, Hstu_fwd_kernel_traits<Headdim, 128, 128, 12, 2, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, 1, T>
-                  >(params, stream);
-    } else if constexpr (Headdim == 128) {
-      run_hstu_fwd<Arch, Hstu_fwd_kernel_traits<Headdim, 128, 64, 12, 2, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, 1, T>
-                  >(params, stream);
-    } else if constexpr (Headdim == 256) {
-      run_hstu_fwd<Arch, Hstu_fwd_kernel_traits<Headdim, 128, 64, 12, 2, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, 1, T>
-                  >(params, stream);
-    }
+    run_hstu_fwd<Arch, Hstu_fwd_kernel_traits<Headdim, kBlockM, kBlockN, kNWarps, 2, Is_causal, Is_context, Is_target, Is_delta_q, Is_local, Has_rab, 1, Is_balance_fwd, T>
+                >(params, stream);
   }
+  // });
 }

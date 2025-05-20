@@ -1,7 +1,12 @@
-/******************************************************************************
+/*
  * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- ******************************************************************************/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #pragma once
 
@@ -32,6 +37,7 @@ struct SharedStorageQRabKVO {
     typename cutlass::PipelineTmaAsync<kStages>::SharedStorage pipeline_k;
     typename cutlass::PipelineTmaAsync<kStages>::SharedStorage pipeline_rab;
     typename cutlass::PipelineTmaAsync<kStages>::SharedStorage pipeline_v;
+    int tile_count_semaphore;
   };
 };
 
@@ -55,12 +61,13 @@ struct SharedStorageQRabKVOVt {
     typename cutlass::PipelineTmaAsync<kStages>::SharedStorage pipeline_rab;
     typename cutlass::PipelineTmaAsync<kStages>::SharedStorage pipeline_v;
     typename cutlass::PipelineAsync<kStages>::SharedStorage pipeline_vt;
+    int tile_count_semaphore;
   };
 };
 
 template<int kHeadDim_, int kBlockM_, int kBlockN_, int kNWarps_, int kStages_,
          bool Is_causal_, bool Is_context_, bool Is_target_, bool Is_delta_q_, bool Is_local_,
-         bool Has_rab_, int kClusterM_ = 1, typename elem_type=cutlass::half_t>
+         bool Has_rab_, int kClusterM_ = 1, bool Is_balance_fwd_ = false, typename elem_type=cutlass::half_t>
 struct Hstu_fwd_kernel_traits {
   using Element = elem_type;
   using ElementAccum = float;
@@ -73,6 +80,7 @@ struct Hstu_fwd_kernel_traits {
   static constexpr bool Is_delta_q = Is_delta_q_;
   static constexpr bool Is_local = Is_local_;
   static constexpr bool Has_rab = Has_rab_;
+  static constexpr bool Is_balance_fwd = Is_balance_fwd_;
 
   // The number of threads.
   static constexpr int kNWarps = kNWarps_;
@@ -149,7 +157,7 @@ struct Hstu_fwd_kernel_traits {
 // Traits struct for fp8 kernel with in-kernel transpose
 template<int kHeadDim_, int kBlockM_, int kBlockN_, int kNWarps_, int kStages_,
          bool Is_causal_, bool Is_context_, bool Is_target_, bool Is_delta_q_, bool Is_local_,
-         bool Has_rab_, int kClusterM_ = 1>
+         bool Has_rab_, int kClusterM_ = 1, bool Is_balance_fwd_ = false>
 struct Hstu_fwd_kernel_traits_fp8 {
   using Element = cutlass::float_e4m3_t;
   using ElementAccum = float;
@@ -162,6 +170,7 @@ struct Hstu_fwd_kernel_traits_fp8 {
   static constexpr bool Is_delta_q = Is_delta_q_;
   static constexpr bool Is_local = Is_local_;
   static constexpr bool Has_rab = Has_rab_;
+  static constexpr bool Is_balance_fwd = Is_balance_fwd_;
 
   // The number of threads.
   static constexpr int kNWarps = kNWarps_;
@@ -270,8 +279,8 @@ template<int kHeadDim_, int kBlockM_, int kBlockN_,
          bool Is_causal_, bool Is_context_, bool Is_target_, bool Is_delta_q_, bool Is_local_,
          bool Has_rab_, bool Has_drab_, bool Is_deterministic_,
          int kStages_dO_, int kStages_dS_, bool SdP_swapAB_, bool dKV_swapAB_, bool dQ_swapAB_,
-         int NumMmaWarpGroups_=2, int AtomLayoutMSdP_=1, int AtomLayoutNdKV_=2,
-         int AtomLayoutMdQ_=1, typename elem_type=cutlass::half_t>
+         int NumWarpGroups_=3, int AtomLayoutMSdP_=1, int AtomLayoutNdKV_=2,
+         int AtomLayoutMdQ_=1, bool Is_balance_bwd_ = false, typename elem_type=cutlass::half_t>
 struct Hstu_bwd_kernel_traits {
   using Element = elem_type;
   using ElementAccum = float;
@@ -285,9 +294,9 @@ struct Hstu_bwd_kernel_traits {
   static constexpr bool Has_rab = Has_rab_;
   static constexpr bool Has_drab = Has_drab_;
   static constexpr bool Is_deterministic = Is_deterministic_;
-
+  static constexpr bool Is_balance_bwd = Is_balance_bwd_;
   // The number of threads.
-  static constexpr int NumMmaWarpGroups = NumMmaWarpGroups_;
+  static constexpr int NumMmaWarpGroups = NumWarpGroups_ - 1;
   static constexpr int NumMmaThreads = NumMmaWarpGroups * cutlass::NumThreadsPerWarpGroup;
   static constexpr int kNWarps = (NumMmaWarpGroups + 1) * cutlass::NumWarpsPerWarpGroup;
   static constexpr int kNThreads = kNWarps * cutlass::NumThreadsPerWarp;

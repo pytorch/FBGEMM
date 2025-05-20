@@ -497,7 +497,7 @@ inline __device__ void hstu_compute_dq_dk_dv_1colblock(
     );
   };
 
-  auto apply_mask = [&](auto& tensor, int const m_block, int const n_block) {
+  auto apply_mask = [&](auto& tensor, int const m_block) {
       static constexpr int Row = 0, Col = 1;
       Tensor cS = make_identity_tensor(Shape<Int<kBlockM>, Int<kBlockN>>{});
       auto tiled_mma_sdp_nc = make_tiled_copy_C_warpcontiguousN<MMA_N_SdP>(typename Kernel_traits::SmemCopyAtomPdS{}, tiled_mma_sdp);
@@ -577,7 +577,7 @@ inline __device__ void hstu_compute_dq_dk_dv_1colblock(
                 smem_thr_copy_KV);
 
     if (Is_local || is_masking) {
-      apply_mask(acc_s, m_block, n_block);
+      apply_mask(acc_s, m_block);
     }
 
     for (int i = 0; i < size(acc_s); ++i) {
@@ -715,32 +715,17 @@ inline __device__ void hstu_compute_dq_dk_dv_1colblock(
                 smem_tiled_copy_dS, smem_tiled_copy_Kt, smem_thr_copy_dS,
                 smem_thr_copy_Kt);
 
-    // Overlap gemm and atomicAdd
-    if (threadIdx.x < blockDim.x / 2) {
-      auto tdQgdQaccum_view = tdQgdQaccum(_, _, _, m_block);
-      CUTE_STATIC_ASSERT_V(size(acc_dq) == size(tdQgdQaccum_view));
-      #pragma unroll
-      for (int i = 0; i < size(acc_dq); ++i) {
-        atomicAdd(&tdQgdQaccum_view(i), acc_dq(i));
-      }
-
-      // calculate dSt @ Qt
-      flash::gemm(acc_dk, tdKrdSt, tdKrQt, tdKsdSt, tdKsQt, tiled_mma_dkv,
-                  smem_tiled_copy_PdSt, smem_tiled_copy_QdOt, smem_thr_copy_PdSt,
-                  smem_thr_copy_QdOt);
-    } else {
-      // calculate dSt @ Qt
-      flash::gemm(acc_dk, tdKrdSt, tdKrQt, tdKsdSt, tdKsQt, tiled_mma_dkv,
-                  smem_tiled_copy_PdSt, smem_tiled_copy_QdOt, smem_thr_copy_PdSt,
-                  smem_thr_copy_QdOt);
-
-      auto tdQgdQaccum_view = tdQgdQaccum(_, _, _, m_block);
-      CUTE_STATIC_ASSERT_V(size(acc_dq) == size(tdQgdQaccum_view));
-      #pragma unroll
-      for (int i = 0; i < size(acc_dq); ++i) {
-        atomicAdd(&tdQgdQaccum_view(i), acc_dq(i));
-      }
+    auto tdQgdQaccum_view = tdQgdQaccum(_, _, _, m_block);
+    CUTE_STATIC_ASSERT_V(size(acc_dq) == size(tdQgdQaccum_view));
+    #pragma unroll
+    for (int i = 0; i < size(acc_dq); ++i) {
+      atomicAdd(&tdQgdQaccum_view(i), acc_dq(i));
     }
+
+    // calculate dSt @ Qt
+    flash::gemm(acc_dk, tdKrdSt, tdKrQt, tdKsdSt, tdKsQt, tiled_mma_dkv,
+                smem_tiled_copy_PdSt, smem_tiled_copy_QdOt, smem_thr_copy_PdSt,
+                smem_thr_copy_QdOt);
 
     if (Double_buffer) {  // Double buffer for sQ
       tdKsQt.data() = tdKsQt.data() + (buffer == 1 ? size(sQ) : -size(sQ));
@@ -831,23 +816,27 @@ inline __device__ void hstu_compute_dq_dk_dv_1colblock(
       actual_seqlen_k - n_block * kBlockN);
 }
 
-// ////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename Kernel_traits>
 __global__ void hstu_bwd_compute_dq_dk_dv_kernel(Hstu_bwd_params params) {
-  // The block index for the batch.
-  const int bidb = blockIdx.y;
-  // The block index for the head.
-  const int bidh = blockIdx.z;
-
+  const bool Is_balance = Kernel_traits::Is_balance;
+  int n_block, bidb, bidh;
+  if constexpr (Is_balance) {
+    n_block = blockIdx.z;
+    bidh = blockIdx.y;
+    bidb = blockIdx.x;
+  } else {
+    n_block = blockIdx.x;
+    bidh = blockIdx.z;
+    bidb = blockIdx.y;
+  }
   // If deterministic, each thread block will do atomicAdd to a different
   // dQ_accum buffer.
   int max_n_block =
       (params.seqlen_k + Kernel_traits::kBlockN - 1) / Kernel_traits::kBlockN;
-  // for (int n_block = blockIdx.x; n_block < max_n_block; n_block += gridDim.x) {
-  //   hstu_compute_dq_dk_dv_1colblock<Kernel_traits>(params, bidb, bidh, n_block);
-  // }
-  for (int n_block = max_n_block - blockIdx.x - 1; n_block >= 0; n_block -= gridDim.x) {
+  const int stride = Is_balance ? gridDim.z : gridDim.x;
+  for (; n_block < max_n_block; n_block += stride) {
     hstu_compute_dq_dk_dv_1colblock<Kernel_traits>(params, bidb, bidh, n_block);
   }
 }
@@ -963,6 +952,7 @@ template <typename elem_type,
           bool Is_deterministic,
           bool Has_rab,
           bool Has_drab,
+          bool Is_balance,
           bool Is_even_rab,
           bool Rab_one_head,
           int kNWarps,
@@ -974,7 +964,7 @@ void run_hstu_bwd_impl_(Hstu_bwd_params& params, cudaStream_t stream) {
   using Kernel_traits =
       Hstu_bwd_kernel_traits<kHeadDim, kBlockM, kBlockN, kNWarps, Is_causal, Is_target,
                              Is_context, Is_delta_q, Is_local, Is_deterministic, Has_rab,
-                             Has_drab, Is_even_rab, Rab_one_head, AtomLayoutMSdP, AtomLayoutNdKV,
+                             Has_drab, Is_balance, Is_even_rab, Rab_one_head, AtomLayoutMSdP, AtomLayoutNdKV,
                              AtomLayoutMdQ, Is_V_in_regs, elem_type>;
 
   int gridDimx = (params.seqlen_k + kBlockN - 1) / kBlockN;;
@@ -983,7 +973,12 @@ void run_hstu_bwd_impl_(Hstu_bwd_params& params, cudaStream_t stream) {
     gridDimx = (dprops->multiProcessorCount + params.b * params.h - 1) /
                (params.b * params.h);
   }
-  dim3 grid_n(gridDimx, params.b, params.h);
+  dim3 grid_n;
+  if constexpr (Is_balance) {
+    grid_n = dim3(params.b, params.h, gridDimx);
+  } else {
+    grid_n = dim3(gridDimx, params.b, params.h);
+  }
   auto kernel = &flash::hstu_bwd_compute_dq_dk_dv_kernel<Kernel_traits>;
   constexpr int smem_size_dq_dk_dv = Kernel_traits::kSmemSize1colblock;
   if constexpr (smem_size_dq_dk_dv >= 48 * 1024) {
@@ -1010,21 +1005,21 @@ template <typename elem_type, int kHeadDim, bool Has_rab, bool Has_drab, bool Is
           bool Is_causal, bool Is_context, bool Is_target, bool Is_delta_q>
 void run_hstu_bwd_80(Hstu_bwd_params& params, cudaStream_t stream) {
   const bool rab_one_head = params.h_rab != params.h && params.h_rab == 1;
-  const bool even_rab = params.seqlen_q % 64 == 0 && (kHeadDim <= 128 ?
-      params.seqlen_k % 128 == 0 : params.seqlen_k % 64 == 0);
+  // BOOL_SWITCH(params.is_balance_bwd, Is_balance, [&] {
+  static constexpr bool Is_balance = false;
   BOOL_SWITCH(rab_one_head, Rab_one_head, [&] {
-    BOOL_SWITCH(even_rab, Is_even_rab, [&] {
-      BOOL_SWITCH(params.deterministic, Is_deterministic, [&] {
-        if constexpr (kHeadDim <= 128) {
-          run_hstu_bwd_impl_<elem_type, kHeadDim, 64, 128, Is_causal, Is_target, Is_context,
-                             Is_delta_q, Is_local, Is_deterministic, Has_rab, Has_drab,
-                             Is_even_rab, Rab_one_head, 8, 2, 4, 4, false>(params, stream);
-        } else {
-          run_hstu_bwd_impl_<elem_type, kHeadDim, 64, 64, Is_causal, Is_target, Is_context,
-                             Is_delta_q, Is_local, Is_deterministic, Has_rab, Has_drab,
-                             Is_even_rab, Rab_one_head, 8, 2, 4, 4, false>(params, stream);
-        }
+    BOOL_SWITCH(params.deterministic, Is_deterministic, [&] {
+      static constexpr auto tile_size = flash::get_tile_size_bwd<kHeadDim, Has_rab>();
+      static constexpr int kBlockM = std::get<0>(tile_size);
+      static constexpr int kBlockN = std::get<1>(tile_size);
+      static constexpr int kNWarps = std::get<2>(tile_size);
+      const bool even_rab = params.seqlen_q % kBlockM == 0 && params.seqlen_k % kBlockN == 0;
+      BOOL_SWITCH(even_rab, Is_even_rab, [&] {
+        run_hstu_bwd_impl_<elem_type, kHeadDim, kBlockM, kBlockN, Is_causal, Is_target, Is_context,
+                          Is_delta_q, Is_local, Is_deterministic, Has_rab, Has_drab, Is_balance,
+                          Is_even_rab, Rab_one_head, kNWarps, 2, 4, 4, false>(params, stream);
       });
     });
   });
+  // });
 }
