@@ -8,11 +8,11 @@
 
 #pragma once
 
-#include "./FbgemmBuild.h"
-#include "./QuantUtilsAvx2.h"
-#include "./QuantUtilsNeon.h"
-#include "./Types.h"
-#include "./Utils.h"
+#include "./FbgemmBuild.h" // @manual
+#include "./QuantUtilsAvx2.h" // @manual
+#include "./QuantUtilsNeon.h" // @manual
+#include "./Types.h" // @manual
+#include "./Utils.h" // @manual
 
 #include <algorithm>
 #include <cassert>

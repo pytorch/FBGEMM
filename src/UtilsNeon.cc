@@ -5,8 +5,8 @@
 
 #ifdef __aarch64__
 
-#include "./TransposeUtils.h"
-#include "./TransposeUtilsNeon.h"
+#include "./TransposeUtils.h" // @manual
+#include "./TransposeUtilsNeon.h" // @manual
 
 namespace fbgemm {
 

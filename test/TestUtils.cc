@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "./TestUtils.h"
+#include "./TestUtils.h" // @manual
 #include <gtest/gtest.h>
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FloatConversion.h"

@@ -6,15 +6,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "./GenerateI8Depthwise.h"
+#include "./GenerateI8Depthwise.h" // @manual
 
-#include <asmjit/asmjit.h>
+#include <asmjit/asmjit.h> // @manual
 #include <cassert>
 #include <iostream>
 #include <numeric>
 
-#include "./CodeCache.h"
-#include "./CodeGenHelpers.h"
+#include "./CodeCache.h" // @manual
+#include "./CodeGenHelpers.h" // @manual
 #include "fbgemm/Utils.h"
 
 namespace fbgemm {

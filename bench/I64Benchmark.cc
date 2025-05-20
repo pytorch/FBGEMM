@@ -14,7 +14,7 @@
 #include "./BenchUtils.h"
 #include "fbgemm/FbgemmI64.h"
 #include "fbgemm/Utils.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 using namespace std;
 using namespace fbgemm;

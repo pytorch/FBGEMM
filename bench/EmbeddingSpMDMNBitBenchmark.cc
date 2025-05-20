@@ -27,7 +27,7 @@
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmConvert.h"
 #include "src/EmbeddingSpMDMAutovec.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 using namespace std;
 using namespace fbgemm;
