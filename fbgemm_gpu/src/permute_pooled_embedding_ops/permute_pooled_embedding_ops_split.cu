@@ -68,6 +68,13 @@ Tensor permute_pooled_embs_split_gpu_impl(
   if (pooled_embs.numel() == 0) {
     return pooled_embs;
   }
+
+  TORCH_CHECK(
+      pooled_embs.dim() == 2,
+      "pooled_embs must be 2-D tensor of size [B_local][Sum_T_global(D)], "
+      "current shape is: ",
+      torch_tensor_shape_str(pooled_embs));
+
   // inv_permute_list is not being used so it's not checked here.
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
       pooled_embs, offset_dim_list, permute_list, inv_offset_dim_list);
