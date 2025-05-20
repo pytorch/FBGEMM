@@ -41,8 +41,8 @@ __export_package_channel_info () {
 __export_package_variant_info () {
   local package_variant_type_version="$1"
 
-  local FALLBACK_VERSION_CUDA="12.4.1"
-  local FALLBACK_VERSION_ROCM="6.2.4"
+  local FALLBACK_VERSION_CUDA="12.6.3"
+  local FALLBACK_VERSION_ROCM="6.3"
 
   if [ "$package_variant_type_version" == "cuda" ]; then
     # If "cuda", default to latest CUDA

@@ -36,6 +36,33 @@ at::Tensor mqa_attn(
 
 } // namespace fbgemm_gpu::gen_ai::attention
 
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.def(
+      "gqa_attn_splitk("
+      "    Tensor XQ, "
+      "    Tensor cache_K, "
+      "    Tensor cache_V, "
+      "    Tensor seq_positions, "
+      "    float qk_scale, "
+      "    int num_split_ks, "
+      "    int kv_cache_quant_num_groups=1, "
+      "    bool use_tensor_cores=True,"
+      "    int cache_logical_dtype_int=0"
+      ") -> (Tensor, Tensor, Tensor)");
+  m.def(
+      "mqa_attn("
+      "    Tensor XQ, "
+      "    Tensor cache_K, "
+      "    Tensor cache_V, "
+      "    Tensor seq_positions, "
+      "    float qk_scale, "
+      "    int? num_groups=1, "
+      "    int cache_logical_dtype_int=0, "
+      "    Tensor? qparam_k=None, "
+      "    Tensor? qparam_v=None"
+      ") -> Tensor");
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl(
       "gqa_attn_splitk",
