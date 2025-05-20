@@ -15,7 +15,7 @@
 
 #include "SynchronizedShardedMap.h"
 #include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/initializer.h"
-#include "store_value.h"
+#include "store_value_utils.h"
 
 #include <ATen/core/ivalue.h>
 #include <caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h>
@@ -70,8 +70,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         max_D_(max_D),
         num_shards_(num_shards),
         weight_ttl_in_hours_(weight_ttl_in_hours),
-        kv_store_(SynchronizedShardedMap<int64_t, StoreValue<weight_type>>(
-            num_shards_)),
+        block_size_(StoreValueUtils::calculate_block_size<weight_type>(max_D)),
+        block_alignment_(StoreValueUtils::calculate_block_alignment<weight_type>()),
+        kv_store_(SynchronizedShardedMap<int64_t, weight_type*>(
+            num_shards_,
+            block_size_,
+            block_alignment_,
+            /*blocks_per_chunk=*/8192)),
         elem_size_(row_storage_bitwidth / 8) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(std::max<size_t>(
         num_threads, facebook::Proc::getCpuInfo().numCpuCores));
@@ -185,20 +190,31 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       CHECK_EQ(indices.size(0), weights.size(0));
                       {
                         auto wlmap = kv_store_.by(shard_id).wlock();
-
+                        auto* pool = kv_store_.pool_by(shard_id);
                         for (auto index_iter = indexes.begin();
                              index_iter != indexes.end();
                              index_iter++) {
                           const auto& id_index = *index_iter;
                           auto id = indices[id_index].template item<index_t>();
-                          wlmap->try_emplace(
-                              id,
-                              StoreValue<weight_type>(std::vector<weight_type>(
-                                  weights[id_index]
-                                      .template data_ptr<weight_type>(),
-                                  weights[id_index]
-                                          .template data_ptr<weight_type>() +
-                                      weights[id_index].numel())));
+
+                          // use mempool
+                          weight_type* block = nullptr;
+                          // First check if the key already exists
+                          auto it = wlmap->find(id);
+                          if (it != wlmap->end()) {
+                            block = it->second;
+                          } else {
+                            // Key doesn't exist, allocate new block and insert.
+                            block = StoreValueUtils::allocate<weight_type>(
+                                block_size_, block_alignment_, pool);
+                            wlmap->insert({id, block});
+                          }
+                          StoreValueUtils::update_timestamp<weight_type>(block);
+                          auto* data_ptr = StoreValueUtils::data_ptr<weight_type>(block);
+                          std::copy(
+                              weights[id_index].template data_ptr<weight_type>
+                              weights[id_index].template data_ptr<weight_type>() + weights[id_index].numel(),
+                              data_ptr);
                         }
                       }
                     });
@@ -265,6 +281,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               weights.data_ptr<weight_type>();
                           auto id = indices[id_index].template item<index_t>();
                           auto wlmap = kv_store_.by(shard_id).wlock();
+                          auto* pool = kv_store_.pool_by(shard_id);
                           const auto cached_iter = wlmap->find(id);
                           if (cached_iter == wlmap->end()) {
                             fill_from_row_storage(
@@ -276,16 +293,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                     row_storage_data_ptr));
                             continue;
                           }
-                          const auto& cache_results =
-                              cached_iter->second.getValueAndPromote();
-                          CHECK_EQ(cache_results.size(), max_D_);
+                          // use mempool
+                          const auto* data_ptr = StoreValueUtils::data_ptr<weight_type>(cached_iter->second);
+                          StoreValueUtils::update_timestamp(cached_iter->second);
                           std::copy(
-                              reinterpret_cast<const weight_type*>(
-                                  &(cache_results[0])),
-                              reinterpret_cast<const weight_type*>(
-                                  &(cache_results[max_D_])),
-                              &(weights_data_ptr
-                                    [id_index * max_D_])); // dst_start
+                              data_ptr,
+                              data_ptr + max_D_,
+                              &weights_data[index * max_D_]); // dst_start
                         }
                       }
                     });
@@ -368,7 +382,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   int64_t max_D_;
   int64_t num_shards_;
   int64_t weight_ttl_in_hours_;
-  SynchronizedShardedMap<int64_t, StoreValue<weight_type>> kv_store_;
+  // mempool params
+  size_t block_size_;
+  size_t block_alignment_;
+  SynchronizedShardedMap<int64_t, weight_type*> kv_store_;
   std::atomic_bool is_eviction_ongoing_ = false;
   std::vector<std::unique_ptr<ssd::Initializer>> initializers_;
   int64_t elem_size_;
