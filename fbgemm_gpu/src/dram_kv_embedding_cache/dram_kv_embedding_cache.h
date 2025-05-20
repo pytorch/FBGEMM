@@ -300,7 +300,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           std::copy(
                               data_ptr,
                               data_ptr + max_D_,
-                              &weights_data[index * max_D_]);  // dst_start
+                              &(weights_data_ptr[index * max_D_]));  // dst_start
                         }
                       }
                     });
