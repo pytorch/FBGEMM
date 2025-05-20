@@ -7,7 +7,6 @@
 # pyre-strict
 # pyre-ignore-all-errors[3,6,56]
 
-import logging
 import math
 import tempfile
 
