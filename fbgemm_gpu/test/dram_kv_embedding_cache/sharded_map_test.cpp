@@ -10,11 +10,12 @@
 #include <iostream>
 
 #include <gmock/gmock.h>
+#include <array>
 #include <gtest/gtest.h>
+#include "fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h"
+#include "fbgemm_gpu/src/dram_kv_embedding_cache/store_value_utils.h"
 
 #include <common/time/Time.h>
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h"
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/store_value_utils.h"
 
 using namespace ::testing;
 namespace kv_mem {
