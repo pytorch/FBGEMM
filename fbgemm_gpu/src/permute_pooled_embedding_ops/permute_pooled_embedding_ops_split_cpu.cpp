@@ -37,8 +37,8 @@ Tensor permute_pooled_embs_split_cpu_impl(
   }
 
   TORCH_CHECK(
-      pooled_embs.dim() == 2,
-      "pooled_embs must be 2-D tensor of size [B_local][Sum_T_global(D)], "
+      pooled_embs.dim() >= 2,
+      "pooled_embs must be at least a 2-D tensor of size [B_local][Sum_T_global(D)], "
       "current shape is: ",
       torch_tensor_shape_str(pooled_embs));
   TORCH_CHECK(
