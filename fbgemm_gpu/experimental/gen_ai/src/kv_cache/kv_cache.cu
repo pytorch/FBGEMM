@@ -3003,7 +3003,8 @@ at::Tensor quantize_qkv_per_head(
   dim3 block_size(kThreadsPerWarp, kWarpsPerBlock);
   dim3 grid_size(cuda_calc_xblock_count(num_warps, kWarpsPerBlock));
 
-  auto scale_q = at::zeros({B, N_KVH_L}, XQ_O.options().dtype(at::kFloat));
+  auto scale_q =
+      at::zeros({cache_K.size(0), N_KVH_L}, XQ_O.options().dtype(at::kFloat));
   float* const scale_q_ptr = scale_q.data_ptr<float>();
   // Launch the kernel
   // TODO: Launch the kernel with B_T * N_H_L blocks only in case of decode.
