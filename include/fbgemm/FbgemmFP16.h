@@ -18,10 +18,10 @@
 #include <stdexcept>
 #include <vector>
 
-#include "./FbgemmPackMatrixB.h"
-#include "./FloatConversion.h"
-#include "./Types.h"
-#include "./Utils.h"
+#include "./FbgemmPackMatrixB.h" // @manual
+#include "./FloatConversion.h" // @manual
+#include "./Types.h" // @manual
+#include "./Utils.h" // @manual
 
 namespace fbgemm {
 

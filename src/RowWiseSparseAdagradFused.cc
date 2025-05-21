@@ -9,14 +9,14 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include <asmjit/asmjit.h>
+#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <cassert>
 #include <iostream>
 #include <mutex>
-#include "./CodeCache.h"
-#include "./MaskAvx2.h"
-#include "./RefImplementations.h"
+#include "./CodeCache.h" // @manual
+#include "./MaskAvx2.h" // @manual
+#include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 

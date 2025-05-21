@@ -13,14 +13,14 @@
 #include <omp.h>
 #endif
 
-#include "./TestUtils.h"
-#include "bench/AlignedVec.h"
-#include "bench/BenchUtils.h"
+#include "./TestUtils.h" // @manual
+#include "bench/AlignedVec.h" // @manual
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmPackMatrixB.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 #ifdef USE_IACA
-#include "iacaMarks.h"
+#include "iacaMarks.h" // @manual
 #endif
 
 namespace fbgemm {
