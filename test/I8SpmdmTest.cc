@@ -19,10 +19,10 @@
 #include <omp.h>
 #endif
 
-#include "./TestUtils.h"
-#include "bench/BenchUtils.h"
+#include "./TestUtils.h" // @manual
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmI8Spmdm.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 using namespace std;
 using namespace fbgemm;

@@ -9,8 +9,8 @@
 #ifdef __linux__
 
 #define FBGEMM_EXPORTS
-#include "./EmbeddingSpMDMAutovec.h"
-#include "./RefImplementations.h"
+#include "./EmbeddingSpMDMAutovec.h" // @manual
+#include "./RefImplementations.h" // @manual
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
 

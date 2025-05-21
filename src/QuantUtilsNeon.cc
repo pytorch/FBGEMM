@@ -11,10 +11,10 @@
 #if HAVE_SVE
 
 #define FBGEMM_EXPORTS
-#include <arm_neon.h>
-#include <arm_sve.h>
+#include <arm_neon.h> // @manual
+#include <arm_sve.h> // @manual
 
-#include <arm_neon_sve_bridge.h>
+#include <arm_neon_sve_bridge.h> // @manual
 #include <algorithm> //for std::min/std::max
 #include <cassert> //for assert
 #include <cfloat> // for FLT_MAX

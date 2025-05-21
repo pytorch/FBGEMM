@@ -10,7 +10,7 @@
 #include <cmath>
 #include <random>
 
-#include "bench/BenchUtils.h"
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmConvert.h"
 
 using namespace std;

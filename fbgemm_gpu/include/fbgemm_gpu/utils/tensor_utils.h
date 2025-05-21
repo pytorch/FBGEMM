@@ -46,6 +46,20 @@ inline std::string torch_tensor_device_name(
   }
 }
 
+inline const std::string torch_tensor_shape_str(const at::Tensor& ten) {
+  std::stringstream ss;
+  const auto sizes = ten.sizes();
+  ss << "[";
+  for (auto i = 0; i < sizes.size(); ++i) {
+    ss << sizes[i];
+    if (i != sizes.size() - 1) {
+      ss << ", ";
+    }
+  }
+  ss << "]";
+  return ss.str();
+}
+
 inline bool torch_tensor_on_same_device_check(
     const at::Tensor& ten1,
     const at::Tensor& ten2) {

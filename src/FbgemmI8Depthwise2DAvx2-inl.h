@@ -8,9 +8,9 @@
 
 #pragma once
 
-#include "./FbgemmI8DepthwiseAvx2-inl.h"
-#include "./GenerateI8Depthwise.h"
-#include "./MaskAvx2.h"
+#include "./FbgemmI8DepthwiseAvx2-inl.h" // @manual
+#include "./GenerateI8Depthwise.h" // @manual
+#include "./MaskAvx2.h" // @manual
 #include "fbgemm/Utils.h"
 #include "fbgemm/UtilsAvx2.h"
 

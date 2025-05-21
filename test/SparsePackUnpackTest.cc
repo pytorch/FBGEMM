@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 #include <iostream>
 
-#include "bench/BenchUtils.h"
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmSparse.h"
 #include "fbgemm/spmmUtils.h"
 

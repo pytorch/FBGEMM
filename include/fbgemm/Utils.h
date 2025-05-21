@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include "./FbgemmBuild.h"
-#include "./UtilsAvx2.h"
+#include "./FbgemmBuild.h" // @manual
+#include "./UtilsAvx2.h" // @manual
 
 #include <algorithm>
 #include <array>
