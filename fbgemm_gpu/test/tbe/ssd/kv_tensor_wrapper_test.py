@@ -417,3 +417,208 @@ class KvTensorWrapperTest(TestCase):
             del tensor_wrapper
             del snapshot
             self.assertEqual(ssd_db.get_snapshot_count(), 0)
+
+    # pyre-ignore[56]
+    @given(
+        precision=st.sampled_from(
+            [
+                (SparseType.FP16, 16),
+                (SparseType.FP32, 32),
+            ]
+        ),
+        D=st.integers(min_value=64, max_value=MAX_D),
+    )
+    @settings(**default_settings)
+    def test_read_weights_with_specified_width(
+        self, precision: tuple[SparseType, int], D: int
+    ) -> None:
+        precision = (SparseType.FP16, 16)
+        D = 64
+        E = int(1e4)
+        max_D = MAX_D  # max emb dimension seen by rocksDB
+        N = 1000
+        weights_precision, dtype_width = precision
+        weights_dtype = weights_precision.as_dtype()
+
+        table_dims = torch.tensor([D])
+        hash_size_cumsum = torch.tensor([0, E])
+
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                8,  # num_shards
+                8,  # num_threads
+                0,  # ssd_memtable_flush_period,
+                0,  # ssd_memtable_flush_offset,
+                4,  # ssd_l0_files_per_compact,
+                max_D,  # embedding_dim
+                0,  # ssd_rate_limit_mbps,
+                1,  # ssd_size_ratio,
+                8,  # ssd_compaction_trigger,
+                536870912,  # 512MB ssd_write_buffer_size,
+                8,  # ssd_max_write_buffer_num,
+                -0.01,  # ssd_uniform_init_lower
+                0.01,  # ssd_uniform_init_upper
+                dtype_width,  # row_storage_bitwidth
+                10 * (2**20),  # block cache size
+                table_dims=table_dims,
+                hash_size_cumsum=hash_size_cumsum,
+            )
+
+            # create random index tensor with size N
+            indices = torch.arange(N)
+            # insert the weights with the corresponding indices into the table
+            weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
+            padded_weights = torch.nn.functional.pad(weights, (0, max_D - D), value=1.0)
+            output_weights = torch.empty_like(padded_weights)
+            count = torch.tensor([N])
+            ssd_db.set(indices, padded_weights, count)
+
+            # force waiting for set to complete
+            ssd_db.get(indices, output_weights, torch.tensor(indices.shape[0]))
+            torch.testing.assert_close(padded_weights, output_weights)
+
+            """
+            create a new case with kvt dim == weight dim
+            test different width offset to read the weights out
+            """
+            # case 0
+            snapshot = ssd_db.create_snapshot()
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, D], weights.dtype, 0, snapshot
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+            self.assertEqual(tensor_wrapper.shape, [E, D])
+
+            narrowed = tensor_wrapper.narrow(0, 0, 1)
+            weight_by_id = tensor_wrapper.get_weights_by_ids(torch.tensor([0]))
+            self.assertTrue(torch.equal(narrowed[0], weights[0]))
+            self.assertTrue(torch.equal(weight_by_id[0], weights[0]))
+
+            # case 1
+            width_offset = 10
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, D], weights.dtype, 0, snapshot, width_offset=width_offset
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+            narrowed = tensor_wrapper.narrow(0, 0, 1)
+            weight_by_id = tensor_wrapper.get_weights_by_ids(torch.tensor([0]))
+            self.assertTrue(torch.equal(narrowed[0], weights[0][width_offset:]))
+            self.assertTrue(torch.equal(weight_by_id[0], weights[0][width_offset:]))
+
+            """
+            create a new case with kvt dim > weight dim
+            we should only get upto weight dim and the rest should be 0s
+            """
+            extra_width = 10
+            new_D = D + extra_width
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, new_D], weights.dtype, 0, snapshot
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+            self.assertEqual(tensor_wrapper.shape, [E, new_D])
+
+            narrowed = tensor_wrapper.narrow(0, 0, 1)
+            weight_by_id = tensor_wrapper.get_weights_by_ids(torch.tensor([0]))
+            self.assertTrue(torch.equal(narrowed[0], padded_weights[0][:new_D]))
+
+            width_offset = 10
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, new_D], weights.dtype, 0, snapshot, width_offset=width_offset
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+            narrowed = tensor_wrapper.narrow(0, 0, 1)
+            weight_by_id = tensor_wrapper.get_weights_by_ids(torch.tensor([0]))
+            self.assertTrue(
+                torch.equal(narrowed[0], padded_weights[0][width_offset:new_D])
+            )
+            self.assertTrue(
+                torch.equal(weight_by_id[0], padded_weights[0][width_offset:new_D])
+            )
+
+            # non existing rows, we should expect bytes beyond new_D to be 0s
+            narrowed = tensor_wrapper.narrow(0, N, 1)
+            weight_by_id = tensor_wrapper.get_weights_by_ids(torch.tensor([N]))
+            self.assertTrue(all(narrowed[0][D:] == 0))
+            self.assertTrue(all(weight_by_id[0][D:] == 0))
+
+            # with width offset
+            narrowed = tensor_wrapper.narrow(0, N, 1)
+            weight_by_id = tensor_wrapper.get_weights_by_ids(torch.tensor([N]))
+            self.assertTrue(all(narrowed[0][D - width_offset :] == 0))
+            self.assertTrue(all(weight_by_id[0][D - width_offset :] == 0))
+
+            del tensor_wrapper
+            del snapshot
+            self.assertEqual(ssd_db.get_snapshot_count(), 0)
+
+    def test_dram_kv_and_rdb_snapshot_check(self) -> None:
+        max_D = MAX_D  # max emb dimension seen by rocksDB
+        D = 64
+        E = int(1e4)
+        weights_precision = SparseType.FP16
+        dtype_width = 16
+        weights_dtype = weights_precision.as_dtype()
+
+        dram_kv = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+            max_D=max_D,
+            uniform_init_lower=-0.1,
+            uniform_init_upper=0.1,
+            num_shards=8,
+            num_threads=32,
+            row_storage_bitwidth=weights_precision.bit_rate(),
+        )
+
+        with tempfile.TemporaryDirectory() as ssd_directory:
+            ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                8,  # num_shards
+                8,  # num_threads
+                0,  # ssd_memtable_flush_period,
+                0,  # ssd_memtable_flush_offset,
+                4,  # ssd_l0_files_per_compact,
+                max_D,  # embedding_dim
+                0,  # ssd_rate_limit_mbps,
+                1,  # ssd_size_ratio,
+                8,  # ssd_compaction_trigger,
+                536870912,  # 512MB ssd_write_buffer_size,
+                8,  # ssd_max_write_buffer_num,
+                -0.01,  # ssd_uniform_init_lower
+                0.01,  # ssd_uniform_init_upper
+                dtype_width,  # row_storage_bitwidth
+                10 * (2**20),  # block cache size
+            )
+            snapshot = ssd_db.create_snapshot()
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, D], weights_dtype, 0, snapshot
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+            tensor_wrapper.narrow(0, 0, 1)
+            tensor_wrapper.get_weights_by_ids(torch.tensor([1]))
+
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, D], weights_dtype, 0
+            )
+            tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+            with self.assertRaises(RuntimeError):
+                tensor_wrapper.narrow(0, 0, 1)
+            with self.assertRaises(RuntimeError):
+                tensor_wrapper.get_weights_by_ids(torch.tensor([1]))
+
+            # uncomment it when dram kv has width offset support
+            # tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+            #     [E, D], weights_dtype, 0
+            # )
+            # tensor_wrapper.set_dram_db_wrapper(dram_kv)
+            # tensor_wrapper.narrow(0, 0, 1)
+            # tensor_wrapper.get_weights_by_ids(torch.tensor([1]))
+
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                [E, D], weights_dtype, 0, snapshot
+            )
+            tensor_wrapper.set_dram_db_wrapper(dram_kv)
+
+            with self.assertRaises(RuntimeError):
+                tensor_wrapper.narrow(0, 0, 1)
+            with self.assertRaises(RuntimeError):
+                tensor_wrapper.get_weights_by_ids(torch.tensor([1]))

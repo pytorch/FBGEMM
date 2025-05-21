@@ -271,11 +271,15 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length,
-      const ssd::SnapshotHandle* snapshot_handle) {
+      const ssd::SnapshotHandle* snapshot_handle,
+      int64_t width_offset = 0,
+      std::optional<int64_t> width_length = std::nullopt) {
     (void)weights;
     (void)start;
     (void)length;
     (void)snapshot_handle;
+    (void)width_offset;
+    (void)width_length;
     FBEXCEPTION("Not implemented");
   }
 
@@ -287,10 +291,14 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   virtual void get_kv_from_storage_by_snapshot(
       const at::Tensor& ids,
       const at::Tensor& weights,
-      const ssd::SnapshotHandle* snapshot_handle) {
+      const ssd::SnapshotHandle* snapshot_handle,
+      int64_t width_offset = 0,
+      std::optional<int64_t> width_length = std::nullopt) {
     (void)ids;
     (void)weights;
     (void)snapshot_handle;
+    (void)width_offset;
+    (void)width_length;
     FBEXCEPTION("Not implemented");
   }
 
