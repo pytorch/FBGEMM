@@ -27,7 +27,8 @@ at::Tensor nope_qkv_varseq_prefill(
     std::optional<at::Tensor> qparam_v,
     bool k_norm,
     bool update_kv,
-    std::optional<at::Tensor> amax_qkv);
+    std::optional<at::Tensor> amax_qkv,
+    std::optional<at::Tensor> kv_quant_scale_precomputed);
 
 at::Tensor nope_qkv_decoding(
     at::Tensor XQ,
@@ -73,7 +74,8 @@ at::Tensor rope_qkv_varseq_prefill(
     bool write_k_back,
     bool k_norm,
     bool update_kv,
-    std::optional<at::Tensor> amax_qkv);
+    std::optional<at::Tensor> amax_qkv,
+    std::optional<at::Tensor> kv_quant_scale_precomputed);
 
 at::Tensor rope_qkv_decoding(
     at::Tensor XQ,
@@ -174,11 +176,11 @@ at::Tensor quantize_qkv_per_head(
     at::Tensor XQKV,
     at::Tensor varseq_seqpos,
     std::optional<at::Tensor> varseq_batch,
-    at::Tensor q_seqstarts,
+    std::optional<at::Tensor> is_precalculated_qparam,
     at::Tensor cache_K,
     at::Tensor cache_V,
     at::Tensor XQ_O,
-    int64_t max_seq_len,
+    int64_t B,
     std::optional<at::Tensor> qparam_k,
     std::optional<at::Tensor> qparam_v);
 
