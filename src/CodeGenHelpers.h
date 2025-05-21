@@ -7,7 +7,7 @@
  */
 
 #pragma once
-#include <asmjit/asmjit.h>
+#include <asmjit/asmjit.h> // @manual
 #include "fbgemm/SimdUtils.h"
 #include "fbgemm/Utils.h"
 

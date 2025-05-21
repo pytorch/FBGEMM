@@ -11,7 +11,7 @@
 #ifdef __aarch64__
 
 #include <cstdint>
-#include "./FbgemmBuild.h"
+#include "./FbgemmBuild.h" // @manual
 
 /// @defgroup fbgemm-quant-utils-avx2 Quantization Utilities (AVX2)
 ///

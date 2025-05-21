@@ -7,7 +7,7 @@
  */
 
 #define FBGEMM_EXPORTS
-#include "./RefImplementations.h"
+#include "./RefImplementations.h" // @manual
 
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FbgemmConvert.h"

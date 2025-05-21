@@ -7,8 +7,8 @@
  */
 
 #include <iostream>
-#include "./CodeGenHelpers.h"
-#include "./DirectConv.h"
+#include "./CodeGenHelpers.h" // @manual
+#include "./DirectConv.h" // @manual
 
 namespace fbgemm {
 

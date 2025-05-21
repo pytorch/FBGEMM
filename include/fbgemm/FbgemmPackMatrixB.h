@@ -17,9 +17,9 @@
 #include <typeinfo>
 #include <vector>
 
-#include "SimdUtils.h"
-#include "Types.h"
-#include "Utils.h"
+#include "SimdUtils.h" // @manual
+#include "Types.h" // @manual
+#include "Utils.h" // @manual
 
 namespace fbgemm {
 

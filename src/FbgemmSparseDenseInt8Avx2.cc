@@ -17,7 +17,7 @@
 #include <algorithm> // for min and max
 #include <cassert>
 #include <cstring>
-#include "./MaskAvx2.h"
+#include "./MaskAvx2.h" // @manual
 
 namespace fbgemm {
 namespace internal {

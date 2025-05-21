@@ -8,7 +8,7 @@
 
 #pragma once
 #include <cstdint>
-#include "./GenerateKernel.h"
+#include "./GenerateKernel.h" // @manual
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {

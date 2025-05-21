@@ -14,7 +14,7 @@
 
 #include <gtest/gtest.h>
 
-#include "bench/BenchUtils.h"
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmSparse.h"
 #include "fbgemm/spmmUtils.h"

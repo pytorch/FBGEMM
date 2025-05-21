@@ -7,14 +7,14 @@
  */
 
 #pragma once
-#include <asmjit/asmjit.h>
+#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <tuple>
-#include "./CodeCache.h"
+#include "./CodeCache.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/SimdUtils.h"
 // #define FBGEMM_LOG_CODE 1

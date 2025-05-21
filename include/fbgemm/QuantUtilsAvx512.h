@@ -9,8 +9,8 @@
 #pragma once
 
 #include <cstdint>
-#include "./FbgemmBuild.h"
-#include "./UtilsAvx2.h"
+#include "./FbgemmBuild.h" // @manual
+#include "./UtilsAvx2.h" // @manual
 
 /// @defgroup fbgemm-quant-utils-avx512 Quantization Utilities (AVX512)
 ///

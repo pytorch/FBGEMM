@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "./FbgemmFP16UKernelsSve128.h"
+#include "./FbgemmFP16UKernelsSve128.h" // @manual
 
 namespace fbgemm {
 

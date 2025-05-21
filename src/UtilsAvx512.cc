@@ -10,8 +10,8 @@
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
 #endif
-#include "./TransposeUtils.h"
-#include "./TransposeUtilsAvx2.h"
+#include "./TransposeUtils.h" // @manual
+#include "./TransposeUtilsAvx2.h" // @manual
 namespace fbgemm {
 
 namespace {

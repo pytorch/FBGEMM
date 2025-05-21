@@ -15,7 +15,7 @@
 #include <mkl.h>
 #endif
 
-#include "bench/BenchUtils.h"
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmFP16.h"
 
 using namespace fbgemm;

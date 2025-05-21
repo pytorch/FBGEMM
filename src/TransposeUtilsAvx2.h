@@ -15,7 +15,7 @@
 #include <cassert>
 #include <cstdint>
 
-#include "./MaskAvx2.h"
+#include "./MaskAvx2.h" // @manual
 
 namespace fbgemm {
 

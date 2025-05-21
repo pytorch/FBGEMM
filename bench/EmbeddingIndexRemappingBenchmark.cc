@@ -16,7 +16,7 @@
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 #include "test/EmbeddingSpMDMTestUtils.h"
 
 using namespace std;

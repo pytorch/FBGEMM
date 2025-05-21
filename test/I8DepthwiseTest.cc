@@ -11,10 +11,10 @@
 
 #include <gtest/gtest.h>
 
-#include "bench/AlignedVec.h"
-#include "bench/BenchUtils.h"
+#include "bench/AlignedVec.h" // @manual
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 using namespace std;
 

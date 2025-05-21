@@ -6,8 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "./TransposeUtils.h"
-#include "./TransposeUtilsSve.h"
+#include "./TransposeUtils.h" // @manual
+#include "./TransposeUtilsSve.h" // @manual
 
 namespace fbgemm {
 

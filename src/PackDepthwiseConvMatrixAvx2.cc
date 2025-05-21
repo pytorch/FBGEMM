@@ -14,7 +14,7 @@
 #include <immintrin.h>
 #endif
 
-#include "./MaskAvx2.h"
+#include "./MaskAvx2.h" // @manual
 #include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {

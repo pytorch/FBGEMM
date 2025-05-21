@@ -8,9 +8,9 @@
 
 #pragma once
 
-#include "./Utils.h"
+#include "./Utils.h" // @manual
 
-#include <asmjit/asmjit.h>
+#include <asmjit/asmjit.h> // @manual
 
 namespace fbgemm {
 /**

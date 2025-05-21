@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "./GenerateKernel.h"
+#include "./GenerateKernel.h" // @manual
 
 namespace fbgemm {
 

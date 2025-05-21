@@ -6,8 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "./FbgemmFP16UKernelsAvx512.h"
-#include "./InlineAsmDefines.h"
+#include "./FbgemmFP16UKernelsAvx512.h" // @manual
+#include "./InlineAsmDefines.h" // @manual
 
 namespace fbgemm {
 

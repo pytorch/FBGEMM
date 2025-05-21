@@ -15,8 +15,8 @@
 
 #include <gtest/gtest.h>
 
-#include "./TestUtils.h"
-#include "bench/BenchUtils.h"
+#include "./TestUtils.h" // @manual
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
 
 using namespace std;

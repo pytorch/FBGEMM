@@ -10,7 +10,7 @@
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
 #endif
-#include "./FbgemmFP16UKernelsAvx512_256.h"
+#include "./FbgemmFP16UKernelsAvx512_256.h" // @manual
 
 namespace fbgemm {
 

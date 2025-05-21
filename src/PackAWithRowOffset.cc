@@ -13,7 +13,7 @@
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
-#include "./OptimizedKernelsAvx2.h"
+#include "./OptimizedKernelsAvx2.h" // @manual
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {

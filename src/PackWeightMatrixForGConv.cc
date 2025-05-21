@@ -11,7 +11,7 @@
 #include <cassert>
 #include <iomanip>
 #include <numeric>
-#include "./RefImplementations.h"
+#include "./RefImplementations.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/SimdUtils.h"
 

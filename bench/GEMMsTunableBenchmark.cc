@@ -19,9 +19,9 @@
 #include <omp.h>
 #endif
 
-#include "bench/BenchUtils.h"
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 #include "test/QuantizationHelpers.h"
 
 using namespace std;

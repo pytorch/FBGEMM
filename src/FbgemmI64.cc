@@ -17,8 +17,8 @@
 #include <iostream>
 #include <vector>
 
-#include "./GenerateKernel.h"
-#include "./RefImplementations.h"
+#include "./GenerateKernel.h" // @manual
+#include "./RefImplementations.h" // @manual
 #include "fbgemm/PackingTraits-inl.h"
 
 using namespace std;

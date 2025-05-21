@@ -7,8 +7,8 @@
  */
 
 #define FBGEMM_EXPORTS
-#include "./GroupwiseConv.h"
-#include <asmjit/asmjit.h>
+#include "./GroupwiseConv.h" // @manual
+#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <array>
 #include <iostream>
@@ -16,9 +16,9 @@
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
-#include "./CodeGenHelpers.h"
-#include "./RefImplementations.h"
-#include "./TransposeUtils.h"
+#include "./CodeGenHelpers.h" // @manual
+#include "./RefImplementations.h" // @manual
+#include "./TransposeUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/SimdUtils.h"

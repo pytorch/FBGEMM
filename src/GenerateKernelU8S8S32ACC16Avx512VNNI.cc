@@ -7,7 +7,7 @@
  */
 
 #include <iostream>
-#include "./GenerateKernel.h"
+#include "./GenerateKernel.h" // @manual
 
 namespace fbgemm {
 

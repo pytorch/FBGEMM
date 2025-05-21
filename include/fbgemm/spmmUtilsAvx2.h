@@ -7,7 +7,7 @@
  */
 
 #pragma once
-#include "./FbgemmBuild.h"
+#include "./FbgemmBuild.h" // @manual
 #include "fbgemm/UtilsAvx2.h"
 
 namespace fbgemm {
