@@ -10,7 +10,7 @@
 
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include <asmjit/asmjit.h>
+#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <cassert>
 #include <cmath>
@@ -19,10 +19,10 @@
 #include <mutex>
 #include <string>
 #include <tuple>
-#include "./CodeCache.h"
-#include "./EmbeddingSpMDMAutovec.h"
-#include "./MaskAvx2.h"
-#include "./RefImplementations.h"
+#include "./CodeCache.h" // @manual
+#include "./EmbeddingSpMDMAutovec.h" // @manual
+#include "./MaskAvx2.h" // @manual
+#include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
 #include "fbgemm/Types.h"
 

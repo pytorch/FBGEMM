@@ -13,12 +13,12 @@
 #include <utility>
 
 #ifndef __aarch64__
-#include "./FbgemmFP32UKernelsAvx2.h"
-#include "./FbgemmFP32UKernelsAvx512.h"
-#include "./FbgemmFP32UKernelsAvx512_256.h"
+#include "./FbgemmFP32UKernelsAvx2.h" // @manual
+#include "./FbgemmFP32UKernelsAvx512.h" // @manual
+#include "./FbgemmFP32UKernelsAvx512_256.h" // @manual
 #else
 #ifdef FBGEMM_ENABLE_KLEIDIAI
-#include "./KleidiAIFP32UKernelsNeon.h"
+#include "./KleidiAIFP32UKernelsNeon.h" // @manual
 #endif
 #endif
 #include "fbgemm/Fbgemm.h"

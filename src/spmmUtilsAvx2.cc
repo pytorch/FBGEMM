@@ -13,7 +13,7 @@
 #include <immintrin.h>
 #endif
 #include <cassert> //for assert
-#include "./MaskAvx2.h"
+#include "./MaskAvx2.h" // @manual
 
 namespace fbgemm {
 

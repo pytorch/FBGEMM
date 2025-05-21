@@ -15,18 +15,18 @@
 #endif
 #include <cassert>
 
-#include "./DirectConv.h"
-#include "./ExecuteKernel.h"
-#include "./MaskAvx2.h"
+#include "./DirectConv.h" // @manual
+#include "./ExecuteKernel.h" // @manual
+#include "./MaskAvx2.h" // @manual
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/UtilsAvx2.h"
 
-#include "./CodeGenHelpers.h"
-#include "./OptimizedKernelsAvx2.h"
-#include "./RefImplementations.h"
-#include "./TransposeUtils.h"
+#include "./CodeGenHelpers.h" // @manual
+#include "./OptimizedKernelsAvx2.h" // @manual
+#include "./RefImplementations.h" // @manual
+#include "./TransposeUtils.h" // @manual
 #include "fbgemm/QuantUtilsAvx512.h"
 namespace fbgemm {
 
