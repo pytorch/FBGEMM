@@ -158,7 +158,7 @@ class TestGroupedGEMM(unittest.TestCase):
         N=st.sampled_from([256]),
         K=st.sampled_from([256]),
         warp_specialization=st.sampled_from(
-            [True, False] if _HAS_WS_SUPPORT else [False]
+            [True, False] if torch.cuda.is_available() and _HAS_WS_SUPPORT else [False]
         ),
         fuse_scatter_add=st.sampled_from([True, False]),
     )
