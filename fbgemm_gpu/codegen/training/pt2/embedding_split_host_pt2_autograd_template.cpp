@@ -834,7 +834,11 @@ class {{ autograd_func }} :
     // unpack optim args
     {%- for (var, dict_val, _, type) in args_pt2.unified_pt2.split_saved_data %}
     {%- if type == "bool" %}
-    bool {{ var }} = {{ dict_val }};
+      {%- if optimizer == "rowwise_adagrad" %}
+      bool {{ var }} = false;
+      {%- else %}
+      bool {{ var }} = {{ dict_val }};
+      {%- endif %}
     {%- elif type != "c10::SymInt" %}
     auto {{ var }} = {{ dict_val }};
     {%- endif %}

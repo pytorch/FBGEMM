@@ -260,7 +260,7 @@ def list_arg(ty: str) -> str:
         "tensor": "std::vector<std::optional<at::Tensor>> optim_tensor",
         "int": "std::vector<int64_t> optim_int",
         "float": "std::vector<double> optim_float",
-        "bool": "c10::List<bool> optim_bool",
+        "bool": "c10::List<bool> optim_bool = c10::List<bool>()",
     }[ty]
 
 
@@ -277,7 +277,7 @@ def schema_list_arg(ty: str) -> str:
         "tensor": "Tensor?[] optim_tensor",
         "int": "int[] optim_int",
         "float": "float[] optim_float",
-        "bool": "bool[] optim_bool",
+        "bool": "bool[] optim_bool = []",
     }[ty]
 
 

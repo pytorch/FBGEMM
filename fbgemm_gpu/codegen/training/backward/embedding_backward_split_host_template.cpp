@@ -1094,6 +1094,12 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     learning_rate_tensor.fill_(learning_rate);
     {%- endif %}
 
+    // V1 API is frozen. New features/functionability can only be enabled in V2 API
+    // New arguments are added here for compatibility
+    {%- if "enable_optimizer_offloading" in args.split_function_arg_names %}
+    const bool enable_optimizer_offloading = false;
+    {%- endif %}    
+
     {%- if not dense %}
     // Load the config value from JK once
     static auto is_tbev2_enabled = config::is_feature_enabled(config::FeatureGateName::TBE_V2);
