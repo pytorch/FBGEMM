@@ -352,7 +352,11 @@ def invoke(
     {%- if "optim_bool" in args_pt2.unified_pt2.split_function_arg_names %}
     optim_bool: List[bool] = []
     {%- for name in args_pt2.unified_pt2.split_args_dict["optim_bool"] %}
+    {%- if name == "enable_optimizer_offloading" %} # TODO: Remove this when the frontend lands
+    optim_bool.append(False)
+    {%- else %}
     optim_bool.append(dict_optim_bool["{{ name }}"])
+    {%- endif %}
     {%- endfor %}
     {%- endif %} 
 
@@ -422,7 +426,7 @@ def invoke(
         optim_float=optim_float,
         {%- endif %}
         # optim_bool
-        {%- if "optim_bool" in args_pt2.unified_pt2.split_function_arg_names %}
+        {%- if "optim_bool" in args_pt2.unified_pt2.split_function_arg_names and optimizer != "rowwise_adagrad" %}
         optim_bool=optim_bool,
         {%- endif %}
         # optim symint args

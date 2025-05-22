@@ -454,8 +454,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
             ph_type_combo,
             kFixedMaxVecsPerThread,
             kThreadGroupSize,
-            kUseVecBlocking
-          )
+            kUseVecBlocking)
         }}
     {%- endfor %}
     {%- endfor %}

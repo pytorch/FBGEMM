@@ -969,7 +969,6 @@ Tensor {{ embedding_cuda_op }}(
             {%- endif %}
 
             DISPATCH_OPTIMAL_KERNEL(max_D, [&] {
-
                 auto long_run_ids = at::empty({indices.numel()}, sorted_linear_indices_run_lengths.options());
                 auto num_long_run_ids = at::zeros({1}, indices.options().dtype(at::kInt));
 
@@ -1032,18 +1031,17 @@ Tensor {{ embedding_cuda_op }}(
                         )
                     %}
 
-                    const auto backward_cta_per_row_kernel =
-                        {{ cta_kernel }}
-                            <emb_t,
-                             grad_t,
-                             cache_t,
-                             index_t,
-                             {%- for ph_name in args.placeholder_tensor_names %}
-                             {{ ph_name + "_ph_t" }},
-                             {%- endfor %}
-                             kFixedMaxVecsPerThread,
-                             kThreadGroupSize,
-                             kUseVecBlocking>;
+                    const auto backward_cta_per_row_kernel = {{ cta_kernel }}<
+                        emb_t,
+                        grad_t,
+                        cache_t,
+                        index_t,
+                        {%- for ph_name in args.placeholder_tensor_names %}
+                        {{ ph_name + "_ph_t" }},
+                        {%- endfor %}
+                        kFixedMaxVecsPerThread,
+                        kThreadGroupSize,
+                        kUseVecBlocking>;
 
                     // Compute shared memory size for cta_per_row
                     constexpr auto kCacheAccBytes = sizeof(at::acc_type<cache_t, true>);
@@ -1150,18 +1148,18 @@ Tensor {{ embedding_cuda_op }}(
                             desc_suffix,
                         )
                     %}
-                    auto backward_warp_per_row_kernel =
-                        {{ warp_kernel }}
-                            <emb_t,
-                             grad_t,
-                             cache_t,
-                             index_t,
-                             {%- for ph_name in args.placeholder_tensor_names %}
-                             {{ ph_name + "_ph_t" }},
-                             {%- endfor %}
-                             kFixedMaxVecsPerThread,
-                             kThreadGroupSize,
-                             kUseVecBlocking>;
+
+                    auto backward_warp_per_row_kernel = {{ warp_kernel }}<
+                        emb_t,
+                        grad_t,
+                        cache_t,
+                        index_t,
+                        {%- for ph_name in args.placeholder_tensor_names %}
+                        {{ ph_name + "_ph_t" }},
+                        {%- endfor %}
+                        kFixedMaxVecsPerThread,
+                        kThreadGroupSize,
+                        kUseVecBlocking>;
 
                     // Compute shared memory size for warp_per_row
                     int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
