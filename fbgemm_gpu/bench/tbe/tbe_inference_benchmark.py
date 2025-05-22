@@ -919,12 +919,14 @@ def nbit_device_with_spec(  # noqa C901
 
         # free up memory
         del requests
-        result_msg = f"Iteration {i}: "
-        f"{weights_precision} Forward, B: {B}, "
-        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-        f"BW: {cpu_copies * float(read_write_bytes) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-        f"Time: {time_per_iter * 1.0e6:.0f}us, "
-        f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        result_msg = (
+            f"Iteration {i}: "
+            f"{weights_precision} Forward, B: {B}, "
+            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+            f"BW: {cpu_copies * float(read_write_bytes) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+            f"Time: {time_per_iter * 1.0e6:.0f}us, "
+            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
+        )
 
         if use_cpu and cpu_copies > 1:
             result_msg += f", Parallel Copies: {cpu_copies}"
