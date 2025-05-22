@@ -58,8 +58,6 @@ class KVZCHParams(NamedTuple):
     bucket_sizes: List[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
-    # streaming load/save checkpoint chunk size
-    streaming_ckpt_chunk_size: int = 1000000
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (

@@ -598,13 +598,20 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length,
-      const SnapshotHandle* snapshot_handle) override {
+      const SnapshotHandle* snapshot_handle,
+      int64_t width_offset = 0,
+      std::optional<int64_t> width_length = std::nullopt) override {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
 
     get_kv_db_async_impl</*use_iterator=*/true>(
-        seq_indices, weights, count, snapshot_handle)
+        seq_indices,
+        weights,
+        count,
+        snapshot_handle,
+        width_offset,
+        width_length)
         .wait();
   }
 
@@ -616,10 +623,12 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   void get_kv_from_storage_by_snapshot(
       const at::Tensor& ids,
       const at::Tensor& weights,
-      const SnapshotHandle* snapshot_handle) override {
+      const SnapshotHandle* snapshot_handle,
+      int64_t width_offset = 0,
+      std::optional<int64_t> width_length = std::nullopt) override {
     const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
     get_kv_db_async_impl</*use_iterator=*/false>(
-        ids, weights, count, snapshot_handle)
+        ids, weights, count, snapshot_handle, width_offset, width_length)
         .wait();
   }
 
@@ -784,16 +793,32 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
-  int64_t get_dim_from_index(int64_t index) const {
+  int64_t get_dim_from_index_slice(const rocksdb::Slice& index_slice) const {
     if (sub_table_dims_.empty()) {
       return max_D_;
     }
+    auto index = *reinterpret_cast<const int64_t*>(index_slice.data());
     for (int i = 0; i < sub_table_hash_cumsum_.size(); i++) {
       if (index < sub_table_hash_cumsum_[i]) {
         return sub_table_dims_[i];
       }
     }
+    CHECK(false) << "index " << index << " doesn't belong to any feature";
     return max_D_;
+  }
+
+  int64_t get_width_for_weights(
+      const rocksdb::Slice& index_slice,
+      int64_t width_offset,
+      int64_t row_width) const {
+    // when init an untouch embedding, we only want to init the weights part
+    // and set the optimizer part to 0. This function helps us to get the dim
+    // for each sub table, calculate the max bytes we should copy to the passed
+    // in weights_data_ptr before optimizer section
+    auto feature_dim = get_dim_from_index_slice(index_slice);
+    CHECK_GT(feature_dim, width_offset);
+    auto feature_width = feature_dim - width_offset;
+    return std::min(feature_width, row_width);
   }
 
   void fill_from_row_storage(
@@ -801,23 +826,31 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       unsigned char* weights_data_ptr,
       int64_t weights_row_index,
       unsigned char* row_storage_data_ptr,
-      const rocksdb::Slice& weight_key) {
-    // get the exact row dimension from the feature dimension list, so that
-    // we can fill the correct number of elements into the weights tensor
-    // for the given row. the rest of the row will stay as 0s, so untrained
-    auto weight_index = *reinterpret_cast<const int64_t*>(weight_key.data());
-    auto dim = get_dim_from_index(weight_index);
-    int64_t row_width = elem_size_ * max_D_;
-    auto copy_width = elem_size_ * dim;
-    CHECK_LE(copy_width, row_width);
+      int64_t width_offset,
+      int64_t row_width,
+      int64_t copied_width) {
+    CHECK_GE(row_width, copied_width);
+    CHECK_GE(max_D_, row_width);
+    int64_t storage_row_bytes = elem_size_ * max_D_;
+    int64_t row_bytes = row_width * elem_size_;
+    auto copied_bytes = elem_size_ * copied_width;
+    int64_t start_offset_bytes = elem_size_ * width_offset;
     int64_t row_index;
     initializers_[shard_id]->producer_queue_.dequeue(row_index);
-    auto copied = std::copy_n(
-        &(row_storage_data_ptr[row_index * row_width]),
-        copy_width,
-        &(weights_data_ptr[weights_row_index * row_width]));
-    std::fill(
-        copied, &(weights_data_ptr[(weights_row_index + 1) * row_width]), 0);
+    // TODO: fill the opt state as zeros for init value?
+    std::copy(
+        &(row_storage_data_ptr
+              [row_index * storage_row_bytes + start_offset_bytes]),
+        &(row_storage_data_ptr
+              [row_index * storage_row_bytes + start_offset_bytes +
+               copied_bytes]),
+        &(weights_data_ptr[weights_row_index * row_bytes]));
+    if (row_bytes > copied_bytes) {
+      std::memset(
+          &(weights_data_ptr[weights_row_index * row_bytes + copied_bytes]),
+          0,
+          row_bytes - copied_bytes);
+    }
     initializers_[shard_id]->consumer_queue_.enqueue(row_index);
   }
 
@@ -833,7 +866,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       std::vector<rocksdb::ColumnFamilyHandle*>& cfs,
       int shard_id,
       rocksdb::ReadOptions local_ro,
-      VALUE_T* row_storage_data_ptr) {
+      VALUE_T* row_storage_data_ptr,
+      int64_t width_offset,
+      int64_t row_width) {
     auto iterator_ro = local_ro;
     iterator_ro.total_order_seek = true; // disable prefix filter
     auto it = dbs_[shard_id]->NewIterator(iterator_ro, cfs[0]);
@@ -843,6 +878,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       int64_t i = key_indices[j];
       if (!it->Valid()) {
         CHECK(it->status().ok());
+
+        auto weight_width =
+            get_width_for_weights(keys[j], width_offset, row_width);
         // the iterator reaches the end of the data,
         // generate a new row on the fly
         fill_from_row_storage(
@@ -850,12 +888,16 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             reinterpret_cast<unsigned char*>(weights_data_ptr),
             i,
             reinterpret_cast<unsigned char*>(row_storage_data_ptr),
-            keys[j]);
+            width_offset,
+            row_width,
+            weight_width);
         continue;
       }
 
       const rocksdb::Slice& expected_key = keys[j];
       if (it->key().compare(expected_key) != 0) {
+        auto weight_width =
+            get_width_for_weights(keys[j], width_offset, row_width);
         // the row being looked up doesn't exist in
         // RocksDB, generate a new row on the fly
         fill_from_row_storage(
@@ -863,16 +905,19 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             reinterpret_cast<unsigned char*>(weights_data_ptr),
             i,
             reinterpret_cast<unsigned char*>(row_storage_data_ptr),
-            keys[j]);
+            width_offset,
+            row_width,
+            weight_width);
       } else {
         const auto value = it->value();
         if (!std::is_same<VALUE_T, uint8_t>::value) {
           CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
         }
         std::copy(
-            reinterpret_cast<const VALUE_T*>(value.data()),
-            reinterpret_cast<const VALUE_T*>(value.data() + value.size()),
-            &(weights_data_ptr[i * max_D_]));
+            reinterpret_cast<const VALUE_T*>(value.data()) + width_offset,
+            reinterpret_cast<const VALUE_T*>(value.data()) + width_offset +
+                row_width,
+            &(weights_data_ptr[i * row_width]));
 
         it->Next();
       }
@@ -889,7 +934,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       std::vector<rocksdb::ColumnFamilyHandle*>& cfs,
       int shard_id,
       rocksdb::ReadOptions local_ro,
-      VALUE_T* row_storage_data_ptr) {
+      VALUE_T* row_storage_data_ptr,
+      int64_t width_offset,
+      int64_t row_width) {
     FOLLY_DECLARE_REUSED(values, std::vector<rocksdb::PinnableSlice>);
     FOLLY_DECLARE_REUSED(statuses, std::vector<rocksdb::Status>);
     values.resize(keys.size());
@@ -911,17 +958,22 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
           CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
         }
         std::copy(
-            reinterpret_cast<const VALUE_T*>(value.data()),
-            reinterpret_cast<const VALUE_T*>(value.data() + value.size()),
-            &(weights_data_ptr[i * max_D_]));
+            reinterpret_cast<const VALUE_T*>(value.data()) + width_offset,
+            reinterpret_cast<const VALUE_T*>(value.data()) + width_offset +
+                row_width,
+            &(weights_data_ptr[i * row_width]));
       } else {
         CHECK(s.IsNotFound());
+        auto weight_width =
+            get_width_for_weights(keys[j], width_offset, row_width);
         fill_from_row_storage(
             shard_id,
             reinterpret_cast<unsigned char*>(weights_data_ptr),
             i,
             reinterpret_cast<unsigned char*>(row_storage_data_ptr),
-            keys[j]);
+            width_offset,
+            row_width,
+            weight_width);
       }
     }
   }
@@ -934,7 +986,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count,
-      const SnapshotHandle* snapshot_handle) {
+      const SnapshotHandle* snapshot_handle,
+      int64_t width_offset = 0,
+      std::optional<int64_t> width_length = std::nullopt) {
     RECORD_USER_SCOPE("EmbeddingRocksDB::get");
 #ifdef FBGEMM_FBCODE
     auto start_ts = facebook::WallClockUtil::NowInUsecFast();
@@ -943,6 +997,11 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto count_ = count.scalar_type() == at::ScalarType::Long
         ? *(count.data_ptr<int64_t>())
         : *(count.data_ptr<int32_t>());
+
+    auto D = weights.size(1);
+    auto copy_width = width_length.value_or(D);
+    CHECK_LE(D, max_D_);
+    CHECK_EQ(copy_width, D);
 
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
       // Get a snapshot for the shard
@@ -963,9 +1022,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                             CHECK(indices.is_contiguous());
                             CHECK(weights.is_contiguous());
                             auto indices_data_ptr = indices.data_ptr<index_t>();
-                            auto D = weights.size(1);
                             CHECK_EQ(indices.size(0), weights.size(0));
-                            CHECK_EQ(D, max_D_);
                             auto weights_data_ptr = weights.data_ptr<value_t>();
                             FOLLY_DECLARE_REUSED(
                                 keys, std::vector<rocksdb::Slice>);
@@ -1036,7 +1093,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                                   cfs,
                                   shard,
                                   local_ro,
-                                  row_storage_data_ptr);
+                                  row_storage_data_ptr,
+                                  width_offset,
+                                  D);
                             } else {
                               ssd_get_weights_multi_get(
                                   keys,
@@ -1045,7 +1104,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
                                   cfs,
                                   shard,
                                   local_ro,
-                                  row_storage_data_ptr);
+                                  row_storage_data_ptr,
+                                  width_offset,
+                                  D);
                             }
                           });
                     });
