@@ -16,7 +16,24 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import get_fp8_constants
 
 
 # Function APIs
-def silu_mul(x0: torch.Tensor, x1: torch.Tensor) -> torch.Tensor:
+def silu_mul(
+    x0: torch.Tensor,
+    x1: torch.Tensor,
+    valid_token_count: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """
+    Fused silu and mul operations.
+
+    y = x0 * sigmoid(x0) * x1
+
+    Args:
+        x0: input tensor of shape (T, D)
+        x1: input tensor of shape (T, D)
+        valid_token_count: tensor of shape (1,) to indicate the number of valid tokens.
+
+    Returns:
+        output tensor of shape (T, D)
+    """
 
     assert x0.ndim == 2 and x0.stride(1) == 1
     assert x1.ndim == 2 and x1.stride(1) == 1
@@ -45,6 +62,7 @@ def silu_mul(x0: torch.Tensor, x1: torch.Tensor) -> torch.Tensor:
         x1,
         stride_0,
         stride_1,
+        valid_token_count,
         D,  # pyre-ignore
         BLOCK_D_OUTER,  # pyre-ignore
         BLOCK_D_INNER,  # pyre-ignore
@@ -56,7 +74,22 @@ def silu_mul_quant(
     x0: torch.Tensor,
     x1: torch.Tensor,
     scale_ub: Optional[torch.Tensor] = None,
+    valid_token_count: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Fused silu, mul, and FP8 rowwise quantization operations.
+
+    y, y_scale = quantize(x0 * sigmoid(x0) * x1)
+
+    Args:
+        x0: input tensor of shape (T, D)
+        x1: input tensor of shape (T, D)
+        scale_ub: tensor of shape (1,) to indicate the upper bound of the scale.
+        valid_token_count: tensor of shape (1,) to indicate the number of valid tokens.
+
+    Returns:
+        output quantized tensor of shape (T, D) and its inverse scale of shape (T,)
+    """
 
     assert x0.ndim == 2 and x0.stride(1) == 1
     assert x1.ndim == 2 and x1.stride(1) == 1
@@ -85,6 +118,7 @@ def silu_mul_quant(
         scale_ub,
         stride_0,
         stride_1,
+        valid_token_count,
         T,
         D,  # pyre-ignore
         BLOCK_T,
@@ -142,12 +176,20 @@ def _fbgemm_silu_mul(
     x1_ptr,
     stride_0,
     stride_1,
+    valid_token_count,
     D: tl.constexpr,
     BLOCK_D_OUTER: tl.constexpr,
     BLOCK_D_INNER: tl.constexpr,
 ) -> None:
     token_index = tl.program_id(0)
     feature_offset = tl.program_id(1) * BLOCK_D_OUTER + tl.arange(0, BLOCK_D_INNER)[:]
+
+    if valid_token_count is not None:
+        valid_token_count = tl.load(
+            valid_token_count, None, eviction_policy="evict_last"
+        )
+        if token_index >= valid_token_count:
+            return
 
     for _ in tl.range(0, BLOCK_D_OUTER // BLOCK_D_INNER, num_stages=3):
         x0 = tl.load(
@@ -180,6 +222,7 @@ def _fbgemm_silu_mul_quant(
     scale_ub_ptr,
     stride_0,
     stride_1,
+    valid_token_count,
     T,
     D: tl.constexpr,
     BLOCK_T: tl.constexpr,
@@ -194,8 +237,20 @@ def _fbgemm_silu_mul_quant(
     start_idx = tidx * BLOCK_T
     end_idx = tl.minimum(start_idx + BLOCK_T, T)
 
+    if valid_token_count is not None:
+        valid_token_count = tl.load(
+            valid_token_count, None, eviction_policy="evict_last"
+        )
+        if start_idx >= valid_token_count:
+            return
+
     offsets = tl.arange(0, PADDED_D)[:]
     mask = offsets < D
+
+    if CLAMP_MAX:
+        ub = tl.load(scale_ub_ptr, eviction_policy="evict_last")
+    else:
+        ub = float("inf")
 
     for token_index in tl.range(start_idx, end_idx, 1, num_stages=2):
         x0 = tl.load(
@@ -214,7 +269,6 @@ def _fbgemm_silu_mul_quant(
         # Masked values are set to 0.0.
         row_max = tl.max(tl.where(mask, tl.abs(y), 0.0))
         if CLAMP_MAX:
-            ub = tl.load(scale_ub_ptr, eviction_policy="evict_first")
             row_max = tl.clamp(row_max, EPS, ub)
         else:
             row_max = tl.maximum(row_max, EPS)
