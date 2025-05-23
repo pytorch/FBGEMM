@@ -22,7 +22,7 @@
 
 #include <cutlass/cutlass.h>
 #include <cutlass/numeric_types.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>  // For at::cuda::philox::unpack
+#include <ATen/cuda/CUDAGraphsUtils.cuh> // For at::cuda::philox::unpack
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -45,7 +45,7 @@ struct Hstu_params {
   int h, h_k, h_rab;
   // In the case of multi-query and grouped-query attention (MQA/GQA), nheads_k
   // could be different from nheads (query).
-  int h_h_k_ratio;  // precompute h / h_k,
+  int h_h_k_ratio; // precompute h / h_k,
   bool is_delta_q;
 
   bool is_balance_fwd;
@@ -132,10 +132,25 @@ struct Hstu_bwd_params : public Hstu_fwd_params {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <typename T, int Headdim, bool Has_rab, bool Is_local,
-          bool Is_causal, bool Is_context, bool Is_target, bool Is_delta_q>
+template <
+    typename T,
+    int Headdim,
+    bool Has_rab,
+    bool Is_local,
+    bool Is_causal,
+    bool Is_context,
+    bool Is_target,
+    bool Is_delta_q>
 void run_hstu_fwd_80(Hstu_fwd_params& params, cudaStream_t stream);
 
-template <typename T, int Headdim, bool Has_rab, bool Has_drab, bool Is_local,
-          bool Is_causal, bool Is_context, bool Is_target, bool Is_delta_q>
+template <
+    typename T,
+    int Headdim,
+    bool Has_rab,
+    bool Has_drab,
+    bool Is_local,
+    bool Is_causal,
+    bool Is_context,
+    bool Is_target,
+    bool Is_delta_q>
 void run_hstu_bwd_80(Hstu_bwd_params& params, cudaStream_t stream);
