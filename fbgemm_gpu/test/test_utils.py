@@ -141,7 +141,7 @@ class optests:
             if not has_optests():
                 return test_class
             import torch.testing._internal.optests as optests
-            from torch._utils_internal import (  # @manual=//caffe2:utils_internal
+            from torch._utils_internal import (  # @manual=//caffe2:_utils_internal
                 get_file_path_2,
             )
 
