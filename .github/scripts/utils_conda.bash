@@ -19,10 +19,29 @@ conda_cleanup () {
   (print_exec conda clean --all -y) || return 1
 }
 
+__download_install_miniconda () {
+  echo "[SETUP] Downloading the Miniconda installer ..."
+  (exec_with_retries 3 wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh) || return 1
+
+  echo "[SETUP] Installing Miniconda ..."
+  print_exec bash miniconda.sh -b -p "$conda_install_prefix" -u
+  print_exec rm -f miniconda.sh
+}
+
+__download_install_miniforge () {
+  echo "[SETUP] Downloading the Miniforge installer ..."
+  MINIFORGE_URL="https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+  (exec_with_retries 3 wget -q "$MINIFORGE_URL" -O miniforge.sh) || return 1
+
+  echo "[SETUP] Installing Miniforge ..."
+  print_exec bash miniforge.sh -b -p "$conda_install_prefix" -u
+  print_exec rm -f miniforge.sh
+}
+
 setup_miniconda () {
-  local miniconda_prefix="$1"
-  if [ "$miniconda_prefix" == "" ]; then
-    echo "Usage: ${FUNCNAME[0]} MINICONDA_PREFIX_PATH"
+  conda_install_prefix="$1"
+  if [ "$conda_install_prefix" == "" ]; then
+    echo "Usage: ${FUNCNAME[0]} conda_install_prefix_PATH"
     echo "Example:"
     echo "    setup_miniconda /home/user/tmp/miniconda"
     return 1
@@ -37,23 +56,23 @@ setup_miniconda () {
 
   test_network_connection || return 1
 
-  if [ -f "${miniconda_prefix}/bin/conda" ]; then
-    echo "[SETUP] A Miniconda installation appears to already exist in ${miniconda_prefix} ..."
-    echo "[SETUP] Clearing out directory: ${miniconda_prefix} ..."
-    print_exec rm -rf "${miniconda_prefix}"
+  if [ -f "${conda_install_prefix}/bin/conda" ]; then
+    echo "[SETUP] A Conda installation appears to already exist in ${conda_install_prefix} ..."
+    echo "[SETUP] Clearing out directory: ${conda_install_prefix} ..."
+    print_exec rm -rf "${conda_install_prefix}"
   fi
 
-  print_exec mkdir -p "$miniconda_prefix"
+  print_exec mkdir -p "$conda_install_prefix"
 
-  echo "[SETUP] Downloading the Miniconda installer ..."
-  (exec_with_retries 3 wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-${PLATFORM_NAME}.sh" -O miniconda.sh) || return 1
-
-  echo "[SETUP] Installing Miniconda ..."
-  print_exec bash miniconda.sh -b -p "$miniconda_prefix" -u
-  print_exec rm -f miniconda.sh
+  # NOTE: There is a flaky rate limit issue with Anaconda coming from the ROCm
+  # CI runners, and so to work around this, we install Conda through Miniforge
+  # instead of Miniconda, as it defaults to using conda-forge channel for all
+  # package installations.
+  # __download_install_miniconda
+  __download_install_miniforge
 
   echo "[SETUP] Reloading the bash configuration ..."
-  print_exec "${miniconda_prefix}/bin/conda" init bash
+  print_exec "${conda_install_prefix}/bin/conda" init bash
   print_exec . ~/.bashrc
 
   # https://medium.com/data-tyro/resolving-the-conda-libmamba-issue-and-environment-activation-trouble-9f911a6106a4
@@ -77,16 +96,16 @@ setup_miniconda () {
 
   # These variables will be exported outside
   echo "[SETUP] Exporting Miniconda variables ..."
-  export PATH="${miniconda_prefix}/bin:${PATH}"
-  export CONDA="${miniconda_prefix}"
+  export PATH="${conda_install_prefix}/bin:${PATH}"
+  export CONDA="${conda_install_prefix}"
 
   if [ -f "${GITHUB_PATH}" ]; then
     echo "[SETUP] Saving Miniconda variables to ${GITHUB_PATH} ..."
-    echo "${miniconda_prefix}/bin" >> "${GITHUB_PATH}"
-    echo "CONDA=${miniconda_prefix}" >> "${GITHUB_PATH}"
+    echo "${conda_install_prefix}/bin" >> "${GITHUB_PATH}"
+    echo "CONDA=${conda_install_prefix}" >> "${GITHUB_PATH}"
   fi
 
-  echo "[SETUP] Successfully set up Miniconda at ${miniconda_prefix}"
+  echo "[SETUP] Successfully set up Miniconda at ${conda_install_prefix}"
 }
 
 __handle_pyopenssl_version_issue () {
