@@ -1350,6 +1350,7 @@ def vbe(
         output_dtype=embconfig.output_dtype,
         pooling_mode=embconfig.pooling_mode,
         bounds_check_mode=embconfig.bounds_check_mode,
+        device=get_device(),
     ).to(get_device())
 
     all_requests = {
