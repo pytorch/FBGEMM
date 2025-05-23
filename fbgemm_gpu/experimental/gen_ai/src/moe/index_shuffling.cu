@@ -25,21 +25,8 @@ constexpr int kNumThreadsPerWarp = 32;
 constexpr int kNumWarps = 4;
 constexpr int kNumThreads = kNumThreadsPerWarp * kNumWarps;
 
-static int num_sms = -1;
-
 __inline__ constexpr int ceil_of_ratio(int a, int b) {
   return (a + b - 1) / b;
-};
-
-template <typename T>
-__inline__ T* get_ptr(std::optional<at::Tensor> tensor) {
-  return reinterpret_cast<T*>(
-      tensor.has_value() ? tensor->data_ptr() : nullptr);
-};
-
-template <typename T>
-__inline__ __device__ T get_item(const T* ptr, const T& default_value) {
-  return ptr != nullptr ? *ptr : default_value;
 };
 
 #ifdef USE_ROCM
@@ -89,19 +76,24 @@ struct SharedStorage {
 
 template <class DataType, class IndexType>
 struct Params {
-  // Inputs
+  // 1. Inputs
+  // 1.1. Routing scores.
   const DataType* routing_scores;
   const int stride_t;
   const int stride_e;
+  // 1.2. Expert ranges.
+  const int expert_index_start;
+  const int expert_index_end;
+  // 1.3. Token counts.
   const IndexType* valid_token_count;
   const int num_tokens;
   const int num_tokens_per_cta;
 
-  // Buffer
+  // 2. Buffers
   IndexType* buffered_expert_indices;
   IndexType* buffered_token_indices;
 
-  // Outputs
+  // 3. Outputs
   IndexType* token_count_per_expert;
   IndexType* shuffled_expert_indices;
   IndexType* shuffled_token_indices;
@@ -121,34 +113,37 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   const auto bidx = blockIdx.x;
 
   const int num_total_tokens = params.num_tokens;
-  const int num_valid_tokens =
-      get_item(params.valid_token_count, num_total_tokens);
-
-  const int token_index_offset_start = bidx * params.num_tokens_per_cta;
-  const int token_index_offset_end = std::min(
-      token_index_offset_start + params.num_tokens_per_cta, num_total_tokens);
-
-  if (token_index_offset_start >= num_total_tokens) {
+  const int token_index_start = bidx * params.num_tokens_per_cta;
+  if (token_index_start >= num_total_tokens) {
     return;
   }
+
+  const int token_index_end =
+      std::min(token_index_start + params.num_tokens_per_cta, num_total_tokens);
+  const int num_valid_tokens =
+      params.valid_token_count ? *params.valid_token_count : num_total_tokens;
+
+  const int expert_index_start = params.expert_index_start;
+  const int expert_index_end = params.expert_index_end;
 
   const int stride_t = params.stride_t;
   const int stride_e = params.stride_e;
 
-  for (int token_index_offset = token_index_offset_start;
-       token_index_offset < token_index_offset_end;
+  const DataType zero = static_cast<DataType>(0.0f);
+  for (int token_index_offset = token_index_start;
+       token_index_offset < token_index_end;
        token_index_offset += NumTokensPerTile) {
     // 1. Read scores
     // TODO(shikaili): vectorized. asynchronous.
 #pragma unroll
     for (int i = tidx; i < NumTokensPerTile * NumExperts; i += kNumThreads) {
-      int token_index = token_index_offset + i / NumExperts;
-      int expert_index = i % NumExperts;
+      const int token_index = token_index_offset + i / NumExperts;
+      const int expert_index = i % NumExperts;
 
-      smem.routing_scores[i] = token_index < num_valid_tokens
+      smem.routing_scores[i] = (token_index < num_valid_tokens)
           ? params.routing_scores
                 [token_index * stride_t + expert_index * stride_e]
-          : static_cast<DataType>(0.0f);
+          : zero;
       smem.expert_indices[i] = expert_index;
     }
     __syncthreads();
@@ -210,10 +205,13 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
       int token_index = token_index_offset + i;
       if (token_index < num_valid_tokens) {
         auto expert_index = smem.expert_indices[local_token_index * NumExperts];
-        auto token_index_in_expert =
-            atomic_add_relaxed(&params.token_count_per_expert[expert_index], 1);
         params.buffered_expert_indices[token_index] = expert_index;
-        params.buffered_token_indices[token_index] = token_index_in_expert;
+        if (expert_index >= expert_index_start &&
+            expert_index < expert_index_end) {
+          auto token_index_in_expert = atomic_add_relaxed(
+              &params.token_count_per_expert[expert_index], 1);
+          params.buffered_token_indices[token_index] = token_index_in_expert;
+        }
       }
     }
     __syncthreads();
@@ -223,7 +221,7 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
     int processed_tokens = 0;
     int* processed_tokens_addr = &params.token_count_per_expert[NumExperts];
 
-    int inc = token_index_offset_end - token_index_offset_start;
+    int inc = token_index_end - token_index_start;
     atomic_add_release(processed_tokens_addr, inc);
 
     do {
@@ -249,31 +247,46 @@ __global__ void index_shuffling_kernel(Params<DataType, IndexType> params) {
   __syncthreads();
 
   // 5. Store
+  auto get_token_count_cumsum = [](int index) {
+    return index == 0 ? 0 : smem.token_count_cumsums[index - 1];
+  };
+
+  const int token_count_cumsum_start =
+      get_token_count_cumsum(expert_index_start);
+  const int token_count_cumsum_end = get_token_count_cumsum(expert_index_end);
+  const int num_selected_tokens =
+      token_count_cumsum_end - token_count_cumsum_start;
+
   for (int global_token_offset = bidx * params.num_tokens_per_cta;
        global_token_offset < (bidx + 1) * params.num_tokens_per_cta;
        global_token_offset += kNumThreads) {
     int token_index = global_token_offset + tidx;
     if (token_index < num_valid_tokens) {
       int expert_index = params.buffered_expert_indices[token_index];
-      int token_index_in_expert = params.buffered_token_indices[token_index];
-      int new_token_index =
-          (expert_index == 0 ? 0 : smem.token_count_cumsums[expert_index - 1]) +
-          token_index_in_expert;
-      params.shuffled_expert_indices[new_token_index] = expert_index;
-      params.shuffled_token_indices[new_token_index] = token_index;
-    } else if (token_index < num_total_tokens) {
-      // Overwrites to have the padded indices to use the original indices to
-      // avoid illegal memory access.
-      params.shuffled_expert_indices[token_index] = NumExperts - 1;
-      params.shuffled_token_indices[token_index] = token_index;
+      if (expert_index >= expert_index_start &&
+          expert_index < expert_index_end) {
+        int new_token_index_in_expert =
+            params.buffered_token_indices[token_index];
+        int new_token_index = get_token_count_cumsum(expert_index) -
+            token_count_cumsum_start + new_token_index_in_expert;
+        params.shuffled_expert_indices[new_token_index] =
+            expert_index - expert_index_start;
+        params.shuffled_token_indices[new_token_index] = token_index;
+      }
     }
+  }
+
+  if (tidx == 0 && bidx == 0) {
+    params.token_count_per_expert[NumExperts + 1] = num_selected_tokens;
   }
 }
 } // namespace
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     const at::Tensor& routing_scores,
-    std::optional<at::Tensor> valid_token_count) {
+    const std::optional<int64_t>& expert_index_start,
+    const std::optional<int64_t>& expert_index_end,
+    const std::optional<at::Tensor>& valid_token_count) {
   TORCH_CHECK(routing_scores.dtype() == torch::kBFloat16);
   using DataType = __nv_bfloat16;
   using IndexType = int32_t;
@@ -288,7 +301,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
         {size},
         at::TensorOptions().dtype(at::kInt).device(routing_scores.device()));
   };
-  at::Tensor token_count_per_expert = allocate_index_tensor(num_experts + 1);
+  at::Tensor token_count_per_expert = allocate_index_tensor(num_experts + 2);
   at::Tensor shuffled_expert_indices = allocate_index_tensor(num_tokens);
   at::Tensor shuffled_token_indices = allocate_index_tensor(num_tokens);
   at::Tensor buffered_expert_indices = allocate_index_tensor(num_tokens);
@@ -307,6 +320,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
 #endif
 
   // Avoid expensive `cudaGetDeviceProperties` call.
+  static int num_sms = -1;
   if (num_sms < 0) {
     cudaDeviceProp deviceProp;
     cudaGetDeviceProperties(&deviceProp, 0);
@@ -344,7 +358,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
       .routing_scores = reinterpret_cast<DataType*>(routing_scores.data_ptr()),
       .stride_t = static_cast<int>(routing_scores.stride(0)),
       .stride_e = static_cast<int>(routing_scores.stride(1)),
-      .valid_token_count = get_ptr<IndexType>(valid_token_count),
+      .expert_index_start =
+          expert_index_start.has_value() ? int(*expert_index_start) : 0,
+      .expert_index_end =
+          expert_index_end.has_value() ? int(*expert_index_end) : num_experts,
+      .valid_token_count = reinterpret_cast<IndexType*>(
+          valid_token_count.has_value() ? valid_token_count->data_ptr()
+                                        : nullptr),
       .num_tokens = num_tokens,
       .num_tokens_per_cta = num_tokens_per_cta,
       // Buffer
