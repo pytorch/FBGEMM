@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar, Pradeep Ramani, Tri Dao.
+ * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar,
+ * Pradeep Ramani, Tri Dao.
  * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
  * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
@@ -10,21 +11,21 @@
 
 #pragma once
 
-#include <cutlass/cutlass.h>
 #include <cute/layout.hpp>
+#include <cutlass/cutlass.h>
 
 namespace flash {
 
 class VarSeqLenTraits {
-public:
+ public:
   // Total number of queries / keys. Unpadded.
   const int sum_s = 0;
   // seq len offsets.
-  const int *cu_seq_len = nullptr;
+  const int* cu_seq_len = nullptr;
   // targets nums
-  const int *num_targets = nullptr;
+  const int* num_targets = nullptr;
   // context nums
-  const int *num_contexts = nullptr;
+  const int* num_contexts = nullptr;
   // seq len of the current batch.
   int max_seq_len = -1;
   int actual_seq_len = -1;
@@ -42,15 +43,27 @@ public:
   CUTLASS_HOST_DEVICE VarSeqLenTraits() {}
 
   CUTLASS_HOST_DEVICE VarSeqLenTraits(
-      const int sum_s, const int max_seq_len, const int *cu_seq_len, const int *num_targets = nullptr, const int *num_contexts = nullptr):
-      sum_s(sum_s), max_seq_len(max_seq_len), cu_seq_len(cu_seq_len), num_targets(num_targets), num_contexts(num_contexts) {}
+      const int sum_s,
+      const int max_seq_len,
+      const int* cu_seq_len,
+      const int* num_targets = nullptr,
+      const int* num_contexts = nullptr)
+      : sum_s(sum_s),
+        max_seq_len(max_seq_len),
+        cu_seq_len(cu_seq_len),
+        num_targets(num_targets),
+        num_contexts(num_contexts) {}
 
   // Returns the layout of a tensor in MKHB format in global memory.
   CUTLASS_HOST_DEVICE auto get_gmem_layout(
-      int m, int k, int h, int b,
-      int64_t m_stride, int64_t h_stride) const {
-    return make_layout(make_shape(sum_s, k, h),
-                       make_stride(m_stride, cute::_1{}, h_stride));
+      int m,
+      int k,
+      int h,
+      int b,
+      int64_t m_stride,
+      int64_t h_stride) const {
+    return make_layout(
+        make_shape(sum_s, k, h), make_stride(m_stride, cute::_1{}, h_stride));
   }
 
   CUTLASS_DEVICE void init(int bidb) {
@@ -67,18 +80,19 @@ public:
 
   template <typename MTensor, typename Shape>
   CUTLASS_DEVICE auto get_local_tile_tensor(
-      const MTensor &m_tensor, const Shape &tile_shape,
-      int bidh, int bidb) const {
+      const MTensor& m_tensor,
+      const Shape& tile_shape,
+      int bidh,
+      int bidb) const {
     auto g_offset = local_tile(
-      m_tensor(_, _, bidh),
-      cute::make_shape(1, get<1>(tile_shape)),
-      make_coord(cu_seq_len[bidb], _0{}));
+        m_tensor(_, _, bidh),
+        cute::make_shape(1, get<1>(tile_shape)),
+        make_coord(cu_seq_len[bidb], _0{}));
     auto g_sequence = make_tensor(
         g_offset.data(),
         make_layout(
-          cute::make_shape(actual_seq_len, get<1>(tile_shape)),
-          g_offset.stride()
-        ));
+            cute::make_shape(actual_seq_len, get<1>(tile_shape)),
+            g_offset.stride()));
     auto g_tensor = local_tile(g_sequence, tile_shape, make_coord(_, _0{}));
     return g_tensor;
   }
@@ -86,4 +100,4 @@ public:
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-}  // namespace flash
+} // namespace flash

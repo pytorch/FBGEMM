@@ -21,25 +21,29 @@
 #include <cuda_bf16.h>
 #endif
 
+#include <cute/arch/cluster_sm90.hpp> // For cute::elect_one_sync()
 #include <cute/tensor.hpp>
-#include <cute/arch/cluster_sm90.hpp>  // For cute::elect_one_sync()
 
 #include <cutlass/array.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/numeric_conversion.h>
 #include <cutlass/numeric_types.h>
 
-#define CHECK_CUDA(call)                                                                            \
-  do {                                                                                              \
-    cudaError_t status_ = call;                                                                     \
-    if (status_ != cudaSuccess) {                                                                   \
-      fprintf(stderr, "CUDA error (%s:%d): %s\n", __FILE__, __LINE__, cudaGetErrorString(status_)); \
-      exit(1);                                                                                      \
-    }                                                                                               \
-  } while(0)
+#define CHECK_CUDA(call)                \
+  do {                                  \
+    cudaError_t status_ = call;         \
+    if (status_ != cudaSuccess) {       \
+      fprintf(                          \
+          stderr,                       \
+          "CUDA error (%s:%d): %s\n",   \
+          __FILE__,                     \
+          __LINE__,                     \
+          cudaGetErrorString(status_)); \
+      exit(1);                          \
+    }                                   \
+  } while (0)
 
 #define CHECK_CUDA_KERNEL_LAUNCH() CHECK_CUDA(cudaGetLastError())
-
 
 namespace flash {
 
@@ -76,17 +80,19 @@ CUTLASS_DEVICE void fast_silu(Tensor<Engine, Layout>& t) {
   CUTLASS_PRAGMA_UNROLL
   for (int i = 0; i < size(t); ++i) {
     float v = static_cast<float>(t(i)) * 0.5f;
-    float tanh_v   = tanh_fast(v);
+    float tanh_v = tanh_fast(v);
     t(i) = v > -10.0f ? __fmaf_rn(v, tanh_v, v) : 0.f;
   }
 }
 
-template <typename Engine0,
-          typename Layout0,
-          typename Engine1,
-          typename Layout1>
-CUTLASS_DEVICE void silu_bwd(Tensor<Engine0, Layout0>& x,
-                            Tensor<Engine1, Layout1>& y) {
+template <
+    typename Engine0,
+    typename Layout0,
+    typename Engine1,
+    typename Layout1>
+CUTLASS_DEVICE void silu_bwd(
+    Tensor<Engine0, Layout0>& x,
+    Tensor<Engine1, Layout1>& y) {
   static_assert(decltype(size(x))::value == decltype(size(y))::value);
   using ValT0 = typename Engine0::value_type;
   using ValT1 = typename Engine1::value_type;
@@ -119,8 +125,9 @@ CUTLASS_DEVICE void dsilu_bwd(Tensor0& dy, Tensor1& x) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// For SM90, convert acc_layout from ((2, 2, N / 8), MMA_M, MMA_N) to ((2, 2, 2), MMA_M, (N / 16, MMA_N))
-template<typename MMA_traits, typename Layout>
+// For SM90, convert acc_layout from ((2, 2, N / 8), MMA_M, MMA_N) to ((2, 2,
+// 2), MMA_M, (N / 16, MMA_N))
+template <typename MMA_traits, typename Layout>
 CUTLASS_DEVICE auto convert_layout_acc_Aregs(Layout acc_layout) {
   using X = Underscore;
   if constexpr (decltype(rank<0>(acc_layout))::value == 3) {
@@ -128,46 +135,55 @@ CUTLASS_DEVICE auto convert_layout_acc_Aregs(Layout acc_layout) {
     static_assert(decltype(size<0, 1>(acc_layout))::value == 2);
     static_assert(decltype(rank(acc_layout))::value == 3);
     static_assert(decltype(rank(get<0>(acc_layout)))::value == 3);
-    auto l = logical_divide(get<0>(acc_layout), Shape<X, X, _2>{});  // (2, 2, (2, N / 16)))
-    return make_layout(make_layout(get<0>(l), get<1>(l), get<2, 0>(l)), get<1>(acc_layout), make_layout(get<2, 1>(l), get<2>(acc_layout)));
+    auto l = logical_divide(
+        get<0>(acc_layout), Shape<X, X, _2>{}); // (2, 2, (2, N / 16)))
+    return make_layout(
+        make_layout(get<0>(l), get<1>(l), get<2, 0>(l)),
+        get<1>(acc_layout),
+        make_layout(get<2, 1>(l), get<2>(acc_layout)));
   } else {
     static_assert(decltype(size<0>(acc_layout))::value == 4);
     static_assert(decltype(rank(acc_layout))::value == 3);
     constexpr int mma_shape_K = get<2>(typename MMA_traits::Shape_MNK{});
     static_assert(mma_shape_K == 8 || mma_shape_K == 16);
     if constexpr (mma_shape_K == 8) {
-        return acc_layout;
+      return acc_layout;
     } else {
-        auto l = logical_divide(acc_layout, Shape<X, X, _2>{});  // (4, MMA_M, (2, MMA_N / 2)))
-        return make_layout(make_layout(get<0>(l), get<2, 0>(l)), get<1>(l), get<2, 1>(l));
+      auto l = logical_divide(
+          acc_layout, Shape<X, X, _2>{}); // (4, MMA_M, (2, MMA_N / 2)))
+      return make_layout(
+          make_layout(get<0>(l), get<2, 0>(l)), get<1>(l), get<2, 1>(l));
     }
   }
 };
 
-// Convert acc_layout from ((2, 2, N / 8), MMA_M, MMA_N) to ((4, 2, 2), MMA_M, (N / 32, MMA_N))
-template<typename Layout>
+// Convert acc_layout from ((2, 2, N / 8), MMA_M, MMA_N) to ((4, 2, 2), MMA_M,
+// (N / 32, MMA_N))
+template <typename Layout>
 CUTLASS_DEVICE auto convert_layout_acc_Aregs_fp8(Layout acc_layout) {
   using X = Underscore;
   static_assert(decltype(size<0, 0>(acc_layout))::value == 2);
   static_assert(decltype(size<0, 1>(acc_layout))::value == 2);
   static_assert(decltype(rank(acc_layout))::value == 3);
   static_assert(decltype(rank(get<0>(acc_layout)))::value == 3);
-  auto l = logical_divide(get<0>(acc_layout), Shape<X, X, _4>{});  // (2, 2, (2, N / 32)))
-  return make_layout(make_layout(Shape<_4, _2, _2>{}),
-                      get<1>(acc_layout),
-                      make_layout(get<2, 1>(l), get<2>(acc_layout)));
+  auto l = logical_divide(
+      get<0>(acc_layout), Shape<X, X, _4>{}); // (2, 2, (2, N / 32)))
+  return make_layout(
+      make_layout(Shape<_4, _2, _2>{}),
+      get<1>(acc_layout),
+      make_layout(get<2, 1>(l), get<2>(acc_layout)));
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Byte permute for fp8 kernel
 template <typename Fragment>
-CUTLASS_DEVICE void permute_regs_A_to_C(Fragment &accum) {
+CUTLASS_DEVICE void permute_regs_A_to_C(Fragment& accum) {
   auto data = accum.data();
 
   CUTLASS_PRAGMA_UNROLL
   for (int n = 0; n < size(accum); n += 8) {
-    uint32_t *data_32bit = reinterpret_cast<uint32_t *>(&data[n]);
+    uint32_t* data_32bit = reinterpret_cast<uint32_t*>(&data[n]);
     auto upper = data_32bit[0];
     auto lower = data_32bit[1];
     data_32bit[0] = __byte_perm(upper, lower, 0x5410);
@@ -178,53 +194,81 @@ CUTLASS_DEVICE void permute_regs_A_to_C(Fragment &accum) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename To_type, typename Engine, typename Layout>
-CUTLASS_DEVICE auto convert_type(Tensor<Engine, Layout> const &tensor) {
+CUTLASS_DEVICE auto convert_type(Tensor<Engine, Layout> const& tensor) {
   using From_type = typename Engine::value_type;
   constexpr int numel = decltype(size(tensor))::value;
   cutlass::NumericArrayConverter<To_type, From_type, numel> convert_op;
   // HACK: this requires tensor to be "contiguous"
-  auto frag = convert_op(*reinterpret_cast<const cutlass::Array<From_type, numel> *>(tensor.data()));
+  auto frag =
+      convert_op(*reinterpret_cast<const cutlass::Array<From_type, numel>*>(
+          tensor.data()));
   return make_tensor(make_rmem_ptr<To_type>(&frag), tensor.layout());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 template <typename Engine, typename Layout, typename EngineOut>
-CUTLASS_DEVICE void convert_type_safe(Tensor<Engine, Layout> const &tensor, Tensor<EngineOut, Layout> &out) {
+CUTLASS_DEVICE void convert_type_safe(
+    Tensor<Engine, Layout> const& tensor,
+    Tensor<EngineOut, Layout>& out) {
   using From_type = typename Engine::value_type;
   using To_type = typename EngineOut::value_type;
   constexpr int numel = decltype(size(tensor))::value;
   cutlass::NumericArrayConverter<To_type, From_type, numel> convert_op;
   // HACK: this requires tensor to be "contiguous"
-  auto frag = convert_op(*reinterpret_cast<const cutlass::Array<From_type, numel> *>(tensor.data()));
+  auto frag =
+      convert_op(*reinterpret_cast<const cutlass::Array<From_type, numel>*>(
+          tensor.data()));
   cute::copy(make_tensor(make_rmem_ptr<To_type>(&frag), tensor.layout()), out);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <bool zero_init=false, int wg_wait=0, bool SwapAB=false, int M_slice=-1,
-        typename Tensor0, typename Tensor1, typename Tensor2, typename TiledMma>
-CUTLASS_DEVICE void gemm(TiledMma &tiled_mma, Tensor0 const &tCrA, Tensor1 const &tCrB, Tensor2 &tCrC) {
+template <
+    bool zero_init = false,
+    int wg_wait = 0,
+    bool SwapAB = false,
+    int M_slice = -1,
+    typename Tensor0,
+    typename Tensor1,
+    typename Tensor2,
+    typename TiledMma>
+CUTLASS_DEVICE void gemm(
+    TiledMma& tiled_mma,
+    Tensor0 const& tCrA,
+    Tensor1 const& tCrB,
+    Tensor2& tCrC) {
   if constexpr (M_slice >= 0) {
     static constexpr int MMA_M = decltype(size<1>(tCrC))::value;
     static_assert(M_slice < MMA_M);
     // After logical_divide, C has shape ((2,2,V), (MMA_M, 1), MMA_N)
-    Tensor tCrC_slice = cute::logical_divide(tCrC, Shape<cute::Underscore, Int<MMA_M>>{})(_, make_coord(Int<M_slice>{}, _), _);
+    Tensor tCrC_slice =
+        cute::logical_divide(tCrC, Shape<cute::Underscore, Int<MMA_M>>{})(
+            _, make_coord(Int<M_slice>{}, _), _);
     if constexpr (!SwapAB) {
-      Tensor tCrA_slice = cute::logical_divide(tCrA, Shape<cute::Underscore, Int<MMA_M>>{})(_, make_coord(Int<M_slice>{}, _), _);
-      gemm<zero_init, wg_wait, SwapAB, /*M_slice=*/-1>(tiled_mma, tCrA_slice, tCrB, tCrC_slice);
+      Tensor tCrA_slice =
+          cute::logical_divide(tCrA, Shape<cute::Underscore, Int<MMA_M>>{})(
+              _, make_coord(Int<M_slice>{}, _), _);
+      gemm<zero_init, wg_wait, SwapAB, /*M_slice=*/-1>(
+          tiled_mma, tCrA_slice, tCrB, tCrC_slice);
     } else {
-      Tensor tCrB_slice = cute::logical_divide(tCrB, Shape<cute::Underscore, Int<MMA_M>>{})(_, make_coord(Int<M_slice>{}, _), _);
-      gemm<zero_init, wg_wait, SwapAB, /*M_slice=*/-1>(tiled_mma, tCrA, tCrB_slice, tCrC_slice);
+      Tensor tCrB_slice =
+          cute::logical_divide(tCrB, Shape<cute::Underscore, Int<MMA_M>>{})(
+              _, make_coord(Int<M_slice>{}, _), _);
+      gemm<zero_init, wg_wait, SwapAB, /*M_slice=*/-1>(
+          tiled_mma, tCrA, tCrB_slice, tCrC_slice);
     }
   } else {
-    constexpr bool Is_RS = !cute::is_base_of<cute::GMMA::DescriptorIterator, typename TiledMma::FrgTypeA>::value;
-    // Need to cast away const on tCrA since warpgroup_fence_operand doesn't take const
+    constexpr bool Is_RS = !cute::is_base_of<
+        cute::GMMA::DescriptorIterator,
+        typename TiledMma::FrgTypeA>::value;
+    // Need to cast away const on tCrA since warpgroup_fence_operand doesn't
+    // take const
     if constexpr (Is_RS) {
       if constexpr (!SwapAB) {
-        warpgroup_fence_operand(const_cast<Tensor0 &>(tCrA));
+        warpgroup_fence_operand(const_cast<Tensor0&>(tCrA));
       } else {
-        warpgroup_fence_operand(const_cast<Tensor1 &>(tCrB));
+        warpgroup_fence_operand(const_cast<Tensor1&>(tCrB));
       }
     }
     warpgroup_fence_operand(tCrC);
@@ -236,20 +280,22 @@ CUTLASS_DEVICE void gemm(TiledMma &tiled_mma, Tensor0 const &tCrA, Tensor1 const
     CUTLASS_PRAGMA_UNROLL
     for (int k_block = 0; k_block < size<2>(tCrA); ++k_block) {
       if constexpr (!SwapAB) {
-        cute::gemm(tiled_mma, tCrA(_,_,k_block), tCrB(_,_,k_block), tCrC);
+        cute::gemm(tiled_mma, tCrA(_, _, k_block), tCrB(_, _, k_block), tCrC);
       } else {
-        cute::gemm(tiled_mma, tCrB(_,_,k_block), tCrA(_,_,k_block), tCrC);
+        cute::gemm(tiled_mma, tCrB(_, _, k_block), tCrA(_, _, k_block), tCrC);
       }
       tiled_mma.accumulate_ = GMMA::ScaleOut::One;
     }
     warpgroup_commit_batch();
-    if constexpr (wg_wait >= 0) { warpgroup_wait<wg_wait>(); }
+    if constexpr (wg_wait >= 0) {
+      warpgroup_wait<wg_wait>();
+    }
     warpgroup_fence_operand(tCrC);
     if constexpr (Is_RS) {
       if constexpr (!SwapAB) {
-        warpgroup_fence_operand(const_cast<Tensor0 &>(tCrA));
+        warpgroup_fence_operand(const_cast<Tensor0&>(tCrA));
       } else {
-        warpgroup_fence_operand(const_cast<Tensor1 &>(tCrB));
+        warpgroup_fence_operand(const_cast<Tensor1&>(tCrB));
       }
     }
   }
@@ -257,17 +303,32 @@ CUTLASS_DEVICE void gemm(TiledMma &tiled_mma, Tensor0 const &tCrA, Tensor1 const
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <bool Is_even_MN=true, bool Is_even_K=true, bool Clear_OOB_MN=false, bool Clear_OOB_K=true,
-          typename TiledCopy, typename Engine0, typename Layout0, typename Engine1, typename Layout1,
-          typename Engine2, typename Layout2, typename Engine3, typename Layout3>
-CUTLASS_DEVICE void copy(TiledCopy tiled_copy, Tensor<Engine0, Layout0> const &S,
-                         Tensor<Engine1, Layout1> &D, Tensor<Engine2, Layout2> const &identity_MN,
-                         Tensor<Engine3, Layout3> const &predicate_K, const int max_MN=0) {
+template <
+    bool Is_even_MN = true,
+    bool Is_even_K = true,
+    bool Clear_OOB_MN = false,
+    bool Clear_OOB_K = true,
+    typename TiledCopy,
+    typename Engine0,
+    typename Layout0,
+    typename Engine1,
+    typename Layout1,
+    typename Engine2,
+    typename Layout2,
+    typename Engine3,
+    typename Layout3>
+CUTLASS_DEVICE void copy(
+    TiledCopy tiled_copy,
+    Tensor<Engine0, Layout0> const& S,
+    Tensor<Engine1, Layout1>& D,
+    Tensor<Engine2, Layout2> const& identity_MN,
+    Tensor<Engine3, Layout3> const& predicate_K,
+    const int max_MN = 0) {
   CUTE_STATIC_ASSERT_V(rank(S) == Int<3>{});
   CUTE_STATIC_ASSERT_V(rank(D) == Int<3>{});
-  CUTE_STATIC_ASSERT_V(size<0>(S) == size<0>(D));                     // MMA
-  CUTE_STATIC_ASSERT_V(size<1>(S) == size<1>(D));                     // MMA_M
-  CUTE_STATIC_ASSERT_V(size<2>(S) == size<2>(D));                     // MMA_K
+  CUTE_STATIC_ASSERT_V(size<0>(S) == size<0>(D)); // MMA
+  CUTE_STATIC_ASSERT_V(size<1>(S) == size<1>(D)); // MMA_M
+  CUTE_STATIC_ASSERT_V(size<2>(S) == size<2>(D)); // MMA_K
   // There's no case where !Clear_OOB_K && Clear_OOB_MN
   static_assert(!(Clear_OOB_MN && !Clear_OOB_K));
   CUTLASS_PRAGMA_UNROLL
@@ -289,25 +350,36 @@ CUTLASS_DEVICE void copy(TiledCopy tiled_copy, Tensor<Engine0, Layout0> const &S
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template <int NumCopyThreads, typename ElemO, typename TiledCopyO, typename LayoutO,
-          typename TileShapeO, typename SMemO, typename SeqLenTraits>
+template <
+    int NumCopyThreads,
+    typename ElemO,
+    typename TiledCopyO,
+    typename LayoutO,
+    typename TileShapeO,
+    typename SMemO,
+    typename SeqLenTraits>
 CUTLASS_DEVICE void write_tiled(
-        ElemO* O, const TiledCopyO& tiled_copy_O,
-        const LayoutO& layout_O, const TileShapeO& tile_shape_O,
-        const SMemO& sO, int m_block, int bidh, int bidb,
-        const SeqLenTraits& seqlen_traits_o) {
+    ElemO* O,
+    const TiledCopyO& tiled_copy_O,
+    const LayoutO& layout_O,
+    const TileShapeO& tile_shape_O,
+    const SMemO& sO,
+    int m_block,
+    int bidh,
+    int bidb,
+    const SeqLenTraits& seqlen_traits_o) {
   Tensor mO = make_tensor(make_gmem_ptr(O), layout_O);
   Tensor gO = seqlen_traits_o.get_local_tile_tensor(
-      mO, tile_shape_O, bidh, bidb
-  )(_, _, m_block);  // (M, K)
+      mO, tile_shape_O, bidh, bidb)(_, _, m_block); // (M, K)
 
   ThrCopy thr_copy_O = tiled_copy_O.get_slice(threadIdx.x - NumCopyThreads);
   Tensor tOgO = thr_copy_O.partition_D(gO); // (CPY,CPY_M,CPY_K,k)
   Tensor tOsO = thr_copy_O.partition_S(sO); // (CPY,CPY_M,CPY_K)
 
   // Prepare for TiledCopy.
-  // Grouping is needed because cute::copy_if() does group_modes<1, R> for src and dst.
-  // After grouping, the first dim is number of elements to read together.
+  // Grouping is needed because cute::copy_if() does group_modes<1, R> for src
+  // and dst. After grouping, the first dim is number of elements to read
+  // together.
   Tensor tOsOFlatten = cute::flatten(tOsO);
   Tensor tOsOGroup = cute::group_modes<1, rank(tOsOFlatten)>(tOsOFlatten);
   Tensor tOgOFlatten = cute::flatten(tOgO);
@@ -323,8 +395,7 @@ CUTLASS_DEVICE void write_tiled(
   // Write out to GMEM.
   const int kNumMsPerTile = get<0>(tile_shape_O);
   int cta_m = std::min(
-      seqlen_traits_o.actual_seq_len - m_block * kNumMsPerTile, kNumMsPerTile
-  );
+      seqlen_traits_o.actual_seq_len - m_block * kNumMsPerTile, kNumMsPerTile);
   if (cta_m == kNumMsPerTile) {
     copy(tiled_copy_O, tOsOGroup, tOgOGroup);
   } else {
@@ -398,4 +469,4 @@ constexpr std::tuple<int, int, int> get_tile_size_bwd() {
   }
 }
 
-}  // namespace flash
+} // namespace flash
