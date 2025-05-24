@@ -290,7 +290,7 @@ def _kernel_quantize_mx4_unpack(
         # Update offsets so we work on the next block.
         input_offset += GROUP_LOAD * GROUP_SIZE
         exp_offset += GROUP_LOAD
-        output_offset += GROUP_LOAD * GROUP_SIZE
+        output_offset += GROUP_LOAD * GROUP_SIZE // 2
 
 
 def triton_quantize_mx4_unpack(
