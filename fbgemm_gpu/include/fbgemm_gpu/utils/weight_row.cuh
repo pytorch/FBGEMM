@@ -47,19 +47,6 @@ constexpr inline T pad4(T value) {
 ////////////////////////////////////////////////////////////////////////////////
 
 template <typename dst_t, typename src_t>
-DEVICE_INLINE void quantize_store(
-    dst_t* output,
-    const Vec4T<src_t>& value,
-    StochasticRoundingRNGState* state,
-    const float2 qparams) {
-  if (!state) {
-    nearest_rounding_vector<dst_t, src_t>(output, value, qparams);
-  } else {
-    stochastic_rounding_vector<dst_t, src_t>(output, value, *state, qparams);
-  }
-}
-
-template <typename dst_t, typename src_t>
 DEVICE_INLINE Vec4T<dst_t> dequantize_load(
     const src_t* value,
     [[maybe_unused]] const float2 qparams) {
@@ -143,10 +130,10 @@ DEVICE_INLINE void store_qparams_to_row(uint8_t* ptr, float2 qparams) {
 // Template parameters:
 //  emb_t   : The type of the embedding table (e.g. uint8_t, float, at::Half)
 //  cache_t : The type of the cache
-//  dst_t   : The type of the registers
+//  reg_t   : The type of the registers
 ////////////////////////////////////////////////////////////////////////////////
 
-template <typename emb_t, typename cache_t, typename dst_t>
+template <typename emb_t, typename cache_t, typename reg_t>
 // TODO: pass in dimension info and calculate qparams for rowwise integer
 // quantization
 class WeightRow {
@@ -186,37 +173,50 @@ class WeightRow {
   // instead of embedding table.
   //////////////////////////////////////////////////////////////////////////////
 
-  DEVICE_INLINE Vec4T<dst_t> load(const int32_t d, const float2 qparams) const {
+  DEVICE_INLINE Vec4T<reg_t> load(const int32_t d, const float2 qparams) const {
     // Load from the cache if resident; else load from the embedding table.
     //
-    // Note: This method assumes that dst_t is of higher precision than cache_t
+    // Note: This method assumes that reg_t is of higher precision than cache_t
     // and emb_t
     if (cache_row_) {
-      return dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
+      return dequantize_load<reg_t, cache_t>(cache_row_ + d, qparams);
     } else {
-      return dequantize_load<dst_t, emb_t>(row_ + d, qparams);
+      return dequantize_load<reg_t, emb_t>(row_ + d, qparams);
     }
   }
 
   //////////////////////////////////////////////////////////////////////////////
-  // Store regster variable of 4 elements (Vec4T<dst_t>) back into the table
+  // Store regster variable of 4 elements (Vec4T<reg_t>) back into the table
   // into the table row at element offset d
   //
   // If the cache row pointer is valid, then data will be written to the cache
   // instead of embedding table.
   //////////////////////////////////////////////////////////////////////////////
 
+  template <typename dst_t>
+  DEVICE_INLINE void quantize_store(
+      dst_t* output,
+      const Vec4T<reg_t>& value,
+      const float2 qparams) {
+    if (stoc_rounding_state_ptr_) {
+      stochastic_rounding_vector<dst_t, reg_t>(
+          output, value, *stoc_rounding_state_ptr_, qparams);
+    } else {
+      nearest_rounding_vector<dst_t, reg_t>(output, value, qparams);
+    }
+  }
+
   DEVICE_INLINE void
-  store(const Vec4T<dst_t>& v, const int32_t d, const float2 qparams) {
+  store(const Vec4T<reg_t>& v, const int32_t d, const float2 qparams) {
     // Write back weight (high precision) to cache if resident; else write to
     // embedding table.
     //
-    // Note: This method assumes that dst_t is of higher precision than cache_t
+    // Note: This method assumes that reg_t is of higher precision than cache_t
     // and emb_t
     if (cache_row_) {
-      quantize_store(cache_row_ + d, v, stoc_rounding_state_ptr_, qparams);
+      quantize_store(cache_row_ + d, v, qparams);
     } else {
-      quantize_store(row_ + d, v, stoc_rounding_state_ptr_, qparams);
+      quantize_store(row_ + d, v, qparams);
     }
   }
 
@@ -272,9 +272,8 @@ class WeightRow {
       // Copy over for each warp-sized slice of Vec4's
       // Does 2-step conversion: weight_t -> FP32 (register) -> cache_t
       for (auto d = lane_id * 4; d < dim_; d += num_lanes * 4) {
-        const auto slice = dequantize_load<dst_t, emb_t>(row_ + d, qparams);
-        quantize_store(
-            cache_row_ + d, slice, stoc_rounding_state_ptr_, qparams);
+        const auto slice = dequantize_load<reg_t, emb_t>(row_ + d, qparams);
+        quantize_store(cache_row_ + d, slice, qparams);
       }
     }
   }
@@ -293,8 +292,8 @@ class WeightRow {
     } else {
       // Else, do 2-step conversion: cache_t -> FP32 (register) -> weight_t
       const auto slice =
-          dequantize_load<dst_t, cache_t>(cache_row_ + d, qparams);
-      quantize_store(row_ + d, slice, stoc_rounding_state_ptr_, qparams);
+          dequantize_load<reg_t, cache_t>(cache_row_ + d, qparams);
+      quantize_store(row_ + d, slice, qparams);
     }
   }
 
@@ -416,16 +415,16 @@ class WeightRow {
 //
 // This is a lightweight memory accessor around a row of dim_ number of
 // embedding weights of type row_t (can be HBM or UVM), and loads elements 4
-// at a time into Vec4T<dst_t> with de-quantization support.  Unlike the
+// at a time into Vec4T<reg_t> with de-quantization support.  Unlike the
 // WeightRow class, this accessor is for reading values only, and does not
 // handle embedding vs cache tables, etc.
 //
 // Template parameters:
 //  row_t   : The type of the table row (e.g. uint8_t, float, at::Half)
-//  dst_t   : The type of the registers
+//  reg_t   : The type of the registers
 ////////////////////////////////////////////////////////////////////////////////
 
-template <typename row_t, typename dst_t>
+template <typename row_t, typename reg_t>
 class WeightRowAccessor {
   // The pointer to the row of weights in the table
   const row_t* const row_;
@@ -459,8 +458,8 @@ class WeightRowAccessor {
     return load_qparams_from_row<row_t>(row_ + dim_);
   }
 
-  DEVICE_INLINE Vec4T<dst_t> load(const int32_t d) const {
-    return dequantize_load<dst_t, row_t>(row_ + d, qparams_);
+  DEVICE_INLINE Vec4T<reg_t> load(const int32_t d) const {
+    return dequantize_load<reg_t, row_t>(row_ + d, qparams_);
   }
 
   template <typename T>
