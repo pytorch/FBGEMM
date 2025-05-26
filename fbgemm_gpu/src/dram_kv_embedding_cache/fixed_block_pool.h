@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <memory_resource>
 #include <stdexcept>
@@ -10,6 +11,130 @@
 namespace kv_mem {
 class FixedBlockPool : public std::pmr::memory_resource {
  public:
+  // Chunk metadata
+  struct ChunkInfo {
+    void* ptr;         // Memory block pointer
+    std::size_t size;  // Total size
+    std::size_t alignment;
+  };
+
+  // Metadata structure (publicly accessible)
+  // alignas(8) MetaHeader >= sizeof(void*), avoid mempool block too small.
+  struct alignas(8) MetaHeader {
+    uint64_t key;   // 8 bytes
+    int32_t score;  // 4 bytes
+    bool used;      // 1 byte
+  };
+
+  // Metadata operations
+
+  // Key operations
+  static uint64_t get_key(const void* block) {
+    return reinterpret_cast<const MetaHeader*>(block)->key;
+  }
+  static void set_key(void* block, uint64_t key) {
+    reinterpret_cast<MetaHeader*>(block)->key = key;
+  }
+
+  // used operations
+  static bool get_used(const void* block) {
+    return reinterpret_cast<const MetaHeader*>(block)->used;
+  }
+  static void set_used(void* block, bool used) {
+    reinterpret_cast<MetaHeader*>(block)->used = used;
+  }
+
+  // Score operations
+  static int32_t get_score(const void* block) {
+    return reinterpret_cast<const MetaHeader*>(block)->score;
+  }
+  static void set_score(void* block, int32_t score) {
+    reinterpret_cast<MetaHeader*>(block)->score = score;
+  }
+  static void update_score(void* block) {
+    auto& score = reinterpret_cast<MetaHeader*>(block)->score;
+    // Avoid addition removal
+    if (score < std::numeric_limits<int32_t>::max()) {
+      score++;
+    }
+  }
+  // timestamp operations
+  static void update_timestamp(void* block) {
+    reinterpret_cast<MetaHeader*>(block)->score = current_timestamp();
+  }
+  static int32_t current_timestamp() {
+    auto stamp = std::chrono::duration_cast<std::chrono::seconds>(
+                     std::chrono::system_clock::now().time_since_epoch())
+                     .count();
+    return static_cast<int32_t>(stamp);
+    // facebook::WallClockUtil::NowInUsecFast();
+  }
+
+  // 与类型有关
+  // Calculate storage size
+  template <typename scalar_t>
+  static size_t calculate_block_size(size_t dimension) {
+    return sizeof(FixedBlockPool::MetaHeader) + dimension * sizeof(scalar_t);
+  }
+
+  // Calculate alignment requirements
+  template <typename scalar_t>
+  static size_t calculate_block_alignment() {
+    return std::max(alignof(FixedBlockPool::MetaHeader), alignof(scalar_t));
+  }
+
+  // Data pointer retrieval
+  template <typename scalar_t>
+  static scalar_t* data_ptr(scalar_t* block) {
+    return reinterpret_cast<scalar_t*>(reinterpret_cast<char*>(block) +
+                                       sizeof(FixedBlockPool::MetaHeader));
+  }
+
+  template <typename scalar_t>
+  static const scalar_t* data_ptr(const scalar_t* block) {
+    return reinterpret_cast<const scalar_t*>(
+        reinterpret_cast<const char*>(block) +
+        sizeof(FixedBlockPool::MetaHeader));
+  }
+
+  // Create memory block with metadata
+  template <typename scalar_t>
+  static scalar_t* allocate_t(size_t& block_size,
+                              size_t& alignment,
+                              FixedBlockPool* pool) {
+    auto* block =
+        reinterpret_cast<scalar_t*>(pool->allocate(block_size, alignment));
+    return block;
+  }
+
+  // Destroy memory block
+  template <typename scalar_t>
+  static void deallocate_t(scalar_t* block,
+                           size_t& block_size,
+                           size_t& alignment,
+                           FixedBlockPool* pool) {
+    pool->deallocate(block, block_size, alignment);
+  }
+
+  // 使用示例
+  template <typename scalar_t>
+  static void get_keys_with_low_score(FixedBlockPool* pool,
+                                      int32_t threshold,
+                                      float decay,
+                                      std::vector<uint64_t>& result) {
+    pool->for_each_block([&decay, &threshold, &result](void* block) {
+      if (FixedBlockPool::get_used(block)) {
+        auto score = FixedBlockPool::get_score(static_cast<scalar_t*>(block));
+        score = score * decay;
+        FixedBlockPool::set_score(static_cast<scalar_t*>(block), score);
+        if (score < threshold) {
+          result.push_back(
+              FixedBlockPool::get_key(static_cast<scalar_t*>(block)));
+        }
+      }
+    });
+  }
+
   explicit FixedBlockPool(
       std::size_t block_size,       // Size of each memory block
       std::size_t block_alignment,  // Memory block alignment requirement
@@ -54,6 +179,21 @@ class FixedBlockPool : public std::pmr::memory_resource {
     }
   }
 
+  // 新增获取chunks信息的接口
+  [[nodiscard]] const auto& get_chunks() const noexcept { return chunks_; }
+
+  // 新增遍历所有block的接口
+  template <typename Func>
+  void for_each_block(Func&& func) const {
+    for (const auto& chunk : chunks_) {
+      char* current = static_cast<char*>(chunk.ptr);
+      for (size_t i = 0; i < blocks_per_chunk_; ++i) {
+        func(current);
+        current += block_size_;
+      }
+    }
+  }
+
  protected:
   // Core allocation function
   void* do_allocate(std::size_t bytes, std::size_t alignment) override {
@@ -70,6 +210,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     // Take a block from the head of the free list
     void* result = free_list_;
     free_list_ = *static_cast<void**>(free_list_);
+    FixedBlockPool::set_used(result, true);
     return result;
   }
 
@@ -80,6 +221,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
     // Insert memory block back to the head of free list
     *static_cast<void**>(p) = free_list_;
     free_list_ = p;
+    FixedBlockPool::set_used(free_list_, false);
   }
 
   // Resource equality comparison (only the same object is equal)
@@ -89,19 +231,15 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
  private:
-  // Chunk metadata
-  struct chunk_info {
-    void* ptr;         // Memory block pointer
-    std::size_t size;  // Total size
-    std::size_t alignment;
-  };
-
   // Allocate a new memory chunk
   void allocate_chunk() {
     const std::size_t chunk_size = block_size_ * blocks_per_chunk_;
 
     // Allocate aligned memory through upstream resource
     void* chunk_ptr = upstream_->allocate(chunk_size, block_alignment_);
+
+    // Block used flag set false.
+    FixedBlockPool::set_used(chunk_ptr, false);
 
     // Record chunk information for later release
     chunks_.push_back({chunk_ptr, chunk_size, block_alignment_});
@@ -118,11 +256,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   // Member variables
   const std::size_t block_size_;  // Block size (not less than pointer size)
-  const std::size_t block_alignment_;    // Block alignment requirement
-  const std::size_t blocks_per_chunk_;   // Number of blocks per chunk
-  std::pmr::memory_resource* upstream_;  // Upstream memory resource
-  std::pmr::vector<chunk_info> chunks_{
-      1024};                   // Records of all allocated chunks
-  void* free_list_ = nullptr;  // Free block list head pointer
+  const std::size_t block_alignment_;         // Block alignment requirement
+  const std::size_t blocks_per_chunk_;        // Number of blocks per chunk
+  std::pmr::memory_resource* upstream_;       // Upstream memory resource
+  std::pmr::vector<ChunkInfo> chunks_{1024};  // Records of all allocated chunks
+  void* free_list_ = nullptr;                 // Free block list head pointer
 };
 }  // namespace kv_mem

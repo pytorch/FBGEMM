@@ -8,7 +8,6 @@
 
 #include <gtest/gtest.h>
 
-#include "fixed_block_pool.h"
 namespace kv_mem {
 
 double test_std_vector(size_t vector_size, size_t repeat_count) {
@@ -296,6 +295,91 @@ TEST(FixedBlockPoolTest, CustomUpstreamResource) {
   }
   // Destructor should release all chunks
   EXPECT_GT(deallocate_count, 0);
+}
+
+TEST(FixedBlockPool, BasicFunctionality) {
+  constexpr int dim = 4;
+  size_t block_size = FixedBlockPool ::calculate_block_size<float>(dim);
+  size_t alignment = FixedBlockPool::calculate_block_alignment<float>();
+
+  // Initialize memory pool
+  FixedBlockPool pool(block_size, alignment, 1024);
+
+  // Test memory allocation
+  auto* block = FixedBlockPool::allocate_t<float>(block_size, alignment, &pool);
+  FixedBlockPool::update_timestamp(block);
+  ASSERT_NE(block, nullptr);
+
+  // Verify metadata header
+  int64_t ts1 = FixedBlockPool::get_score(block);
+  EXPECT_LE(FixedBlockPool::current_timestamp(), ts1);
+
+  // Test data pointer offset
+  float* data = FixedBlockPool::data_ptr<float>(block);
+  ASSERT_EQ(reinterpret_cast<char*>(data) - reinterpret_cast<char*>(block),
+            sizeof(FixedBlockPool::MetaHeader));
+
+  // Test timestamp update
+  FixedBlockPool::update_timestamp(block);
+  int64_t ts2 = FixedBlockPool::get_score(block);
+  EXPECT_GE(ts2, ts1);  // New timestamp should be greater or equal
+
+  // Test memory deallocation
+  EXPECT_NO_THROW(
+      FixedBlockPool::deallocate_t<float>(block, block_size, alignment, &pool));
+}
+
+TEST(FixedBlockPool, MultiDimensionTest) {
+  // Test memory alignment for different dimensions
+  const std::vector<int> test_dims = {1, 4, 16, 64, 256};
+  for (int dim : test_dims) {
+    size_t block_size = FixedBlockPool::calculate_block_size<float>(dim);
+    size_t alignment = FixedBlockPool::calculate_block_alignment<float>();
+
+    // Verify alignment requirements
+    EXPECT_EQ(alignment % alignof(FixedBlockPool::MetaHeader), 0);
+    EXPECT_EQ(alignment % alignof(float), 0);
+
+    // Verify block size calculation
+    const size_t expected_size =
+        sizeof(FixedBlockPool::MetaHeader) + dim * sizeof(float);
+    EXPECT_EQ(block_size, expected_size);
+  }
+}
+
+TEST(FixedBlockPool, TimestampPrecision) {
+  // Test timestamp precision accuracy
+  constexpr int test_iterations = 1000;
+  int64_t prev_ts = FixedBlockPool::current_timestamp();
+
+  for (int i = 0; i < test_iterations; ++i) {
+    int64_t curr_ts = FixedBlockPool::current_timestamp();
+    EXPECT_GE(curr_ts,
+              prev_ts);  // Timestamps should be monotonically increasing
+    prev_ts = curr_ts;
+  }
+}
+
+TEST(FixedBlockPool, DataIntegrity) {
+  // Test data storage integrity
+  constexpr int dim = 8;
+  std::vector<float> src_data(dim, 3.14f);
+
+  size_t block_size = FixedBlockPool::calculate_block_size<float>(dim);
+  size_t alignment = FixedBlockPool::calculate_block_alignment<float>();
+  FixedBlockPool pool(block_size, alignment, 1024);
+
+  // Allocate and write data
+  auto* block = FixedBlockPool::allocate_t<float>(block_size, alignment, &pool);
+  auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
+  std::copy(src_data.begin(), src_data.end(), data_ptr);
+
+  // Verify data consistency
+  for (int i = 0; i < dim; ++i) {
+    EXPECT_FLOAT_EQ(data_ptr[i], src_data[i]);
+  }
+
+  FixedBlockPool::deallocate_t<float>(block, block_size, alignment, &pool);
 }
 
 }  // namespace kv_mem
