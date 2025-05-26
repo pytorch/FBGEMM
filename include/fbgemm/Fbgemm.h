@@ -16,16 +16,16 @@
 #include <limits>
 #include <memory>
 #include <type_traits>
-#include "./ConvUtils.h"
-#include "./FbgemmBuild.h"
-#include "./FbgemmEmbedding.h"
-#include "./FbgemmI8DepthwiseAvx2.h"
-#include "./FbgemmI8DirectconvAvx2.h"
-#include "./FbgemmI8Spmdm.h"
-#include "./FloatConversion.h"
-#include "./QuantUtilsAvx2.h"
-#include "./Types.h"
-#include "./Utils.h"
+#include "./ConvUtils.h" // @manual
+#include "./FbgemmBuild.h" // @manual
+#include "./FbgemmEmbedding.h" // @manual
+#include "./FbgemmI8DepthwiseAvx2.h" // @manual
+#include "./FbgemmI8DirectconvAvx2.h" // @manual
+#include "./FbgemmI8Spmdm.h" // @manual
+#include "./FloatConversion.h" // @manual
+#include "./QuantUtilsAvx2.h" // @manual
+#include "./Types.h" // @manual
+#include "./Utils.h" // @manual
 
 // Turning on this option will print out time breakdown of each stage (e.g.,
 // input packing, the main GEMM kernel, each output processing pipeline).
@@ -62,7 +62,7 @@ template <
 struct PackingTraits;
 
 // type specialized implementation in an include file
-#include "./PackingTraits-inl.h"
+#include "./PackingTraits-inl.h" // @manual
 
 /**
  * @brief Base class for packing matrices for higher GEMM performance.
@@ -1339,7 +1339,7 @@ class FBGEMM_API ReQuantizeForFloat {
 };
 
 // type specialized implementation in an include file
-#include "./OutputProcessing-inl.h"
+#include "./OutputProcessing-inl.h" // @manual
 
 /*
  *

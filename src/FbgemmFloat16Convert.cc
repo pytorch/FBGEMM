@@ -9,7 +9,7 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
 
-#include "./RefImplementations.h"
+#include "./RefImplementations.h" // @manual
 
 #ifdef USE_MKL
 #include <mkl.h>
@@ -19,9 +19,9 @@
 #if __APPLE__
 // not sure whether need to differentiate TARGET_OS_MAC or TARGET_OS_IPHONE,
 // etc.
-#include <Accelerate/Accelerate.h>
+#include <Accelerate/Accelerate.h> // @manual
 #else
-#include <cblas.h>
+#include <cblas.h> // @manual
 #endif
 #endif
 

@@ -9,11 +9,11 @@
 #include <gtest/gtest.h>
 #include <iostream>
 
-#include "bench/BenchUtils.h"
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmSparse.h"
 #include "fbgemm/Utils.h"
 #include "fbgemm/spmmUtils.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 using namespace std;
 using namespace fbgemm;

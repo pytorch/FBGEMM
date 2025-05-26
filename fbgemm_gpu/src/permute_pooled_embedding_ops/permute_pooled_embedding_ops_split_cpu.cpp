@@ -15,6 +15,7 @@
 #include "fbgemm_gpu/permute_pooled_embedding_ops_split.h"
 #include "fbgemm_gpu/permute_pooled_embs_function_split.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
 
@@ -34,12 +35,19 @@ Tensor permute_pooled_embs_split_cpu_impl(
   if (pooled_embs.numel() == 0) {
     return pooled_embs;
   }
+
+  TORCH_CHECK(
+      pooled_embs.dim() >= 2,
+      "pooled_embs must be at least a 2-D tensor of size [B_local][Sum_T_global(D)], "
+      "current shape is: ",
+      torch_tensor_shape_str(pooled_embs));
   TORCH_CHECK(
       offset_dim_list.scalar_type() == at::ScalarType::Long,
       "offset_dim_list needs to have long/int64 type")
   TORCH_CHECK(
       permute_list.scalar_type() == at::ScalarType::Long,
       "permute_list needs to have long/int64 type")
+
   auto permute = permute_list.data_ptr<int64_t>();
   const auto n = permute_list.numel();
   const auto dims_size = allow_duplicates ? offset_dim_list.numel() : n;

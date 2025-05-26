@@ -457,7 +457,7 @@ void EmbeddingKVDB::set(
         << "]skip set_cuda since number evictions is " << num_evictions;
     return;
   }
-
+  CHECK_EQ(max_D_, weights.size(1));
   // defer the L2 cache/rocksdb update to the background thread as it could
   // be parallelized with other cuda kernels, as long as all updates are
   // finished before the next L2 cache lookup

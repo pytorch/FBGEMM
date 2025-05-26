@@ -11,10 +11,10 @@
 #include <limits>
 #include <random>
 
-#include "./TestUtils.h"
-#include "bench/BenchUtils.h"
+#include "./TestUtils.h" // @manual
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmI64.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 using namespace std;
 using namespace fbgemm;

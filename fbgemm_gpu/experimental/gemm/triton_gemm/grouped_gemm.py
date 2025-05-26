@@ -8,7 +8,7 @@
 
 import functools
 import inspect
-import logging
+import warnings
 
 from typing import Optional
 
@@ -20,7 +20,6 @@ import triton.language as tl
 from fbgemm_gpu.experimental.gemm.triton_gemm import utils
 from triton.runtime import driver  # @manual
 
-logger: logging.Logger = logging.getLogger(__name__)
 
 _NV_CONFIGS = [
     triton.Config(
@@ -940,6 +939,9 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
             iterated_tiles += num_tiles
 
 
+warnings.simplefilter("once")
+
+
 def _grouped_gemm(
     *,
     x: torch.Tensor,
@@ -958,21 +960,19 @@ def _grouped_gemm(
 
     if USE_TMA_LOAD and not utils.HAS_TMA_DESC:
         USE_TMA_LOAD = False
-        logging.warning("TMA load is disabled as there is no TMA descriptor support!")
+        warnings.warn("TMA load is disabled as there is no TMA descriptor support!")
 
     if USE_TMA_STORE and not utils.HAS_TMA_DESC:
         USE_TMA_STORE = False
-        logging.warning("TMA store is disabled as there is no TMA descriptor support!")
+        warnings.warn("TMA store is disabled as there is no TMA descriptor support!")
 
     # TODO(shikaili): Check the readniess of WS on ROCm side in Meta's Triton.
     if use_warp_specialization and torch.version.hip:
-        logging.warning(
-            "Warp specialization is disabled as it is not supported on ROCm."
-        )
+        warnings.warn("Warp specialization is disabled as it is not supported on ROCm.")
         use_warp_specialization = False
 
     if use_warp_specialization and not _HAS_WS_SUPPORT:
-        logging.warning(
+        warnings.warn(
             "Warp specialization is disabled as the Triton build in current environment doesn't have such support. Please build from https://github.com/facebookexperimental/triton/tree/ws-3.2.x to enable it for best performance on Nvidia's SM90 GPUs."
         )
         use_warp_specialization = False

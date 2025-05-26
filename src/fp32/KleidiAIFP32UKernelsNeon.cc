@@ -7,7 +7,7 @@
 
 #ifdef FBGEMM_ENABLE_KLEIDIAI
 
-#include "./KleidiAIFP32UKernelsNeon.h"
+#include "./KleidiAIFP32UKernelsNeon.h" // @manual
 
 namespace kleidiai {
 

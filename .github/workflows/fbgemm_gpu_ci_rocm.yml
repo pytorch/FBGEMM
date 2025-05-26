@@ -76,7 +76,7 @@ jobs:
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         # NOTE: PyTorch releases for ROCm include the ROCm patch version,
         # unlike releases for CUDA
-        rocm-version: [ "6.2.4", "6.3" ]
+        rocm-version: [ "6.3", "6.4" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -160,7 +160,7 @@ jobs:
         build-target: [ "default", "genai" ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.13" ]
-        rocm-version: [ "6.2.4", "6.3" ]
+        rocm-version: [ "6.3", "6.4" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
@@ -194,6 +194,14 @@ jobs:
     - name: Create Conda Environment
       run: . $PRELUDE; create_conda_environment $BUILD_ENV ${{ matrix.python-version }}
 
+    - name: Install C/C++ Compilers
+      # NOTE: Need to install compilers to set up libomp for the clang case
+      run: . $PRELUDE; install_cxx_compiler $BUILD_ENV ${{ matrix.compiler }}
+
+    - name: Install Build Tools
+      # NOTE: Need to install build tools to set up libtbb
+      run: . $PRELUDE; install_build_tools $BUILD_ENV
+
     - name: Install ROCm AMD-SMI
       run: . $PRELUDE; install_rocm_amdsmi_ubuntu $BUILD_ENV
 
@@ -211,5 +219,5 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 40
+      timeout-minutes: 60
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV

@@ -17,11 +17,11 @@
 
 #include <gtest/gtest.h>
 
-#include "./TestUtils.h"
-#include "bench/AlignedVec.h"
-#include "bench/BenchUtils.h"
+#include "./TestUtils.h" // @manual
+#include "bench/AlignedVec.h" // @manual
+#include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 using namespace std;
 using namespace fbgemm;

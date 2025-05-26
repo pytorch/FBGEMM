@@ -141,6 +141,7 @@ set(fbgemm_sources_include_directories
   ${THIRDPARTY}/cutlass/include
   ${THIRDPARTY}/cutlass/tools/util/include
   ${THIRDPARTY}/composable_kernel/include
+  ${THIRDPARTY}/composable_kernel/library/include
   ${THIRDPARTY}/json/include
   ${NCCL_INCLUDE_DIRS})
 

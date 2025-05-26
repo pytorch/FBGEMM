@@ -8,7 +8,7 @@
  */
 
 #define FBGEMM_EXPORTS
-#include "./TransposeUtils.h"
+#include "./TransposeUtils.h" // @manual
 #include <cstring>
 #include "fbgemm/Utils.h"
 

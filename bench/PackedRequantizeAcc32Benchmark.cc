@@ -23,7 +23,7 @@
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 #include "test/QuantizationHelpers.h"
 
 using namespace std;

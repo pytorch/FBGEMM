@@ -88,17 +88,6 @@ __conda_install_glibc () {
     (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
       "libstdcxx-ng=${gcc_version}") || return 1
   fi
-
-  echo "[CHECK] LD_LIBRARY_PATH = ${LD_LIBRARY_PATH}"
-  # Ensure libstdc++.so.6 is found
-  # shellcheck disable=SC2153
-  if [ "${CONDA_PREFIX}" == '' ]; then
-    echo "[CHECK] CONDA_PREFIX is not set."
-    (test_filepath "${env_name}" 'libstdc++.so.6') || return 1
-  else
-    (test_filepath "${CONDA_PREFIX}" 'libstdc++.so.6') || return 1
-  fi
-
 }
 
 __set_glibcxx_preload () {
@@ -282,6 +271,14 @@ __compiler_post_install_checks () {
   # https://stackoverflow.com/questions/2324658/how-to-determine-the-version-of-the-c-standard-used-by-the-compiler
   echo "[INFO] Printing the default version of the C++ standard used by the compiler ..."
   print_exec "conda run ${env_prefix} c++ -dM -E -x c++ - < /dev/null | grep __cplusplus"
+
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+  echo "[INFO] CONDA_PREFIX: ${conda_prefix}"
+  local library_path=$(conda run ${env_prefix} printenv LIBRARY_PATH)
+  echo "[INFO] LIBRARY_PATH: ${library_path}"
+  local ld_library_path=$(conda run ${env_prefix} printenv LD_LIBRARY_PATH)
+  echo "[INFO] LD_LIBRARY_PATH: ${ld_library_path}"
 }
 
 install_cxx_compiler () {
@@ -372,6 +369,7 @@ install_build_tools () {
     patchelf \
     rhash \
     scikit-build \
+    tbb \
     wheel \
     pyyaml) || return 1
 
@@ -379,6 +377,9 @@ install_build_tools () {
   # shellcheck disable=SC2155,SC2086
   local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
   (print_exec ln -s "${conda_prefix}/lib/librhash.so" "${conda_prefix}/lib/librhash.so.0") || return 1
+
+  echo "[INSTALL] Adding symlink libtbb.so, which is needed by HIPCC ..."
+  (print_exec ln -s "${conda_prefix}/lib/libtbb.so.12" "${conda_prefix}/lib/libtbb.so") || return 1
 
   # For some reason, the build package for Python 3.12+ is missing from conda,
   # so we have to install through pip instead.

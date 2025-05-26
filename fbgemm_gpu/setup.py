@@ -322,11 +322,18 @@ class FbgemmGpuBuild:
 
             cxx_flags.extend(
                 [
-                    "-fopenmp=libgomp",
                     "-stdlib=libstdc++",
                     f"-I{path}/include",
                 ]
+                + (
+                    # Starting from ROCm 6.4, HIP clang complains about
+                    # -fopenmp=libgomp being an invalid fopenmp-target
+                    []
+                    if self.variant() == "rocm"
+                    else ["-fopenmp=libgomp"]
+                )
             )
+
             cmake_args.extend(
                 [
                     f"-DCMAKE_C_COMPILER={path}/bin/cc",
@@ -335,7 +342,23 @@ class FbgemmGpuBuild:
             )
 
         if self.variant() == "rocm":
-            cxx_flags.extend([f"-DROCM_VERSION={RocmUtils.version_int()}"])
+            cxx_flags.extend(
+                [
+                    f"-DROCM_VERSION={RocmUtils.version_int()}",
+                ]
+            )
+
+            if self.nova_flag() is None:
+                cxx_flags.extend(
+                    [
+                        # For the ROCm case on non-Nova, an explicit link to
+                        # libtbb is required, or the following error is
+                        # encountered on library load:
+                        #
+                        # undefined symbol: _ZN3tbb6detail2r117deallocate_memoryEPv
+                        "-ltbb",
+                    ]
+                )
 
         cmake_args.extend(
             [

@@ -308,8 +308,13 @@ KVTensorWrapper::KVTensorWrapper(
     int64_t row_offset,
     const std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
         snapshot_handle,
-    std::optional<at::Tensor> sorted_indices)
-    : db_(nullptr), shape_(std::move(shape)), row_offset_(row_offset) {
+    std::optional<at::Tensor> sorted_indices,
+    int64_t width_offset_)
+    : db_(nullptr),
+      shape_(std::move(shape)),
+      row_offset_(row_offset),
+      width_offset_(width_offset_) {
+  CHECK_GE(width_offset_, 0);
   CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
   options_ = at::TensorOptions()
                  .dtype(static_cast<c10::ScalarType>(dtype))
@@ -342,25 +347,28 @@ void KVTensorWrapper::set_dram_db_wrapper(
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-  CHECK_GE(db_->get_max_D(), shape_[1]);
   CHECK_TRUE(db_ != nullptr);
-  // Do not force snapshot handle is not nullptr since DRAM DB does not have
-  // rocksdb snapshot
+  CHECK_GE(db_->get_max_D(), shape_[1]);
+  TORCH_CHECK(
+      (snapshot_handle_ == nullptr) ==
+          (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
+      "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
   if (!sorted_indices_.has_value()) {
-    auto t = at::empty(c10::IntArrayRef({length, db_->get_max_D()}), options_);
+    int64_t tensor_width = shape_[1] - width_offset_;
+    auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
     db_->get_range_from_snapshot(
         t,
         start + row_offset_,
         length,
-        snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr);
-    // TBE may have multiple embeddings in one table padded to max D
-    // narrow to the actual shape here before returning
-    return t.narrow(1, 0, shape_[1]).contiguous();
+        snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
+        width_offset_,
+        tensor_width);
+    CHECK(t.is_contiguous());
+    return t;
   } else {
     at::Tensor sliced_ids =
         sorted_indices_.value().slice(0, start, start + length);
-    auto out_weights = get_weights_by_ids(sliced_ids);
-    return out_weights.narrow(1, 0, shape_[1]).contiguous();
+    return get_weights_by_ids(sliced_ids);
   }
 }
 
@@ -404,14 +412,23 @@ void KVTensorWrapper::set_weights_and_ids(
 
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
   CHECK_TRUE(db_ != nullptr);
+  CHECK_GE(db_->get_max_D(), shape_[1]);
+  TORCH_CHECK(
+      (snapshot_handle_ == nullptr) ==
+          (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
+      "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
+  int64_t tensor_width = shape_[1] - width_offset_;
   auto weights =
-      at::empty(c10::IntArrayRef({ids.size(0), db_->get_max_D()}), options_);
+      at::empty(c10::IntArrayRef({ids.size(0), tensor_width}), options_);
   auto linearized_ids = ids + row_offset_;
   db_->get_kv_from_storage_by_snapshot(
       linearized_ids,
       weights,
-      snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr);
-  return weights.narrow(1, 0, shape_[1]);
+      snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
+      width_offset_,
+      tensor_width);
+  CHECK(weights.is_contiguous());
+  return weights;
 }
 
 c10::IntArrayRef KVTensorWrapper::sizes() {
@@ -634,7 +651,8 @@ static auto kv_tensor_wrapper =
                 int64_t,
                 std::optional<
                     c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>,
-                std::optional<at::Tensor>>(),
+                std::optional<at::Tensor>,
+                int64_t>(),
             "",
             {torch::arg("shape"),
              torch::arg("dtype"),
@@ -642,7 +660,8 @@ static auto kv_tensor_wrapper =
              // snapshot must be provided for reading
              // not needed for writing
              torch::arg("snapshot_handle") = std::nullopt,
-             torch::arg("sorted_indices") = std::nullopt})
+             torch::arg("sorted_indices") = std::nullopt,
+             torch::arg("width_offset") = 0})
         .def(
             "set_embedding_rocks_dp_wrapper",
             &KVTensorWrapper::set_embedding_rocks_dp_wrapper,

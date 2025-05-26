@@ -47,7 +47,7 @@ environment is recommended for reproducible builds:
   . ~/.bashrc
 
   # Run updates
-  conda update -n base -c defaults -y conda
+  conda update -n base -c conda-forge -y conda
 
 From here on out, all installation commands will be run against or
 inside a Conda environment.
@@ -63,7 +63,7 @@ Create a Conda environment with the specified Python version:
   python_version=3.13
 
   # Create the environment
-  conda create -y --name ${env_name} python="${python_version}"
+  conda create -y -n ${env_name} -c conda-forge python="${python_version}"
 
   # Upgrade PIP and pyOpenSSL package
   conda run -n ${env_name} pip install --upgrade pip
@@ -187,8 +187,8 @@ desired ROCm version:
 
 .. code:: sh
 
-  # Run for ROCm 6.2.0
-  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:6.2.0
+  # Run for ROCm 6.3
+  docker run -it --entrypoint "/bin/bash" rocm/rocm-terminal:6.3
 
 While the `full ROCm Docker image <https://hub.docker.com/r/rocm/dev-ubuntu-22.04>`__
 comes with all ROCm packages pre-installed, it results in a very large Docker
@@ -354,6 +354,7 @@ Install the other necessary build tools such as ``ninja``, ``cmake``, etc:
       ninja \
       numpy \
       scikit-build \
+      tbb \
       wheel
 
 .. _fbgemm-gpu.build.setup.pytorch.install:
@@ -674,6 +675,9 @@ presuming the toolchains have been properly installed.
   # !! Run in fbgemm_gpu/ directory inside the Conda environment !!
 
   export ROCM_PATH=/path/to/rocm
+
+  # [OPTIONAL] If libtbb.so is missing, create the symlink (presuming libtbb.so.12 is present)
+  ln -s "${CONDA_PREFIX}/lib/libtbb.so.12" "${CONDA_PREFIX}/lib/libtbb.so"
 
   # [OPTIONAL] Enable verbose HIPCC logs
   export HIPCC_VERBOSE=1

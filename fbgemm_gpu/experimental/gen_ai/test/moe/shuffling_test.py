@@ -26,11 +26,9 @@ if torch.cuda.is_available():
 from hypothesis import given, settings, strategies as st, Verbosity
 
 try:
-    # pyre-ignore[21]
     # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
     from fbgemm_gpu import open_source
 
-    # pyre-ignore[21]
     # @manual=//deeplearning/fbgemm/fbgemm_gpu:test_utils
     from fbgemm_gpu.docs.version import __version__  # noqa: F401
 except Exception:
@@ -57,8 +55,9 @@ class ShufflingTests(unittest.TestCase):
             [1, 3, 123, 128, 1234, 2048, 4567, 4096, 8192, 16384]
         ),
         num_experts=st.sampled_from([16, 128]),
-        rowmajor=st.sampled_from([True, False]),
+        num_local_experts=st.sampled_from([None, 8]),
         padded=st.sampled_from([True, False]),
+        rowmajor=st.sampled_from([True, False]),
         compiled=st.sampled_from([True, False]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
@@ -66,75 +65,101 @@ class ShufflingTests(unittest.TestCase):
         self,
         num_tokens: int,
         num_experts: int,
-        rowmajor: bool,
+        num_local_experts: Optional[int],
         padded: bool,
+        rowmajor: bool,
         compiled: bool,
     ) -> None:
         torch.manual_seed(0)
 
-        num_valid_tokens_tensor: Optional[torch.Tensor] = None
-        num_valid_tokens_scalar: int = num_tokens
-        num_total_tokens = num_tokens
+        expert_index_start: int = 0
+        expert_index_end: int = num_experts
+        if num_local_experts is not None:
+            expert_index_start = 1
+            expert_index_end = expert_index_start + num_local_experts
+
+        num_total_tokens: int = num_tokens
+        num_valid_tokens: int = num_tokens
+        valid_token_counts: Optional[torch.Tensor] = None
         if padded:
-            num_valid_tokens_scalar = num_tokens
-            num_valid_tokens_tensor: Optional[torch.Tensor] = torch.tensor(
-                [num_tokens], device="cuda"
-            )
             num_total_tokens = num_tokens * 2
+            num_valid_tokens = num_tokens
+            valid_token_counts = torch.tensor([num_tokens], device="cuda")
 
-        scores: torch.Tensor = torch.randn(
+        routing_scores: torch.Tensor = torch.randn(
             num_total_tokens, num_experts, device="cuda", dtype=torch.bfloat16
-        )
-        scores = scores.contiguous()
-
+        ).contiguous()
         if not rowmajor:
-            scores = scores.transpose(0, 1).contiguous().transpose(0, 1)
+            routing_scores = routing_scores.transpose(0, 1).contiguous().transpose(0, 1)
 
         def fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
             op = index_shuffling
             if compiled:
                 op = torch.compile(op, backend="inductor", fullgraph=True)
-            return op(scores, num_valid_tokens_tensor)
+            if num_local_experts is None and valid_token_counts is None:
+                return op(routing_scores)
+            else:
+                return op(
+                    routing_scores,
+                    expert_index_start,
+                    expert_index_end,
+                    valid_token_counts,
+                )
 
         def ref_fn() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            valid_scores = scores[:num_valid_tokens_scalar].contiguous()
-            selected_scores, selected_expert_indices = torch.topk(
-                valid_scores, 1, dim=1
-            )
+            valid_routing_scores = routing_scores[:num_valid_tokens].contiguous()
+            selected_expert_indices = torch.topk(valid_routing_scores, 1, dim=1)[1]
             expert_indices, token_indices = torch.sort(selected_expert_indices, dim=0)
-            router_counts = (
-                expert_indices[:, None]
-                == torch.arange(num_experts, device=expert_indices.device)[None, :]
+            expert_ids = torch.arange(num_experts, device=expert_indices.device)
+            token_counts_per_expert = (
+                expert_indices[:, None] == expert_ids[None, :]
             ).sum(dim=0)
             return (
-                router_counts.flatten(),
+                token_counts_per_expert.flatten(),
                 expert_indices.flatten(),
                 token_indices.flatten(),
             )
 
-        router_counts, expert_indices, token_indices = fn()
-        ref_router_counts, ref_expert_indices, ref_token_indices = ref_fn()
+        token_counts_per_expert, expert_indices, token_indices = fn()
+        ref_token_counts_per_expert, ref_expert_indices, ref_token_indices = ref_fn()
 
         # Correctness check
-        self.assertTrue(router_counts[:-1].equal(ref_router_counts))
-        self.assertEqual(router_counts[:-1].sum().item(), num_valid_tokens_scalar)
+        # 1. Checks `token_counts_per_expert` return is correct.
+        self.assertEqual(token_counts_per_expert.shape, (num_experts + 2,))
+        self.assertTrue(
+            token_counts_per_expert[expert_index_start:expert_index_end].equal(
+                ref_token_counts_per_expert[expert_index_start:expert_index_end]
+            )
+        )
+        self.assertEqual(token_counts_per_expert[-2].item(), num_total_tokens)
+        ref_num_sorted_tokens = torch.sum(
+            ref_token_counts_per_expert[expert_index_start:expert_index_end]
+        )
+        self.assertEqual(token_counts_per_expert[-1].item(), ref_num_sorted_tokens)
+
+        # 2. Checks `expert_indices` and `token_indices` returns are correct.
         self.assertEqual(expert_indices.shape, (num_total_tokens,))
         self.assertEqual(token_indices.shape, (num_total_tokens,))
 
+        # Test behavior assertions
         if padded:
-            assert num_valid_tokens_tensor is not None
-            assert num_valid_tokens_tensor.item() == num_valid_tokens_scalar
-            assert num_valid_tokens_tensor.item() < num_total_tokens
+            assert valid_token_counts is not None
+            assert valid_token_counts.item() < num_total_tokens
+            assert valid_token_counts.item() == num_valid_tokens
         else:
-            assert num_valid_tokens_tensor is None
-            assert num_valid_tokens_scalar == num_total_tokens
+            assert valid_token_counts is None
+            assert num_valid_tokens == num_total_tokens
 
-        # No invalid indices
+        # No invalid `expert_indices` or `token_indices` values.
         self.assertTrue(
-            (expert_indices >= 0).logical_and(expert_indices < num_experts).all()
+            (expert_indices[:ref_num_sorted_tokens] >= 0)
+            .logical_and(expert_indices[:ref_num_sorted_tokens] < num_experts)
+            .all()
         )
         self.assertTrue(
-            (token_indices >= 0).logical_and(token_indices < num_total_tokens).all()
+            (token_indices[:ref_num_sorted_tokens] >= 0)
+            .logical_and(token_indices[:ref_num_sorted_tokens] < num_total_tokens)
+            .all()
         )
 
         def _assert_indices_equal(
@@ -145,34 +170,31 @@ class ShufflingTests(unittest.TestCase):
             indices1 = torch.sort(indices1)[0]
             indices2 = torch.sort(indices2)[0]
             self.assertTrue(
-                torch.equal(
-                    indices1,
-                    indices2,
-                ),
+                indices1.equal(indices2),
                 f"indices1={indices1}, indices2={indices2}",
             )
 
-        start_index = 0
+        ref_start_index, start_index = 0, 0
         for i in range(num_experts):
-            end_index = start_index + router_counts[i]
-            _assert_indices_equal(
-                expert_indices[start_index:end_index],
-                ref_expert_indices[start_index:end_index],
-            )
-            _assert_indices_equal(
-                token_indices[start_index:end_index],
-                ref_token_indices[start_index:end_index],
-            )
-            start_index = end_index
-        token_indices_unshuffling = torch.sort(
-            token_indices[:num_valid_tokens_tensor], dim=0
-        )[1]
-        ref_token_indices_unshuffling = torch.sort(ref_token_indices, dim=0)[1]
-        self.assertTrue(
-            expert_indices[token_indices_unshuffling].equal(
-                ref_expert_indices[ref_token_indices_unshuffling]
-            )
-        )
+            ref_end_index = ref_start_index + ref_token_counts_per_expert[i]
+            if i >= expert_index_start and i < expert_index_end:
+                end_index = start_index + token_counts_per_expert[i]
+                self.assertTrue(
+                    torch.equal(
+                        token_counts_per_expert[i],
+                        ref_token_counts_per_expert[i],
+                    )
+                )
+                _assert_indices_equal(
+                    expert_indices[start_index:end_index] + expert_index_start,
+                    ref_expert_indices[ref_start_index:ref_end_index],
+                )
+                _assert_indices_equal(
+                    token_indices[start_index:end_index],
+                    ref_token_indices[ref_start_index:ref_end_index],
+                )
+                start_index = end_index
+            ref_start_index = ref_end_index
 
     @given(
         num_tokens=st.sampled_from(

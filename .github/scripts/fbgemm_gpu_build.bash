@@ -39,6 +39,7 @@ prepare_fbgemm_gpu_build () {
   echo "[BUILD] Running git submodules update ..."
   (exec_with_retries 3 git submodule sync) || return 1
   (exec_with_retries 3 git submodule update --init --recursive) || return 1
+  echo "[BUILD] Successfully ran git submodules update"
 
   # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
@@ -54,7 +55,16 @@ prepare_fbgemm_gpu_build () {
   # shellcheck disable=SC2086
   (test_python_import_package "${env_name}" skbuild) || return 1
 
-  echo "[BUILD] Successfully ran git submodules update"
+  # shellcheck disable=SC2155,SC2086
+  local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
+
+  echo "[BUILD] Finding library paths ..."
+  # shellcheck disable=SC2061,SC2035
+  (find "${conda_prefix}" -name *omp.so* 2> /dev/null || true)
+  # shellcheck disable=SC2061,SC2035
+  (find "${conda_prefix}" -name *tbb.so* 2> /dev/null || true)
+  # shellcheck disable=SC2061,SC2035
+  (find "${conda_prefix}" -name *bolt.so* 2> /dev/null || true)
 }
 
 __configure_fbgemm_gpu_build_clang () {
@@ -251,15 +261,15 @@ __configure_fbgemm_gpu_build_cuda () {
     #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
     #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
     if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="7.0;8.0;9.0;9.0a;10.0a;12.0a"
+      local arch_list="7.0;8.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
           [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="7.0;8.0;9.0;9.0a"
+      local arch_list="7.0;8.0;9.0a"
 
     else
-      local arch_list="7.0;8.0"
+      local arch_list="7.0;8.0;9.0"
     fi
   fi
   echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
@@ -599,7 +609,7 @@ __verify_library_symbols () {
       fbgemm_gpu::jagged_2d_to_dense
     )
 
-    if  [ "${fbgemm_build_variant}" == "cuda" ] &&
+    if  [ "${fbgemm_build_variant}" == "cuda" ] ||
         [ "${fbgemm_build_variant}" == "rocm" ]; then
       lib_symbols_to_check+=(
         fbgemm_gpu::asynchronous_inclusive_cumsum_gpu
