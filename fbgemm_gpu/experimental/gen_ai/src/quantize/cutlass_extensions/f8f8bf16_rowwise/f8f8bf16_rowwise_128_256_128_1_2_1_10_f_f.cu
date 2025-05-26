@@ -10,7 +10,7 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor f8f8bf16_rowwise_64_64_128_2_1_1_f_f(
+at::Tensor f8f8bf16_rowwise_128_256_128_1_2_1_10_f_f(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -19,7 +19,7 @@ at::Tensor f8f8bf16_rowwise_64_64_128_2_1_1_f_f(
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt) {
   // Dispatch this kernel to the correct underlying implementation.
-  return f8f8bf16_rowwise_wrapper<64, 64, 128, 2, 1, 1, false, false>(
+  return f8f8bf16_rowwise_wrapper<128, 256, 128, 1, 2, 1, 10, false, false>(
       XQ, WQ, x_scale, w_scale, use_fast_accum, bias, output);
 }
 
