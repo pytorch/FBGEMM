@@ -12,8 +12,9 @@
 #include <gmock/gmock.h>
 #include <array>
 #include <gtest/gtest.h>
+
 #include "fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h"
-#include "fbgemm_gpu/src/dram_kv_embedding_cache/store_value_utils.h"
+#include "fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
 #include <common/time/Time.h>
 
@@ -83,8 +84,8 @@ memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
 std::vector<double>
 memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
   const size_t numShards = 1;
-  size_t block_size = StoreValueUtils::calculate_block_size<float>(dimension);
-  size_t block_alignment = StoreValueUtils::calculate_block_alignment<float>();
+  size_t block_size = MemPoolUtils::calculate_block_size<float>(dimension);
+  size_t block_alignment = MemPoolUtils::calculate_block_alignment<float>();
 
   SynchronizedShardedMap<unsigned long, float*> embeddingMap(
       numShards,
@@ -101,8 +102,8 @@ memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
     auto startInsert = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < numInserts; i++) {
       auto* block =
-          StoreValueUtils::allocate<float>(block_size, block_alignment, pool);
-      auto* data_ptr = StoreValueUtils::data_ptr<float>(block);
+          MemPoolUtils::allocate<float>(block_size, block_alignment, pool);
+      auto* data_ptr = MemPoolUtils::data_ptr<float>(block);
       std::copy(fixedEmbedding.begin(), fixedEmbedding.end(), data_ptr);
       wlock->insert_or_assign(i, block);
     }
@@ -122,9 +123,9 @@ memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
       auto it = rlock->find(i % numInserts);
       if (it != rlock->end()) {
         hitCount++;
-        const float* data_ptr = StoreValueUtils::data_ptr<float>(it->second);
+        const float* data_ptr = MemPoolUtils::data_ptr<float>(it->second);
         // update timestamp
-        StoreValueUtils::update_timestamp<float>(it->second, now);
+        FixedBlockPool::update_timestamp<float>(it->second, now);
         std::copy(data_ptr, data_ptr + dimension, lookEmbedding.data());
       }
     }
