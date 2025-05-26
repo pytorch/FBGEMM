@@ -60,6 +60,9 @@ class FeatureGateName(Enum):
     # Enable bounds_check_indices_v2
     BOUNDS_CHECK_INDICES_V2 = auto()
 
+    # Enable TBE input parameters extraction
+    TBE_REPORT_INPUT_PARAMS = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
