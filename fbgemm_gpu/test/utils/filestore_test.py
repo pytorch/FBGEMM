@@ -157,7 +157,3 @@ class FileStoreTest(unittest.TestCase):
             Path(infile.name),
             f"tree/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
