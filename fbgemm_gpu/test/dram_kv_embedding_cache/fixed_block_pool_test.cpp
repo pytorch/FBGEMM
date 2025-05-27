@@ -306,12 +306,12 @@ TEST(FixedBlockPool, BasicFunctionality) {
   FixedBlockPool pool(block_size, alignment, 1024);
 
   // Test memory allocation
-  auto* block = FixedBlockPool::allocate_t<float>(block_size, alignment, &pool);
+  auto* block = pool.allocate_t<float>();
   FixedBlockPool::update_timestamp(block);
   ASSERT_NE(block, nullptr);
 
   // Verify metadata header
-  int64_t ts1 = FixedBlockPool::get_score(block);
+  int64_t ts1 = FixedBlockPool::get_timestamp(block);
   EXPECT_LE(FixedBlockPool::current_timestamp(), ts1);
 
   // Test data pointer offset
@@ -321,12 +321,11 @@ TEST(FixedBlockPool, BasicFunctionality) {
 
   // Test timestamp update
   FixedBlockPool::update_timestamp(block);
-  int64_t ts2 = FixedBlockPool::get_score(block);
+  int64_t ts2 = FixedBlockPool::get_timestamp(block);
   EXPECT_GE(ts2, ts1);  // New timestamp should be greater or equal
 
   // Test memory deallocation
-  EXPECT_NO_THROW(
-      FixedBlockPool::deallocate_t<float>(block, block_size, alignment, &pool));
+  EXPECT_NO_THROW(pool.deallocate_t<float>(block));
 }
 
 TEST(FixedBlockPool, MultiDimensionTest) {
@@ -370,7 +369,7 @@ TEST(FixedBlockPool, DataIntegrity) {
   FixedBlockPool pool(block_size, alignment, 1024);
 
   // Allocate and write data
-  auto* block = FixedBlockPool::allocate_t<float>(block_size, alignment, &pool);
+  auto* block = pool.allocate_t<float>();
   auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
   std::copy(src_data.begin(), src_data.end(), data_ptr);
 
@@ -378,8 +377,7 @@ TEST(FixedBlockPool, DataIntegrity) {
   for (int i = 0; i < dim; ++i) {
     EXPECT_FLOAT_EQ(data_ptr[i], src_data[i]);
   }
-
-  FixedBlockPool::deallocate_t<float>(block, block_size, alignment, &pool);
+  pool.deallocate_t<float>(block);
 }
 
 }  // namespace kv_mem

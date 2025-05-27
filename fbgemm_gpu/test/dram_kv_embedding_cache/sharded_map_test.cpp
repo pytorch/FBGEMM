@@ -70,8 +70,8 @@ void memPoolEmbeddingWithTime(int dimension,
                               size_t numInserts,
                               size_t numLookups) {
   const size_t numShards = 1;
-  size_t block_size = MemPoolUtils::calculate_block_size<float>(dimension);
-  size_t block_alignment = MemPoolUtils::calculate_block_alignment<float>();
+  size_t block_size = FixedBlockPool::calculate_block_size<float>(dimension);
+  size_t block_alignment = FixedBlockPool::calculate_block_alignment<float>();
 
   SynchronizedShardedMap<unsigned long, float*> embeddingMap(
       numShards,
@@ -87,9 +87,8 @@ void memPoolEmbeddingWithTime(int dimension,
 
     auto startInsert = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < numInserts; i++) {
-      auto* block =
-          MemPoolUtils::allocate<float>(block_size, block_alignment, pool);
-      auto* data_ptr = MemPoolUtils::data_ptr<float>(block);
+      auto* block = pool->allocate_t<float>();
+      auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
       std::copy(fixedEmbedding.begin(), fixedEmbedding.end(), data_ptr);
       wlock->insert_or_assign(i, block);
     }
@@ -108,7 +107,7 @@ void memPoolEmbeddingWithTime(int dimension,
       auto it = rlock->find(i % numInserts);
       if (it != rlock->end()) {
         hitCount++;
-        const float* data_ptr = MemPoolUtils::data_ptr<float>(it->second);
+        const float* data_ptr = FixedBlockPool::data_ptr<float>(it->second);
         // update timestamp
         FixedBlockPool::update_timestamp(it->second);
         std::copy(data_ptr, data_ptr + dimension, lookEmbedding.data());
