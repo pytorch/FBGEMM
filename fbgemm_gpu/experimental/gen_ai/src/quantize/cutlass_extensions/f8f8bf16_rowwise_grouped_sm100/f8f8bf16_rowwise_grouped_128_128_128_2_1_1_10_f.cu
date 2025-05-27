@@ -19,7 +19,7 @@ at::Tensor f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes) {
   // Dispatch this kernel to the correct underlying implementation.
-  return f8f8bf16_rowwise_grouped_impl<
+  return f8f8bf16_rowwise_grouped_sm100_impl<
       at::Tensor,
       128,
       128,
@@ -40,7 +40,7 @@ at::Tensor f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes) {
   // Dispatch this kernel to the correct underlying implementation.
-  return f8f8bf16_rowwise_grouped_impl<
+  return f8f8bf16_rowwise_grouped_sm100_impl<
       at::TensorList,
       128,
       128,

@@ -21,7 +21,7 @@
 
 namespace fbgemm_gpu {
 
-#if CUDART_VERSION >= 12000
+#if CUDART_VERSION >= 12080
 
 inline int64_t _byte_align(int64_t offset) {
   int64_t remainder = offset % 16;
@@ -218,7 +218,7 @@ template <
     int TBS_K,
     int ARCH,
     bool PONG>
-at::Tensor f8f8bf16_rowwise_grouped_impl(
+at::Tensor f8f8bf16_rowwise_grouped_sm100_impl(
     InputType XQ, // FP8
     InputType WQ, // FP8
     InputType x_scale,
@@ -261,8 +261,8 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
       typename cutlass::layout::LayoutTranspose<LayoutB>::type;
   using ElementAccumulator = float;
   using ElementComputeEpilogue = float;
-  using ArchTag = cutlass::arch::Sm90; // Tag indicating the minimum SM that
-                                       // supports the intended feature
+  using ArchTag = cutlass::arch::Sm100; // Tag indicating the minimum SM that
+                                        // supports the intended feature
   using OperatorClass = cutlass::arch::OpClassTensorOp;
   using StageCountType = cutlass::gemm::collective::StageCountAuto;
   using TileShape =
@@ -278,10 +278,13 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
   using PongEpilogueSchedule =
       cutlass::epilogue::PtrArrayTmaWarpSpecializedPingpong;
 
-  using MainLoopSchedule =
-      cute::conditional_t<PONG, PongSchedule, CooperativeSchedule>;
-  using EpilogueSchedule = cute::
-      conditional_t<PONG, PongEpilogueSchedule, CooperativeEpilogueSchedule>;
+  using MainLoopScheduleSM100 =
+      cutlass::gemm::KernelPtrArrayTmaWarpSpecialized2SmSm100;
+  using EpilogueScheduleSM100 =
+      cutlass::epilogue::PtrArrayTmaWarpSpecialized2Sm;
+
+  using MainLoopSchedule = MainLoopScheduleSM100;
+  using EpilogueSchedule = EpilogueScheduleSM100;
 
   // Implement rowwise scaling epilogue.
   using XScale = cutlass::epilogue::fusion::Sm90ColBroadcast<
@@ -595,6 +598,28 @@ at::Tensor f8f8bf16_rowwise_grouped_impl(
 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 
+  return output;
+}
+
+#else
+template <
+    typename InputType,
+    int TB_M,
+    int TB_N,
+    int TB_K,
+    int TBS_M,
+    int TBS_N,
+    int TBS_K,
+    int ARCH,
+    bool PONG>
+at::Tensor f8f8bf16_rowwise_grouped_sm100_impl(
+    InputType XQ, // FP8
+    InputType WQ, // FP8
+    InputType x_scale,
+    InputType w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes) {
   return output;
 }
 
