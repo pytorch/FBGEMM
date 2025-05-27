@@ -32,7 +32,6 @@ template <
     int TBS_M,
     int TBS_N,
     int TBS_K,
-    int ARCH,
     bool PONG,
     bool COOP,
     bool FAST_ACCUM,
@@ -99,11 +98,8 @@ at::Tensor f8f8bf16_rowwise_impl(
 
   using ElementAccumulator = float;
   using ElementComputeEpilogue = float;
-  using ArchTag = cute::conditional_t<
-      ARCH == 10,
-      cutlass::arch::Sm100,
-      cutlass::arch::Sm90>; // Tag indicating the minimum SM that
-                            // supports the intended feature
+  using ArchTag = cutlass::arch::Sm90; // Tag indicating the minimum SM that
+                                       // supports the intended feature
   using OperatorClass = cutlass::arch::OpClassTensorOp;
   using TileShape = cute::Shape<
       cute::Int<TB_M>,
@@ -190,26 +186,16 @@ at::Tensor f8f8bf16_rowwise_impl(
           PONG,
           cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8FastAccum,
           cutlass::gemm::KernelTmaWarpSpecializedFP8FastAccum>>;
-
-  using MainLoopScheduleSM100 = cutlass::gemm::collective::KernelScheduleAuto;
-  using EpilogueScheduleSM100 =
-      cutlass::epilogue::collective::EpilogueScheduleAuto;
-
-  using MainLoopSchedule = cute::conditional_t<
-      ARCH == 10,
-      MainLoopScheduleSM100,
-      cute::conditional_t<FAST_ACCUM, FastAccum, SlowAccum>>;
+  using MainLoopSchedule =
+      cute::conditional_t<FAST_ACCUM, FastAccum, SlowAccum>;
   using EpilogueSchedule = cute::conditional_t<
-      ARCH == 10,
-      EpilogueScheduleSM100,
-      cute::conditional_t<
-          COOP,
-          cutlass::epilogue::TmaWarpSpecializedCooperative,
-          cutlass::epilogue::TmaWarpSpecialized>>;
+      COOP,
+      cutlass::epilogue::TmaWarpSpecializedCooperative,
+      cutlass::epilogue::TmaWarpSpecialized>;
 
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
-          ArchTag,
+          cutlass::arch::Sm90,
           cutlass::arch::OpClassTensorOp,
           TileShape,
           ClusterShape,
@@ -346,7 +332,6 @@ template <
     int TBS_M,
     int TBS_N,
     int TBS_K,
-    int ARCH,
     bool PONG,
     bool COOP>
 at::Tensor f8f8bf16_rowwise_wrapper(
@@ -384,7 +369,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               true,
@@ -399,7 +383,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               true,
@@ -416,7 +399,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               false,
@@ -431,7 +413,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               false,
@@ -450,7 +431,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               true,
@@ -465,7 +445,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               true,
@@ -482,7 +461,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               false,
@@ -497,7 +475,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
               TBS_M,
               TBS_N,
               TBS_K,
-              ARCH,
               PONG,
               COOP,
               false,
@@ -517,7 +494,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             TBS_M,
             TBS_N,
             TBS_K,
-            ARCH,
             PONG,
             COOP,
             true,
@@ -532,7 +508,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             TBS_M,
             TBS_N,
             TBS_K,
-            ARCH,
             PONG,
             COOP,
             true,
@@ -549,7 +524,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             TBS_M,
             TBS_N,
             TBS_K,
-            ARCH,
             PONG,
             COOP,
             false,
@@ -564,7 +538,6 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             TBS_M,
             TBS_N,
             TBS_K,
-            ARCH,
             PONG,
             COOP,
             false,
