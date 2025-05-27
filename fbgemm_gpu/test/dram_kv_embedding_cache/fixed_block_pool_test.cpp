@@ -6,14 +6,14 @@
 #include <memory>
 #include <vector>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <gtest/gtest.h>
-
 namespace kv_mem {
 
 double test_std_vector(size_t vector_size, size_t repeat_count) {
-  float sum = 0.0f;  // Prevent optimization
-  std::vector<std::vector<float>>
-      all_vectors;  // Store all vectors to prevent release
+  float sum = 0.0f;                             // Prevent optimization
+  std::vector<std::vector<float>> all_vectors;  // Store all vectors to prevent release
   all_vectors.reserve(repeat_count);
 
   auto start = std::chrono::high_resolution_clock::now();
@@ -61,10 +61,9 @@ double test_pool_vector(size_t vector_size, size_t repeat_count) {
 }
 
 void benchmark_memory_allocators() {
-  std::cout << "====== Testing performance difference between memory pool and "
-               "native vector allocation for 10 million "
-               "times ======"
-            << std::endl;
+  fmt::print(
+      "====== Testing performance difference between memory pool and "
+      "native vector allocation for 10 million times ======\n");
 
   // Vector sizes to test (in number of float elements)
   std::vector<size_t> vector_sizes = {4, 8, 16, 32, 64, 128, 256};
@@ -73,33 +72,24 @@ void benchmark_memory_allocators() {
   const size_t repeat_count = 10'000'000;
 
   for (const auto& size : vector_sizes) {
-    std::cout << "Vector size: " << size << " floats ("
-              << (size * sizeof(float)) << " bytes)" << std::endl;
-
+    fmt::print("Vector size: {} floats ({} bytes)\n", size, size * sizeof(float));
     // Testing standard vector
     double std_time = test_std_vector(size, repeat_count);
-    std::cout << "  Standard vector: " << std::fixed << std::setprecision(2)
-              << std_time << " ms" << std::endl;
+    fmt::print("  Standard vector: {:.2f} ms\n", std_time);
 
     // Testing memory pool
     double pool_time = test_pool_vector(size, repeat_count);
-    std::cout << "  Memory pool: " << std::fixed << std::setprecision(2)
-              << pool_time << " ms" << std::endl;
+    fmt::print("  Memory pool: {:.2f} ms\n", pool_time);
 
     // Calculate speed improvement
     double speedup = std_time / pool_time;
-    std::cout << "  Speed improvement: " << std::fixed << std::setprecision(2)
-              << speedup << "x" << std::endl;
-
-    std::cout << std::endl;
-    std::cout << "============================" << std::endl;
+    fmt::print("  Speed improvement: {:.2f}x\n\n", speedup);
+    fmt::print("============================\n");
   }
 }
 
 // Basic functionality test: Integer keys
-TEST(FixedBlockPoolTest, benchmark_memory_allocators) {
-  benchmark_memory_allocators();
-}
+TEST(FixedBlockPoolTest, benchmark_memory_allocators) { benchmark_memory_allocators(); }
 
 // Test constructor normal case
 TEST(FixedBlockPoolTest, ConstructorNormal) {
@@ -208,14 +198,10 @@ TEST(FixedBlockPoolTest, ErrorHandling) {
   kv_mem::FixedBlockPool pool(block_size, alignment);
 
   // Try to allocate memory with incorrect size
-  EXPECT_THROW(
-      { [[maybe_unused]] void* p = pool.allocate(block_size * 2, alignment); },
-      std::bad_alloc);
+  EXPECT_THROW({ [[maybe_unused]] void* p = pool.allocate(block_size * 2, alignment); }, std::bad_alloc);
 
   // Try to allocate memory with incorrect alignment
-  EXPECT_THROW(
-      { [[maybe_unused]] void* p = pool.allocate(block_size, alignment * 2); },
-      std::bad_alloc);
+  EXPECT_THROW({ [[maybe_unused]] void* p = pool.allocate(block_size, alignment * 2); }, std::bad_alloc);
 }
 
 // Test memory reuse after deallocation
@@ -250,8 +236,7 @@ TEST(FixedBlockPoolTest, CustomUpstreamResource) {
 
   class CountingResource : public std::pmr::memory_resource {
    public:
-    CountingResource(int& alloc_count, int& dealloc_count)
-        : alloc_count_(alloc_count), dealloc_count_(dealloc_count) {}
+    CountingResource(int& alloc_count, int& dealloc_count) : alloc_count_(alloc_count), dealloc_count_(dealloc_count) {}
 
    protected:
     void* do_allocate(size_t bytes, size_t alignment) override {
@@ -264,10 +249,7 @@ TEST(FixedBlockPoolTest, CustomUpstreamResource) {
       std::pmr::new_delete_resource()->deallocate(p, bytes, alignment);
     }
 
-    bool do_is_equal(
-        const std::pmr::memory_resource& other) const noexcept override {
-      return this == &other;
-    }
+    bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override { return this == &other; }
 
    private:
     int& alloc_count_;
@@ -316,8 +298,7 @@ TEST(FixedBlockPool, BasicFunctionality) {
 
   // Test data pointer offset
   float* data = FixedBlockPool::data_ptr<float>(block);
-  ASSERT_EQ(reinterpret_cast<char*>(data) - reinterpret_cast<char*>(block),
-            sizeof(FixedBlockPool::MetaHeader));
+  ASSERT_EQ(reinterpret_cast<char*>(data) - reinterpret_cast<char*>(block), sizeof(FixedBlockPool::MetaHeader));
 
   // Test timestamp update
   FixedBlockPool::update_timestamp(block);
@@ -340,8 +321,7 @@ TEST(FixedBlockPool, MultiDimensionTest) {
     EXPECT_EQ(alignment % alignof(float), 0);
 
     // Verify block size calculation
-    const size_t expected_size =
-        sizeof(FixedBlockPool::MetaHeader) + dim * sizeof(float);
+    const size_t expected_size = sizeof(FixedBlockPool::MetaHeader) + dim * sizeof(float);
     EXPECT_EQ(block_size, expected_size);
   }
 }

@@ -1,6 +1,3 @@
-//
-// Created by root on 25-5-26.
-//
 #pragma once
 
 #include <atomic>
@@ -11,6 +8,8 @@
 #include <vector>
 
 #include <cassert>
+#include <fmt/chrono.h>
+#include <fmt/format.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 
@@ -18,35 +17,33 @@
 
 namespace kv_mem {
 
+template <typename weight_type>
 class FeatureEvictBase {
  public:
-  FeatureEvictBase(folly::CPUThreadPoolExecutor* executor,
-                   SynchronizedShardedMap<int64_t, float*>& kv_store)
+  FeatureEvictBase(folly::CPUThreadPoolExecutor* executor, SynchronizedShardedMap<int64_t, weight_type*>& kv_store)
       : executor_(executor),
         kv_store_(kv_store),
         evict_flag_(false),
         evict_interrupt_(false),
         num_shards_(kv_store.getNumShards()) {
     init_shard_status();
-    // evict_flag_ 表示是否有任务在进行
-    // evict_interrupt_ 表示是否有任务被中断
   }
 
   virtual ~FeatureEvictBase() {
-    // 析构时，需要等待任务执行完成
-    wait_completion();  // 等待所有异步任务完成
+    wait_completion();  // Wait for all asynchronous tasks to complete.
   };
 
-  // 触发异步淘汰
-  // 如果有执行中的任务，直接返回, 防止多次触发
-  // 如果没有执行中的任务，初始化任务状态
+  // Trigger asynchronous eviction.
+  // If there is an ongoing task, return directly to prevent multiple triggers.
+  // If there is no ongoing task, initialize the task state.
   void trigger_evict() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (evict_flag_.exchange(true)) return;
+    fmt::print("Starting new eviction process...\n");
     prepare_evict();
   }
 
-  // 恢复任务执行，如果有进行中的任务返回true, 没有返回false
+  // Resume task execution. Returns true if there is an ongoing task, false otherwise.
   bool resume() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!evict_flag_.load()) return false;
@@ -57,8 +54,8 @@ class FeatureEvictBase {
     return true;
   };
 
-  // 暂停淘汰过程，如果有进行中的任务返回true, 没有返回false
-  // 在暂停阶段，判断淘汰是否完成
+  // Pause the eviction process. Returns true if there is an ongoing task, false otherwise.
+  // During the pause phase, check whether the eviction is complete.
   bool pause() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!evict_flag_.load()) return false;
@@ -68,7 +65,7 @@ class FeatureEvictBase {
     return true;
   }
 
-  // 检查是否正在淘汰
+  // Check whether eviction is ongoing.
   bool is_evicting() {
     std::lock_guard<std::mutex> lock(mutex_);
     check_and_reset_evict_flag();
@@ -87,13 +84,12 @@ class FeatureEvictBase {
     }
   }
 
-  // 初始化分片状态
+  // Initialize shard state.
   void prepare_evict() {
     for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
       auto rlmap = kv_store_.by(shard_id).rlock();
       auto* mempool = kv_store_.pool_by(shard_id);
-      block_nums_snapshot_[shard_id] =
-          mempool->get_chunks().size() * mempool->get_blocks_per_chunk();
+      block_nums_snapshot_[shard_id] = mempool->get_chunks().size() * mempool->get_blocks_per_chunk();
       block_cursors_[shard_id] = 0;
       shards_finished_[shard_id]->store(false);
     }
@@ -101,40 +97,60 @@ class FeatureEvictBase {
 
   void submit_shard_task(int shard_id) {
     if (shards_finished_[shard_id]->load()) return;
-    futures_.emplace_back(folly::via(executor_).thenValue(
-        [this, shard_id](auto&&) { process_shard(shard_id); }));
+    futures_.emplace_back(folly::via(executor_).thenValue([this, shard_id](auto&&) { process_shard(shard_id); }));
   }
 
   void process_shard(int shard_id) {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    size_t evicted_count = 0;
+    size_t processed_count = 0;
+
     auto wlock = kv_store_.by(shard_id).wlock();
     auto* pool = kv_store_.pool_by(shard_id);
-    while (!evict_interrupt_.load() &&
-           block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
-      auto* block = pool->get_block<float>(block_cursors_[shard_id]++);
+
+    while (!evict_interrupt_.load() && block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
+      auto* block = pool->template get_block<weight_type>(block_cursors_[shard_id]++);
+      processed_count++;
       if (block && evict_block(block)) {
         int64_t key = FixedBlockPool::get_key(block);
         auto it = wlock->find(key);
         if (it != wlock->end() && block == it->second) {
           wlock->erase(key);
-          pool->deallocate_t<float>(block);
+          pool->template deallocate_t<weight_type>(block);
+          evicted_count++;
         }
       }
     }
 
-    // 判断循环正常结束
+    // Check whether the loop ends normally.
     if (block_cursors_[shard_id] >= block_nums_snapshot_[shard_id]) {
       shards_finished_[shard_id]->store(true);
     }
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
+    fmt::print(
+        "Shard {} completed: \n"
+        "  - Time taken: {}ms\n"
+        "  - Total blocks processed: {}\n"
+        "  - Blocks evicted: {}\n"
+        "  - Eviction rate: {:.2f}%\n",
+        shard_id,
+        duration.count(),
+        processed_count,
+        evicted_count,
+        (evicted_count * 100.0f) / processed_count);
   }
 
-  virtual bool evict_block(float* block) = 0;
+  virtual bool evict_block(weight_type* block) = 0;
 
   void wait_completion() {
     folly::collectAll(futures_).wait();
     futures_.clear();
   }
 
-  // 检查并重置
+  // Check and reset the eviction flag.
   void check_and_reset_evict_flag() {
     bool all_finished = true;
     for (int i = 0; i < num_shards_; ++i) {
@@ -143,32 +159,30 @@ class FeatureEvictBase {
     if (all_finished) evict_flag_.store(false);
   }
 
-  folly::CPUThreadPoolExecutor* executor_;             // 线程池
-  SynchronizedShardedMap<int64_t, float*>& kv_store_;  // shard map
-  std::vector<std::size_t> block_cursors_;             // 已处理的block 索引
-  std::vector<std::size_t> block_nums_snapshot_;  // 触发淘汰时，记录的block总数
-  std::vector<std::unique_ptr<std::atomic<bool>>>
-      shards_finished_;                              // 已完成的shard标识
-  std::atomic<bool> evict_flag_;                     // 表示是否驱逐任务在进行
-  std::atomic<bool> evict_interrupt_;                // 表示驱逐任务是否暂停
-  std::vector<folly::Future<folly::Unit>> futures_;  // 分片任务记录
-  std::mutex mutex_;  // 接口锁，保证 public 接口 线程安全
-  int num_shards_;    // 并发任务数
+  folly::CPUThreadPoolExecutor* executor_;                           // Thread pool.
+  SynchronizedShardedMap<int64_t, weight_type*>& kv_store_;          // Sharded map.
+  std::vector<std::size_t> block_cursors_;                           // Index of processed blocks.
+  std::vector<std::size_t> block_nums_snapshot_;                     // Snapshot of total blocks at eviction trigger.
+  std::vector<std::unique_ptr<std::atomic<bool>>> shards_finished_;  // Flags indicating whether shards are finished.
+  std::atomic<bool> evict_flag_;                                     // Indicates whether an eviction task is ongoing.
+  std::atomic<bool> evict_interrupt_;                                // Indicates whether the eviction task is paused.
+  std::vector<folly::Future<folly::Unit>> futures_;                  // Records of shard tasks.
+  std::mutex mutex_;  // Interface lock to ensure thread safety for public methods.
+  int num_shards_;    // Number of concurrent tasks.
 };
 
-class CounterBasedEvict : public FeatureEvictBase {
+template <typename weight_type>
+class CounterBasedEvict : public FeatureEvictBase<weight_type> {
  public:
   CounterBasedEvict(folly::CPUThreadPoolExecutor* executor,
-                    SynchronizedShardedMap<int64_t, float*>& kv_store,
+                    SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
                     float decay_rate,
-                    int threshold)
-      : FeatureEvictBase(executor, kv_store),
-        decay_rate_(decay_rate),
-        threshold_(threshold) {}
+                    uint32_t threshold)
+      : FeatureEvictBase<weight_type>(executor, kv_store), decay_rate_(decay_rate), threshold_(threshold) {}
 
  protected:
-  bool evict_block(float* block) override {
-    // 应用衰减并检查阈值
+  bool evict_block(weight_type* block) override {
+    // Apply decay and check the threshold.
     auto current_count = FixedBlockPool::get_count(block);
     current_count *= decay_rate_;
     FixedBlockPool::set_count(block, current_count);
@@ -176,24 +190,25 @@ class CounterBasedEvict : public FeatureEvictBase {
   }
 
  private:
-  float decay_rate_;
-  uint32_t threshold_;
+  float decay_rate_;    // Decay rate for the block count.
+  uint32_t threshold_;  // Threshold for eviction.
 };
 
-class TimeBasedEvict : public FeatureEvictBase {
+template <typename weight_type>
+class TimeBasedEvict : public FeatureEvictBase<weight_type> {
  public:
   TimeBasedEvict(folly::CPUThreadPoolExecutor* executor,
-                 SynchronizedShardedMap<int64_t, float*>& kv_store,
+                 SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
                  uint32_t ttl)
-      : FeatureEvictBase(executor, kv_store), ttl_(ttl) {}
+      : FeatureEvictBase<weight_type>(executor, kv_store), ttl_(ttl) {}
 
  protected:
-  bool evict_block(float* block) override {
+  bool evict_block(weight_type* block) override {
     auto current_time = FixedBlockPool::current_timestamp();
     return current_time - FixedBlockPool::get_timestamp(block) > ttl_;
   }
 
  private:
-  uint32_t ttl_;
+  uint32_t ttl_;  // Time-to-live for eviction.
 };
 }  // namespace kv_mem

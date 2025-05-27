@@ -22,7 +22,6 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   // Metadata structure (publicly accessible)
   // alignas(8) MetaHeader >= sizeof(void*), avoid mempool block too small.
-  // Metadata structure (publicly accessible)
   struct alignas(8) MetaHeader {  // 16bytes
     int64_t key;                  // feature key 8bytes
     uint32_t timestamp;           // 4 bytes，the unit is second, uint32 indicates a range of over 120 years
@@ -54,12 +53,9 @@ class FixedBlockPool : public std::pmr::memory_resource {
   static uint32_t get_timestamp(const void* block) { return reinterpret_cast<const MetaHeader*>(block)->timestamp; }
   static void update_timestamp(void* block) { reinterpret_cast<MetaHeader*>(block)->timestamp = current_timestamp(); }
   static uint32_t current_timestamp() {
-    // std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    // facebook::WallClockUtil::NowInUsecFast();
     return std::time(nullptr);
   }
 
-  // 与类型有关
   // Calculate storage size
   template <typename scalar_t>
   static size_t calculate_block_size(size_t dimension) {
@@ -82,17 +78,6 @@ class FixedBlockPool : public std::pmr::memory_resource {
   static const scalar_t* data_ptr(const scalar_t* block) {
     return reinterpret_cast<const scalar_t*>(reinterpret_cast<const char*>(block) + sizeof(FixedBlockPool::MetaHeader));
   }
-
-  template <typename scalar_t>
-  scalar_t* get_block(size_t index) {
-    char* current_chunk = static_cast<char*>(chunks_[index / blocks_per_chunk_].ptr);
-    char* block = current_chunk + block_size_ * (index % blocks_per_chunk_);
-    if (FixedBlockPool::get_used(block)) {
-      return reinterpret_cast<scalar_t*>(block);
-    } else {
-      return nullptr;
-    }
-  };
 
   explicit FixedBlockPool(std::size_t block_size,               // Size of each memory block
                           std::size_t block_alignment,          // Memory block alignment requirement
@@ -148,6 +133,17 @@ class FixedBlockPool : public std::pmr::memory_resource {
   void deallocate_t(scalar_t* block) {
     this->deallocate(block, block_size_, block_alignment_);
   }
+
+  template <typename scalar_t>
+  scalar_t* get_block(size_t index) {
+    char* current_chunk = static_cast<char*>(chunks_[index / blocks_per_chunk_].ptr);
+    char* block = current_chunk + block_size_ * (index % blocks_per_chunk_);
+    if (FixedBlockPool::get_used(block)) {
+      return reinterpret_cast<scalar_t*>(block);
+    } else {
+      return nullptr;
+    }
+  };
 
   [[nodiscard]] const auto& get_chunks() const noexcept { return chunks_; }
   [[nodiscard]] std::size_t get_block_size() const noexcept { return block_size_; }
