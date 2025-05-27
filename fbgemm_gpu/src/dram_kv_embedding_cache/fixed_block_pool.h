@@ -5,6 +5,8 @@
 #include <memory_resource>
 #include <stdexcept>
 #include <vector>
+#include <cmath>
+#include <numeric>
 
 #include <cassert>
 
@@ -77,6 +79,14 @@ class FixedBlockPool : public std::pmr::memory_resource {
   template <typename scalar_t>
   static const scalar_t* data_ptr(const scalar_t* block) {
     return reinterpret_cast<const scalar_t*>(reinterpret_cast<const char*>(block) + sizeof(FixedBlockPool::MetaHeader));
+  }
+
+  template <typename scalar_t>
+  static scalar_t get_l2weight(scalar_t* block, size_t dimension) {
+    scalar_t* data = FixedBlockPool::data_ptr(block);
+    return std::sqrt(
+        std::accumulate(data, data + dimension, scalar_t(0),
+                        [](scalar_t sum, scalar_t val) { return sum + val * val; }));
   }
 
   explicit FixedBlockPool(std::size_t block_size,               // Size of each memory block
