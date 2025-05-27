@@ -15,7 +15,7 @@ static constexpr int DIMENSION = 128;
 size_t BLOCK_SIZE = FixedBlockPool::calculate_block_size<float>(DIMENSION);
 size_t BLOCK_ALIGNMENT = FixedBlockPool::calculate_block_alignment<float>();
 
-TEST(FeatureEvictTest, BasicEviction) {
+TEST(FeatureEvictTest, CounterBasedEviction) {
   static constexpr int NUM_SHARDS = 8;
   auto executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(4);
   auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
@@ -43,7 +43,21 @@ TEST(FeatureEvictTest, BasicEviction) {
     wlock->insert({i, block});
   }
 
-  CounterBasedEvict evictor(executor_.get(), *kv_store_.get(), 0.5f, 1);
+  std::unique_ptr<FeatureEvict<float>> feature_evict;
+  int evict_trigger_mode = 2;
+  int evict_trigger_strategy = 1;
+  uint32_t count_threshold = 1;
+  float count_decay_rate = 0.5;
+  // feature evict config
+  FeatureEvictConfig feature_evict_config;
+  feature_evict_config.trigger_mode = static_cast<EvictTriggerMode>(evict_trigger_mode);
+  feature_evict_config.trigger_strategy = static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
+  feature_evict_config.count_threshold = count_threshold;
+  feature_evict_config.count_decay_rate = count_decay_rate;
+
+  if (feature_evict_config.trigger_mode != EvictTriggerMode::DISABLED) {
+    feature_evict = create_feature_evict(feature_evict_config, executor_.get(),*kv_store_.get(), 4);
+  }
 
   // Initial validation
   size_t total_blocks = 0;
@@ -54,13 +68,13 @@ TEST(FeatureEvictTest, BasicEviction) {
   ASSERT_EQ(total_blocks, 2000);
 
   // Perform eviction
-  evictor.trigger_evict();
+  feature_evict->trigger_evict();
 
   // Validate eviction process
-  while (evictor.is_evicting()) {
-    evictor.resume();
+  while (feature_evict->is_evicting()) {
+    feature_evict->resume();
     std::this_thread::sleep_for(std::chrono::microseconds(5));
-    evictor.pause();
+    feature_evict->pause();
   }
 
   // Validate results
@@ -72,6 +86,239 @@ TEST(FeatureEvictTest, BasicEviction) {
     for (const auto& [key, block] : *rlock) {
       ASSERT_EQ(FixedBlockPool::get_count(block), 1);
     }
+  }
+  std::cout << "remaining: " << remaining << std::endl;
+  ASSERT_EQ(remaining, 1000);
+}
+
+TEST(FeatureEvictTest, TimeBasedEviction) {
+  static constexpr int NUM_SHARDS = 8;
+  auto executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(4);
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+
+  // Insert test data
+  for (int i = 0; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::update_timestamp(block);  // Initial score
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+
+  for (int i = 1000; i < 2000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::update_timestamp(block); // Initial score
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+
+  std::unique_ptr<FeatureEvict<float>> feature_evict;
+  int evict_trigger_mode = 2;
+  int evict_trigger_strategy = 0;
+  uint32_t ttl = 4;
+  // feature evict config
+  FeatureEvictConfig feature_evict_config;
+  feature_evict_config.trigger_mode = static_cast<EvictTriggerMode>(evict_trigger_mode);
+  feature_evict_config.trigger_strategy = static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
+  feature_evict_config.ttl = ttl;
+
+  if (feature_evict_config.trigger_mode != EvictTriggerMode::DISABLED) {
+    feature_evict = create_feature_evict(feature_evict_config, executor_.get(),*kv_store_.get(), 4);
+  }
+
+  // Initial validation
+  size_t total_blocks = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_->by(shard_id).rlock();
+    total_blocks += rlock->size();
+  }
+  ASSERT_EQ(total_blocks, 2000);
+
+  // Perform eviction
+  feature_evict->trigger_evict();
+
+  // Validate eviction process
+  while (feature_evict->is_evicting()) {
+    feature_evict->resume();
+    std::this_thread::sleep_for(std::chrono::microseconds(5));
+    feature_evict->pause();
+  }
+
+  // Validate results
+  size_t remaining = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_->by(shard_id).rlock();
+    remaining += rlock->size();
+  }
+  std::cout << "remaining: " << remaining << std::endl;
+  ASSERT_EQ(remaining, 1000);
+}
+
+TEST(FeatureEvictTest, TimeCounterBasedEviction) {
+  static constexpr int NUM_SHARDS = 8;
+  auto executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(4);
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+
+  // Insert test data
+  for (int i = 0; i < 500; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::update_timestamp(block);  // Initial score
+    FixedBlockPool::set_count(block, 1);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  for (int i = 500; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::update_timestamp(block);  // Initial score
+    FixedBlockPool::set_count(block, 1);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+
+  for (int i = 1000; i < 2000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    FixedBlockPool::set_key(block, i);
+    FixedBlockPool::update_timestamp(block); // Initial score
+    FixedBlockPool::set_count(block, 2);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+
+  std::unique_ptr<FeatureEvict<float>> feature_evict;
+  int evict_trigger_mode = 2;
+  int evict_trigger_strategy = 2;
+  uint32_t ttl = 4;
+  uint32_t count_threshold = 1;
+  float count_decay_rate = 0.5;
+
+  // feature evict config
+  FeatureEvictConfig feature_evict_config;
+  feature_evict_config.trigger_mode = static_cast<EvictTriggerMode>(evict_trigger_mode);
+  feature_evict_config.trigger_strategy = static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
+  feature_evict_config.ttl = ttl;
+  feature_evict_config.count_threshold = count_threshold;
+  feature_evict_config.count_decay_rate = count_decay_rate;
+
+  if (feature_evict_config.trigger_mode != EvictTriggerMode::DISABLED) {
+    feature_evict = create_feature_evict(feature_evict_config, executor_.get(),*kv_store_.get(), 4);
+  }
+
+  // Initial validation
+  size_t total_blocks = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_->by(shard_id).rlock();
+    total_blocks += rlock->size();
+  }
+  ASSERT_EQ(total_blocks, 2000);
+
+  // Perform eviction
+  feature_evict->trigger_evict();
+
+  // Validate eviction process
+  while (feature_evict->is_evicting()) {
+    feature_evict->resume();
+    std::this_thread::sleep_for(std::chrono::microseconds(5));
+    feature_evict->pause();
+  }
+
+  // Validate results
+  size_t remaining = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_->by(shard_id).rlock();
+    remaining += rlock->size();
+  }
+  std::cout << "remaining: " << remaining << std::endl;
+  ASSERT_EQ(remaining, 1500);
+}
+
+TEST(FeatureEvictTest, L2WeightBasedEviction) {
+  static constexpr int NUM_SHARDS = 8;
+  auto executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(4);
+  auto kv_store_ = std::make_unique<SynchronizedShardedMap<int64_t, float*>>(NUM_SHARDS, BLOCK_SIZE, BLOCK_ALIGNMENT);
+  int dim = 4;
+  std::vector<float> weight1(dim, 1.0);
+  // Insert test data
+  for (int i = 0; i < 1000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
+    FixedBlockPool::set_key(block, i);
+    std::copy(weight1.begin(), weight1.end(), data_ptr);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+  std::vector<float> weight2(dim, 2.0);
+  for (int i = 1000; i < 2000; ++i) {
+    int shard_id = i % NUM_SHARDS;
+    auto wlock = kv_store_->by(shard_id).wlock();
+    auto* pool = kv_store_->pool_by(shard_id);
+    auto* block = pool->allocate_t<float>();
+    auto* data_ptr = FixedBlockPool::data_ptr<float>(block);
+    FixedBlockPool::set_key(block, i);
+    std::copy(weight2.begin(), weight2.end(), data_ptr);
+    FixedBlockPool::set_used(block, true);
+    wlock->insert({i, block});
+  }
+
+  std::unique_ptr<FeatureEvict<float>> feature_evict;
+  int evict_trigger_mode = 2;
+  int evict_trigger_strategy = 3;
+  double l2_weight_threshold = 3.0;
+  // feature evict config
+  FeatureEvictConfig feature_evict_config;
+  feature_evict_config.trigger_mode = static_cast<EvictTriggerMode>(evict_trigger_mode);
+  feature_evict_config.trigger_strategy = static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
+  feature_evict_config.l2_weight_threshold = l2_weight_threshold;
+
+  if (feature_evict_config.trigger_mode != EvictTriggerMode::DISABLED) {
+    feature_evict = create_feature_evict(feature_evict_config, executor_.get(),*kv_store_.get(), dim);
+  }
+
+  // Initial validation
+  size_t total_blocks = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_->by(shard_id).rlock();
+    total_blocks += rlock->size();
+  }
+  ASSERT_EQ(total_blocks, 2000);
+
+  // Perform eviction
+  feature_evict->trigger_evict();
+
+  // Validate eviction process
+  while (feature_evict->is_evicting()) {
+    feature_evict->resume();
+    std::this_thread::sleep_for(std::chrono::microseconds(5));
+    feature_evict->pause();
+  }
+
+  // Validate results
+  size_t remaining = 0;
+  for (int shard_id = 0; shard_id < NUM_SHARDS; ++shard_id) {
+    auto rlock = kv_store_->by(shard_id).rlock();
+    remaining += rlock->size();
   }
   std::cout << "remaining: " << remaining << std::endl;
   ASSERT_EQ(remaining, 1000);
