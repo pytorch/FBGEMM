@@ -14,6 +14,8 @@
 #include <memory>
 #include <vector>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <gtest/gtest.h>
 
 namespace kv_mem {
@@ -71,10 +73,9 @@ double test_pool_vector(size_t vector_size, size_t repeat_count) {
 }
 
 double benchmark_memory_allocators() {
-  std::cout << "====== Testing performance difference between memory pool and "
-               "native vector allocation for 10 million "
-               "times ======"
-            << std::endl;
+  fmt::print(
+      "====== Testing performance difference between memory pool and "
+      "native vector allocation for 10 million times ======\n");
 
   // Vector sizes to test (in number of float elements)
   std::vector<size_t> vector_sizes = {4, 8, 16, 32, 64, 128, 256};
@@ -84,21 +85,19 @@ double benchmark_memory_allocators() {
   double min_speedup = 1000;
 
   for (const auto& size : vector_sizes) {
-    std::cout << "Vector size: " << size << " floats ("
-              << (size * sizeof(float)) << " bytes)" << std::endl;
-
+    fmt::print("Vector size: {} floats ({} bytes)\n", size, size * sizeof(float));
     // Testing standard vector
     double std_time = test_std_vector(size, repeat_count);
-    std::cout << "  Standard vector: " << std::fixed << std::setprecision(2)
-              << std_time << " ms" << std::endl;
+    fmt::print("  Standard vector: {:.2f} ms\n", std_time);
 
     // Testing memory pool
     double pool_time = test_pool_vector(size, repeat_count);
-    std::cout << "  Memory pool: " << std::fixed << std::setprecision(2)
-              << pool_time << " ms" << std::endl;
+    fmt::print("  Memory pool: {:.2f} ms\n", pool_time);
 
     // Calculate speed improvement
     double speedup = std_time / pool_time;
+    fmt::print("  Speed improvement: {:.2f}x\n\n", speedup);
+    fmt::print("============================\n");
     std::cout << "  Speed improvement: " << std::fixed << std::setprecision(2)
               << speedup << "x" << std::endl;
 

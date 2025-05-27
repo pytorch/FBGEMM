@@ -11,6 +11,8 @@
 
 #include <gmock/gmock.h>
 #include <array>
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <gtest/gtest.h>
 
 #include "fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h"
@@ -71,12 +73,11 @@ memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
             .count();
   }
 
-  std::cout << std::left << std::setw(20) << dimension;
-  std::cout << std::fixed << std::setprecision(2);
-  std::cout << std::setw(20) << insertTime;
-  std::cout << std::setw(20) << lookupTime;
-  std::cout << std::setw(20) << (100.0 * (double)hitCount / (double)numLookups);
-  std::cout << std::endl;
+  fmt::print("{:<20}{:<20.2f}{:<20.2f}{:<20.2f}\n",
+             dimension,
+             insertTime,
+             lookupTime,
+             100.0 * static_cast<double>(hitCount) / static_cast<double>(numLookups));
   return std::vector<double>(
       {insertTime, lookupTime, (double)hitCount / (double)numLookups});
 }
@@ -117,14 +118,13 @@ memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
   {
     auto rlock = embeddingMap.by(0).rlock();
     auto startLookup = std::chrono::high_resolution_clock::now();
-    auto now = facebook::WallClockUtil::NowInUsecFast();
     for (size_t i = 0; i < numLookups; i++) {
       auto it = rlock->find(i % numInserts);
       if (it != rlock->end()) {
         hitCount++;
         const float* data_ptr = FixedBlockPool::data_ptr<float>(it->second);
         // update timestamp
-        FixedBlockPool::update_timestamp<float>(it->second, now);
+        FixedBlockPool::update_timestamp(it->second);
         std::copy(data_ptr, data_ptr + dimension, lookEmbedding.data());
       }
     }
@@ -134,14 +134,12 @@ memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
             .count();
   }
 
-  std::cout << std::left << std::setw(20) << dimension;
-  std::cout << std::fixed << std::setprecision(2);
-  std::cout << std::setw(20) << insertTime;
-  std::cout << std::setw(20) << lookupTime;
-  std::cout << std::setw(20) << (100.0 * (double)hitCount / (double)numLookups);
-  std::cout << std::endl;
-  return std::vector<double>(
-      {insertTime, lookupTime, (double)hitCount / (double)numLookups});
+  // 替换输出部分
+  fmt::print("{:<20}{:<20.2f}{:<20.2f}{:<20.2f}\n",
+             dimension,
+             insertTime,
+             lookupTime,
+             100.0 * static_cast<double>(hitCount) / static_cast<double>(numLookups));
 }
 
 int benchmark() {
@@ -149,31 +147,24 @@ int benchmark() {
   const size_t numInserts = 1'000'000; // 1 million insert
   const size_t numLookups = 1'000'000; // 1 million find
 
-  std::cout
-      << "======================= mempool ===================================="
-      << std::endl;
-  std::cout << std::left << std::setw(20) << "dim" << std::setw(20)
-            << "insert time (ms)" << std::setw(20) << "find time (ms)"
-            << std::setw(20) << "hit rate (%)" << std::endl;
+  fmt::print("======================= mempool ====================================\n");
+  fmt::print("{:<20}{:<20}{:<20}{:<20}\n", "dim", "insert time (ms)", "find time (ms)", "hit rate (%)");
   std::vector<std::vector<double>> results_by_dim_wo_ts;
   std::vector<std::vector<double>> results_by_dim_with_ts;
   for (int dim : dimensions) {
     results_by_dim_wo_ts.push_back(
         memPoolEmbedding(dim, numInserts, numLookups));
   }
-  std::cout << std::endl << std ::endl;
+  fmt::print("\n\n");
+  std::fflush(stdout);
 
-  std::cout << "======================= mempool with time "
-               "===================================="
-            << std::endl;
-  std::cout << std::left << std::setw(20) << "dim" << std::setw(20)
-            << "insert time (ms)" << std::setw(20) << "find time (ms)"
-            << std::setw(20) << "hit rate (%)" << std::endl;
+  fmt::print("======================= mempool with time ====================================\n");
+  fmt::print("{:<20}{:<20}{:<20}{:<20}\n", "dim", "insert time (ms)", "find time (ms)", "hit rate (%)");
   for (int dim : dimensions) {
     results_by_dim_with_ts.push_back(
         memPoolEmbeddingWithTime(dim, numInserts, numLookups));
   }
-  std::cout << std::endl << std ::endl;
+  fmt::print("\n\n");
   EXPECT_EQ(results_by_dim_with_ts.size(), results_by_dim_wo_ts.size());
   for (int i = 0; i < results_by_dim_with_ts.size(); i++) {
     double perf_insert_ratio =
