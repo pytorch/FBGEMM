@@ -53,7 +53,7 @@ class SynchronizedShardedMap {
 
   auto getNumShards() { return shards_.size(); }
 
-  auto getUsedMemSize() {
+  auto getUsedMemSize() const {
     size_t used_mem_size = 0;
     size_t block_size = mempools_[0]->get_aligned_block_size();
     for (size_t i = 0; i < shards_.size(); ++i) {
