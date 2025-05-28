@@ -55,7 +55,7 @@ class SynchronizedShardedMap {
 
   auto getUsedMemSize() {
     size_t used_mem_size = 0;
-    size_t block_size = mempools_[0]->get_block_size();
+    size_t block_size = mempools_[0]->get_aligned_block_size();
     for (size_t i = 0; i < shards_.size(); ++i) {
       auto rlmap = shards_[i].rlock();
       // only calculate the sizes of K, V and block that are used

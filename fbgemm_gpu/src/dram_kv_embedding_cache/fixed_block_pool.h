@@ -159,6 +159,9 @@ class FixedBlockPool : public std::pmr::memory_resource {
   [[nodiscard]] std::size_t get_block_size() const noexcept { return block_size_; }
   [[nodiscard]] std::size_t get_block_alignment() const noexcept { return block_alignment_; }
   [[nodiscard]] std::size_t get_blocks_per_chunk() const noexcept { return blocks_per_chunk_; }
+  [[nodiscard]] std::size_t get_aligned_block_size() const noexcept {
+    return (block_size_ + block_alignment_ - 1) / block_alignment_ * block_alignment_;
+  }
 
  protected:
   // Core allocation function
