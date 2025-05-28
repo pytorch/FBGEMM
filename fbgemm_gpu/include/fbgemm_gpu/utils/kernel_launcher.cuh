@@ -13,9 +13,11 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include "fbgemm_gpu/utils/device_properties.cuh"
+#include "fbgemm_gpu/utils/kernel_execution_timer.cuh"
 #include "fbgemm_gpu/utils/source_context.h"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
+#include <memory>
 #include <type_traits>
 
 namespace fbgemm_gpu::utils {
@@ -91,7 +93,8 @@ decltype(auto) check_kernel_arg(const SourceContext& context, T&& arg) {
 template <
     bool EnableDSA = false,
     bool EnableBarrierIsolation = false,
-    bool EnableNaNChecks = false>
+    bool EnableNaNChecks = false,
+    bool EnableExecutionTimer = false>
 struct KernelLauncher {
   const SourceContext context;
 
@@ -263,17 +266,19 @@ struct KernelLauncher {
   }
 
   template <typename KernelFunc, typename... Args>
-  inline void launch_kernel(
+  inline auto launch_kernel(
       const KernelFunc& kernel,
       const dim3 grid,
       const dim3 block,
       const size_t shared_mem_per_block,
       const c10::cuda::CUDAStream stream,
-      Args&&... args) const {
+      Args&&... args) const
+      -> std::conditional_t<EnableExecutionTimer, float, void> {
     // Fetch device properties from the stream information
     const auto device = stream.device_index();
     const auto properties = *at::cuda::getDeviceProperties(device);
     const auto streamId = stream.id();
+    [[maybe_unused]] std::unique_ptr<KernelExecutionTimer> timer = nullptr;
 
     // Check that the grid sizes are within the range per the device associated
     // with the compute stream
@@ -305,6 +310,13 @@ struct KernelLauncher {
       cudaDeviceSynchronize();
     }
 
+    // If execution timer is enabled, initialize and start the CUDAEvents-based
+    // timer prior to kernel launch
+    if constexpr (EnableExecutionTimer) {
+      timer = std::make_unique<KernelExecutionTimer>(stream);
+      timer->start();
+    }
+
     if constexpr (EnableDSA) {
       // This launch code here is essentially the same as the contents of
       // TORCH_USE_CUDA_DSA macro, but with the addition of kernel argument
@@ -332,6 +344,11 @@ struct KernelLauncher {
           transform_kernel_arg(context, std::forward<Args>(args))...);
     }
 
+    // If execution timer is enabled, stop the CUDAEvents-based timer
+    if constexpr (EnableExecutionTimer) {
+      timer->stop();
+    }
+
     // If barrier isolation is enabled, synchronize the stream again to wait for
     // kernel execution to complete
     if constexpr (EnableBarrierIsolation) {
@@ -349,6 +366,11 @@ struct KernelLauncher {
       const auto summary = std::string(context.summary) + " (post-execution)";
       (check_kernel_arg(context.withSummary(summary), std::forward<Args>(args)),
        ...);
+    }
+
+    // If execution timer is enabled, return the elapsed time in milliseconds
+    if constexpr (EnableExecutionTimer) {
+      return timer->elapsedMillis();
     }
   }
 };
@@ -417,6 +439,18 @@ struct KernelLauncher {
                                                                             \
     return fbgemm_gpu::utils::                                              \
         KernelLauncher<true, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(            \
+               location, #KERNEL, _FKL_TFILE_)                              \
+            .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
+  }())
+
+#define FBGEMM_TIME_KERNEL_RUN(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)      \
+  ([&] {                                                                    \
+    using source_location = fbgemm_gpu::utils::source_location;             \
+    constexpr auto location = source_location::current();                   \
+    decltype(KERNEL)& kernel = KERNEL;                                      \
+                                                                            \
+    return fbgemm_gpu::utils::                                              \
+        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_, true>(     \
                location, #KERNEL, _FKL_TFILE_)                              \
             .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
   }())

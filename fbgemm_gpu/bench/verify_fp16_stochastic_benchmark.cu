@@ -18,6 +18,7 @@
 
 #include "fbgemm_gpu/utils/device_cache_flusher.cuh"
 #include "fbgemm_gpu/utils/host_device_buffer_pair.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/stochastic_rounding.cuh"
 
 namespace fbgemm_gpu {
@@ -165,31 +166,14 @@ void time_kernel_run(
     Args&&... args) {
   std::cout << "[" << description << "] starting kernel run ..." << std::endl;
 
-  // Create CUDA events to time the kernel
-  cudaEvent_t start, stop;
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
-
-  // Execute the kernel, while recording the start and end times
-  cudaEventRecord(start);
-  kernel<<<grid, block>>>(std::forward<Args>(args)...);
-  cudaEventRecord(stop);
-
-  // Synchronize to ensure that the kernel has completed
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-  cudaEventSynchronize(stop);
-
-  // Check for kernel execution errors
-  const auto e = cudaGetLastError();
-  if (e != cudaSuccess) {
-    std::cout << "[" << description
-              << "] CUDA Failure: " << cudaGetErrorString(e) << std::endl;
-    std::exit(-1);
-  }
-
-  // Calculate the elapsed time in milliseconds
-  float milliseconds = 0;
-  cudaEventElapsedTime(&milliseconds, start, stop);
+  const auto kernel_ = kernel;
+  const auto milliseconds = FBGEMM_TIME_KERNEL_RUN(
+      kernel_,
+      grid,
+      block,
+      0,
+      at::cuda::getCurrentCUDAStream(),
+      std::forward<Args>(args)...);
 
   std::cout << "[" << description << "] " << milliseconds << " ms\n"
             << std::endl;
