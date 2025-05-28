@@ -11,6 +11,7 @@
 // clang-format on
 
 #include "f8f8bf16_rowwise_grouped/f8f8bf16_rowwise_grouped_manifest.cuh"
+#include "f8f8bf16_rowwise_grouped_sm100/f8f8bf16_rowwise_grouped_manifest.cuh"
 
 namespace fbgemm_gpu {
 
@@ -34,6 +35,11 @@ at::Tensor dispatch_fp8_grouped_kernel(
   cudaGetDeviceProperties(&prop, 0);
   if (prop.major >= 10) {
     arch = 10;
+    int runtimeVersion;
+    cudaRuntimeGetVersion(&runtimeVersion);
+    TORCH_CHECK(
+        runtimeVersion >= 12080,
+        "FP8 grouped GEMM on blackwell sm100a requires cuda >= 12.8");
   }
 
   // Use heuristics to pick the best kernel implementation.

@@ -45,6 +45,7 @@ Table of Contents
    :maxdepth: 1
    :caption: General Info
 
+   general/Releases
    general/Contributing
    general/documentation/Overview
    general/ContactUs
