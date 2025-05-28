@@ -146,7 +146,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->get_keys_in_range_impl(start, end, std::nullopt);
   }
 
-  size_t get_map_used_memsize() {
+  size_t get_map_used_memsize() const {
     return impl_->get_map_used_memsize();
   }
 
