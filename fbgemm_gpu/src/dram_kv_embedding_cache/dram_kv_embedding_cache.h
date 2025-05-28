@@ -451,6 +451,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
   }
 
+  size_t get_map_used_memsize() {
+    return kv_store_.getUsedMemSize();
+  }
+
  private:
   int64_t get_dim_from_index(int64_t weight_idx) const {
     if (sub_table_dims_.empty()) {
