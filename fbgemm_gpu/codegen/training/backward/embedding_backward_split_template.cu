@@ -130,6 +130,9 @@ batch_index_select_dim0_codegen_backward_kernel_cta_per_row(
     {%- endif %}
     const float gwd_lower_bound,
     {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -212,6 +215,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     const int64_t iter,
     {%- endif %}
     const float gwd_lower_bound,
+    {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
@@ -571,6 +577,9 @@ Tensor {{ embedding_cuda_op }}(
     {%- if not is_index_select and not dense %}
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
+    {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
     {%- endif %}
     {%- if is_index_select %}
     const Tensor& grad_offsets,
@@ -1132,6 +1141,9 @@ Tensor {{ embedding_cuda_op }}(
                         {%- endif %}
                         gwd_lower_bound,
                         {%- endif %}
+                        {%- if ssd %}
+                        enable_optimizer_offloading,
+                        {%- endif %}
                         {%- if is_index_select %}
                         grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                         permute_output_dim_0_1
@@ -1288,6 +1300,9 @@ Tensor {{ embedding_cuda_op }}(
                         {%- endif %}
                         gwd_lower_bound,
                         {%- endif %}
+                        {%- if ssd %}
+                        enable_optimizer_offloading,
+                        {%- endif %}
                         {%- if is_index_select %}
                         grad_offsets.packed_accessor32<int64_t, 1, at::RestrictPtrTraits>(),
                         permute_output_dim_0_1
@@ -1379,6 +1394,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
           {%- if not is_index_select and not dense %}
           "    bool use_uniq_cache_locations, "
           "    bool use_homogeneous_placements, "
+          {%- endif %}
+          {%- if ssd %}
+          "    bool enable_optimizer_offloading, "
           {%- endif %}
           {%- if is_gwd_kernel %}
           {%- if "prev_iter_dev" not in args.split_function_arg_names %}
