@@ -251,6 +251,9 @@ enum SSDTensor {
                 {%- endif %}
                 const bool /*use_uniq_cache_locations_bwd*/,
                 const bool /*use_homogeneous_placements*/,
+                {%- if ssd %}
+                const bool /*enable_optimizer_offloading*/,
+                {%- endif %}                
                 {%- if is_gwd %}
                 {%- if "prev_iter_dev" not in args_pt2.split_function_arg_names %}
                 const Tensor& /*prev_iter_dev*/,
@@ -319,6 +322,9 @@ enum SSDTensor {
           {%- if not dense %}
           use_uniq_cache_locations_bwd,
           use_homogeneous_placements,
+          {%- if ssd %}
+          enable_optimizer_offloading,
+          {%- endif %}
           {%- endif %}
           {%- if is_gwd %}
           {%- if "prev_iter_dev" not in args_pt2.split_function_arg_names %}
@@ -399,6 +405,7 @@ enum SSDTensor {
     {%- for tensor in ssd_tensors %}
     ret.push_back(Variable()); // {{ tensor }}
     {%- endfor %}
+    ret.push_back(Variable()); // enable_optimizer_offloading
     {%- endif %}
     {{ args_pt2.unified_pt2.split_variables | join("\n") }}
     return ret;
@@ -468,6 +475,7 @@ enum SSDTensor {
           aux_bool,
           {%- if ssd %}
           ssd_tensors.value(),
+          enable_optimizer_offloading,
           {%- endif  %}
           {{ args_pt2.unified_pt2.split_function_arg_names | join(", ") }}
           {%- endif %}
@@ -628,6 +636,7 @@ class {{ autograd_func }} :
     {%- endif %}
     {%- if ssd %}
     const at::TensorList& ssd_tensors,
+    const bool enable_optimizer_offloading,
     {%- endif %}
     {{ args_pt2.unified_pt2.split_function_args | join(", ") }}) {
 
@@ -817,6 +826,11 @@ class {{ autograd_func }} :
     ctx->saved_data["use_uniq_cache_locations_bwd"] = static_cast<bool>(aux_bool[IDX_USE_UNIQ_CACHE_LOCATIONS_BWD]);
     ctx->saved_data["use_homogeneous_placements"] = static_cast<bool>(aux_bool[IDX_USE_HOMOGENEOUS_PLACEMENTS]);
     {%- endif %}
+
+    {%- if ssd %}
+    ctx->saved_data["enable_optimizer_offloading"] = enable_optimizer_offloading;
+    {%- endif %}
+
     const auto iter = aux_int[IDX_ITER];
     ctx->saved_data["iter"] = iter;
     {%- if is_gwd %}
@@ -950,6 +964,11 @@ static torch::autograd::variable_list backward(
     const auto use_uniq_cache_locations_bwd = ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
     const auto use_homogeneous_placements = ctx->saved_data["use_homogeneous_placements"].toBool();
     {%- endif %}
+
+    {%- if ssd %}
+    const auto enable_optimizer_offloading = ctx->saved_data["enable_optimizer_offloading"].toBool();
+    {%- endif %}
+
     {%- if is_gwd or "iter" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     const auto iter = ctx->saved_data["iter"].toInt();
     {%- endif %}
@@ -1148,7 +1167,8 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     const c10::SymInt max_B_feature_rank = -1,
     {%- if ssd %}
     const c10::SymInt vbe_output_size = -1,
-    const std::optional<at::TensorList>& ssd_tensors = std::nullopt
+    const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
+    bool enable_optimizer_offloading = false
     {%- else %}
     const c10::SymInt vbe_output_size = -1
     {%- endif %}
@@ -1242,7 +1262,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    SymInt max_B_feature_rank=-1, "
         {%- if ssd %}
         "    SymInt vbe_output_size=-1, "
-        "    Tensor[]? ssd_tensors=None"
+        "    Tensor[]? ssd_tensors=None, "
+        "    bool enable_optimizer_offloading=False "
         {%- else %}
          "    SymInt vbe_output_size=-1 "
         {%- endif %}

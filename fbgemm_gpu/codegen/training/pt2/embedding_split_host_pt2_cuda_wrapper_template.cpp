@@ -249,6 +249,9 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     {%- endif %}
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}    
     {%- if is_gwd %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
     const Tensor& prev_iter_dev,
@@ -308,6 +311,9 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
                         {%- endif %}
                         const bool /*use_uniq_cache_locations*/,
                         const bool /*use_homogeneous_placements*/,
+                        {%- if ssd %}
+                        const bool /*enable_optimizer_offloading*/,
+                        {%- endif %}
                         {%- if is_gwd %}
                         {%- if "prev_iter_dev" not in args.split_function_arg_names %}
                         const Tensor& /*prev_iter_dev*/,
@@ -365,6 +371,9 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
             {%- endif %}
             use_uniq_cache_locations,
             use_homogeneous_placements,
+            {%- if ssd %}
+            enable_optimizer_offloading,
+            {%- endif %}            
             {%- if is_gwd %}
             {%- if "prev_iter_dev" not in args.split_function_arg_names %}
             prev_iter_dev,
@@ -614,6 +623,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- endif %}
         "    bool use_uniq_cache_locations, "
         "    bool use_homogeneous_placements,"
+        {%- if ssd %}
+        "    bool enable_optimizer_offloading,"
+        {%- endif %}        
         {%- if is_gwd %}
         {%- if "prev_iter_dev" not in args.split_function_arg_names %}
         "    Tensor{{ schema_annotation['prev_iter_dev'] }} prev_iter_dev, "

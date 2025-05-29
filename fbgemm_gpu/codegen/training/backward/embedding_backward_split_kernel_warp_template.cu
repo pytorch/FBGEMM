@@ -133,6 +133,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- endif %}
     const float gwd_lower_bound,
     {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -296,6 +299,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
               {%- endif %}
               shfl_sync_mask,
               max_vecs,
+              {%- if ssd %}
+              enable_optimizer_offloading,
+              {%- endif %}
               {{ args.split_kernel_arg_names | join(", ") }}
         );
         {%- else %}
@@ -425,6 +431,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     const int64_t iter,
     {%- endif %}
     const float gwd_lower_bound,
+    {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,

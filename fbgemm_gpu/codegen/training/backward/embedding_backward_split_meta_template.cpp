@@ -110,6 +110,9 @@ Tensor {{ mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ desc
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
     {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}
     {%- if is_index_select %}
     const Tensor& grad_offsets,
     const Tensor& total_L_offsets,
