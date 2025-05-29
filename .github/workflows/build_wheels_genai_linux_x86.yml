@@ -53,7 +53,7 @@ jobs:
         set -ex
         pwd
         ls
-        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version=11.8 --filter python_version=3.13t )"
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
         echo "${MATRIX_BLOB}"
         echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
 
@@ -75,4 +75,4 @@ jobs:
       test-infra-ref: main
       build-matrix: ${{ needs.filter-matrix.outputs.matrix }}
       trigger-event: ${{ github.event_name }}
-      timeout: 120
+      timeout: 150
