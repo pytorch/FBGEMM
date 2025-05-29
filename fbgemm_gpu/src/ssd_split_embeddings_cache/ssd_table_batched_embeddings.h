@@ -103,7 +103,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       std::vector<int64_t> table_offsets = {},
       const std::vector<int64_t>& table_sizes = {},
       std::optional<at::Tensor> table_dims = std::nullopt,
-      std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
+      std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
+      int64_t flushing_block_size = 2000000000 /*2GB*/)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -116,7 +117,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
             res_server_port,
             std::move(table_names),
             std::move(table_offsets),
-            table_sizes),
+            table_sizes,
+            flushing_block_size),
         auto_compaction_enabled_(true),
         max_D_(max_D),
         elem_size_(row_storage_bitwidth / 8) {

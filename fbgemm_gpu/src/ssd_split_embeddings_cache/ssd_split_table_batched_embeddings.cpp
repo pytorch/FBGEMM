@@ -377,6 +377,7 @@ void KVTensorWrapper::set_range(
     const int64_t start,
     const int64_t length,
     const at::Tensor& weights) {
+  CHECK_EQ(weights.device(), at::kCPU);
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D(), shape_[1]);
@@ -394,6 +395,7 @@ void KVTensorWrapper::set_range(
 void KVTensorWrapper::set_weights_and_ids(
     const at::Tensor& weights,
     const at::Tensor& ids) {
+  CHECK_EQ(weights.device(), at::kCPU);
   CHECK_TRUE(db_ != nullptr);
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
@@ -500,7 +502,8 @@ static auto embedding_rocks_db_wrapper =
                 std::vector<int64_t>,
                 std::vector<int64_t>,
                 std::optional<at::Tensor>,
-                std::optional<at::Tensor>>(),
+                std::optional<at::Tensor>,
+                int64_t>(),
             "",
             {
                 torch::arg("path"),
@@ -531,6 +534,7 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("table_sizes") = torch::List<int64_t>(),
                 torch::arg("table_dims") = std::nullopt,
                 torch::arg("hash_size_cumsum") = std::nullopt,
+                torch::arg("flushing_block_size") = 2000000000 /* 2GB */,
             })
         .def(
             "set_cuda",
