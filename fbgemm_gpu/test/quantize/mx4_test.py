@@ -165,7 +165,6 @@ class TestMXQuantizationConversion(unittest.TestCase):
         element_format_str = "fp4_e2m1"
         ebits, mbits, emax, max_norm, _ = _get_format_params(element_format_str)
         scale_bits = 8
-
         # Reference from mx_github
         output_ref = fake_quantize_mx(
             input,
