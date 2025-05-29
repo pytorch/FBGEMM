@@ -59,6 +59,7 @@ class SSDCheckpointTest(unittest.TestCase):
         enable_l2: bool = True,
         ssd_rocksdb_shards: int = 1,
         kv_zch_params: Optional[KVZCHParams] = None,
+        flushing_block_size: int = 1000,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[int], List[int]]:
         E = int(10**log_E)
         D = D * 4
@@ -86,6 +87,7 @@ class SSDCheckpointTest(unittest.TestCase):
             l2_cache_size=1 if enable_l2 else 0,
             ssd_rocksdb_shards=ssd_rocksdb_shards,
             kv_zch_params=kv_zch_params,
+            flushing_block_size=flushing_block_size,
         )
         return emb, Es, Ds
 
@@ -100,7 +102,9 @@ class SSDCheckpointTest(unittest.TestCase):
         weights_precision: SparseType,
         do_flush: bool,
     ) -> None:
-        emb, Es, _ = self.generate_fbgemm_ssd_tbe(T, D, log_E, weights_precision, mixed)
+        emb, Es, _ = self.generate_fbgemm_ssd_tbe(
+            T, D, log_E, weights_precision, mixed, flushing_block_size=1
+        )
         indices = torch.arange(start=0, end=sum(Es))
         weights = torch.randn(
             indices.numel(), emb.cache_row_dim, dtype=weights_precision.as_dtype()

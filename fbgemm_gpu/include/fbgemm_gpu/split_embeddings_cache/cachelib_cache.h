@@ -43,6 +43,8 @@ class CacheLibCache {
       const CacheConfig& cache_config,
       int64_t unique_tbe_id);
 
+  size_t get_cache_item_size() const;
+  Cache::AccessIterator begin();
   std::unique_ptr<Cache> initializeCacheLib(const CacheConfig& config);
 
   std::unique_ptr<facebook::cachelib::CacheAdmin> createCacheAdmin(
@@ -99,7 +101,7 @@ class CacheLibCache {
   /// @note cache_->allocation will trigger eviction callback func
   bool put(const at::Tensor& key_tensor, const at::Tensor& data);
 
-  /// iterate through all items in L2 cache, fill them in indices and weights
+  /// iterate through N items in L2 cache, fill them in indices and weights
   /// respectively and return indices, weights and count
   ///
   /// @return optional value, if cache is empty return none
@@ -109,11 +111,11 @@ class CacheLibCache {
   /// relative element in <indices>
   /// @return count A single element tensor that contains the number of indices
   /// to be processed
-  ///
   /// @note this isn't thread safe, caller needs to make sure put isn't called
   /// while this is executed.
-  folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>>
-  get_all_items();
+  folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>> get_n_items(
+      int n,
+      Cache::AccessIterator& start_itr);
 
   /// instantiate eviction related indices and weights tensors(size of <count>)
   /// for L2 eviction using the same dtype and device from <indices> and
