@@ -35,7 +35,6 @@ class TestFp4Quantize(unittest.TestCase):
             rounding_mode = RoundingMode.even
             packed_group_size = group_size // 2
             groups_per_row = math.ceil(N / group_size)
-
             x = torch.randn(M, N, dtype=torch.bfloat16, device=device)
             xq_ref, x_scale_ref = triton_quantize_mx4_unpack(
                 x, group_size=group_size, rounding_mode=rounding_mode
