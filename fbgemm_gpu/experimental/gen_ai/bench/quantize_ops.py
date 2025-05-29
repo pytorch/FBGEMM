@@ -13,6 +13,11 @@ import numpy as np
 
 import torch
 import triton  # @manual=//triton:triton
+
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
+    triton_quantize_mx4_unpack,
+)
+
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
     matmul_fp8_row,
@@ -27,7 +32,6 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
 )
 from fbgemm_gpu.experimental.gen_ai.quantize import (
     quantize_int4_preshuffle,
-    scale_mxfp4_quant,
     scale_nvfp4_quant,
 )
 
@@ -2056,8 +2060,8 @@ class MXFP4Gemm(QuantizeOpBase):
     """
 
     def quantize(self, x, w):
-        xq, x_scale = scale_mxfp4_quant(x)
-        wq, w_scale = scale_mxfp4_quant(w)
+        xq, x_scale = triton_quantize_mx4_unpack(x)
+        wq, w_scale = triton_quantize_mx4_unpack(w)
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
@@ -2088,11 +2092,11 @@ class MXFP4GroupedGemm(QuantizeOpBase):
     """
 
     def preprocess(self, x, w):
-        wq, w_scale = zip(*[scale_mxfp4_quant(i) for i in w])
+        wq, w_scale = zip(*[triton_quantize_mx4_unpack(i) for i in w])
         return x, wq, w_scale
 
     def quantize(self, x, wq, w_scale):
-        xq, x_scale = zip(*[scale_mxfp4_quant(i) for i in x])
+        xq, x_scale = zip(*[triton_quantize_mx4_unpack(i) for i in x])
         return xq, wq, x_scale, w_scale
 
     def compute(self, xq, wq, x_scale, w_scale):
@@ -2191,13 +2195,13 @@ class MXFP4StackedGroupedGemm(QuantizeOpBase):
     def preprocess(self, x, w):
         m_values = [i.shape[0] for i in x]
         m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
-        wq, w_scale = zip(*[scale_mxfp4_quant(i) for i in w])
+        wq, w_scale = zip(*[triton_quantize_mx4_unpack(i) for i in w])
         wq = torch.stack(wq, dim=0).contiguous()
         w_scale = torch.stack(w_scale, dim=0).contiguous()
         return x, wq, w_scale, m_sizes
 
     def quantize(self, x, wq, w_scale, m_sizes):
-        xq, x_scale = zip(*[scale_mxfp4_quant(i) for i in x])
+        xq, x_scale = zip(*[triton_quantize_mx4_unpack(i) for i in x])
         xq = torch.stack(xq, dim=0).contiguous()
         x_scale = torch.stack(x_scale, dim=0).contiguous()
         xq = xq.view(-1, xq.shape[-1])
