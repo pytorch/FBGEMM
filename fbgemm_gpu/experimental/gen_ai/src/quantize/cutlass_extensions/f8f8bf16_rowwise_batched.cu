@@ -29,11 +29,21 @@ at::Tensor dispatch_fp8_rowwise_batched_kernel(
     bool use_fast_accum = true,
     std::optional<at::Tensor> bias = std::nullopt,
     std::optional<at::Tensor> output = std::nullopt) {
-  int arch = 9;
-  cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, 0);
-  if (prop.major >= 10) {
-    arch = 10;
+  static int arch = -1;
+  // Avoid expensive cudaGetDeviceProperties call.
+  if (arch < 0) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    if (prop.major >= 10) {
+      arch = 10;
+      int runtimeVersion;
+      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
+      TORCH_CHECK(
+          runtimeVersion >= 12080,
+          "FP8 batched GEMM on sm100a or above requires cuda >= 12.8");
+    } else {
+      arch = 9;
+    }
   }
 
   TORCH_CHECK(

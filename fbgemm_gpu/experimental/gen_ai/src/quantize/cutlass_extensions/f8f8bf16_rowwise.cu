@@ -28,12 +28,21 @@ at::Tensor dispatch_fp8_rowwise_kernel(
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
   int K = XQ.size(-1);
-
-  int arch = 9;
-  cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, 0);
-  if (prop.major >= 10) {
-    arch = 10;
+  static int arch = -1;
+  // Avoid expensive cudaGetDeviceProperties call.
+  if (arch < 0) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    if (prop.major >= 10) {
+      arch = 10;
+      int runtimeVersion;
+      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
+      TORCH_CHECK(
+          runtimeVersion >= 12080,
+          "FP8 GEMM on sm100a or above requires cuda >= 12.8");
+    } else {
+      arch = 9;
+    }
   }
 
   // Use shape heuristics to dispatch to optimized kernel configuration.

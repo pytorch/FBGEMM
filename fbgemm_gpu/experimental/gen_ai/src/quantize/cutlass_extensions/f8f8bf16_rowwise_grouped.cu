@@ -30,16 +30,21 @@ at::Tensor dispatch_fp8_grouped_kernel(
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
-  int arch = 9;
-  cudaDeviceProp prop;
-  cudaGetDeviceProperties(&prop, 0);
-  if (prop.major >= 10) {
-    arch = 10;
-    int runtimeVersion;
-    cudaRuntimeGetVersion(&runtimeVersion);
-    TORCH_CHECK(
-        runtimeVersion >= 12080,
-        "FP8 grouped GEMM on blackwell sm100a requires cuda >= 12.8");
+  static int arch = -1;
+  // Avoid expensive cudaGetDeviceProperties call.
+  if (arch < 0) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    if (prop.major >= 10) {
+      arch = 10;
+      int runtimeVersion;
+      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
+      TORCH_CHECK(
+          runtimeVersion >= 12080,
+          "FP8 grouped GEMM on sm100a or above requires cuda >= 12.8");
+    } else {
+      arch = 9;
+    }
   }
 
   // Use heuristics to pick the best kernel implementation.
