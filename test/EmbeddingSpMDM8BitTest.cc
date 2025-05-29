@@ -191,57 +191,59 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
 
     bool success, success_ref;
 
-#define TEST_BASE(                                             \
-    indices,                                                   \
-    offsets_or_lengths,                                        \
-    output_ref,                                                \
-    output,                                                    \
-    IndexType,                                                 \
-    OffsetType,                                                \
-    OutType)                                                   \
-  success_ref = EmbeddingSpMDM_ref<uint8_t>(                   \
-      embedding_dim,                                           \
-      batch_size,                                              \
-      lengths_sum,                                             \
-      num_rows,                                                \
-      fused_embedding_table.data(),                            \
-      corner_case == EMPTY_INDICES ? nullptr : indices.data(), \
-      offsets_or_lengths,                                      \
-      use_weight ? weights.data() : nullptr,                   \
-      normalize_by_lengths,                                    \
-      output_ref.data(),                                       \
-      is_wt_positional,                                        \
-      use_offsets,                                             \
-      /*output_stride=*/-1,                                    \
-      /*input_stride=*/-1,                                     \
-      scale_bias_last,                                         \
-      /*is_bf16_out=*/out_type == BFLOAT16,                    \
-      /*is_bf16_in=*/false);                                   \
-                                                               \
-  auto kernel = GenerateEmbeddingSpMDMWithStrides<             \
-      uint8_t,                                                 \
-      IndexType,                                               \
-      OffsetType,                                              \
-      OutType>(                                                \
-      embedding_dim,                                           \
-      use_weight,                                              \
-      normalize_by_lengths,                                    \
-      prefetch,                                                \
-      is_wt_positional,                                        \
-      use_offsets,                                             \
-      /*output_stride=*/-1,                                    \
-      /*input_stride=*/-1,                                     \
-      scale_bias_last,                                         \
-      /*is_bf16_out=*/out_type == BFLOAT16,                    \
-      /*is_bf16_in=*/false);                                   \
-  success = kernel(                                            \
-      batch_size,                                              \
-      lengths_sum,                                             \
-      num_rows,                                                \
-      fused_embedding_table.data(),                            \
-      corner_case == EMPTY_INDICES ? nullptr : indices.data(), \
-      offsets_or_lengths,                                      \
-      use_weight ? weights.data() : nullptr,                   \
+#define TEST_BASE(                                                           \
+    indices,                                                                 \
+    offsets_or_lengths,                                                      \
+    output_ref,                                                              \
+    output,                                                                  \
+    IndexType,                                                               \
+    OffsetType,                                                              \
+    OutType)                                                                 \
+  success_ref = EmbeddingSpMDM_ref<uint8_t, IndexType, OffsetType, OutType>( \
+      embedding_dim,                                                         \
+      batch_size,                                                            \
+      lengths_sum,                                                           \
+      num_rows,                                                              \
+      fused_embedding_table.data(),                                          \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(),               \
+      offsets_or_lengths,                                                    \
+      use_weight ? weights.data() : nullptr,                                 \
+      normalize_by_lengths,                                                  \
+      output_ref.data(),                                                     \
+      is_wt_positional,                                                      \
+      use_offsets,                                                           \
+      /*output_stride=*/-1,                                                  \
+      /*input_stride=*/-1,                                                   \
+      scale_bias_last,                                                       \
+      /*no_bag=*/false,                                                      \
+      /*is_bf16_out=*/out_type == BFLOAT16,                                  \
+      /*is_bf16_in=*/false);                                                 \
+                                                                             \
+  auto kernel = GenerateEmbeddingSpMDMWithStrides<                           \
+      uint8_t,                                                               \
+      IndexType,                                                             \
+      OffsetType,                                                            \
+      OutType>(                                                              \
+      embedding_dim,                                                         \
+      use_weight,                                                            \
+      normalize_by_lengths,                                                  \
+      prefetch,                                                              \
+      is_wt_positional,                                                      \
+      use_offsets,                                                           \
+      /*output_stride=*/-1,                                                  \
+      /*input_stride=*/-1,                                                   \
+      scale_bias_last,                                                       \
+      /*no_bag=*/false,                                                      \
+      /*is_bf16_out=*/out_type == BFLOAT16,                                  \
+      /*is_bf16_in=*/false);                                                 \
+  success = kernel(                                                          \
+      batch_size,                                                            \
+      lengths_sum,                                                           \
+      num_rows,                                                              \
+      fused_embedding_table.data(),                                          \
+      corner_case == EMPTY_INDICES ? nullptr : indices.data(),               \
+      offsets_or_lengths,                                                    \
+      use_weight ? weights.data() : nullptr,                                 \
       output.data());
 
 #define TEST_OUT_TYPE(indices, offsets_or_lengths, IndexType, OffsetType) \
