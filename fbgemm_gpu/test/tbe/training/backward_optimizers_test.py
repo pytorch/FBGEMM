@@ -555,6 +555,7 @@ class BackwardOptimizersTest(unittest.TestCase):
                     rtol=1.0e-2,
                 )
 
+                # pyre-ignore: ['Undefined attribute : `Optional` has no attribute `__getitem__`.']
                 optimizer_states_dict = get_optimizer_states[t]
                 expected_keys = {"sum"}
                 if rowwise and weight_decay_mode in (

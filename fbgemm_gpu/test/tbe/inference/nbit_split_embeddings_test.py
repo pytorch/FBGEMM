@@ -161,6 +161,7 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 torch.testing.assert_close(
                     scale.cpu(),
                     torch.tensor(
+                        # pyre-ignore: ['Undefined attribute : Optional type has no attribute `__...
                         scale_bias[:, : scale_bias.size(1) // 2]
                         .contiguous()
                         .cpu()
@@ -169,6 +170,7 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                     ),
                 )
                 torch.testing.assert_close(
+                    # pyre-ignore: ['Undefined attribute : Optional type has no attribute `cpu`.']
                     bias.cpu(),
                     torch.tensor(
                         scale_bias[:, scale_bias.size(1) // 2 :]
