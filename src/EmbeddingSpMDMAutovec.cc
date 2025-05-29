@@ -202,6 +202,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         if (!scale_bias_last && idx == -1) {
           // When scale_bias_last == false, assume this is for table batched
           // embedding (TBE) that can get -1 for pruned rows.
+          weights_addr++;
           continue;
         }
         return false;
@@ -693,6 +694,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
         if (idx == -1) {
+          weights_addr++;
           continue;
         }
         // if (idx < 0 || idx >= compressed_data_size) {
@@ -758,6 +760,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
         if (idx == -1) {
+          weights_addr++;
           continue;
         }
 
