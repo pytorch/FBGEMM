@@ -33,9 +33,33 @@ jobs:
       with-rocm: enable
       with-cpu: enable
 
-  build:
+  filter-matrix:
     if: ${{ github.repository_owner == 'pytorch' }}
     needs: generate-matrix
+    runs-on: linux.24_04.4x
+    outputs:
+      matrix: ${{ steps.filter.outputs.matrix }}
+    steps:
+    - uses: actions/setup-python@v4
+    - name: Checkout FBGEMM repository
+      uses: actions/checkout@v4
+      with:
+        repository: pytorch/fbgemm
+    - name: Filter Generated Built Matrix
+      id: filter
+      env:
+        MAT: ${{ needs.generate-matrix.outputs.matrix }}
+      run: |
+        set -ex
+        pwd
+        ls
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
+        echo "${MATRIX_BLOB}"
+        echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: filter-matrix
     name: pytorch/FBGEMM
     uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
     with:
@@ -48,6 +72,6 @@ jobs:
       package-name: fbgemm_gpu
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
-      build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
+      build-matrix: ${{ needs.filter-matrix.outputs.matrix }}
       trigger-event: ${{ github.event_name }}
       timeout: 180
