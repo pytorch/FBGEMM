@@ -180,7 +180,13 @@ struct KernelLauncher {
     TORCH_CHECK(
         threads_per_block <= properties.maxThreadsPerBlock,
         context.description(),
-        ": Threads per block ",
+        ": [block dim ",
+        block.x,
+        " x ",
+        block.y,
+        " x ",
+        block.z,
+        "] Threads per block ",
         threads_per_block,
         " is greater than the limit of ",
         properties.maxThreadsPerBlock);
@@ -190,15 +196,28 @@ struct KernelLauncher {
     // automatically work around problem like CUDA does (V100 or newer
     // architectures), see:
     //    https://github.com/ROCm/hip/issues/2253
+    //    https://rocm.docs.amd.com/projects/HIP/en/docs-develop/reference/hip_runtime_api/modules/occupancy.html
     const uint64_t total_threads = U64(grid.x) * U64(grid.y) * U64(grid.z) *
         U64(block.x) * U64(block.y) * U64(block.z);
 
     TORCH_CHECK(
         total_threads < U64(std::numeric_limits<uint32_t>::max()),
         context.description(),
-        ": Total number of threads ",
+        " [grid dim ",
+        grid.x,
+        " x ",
+        grid.y,
+        " x ",
+        grid.z,
+        "] [block dim ",
+        block.x,
+        " x ",
+        block.y,
+        " x ",
+        block.z,
+        "]: Total number of threads ",
         total_threads,
-        " is greater than the limit of 2^32");
+        " is greater than the HIP limit of 2^32");
 #endif
   }
 
