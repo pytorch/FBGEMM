@@ -1075,6 +1075,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ).cpu()
 
             torch.testing.assert_close(
+                # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
                 emb_state_dict[table_index].full_tensor().float(),
                 new_ref_weight,
                 atol=tolerance,
@@ -1700,6 +1701,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # pyre-fixme[16]: Optional type has no attribute `float`
             ref_optimizer_state = emb_ref[f].weight.grad.float().to_dense().pow(2)
 
+            # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
             ref_opt_mean = ref_optimizer_state[bucket_asc_ids_list[t].view(-1)].mean(
                 dim=1
             )
@@ -1933,6 +1935,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                     table_input_id_range[t][1], emb_ref[f].weight.size(0)
                 )
             ]
+            # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
             ref_kv_opt = ref_optimizer_state[bucket_asc_ids_list[t]].view(-1)
             torch.testing.assert_close(
                 split_optimizer_states[t].float(),
@@ -2164,12 +2167,14 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             kv_zch_params=emb.kv_zch_params,
         ).cuda()
 
+        # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__iter__`.
         emb2.local_weight_counts = [ids.numel() for ids in bucket_asc_ids_list]
         emb2.enable_load_state_dict_mode()
         self.assertIsNotNone(emb2._cached_kvzch_data)
         for i in range(len(emb.embedding_specs)):
             # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_weight_tensor_per_table[i].copy_(
+                # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
                 emb_state_dict_list[i].full_tensor()
             )
             # pyre-ignore [16]
@@ -2178,6 +2183,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
             # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_id_tensor_per_table[i].copy_(
+                # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
                 bucket_asc_ids_list[i]
             )
             # pyre-ignore [16]
@@ -2202,7 +2208,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
             torch.testing.assert_close(
+                # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
                 emb_state_dict_list[t].full_tensor(),
+                # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
                 emb_state_dict_list2[t].full_tensor(),
                 atol=tolerance,
                 rtol=tolerance,
