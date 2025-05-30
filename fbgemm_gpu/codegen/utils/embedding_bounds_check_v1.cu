@@ -188,9 +188,6 @@ void _bounds_check_indices_cuda_v1(
 
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "bounds_check_indices_cuda_v1", [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "bounds_check_indices_cuda_v1";
-#endif
         const auto bounds_check_kernel =
             (vbe ? bounds_check_indices_kernel_v1<index_t, true>
                  : bounds_check_indices_kernel_v1<index_t, false>);
