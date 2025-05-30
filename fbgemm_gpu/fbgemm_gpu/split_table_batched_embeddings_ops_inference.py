@@ -1521,6 +1521,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 for i, weight in enumerate(weights):
                     weights[i] = (
                         weight[0].to(device),
+                        # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `to`.
                         weight[1].to(device) if weight[1] is not None else None,
                     )
             (
@@ -1790,6 +1791,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dest_weight[0].copy_(input_weight[0])
             if input_weight[1] is not None:
                 assert dest_weight[1] is not None
+                # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `copy_`.
                 dest_weight[1].copy_(input_weight[1])
             else:
                 assert dest_weight[1] is None

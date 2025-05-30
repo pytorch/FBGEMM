@@ -186,15 +186,33 @@ def rowwise_adagrad() -> Dict[str, Any]:
         g_local_sum_square += gx * gx + gy * gy + gz * gz + gw * gw;
     """
     )
-    split_precomputation += """
+    split_precomputation += """	
+	// Define the rowwise adagrad optimizer state struct view
+    struct [[maybe_unused]] OptimizerState {
+        at::acc_type<cache_t, true> momentum;
+    };
+
     const at::acc_type<cache_t, true> g_avg_square =
         GROUP_REDUCE_ALL_SUM(g_local_sum_square, at::acc_type<cache_t, true>) / D;
 
     at::acc_type<cache_t, true> multiplier = 0.0;
     at::acc_type<cache_t, true> correction = 0.0;
-    if (threadIdx.x == 0) {
-        at::acc_type<cache_t, true> new_sum_square_grads = momentum1[idx] + g_avg_square;
-        momentum1[idx] = new_sum_square_grads;
+    if (threadIdx.x == 0) {	
+        auto new_sum_square_grads = g_avg_square;
+	
+        // Update the optimizer state.  Use optimizer state offloading only if 
+        // SSD and if enabled by the user
+        if (enable_optimizer_offloading) {
+            // Fetch the pointer to the optimizer state along the cache row
+            auto* optimizer = weight_row_template.template optimizer_state_ptr<OptimizerState>();
+            new_sum_square_grads += optimizer->momentum;
+            optimizer->momentum = new_sum_square_grads;
+        
+        } else {
+            new_sum_square_grads += momentum1[idx];
+            momentum1[idx] = new_sum_square_grads;
+        }
+
         multiplier = learning_rate / (sqrtf(new_sum_square_grads) + eps);
         if (weight_decay_mode == 1) {
             // L2 regularization

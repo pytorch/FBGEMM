@@ -428,6 +428,7 @@ class BackwardSplitGenerator:
                 "gradient_clipping",  # 4
                 "stochastic_rounding",  # 5
                 "mixed_D",  # 6
+                "enable_optimizer_offloading",  # 7
             ],
         }
         assert (

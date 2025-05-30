@@ -251,6 +251,9 @@ enum SSDTensor {
                 {%- endif %}
                 const bool /*use_uniq_cache_locations_bwd*/,
                 const bool /*use_homogeneous_placements*/,
+                {%- if ssd %}
+                const bool /*enable_optimizer_offloading*/,
+                {%- endif %}                
                 {%- if is_gwd %}
                 {%- if "prev_iter_dev" not in args_pt2.split_function_arg_names %}
                 const Tensor& /*prev_iter_dev*/,
@@ -319,6 +322,9 @@ enum SSDTensor {
           {%- if not dense %}
           use_uniq_cache_locations_bwd,
           use_homogeneous_placements,
+          {%- if ssd %}
+          enable_optimizer_offloading,
+          {%- endif %}
           {%- endif %}
           {%- if is_gwd %}
           {%- if "prev_iter_dev" not in args_pt2.split_function_arg_names %}
@@ -817,6 +823,11 @@ class {{ autograd_func }} :
     ctx->saved_data["use_uniq_cache_locations_bwd"] = static_cast<bool>(aux_bool[IDX_USE_UNIQ_CACHE_LOCATIONS_BWD]);
     ctx->saved_data["use_homogeneous_placements"] = static_cast<bool>(aux_bool[IDX_USE_HOMOGENEOUS_PLACEMENTS]);
     {%- endif %}
+
+    {%- if ssd %}
+    ctx->saved_data["enable_optimizer_offloading"] = utils::list_get<bool>(aux_bool, IDX_ENABLE_OPTIMIZER_OFFLOADING, false);
+    {%- endif %}
+
     const auto iter = aux_int[IDX_ITER];
     ctx->saved_data["iter"] = iter;
     {%- if is_gwd %}
@@ -950,6 +961,11 @@ static torch::autograd::variable_list backward(
     const auto use_uniq_cache_locations_bwd = ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
     const auto use_homogeneous_placements = ctx->saved_data["use_homogeneous_placements"].toBool();
     {%- endif %}
+
+    {%- if ssd %}
+    const auto enable_optimizer_offloading = ctx->saved_data["enable_optimizer_offloading"].toBool();
+    {%- endif %}
+
     {%- if is_gwd or "iter" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     const auto iter = ctx->saved_data["iter"].toInt();
     {%- endif %}
@@ -1242,7 +1258,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    SymInt max_B_feature_rank=-1, "
         {%- if ssd %}
         "    SymInt vbe_output_size=-1, "
-        "    Tensor[]? ssd_tensors=None"
+        "    Tensor[]? ssd_tensors=None "
         {%- else %}
          "    SymInt vbe_output_size=-1 "
         {%- endif %}

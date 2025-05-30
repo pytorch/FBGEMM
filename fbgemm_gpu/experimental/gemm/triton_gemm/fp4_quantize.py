@@ -56,21 +56,21 @@ def _kernel_quantize_mx4_unpack(
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
     """
     # Define Constant Expressions.
-    FP32_EXP_MASK: tl.constexpr = 0x7F800000  # type: ignore[Incompatible variable type]
-    FP32_EXP_OFFSET: tl.constexpr = 23  # type: ignore[Incompatible variable type]
-    FP32_EXP_BIAS: tl.constexpr = 127  # type: ignore[Incompatible variable type]
-    FP32_SIGN_OFFSET: tl.constexpr = 31  # type: ignore[Incompatible variable type]
+    FP16_EXP_MASK: tl.constexpr = 0x7F80  # type: ignore[Incompatible variable type]
+    FP16_EXP_OFFSET: tl.constexpr = 7  # type: ignore[Incompatible variable type]
+    FP16_EXP_BIAS: tl.constexpr = 127  # type: ignore[Incompatible variable type]
+    FP16_SIGN_OFFSET: tl.constexpr = 15  # type: ignore[Incompatible variable type]
     SIGN_MASK: tl.constexpr = 0x1  # type: ignore[Incompatible variable type]
-    FP32_MANTISSA_MASK: tl.constexpr = 0x007FFFFF  # type: ignore[Incompatible variable type]
+    FP16_MANTISSA_MASK: tl.constexpr = 0x007F  # type: ignore[Incompatible variable type]
     # FP4 has 2 mantissa bits, one explicit one implicit.
     MBITS_IMPLICIT: tl.constexpr = MBITS + 1  # type: ignore[Incompatible variable type]
-    MAX_FP32_MANTISSA_BITS: tl.constexpr = 24  # type: ignore[Incompatible variable type]
-    IMPLIED_1_BIT: tl.constexpr = 1 << 23  # type: ignore[Incompatible variable type]
-    FP32_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    MAX_FP16_MANTISSA_BITS: tl.constexpr = 8  # type: ignore[Incompatible variable type]
+    IMPLIED_1_BIT: tl.constexpr = 1 << 7  # type: ignore[Incompatible variable type]
+    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
     MANTISSA_OVERFLOW_THRESHOLD: tl.constexpr = (1 << MBITS_IMPLICIT) - 1  # type: ignore[Incompatible variable type]
     EXPONENT_OVERFLOW_THRESHOLD: tl.constexpr = (1 << EBITS) - 1  # type: ignore[Incompatible variable type]
     IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
-    RAND_MASK: tl.constexpr = (1 << (FP32_EXP_OFFSET - MBITS)) - 1  # type: ignore[Incompatible variable type]
+    RAND_MASK: tl.constexpr = (1 << (FP16_EXP_OFFSET - MBITS)) - 1  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
     pid = tl.program_id(0)
@@ -137,7 +137,7 @@ def _kernel_quantize_mx4_unpack(
         # Compute the shared exponent of each group.
         group_max = tl.max(tl.abs(a_groups), axis=1)
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP32_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
         # Load relevant random values if doing stochastic rounding
         # or stochastic casting.
         group_rand_bits = None
@@ -156,19 +156,20 @@ def _kernel_quantize_mx4_unpack(
         group_exp = tl.clamp(group_exp, -127, 125)
 
         # Next we scale A in preparation for quantization.
-        scale_ = tl.exp2(group_exp.to(tl.float64)).to(tl.float32)
+        scale_ = tl.exp2(group_exp.to(tl.float64)).to(tl.bfloat16)
         # Apply scale_ to input. We do this by broadcasting scale.
-        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) / tl.reshape(
-            scale_, [GROUP_LOAD, 1]
-        )
+        scaled_a = (
+            tl.reshape(a, [GROUP_LOAD, GROUP_SIZE])
+            / tl.reshape(scale_, [GROUP_LOAD, 1])
+        ).to(tl.bfloat16)
         # Reshape back to a flat array.
         scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
 
         # We're done with group_exp now so we can write it out.
-        # We readd fp32_exp_bias for compatibility with cuda dequant.
+        # We readd fp16_exp_bias for compatibility with cuda dequant.
         tl.store(
             scale + exp_offset,
-            (group_exp + FP32_EXP_BIAS).to(tl.int8),
+            (group_exp + FP16_EXP_BIAS).to(tl.int8),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
@@ -179,7 +180,7 @@ def _kernel_quantize_mx4_unpack(
 
         # During quantization, we're going to be doing a lot of bitwise operations.
         # This is easier to work with in int32.
-        scaled_a = scaled_a.to(tl.int32, bitcast=True)
+        scaled_a = scaled_a.to(tl.int16, bitcast=True)
 
         # When doing stochastic downcasting, generate random values for this block
         # and apply it to the mantissa.
@@ -212,28 +213,28 @@ def _kernel_quantize_mx4_unpack(
             # Flatten back to simple array.
             stochastic_round_bits = tl.reshape(
                 stochastic_round_bits, [GROUP_LOAD * GROUP_SIZE]
-            ).to(tl.int32, bitcast=True)
+            ).to(tl.int16, bitcast=True)
 
             # Mask off mantissa bits of random value and add to mantissa.
             scaled_a = scaled_a + (stochastic_round_bits & RAND_MASK)
 
         # Extract sign bit of value.
-        sign_bit = (scaled_a >> FP32_SIGN_OFFSET) & SIGN_MASK
+        sign_bit = (scaled_a >> FP16_SIGN_OFFSET) & SIGN_MASK
 
         # Extract exponent.
-        biased_exp = (scaled_a & FP32_EXP_MASK) >> FP32_EXP_OFFSET
+        biased_exp = (scaled_a & FP16_EXP_MASK) >> FP16_EXP_OFFSET
 
         # Extract mantissa.
-        trailing_mantissa = scaled_a & FP32_MANTISSA_MASK
+        trailing_mantissa = scaled_a & FP16_MANTISSA_MASK
 
         # Adjust exponent bias for FP4.
-        new_biased_exp = biased_exp - FP32_EXP_BIAS + FP4_EXP_BIAS
+        new_biased_exp = biased_exp - FP16_EXP_BIAS + FP4_EXP_BIAS
 
         # Compute difference between ideal exponent and what fp4 can represent.
         exp_diff = tl.where(new_biased_exp <= 0, 1 - new_biased_exp, 0)
 
         # Clip this difference to maximum number of fp32 mantissa bits.
-        exp_diff = tl.minimum(exp_diff, MAX_FP32_MANTISSA_BITS)
+        exp_diff = tl.minimum(exp_diff, MAX_FP16_MANTISSA_BITS)
 
         # Now we round our fp32 mantissa down to fp4.
         is_subnorm = biased_exp == 0
@@ -243,9 +244,9 @@ def _kernel_quantize_mx4_unpack(
         )
         # Compute base number of bits corresponding to the mantissa, smaller for subnorms
         # since implied one is included in exp_diff.
-        fp32_sig_bits = tl.where(is_subnorm, 23, 24).to(tl.int32)
+        fp16_sig_bits = tl.where(is_subnorm, 7, 8).to(tl.int32)
         # Now we're ready to shift down to target bitwidth (with an extra bit for rounding).
-        mantissa = mantissa >> (fp32_sig_bits + exp_diff - MBITS_IMPLICIT - 1)
+        mantissa = mantissa >> (fp16_sig_bits + exp_diff - MBITS_IMPLICIT - 1)
         # Perform rounding by adding 1 and shifting down.
         mantissa = (mantissa + 1) >> 1
 
@@ -290,7 +291,7 @@ def _kernel_quantize_mx4_unpack(
         # Update offsets so we work on the next block.
         input_offset += GROUP_LOAD * GROUP_SIZE
         exp_offset += GROUP_LOAD
-        output_offset += GROUP_LOAD * GROUP_SIZE
+        output_offset += GROUP_LOAD * GROUP_SIZE // 2
 
 
 def triton_quantize_mx4_unpack(

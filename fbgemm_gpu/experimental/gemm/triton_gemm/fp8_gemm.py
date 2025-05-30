@@ -296,7 +296,7 @@ def _kernel_matmul_fp8_row(
         SPLIT_K (int): Number of SM's to launch per row.
         USE_BIAS (bool): Whether to use bias.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
     start_pid = tl.program_id(axis=0)
@@ -459,7 +459,7 @@ def _kernel_matmul_fp8_row_no_fast_acc(
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
         USE_BIAS(bool): Whether to use bias.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
 
@@ -615,7 +615,7 @@ def _kernel_matmul_fp8_row_imprecise_acc(
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
         USE_BIAS (bool): Whether to use bias.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
     pid = tl.program_id(0)
@@ -810,7 +810,7 @@ def _kernel_matmul_fp8_row_tma_persistent(
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     # Matrix multiplication.
     start_pid = tl.program_id(axis=0)
@@ -1050,7 +1050,7 @@ def _kernel_matmul_fp8_row_tma_persistent_ws_cooperative(
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     num_tiles = tl.cdiv(M, BLOCK_M) * tl.cdiv(N, BLOCK_N)
     num_pid_m = tl.cdiv(M, BLOCK_M)
@@ -1206,8 +1206,6 @@ def matmul_fp8_row(
 
     if no_use_persistent:
         logger.info("Using non-persistent kernel")
-        if bias is not None:
-            raise AssertionError("bias is not supported in non-persistent kernel")
         # pyre-ignore
         torch._library.capture_triton(_kernel_matmul_fp8_row_non_persistent)[grid](
             a,
@@ -1221,7 +1219,7 @@ def matmul_fp8_row(
             k_key,
             a_scale,
             b_scale,
-            # bias,
+            bias,
             a.stride(0),
             a.stride(1),
             b.stride(0),
@@ -1232,7 +1230,7 @@ def matmul_fp8_row(
             allow_tf32=allow_tf32,
             fp8_fast_accum=fp8_fast_accum,
             # GROUP_M=8,
-            # USE_BIAS=bias is not None,
+            USE_BIAS=bias is not None,
             AB_DTYPE=False,
         )
     elif use_warp_specialization:
@@ -1559,7 +1557,9 @@ def matmul_fp8_row_meta(
     allow_tf32: bool = True,
     fp8_fast_accum: bool = True,
     imprecise_acc: bool = False,
-    tma_persistent: bool = False,
+    tma_persistent: bool = True,
+    no_use_persistent: Optional[bool] = None,
+    use_warp_specialization: bool = False,
 ) -> torch.Tensor:
     """Shape function for torch compile."""
     M, K = a.shape
@@ -1679,7 +1679,7 @@ def _kernel_matmul_fp8_block_fastacc(
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     assert BLOCK_M < scale_block_m
     assert BLOCK_N < scale_block_n
@@ -1875,7 +1875,7 @@ def _kernel_matmul_fp8_block_slowacc(
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     assert BLOCK_M < scale_block_m
     assert BLOCK_N < scale_block_n
@@ -3172,6 +3172,7 @@ def prune_configs(configs, named_args, **kwargs):
     K = named_args["K"]
     elemBytes_a = named_args["A"].element_size()
     elemBytes_b = named_args["B"].element_size()
+    use_bias = kwargs["USE_BIAS"]
 
     if M < 32 or N < 32:
         mfma = 16
@@ -3210,6 +3211,9 @@ def prune_configs(configs, named_args, **kwargs):
         if BLOCK_SIZE_M > M * 2 and BLOCK_SIZE_M != 16:
             continue
         if BLOCK_SIZE_N > N * 2 and BLOCK_SIZE_N != 16:
+            continue
+        # split_k cannot be used if there is a bias
+        if use_bias and SPLIT_K != 1:
             continue
         # skip large split_k when not necessary
         if SPLIT_K != 1 and not need_split_k(M, N, K):
@@ -3338,6 +3342,34 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
         num_warps=8,
         num_stages=2,
     ),
+    triton.Config(
+        {
+            "BLOCK_M": 256,
+            "BLOCK_N": 256,
+            "BLOCK_K": 128,
+            "GROUP_M": 2,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 32,
+            "kpack": 2,
+        },
+        num_warps=8,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 256,
+            "BLOCK_N": 128,
+            "BLOCK_K": 128,
+            "GROUP_M": 4,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 1,
+        },
+        num_warps=8,
+        num_stages=2,
+    ),
 ]
 
 
@@ -3369,6 +3401,7 @@ def _kernel_matmul_fp8_row_non_persistent(
     k_key,
     A_scale,
     B_scale,
+    Bias,
     stride_am,
     stride_ak,
     stride_bn,
@@ -3384,6 +3417,7 @@ def _kernel_matmul_fp8_row_non_persistent(
     GROUP_M: tl.constexpr,
     SPLIT_K: tl.constexpr,
     EVEN_K: tl.constexpr,
+    USE_BIAS: tl.constexpr,
     AB_DTYPE: tl.constexpr,
 ) -> None:
     """Matmul kernel of [M, K] @ [N, K] with row-wise scales
@@ -3402,6 +3436,7 @@ def _kernel_matmul_fp8_row_non_persistent(
         k_key (int): Autotuning key for K dimension of input tensor.
         A_scale (TensorWrapper): [M] reciprocal scale tensor per row. A * A_scale = original A
         B_scale (TensorWrapper): [N] reciprocal scale tensor per row. B * B_scale = original B
+        Bias (tensorWrapper): [N] Optional bias tensor.
         stride_am (int): Stride of M dimension of A.
         stride_ak (int): Stride of K dimension of A.
         stride_bn (int): Stride of N dimension of B.
@@ -3417,7 +3452,8 @@ def _kernel_matmul_fp8_row_non_persistent(
         GROUP_M (int): Number of groups for M dimension swizzle.
         SPLIT_K (int): Number of SM's to launch per row.
         EVEN_K (bool): Whether K is evenly divisible by BLOCK_K * SPLIT_K.
-        AB_DTYPE (bool): Wether to cast A and B to C.dtype before tensor core.
+        USE_BIAS (bool): Whether to use bias.
+        AB_DTYPE (bool): Whether to cast A and B to C.dtype before tensor core.
     """
     tl.assume(M >= 0)
     tl.assume(N >= 0)
@@ -3483,6 +3519,11 @@ def _kernel_matmul_fp8_row_non_persistent(
     # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
     scale = a_scale[:, None] * b_scale[None, :]
     acc *= scale
+
+    # Load and add bias if specified.
+    if USE_BIAS:
+        bias = tl.load(Bias + rn, mask=rn < N)
+        acc += bias[None, :]
 
     acc = acc.to(C.dtype.element_ty)
     C = C + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
