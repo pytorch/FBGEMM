@@ -45,6 +45,8 @@ MAX_EXAMPLES = 40
 # For long running tests reduce the number of iterations to reduce timeout errors.
 MAX_EXAMPLES_LONG_RUNNING = 15
 
+FORWARD_MAX_THREADS = 512
+
 VERBOSITY: Verbosity = Verbosity.verbose
 
 
@@ -83,3 +85,14 @@ def format_ref_tensors_in_mixed_B_layout(
 
 def assert_torch_equal(tensor_a: torch.Tensor, tensor_b: torch.Tensor) -> None:
     assert torch.equal(tensor_a, tensor_b)
+
+
+def get_max_thread_blocks(stream: torch.cuda.streams.Stream) -> int:
+    # Based on the empirical studies, having a max grid size that is 64x larger than
+    # the number of SMs gives good performance across the board
+    MAX_THREAD_BLOCKS_FACTOR = 64
+    device = stream.device_index
+    return (
+        MAX_THREAD_BLOCKS_FACTOR
+        * torch.cuda.get_device_properties(device).multi_processor_count
+    )

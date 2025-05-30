@@ -9,6 +9,7 @@
 
 # pyre-ignore-all-errors[56]
 
+import math
 import random
 import unittest
 
@@ -37,7 +38,9 @@ from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from .. import common  # noqa E402
 from ..common import (
     format_ref_tensors_in_mixed_B_layout,
+    FORWARD_MAX_THREADS,
     gen_mixed_B_batch_sizes,
+    get_max_thread_blocks,
     MAX_EXAMPLES_LONG_RUNNING,
     open_source,
 )
@@ -472,26 +475,16 @@ class ForwardTest(unittest.TestCase):
             False,  # use_experimental_tbe
         )
 
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
-    )
-    @settings(
-        verbosity=VERBOSITY,
-        max_examples=MAX_EXAMPLES_LONG_RUNNING,
-        deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
-    )
-    def test_forward_gpu_no_cache_fp16(
+    def _test_forward_gpu_no_cache_fp16_impl(
         self,
+        T: int,
+        B: int,
+        L: int,
         use_experimental_tbe: bool,
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
-        T = random.randint(1, 10)
         D = random.randint(2, 256)
-        B = random.randint(1, 128)
-        L = random.randint(0, 20)
         log_E = random.randint(3, 5)
 
         use_cache = False
@@ -532,6 +525,66 @@ class ForwardTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+            use_experimental_tbe,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_gpu_no_cache_fp16(
+        self,
+        use_experimental_tbe: bool,
+    ) -> None:
+        return self._test_forward_gpu_no_cache_fp16_impl(
+            random.randint(1, 10),
+            random.randint(1, 128),
+            random.randint(0, 20),
+            use_experimental_tbe,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_gpu_no_cache_fp16_large(
+        self,
+        use_experimental_tbe: bool,
+    ) -> None:
+        torch.cuda.empty_cache()
+
+        max_num_threads = FORWARD_MAX_THREADS * get_max_thread_blocks(
+            torch.cuda.current_stream()
+        )
+        # NOTE: L is arbitrarily chosen here
+        L = 10
+        # NOTE: Fix to the smallest value B such that (B x L) = (number of
+        # indices) > (allowed grid size x block size)
+        B = 2 ** (math.ceil(math.log2(max_num_threads / L)))
+        # NOTE: T is chosen to be small enough to avoid OOM errors given that
+        # B x L must be large enough
+        T = 3
+
+        assert (
+            B * L > max_num_threads
+        ), "Should be testing the case where B * L is larger than max_num_threads"
+
+        return self._test_forward_gpu_no_cache_fp16_impl(
+            T,
+            B,
+            L,
             use_experimental_tbe,
         )
 
