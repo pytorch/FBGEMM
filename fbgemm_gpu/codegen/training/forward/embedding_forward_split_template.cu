@@ -37,6 +37,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/utils/ops_utils.h"
 {%- endif %}
+#include "fbgemm_gpu/utils/device_properties.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
@@ -708,6 +709,10 @@ batch_index_select_dim0_codegen_forward_cuda(
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
             {%- endif %}
 
+            const auto grid = min(
+              div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
+              utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
+
             FBGEMM_LAUNCH_KERNEL(
               ({{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
                 <emb_t,
@@ -719,7 +724,7 @@ batch_index_select_dim0_codegen_forward_cuda(
                 index_t,
                 kMaxVecsPerThread,
                 kThreadGroupSize>),
-              div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
+              grid,
               dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
               0,
               at::cuda::getCurrentCUDAStream(),

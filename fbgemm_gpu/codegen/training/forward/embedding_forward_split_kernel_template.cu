@@ -645,11 +645,12 @@ batch_index_select_dim0_codegen_forward_kernel(
     {%- endif %}
 
     // Determine the linearized warp ID, and exit early if needed
+    {%- if is_index_select %}
     auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
-    {%- if not is_index_select %}
-    if (b_t >= offsets.size(0) - 1) {
-        return;
-    }
+    {%- else %}
+    const auto total_B = offsets.size(0) - 1;
+    // Since we place a limit on the grid size, we need to perform grid-striding
+    for (auto b_t = blockIdx.x * blockDim.y + threadIdx.y; b_t < total_B; b_t += blockDim.y * gridDim.x) {
     {%- endif %}
 
     // Determine the Table and Training Example IDs
@@ -831,6 +832,10 @@ batch_index_select_dim0_codegen_forward_kernel(
         }
 
     }
+    {%- endif %}
+
+    {%- if not is_index_select %}
+    } // for b_t
     {%- endif %}
 }
 
