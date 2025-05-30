@@ -1557,7 +1557,9 @@ def matmul_fp8_row_meta(
     allow_tf32: bool = True,
     fp8_fast_accum: bool = True,
     imprecise_acc: bool = False,
-    tma_persistent: bool = False,
+    tma_persistent: bool = True,
+    no_use_persistent: Optional[bool] = None,
+    use_warp_specialization: bool = False,
 ) -> torch.Tensor:
     """Shape function for torch compile."""
     M, K = a.shape
