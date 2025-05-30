@@ -339,7 +339,7 @@ class BackwardSplitGenerator:
 
     @staticmethod
     def generate_backward_header(
-        aux_args: Dict[str, List[str]], aux_names: List[str]
+        aux_args: Dict[str, List[str]], aux_names: List[str], is_ssd: bool = False
     ) -> None:
         """
         Generate a header file that contains enum of argument order from the dict
@@ -352,7 +352,10 @@ class BackwardSplitGenerator:
         """
         # Generate backward header for PT2 Autograd
         template = CodeTemplate.load("training/pt2/pt2_arg_utils_template.h")
-        template.write(f"pt2_arg_utils.h", aux_args=aux_args, aux_names=aux_names)
+        name_suffix = "_ssd" if is_ssd else ""
+        template.write(
+            f"pt2_arg_utils{name_suffix}.h", aux_args=aux_args, aux_names=aux_names
+        )
 
     @staticmethod
     def generate_python_sources(
@@ -428,9 +431,12 @@ class BackwardSplitGenerator:
                 "gradient_clipping",  # 4
                 "stochastic_rounding",  # 5
                 "mixed_D",  # 6
-                "enable_optimizer_offloading",  # 7
             ],
         }
+        # ssd-specific argument
+        ssd_aux_bool = [
+            "enable_optimizer_offloading",  # 7
+        ]
         assert (
             list(aux_args.keys()) == aux_names
         ), f"{aux_names} must match {aux_args.keys()}"
@@ -446,7 +452,6 @@ class BackwardSplitGenerator:
                 all_optimizers.append(optim)
                 if optimizer["has_ssd_support"]:
                     ssd_optimizers.append(optim)
-
             BackwardSplitGenerator.generate_backward_split(
                 ssd_tensors=ssd_tensors, aux_args=aux_args, **optimizer
             )
@@ -461,6 +466,10 @@ class BackwardSplitGenerator:
 
         # Generate headers for backwards
         BackwardSplitGenerator.generate_backward_header(aux_args, aux_names)
+        aux_args["aux_bool"].extend(ssd_aux_bool)
+        BackwardSplitGenerator.generate_backward_header(
+            aux_args, aux_names, is_ssd=True
+        )
 
         BackwardSplitGenerator.generate_python_sources(all_optimizers, ssd_optimizers)
 

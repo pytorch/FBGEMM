@@ -193,6 +193,7 @@ gen_fused_optim_header_files = (
     ]
     + [
         "pt2_arg_utils.h",
+        "pt2_arg_utils_ssd.h",
     ]
 )
 
