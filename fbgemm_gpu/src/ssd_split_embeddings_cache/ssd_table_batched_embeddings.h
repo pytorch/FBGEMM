@@ -322,6 +322,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     snapshots_.clear();
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
       dbs_[shard]->Close();
+      kv_db_utils::remove_dir(db_paths_[shard]);
+      LOG(INFO) << "deleting rocksdb shard path:" << db_paths_[shard];
     }
   }
 
@@ -345,6 +347,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     } else {
       path_ = path;
     }
+    db_paths_.reserve(num_shards);
     std::string all_shards_path = "";
 #endif
     for (auto i = 0; i < num_shards; ++i) {
@@ -352,6 +355,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       auto rocksdb_path = kv_db_utils::get_rocksdb_path(
           path_, i, tbe_uuid_, !use_passed_in_path);
       auto shard_path = kv_db_utils::get_rocksdb_shard_path(i, rocksdb_path);
+      db_paths_.push_back(shard_path);
       kv_db_utils::create_dir(shard_path);
       all_shards_path += shard_path + ", ";
 #else
@@ -580,6 +584,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
   void release_checkpoint(const std::string ckpt_uuid) {
     CHECK(is_valid_checkpoint(ckpt_uuid));
+    LOG(INFO) << "Rdb checkpoint " << ckpt_uuid
+              << " is released in memory, dir should still exist, "
+                 "dir deletion is controlled on the ReadOnlyEmbeddingKVDB";
     LOG(INFO) << "Checkpoint " << ckpt_uuid << " released";
     checkpoints_.erase(ckpt_uuid);
     // sweep through global_step_to_ckpt_uuid_, it should be small
@@ -1260,6 +1267,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   // that caller doesn't need to do the link themselves
   std::unordered_map<int64_t, std::string> global_step_to_ckpt_uuid_;
   int64_t num_threads_;
+  std::vector<std::string> db_paths_;
 }; // class EmbeddingRocksDB
 
 /// @ingroup embedding-ssd
@@ -1397,7 +1405,7 @@ class ReadOnlyEmbeddingKVDB
     return num_threads_;
   }
 
-  void get_range_from_snapshot(
+  void get_range_from_rdb_checkpoint(
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) {

@@ -384,13 +384,6 @@ KVTensorWrapper::KVTensorWrapper(
   checkpoint_handle_ = checkpoint_handle;
 }
 
-std::string KVTensorWrapper::serialize() const {
-  // auto call to_json()
-  std::cout << "Serializing KVTensorWrapper" << std::endl;
-  json json_serialized = *this;
-  return json_serialized.dump();
-}
-
 std::string KVTensorWrapper::logs() const {
   std::stringstream ss;
   std::cout << "IN LOG";
@@ -435,15 +428,19 @@ std::string KVTensorWrapper::logs() const {
   return ss.str();
 }
 
+std::string KVTensorWrapper::serialize() const {
+  // auto call to_json()
+  json json_serialized = *this;
+  return json_serialized.dump();
+}
+
 void KVTensorWrapper::deserialize(const std::string& serialized) {
   json json_serialized = json::parse(serialized);
   from_json(json_serialized, *this);
 }
 
 KVTensorWrapper::KVTensorWrapper(const std::string& serialized) {
-  std::cout << "Deserializing KVTensorWrapper" << std::endl;
   deserialize(serialized);
-  std::cout << "Deserialized KVTensorWrapper" << std::endl;
 }
 
 void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
@@ -458,28 +455,43 @@ void KVTensorWrapper::set_dram_db_wrapper(
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-  CHECK_TRUE(db_ != nullptr);
-  CHECK_GE(db_->get_max_D(), shape_[1]);
-  TORCH_CHECK(
-      (snapshot_handle_ == nullptr) ==
-          (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
-      "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
-  if (!sorted_indices_.has_value()) {
-    int64_t tensor_width = shape_[1] - width_offset_;
-    auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
-    db_->get_range_from_snapshot(
-        t,
-        start + row_offset_,
-        length,
-        snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
-        width_offset_,
-        tensor_width);
-    CHECK(t.is_contiguous());
-    return t;
+  CHECK_GT(shape_[0], start) << "start offset must be smaller than number rows";
+  CHECK_GE(shape_[0], start + length) << "end offset must <= number rows";
+  if (db_) {
+    CHECK_TRUE(db_ != nullptr);
+    CHECK_GE(db_->get_max_D(), shape_[1]);
+    TORCH_CHECK(
+        (snapshot_handle_ == nullptr) ==
+            (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
+        "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
+    LOG(INFO) << "Reading from EmbeddingKVDB";
+    if (!sorted_indices_.has_value()) {
+      int64_t tensor_width = shape_[1] - width_offset_;
+      auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
+      db_->get_range_from_snapshot(
+          t,
+          start + row_offset_,
+          length,
+          snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
+          width_offset_,
+          tensor_width);
+      CHECK(t.is_contiguous());
+      return t;
+    } else {
+      at::Tensor sliced_ids =
+          sorted_indices_.value().slice(0, start, start + length);
+      return get_weights_by_ids(sliced_ids);
+    }
   } else {
-    at::Tensor sliced_ids =
-        sorted_indices_.value().slice(0, start, start + length);
-    return get_weights_by_ids(sliced_ids);
+    CHECK(readonly_db_)
+        << "ReadOnlyEmbeddingKVDB pointer must be valid to read tensor";
+    LOG(INFO) << "Reading from ReadOnlyEmbeddingKVDB";
+    auto t = at::empty(
+        c10::IntArrayRef({length, readonly_db_->get_max_D()}), options_);
+    readonly_db_->get_range_from_rdb_checkpoint(t, start + row_offset_, length);
+    // TBE may have multiple embeddings in one table padded to max D
+    // narrow to the actual shape here before returning
+    return t.narrow(1, 0, shape_[1]);
   }
 }
 
@@ -490,6 +502,7 @@ void KVTensorWrapper::set_range(
     const at::Tensor& weights) {
   // Mutex lock for disabling concurrent writes to the same KVTensor
   std::lock_guard<std::mutex> lock(mtx);
+  CHECK(db_) << "EmbeddingRocksDB must be a valid pointer to call set_range";
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D(), shape_[1]);

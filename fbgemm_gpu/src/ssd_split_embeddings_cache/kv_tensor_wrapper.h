@@ -131,19 +131,6 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   std::mutex mtx;
   c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle_;
   std::shared_ptr<ReadOnlyEmbeddingKVDB> readonly_db_;
-  // below are variables that is used to hold ReadOnlyEmbeddingKVDB constructor
-  // arguments, they will be filled up when serialize happens and will be used
-  // to construct ReadOnlyEmbeddingKVDB instance later after deserialization
-  //
-  // we don't do ReadOnlyEmbeddingKVDB construction upon KVTensorWrapper
-  // construction, because one ReadOnlyEmbeddingKVDB(rdb checkpoint) could store
-  // table shards for multiple tables, they should share the same underlying
-  // ReadOnlyEmbeddingKVDB instance to easily manage rdb checkpoint lifetime.
-  std::vector<std::string> rdb_shard_checkpoint_paths;
-  std::string tbe_uuid;
-  int64_t num_shards;
-  int64_t num_threads;
-  int64_t max_D;
   std::string checkpoint_uuid;
 };
 
