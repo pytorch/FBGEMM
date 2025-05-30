@@ -405,7 +405,6 @@ enum SSDTensor {
     {%- for tensor in ssd_tensors %}
     ret.push_back(Variable()); // {{ tensor }}
     {%- endfor %}
-    ret.push_back(Variable()); // enable_optimizer_offloading
     {%- endif %}
     {{ args_pt2.unified_pt2.split_variables | join("\n") }}
     return ret;
@@ -475,7 +474,6 @@ enum SSDTensor {
           aux_bool,
           {%- if ssd %}
           ssd_tensors.value(),
-          enable_optimizer_offloading,
           {%- endif  %}
           {{ args_pt2.unified_pt2.split_function_arg_names | join(", ") }}
           {%- endif %}
@@ -636,7 +634,6 @@ class {{ autograd_func }} :
     {%- endif %}
     {%- if ssd %}
     const at::TensorList& ssd_tensors,
-    const bool enable_optimizer_offloading,
     {%- endif %}
     {{ args_pt2.unified_pt2.split_function_args | join(", ") }}) {
 
@@ -828,7 +825,7 @@ class {{ autograd_func }} :
     {%- endif %}
 
     {%- if ssd %}
-    ctx->saved_data["enable_optimizer_offloading"] = enable_optimizer_offloading;
+    ctx->saved_data["enable_optimizer_offloading"] = utils::list_get<bool>(aux_bool, IDX_ENABLE_OPTIMIZER_OFFLOADING, false);
     {%- endif %}
 
     const auto iter = aux_int[IDX_ITER];
@@ -1167,8 +1164,7 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function_pt2(
     const c10::SymInt max_B_feature_rank = -1,
     {%- if ssd %}
     const c10::SymInt vbe_output_size = -1,
-    const std::optional<at::TensorList>& ssd_tensors = std::nullopt,
-    bool enable_optimizer_offloading = false
+    const std::optional<at::TensorList>& ssd_tensors = std::nullopt
     {%- else %}
     const c10::SymInt vbe_output_size = -1
     {%- endif %}
@@ -1262,8 +1258,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    SymInt max_B_feature_rank=-1, "
         {%- if ssd %}
         "    SymInt vbe_output_size=-1, "
-        "    Tensor[]? ssd_tensors=None, "
-        "    bool enable_optimizer_offloading=False "
+        "    Tensor[]? ssd_tensors=None "
         {%- else %}
          "    SymInt vbe_output_size=-1 "
         {%- endif %}
