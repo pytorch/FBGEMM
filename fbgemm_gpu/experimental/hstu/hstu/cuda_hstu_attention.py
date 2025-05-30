@@ -58,7 +58,7 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
                 window_size[1],
                 alpha,
                 rab,
-                is_delta_q
+                is_delta_q,
             )
         else:
             out, rab_padded = torch.ops.fbgemm.hstu_varlen_fwd_90(
@@ -210,7 +210,7 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
             None,
             None,
             None,
-            None
+            None,
         )
 
 
@@ -260,19 +260,35 @@ def hstu_attn_varlen_func(
         out: (total, nheads, headdim).
     """
     if has_drab and (rab is None):
-        raise ValueError("AssertError: rab is None, but has_drab is True, is not allowed in backward")
+        raise ValueError(
+            "AssertError: rab is None, but has_drab is True, is not allowed in backward"
+        )
     if num_contexts is not None and window_size != (-1, 0):
-        raise ValueError("AssertError: context is True and causal is not True, this is undefined behavior")
+        raise ValueError(
+            "AssertError: context is True and causal is not True, this is undefined behavior"
+        )
     if num_targets is not None and window_size != (-1, 0):
-        raise ValueError("AssertError: target is True and causal is not True, this is undefined behavior")
-    if (num_contexts is not None and is_delta_q is True) or (num_targets is not None and is_delta_q is True):
-        raise ValueError("AssertError: delta_q is True, but num_contexts or num_targets is not None, this is undefined behavior")
+        raise ValueError(
+            "AssertError: target is True and causal is not True, this is undefined behavior"
+        )
+    if (num_contexts is not None and is_delta_q is True) or (
+        num_targets is not None and is_delta_q is True
+    ):
+        raise ValueError(
+            "AssertError: delta_q is True, but num_contexts or num_targets is not None, this is undefined behavior"
+        )
     if num_targets is None and target_group_size < 1:
-        raise ValueError("AssertError: target_group_size should be greater than 0 when target is True")
+        raise ValueError(
+            "AssertError: target_group_size should be greater than 0 when target is True"
+        )
     if max_seqlen_q < max_seqlen_k and is_delta_q is False:
-        raise ValueError("AssertError: seq_len_q < seq_len_k, is_delta_q should be True, as is_delta_q represents mask behavior under the case")
+        raise ValueError(
+            "AssertError: seq_len_q < seq_len_k, is_delta_q should be True, as is_delta_q represents mask behavior under the case"
+        )
     if max_seqlen_q > max_seqlen_k:
-        raise ValueError("AssertError: seq_len_q >= seq_len_k, this is undefined behavior")
+        raise ValueError(
+            "AssertError: seq_len_q >= seq_len_k, this is undefined behavior"
+        )
 
     return HstuAttnVarlenFunc.apply(
         q,

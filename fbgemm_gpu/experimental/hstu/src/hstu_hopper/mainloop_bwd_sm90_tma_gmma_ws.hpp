@@ -1089,7 +1089,7 @@ struct CollectiveMainloopBwd {
       constexpr bool Is_in_context = decltype(is_context_type)::value;
       if (threadIdx.x > 9999) {
         printf(
-            "This would never run. But this is neccessary to avoid register overflow.\n");
+            "This would never run. But this is necessary to avoid register overflow.\n");
       }
       CUTLASS_PRAGMA_UNROLL
       for (int i = 0; i < size(tSrS); ++i) {
