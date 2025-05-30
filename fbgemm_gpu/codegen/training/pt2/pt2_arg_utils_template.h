@@ -16,14 +16,32 @@ namespace fbgemm_gpu {
  * which is a single source that controls and maintains the argument position.
 */
 
-{% for name in aux_names %}
+{%- for name in aux_names %}
 enum ArgIndex_{{ name }} {
   {%- for var in aux_args[name] %}
   IDX_{{ var | upper }} = {{ loop.index - 1 }},
   {%- endfor %}
   {{ name | upper }}_SIZE = {{ name | length }}
 };
+{%- endfor %}
 
-{% endfor %}
+namespace utils {
+  template<typename T>
+  auto list_get(const c10::List<T>& list, const int32_t idx, const T& default_value) {      
+    static_assert(
+      std::is_same_v<
+          T,
+          std::remove_cv_t<
+              std::remove_pointer_t<std::remove_reference_t<T>>>>,
+      "T must be a pure type (no pointers, references, or cv-qualifiers)");
+
+    if (idx < 0 || idx >= list.size()) {
+      return default_value;
+    }
+
+    return list[idx];
+  }
+}
+
 
 } // namespace fbgemm_gpu
