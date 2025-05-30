@@ -65,6 +65,25 @@ class SnapshotHandle {
   std::vector<snapshot_ptr_t> shard_snapshots_;
 }; // class SnapshotHandle
 
+using checkpoint_path = std::string;
+// @lint-ignore CLANGTIDY cppcoreguidelines-special-member-functions
+class CheckpointHandle {
+ public:
+  explicit CheckpointHandle(
+      EmbeddingRocksDB* db,
+      const std::string& tbe_uuid,
+      const std::string& ckpt_uuid,
+      const std::string& base_path,
+      bool use_default_ssd_path);
+
+ private:
+  friend class EmbeddingRocksDB;
+
+  EmbeddingRocksDB* db_;
+  std::string ckpt_uuid_;
+  std::vector<checkpoint_path> shard_checkpoints_;
+}; // class CheckpointHandle
+
 /// @ingroup embedding-ssd
 ///
 /// @brief An implementation of EmbeddingKVDB for RocksDB
@@ -488,6 +507,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return snapshots_.find(snapshot_handle) != snapshots_.end();
   }
 
+  bool is_valid_checkpoint(const std::string ckpt_uuid) const {
+    return checkpoints_.find(ckpt_uuid) != checkpoints_.end();
+  }
+
   int64_t get_snapshot_count() const {
     return snapshots_.size();
   }
@@ -503,6 +526,58 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto handlePtr = handle.get();
     snapshots_[handlePtr] = std::move(handle);
     return handlePtr;
+  }
+
+  std::string create_checkpoint(int64_t global_step) {
+    const auto num_ckpts = checkpoints_.size();
+    if (num_ckpts > 0) {
+      std::cerr << "WARNING: rocksdb create_checkpoint found " << num_ckpts
+                << " other checkpoints_" << std::endl;
+    }
+
+    // Removing the CHECK needs extra caution, basically we need to find a way
+    // to consistently link a KVTensor to a checkpoint. Ideally by uuid, but
+    // create_checkpoint is called earlier than state_dict and KVTensor is
+    // created inside state_dict, additionally we don't want to pass the uuid
+    // into state_dict, unless we link it manually on the caller side inside the
+    // state_dict loop, it would be random linking. For example, Case1 and Case2
+    // could call state_dict in the same batch at any order with random times,
+    // it is impossible to correctly attach each checkpoint to each KVTensor.
+    CHECK(
+        global_step_to_ckpt_uuid_.find(global_step) ==
+        global_step_to_ckpt_uuid_.end())
+        << "multiple rdb checkpoint in one global step isn't supported right now";
+    auto ckpt_uuid = facebook::strings::generateUUID();
+    auto handle = std::make_unique<CheckpointHandle>(
+        this, tbe_uuid_, ckpt_uuid, path_, use_default_ssd_path_);
+    checkpoints_[ckpt_uuid] = std::move(handle);
+    global_step_to_ckpt_uuid_[global_step] = ckpt_uuid;
+    return ckpt_uuid;
+  }
+
+  std::optional<std::string> get_active_checkpoint_uuid(int64_t global_step) {
+    if (global_step_to_ckpt_uuid_.find(global_step) !=
+        global_step_to_ckpt_uuid_.end()) {
+      return std::make_optional<std::string>(
+          global_step_to_ckpt_uuid_[global_step]);
+    }
+    return std::nullopt;
+  }
+
+  void release_checkpoint(const std::string ckpt_uuid) {
+    CHECK(is_valid_checkpoint(ckpt_uuid));
+    LOG(INFO) << "Checkpoint " << ckpt_uuid << " released";
+    checkpoints_.erase(ckpt_uuid);
+    // sweep through global_step_to_ckpt_uuid_, it should be small
+    int64_t glb_step_to_purge = -1;
+    for (const auto& [global_step, uuid] : global_step_to_ckpt_uuid_) {
+      if (ckpt_uuid == uuid) {
+        glb_step_to_purge = global_step;
+        break;
+      }
+    }
+    CHECK(glb_step_to_purge != -1) << "There must be a rdb ckpt uuid to purge";
+    global_step_to_ckpt_uuid_.erase(glb_step_to_purge);
   }
 
   void release_snapshot(const SnapshotHandle* snapshot_handle) {
@@ -1117,6 +1192,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   friend class SnapshotHandle;
+  friend class CheckpointHandle;
 
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
   std::vector<std::unique_ptr<Initializer>> initializers_;
@@ -1149,6 +1225,22 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   std::string tbe_uuid_;
   std::string path_;
   bool use_default_ssd_path_;
+
+  // rocksdb checkpoint is used to create an on disk database to support
+  // cross process read-only access, currently this is only needed for publish
+  // in async checkpoint, SSD read is handled in the same proc
+  std::unordered_map<std::string, std::unique_ptr<CheckpointHandle>>
+      checkpoints_;
+  // this is used to link KVTensor to the corresponding rdb checkpoint by global
+  // step reasons are shown below
+  // 1. rdb checkpoint is only needed during publish not checkpoint, therefore
+  // only some state_dict() calls need it
+  // 2. we dont' want to add new argument in state_dict to add complexity
+  // 3. therefore create_checkpoint is exposed up to the publish component
+  // 4. publish will call create_checkpoint() then state_dict()
+  // 5. need a way to link rdb ckpt and KVTensor(from state_dict()) together so
+  // that caller doesn't need to do the link themselves
+  std::unordered_map<int64_t, std::string> global_step_to_ckpt_uuid_;
 }; // class EmbeddingRocksDB
 
 } // namespace ssd
