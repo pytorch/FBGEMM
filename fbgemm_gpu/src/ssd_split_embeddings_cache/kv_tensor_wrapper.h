@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 #include <torch/custom_class.h>
 
+#include <sstream>
 namespace kv_mem {
 class DramKVEmbeddingCacheWrapper;
 }

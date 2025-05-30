@@ -1218,6 +1218,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
   friend class SnapshotHandle;
   friend class CheckpointHandle;
+  friend class EmbeddingKVDB;
 
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
   std::vector<std::unique_ptr<Initializer>> initializers_;
