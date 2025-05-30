@@ -99,6 +99,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   int64_t row_offset_;
   std::optional<at::Tensor> sorted_indices_ = std::nullopt;
   int64_t width_offset_;
+  std::mutex mtx;
 };
 
 } // namespace ssd

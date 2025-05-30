@@ -12,7 +12,7 @@
 #include <torch/library.h>
 
 #include <torch/custom_class.h>
-
+#include <mutex>
 #include "../dram_kv_embedding_cache/dram_kv_embedding_cache_wrapper.h"
 #include "./ssd_table_batched_embeddings.h"
 #include "embedding_rocksdb_wrapper.h"
@@ -377,6 +377,8 @@ void KVTensorWrapper::set_range(
     const int64_t start,
     const int64_t length,
     const at::Tensor& weights) {
+  // Mutex lock for disabling concurrent writes to the same KVTensor
+  std::lock_guard<std::mutex> lock(mtx);
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D(), shape_[1]);
