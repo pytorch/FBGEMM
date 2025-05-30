@@ -279,7 +279,7 @@ class WeightRow {
   }
 
   //////////////////////////////////////////////////////////////////////////////
-  // Copy the row from the embedding table into the cache
+  // Copy the row from the cache into embedding table
   //////////////////////////////////////////////////////////////////////////////
 
   DEVICE_INLINE void evict_cache(const uint32_t d, const float2 qparams) {
