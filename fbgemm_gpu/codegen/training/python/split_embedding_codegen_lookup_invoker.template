@@ -203,9 +203,13 @@ def invoke(
         "use_uniq_cache_locations_bwd": common_args.use_uniq_cache_locations_bwd,
         "use_homogeneous_placements": common_args.use_homogeneous_placements,
         "apply_global_weight_decay": apply_global_weight_decay,
+        {%- if not ssd %}
+        "mixed_D": mixed_D
+        {%- else %}
         "mixed_D": mixed_D,
-        # NOTE: Update this once it is plumbed through to the frontend
+        # TODO: Update this when frontend is ready to land
         "enable_optimizer_offloading": False
+        {%- endif %}
     }
     dict_optim_int: Dict[str, int] = {}
     dict_optim_float: Dict[str, float] = {}
