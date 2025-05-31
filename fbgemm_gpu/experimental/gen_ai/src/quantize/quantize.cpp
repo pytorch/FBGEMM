@@ -457,9 +457,22 @@ at::Tensor f8f8bf16_rowwise_meta(
     at::Tensor /* w_scale */,
     std::optional<at::Tensor> /* bias = std::nullopt */,
     bool /* use_fast_accum = true */) {
-  const at::SymInt M = XQ.sym_size(0);
-  const at::SymInt N = WQ.sym_size(0);
-  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  int64_t x_dims = XQ.dim();
+  int64_t w_dims = WQ.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of XQ must be 2 or 3, and dim of WQ must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = XQ.sym_size(0);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = XQ.sym_size(0);
+    const at::SymInt M = XQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(1);
+    Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
