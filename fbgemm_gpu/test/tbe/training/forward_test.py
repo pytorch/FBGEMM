@@ -572,7 +572,8 @@ class ForwardTest(unittest.TestCase):
         L = 10
         # NOTE: Fix to the smallest value B such that (B x L) = (number of
         # indices) > (allowed grid size x block size)
-        B = 2 ** (math.ceil(math.log2(max_num_threads / L)))
+        # Add 256 to B just in case B * L == max_num_threads
+        B = 2 ** (math.ceil(math.log2(max_num_threads / L))) + 256
         # NOTE: T is chosen to be small enough to avoid OOM errors given that
         # B x L must be large enough
         T = 3
