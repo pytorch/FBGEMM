@@ -498,7 +498,11 @@ class KvTensorWrapperTest(TestCase):
             # case 1
             width_offset = 10
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                [E, D], weights.dtype, 0, snapshot, width_offset=width_offset
+                [E, D - width_offset],
+                weights.dtype,
+                0,
+                snapshot,
+                width_offset=width_offset,
             )
             tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
             narrowed = tensor_wrapper.narrow(0, 0, 1)
@@ -524,7 +528,11 @@ class KvTensorWrapperTest(TestCase):
 
             width_offset = 10
             tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                [E, new_D], weights.dtype, 0, snapshot, width_offset=width_offset
+                [E, new_D - width_offset],
+                weights.dtype,
+                0,
+                snapshot,
+                width_offset=width_offset,
             )
             tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
             narrowed = tensor_wrapper.narrow(0, 0, 1)

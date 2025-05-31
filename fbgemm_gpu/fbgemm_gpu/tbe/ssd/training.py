@@ -591,6 +591,37 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 l2_cache_size,
                 self.cache_row_dim,
             )
+        elif self.backend_type == BackendType.DRAM:
+            logging.info(
+                f"Logging DRAM offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB,"
+                f"num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
+                f"max_D={self.max_D}"
+                f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
+                f"row_storage_bitwidth={weights_precision.bit_rate()},"
+                f"self.cache_row_dim={self.cache_row_dim},"
+                f"enable_optimizer_offloading={self.enable_optimizer_offloading},"
+                f"feature_dims={self.feature_dims},"
+                f"hash_size_cumsum={self.hash_size_cumsum}"
+            )
+            self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+                self.cache_row_dim,
+                ssd_uniform_init_lower,
+                ssd_uniform_init_upper,
+                ssd_rocksdb_shards,
+                ssd_rocksdb_shards,
+                weights_precision.bit_rate(),
+                2,
+                (
+                    tensor_pad4(self.feature_dims.cpu())
+                    if self.enable_optimizer_offloading
+                    else None
+                ),
+                (
+                    self.hash_size_cumsum.cpu()
+                    if self.enable_optimizer_offloading
+                    else None
+                ),
+            )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
 
@@ -1973,17 +2004,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         self.momentum1_dev.detach().cpu()[local_id_tensor].view(-1),
                     )
                 else:
-                    emb_opt_dim = pad4(emb_dim) + optimizer_dim
                     row_offset = table_offset - (bucket_id_start * bucket_size)
                     # using KVTensorWrapper to query backend to avoid OOM memory, since
                     # backend will return both weight and optimizer in one tensor, read the whole tensor
                     # out could OOM CPU memory.
                     tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                        shape=[emb_height, emb_opt_dim],
+                        shape=[emb_height, optimizer_dim],
                         dtype=dtype,
                         row_offset=row_offset,
                         snapshot_handle=snapshot_handle,
                         sorted_indices=sorted_id_tensor[t],
+                        width_offset=pad4(emb_dim),
                     )
                     (
                         tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
@@ -2218,7 +2249,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         if bucket_ascending_id_tensor is not None
                         else emb_height
                     ),
-                    pad4(emb_dim),
+                    emb_dim,
                 ],
                 dtype=dtype,
                 row_offset=row_offset,
