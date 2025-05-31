@@ -33,11 +33,7 @@ namespace ssd {
 
 using namespace at;
 
-#ifdef FBGEMM_FBCODE
-constexpr size_t num_ssd_drives = 8;
 const std::string ssd_mount_point = "/data00_nvidia";
-const size_t base_port = 136000;
-#endif
 
 // mem usage propertiese
 // -- block cache usage
@@ -68,6 +64,26 @@ class SnapshotHandle {
   EmbeddingRocksDB* db_;
   std::vector<snapshot_ptr_t> shard_snapshots_;
 }; // class SnapshotHandle
+
+// @lint-ignore CLANGTIDY cppcoreguidelines-special-member-functions
+class CheckpointHandle {
+ public:
+  explicit CheckpointHandle(
+      EmbeddingRocksDB* db,
+      const std::string& tbe_uuid,
+      const std::string& ckpt_uuid,
+      const std::string& base_path,
+      bool use_default_ssd_path);
+
+  std::vector<std::string> get_shard_checkpoints() const;
+
+ private:
+  friend class EmbeddingRocksDB;
+
+  EmbeddingRocksDB* db_;
+  std::string ckpt_uuid_;
+  std::vector<std::string> shard_checkpoints_;
+}; // class CheckpointHandle
 
 /// @ingroup embedding-ssd
 ///
@@ -143,6 +159,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
           const override {}
       void FindShortSuccessor(std::string*) const override {}
     };
+
+    num_threads_ = num_threads;
 
     // TODO: lots of tunables. NNI or something for this?
     rocksdb::Options options;
@@ -304,6 +322,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     snapshots_.clear();
     for (auto shard = 0; shard < dbs_.size(); ++shard) {
       dbs_[shard]->Close();
+      kv_db_utils::remove_dir(db_paths_[shard]);
+      LOG(INFO) << "deleting rocksdb shard path:" << db_paths_[shard];
     }
   }
 
@@ -320,23 +340,24 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto db_monitor_options = facebook::fb_rocksdb::DBMonitorOptions();
     db_monitor_options.fb303Prefix = "tbe_metrics";
 
-    std::string tbe_uuid = "";
+    tbe_uuid_ = facebook::strings::generateUUID();
+    use_default_ssd_path_ = !use_passed_in_path;
     if (!use_passed_in_path) {
-      path = ssd_mount_point;
-      tbe_uuid = facebook::strings::generateUUID();
+      path_ = ssd_mount_point;
+    } else {
+      path_ = path;
     }
+    db_paths_.reserve(num_shards);
+    std::string all_shards_path = "";
 #endif
     for (auto i = 0; i < num_shards; ++i) {
 #ifdef FBGEMM_FBCODE
-      int ssd_drive_idx = i % num_ssd_drives;
-      std::string ssd_idx_tbe_id_str = "";
-      if (!use_passed_in_path) {
-        ssd_idx_tbe_id_str =
-            std::to_string(ssd_drive_idx) + std::string("/") + tbe_uuid;
-      }
-      auto shard_path =
-          path + ssd_idx_tbe_id_str + std::string("_shard") + std::to_string(i);
-      used_path += shard_path + ", ";
+      auto rocksdb_path = kv_db_utils::get_rocksdb_path(
+          path_, i, tbe_uuid_, !use_passed_in_path);
+      auto shard_path = kv_db_utils::get_rocksdb_shard_path(i, rocksdb_path);
+      db_paths_.push_back(shard_path);
+      kv_db_utils::create_dir(shard_path);
+      all_shards_path += shard_path + ", ";
 #else
       auto shard_path = path + std::string("/shard_") + std::to_string(i);
 #endif
@@ -369,7 +390,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       dbs_.emplace_back(db);
     }
 #ifdef FBGEMM_FBCODE
-    LOG(INFO) << "TBE actual used_path: " << used_path;
+    LOG(INFO) << "TBE uuid: " << tbe_uuid_
+              << ", rocksdb shards paths: " << all_shards_path;
 #endif
   }
 
@@ -492,6 +514,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return snapshots_.find(snapshot_handle) != snapshots_.end();
   }
 
+  bool is_valid_checkpoint(const std::string ckpt_uuid) const {
+    return checkpoints_.find(ckpt_uuid) != checkpoints_.end();
+  }
+
   int64_t get_snapshot_count() const {
     return snapshots_.size();
   }
@@ -507,6 +533,72 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto handlePtr = handle.get();
     snapshots_[handlePtr] = std::move(handle);
     return handlePtr;
+  }
+
+  std::string create_checkpoint(int64_t global_step) {
+    const auto num_ckpts = checkpoints_.size();
+    if (num_ckpts > 0) {
+      std::cerr << "WARNING: rocksdb create_checkpoint found " << num_ckpts
+                << " other checkpoints_" << std::endl;
+    }
+
+    // Removing the CHECK needs extra caution, basically we need to find a way
+    // to consistently link a KVTensor to a checkpoint. Ideally by uuid, but
+    // create_checkpoint is called earlier than state_dict and KVTensor is
+    // created inside state_dict, additionally we don't want to pass the uuid
+    // into state_dict, unless we link it manually on the caller side inside the
+    // state_dict loop, it would be random linking. For example, Case1 and Case2
+    // could call state_dict in the same batch at any order with random times,
+    // it is impossible to correctly attach each checkpoint to each KVTensor.
+    CHECK(
+        global_step_to_ckpt_uuid_.find(global_step) ==
+        global_step_to_ckpt_uuid_.end())
+        << "multiple rdb checkpoint in one global step isn't supported right now";
+    auto ckpt_uuid = facebook::strings::generateUUID();
+    auto handle = std::make_unique<CheckpointHandle>(
+        this, tbe_uuid_, ckpt_uuid, path_, use_default_ssd_path_);
+    checkpoints_[ckpt_uuid] = std::move(handle);
+    global_step_to_ckpt_uuid_[global_step] = ckpt_uuid;
+    return ckpt_uuid;
+  }
+
+  std::optional<std::string> get_active_checkpoint_uuid(int64_t global_step) {
+    if (global_step_to_ckpt_uuid_.find(global_step) !=
+        global_step_to_ckpt_uuid_.end()) {
+      return std::make_optional<std::string>(
+          global_step_to_ckpt_uuid_[global_step]);
+    }
+    return std::nullopt;
+  }
+
+  std::vector<std::string> get_checkpoints(const std::string& ckpt_uuid) const {
+    std::vector<std::string> ret;
+    CHECK(checkpoints_.find(ckpt_uuid) != checkpoints_.end())
+        << "Checkpoint missing, it should exist when it is queried for";
+    return checkpoints_.at(ckpt_uuid)->get_shard_checkpoints();
+  }
+
+  std::string get_tbe_uuid() const {
+    return tbe_uuid_;
+  }
+
+  void release_checkpoint(const std::string ckpt_uuid) {
+    CHECK(is_valid_checkpoint(ckpt_uuid));
+    LOG(INFO) << "Rdb checkpoint " << ckpt_uuid
+              << " is released in memory, dir should still exist, "
+                 "dir deletion is controlled on the ReadOnlyEmbeddingKVDB";
+    LOG(INFO) << "Checkpoint " << ckpt_uuid << " released";
+    checkpoints_.erase(ckpt_uuid);
+    // sweep through global_step_to_ckpt_uuid_, it should be small
+    int64_t glb_step_to_purge = -1;
+    for (const auto& [global_step, uuid] : global_step_to_ckpt_uuid_) {
+      if (ckpt_uuid == uuid) {
+        glb_step_to_purge = global_step;
+        break;
+      }
+    }
+    CHECK(glb_step_to_purge != -1) << "There must be a rdb ckpt uuid to purge";
+    global_step_to_ckpt_uuid_.erase(glb_step_to_purge);
   }
 
   void release_snapshot(const SnapshotHandle* snapshot_handle) {
@@ -741,6 +833,10 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 
   int64_t num_shards() const {
     return dbs_.size();
+  }
+
+  int64_t num_threads() const {
+    return num_threads_;
   }
 
  private:
@@ -1121,6 +1217,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   }
 
   friend class SnapshotHandle;
+  friend class CheckpointHandle;
 
   std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
   std::vector<std::unique_ptr<Initializer>> initializers_;
@@ -1150,6 +1247,337 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t elem_size_;
   std::vector<int64_t> sub_table_dims_;
   std::vector<int64_t> sub_table_hash_cumsum_;
+  std::string tbe_uuid_;
+  std::string path_;
+  bool use_default_ssd_path_;
+
+  // rocksdb checkpoint is used to create an on disk database to support
+  // cross process read-only access, currently this is only needed for publish
+  // in async checkpoint, SSD read is handled in the same proc
+  std::unordered_map<std::string, std::unique_ptr<CheckpointHandle>>
+      checkpoints_;
+  // this is used to link KVTensor to the corresponding rdb checkpoint by global
+  // step reasons are shown below
+  // 1. rdb checkpoint is only needed during publish not checkpoint, therefore
+  // only some state_dict() calls need it
+  // 2. we dont' want to add new argument in state_dict to add complexity
+  // 3. therefore create_checkpoint is exposed up to the publish component
+  // 4. publish will call create_checkpoint() then state_dict()
+  // 5. need a way to link rdb ckpt and KVTensor(from state_dict()) together so
+  // that caller doesn't need to do the link themselves
+  std::unordered_map<int64_t, std::string> global_step_to_ckpt_uuid_;
+  int64_t num_threads_;
+  std::vector<std::string> db_paths_;
 }; // class EmbeddingRocksDB
+
+/// @ingroup embedding-ssd
+///
+/// @brief An implementation of ReadOnlyEmbeddingKVDB for RocksDB
+///
+class ReadOnlyEmbeddingKVDB
+    : public std::enable_shared_from_this<ReadOnlyEmbeddingKVDB> {
+ public:
+  explicit ReadOnlyEmbeddingKVDB(
+      const std::vector<std::string>& rdb_shard_checkpoint_paths,
+      const std::string& tbe_uuid,
+      int64_t num_shards,
+      int64_t num_threads,
+      int64_t max_D,
+      int64_t cache_size = 0)
+      : max_D_(max_D) {
+    class Int64Comparator : public rocksdb::Comparator {
+     public:
+      const char* Name() const override {
+        return "Int64Comparator";
+      }
+
+      int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b)
+          const override {
+        int64_t key_a = *reinterpret_cast<const int64_t*>(a.data());
+        int64_t key_b = *reinterpret_cast<const int64_t*>(b.data());
+        if (key_a < key_b) {
+          return -1;
+        }
+        if (key_a > key_b) {
+          return 1;
+        }
+        return 0;
+      }
+
+      void FindShortestSeparator(std::string*, const rocksdb::Slice&)
+          const override {}
+      void FindShortSuccessor(std::string*) const override {}
+    };
+
+    // TODO: lots of tunables. NNI or something for this?
+    rocksdb::Options options;
+    options.comparator = new Int64Comparator();
+    options.create_if_missing = true;
+
+    // TODO: probably not very compressible.
+    options.compression = rocksdb::kNoCompression;
+
+    options.target_file_size_base = int64_t(2) * 1024 * 1024 * 1024;
+
+    options.prefix_extractor.reset(
+        rocksdb::NewFixedPrefixTransform(sizeof(int64_t)));
+    options.avoid_unnecessary_blocking_io = true;
+
+    options.use_direct_reads = true;
+
+    options.statistics =
+        std::make_shared<facebook::rocks::FB303Stats>("tbe_metrics");
+    options.stats_dump_period_sec = 600;
+
+    // no bloom filter on the last level, checkout https://fburl.com/ne99girf
+    options.optimize_filters_for_hits = true;
+
+    rocksdb::BlockBasedTableOptions table_options;
+
+    if (cache_size > 0) {
+      table_options.block_cache = rocksdb::NewLRUCache(cache_size);
+      table_options.cache_index_and_filter_blocks = true;
+    } else {
+      table_options.no_block_cache = true;
+    }
+
+    table_options.index_type = rocksdb::BlockBasedTableOptions::kHashSearch;
+    table_options.data_block_index_type =
+        rocksdb::BlockBasedTableOptions::kDataBlockBinaryAndHash;
+    table_options.data_block_hash_table_util_ratio = 0.75;
+    table_options.checksum = rocksdb::ChecksumType::kNoChecksum;
+    table_options.format_version = 5;
+    table_options.read_amp_bytes_per_bit = 1;
+
+    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(16));
+    options.table_factory.reset(
+        rocksdb::NewBlockBasedTableFactory(table_options));
+    options.max_background_jobs = num_threads;
+    options.env->SetBackgroundThreads(4, rocksdb::Env::HIGH);
+    options.env->SetBackgroundThreads(1, rocksdb::Env::LOW);
+
+    options.max_open_files = -1;
+
+    auto serviceInfo = std::make_shared<facebook::fb_rocksdb::ServiceInfo>();
+    serviceInfo->oncall = "pyper_training";
+    serviceInfo->service_name = "ssd_offloading_rocksb";
+    auto db_monitor_options = facebook::fb_rocksdb::DBMonitorOptions();
+    db_monitor_options.fb303Prefix = "tbe_metrics";
+
+    tbe_uuid_ = tbe_uuid;
+    num_threads_ = num_threads;
+
+    rdb_shard_checkpoint_paths_ = rdb_shard_checkpoint_paths;
+    std::string all_shards_path = "";
+    for (auto i = 0; i < num_shards; ++i) {
+      rocksdb::DB* db;
+      all_shards_path += rdb_shard_checkpoint_paths[i] + ", ";
+      LOG(INFO) << "paths: " << all_shards_path;
+      rocksdb::Status s = facebook::fb_rocksdb::openReadOnlyRocksDB(
+          options,
+          rdb_shard_checkpoint_paths[i],
+          &db,
+          serviceInfo,
+          false,
+          facebook::fb_rocksdb::getDefaultProfileOptions(),
+          db_monitor_options);
+      CHECK(s.ok()) << "Failed to open checkpoint db for read only, error: "
+                    << s.ToString();
+      dbs_.emplace_back(db);
+    }
+    LOG(INFO) << "TBE uuid: " << tbe_uuid_
+              << ", rocksdb shards paths: " << all_shards_path;
+
+    executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards);
+    ro_.verify_checksums = false;
+    ro_.async_io = true;
+  }
+
+  std::vector<std::string> get_rdb_shard_checkpoint_paths() {
+    return rdb_shard_checkpoint_paths_;
+  }
+
+  std::string get_tbe_uuid() const {
+    return tbe_uuid_;
+  }
+
+  int64_t num_threads() const {
+    return num_threads_;
+  }
+
+  void get_range_from_rdb_checkpoint(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length) {
+    const auto seq_indices =
+        at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
+    const auto count = at::tensor({length}, at::ScalarType::Long);
+
+    get_kv_db_async_impl</*use_iterator=*/true>(seq_indices, weights, count)
+        .wait();
+  }
+
+  int64_t get_max_D() {
+    return max_D_;
+  }
+
+  int64_t num_shards() const {
+    return dbs_.size();
+  }
+
+ private:
+  // use this iterator approach only when the keys in indices are contiguous and
+  // matches the key order as defined by the comparator. i.e. the values
+  // returned by the itertor are not thrown away. in other cases using an
+  // iterator doesn't provide performance benefits.
+
+  inline int64_t get_key(const rocksdb::Slice& key_slice) {
+    return *reinterpret_cast<const int64_t*>(key_slice.data());
+  }
+
+  template <typename VALUE_T>
+  void ssd_get_weights_iterator(
+      const std::vector<rocksdb::Slice>& keys,
+      const std::vector<int32_t>& key_indices,
+      VALUE_T* weights_data_ptr,
+      std::vector<rocksdb::ColumnFamilyHandle*>& cfs,
+      int shard_id,
+      rocksdb::ReadOptions local_ro) {
+    auto iterator_ro = local_ro;
+    iterator_ro.total_order_seek = true; // disable prefix filter
+    auto it = dbs_[shard_id]->NewIterator(iterator_ro, cfs[0]);
+
+    it->Seek(keys[0]);
+    for (auto j = 0; j < keys.size(); ++j) {
+      int64_t i = key_indices[j];
+      CHECK(it->Valid()) << "missing key: " << get_key(keys[j])
+                         << " must exist in rocksdb";
+
+      const rocksdb::Slice& expected_key = keys[j];
+      CHECK_EQ(it->key().compare(expected_key), 0)
+          << "readonly rocksdb iterator key: " << get_key(it->key())
+          << "doesn't match passed-in key:" << get_key(expected_key);
+
+      const auto value = it->value();
+      if (!std::is_same<VALUE_T, uint8_t>::value) {
+        CHECK_EQ(value.size(), max_D_ * sizeof(VALUE_T));
+      }
+      std::copy(
+          reinterpret_cast<const VALUE_T*>(value.data()),
+          reinterpret_cast<const VALUE_T*>(value.data() + value.size()),
+          &(weights_data_ptr[i * max_D_]));
+
+      it->Next();
+    }
+
+    delete it;
+  }
+
+  // use_iterator=true is only efficient when the key sequence being looked up
+  // matches the key sequence matches the key sequence obtained through the
+  // iterator. see the comment for ssd_get_weights_iterator.
+  template <bool use_iterator>
+  folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async_impl(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count) {
+    RECORD_USER_SCOPE("ReadOnlyEmbeddingKVDB::get");
+    std::vector<folly::Future<folly::Unit>> futures;
+    auto count_ = count.scalar_type() == at::ScalarType::Long
+        ? *(count.data_ptr<int64_t>())
+        : *(count.data_ptr<int32_t>());
+
+    for (auto shard = 0; shard < dbs_.size(); ++shard) {
+      // Get a snapshot for the shard
+      auto local_ro = ro_;
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([=, &indices, &weights](folly::Unit) {
+                FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
+                    weights.scalar_type(), "ssd_get", [&] {
+                      using value_t = scalar_t;
+                      FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                          indices.scalar_type(), "ssd_get", [&] {
+                            using index_t = scalar_t;
+                            CHECK(indices.is_contiguous());
+                            CHECK(weights.is_contiguous());
+                            auto indices_data_ptr = indices.data_ptr<index_t>();
+                            auto D = weights.size(1);
+                            CHECK_EQ(indices.size(0), weights.size(0));
+                            CHECK_EQ(D, max_D_);
+                            auto weights_data_ptr = weights.data_ptr<value_t>();
+                            FOLLY_DECLARE_REUSED(
+                                keys, std::vector<rocksdb::Slice>);
+                            FOLLY_DECLARE_REUSED(
+                                key_indices, std::vector<int32_t>);
+                            FOLLY_DECLARE_REUSED(
+                                cfs, std::vector<rocksdb::ColumnFamilyHandle*>);
+                            FOLLY_DECLARE_REUSED(
+                                values, std::vector<rocksdb::PinnableSlice>);
+                            FOLLY_DECLARE_REUSED(
+                                statuses, std::vector<rocksdb::Status>);
+                            auto* dcf = dbs_[shard]->DefaultColumnFamily();
+                            for (auto i = 0; i < count_; ++i) {
+                              // "no-op"/empty evicted tensor
+                              if (indices_data_ptr[i] == -1) {
+                                continue;
+                              }
+                              if (kv_db_utils::hash_shard(
+                                      indices_data_ptr[i], dbs_.size()) !=
+                                  shard) {
+                                continue;
+                              }
+                              key_indices.push_back(i);
+                            }
+
+                            // bail if nothing to do
+                            if (key_indices.empty()) {
+                              return;
+                            }
+
+                            std::sort(
+                                key_indices.begin(),
+                                key_indices.end(),
+                                [&](int32_t lhs, int32_t rhs) {
+                                  auto lhs_key = indices_data_ptr[lhs];
+                                  auto rhs_key = indices_data_ptr[rhs];
+                                  return lhs_key < rhs_key;
+                                });
+                            for (const auto& i : key_indices) {
+                              const auto key = rocksdb::Slice(
+                                  reinterpret_cast<const char*>(
+                                      &(indices_data_ptr[i])),
+                                  sizeof(index_t));
+                              keys.push_back(key);
+                              cfs.push_back(dcf);
+                            }
+                            CHECK_EQ(key_indices.size(), keys.size());
+                            CHECK_EQ(key_indices.size(), cfs.size());
+
+                            CHECK(use_iterator) << "only support iterator";
+                            ssd_get_weights_iterator(
+                                keys,
+                                key_indices,
+                                weights_data_ptr,
+                                cfs,
+                                shard,
+                                local_ro);
+                          });
+                    });
+              });
+      futures.push_back(std::move(f));
+    }
+    return folly::collect(futures);
+  }
+
+  std::vector<std::unique_ptr<rocksdb::DB>> dbs_;
+  std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
+  rocksdb::ReadOptions ro_{};
+  int64_t max_D_;
+  int64_t num_threads_;
+  int64_t elem_size_;
+  std::string tbe_uuid_;
+  std::vector<std::string> rdb_shard_checkpoint_paths_;
+}; // class ReadOnlyEmbeddingKVDB
 
 } // namespace ssd
