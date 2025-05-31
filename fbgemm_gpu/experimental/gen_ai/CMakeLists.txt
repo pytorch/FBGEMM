@@ -43,7 +43,7 @@ if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${tmp_list_gpu} ${tmp_list_gpu2})
 endif()
 
-# Set the source file for FB only CPP
+# Include FB-internal code into the build
 if(USE_FB_ONLY
   AND (FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   AND (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0))
@@ -53,11 +53,15 @@ if(USE_FB_ONLY
   glob_files_nohip(fb_only_sources_gpu
       fb/src/*/*.cu)
 
-list(FILTER fb_only_sources_cpu
-  EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cpp$")
+  if(NOT FBGEMM_BUILDING_IN_FB_INTERNAL)
+    # NOTE: Some FB-internal code explicitly require an FB-internal
+    # environment to build, such as code that depends on NCCLX
+    list(FILTER fb_only_sources_cpu
+      EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cpp$")
 
-list(FILTER fb_only_sources_gpu
-  EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cu$")
+    list(FILTER fb_only_sources_gpu
+      EXCLUDE REGEX "fb/src/tensor_parallel(/.*)*\\.cu$")
+  endif()
 
   list(APPEND experimental_gen_ai_cpp_source_files_cpu ${fb_only_sources_cpu})
   list(APPEND experimental_gen_ai_cpp_source_files_gpu ${fb_only_sources_gpu})
