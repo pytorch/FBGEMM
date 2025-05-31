@@ -10,7 +10,7 @@
 #include <folly/logging/xlog.h>
 #include <gtest/gtest.h>
 #include <filesystem>
-#include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/ssd_table_batched_embeddings.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/ssd_table_batched_embeddings.h" // @manual
 
 namespace embedding_cache {
 
