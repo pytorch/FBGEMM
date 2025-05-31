@@ -2137,6 +2137,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             no_snapshot=no_snapshot,
             should_flush=should_flush,
         )
+        checkpoint_handle = self.ssd_db.get_active_checkpoint_uuid(self.step)
 
         dtype = self.weights_precision.as_dtype()
         if self.load_state_dict and self.kv_zch_params:
@@ -2228,6 +2229,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 sorted_indices=(
                     bucket_ascending_id_tensor if self.kv_zch_params else None
                 ),
+                checkpoint_handle=checkpoint_handle,
             )
             (
                 tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
@@ -2458,6 +2460,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         self.ssd_db.flush()
         self.last_flush_step = self.step
+
+    def create_rocksdb_hard_link_snapshot(self) -> None:
+        """
+        Create a rocksdb hard link snapshot to provide cross procs access to the underlying data
+        """
+        self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
 
     def prepare_inputs(
         self,
