@@ -504,12 +504,22 @@ at::Tensor f8f8bf16_blockwise_meta(
 }
 
 std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
-    at::Tensor X,
-    std::optional<at::Tensor> bs,
+    at::Tensor input,
+    std::optional<at::Tensor> /* bs */,
     std::optional<at::Tensor> /*scale_ub*/,
     const bool /*stochastic_rounding*/) {
-  auto Y = at::empty_like(X, X.options().dtype(torch_fp8_e4m3));
-  auto scale = at::empty({}, X.options().dtype(at::kBFloat16));
+  int dims = input.dim();
+  TORCH_CHECK(dims == 2 || dims == 3, "The dim of input should be 2 or 3");
+  at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  at::Tensor scale;
+  if (dims == 2) {
+    const at::SymInt M = input.sym_size(0);
+    scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  } else {
+    const at::SymInt B = input.sym_size(0);
+    const at::SymInt M = input.sym_size(1);
+    scale = at::empty_symint({B, M}, input.options().dtype(at::kFloat));
+  }
   return {Y, scale};
 }
 
@@ -631,13 +641,22 @@ at::Tensor bf16i4bf16_rowwise_batched_meta(
 
 std::vector<at::Tensor> quantize_fp8_per_row_meta(
     at::Tensor input,
-    std::optional<at::Tensor> bs,
-    std::optional<at::Tensor> scale_ub,
+    std::optional<at::Tensor> /* bs */,
+    std::optional<at::Tensor> /* scale_ub */,
     std::optional<c10::ScalarType> /* output_dtype */,
     bool /* stochastic_rounding */) {
-  const at::SymInt M = input.sym_size(0);
-  auto Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
-  auto scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  int dims = input.dim();
+  TORCH_CHECK(dims == 2 || dims == 3, "The dim of input should be 2 or 3");
+  at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  at::Tensor scale;
+  if (dims == 2) {
+    const at::SymInt M = input.sym_size(0);
+    scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  } else {
+    const at::SymInt B = input.sym_size(0);
+    const at::SymInt M = input.sym_size(1);
+    scale = at::empty_symint({B, M}, input.options().dtype(at::kFloat));
+  }
   return {Y, scale};
 }
 
@@ -653,9 +672,18 @@ std::vector<at::Tensor> quantize_fp8_per_col_meta(
     at::Tensor input,
     std::optional<at::Tensor> /* bs */,
     std::optional<at::Tensor> /* scale_ub */) {
-  const at::SymInt M = input.sym_size(0);
-  auto Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
-  auto scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  int dims = input.dim();
+  TORCH_CHECK(dims == 2 || dims == 3, "The dim of input should be 2 or 3");
+  at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
+  at::Tensor scale;
+  if (dims == 2) {
+    const at::SymInt M = input.sym_size(0);
+    scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  } else {
+    const at::SymInt B = input.sym_size(0);
+    const at::SymInt M = input.sym_size(1);
+    scale = at::empty_symint({B, M}, input.options().dtype(at::kFloat));
+  }
   return {Y, scale};
 }
 
