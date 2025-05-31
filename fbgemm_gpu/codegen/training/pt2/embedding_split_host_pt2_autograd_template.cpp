@@ -42,7 +42,11 @@
 #include "torch/csrc/autograd/record_function_ops.h"
 #include "torch/csrc/autograd/record_function_ops.h"
 
+{%- if ssd %}
+#include "pt2_arg_utils_ssd.h"
+{%- else %}
 #include "pt2_arg_utils.h"
+{%- endif %}
 
 using Tensor = at::Tensor;
 
