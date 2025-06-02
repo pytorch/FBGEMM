@@ -31,7 +31,8 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t row_storage_bitwidth = 32,
       int64_t weight_ttl_in_hours = 2,
       const std::optional<at::Tensor>& table_dims = std::nullopt,
-      const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt) {
+      const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
+      bool enable_async_update = false) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -41,6 +42,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_threads,
           row_storage_bitwidth,
           weight_ttl_in_hours,
+          enable_async_update,
           table_dims,
           hash_size_cumsum);
     } else if (row_storage_bitwidth == 32) {
@@ -52,6 +54,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_threads,
           row_storage_bitwidth,
           weight_ttl_in_hours,
+          enable_async_update,
           table_dims,
           hash_size_cumsum);
     } else {
