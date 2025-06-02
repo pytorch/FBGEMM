@@ -260,17 +260,34 @@ __configure_fbgemm_gpu_build_cuda () {
     #   https://github.com/NVIDIA/nvbench/discussions/129
     #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
     #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
-    if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="7.0;8.0;9.0a;10.0a;12.0a"
 
-    elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
-          [[ $cuda_version_nvcc == *"V12.4"* ]] ||
-          [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="7.0;8.0;9.0a"
 
-    else
-      local arch_list="7.0;8.0;9.0"
-    fi
+      if [[ $fbgemm_build_target == "hstu" ]]; then
+        if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
+          local arch_list="8.0;9.0a;10.0a;12.0a"
+
+        elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
+              [[ $cuda_version_nvcc == *"V12.4"* ]] ||
+              [[ $cuda_version_nvcc == *"V12.1"* ]]; then
+          local arch_list="8.0;9.0a"
+
+        else
+          local arch_list="NONE"
+        fi
+
+      else
+        if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
+          local arch_list="7.0;8.0;9.0a;10.0a;12.0a"
+
+        elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
+              [[ $cuda_version_nvcc == *"V12.4"* ]] ||
+              [[ $cuda_version_nvcc == *"V12.1"* ]]; then
+          local arch_list="7.0;8.0;9.0a"
+
+        else
+          local arch_list="7.0;8.0;9.0"
+        fi
+      fi
   fi
   echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
 
