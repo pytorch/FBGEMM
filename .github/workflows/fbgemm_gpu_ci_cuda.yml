@@ -79,7 +79,6 @@ jobs:
           { arch: x86, instance: "linux.8xlarge.memory", build-target: "genai", cuda-version: "12.6.3" },
           { arch: x86, instance: "linux.8xlarge.memory", build-target: "genai", cuda-version: "12.8.0" },
 
-          { arch: x86, instance: "linux.24xlarge", build-target: "hstu", cuda-version: "11.8.0" },
           { arch: x86, instance: "linux.24xlarge", build-target: "hstu", cuda-version: "12.6.3" },
           { arch: x86, instance: "linux.24xlarge", build-target: "hstu", cuda-version: "12.8.0" },
         ]
