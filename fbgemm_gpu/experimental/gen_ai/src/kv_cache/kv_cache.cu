@@ -3057,12 +3057,12 @@ quantize_fp8_kv(fx4 dst, T* dst_row_q, __half2* qparam, bool do_norm) {
     warp_max = warpReduceMax(thread_max, mask);
 
     auto bounded_max = (warp_max - warp_min) / 2;
-    //  TODO: Pass scale_ub
-    const float* scale_ub = nullptr;
+    // max FP16 value is 65504.0f.
+    // Divide by 2 to avoid overflow during
+    // e4m3fn (NV) to e4m3fnuz (AMD) conversion
+    const float scale_ub = 65500.0f / 2;
     constexpr float min_scaling_factor = 1.0f / (FP8_E4M3_MAX::value * 512.f);
-    if (scale_ub != nullptr) {
-      bounded_max = std::min(bounded_max, *scale_ub);
-    }
+    bounded_max = std::min(bounded_max, scale_ub);
     scale = static_cast<float>(
         std::max(bounded_max / FP8_E4M3_MAX::value, min_scaling_factor));
     shift = warp_min + FP8_E4M3_MAX::value * scale;
