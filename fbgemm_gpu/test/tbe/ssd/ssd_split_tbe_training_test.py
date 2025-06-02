@@ -412,7 +412,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             kv_zch_params=kv_zch_param,
         ).cuda()
 
-        self.assertTrue(emb.ssd_db.is_auto_compaction_enabled())
+        if backend_type == BackendType.SSD:
+            self.assertTrue(emb.ssd_db.is_auto_compaction_enabled())
 
         # By doing the check for ssd_db being None below, we also access the getter property of ssd_db, which will
         # force the synchronization of lazy_init_thread, and then reset it to None.
@@ -471,6 +472,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         prefetch_pipeline: bool = False,
         bulk_init_chunk_size: int = 0,
         lazy_bulk_init_enabled: bool = False,
+        backend_type: BackendType = BackendType.SSD,
     ) -> Tuple[SSDTableBatchedEmbeddingBags, List[torch.nn.EmbeddingBag]]:
         """
         Generate embedding modules (i,e., SSDTableBatchedEmbeddingBags and
@@ -549,6 +551,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             l2_cache_size=8,
             bulk_init_chunk_size=bulk_init_chunk_size,
             lazy_bulk_init_enabled=lazy_bulk_init_enabled,
+            backend_type=backend_type,
         ).cuda()
 
         if bulk_init_chunk_size > 0 and lazy_bulk_init_enabled:
@@ -556,8 +559,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 emb.lazy_init_thread,
                 "if bulk_init_chunk_size > 0, lazy_init_thread must be set and it should not be force-synchronized yet",
             )
-
-        self.assertTrue(emb.ssd_db.is_auto_compaction_enabled())
+        if backend_type == BackendType.SSD:
+            self.assertTrue(emb.ssd_db.is_auto_compaction_enabled())
 
         # By doing the check for ssd_db being None below, we also access the getter property of ssd_db, which will
         # force the synchronization of lazy_init_thread, and then reset it to None.
@@ -632,6 +635,26 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 output.append((tensors[t][start[t] : start[t] + b]).flatten())
                 start[t] += b
         return torch.cat(output, dim=0)
+
+    def create_indices_mapping(
+        self, bucket_asc_ids_list: List[int], bucket_asc_ids_list2: List[int], t: int
+    ) -> List[int]:
+        bucket_asc_ids_list_flat = bucket_asc_ids_list[t].flatten().numpy().tolist()
+        bucket_asc_ids_list2_flat = bucket_asc_ids_list2[t].flatten().numpy().tolist()
+
+        # Create a dictionary mapping values to their indices in list1
+        index_dict = {}
+        for i, val in enumerate(bucket_asc_ids_list_flat):
+            if val not in index_dict:
+                index_dict[val] = [i]
+            else:
+                index_dict[val].append(i)
+        # Find the indices of elements in list2 as if they were in list1
+        indices = []
+        for val in bucket_asc_ids_list2_flat:
+            idx = index_dict[val].pop(0)
+            indices.append(idx)
+        return indices
 
     def execute_ssd_forward_(
         self,
@@ -729,7 +752,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         return output_ref_list, output
 
-    @given(**default_st)
+    @given(
+        **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
+    )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_forward(
         self,
@@ -746,10 +771,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         share_table: bool,
         trigger_bounds_check: bool,
         mixed_B: bool,
+        backend_type: BackendType,
     ) -> None:
 
         assume(not weighted or pooling_mode == PoolingMode.SUM)
         assume(not mixed_B or pooling_mode != PoolingMode.NONE)
+
         # Generate embedding modules
         (
             emb,
@@ -766,6 +793,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             output_dtype=output_dtype,
             share_table=share_table,
+            backend_type=backend_type,
         )
 
         # Generate inputs
@@ -802,7 +830,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-    @given(**default_st)
+    @given(
+        **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
+    )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_ssd_backward_adagrad(
         self,
@@ -819,6 +849,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         share_table: bool,
         trigger_bounds_check: bool,
         mixed_B: bool,
+        backend_type: BackendType,
     ) -> None:
         assume(not weighted or pooling_mode == PoolingMode.SUM)
         assume(not mixed_B or pooling_mode != PoolingMode.NONE)
@@ -847,6 +878,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weights_precision=weights_precision,
             output_dtype=output_dtype,
             share_table=share_table,
+            backend_type=backend_type,
         )
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
@@ -1476,6 +1508,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         **default_st,
         num_buckets=st.integers(min_value=10, max_value=15),
+        backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_db_forward(
@@ -1494,11 +1527,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         trigger_bounds_check: bool,
         mixed_B: bool,
         num_buckets: int,
+        backend_type: BackendType,
     ) -> None:
         trigger_bounds_check = False  # don't stimulate boundary check cases
         assume(not weighted or pooling_mode == PoolingMode.SUM)
         assume(not mixed_B or pooling_mode != PoolingMode.NONE)
-
         # Generate embedding modules
         (
             emb,
@@ -1520,6 +1553,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             share_table=share_table,
             num_buckets=num_buckets,
+            backend_type=backend_type,
         )
 
         # Generate inputs
@@ -1564,6 +1598,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         opt_offloading=st.just(
             False
         ),  # make it st.booleans when Benson's opt offloading diff is landed
+        backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_emb_state_dict(
@@ -1583,6 +1618,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         mixed_B: bool,
         num_buckets: int,
         opt_offloading: bool,
+        backend_type: BackendType,
     ) -> None:
         # Constants
         lr = 0.5
@@ -1618,6 +1654,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             share_table=share_table,
             num_buckets=num_buckets,
             enable_optimizer_offloading=opt_offloading,
+            backend_type=backend_type,
         )
 
         # Generate inputs
@@ -2015,6 +2052,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         **default_st,
         num_buckets=st.integers(min_value=10, max_value=15),
+        backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_apply_kv_state_dict(
@@ -2033,6 +2071,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         trigger_bounds_check: bool,
         mixed_B: bool,
         num_buckets: int,
+        backend_type: BackendType,
     ) -> None:
         # Constants
         lr = 0.5
@@ -2069,6 +2108,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             share_table=share_table,
             num_buckets=num_buckets,
             enable_optimizer_offloading=False,
+            backend_type=backend_type,
         )
 
         # Generate inputs
@@ -2163,7 +2203,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             prefetch_pipeline=False,
             bounds_check_mode=BoundsCheckMode.WARNING,
             l2_cache_size=8,
-            backend_type=BackendType.SSD,
+            backend_type=backend_type,
             kv_zch_params=emb.kv_zch_params,
         ).cuda()
 
@@ -2195,32 +2235,37 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
         emb2.flush(True)
         # Compare emb state dict with expected values from nn.EmbeddingBag
-        emb_state_dict_list2, bucket_asc_ids_list2, num_active_id_per_bucket_list2 = (
-            emb2.split_embedding_weights(no_snapshot=False, should_flush=True)
-        )
+        (
+            emb_state_dict_list2,
+            bucket_asc_ids_list2,
+            num_active_id_per_bucket_list2,
+        ) = emb2.split_embedding_weights(no_snapshot=False, should_flush=True)
         split_optimizer_states2 = emb2.split_optimizer_states(bucket_asc_ids_list2)
 
         for t in range(len(emb.embedding_specs)):
-            torch.testing.assert_close(
-                split_optimizer_states[t],
-                split_optimizer_states2[t],
-                atol=tolerance,
-                rtol=tolerance,
+            indices = self.create_indices_mapping(
+                bucket_asc_ids_list, bucket_asc_ids_list2, t
             )
-            torch.testing.assert_close(
-                # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
-                emb_state_dict_list[t].full_tensor(),
-                # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
-                emb_state_dict_list2[t].full_tensor(),
-                atol=tolerance,
-                rtol=tolerance,
-            )
-            torch.testing.assert_close(
-                bucket_asc_ids_list[t],
-                bucket_asc_ids_list2[t],
-                atol=tolerance,
-                rtol=tolerance,
-            )
+            for i, val in enumerate(indices):
+                torch.testing.assert_close(
+                    bucket_asc_ids_list[t][i],
+                    bucket_asc_ids_list2[t][val],
+                    atol=tolerance,
+                    rtol=tolerance,
+                )
+
+                torch.testing.assert_close(
+                    emb_state_dict_list[t].full_tensor()[i],
+                    emb_state_dict_list2[t].full_tensor()[val],
+                    atol=tolerance,
+                    rtol=tolerance,
+                )
+                torch.testing.assert_close(
+                    split_optimizer_states[t][i],
+                    split_optimizer_states2[t][val],
+                    atol=tolerance,
+                    rtol=tolerance,
+                )
             torch.testing.assert_close(
                 num_active_id_per_bucket_list[t],
                 num_active_id_per_bucket_list2[t],
