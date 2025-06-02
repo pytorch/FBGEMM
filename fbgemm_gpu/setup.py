@@ -103,6 +103,9 @@ class FbgemmGpuBuild:
         print(f"[SETUP.PY] Other arguments: {other_args}")
         return FbgemmGpuBuild(setup_py_args, other_args)
 
+    def onFBMachine(self) -> bool:
+        return os.environ.get("HOSTNAME", "").endswith("facebook.com")
+
     def nova_flag(self) -> Optional[int]:
         if "BUILD_FROM_NOVA" in os.environ:
             if str(os.getenv("BUILD_FROM_NOVA")) == "0":
@@ -313,8 +316,15 @@ class FbgemmGpuBuild:
             )
 
         if self.args.use_fb_only:
-            print("[SETUP.PY] Building the FB ONLY operators of FBGEMM_GPU ...")
+            # Include FB-internal code into the build
+            print("[SETUP.PY] Include FB-internal code into the build ...")
             cmake_args.append("-DUSE_FB_ONLY=ON")
+
+        if self.onFBMachine():
+            # NOTE: Some FB-internal code explicitly require an FB-internal
+            # environment to build, such as code that depends on NCCLX
+            print("[SETUP.PY] Build takes place in an FB-internal machine ...")
+            cmake_args.append("-DFBGEMM_BUILDING_IN_FB_INTERNAL=ON")
 
         if self.args.cxxprefix:
             logging.debug("[SETUP.PY] Setting CMake flags ...")
