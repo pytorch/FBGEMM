@@ -3,9 +3,9 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# This workflow is used for FBGEMM GPU/GenAI CUDA CI as well as nightly builds
-# of FBGEMM GPU/GenAI CUDA against PyTorch-CUDA Nightly.
-name: FBGEMM GPU/GenAI CUDA CI
+# This workflow is used for FBGEMM GPU/GenAI/HSTU CUDA CI as well as nightly
+# builds of FBGEMM GPU/GenAI/HSTU CUDA against PyTorch-CUDA Nightly.
+name: FBGEMM GPU/GenAI/HSTU CUDA CI
 
 on:
   # PR Trigger (enabled for regression checks and debugging)
