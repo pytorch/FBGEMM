@@ -74,9 +74,14 @@ jobs:
           { arch: x86, instance: "linux.24xlarge", build-target: "default", cuda-version: "11.8.0" },
           { arch: x86, instance: "linux.24xlarge", build-target: "default", cuda-version: "12.6.3" },
           { arch: x86, instance: "linux.24xlarge", build-target: "default", cuda-version: "12.8.0" },
+
           # GenAI is unable to support 11.8.0 anymore as of https://github.com/pytorch/FBGEMM/pull/4138
           { arch: x86, instance: "linux.8xlarge.memory", build-target: "genai", cuda-version: "12.6.3" },
           { arch: x86, instance: "linux.8xlarge.memory", build-target: "genai", cuda-version: "12.8.0" },
+
+          { arch: x86, instance: "linux.24xlarge", build-target: "hstu", cuda-version: "11.8.0" },
+          { arch: x86, instance: "linux.24xlarge", build-target: "hstu", cuda-version: "12.6.3" },
+          { arch: x86, instance: "linux.24xlarge", build-target: "hstu", cuda-version: "12.8.0" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         compiler: [ "gcc", "clang" ]
