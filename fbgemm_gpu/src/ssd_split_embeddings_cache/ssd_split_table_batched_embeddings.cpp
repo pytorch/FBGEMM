@@ -349,20 +349,20 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D(), shape_[1]);
+  CHECK_GE(db_->get_max_D(), shape_[1] + width_offset_);
   TORCH_CHECK(
       (snapshot_handle_ == nullptr) ==
           (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
       "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
   if (!sorted_indices_.has_value()) {
-    int64_t tensor_width = shape_[1] - width_offset_;
-    auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
+    auto t = at::empty(c10::IntArrayRef({length, shape_[1]}), options_);
     db_->get_range_from_snapshot(
         t,
         start + row_offset_,
         length,
         snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
         width_offset_,
-        tensor_width);
+        shape_[1]);
     CHECK(t.is_contiguous());
     return t;
   } else {
@@ -415,20 +415,20 @@ void KVTensorWrapper::set_weights_and_ids(
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D(), shape_[1]);
+  CHECK_GE(db_->get_max_D(), shape_[1] + width_offset_);
   TORCH_CHECK(
       (snapshot_handle_ == nullptr) ==
           (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
       "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
-  int64_t tensor_width = shape_[1] - width_offset_;
   auto weights =
-      at::empty(c10::IntArrayRef({ids.size(0), tensor_width}), options_);
+      at::empty(c10::IntArrayRef({ids.size(0), shape_[1]}), options_);
   auto linearized_ids = ids + row_offset_;
   db_->get_kv_from_storage_by_snapshot(
       linearized_ids,
       weights,
       snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
       width_offset_,
-      tensor_width);
+      shape_[1]);
   CHECK(weights.is_contiguous());
   return weights;
 }
@@ -594,7 +594,10 @@ static auto dram_kv_embedding_cache_wrapper =
                 int64_t,
                 int64_t,
                 int64_t,
-                int64_t>(),
+                int64_t,
+                std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
+                bool>(),
             "",
             {
                 torch::arg("max_D"),
@@ -604,6 +607,9 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("num_threads") = 32,
                 torch::arg("row_storage_bitwidth") = 32,
                 torch::arg("weight_ttl_in_hours") = 2,
+                torch::arg("table_dims") = std::nullopt,
+                torch::arg("hash_size_cumsum") = std::nullopt,
+                torch::arg("enable_async_update") = false,
             })
         .def(
             "set_cuda",
@@ -642,7 +648,10 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("start"),
                 torch::arg("end"),
             })
-        .def("flush", &DramKVEmbeddingCacheWrapper::flush);
+        .def("flush", &DramKVEmbeddingCacheWrapper::flush)
+        .def(
+            "get_keys_in_range_by_snapshot",
+            &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")

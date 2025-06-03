@@ -12,6 +12,10 @@
 #include "../ssd_split_embeddings_cache/kv_tensor_wrapper.h"
 #include "dram_kv_embedding_cache.h"
 
+namespace ssd {
+struct EmbeddingSnapshotHandleWrapper;
+}
+
 namespace {
 using DramKVEmbeddingCacheVariant = std::variant<
     std::shared_ptr<kv_mem::DramKVEmbeddingCache<float>>,
@@ -29,7 +33,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
-      int64_t weight_ttl_in_hours = 2) {
+      int64_t weight_ttl_in_hours = 2,
+      const std::optional<at::Tensor>& table_dims = std::nullopt,
+      const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
+      bool enable_async_update = false) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -38,7 +45,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_shards,
           num_threads,
           row_storage_bitwidth,
-          weight_ttl_in_hours);
+          weight_ttl_in_hours,
+          enable_async_update,
+          table_dims,
+          hash_size_cumsum);
     } else if (row_storage_bitwidth == 32) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
           max_D,
@@ -47,7 +57,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_shards,
           num_threads,
           row_storage_bitwidth,
-          weight_ttl_in_hours);
+          weight_ttl_in_hours,
+          enable_async_update,
+          table_dims,
+          hash_size_cumsum);
     } else {
       throw std::runtime_error("Failed to create recording device");
     }
@@ -81,6 +94,16 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->set_range_to_storage(weights, start, length);
   }
 
+  at::Tensor get_keys_in_range_by_snapshot(
+      int64_t start_id,
+      int64_t end_id,
+      int64_t id_offset,
+      const std::optional<
+          c10::intrusive_ptr<ssd::EmbeddingSnapshotHandleWrapper>>&
+      /*snapshot_handle*/) {
+    return impl_->get_keys_in_range_impl(start_id, end_id, id_offset);
+  }
+
   void get(
       at::Tensor indices,
       at::Tensor weights,
@@ -94,7 +117,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   }
 
   at::Tensor get_keys_in_range(int64_t start, int64_t end) {
-    return impl_->get_keys_in_range(start, end);
+    return impl_->get_keys_in_range_impl(start, end, std::nullopt);
   }
 
  private:

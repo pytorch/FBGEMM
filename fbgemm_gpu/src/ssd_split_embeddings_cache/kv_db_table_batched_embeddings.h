@@ -251,7 +251,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // finished, it could also be called in unitest to sync
   void wait_util_filling_work_done();
 
-  virtual at::Tensor get_keys_in_range(int64_t start, int64_t end) {
+  virtual at::Tensor get_keys_in_range_impl(
+      int64_t start,
+      int64_t end,
+      std::optional<int64_t> offset) {
     (void)start;
     (void)end;
     FBEXCEPTION("Not implemented");
@@ -396,6 +399,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   const int64_t unique_id_;
   const int64_t num_shards_;
   const int64_t max_D_;
+  std::vector<int64_t> sub_table_dims_;
+  std::vector<int64_t> sub_table_hash_cumsum_;
   folly::Optional<at::ScalarType> index_dtype_{folly::none};
   folly::Optional<at::ScalarType> weights_dtype_{folly::none};
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_tp_;
