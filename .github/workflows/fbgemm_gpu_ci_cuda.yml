@@ -171,6 +171,8 @@ jobs:
           { build-target: "default", cuda-version: "12.8.0" },
           { build-target: "genai", cuda-version: "12.6.3" },
           { build-target: "genai", cuda-version: "12.8.0" },
+          { build-target: "hstu", cuda-version: "12.6.3" },
+          { build-target: "hstu", cuda-version: "12.8.0" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         # Specify exactly ONE CUDA version for artifact publish
