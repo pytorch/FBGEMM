@@ -95,6 +95,7 @@ __install_check_operator_registrations () {
 
   local test_operators=()
   echo "[INSTALL] Check for operator registrations ..."
+
   if [ "$installed_fbgemm_target" == "genai" ]; then
     # NOTE: Currently, ROCm builds of GenAI only include quantization
     # operators.
@@ -115,7 +116,13 @@ __install_check_operator_registrations () {
       fi
     fi
 
-  else
+  elif [ "$installed_fbgemm_target" == "hstu" ]; then
+    test_operators+=(
+      "torch.ops.fbgemm.hstu_varlen_bwd_80"
+      "torch.ops.fbgemm.hstu_varlen_bwd_90"
+    )
+
+  elif [ "$installed_fbgemm_target" == "genai" ]; then
     test_operators+=(
       "torch.ops.fbgemm.asynchronous_inclusive_cumsum"
       "torch.ops.fbgemm.split_embedding_codegen_lookup_sgd_function_pt2"
