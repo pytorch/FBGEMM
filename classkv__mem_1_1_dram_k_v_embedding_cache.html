@@ -108,14 +108,14 @@ Inheritance diagram for DramKVEmbeddingCache&lt; weight_type &gt;:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:a95660508eb9d3993d6801470fe45038f" id="r_a95660508eb9d3993d6801470fe45038f"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a95660508eb9d3993d6801470fe45038f">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, int64_t weight_ttl_in_hours=2)</td></tr>
-<tr class="separator:a95660508eb9d3993d6801470fe45038f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac1ad9222475a52d30083d2d79d50419a" id="r_ac1ad9222475a52d30083d2d79d50419a"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ac1ad9222475a52d30083d2d79d50419a">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, int64_t weight_ttl_in_hours=2, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt)</td></tr>
+<tr class="separator:ac1ad9222475a52d30083d2d79d50419a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a5d2cd0eb820f39a1b921168cb6be94c0" id="r_a5d2cd0eb820f39a1b921168cb6be94c0"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5d2cd0eb820f39a1b921168cb6be94c0">get_keys_in_range</a> (int64_t start, int64_t end) override</td></tr>
 <tr class="separator:a5d2cd0eb820f39a1b921168cb6be94c0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab197c34bb53bdad19a2521898a341ffc" id="r_ab197c34bb53bdad19a2521898a341ffc"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab197c34bb53bdad19a2521898a341ffc">set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const <a class="el" href="group__embedding-ssd.html#gaf1ce371b1e598c817791f840612cc1a3">kv_db::RocksdbWriteMode</a> w_mode=kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override</td></tr>
 <tr class="separator:ab197c34bb53bdad19a2521898a341ffc"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a21db5ba27d58aedfbc4dbd8997975135" id="r_a21db5ba27d58aedfbc4dbd8997975135"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a21db5ba27d58aedfbc4dbd8997975135">get_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count) override</td></tr>
-<tr class="separator:a21db5ba27d58aedfbc4dbd8997975135"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a31225c0d4a54952f46db295152b22065" id="r_a31225c0d4a54952f46db295152b22065"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31225c0d4a54952f46db295152b22065">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt)</td></tr>
+<tr class="separator:a31225c0d4a54952f46db295152b22065"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="inherit_header pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td colspan="2" onclick="javascript:dynsection.toggleInherit('pub_methods_classkv__db_1_1_embedding_k_v_d_b')"><img src="closed.png" alt="-"/>&#160;Public Member Functions inherited from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -127,8 +127,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a52afc11e0dda55903f95469edb66ab6c inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="a95660508eb9d3993d6801470fe45038f" name="a95660508eb9d3993d6801470fe45038f"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a95660508eb9d3993d6801470fe45038f">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
+<a id="ac1ad9222475a52d30083d2d79d50419a" name="ac1ad9222475a52d30083d2d79d50419a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac1ad9222475a52d30083d2d79d50419a">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -171,7 +171,17 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>weight_ttl_in_hours</em></span><span class="paramdefsep"> = </span><span class="paramdefval">2</span>&#160;)</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>weight_ttl_in_hours</em></span><span class="paramdefsep"> = </span><span class="paramdefval">2</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>table_dims</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; at::Tensor &gt;</td>          <td class="paramname"><span class="paramname"><em>hash_size_cumsum</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
         </tr>
       </table>
   </td>
@@ -190,6 +200,8 @@ template&lt;typename weight_type&gt; </div>
     <tr><td class="paramname">num_threads</td><td>num of threads that kvstore needs to be run upon for parallelization. This is to improve read and write performance. </td></tr>
     <tr><td class="paramname">row_storage_bitwidth</td><td>storage bitwidth for each row of embedding for initializers. 32 kFloat || 16 kHalf || 8 kByte </td></tr>
     <tr><td class="paramname">weight_ttl_in_hours</td><td>ttl in hours for each entry before it being evicted </td></tr>
+    <tr><td class="paramname">table_dims</td><td>the table dimension for each table </td></tr>
+    <tr><td class="paramname">hash_size_cumsum</td><td>the hash size cumulative sum for each table </td></tr>
   </table>
   </dd>
 </dl>
@@ -233,8 +245,8 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
-<a id="a21db5ba27d58aedfbc4dbd8997975135" name="a21db5ba27d58aedfbc4dbd8997975135"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a21db5ba27d58aedfbc4dbd8997975135">&#9670;&#160;</a></span>get_kv_db_async()</h2>
+<a id="a31225c0d4a54952f46db295152b22065" name="a31225c0d4a54952f46db295152b22065"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a31225c0d4a54952f46db295152b22065">&#9670;&#160;</a></span>get_kv_db_async_impl()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -245,7 +257,7 @@ template&lt;typename weight_type&gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt; get_kv_db_async </td>
+          <td class="memname">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt; get_kv_db_async_impl </td>
           <td>(</td>
           <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
         </tr>
@@ -257,12 +269,22 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>&#160;)</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>width_offset</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>width_length</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
         </tr>
       </table>
   </td>
   <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
@@ -276,8 +298,6 @@ template&lt;typename weight_type&gt; </div>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
-
-<p>Implements <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#ac346e4fb361109aa7b64c7ee70582704">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>
