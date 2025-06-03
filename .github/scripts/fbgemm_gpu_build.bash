@@ -506,7 +506,7 @@ __build_fbgemm_gpu_common_pre_steps () {
   fi
 
   # Set the default the FBGEMM build variant to be CUDA
-  if [[ ! " docs cpu cuda rocm " =~ "$fbgemm_build_target" ]]; then
+  if [[ ! " docs cpu cuda rocm " =~ "$fbgemm_build_variant" ]]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM build VARIANT: ${fbgemm_build_variant}"
     echo "[BUILD] Defaulting to CUDA"
