@@ -130,6 +130,7 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
     const Tensor& vbe_B_offsets_rank_per_feature,
     const Tensor& vbe_output_offsets_feature_rank,
     const c10::SymInt max_B,
+    const Tensor& B_offsets,
     {%- endif %}
     const bool /*is_experimental = false*/,
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
@@ -340,6 +341,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor vbe_B_offsets_rank_per_feature, "
         "    Tensor vbe_output_offsets_feature_rank, "
         "    SymInt max_B, "
+        "    Tensor B_offsets, "
         {%- endif %}
         "    bool is_experimental, "
         "    int output_dtype "

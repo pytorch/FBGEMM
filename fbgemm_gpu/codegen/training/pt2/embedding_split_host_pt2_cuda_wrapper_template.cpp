@@ -96,6 +96,7 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
     const Tensor& vbe_B_offsets_rank_per_feature,
     const Tensor& vbe_output_offsets_feature_rank,
     const c10::SymInt max_B,
+    const Tensor& B_offsets,
     {%- endif %}
     {%- if is_gwd %}
     const Tensor& prev_iter_dev,
@@ -548,6 +549,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor vbe_B_offsets_rank_per_feature, "
         "    Tensor vbe_output_offsets_feature_rank, "
         "    SymInt max_B, "
+        "    Tensor B_offsets, "
         {%- endif %}
         {%- if is_gwd %}
         "    Tensor{{ schema_annotation['prev_iter_dev'] }} prev_iter_dev, "
