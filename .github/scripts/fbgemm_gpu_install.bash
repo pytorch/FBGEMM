@@ -77,7 +77,7 @@ __install_check_subpackages () {
     "fbgemm_gpu.tbe.cache"
   )
 
-  if [ "$installed_fbgemm_target" != "genai" ]; then
+  if [ "$installed_fbgemm_target" == "default" ]; then
     subpackages+=(
       "fbgemm_gpu.split_embedding_codegen_lookup_invokers"
       "fbgemm_gpu.tbe.ssd"
