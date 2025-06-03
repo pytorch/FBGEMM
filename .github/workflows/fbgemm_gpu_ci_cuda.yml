@@ -79,8 +79,8 @@ jobs:
           { arch: x86, instance: "linux.8xlarge.memory", build-target: "genai", cuda-version: "12.6.3" },
           { arch: x86, instance: "linux.8xlarge.memory", build-target: "genai", cuda-version: "12.8.0" },
 
-          { arch: x86, instance: "linux.8xlarge.memory", build-target: "hstu", cuda-version: "12.6.3" },
-          { arch: x86, instance: "linux.8xlarge.memory", build-target: "hstu", cuda-version: "12.8.0" },
+          { arch: x86, instance: "linux.12xlarge.memory", build-target: "hstu", cuda-version: "12.6.3" },
+          { arch: x86, instance: "linux.12xlarge.memory", build-target: "hstu", cuda-version: "12.8.0" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
         compiler: [ "gcc", "clang" ]
