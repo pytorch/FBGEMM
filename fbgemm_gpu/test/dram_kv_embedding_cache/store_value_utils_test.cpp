@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/store_value_utils.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/store_value_utils.h" // @manual
 
 #include <common/time/Time.h>
 #include "gtest/gtest.h"
