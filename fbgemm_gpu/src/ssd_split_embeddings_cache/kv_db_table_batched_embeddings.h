@@ -396,6 +396,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   const int64_t unique_id_;
   const int64_t num_shards_;
   const int64_t max_D_;
+  std::vector<int64_t> sub_table_dims_;
+  std::vector<int64_t> sub_table_hash_cumsum_;
   folly::Optional<at::ScalarType> index_dtype_{folly::none};
   folly::Optional<at::ScalarType> weights_dtype_{folly::none};
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_tp_;

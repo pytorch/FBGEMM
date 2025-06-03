@@ -29,7 +29,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
-      int64_t weight_ttl_in_hours = 2) {
+      int64_t weight_ttl_in_hours = 2,
+      const std::optional<at::Tensor>& table_dims = std::nullopt,
+      const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -38,7 +40,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_shards,
           num_threads,
           row_storage_bitwidth,
-          weight_ttl_in_hours);
+          weight_ttl_in_hours,
+          table_dims,
+          hash_size_cumsum);
     } else if (row_storage_bitwidth == 32) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<float>>(
           max_D,
@@ -47,7 +51,9 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_shards,
           num_threads,
           row_storage_bitwidth,
-          weight_ttl_in_hours);
+          weight_ttl_in_hours,
+          table_dims,
+          hash_size_cumsum);
     } else {
       throw std::runtime_error("Failed to create recording device");
     }
