@@ -596,7 +596,8 @@ static auto dram_kv_embedding_cache_wrapper =
                 int64_t,
                 int64_t,
                 std::optional<at::Tensor>,
-                std::optional<at::Tensor>>(),
+                std::optional<at::Tensor>,
+                bool>(),
             "",
             {
                 torch::arg("max_D"),
@@ -608,6 +609,7 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("weight_ttl_in_hours") = 2,
                 torch::arg("table_dims") = std::nullopt,
                 torch::arg("hash_size_cumsum") = std::nullopt,
+                torch::arg("enable_async_update") = false,
             })
         .def(
             "set_cuda",

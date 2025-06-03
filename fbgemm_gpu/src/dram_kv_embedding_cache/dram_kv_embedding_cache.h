@@ -54,6 +54,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// initializers. 32 kFloat || 16 kHalf || 8 kByte
   /// @param weight_ttl_in_hours ttl in hours for each entry before it being
   /// evicted
+  /// @param enable_async_update whether to enable async update for the cache
   /// @param table_dims the table dimension for each table
   /// @param hash_size_cumsum the hash size cumulative sum for each table
   /// @return None
@@ -65,12 +66,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
       int64_t weight_ttl_in_hours = 2,
+      bool enable_async_update = false,
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
-            0), // l2_cache_size_gb =0 to disable l2 cache
+            0, // l2_cache_size_gb =0 to disable l2 cache
+            0, // tbe_unqiue_id
+            2, // ele_size_bytes
+            enable_async_update),
         max_D_(max_D),
         num_shards_(num_shards),
         weight_ttl_in_hours_(weight_ttl_in_hours),
