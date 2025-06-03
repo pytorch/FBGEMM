@@ -19,7 +19,7 @@ var searchData=
   ['get_5fall_5fitems_16',['get_all_items',['../classl2__cache_1_1_cache_lib_cache.html#a01820cf34749e734c20854106aee52a1',1,'l2_cache::CacheLibCache']]],
   ['get_5fbucket_5fsorted_5findices_5fand_5fbucket_5ftensor_17',['get_bucket_sorted_indices_and_bucket_tensor',['../group__embedding-ssd.html#gab0454abe665989e744169d08e3cc3629',1,'kv_db_utils']]],
   ['get_5fcache_5fusage_18',['get_cache_usage',['../classl2__cache_1_1_cache_lib_cache.html#a8c0140e23c5c731c6b036ab89e33bd49',1,'l2_cache::CacheLibCache']]],
-  ['get_5fkeys_5fin_5frange_19',['get_keys_in_range',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a5d2cd0eb820f39a1b921168cb6be94c0',1,'kv_mem::DramKVEmbeddingCache']]],
+  ['get_5fkeys_5fin_5frange_5fimpl_19',['get_keys_in_range_impl',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a3ec3ec693cdf42996def471797fcbba9',1,'kv_mem::DramKVEmbeddingCache']]],
   ['get_5fkv_5fdb_5fasync_20',['get_kv_db_async',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a21db5ba27d58aedfbc4dbd8997975135',1,'kv_mem::DramKVEmbeddingCache::get_kv_db_async()'],['../classps_1_1_embedding_parameter_server.html#a83db85ef892160e1f176fa3725290f0e',1,'ps::EmbeddingParameterServer::get_kv_db_async()'],['../classkv__db_1_1_embedding_k_v_d_b.html#ac346e4fb361109aa7b64c7ee70582704',1,'kv_db::EmbeddingKVDB::get_kv_db_async()']]],
   ['get_5fkv_5fdb_5fasync_5fimpl_21',['get_kv_db_async_impl',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a31225c0d4a54952f46db295152b22065',1,'kv_mem::DramKVEmbeddingCache']]],
   ['get_5fl2cache_5fperf_22',['get_l2cache_perf',['../classkv__db_1_1_embedding_k_v_d_b.html#a52afc11e0dda55903f95469edb66ab6c',1,'kv_db::EmbeddingKVDB']]],

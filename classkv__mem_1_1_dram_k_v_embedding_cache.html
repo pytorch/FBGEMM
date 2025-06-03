@@ -110,8 +110,8 @@ Inheritance diagram for DramKVEmbeddingCache&lt; weight_type &gt;:</div>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:a5af2b80c0465e5d85246fbf1ac87c1a4" id="r_a5af2b80c0465e5d85246fbf1ac87c1a4"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5af2b80c0465e5d85246fbf1ac87c1a4">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, int64_t weight_ttl_in_hours=2, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt)</td></tr>
 <tr class="separator:a5af2b80c0465e5d85246fbf1ac87c1a4"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a5d2cd0eb820f39a1b921168cb6be94c0" id="r_a5d2cd0eb820f39a1b921168cb6be94c0"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5d2cd0eb820f39a1b921168cb6be94c0">get_keys_in_range</a> (int64_t start, int64_t end) override</td></tr>
-<tr class="separator:a5d2cd0eb820f39a1b921168cb6be94c0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3ec3ec693cdf42996def471797fcbba9" id="r_a3ec3ec693cdf42996def471797fcbba9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ec3ec693cdf42996def471797fcbba9">get_keys_in_range_impl</a> (int64_t start, int64_t end, std::optional&lt; int64_t &gt; offset=std::nullopt) override</td></tr>
+<tr class="separator:a3ec3ec693cdf42996def471797fcbba9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab197c34bb53bdad19a2521898a341ffc" id="r_ab197c34bb53bdad19a2521898a341ffc"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab197c34bb53bdad19a2521898a341ffc">set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const <a class="el" href="group__embedding-ssd.html#gaf1ce371b1e598c817791f840612cc1a3">kv_db::RocksdbWriteMode</a> w_mode=kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override</td></tr>
 <tr class="separator:ab197c34bb53bdad19a2521898a341ffc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a31225c0d4a54952f46db295152b22065" id="r_a31225c0d4a54952f46db295152b22065"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31225c0d4a54952f46db295152b22065">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt)</td></tr>
@@ -216,8 +216,8 @@ template&lt;typename weight_type&gt; </div>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
-<a id="a5d2cd0eb820f39a1b921168cb6be94c0" name="a5d2cd0eb820f39a1b921168cb6be94c0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5d2cd0eb820f39a1b921168cb6be94c0">&#9670;&#160;</a></span>get_keys_in_range()</h2>
+<a id="a3ec3ec693cdf42996def471797fcbba9" name="a3ec3ec693cdf42996def471797fcbba9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3ec3ec693cdf42996def471797fcbba9">&#9670;&#160;</a></span>get_keys_in_range_impl()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -228,14 +228,19 @@ template&lt;typename weight_type&gt; </div>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">at::Tensor get_keys_in_range </td>
+          <td class="memname">at::Tensor get_keys_in_range_impl </td>
           <td>(</td>
           <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>start</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>end</em></span>&#160;)</td>
+          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>end</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">std::optional&lt; int64_t &gt;</td>          <td class="paramname"><span class="paramname"><em>offset</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>&#160;)</td>
         </tr>
       </table>
   </td>
