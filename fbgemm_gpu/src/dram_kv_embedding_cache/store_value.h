@@ -19,14 +19,22 @@ namespace kv_mem {
 template <typename scalar_t>
 class StoreValue {
  public:
-  explicit StoreValue(std::vector<scalar_t>&& value) {
+  explicit StoreValue(std::vector<scalar_t>&& value, int64_t timestamp) {
     value_ = std::move(value);
-    timestamp_ = facebook::WallClockUtil::NowInUsecFast();
+    timestamp_ = timestamp;
   }
 
   explicit StoreValue(StoreValue&& pv) noexcept {
-    timestamp_ = facebook::WallClockUtil::NowInUsecFast();
+    timestamp_ = pv.timestamp_;
     value_ = std::move(pv.value_);
+  }
+
+  StoreValue& operator=(StoreValue&& other) noexcept {
+    if (this != &other) {
+      value_ = std::move(other.value_);
+      timestamp_ = other.timestamp_;
+    }
+    return *this;
   }
 
   int64_t getTimestamp() const {

@@ -251,7 +251,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   // finished, it could also be called in unitest to sync
   void wait_util_filling_work_done();
 
-  virtual at::Tensor get_keys_in_range(int64_t start, int64_t end) {
+  virtual at::Tensor get_keys_in_range_impl(
+      int64_t start,
+      int64_t end,
+      std::optional<int64_t> offset) {
     (void)start;
     (void)end;
     FBEXCEPTION("Not implemented");

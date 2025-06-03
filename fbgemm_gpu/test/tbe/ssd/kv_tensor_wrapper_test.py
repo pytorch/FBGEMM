@@ -281,7 +281,12 @@ class KvTensorWrapperTest(TestCase):
                 torch.randn(N * D, dtype=weights_dtype).view(N, D),
                 torch.randn(N * D, dtype=weights_dtype).view(N, D),
             ]
-            new_weights_after_snapshot = torch.randn(N, D, dtype=weights_dtype)
+
+            new_weights_after_snapshot = (
+                torch.randn(N, D, dtype=weights_dtype)
+                if backend_type == BackendType.SSD
+                else None
+            )
 
             # no snapshot needed for writing to rocksdb
             for table_idx, offset in enumerate(table_offsets):
@@ -305,10 +310,11 @@ class KvTensorWrapperTest(TestCase):
                 )
                 if backend_type == BackendType.SSD:
                     tensor_wrapper.set_embedding_rocks_dp_wrapper(ssd_db)
+                    tensor_wrapper.set_weights_and_ids(
+                        new_weights_after_snapshot, indices
+                    )
                 elif backend_type == BackendType.DRAM:
                     tensor_wrapper.set_dram_db_wrapper(ssd_db)
-                tensor_wrapper.set_weights_and_ids(new_weights_after_snapshot, indices)
-
             for table_idx, offset in enumerate(table_offsets):
                 wrong_tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
                     [E, D], weights[table_idx].dtype, 1, snapshot

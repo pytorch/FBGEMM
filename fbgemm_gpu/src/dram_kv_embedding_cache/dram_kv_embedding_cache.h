@@ -139,7 +139,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// get all ids in the kvstore
   ///
   /// @return a Tensor contained ids
-  at::Tensor get_keys_in_range(int64_t start, int64_t end) override {
+  at::Tensor get_keys_in_range_impl(
+      int64_t start,
+      int64_t end,
+      std::optional<int64_t> offset = std::nullopt) override {
     std::vector<std::vector<int64_t>> ids;
     for (int i = 0; i < num_shards_; i++) {
       ids.push_back(std::vector<int64_t>());
@@ -148,11 +151,16 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     for (int shard_id = 0; shard_id < num_shards_; shard_id++) {
       auto f =
           folly::via(executor_.get())
-              .thenValue([this, shard_id, start, end, &ids](folly::Unit) {
+              .thenValue([this, shard_id, start, end, offset, &ids](
+                             folly::Unit) {
                 auto rlmap = kv_store_.by(shard_id).rlock();
                 for (auto iter = rlmap->begin(); iter != rlmap->end(); iter++) {
                   if (iter->first >= start && iter->first < end) {
-                    ids[shard_id].push_back(iter->first);
+                    if (offset.has_value()) {
+                      ids[shard_id].push_back(iter->first - offset.value());
+                    } else {
+                      ids[shard_id].push_back(iter->first);
+                    }
                   }
                 }
               });
@@ -169,11 +177,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
 
     return torch::from_blob(
-        all_ids_ptr->data(),
-        {int64_t(all_ids_ptr->size())},
-        [all_ids_ptr](void* p) mutable { all_ids_ptr.reset(); },
-        torch::kInt64 // data type
-    );
+               all_ids_ptr->data(),
+               {int64_t(all_ids_ptr->size())},
+               [all_ids_ptr](void* p) mutable { all_ids_ptr.reset(); },
+               torch::kInt64 // data type
+               )
+        .view({-1, 1});
   }
 
   /// insert embeddings into kvstore.
@@ -197,6 +206,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ /*unused*/) override {
     std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
+    auto now = facebook::WallClockUtil::NowInUsecFast();
 
     for (auto iter = shardid_to_indexes.begin();
          iter != shardid_to_indexes.end();
@@ -205,12 +215,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const auto indexes = iter->second;
       auto f =
           folly::via(executor_.get())
-              .thenValue([this, shard_id, indexes, &indices, &weights](
+              .thenValue([this, shard_id, indexes, &indices, &weights, now](
                              folly::Unit) {
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kv_set",
-                    [this, shard_id, indexes, &indices, &weights] {
+                    [this, shard_id, indexes, &indices, &weights, now] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -223,14 +233,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                              index_iter++) {
                           const auto& id_index = *index_iter;
                           auto id = int64_t(indices_data_ptr[id_index]);
-                          wlmap->try_emplace(
-                              id,
-                              StoreValue<weight_type>(std::vector<weight_type>(
+                          auto value = StoreValue<weight_type>(
+                              std::vector<weight_type>(
                                   weights[id_index]
                                       .template data_ptr<weight_type>(),
                                   weights[id_index]
                                           .template data_ptr<weight_type>() +
-                                      weights[id_index].numel())));
+                                      weights[id_index].numel()),
+                              now);
+                          wlmap->insert_or_assign(id, std::move(value));
                         }
                       }
                     });
