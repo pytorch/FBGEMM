@@ -858,12 +858,13 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
   return {output, evict_slots};
 }
 
+} // namespace fbgemm_gpu
+
 // Register operators
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl(
       "zero_collision_hash",
       torch::dispatch(
-          c10::DispatchKey::CUDA, TORCH_FN(zero_collision_hash_cuda)));
+          c10::DispatchKey::CUDA,
+          TORCH_FN(fbgemm_gpu::zero_collision_hash_cuda)));
 }
-
-} // namespace fbgemm_gpu

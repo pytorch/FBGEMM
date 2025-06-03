@@ -484,25 +484,28 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       ") -> (Tensor, Tensor)");
 }
 
+} // namespace fbgemm_gpu
+
 TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl(
       "create_zch_buffer",
-      torch::dispatch(c10::DispatchKey::CPU, TORCH_FN(create_zch_buffer_cpu)));
+      torch::dispatch(
+          c10::DispatchKey::CPU, TORCH_FN(fbgemm_gpu::create_zch_buffer_cpu)));
 
   m.impl(
       "zero_collision_hash",
       torch::dispatch(
-          c10::DispatchKey::CPU, TORCH_FN(zero_collision_hash_cpu)));
+          c10::DispatchKey::CPU,
+          TORCH_FN(fbgemm_gpu::zero_collision_hash_cpu)));
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl(
       "zero_collision_hash",
       torch::dispatch(
-          c10::DispatchKey::Meta, TORCH_FN(zero_collision_hash_meta)));
+          c10::DispatchKey::Meta,
+          TORCH_FN(fbgemm_gpu::zero_collision_hash_meta)));
 }
-
-} // namespace fbgemm_gpu
 
 namespace torch::jit {
 
