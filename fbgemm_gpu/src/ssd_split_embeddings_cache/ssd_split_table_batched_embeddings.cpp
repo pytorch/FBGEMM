@@ -648,7 +648,10 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("start"),
                 torch::arg("end"),
             })
-        .def("flush", &DramKVEmbeddingCacheWrapper::flush);
+        .def("flush", &DramKVEmbeddingCacheWrapper::flush)
+        .def(
+            "get_keys_in_range_by_snapshot",
+            &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")

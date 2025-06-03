@@ -185,7 +185,8 @@ class DRAMKVTest(unittest.TestCase):
         max_val = torch.max(indices)
         filtered_indices_input = indices[(indices >= median) & (indices < max_val)]
         # pyre-ignore[29]
-        ids_in_range = torch.sort(dram_kv.get_keys_in_range(median, max_val)).values
+        ids_in_range = dram_kv.get_keys_in_range(median, max_val)
+        ids_in_range = torch.sort(ids_in_range.flatten()).values
 
         expected_indicies = torch.sort(filtered_indices_input).values
         logging.info(f"indicies expected: {expected_indicies=}")
