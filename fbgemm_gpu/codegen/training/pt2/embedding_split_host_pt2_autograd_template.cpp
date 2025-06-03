@@ -127,6 +127,7 @@ enum SSDTensor {
                 const Tensor& /*vbe_B_offsets_rank_per_feature*/, // for reshaping vbe cpu offsets and output
                 const Tensor& /*vbe_output_offsets_feature_rank*/, // for reshaping vbe cpu output
                 const c10::SymInt /*max_B*/, // for reshaping vbe cpu offsets
+                const Tensor& /*B_offsets_*/, // for MTIA kernel
                 {%- endif %}
                 {%- if is_gwd %}
                 const Tensor& /*prev_iter_dev*/,
@@ -174,6 +175,7 @@ enum SSDTensor {
       vbe_B_offsets_rank_per_feature_, // for reshaping vbe cpu offsets and output
       vbe_output_offsets_feature_rank_, // for reshaping vbe cpu output
       max_B_, // for reshaping vbe cpu offsets
+      B_offsets_, // for MTIA kernel
       {%- endif %} {# /* if vbe */ #}
       {%- if is_gwd %}
       prev_iter_dev_,
