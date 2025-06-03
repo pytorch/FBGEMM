@@ -56,6 +56,16 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch_meta(
   return {token_counts_per_expert, expert_indices, token_indices};
 }
 
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.set_python_module("fbgemm_gpu.experimental.gen_ai.moe");
+  m.def(
+      "index_shuffling(Tensor routing_scores,             "
+      "                int? expert_index_start=None,      "
+      "                int? expert_index_end=None,        "
+      "                Tensor? valid_token_count=None) -> "
+      "(Tensor, Tensor, Tensor)");
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("index_shuffling", index_shuffling_torch);
 }

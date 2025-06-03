@@ -34,6 +34,13 @@ void scatter_add_along_first_dim_meta(
   return;
 }
 
+TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  m.set_python_module("fbgemm_gpu.experimental.gen_ai.gather_scatter");
+  m.def("gather_along_first_dim(Tensor Data, Tensor Index) -> Tensor");
+  m.def(
+      "scatter_add_along_first_dim(Tensor Dst, Tensor Src, Tensor Index) -> ()");
+}
+
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("gather_along_first_dim", gather_along_first_dim);
   m.impl("scatter_add_along_first_dim", scatter_add_along_first_dim);
