@@ -13,8 +13,8 @@
 #include <gtest/gtest.h>
 
 #include <common/time/Time.h>
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h"
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/store_value_utils.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h" // @manual
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/store_value_utils.h" // @manual
 
 using namespace ::testing;
 namespace kv_mem {
