@@ -53,7 +53,7 @@ if(USE_FB_ONLY
   glob_files_nohip(fb_only_sources_gpu
       fb/src/*/*.cu)
 
-  if(NOT FBGEMM_BUILDING_IN_FB_INTERNAL)
+  if(NOT FBGEMM_FBPKG_BUILD)
     # NOTE: Some FB-internal code explicitly require an FB-internal
     # environment to build, such as code that depends on NCCLX
     list(FILTER fb_only_sources_cpu
