@@ -267,6 +267,11 @@ __determine_test_directories () {
       )
     fi
 
+  elif [ "$fbgemm_build_target" == "hstu" ]; then
+    target_directories+=(
+      fbgemm_gpu/experimental/hstu/test
+    )
+
   else
     target_directories+=(
       fbgemm_gpu/test
