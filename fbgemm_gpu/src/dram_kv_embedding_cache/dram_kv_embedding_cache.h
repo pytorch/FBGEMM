@@ -85,7 +85,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         num_shards_(num_shards),
         weight_ttl_in_hours_(weight_ttl_in_hours),
         block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
-        block_alignment_(FixedBlockPool::calculate_block_alignment<weight_type>()),
+        block_alignment_(
+            FixedBlockPool::calculate_block_alignment<weight_type>()),
         kv_store_(SynchronizedShardedMap<int64_t, weight_type*>(
             num_shards_,
             block_size_,
@@ -262,8 +263,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             feature_evict_->update_feature_statistics(block);
                           }
                           auto* data_ptr = FixedBlockPool::data_ptr<weight_type>(block);
-                          std::copy(weights[id_index].template data_ptr<weight_type>(),
-                                    weights[id_index].template data_ptr<weight_type>() + weights[id_index].numel(),
+                          std::copy(weights[id_index]
+                                        .template data_ptr<weight_type>(),
+                                    weights[id_index]
+                                            .template data_ptr<weight_type>() +
+                                        weights[id_index].numel(),
                                     data_ptr);
                         }
                       }
@@ -366,7 +370,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                             continue;
                           }
                           // use mempool
-                          const auto* data_ptr = FixedBlockPool::data_ptr<weight_type>(cached_iter->second);
+                          const auto* data_ptr =
+                              FixedBlockPool::data_ptr<weight_type>(
+                                  cached_iter->second);
                           std::copy(
                               data_ptr + width_offset,
                               data_ptr + width_offset + row_width,

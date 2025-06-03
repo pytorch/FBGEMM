@@ -6,24 +6,21 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
+#include "fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
 #include <cstring>
-#include <iomanip>
 #include <iostream>
-#include <memory>
 #include <vector>
 
 #include <fmt/format.h>
-#include <fmt/ranges.h>
 #include <gtest/gtest.h>
 
 namespace kv_mem {
 
 double test_std_vector(size_t vector_size, size_t repeat_count) {
-  float sum = 0.0f; // Prevent optimization
+  float sum = 0.0f;  // Prevent optimization
   std::vector<std::vector<float>>
-      all_vectors; // Store all vectors to prevent release
+      all_vectors;  // Store all vectors to prevent release
   all_vectors.reserve(repeat_count);
 
   auto start = std::chrono::high_resolution_clock::now();
@@ -38,7 +35,7 @@ double test_std_vector(size_t vector_size, size_t repeat_count) {
     // Simple usage to prevent optimization
     sum += vec[0];
   }
-  sum += sum; // avoid "set but not used" compiling error
+  sum += sum;  // avoid "set but not used" compiling error
 
   auto end = std::chrono::high_resolution_clock::now();
   return std::chrono::duration<double, std::milli>(end - start).count();
@@ -51,7 +48,7 @@ double test_pool_vector(size_t vector_size, size_t repeat_count) {
   std::pmr::polymorphic_allocator<float> alloc(&pool);
 
   auto start = std::chrono::high_resolution_clock::now();
-  float sum = 0.0f; // Prevent optimization
+  float sum = 0.0f;  // Prevent optimization
   for (size_t i = 0; i < repeat_count; ++i) {
     float* arr = alloc.allocate(vector_size);
 
@@ -66,7 +63,7 @@ double test_pool_vector(size_t vector_size, size_t repeat_count) {
     // reuse
     //  alloc.deallocate(arr, dim);
   }
-  sum += sum; // avoid "set but not used" compiling error
+  sum += sum;  // avoid "set but not used" compiling error
 
   auto end = std::chrono::high_resolution_clock::now();
   return std::chrono::duration<double, std::milli>(end - start).count();
@@ -85,7 +82,8 @@ double benchmark_memory_allocators() {
   double min_speedup = 1000;
 
   for (const auto& size : vector_sizes) {
-    fmt::print("Vector size: {} floats ({} bytes)\n", size, size * sizeof(float));
+    fmt::print(
+        "Vector size: {} floats ({} bytes)\n", size, size * sizeof(float));
     // Testing standard vector
     double std_time = test_std_vector(size, repeat_count);
     fmt::print("  Standard vector: {:.2f} ms\n", std_time);
@@ -98,11 +96,6 @@ double benchmark_memory_allocators() {
     double speedup = std_time / pool_time;
     fmt::print("  Speed improvement: {:.2f}x\n\n", speedup);
     fmt::print("============================\n");
-    std::cout << "  Speed improvement: " << std::fixed << std::setprecision(2)
-              << speedup << "x" << std::endl;
-
-    std::cout << std::endl;
-    std::cout << "============================" << std::endl;
     min_speedup = std::min(min_speedup, speedup);
   }
   return min_speedup;
@@ -183,7 +176,7 @@ TEST(FixedBlockPoolTest, CrossChunkAllocation) {
   kv_mem::FixedBlockPool pool(block_size, alignment, blocks_per_chunk);
 
   std::vector<void*> blocks;
-  const int NUM_BLOCKS = 25; // Exceeds 2 chunks
+  const int NUM_BLOCKS = 25;  // Exceeds 2 chunks
 
   // Allocate blocks beyond a single chunk capacity
   for (int i = 0; i < NUM_BLOCKS; ++i) {
