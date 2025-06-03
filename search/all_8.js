@@ -13,5 +13,5 @@ var searchData=
   ['donothing_3c_20std_3a_3auint8_5ft_2c_20std_3a_3auint8_5ft_20_3e_10',['DoNothing&lt; std::uint8_t, std::uint8_t &gt;',['../classfbgemm_1_1_do_nothing.html',1,'fbgemm']]],
   ['dosconvoninpbuffer_11',['DoSConvOnInpBuffer',['../classfbgemm_1_1_do_s_conv_on_inp_buffer.html',1,'fbgemm']]],
   ['dospmdmoninpbuffer_12',['DoSpmdmOnInpBuffer',['../classfbgemm_1_1_do_spmdm_on_inp_buffer.html',1,'fbgemm']]],
-  ['dramkvembeddingcache_13',['DramKVEmbeddingCache',['../classkv__mem_1_1_dram_k_v_embedding_cache.html',1,'DramKVEmbeddingCache&lt; weight_type &gt;'],['../classkv__mem_1_1_dram_k_v_embedding_cache.html#ac1ad9222475a52d30083d2d79d50419a',1,'kv_mem::DramKVEmbeddingCache::DramKVEmbeddingCache()']]]
+  ['dramkvembeddingcache_13',['DramKVEmbeddingCache',['../classkv__mem_1_1_dram_k_v_embedding_cache.html',1,'DramKVEmbeddingCache&lt; weight_type &gt;'],['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a5af2b80c0465e5d85246fbf1ac87c1a4',1,'kv_mem::DramKVEmbeddingCache::DramKVEmbeddingCache()']]]
 ];
