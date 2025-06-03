@@ -1150,7 +1150,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.record_function_via_dummy_profile(
                     f"## ssd_set_{name} ##",
                     self.ssd_db.set_cuda,
-                    indices_cpu,
+                    indices_cpu.cpu(),
                     rows_cpu,
                     actions_count_cpu,
                     self.timestep,
@@ -2538,9 +2538,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if not self.stats_reporter.should_report(self.step):
             return
         self._report_ssd_l1_cache_stats()
-        self._report_ssd_io_stats()
-        self._report_ssd_mem_usage()
-        self._report_l2_cache_perf_stats()
+
+        if self.backend_type == BackendType.SSD:
+            self._report_ssd_io_stats()
+            self._report_ssd_mem_usage()
+            self._report_l2_cache_perf_stats()
 
     @torch.jit.ignore
     def _report_ssd_l1_cache_stats(self) -> None:
