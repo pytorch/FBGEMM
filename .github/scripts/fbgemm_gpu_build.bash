@@ -261,15 +261,22 @@ __configure_fbgemm_gpu_build_cuda () {
     #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
     #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
     if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="7.0;8.0;9.0a;10.0a;12.0a"
+      local arch_list="8.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
           [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="7.0;8.0;9.0a"
+      local arch_list="8.0;9.0a"
 
     else
-      local arch_list="7.0;8.0;9.0"
+      local arch_list="8.0;9.0"
+    fi
+
+    # HSTU requires sm_75 or higher
+    if [[ $fbgemm_build_target == "hstu" ]]; then
+      arch_list="${arch_list};7.5"
+    else
+      arch_list="${arch_list};7.0"
     fi
   fi
   echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
