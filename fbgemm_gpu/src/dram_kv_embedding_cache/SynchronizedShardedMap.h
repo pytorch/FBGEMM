@@ -31,10 +31,11 @@ class SynchronizedShardedMap {
  public:
   using iterator = typename folly::F14FastMap<K, V>::const_iterator;
 
-  explicit SynchronizedShardedMap(std::size_t numShards,
-                                  std::size_t block_size,
-                                  std::size_t block_alignment,
-                                  std::size_t blocks_per_chunk = 8192)
+  explicit SynchronizedShardedMap(
+      std::size_t numShards,
+      std::size_t block_size,
+      std::size_t block_alignment,
+      std::size_t blocks_per_chunk = 8192)
       : shards_(numShards), mempools_(numShards) {
     // Init mempools_
     for (auto& pool : mempools_) {
@@ -44,14 +45,18 @@ class SynchronizedShardedMap {
   }
 
   // Get shard map by index
-  auto& by(int index) { return shards_.at(index % shards_.size()); }
+  auto& by(int index) {
+    return shards_.at(index % shards_.size());
+  }
 
   // Get shard pool by index
   auto* pool_by(int index) {
     return mempools_.at(index % shards_.size()).get();
   }
 
-  auto getNumShards() { return shards_.size(); }
+  auto getNumShards() {
+    return shards_.size();
+  }
 
   auto getUsedMemSize() const {
     size_t used_mem_size = 0;
@@ -68,4 +73,4 @@ class SynchronizedShardedMap {
   std::vector<folly::Synchronized<folly::F14FastMap<K, V>, M>> shards_;
   std::vector<std::unique_ptr<FixedBlockPool>> mempools_;
 };
-}  // namespace kv_mem
+} // namespace kv_mem

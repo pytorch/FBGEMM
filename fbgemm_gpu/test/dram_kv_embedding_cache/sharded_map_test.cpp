@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 #include <cstdio>
 #include <iostream>
 
@@ -10,15 +18,20 @@
 #include "fbgemm_gpu/src/dram_kv_embedding_cache/fixed_block_pool.h"
 
 namespace kv_mem {
-std::vector<float> generateFixedEmbedding(int dimension) { return std::vector<float>(dimension, 1.0); }
+std::vector<float> generateFixedEmbedding(int dimension) {
+  return std::vector<float>(dimension, 1.0);
+}
 
-void memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
+std::vector<double> memPoolEmbedding(int dimension,
+                                     size_t numInserts,
+                                     size_t numLookups) {
   const size_t numShards = 1;
 
-  SynchronizedShardedMap<unsigned long, float*> embeddingMap(numShards,
-                                                             dimension * sizeof(float),  // block_size
-                                                             alignof(float),             // block_alignment
-                                                             8192);                      // blocks_per_chunk
+  SynchronizedShardedMap<unsigned long, float*> embeddingMap(
+      numShards,
+      dimension * sizeof(float),  // block_size
+      alignof(float),             // block_alignment
+      8192);                      // blocks_per_chunk
   double insertTime, lookupTime;
   {
     std::vector<float> fixedEmbedding = generateFixedEmbedding(dimension);
@@ -34,7 +47,9 @@ void memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
       wlock->insert_or_assign(i, arr);
     }
     auto endInsert = std::chrono::high_resolution_clock::now();
-    insertTime = std::chrono::duration<double, std::milli>(endInsert - startInsert).count();
+    insertTime =
+        std::chrono::duration<double, std::milli>(endInsert - startInsert)
+            .count();
   }
 
   std::vector<float> lookEmbedding(dimension);
@@ -50,25 +65,33 @@ void memPoolEmbedding(int dimension, size_t numInserts, size_t numLookups) {
       }
     }
     auto endLookup = std::chrono::high_resolution_clock::now();
-    lookupTime = std::chrono::duration<double, std::milli>(endLookup - startLookup).count();
+    lookupTime =
+        std::chrono::duration<double, std::milli>(endLookup - startLookup)
+            .count();
   }
 
-  fmt::print("{:<20}{:<20.2f}{:<20.2f}{:<20.2f}\n",
-             dimension,
-             insertTime,
-             lookupTime,
-             100.0 * static_cast<double>(hitCount) / static_cast<double>(numLookups));
+  fmt::print(
+      "{:<20}{:<20.2f}{:<20.2f}{:<20.2f}\n",
+      dimension,
+      insertTime,
+      lookupTime,
+      100.0 * static_cast<double>(hitCount) / static_cast<double>(numLookups));
+  return std::vector<double>(
+      {insertTime, lookupTime, (double)hitCount / (double)numLookups});
 }
 
-void memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookups) {
+std::vector<double> memPoolEmbeddingWithTime(int dimension,
+                                             size_t numInserts,
+                                             size_t numLookups) {
   const size_t numShards = 1;
   size_t block_size = FixedBlockPool::calculate_block_size<float>(dimension);
   size_t block_alignment = FixedBlockPool::calculate_block_alignment<float>();
 
-  SynchronizedShardedMap<unsigned long, float*> embeddingMap(numShards,
-                                                             block_size,       // block_size
-                                                             block_alignment,  // block_alignment
-                                                             8192);            // blocks_per_chunk
+  SynchronizedShardedMap<unsigned long, float*> embeddingMap(
+      numShards,
+      block_size,       // block_size
+      block_alignment,  // block_alignment
+      8192);            // blocks_per_chunk
   double insertTime, lookupTime;
   {
     std::vector<float> fixedEmbedding = generateFixedEmbedding(dimension);
@@ -84,7 +107,9 @@ void memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookup
       wlock->insert_or_assign(i, block);
     }
     auto endInsert = std::chrono::high_resolution_clock::now();
-    insertTime = std::chrono::duration<double, std::milli>(endInsert - startInsert).count();
+    insertTime =
+        std::chrono::duration<double, std::milli>(endInsert - startInsert)
+            .count();
   }
 
   std::vector<float> lookEmbedding(dimension);
@@ -103,15 +128,19 @@ void memPoolEmbeddingWithTime(int dimension, size_t numInserts, size_t numLookup
       }
     }
     auto endLookup = std::chrono::high_resolution_clock::now();
-    lookupTime = std::chrono::duration<double, std::milli>(endLookup - startLookup).count();
+    lookupTime =
+        std::chrono::duration<double, std::milli>(endLookup - startLookup)
+            .count();
   }
 
-  // 替换输出部分
-  fmt::print("{:<20}{:<20.2f}{:<20.2f}{:<20.2f}\n",
-             dimension,
-             insertTime,
-             lookupTime,
-             100.0 * static_cast<double>(hitCount) / static_cast<double>(numLookups));
+  fmt::print(
+      "{:<20}{:<20.2f}{:<20.2f}{:<20.2f}\n",
+      dimension,
+      insertTime,
+      lookupTime,
+      100.0 * static_cast<double>(hitCount) / static_cast<double>(numLookups));
+  return std::vector<double>(
+      {insertTime, lookupTime, (double)hitCount / (double)numLookups});
 }
 
 void memPoolEmbeddingMemSize(int dimension, size_t numInserts) {
@@ -119,10 +148,11 @@ void memPoolEmbeddingMemSize(int dimension, size_t numInserts) {
   size_t block_size = FixedBlockPool::calculate_block_size<float>(dimension);
   size_t block_alignment = FixedBlockPool::calculate_block_alignment<float>();
 
-  SynchronizedShardedMap<unsigned long, float*> embeddingMap(numShards,
-                                                             block_size,       // block_size
-                                                             block_alignment,  // block_alignment
-                                                             8192);            // blocks_per_chunk
+  SynchronizedShardedMap<unsigned long, float*> embeddingMap(
+      numShards,
+      block_size,       // block_size
+      block_alignment,  // block_alignment
+      8192);            // blocks_per_chunk
   {
     std::vector<float> fixedEmbedding = generateFixedEmbedding(dimension);
 
@@ -140,34 +170,66 @@ void memPoolEmbeddingMemSize(int dimension, size_t numInserts) {
   fmt::print("{:<20}{:<20}{:<20.2f}\n",
              dimension,
              numInserts,
-             static_cast<double>(totalMemory) / (1024 * 1024)); // MB
-
+             static_cast<double>(totalMemory) / (1024 * 1024));  // MB
 }
 
 int benchmark() {
-  std::vector<int> dimensions = {4, 8, 16, 32, 64};
+  std::vector<int> dimensions = {64, 128, 256, 512, 1024};
   const size_t numInserts = 1'000'000;  // 1 million insert
   const size_t numLookups = 1'000'000;  // 1 million find
 
-  fmt::print("======================= mempool ====================================\n");
-  fmt::print("{:<20}{:<20}{:<20}{:<20}\n", "dim", "insert time (ms)", "find time (ms)", "hit rate (%)");
+  fmt::print(
+      "======================= mempool ====================================\n");
+  fmt::print("{:<20}{:<20}{:<20}{:<20}\n",
+             "dim",
+             "insert time (ms)",
+             "find time (ms)",
+             "hit rate (%)");
+  std::vector<std::vector<double>> results_by_dim_wo_ts;
+  std::vector<std::vector<double>> results_by_dim_with_ts;
   for (int dim : dimensions) {
-    memPoolEmbedding(dim, numInserts, numLookups);
+    results_by_dim_wo_ts.push_back(
+        memPoolEmbedding(dim, numInserts, numLookups));
   }
   fmt::print("\n\n");
   std::fflush(stdout);
 
-  fmt::print("======================= mempool with time ====================================\n");
-  fmt::print("{:<20}{:<20}{:<20}{:<20}\n", "dim", "insert time (ms)", "find time (ms)", "hit rate (%)");
+  fmt::print(
+      "======================= mempool with time "
+      "====================================\n");
+  fmt::print("{:<20}{:<20}{:<20}{:<20}\n",
+             "dim",
+             "insert time (ms)",
+             "find time (ms)",
+             "hit rate (%)");
   for (int dim : dimensions) {
-    memPoolEmbeddingWithTime(dim, numInserts, numLookups);
+    results_by_dim_with_ts.push_back(
+        memPoolEmbeddingWithTime(dim, numInserts, numLookups));
   }
   fmt::print("\n\n");
 
-  fmt::print("======================= memory usage statistics ====================================\n");
-  fmt::print("{:<20}{:<20}{:<20}\n","dim", "numInserts", "total memory (MB)");
+  fmt::print(
+      "======================= memory usage statistics "
+      "====================================\n");
+  fmt::print("{:<20}{:<20}{:<20}\n", "dim", "numInserts", "total memory (MB)");
   for (int dim : dimensions) {
     memPoolEmbeddingMemSize(dim, numInserts);
+  }
+
+  EXPECT_EQ(results_by_dim_with_ts.size(), results_by_dim_wo_ts.size());
+  for (std::size_t i = 0; i < results_by_dim_with_ts.size(); i++) {
+    double perf_insert_ratio =
+        results_by_dim_with_ts[i][0] / results_by_dim_wo_ts[i][0];
+    double perf_lookup_ratio =
+        results_by_dim_with_ts[i][1] / results_by_dim_wo_ts[i][1];
+
+    EXPECT_GE(perf_insert_ratio, 0.5);
+    EXPECT_LE(perf_insert_ratio, 1.5);
+    EXPECT_GE(perf_lookup_ratio, 0.5);
+    EXPECT_LE(perf_lookup_ratio, 1.5);
+
+    EXPECT_EQ(results_by_dim_with_ts[i][2], results_by_dim_wo_ts[i][2]);
+    EXPECT_EQ(results_by_dim_with_ts[i][2], 1);
   }
   return 0;
 }

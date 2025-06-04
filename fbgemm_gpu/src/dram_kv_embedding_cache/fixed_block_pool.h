@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 #pragma once
 
 #include <chrono>
@@ -90,10 +98,11 @@ class FixedBlockPool : public std::pmr::memory_resource {
                         [](scalar_t sum, scalar_t val) { return sum + val * val; }));
   }
 
-  explicit FixedBlockPool(std::size_t block_size,               // Size of each memory block
-                          std::size_t block_alignment,          // Memory block alignment requirement
-                          std::size_t blocks_per_chunk = 8192,  // Number of blocks per chunk
-                          std::pmr::memory_resource* upstream = std::pmr::new_delete_resource())
+  explicit FixedBlockPool(
+      std::size_t block_size, // Size of each memory block
+      std::size_t block_alignment, // Memory block alignment requirement
+      std::size_t blocks_per_chunk = 8192, // Number of blocks per chunk
+      std::pmr::memory_resource* upstream = std::pmr::new_delete_resource())
       // Minimum block size is 8 bytes
       : block_size_(std::max(block_size, sizeof(void*))),
         block_alignment_(block_alignment),
@@ -185,7 +194,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
   // Core deallocation function
-  void do_deallocate(void* p, [[maybe_unused]] std::size_t bytes, [[maybe_unused]] std::size_t alignment) override {
+  void do_deallocate(
+      void* p,
+      [[maybe_unused]] std::size_t bytes,
+      [[maybe_unused]] std::size_t alignment) override {
     // Insert memory block back to the head of free list
     *static_cast<void**>(p) = free_list_;
     free_list_ = p;
@@ -193,7 +205,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
   // Resource equality comparison (only the same object is equal)
-  [[nodiscard]] bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override { return this == &other; }
+  [[nodiscard]] bool do_is_equal(
+      const std::pmr::memory_resource& other) const noexcept override {
+    return this == &other;
+  }
 
  private:
   // Allocate a new memory chunk
@@ -218,11 +233,11 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
   // Member variables
-  const std::size_t block_size_;              // Block size (not less than pointer size)
-  const std::size_t block_alignment_;         // Block alignment requirement
-  const std::size_t blocks_per_chunk_;        // Number of blocks per chunk
-  std::pmr::memory_resource* upstream_;       // Upstream memory resource
-  std::pmr::vector<ChunkInfo> chunks_{1024};  // Records of all allocated chunks
-  void* free_list_ = nullptr;                 // Free block list head pointer
+  const std::size_t block_size_; // Block size (not less than pointer size)
+  const std::size_t block_alignment_; // Block alignment requirement
+  const std::size_t blocks_per_chunk_; // Number of blocks per chunk
+  std::pmr::memory_resource* upstream_; // Upstream memory resource
+  std::pmr::vector<ChunkInfo> chunks_{1024}; // Records of all allocated chunks
+  void* free_list_ = nullptr; // Free block list head pointer
 };
-}  // namespace kv_mem
+} // namespace kv_mem
