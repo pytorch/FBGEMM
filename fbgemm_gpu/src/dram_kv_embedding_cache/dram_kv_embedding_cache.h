@@ -22,7 +22,6 @@
 #include <caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h>
 #include <common/base/Proc.h>
 #include <common/stats/Stats.h>
-#include <common/time/Time.h>
 #include <folly/SocketAddress.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
@@ -36,6 +35,31 @@
 
 namespace kv_mem {
 
+#define TORCH_CHECK_TENSOR_PROPERTIES(tensor, scalar_type) \
+  do {                                                     \
+    TORCH_CHECK((tensor).has_value());                     \
+    TORCH_CHECK((tensor)->dim() == 1);                     \
+    TORCH_CHECK((tensor)->dtype() == (scalar_type));       \
+    TORCH_CHECK((tensor)->is_contiguous());                \
+    TORCH_CHECK((tensor)->device().is_cpu());              \
+  } while (0)
+
+#define TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(                         \
+    source_tensor, target_container, data_type)                         \
+  do {                                                                  \
+    TORCH_CHECK(                                                        \
+        (source_tensor)->numel() + 1 == hash_size_cumsum->numel(),      \
+        "hash_size_cumsum length must be one more than " #source_tensor \
+        " length, but got ",                                            \
+        hash_size_cumsum->numel(),                                      \
+        " and ",                                                        \
+        (source_tensor)->numel());                                      \
+    (target_container)                                                  \
+        .assign((source_tensor)->data_ptr<data_type>(),                 \
+                (source_tensor)->data_ptr<data_type>() +                \
+                    (source_tensor)->numel());                          \
+  } while (0)
+
 /// @ingroup KVMemEmbedding
 ///
 /// @brief An implementation of EmbeddingKVDB for ZCH v.Next
@@ -48,15 +72,28 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// @param max_D the maximum dimension of of embedding tensor
   /// @param uniform_init_lower the lower bound of the uniform distribution
   /// @param uniform_init_upper the upper bound of the uniform distribution
-  /// @param feature_evict_config feature evict config
+  /// @param evict_trigger_mode  evict trigger mode, reference EvictTriggerMode
+  /// @param trigger_step_interval trigger step interval
+  /// (EvictTriggerMode::ITERATION used)
+  /// @param mem_util_threshold mem util threshold (.GB
+  /// EvictTriggerMode::MEM_UTIL used)
+  /// @param evict_trigger_strategy evict trigger strategy, reference
+  /// EvictTriggerStrategy
+  /// @param count_thresholds count threshold for each table,
+  /// at::ScalarType::UInt32
+  /// @param ttls the time to feature live for each table,(.hour)
+  /// at::ScalarType::UInt32
+  /// @param count_decay_rates count decay rate for each table,
+  /// at::ScalarType::Float
+  /// @param l2_weight_thresholds l2 weight threshold for each table,
+  /// at::ScalarType::Double
+  /// @param embedding_dims  embedding dims for each table, at::ScalarType::Int
   /// @param num_shards number of shards for the kvstore. This is to improve
   /// parallelization. Each key value pair will be sharded into one shard.
   /// @param num_threads num of threads that kvstore needs to be run upon for
   /// parallelization. This is to improve read and write performance.
   /// @param row_storage_bitwidth storage bitwidth for each row of embedding for
   /// initializers. 32 kFloat || 16 kHalf || 8 kByte
-  /// @param weight_ttl_in_hours ttl in hours for each entry before it being
-  /// evicted
   /// @param enable_async_update whether to enable async update for the cache
   /// @param table_dims the table dimension for each table
   /// @param hash_size_cumsum the hash size cumulative sum for each table
@@ -65,11 +102,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       int64_t max_D,
       double uniform_init_lower,
       double uniform_init_upper,
-      FeatureEvictConfig feature_evict_config,
+      int64_t evict_trigger_mode = 0,
+      int64_t trigger_step_interval = 0,
+      int64_t mem_util_threshold = 0.0,
+      int64_t evict_trigger_strategy = 1,
+      const std::optional<at::Tensor>& count_thresholds = std::nullopt,
+      const std::optional<at::Tensor>& ttls = std::nullopt,
+      const std::optional<at::Tensor>& count_decay_rates = std::nullopt,
+      const std::optional<at::Tensor>& l2_weight_thresholds = std::nullopt,
+      const std::optional<at::Tensor>& embedding_dims = std::nullopt,
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
-      int64_t weight_ttl_in_hours = 2,
       bool enable_async_update = false,
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
@@ -81,7 +125,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             2, // ele_size_bytes
             enable_async_update),
         max_D_(max_D),
-        feature_evict_config_(feature_evict_config),
         num_shards_(num_shards),
         weight_ttl_in_hours_(weight_ttl_in_hours),
         block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
@@ -102,31 +145,66 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         uniform_init_upper,
         row_storage_bitwidth);
     if (table_dims.has_value()) {
-      TORCH_CHECK(table_dims->dim() == 1);
-      TORCH_CHECK(table_dims->dtype() == at::ScalarType::Long);
-      TORCH_CHECK(table_dims->is_contiguous());
-      TORCH_CHECK(table_dims->device().is_cpu());
-      TORCH_CHECK(hash_size_cumsum.has_value());
-      TORCH_CHECK(hash_size_cumsum->dim() == 1);
-      TORCH_CHECK(hash_size_cumsum->dtype() == at::ScalarType::Long);
-      TORCH_CHECK(hash_size_cumsum->is_contiguous());
-      TORCH_CHECK(hash_size_cumsum->device().is_cpu());
-      TORCH_CHECK(
-          table_dims->numel() + 1 == hash_size_cumsum->numel(),
-          "hash_size_cumsum length must be one more than table_dims length, but got ",
-          hash_size_cumsum->numel(),
-          " and ",
-          table_dims->numel());
-      sub_table_dims_.assign(
-          table_dims->data_ptr<int64_t>(),
-          table_dims->data_ptr<int64_t>() + table_dims->numel());
+      TORCH_CHECK_TENSOR_PROPERTIES(table_dims, at::ScalarType::Long);
+      TORCH_CHECK_TENSOR_PROPERTIES(hash_size_cumsum, at::ScalarType::Long);
+      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
+          table_dims, sub_table_dims_, int64_t);
       sub_table_hash_cumsum_.assign(
           hash_size_cumsum->data_ptr<int64_t>() + 1, // skip the first 0
           hash_size_cumsum->data_ptr<int64_t>() + hash_size_cumsum->numel());
     }
-    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
-      feature_evict_ = create_feature_evict(feature_evict_config_, executor_.get(), kv_store_, max_D);
+
+    // feature evict config
+    feature_evict_config_.trigger_mode =
+        static_cast<EvictTriggerMode>(evict_trigger_mode);
+    if (feature_evict_config_.trigger_mode == EvictTriggerMode::DISABLED) {
+      return;
     }
+    // feature evict must need hash_size_cumsum!
+    // only support mutli table config now.
+    TORCH_CHECK(hash_size_cumsum.has_value());
+    feature_evict_config_.trigger_strategy =
+        static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
+    feature_evict_config_.trigger_step_interval = trigger_step_interval;
+    feature_evict_config_.mem_util_threshold = mem_util_threshold;
+
+    if (feature_evict_config_.trigger_strategy ==
+            EvictTriggerStrategy::BY_COUNTER ||
+        feature_evict_config_.trigger_strategy ==
+            EvictTriggerStrategy::BY_TIMESTAMP_AND_COUNTER) {
+      TORCH_CHECK_TENSOR_PROPERTIES(count_thresholds, at::ScalarType::UInt32);
+      TORCH_CHECK_TENSOR_PROPERTIES(count_decay_rates, at::ScalarType::Float);
+      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
+          count_thresholds, feature_evict_config_.count_thresholds, uint32_t);
+      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
+          count_decay_rates, feature_evict_config_.count_decay_rates, float);
+    }
+
+    if (feature_evict_config_.trigger_strategy ==
+            EvictTriggerStrategy::BY_TIMESTAMP ||
+        feature_evict_config_.trigger_strategy ==
+            EvictTriggerStrategy::BY_TIMESTAMP_AND_COUNTER) {
+      TORCH_CHECK_TENSOR_PROPERTIES(ttls, at::ScalarType::UInt32);
+      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
+          ttls, feature_evict_config_.ttls, uint32_t);
+    }
+
+    if (feature_evict_config_.trigger_strategy ==
+        EvictTriggerStrategy::BY_L2WEIGHT) {
+      TORCH_CHECK_TENSOR_PROPERTIES(l2_weight_thresholds,
+                                    at::ScalarType::Double);
+      TORCH_CHECK_TENSOR_PROPERTIES(embedding_dims, at::ScalarType::Int);
+      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
+          l2_weight_thresholds,
+          feature_evict_config_.l2_weight_thresholds,
+          double);
+      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
+          embedding_dims, feature_evict_config_.embedding_dims, int);
+    }
+    feature_evict_ = create_feature_evict(feature_evict_config_,
+                                          executor_.get(),
+                                          kv_store_,
+                                          sub_table_hash_cumsum_);
   }
 
   void initialize_initializers(
@@ -218,10 +296,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       const kv_db::RocksdbWriteMode w_mode =
           kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ /*unused*/) override {
+    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
+      feature_evict_pause();
+    }
     std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
-    auto now = facebook::WallClockUtil::NowInUsecFast();
-
     for (auto iter = shardid_to_indexes.begin();
          iter != shardid_to_indexes.end();
          iter++) {
@@ -229,19 +308,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const auto indexes = iter->second;
       auto f =
           folly::via(executor_.get())
-              .thenValue([this, shard_id, indexes, &indices, &weights, &now](
+              .thenValue([this, shard_id, indexes, &indices, &weights](
                              folly::Unit) {
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kv_set",
-                    [this, shard_id, indexes, &indices, &weights, &now] {
+                    [this, shard_id, indexes, &indices, &weights] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
                       CHECK_EQ(indices.size(0), weights.size(0));
                       {
                         auto wlmap = kv_store_.by(shard_id).wlock();
-                        auto* pool = kv_store_.pool_by(shard_id);
                         auto indices_data_ptr = indices.data_ptr<index_t>();
                         for (auto index_iter = indexes.begin();
                              index_iter != indexes.end();
@@ -275,7 +353,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               });
       futures.push_back(std::move(f));
     }
-    return folly::collect(futures);
+    auto result = folly::collect(futures);
+    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
+      feature_evict_resume();
+    }
+    return result;
   }
 
   /// Get embeddings from kvstore.
@@ -295,6 +377,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) {
+    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
+      feature_evict_pause();
+    }
     std::vector<folly::Future<folly::Unit>> futures;
     auto row_width = weights.size(1);
     auto copy_width = width_length.value_or(row_width);
@@ -385,7 +470,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
               });
       futures.push_back(std::move(f));
     }
-    return folly::collect(futures);
+    auto result = folly::collect(futures);
+    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
+      feature_evict_resume();
+    }
+    return result;
   };
 
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
@@ -441,23 +530,25 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
   }
 
-  void feature_evict_resume() {
-    if (feature_evict_) {
-      feature_evict_->resume();
-    }
-  }
-
-  void feature_evict_pause() {
-    if (feature_evict_) {
-      feature_evict_->pause();
-    }
-  }
-
-  void maybe_evict_by_step() {
-    if (feature_evict_config_.trigger_mode == EvictTriggerMode::ITERATION &&
-        feature_evict_config_.trigger_step_interval > 0 &&
-        ++current_iter_ % feature_evict_config_.trigger_step_interval == 0) {
-      trigger_feature_evict();
+  void maybe_evict() {
+    switch (feature_evict_config_.trigger_mode) {
+      case EvictTriggerMode::ITERATION: {
+        if (feature_evict_config_.trigger_step_interval > 0 &&
+            ++current_iter_ % feature_evict_config_.trigger_step_interval ==
+                0) {
+          trigger_feature_evict();
+        }
+        break;
+      }
+      case EvictTriggerMode::MEM_UTIL: {
+        auto mem_util = get_map_used_memsize() / (1024 * 1024 * 1024);
+        if (mem_util > feature_evict_config_.mem_util_threshold) {
+          trigger_feature_evict();
+        }
+        break;
+      }
+      default:
+        break;
     }
   }
 
@@ -465,15 +556,24 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return kv_store_.getUsedMemSize();
   }
 
+  FeatureEvictMetricTensors get_feature_evict_metric() const {
+    if (feature_evict_config_.trigger_mode == EvictTriggerMode::DISABLED) {
+      throw std::runtime_error("feature evict is disabled");
+    }
+    return feature_evict_->get_feature_evict_metric();
+  }
+
  private:
   int64_t get_dim_from_index(int64_t weight_idx) const {
     if (sub_table_dims_.empty()) {
       return max_D_;
     }
-    for (int i = 0; i < sub_table_hash_cumsum_.size(); i++) {
-      if (weight_idx < sub_table_hash_cumsum_[i]) {
-        return sub_table_dims_[i];
-      }
+    auto it = std::upper_bound(sub_table_hash_cumsum_.begin(),
+                               sub_table_hash_cumsum_.end(),
+                               weight_idx);
+    if (it != sub_table_hash_cumsum_.end()) {
+      int index = std::distance(sub_table_hash_cumsum_.begin(), it);
+      return sub_table_dims_[index];
     }
     CHECK(false) << "weight_idx " << weight_idx
                  << " doesn't belong to any feature";
@@ -566,12 +666,23 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   void flush_or_compact(const int64_t timestep) override {}
 
+  void feature_evict_resume() {
+    if (feature_evict_) {
+      feature_evict_->resume();
+    }
+  }
+
+  void feature_evict_pause() {
+    if (feature_evict_) {
+      feature_evict_->pause();
+    }
+  }
+
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
   // background thread
   folly::FunctionScheduler scheduler_;
   int64_t max_D_;
   int64_t num_shards_;
-  int64_t weight_ttl_in_hours_;
   // mempool params
   size_t block_size_;
   size_t block_alignment_;

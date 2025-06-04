@@ -30,41 +30,39 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t max_D,
       double uniform_init_lower,
       double uniform_init_upper,
-      int evict_trigger_mode,
-      int evict_trigger_strategy,
-      int64_t trigger_step_interval,
-      uint32_t ttl,
-      uint32_t count_threshold,
-      float count_decay_rate,
-      double l2_weight_threshold,
+      int64_t evict_trigger_mode = 0,
+      int64_t trigger_step_interval = 0,
+      int64_t mem_util_threshold = 0,
+      int64_t evict_trigger_strategy = 1,
+      const std::optional<at::Tensor>& count_thresholds = std::nullopt,
+      const std::optional<at::Tensor>& ttls = std::nullopt,
+      const std::optional<at::Tensor>& count_decay_rates = std::nullopt,
+      const std::optional<at::Tensor>& l2_weight_thresholds = std::nullopt,
+      const std::optional<at::Tensor>& embedding_dims = std::nullopt,
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
-      int64_t weight_ttl_in_hours = 2,
       const std::optional<at::Tensor>& table_dims = std::nullopt,
       const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
       bool enable_async_update = false) {
-
-    // feature evict config
-    FeatureEvictConfig feature_evict_config;
-    feature_evict_config.trigger_mode = static_cast<EvictTriggerMode>(evict_trigger_mode);
-    feature_evict_config.trigger_strategy = static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
-    feature_evict_config.trigger_step_interval = trigger_step_interval;
-    feature_evict_config.ttl = ttl;
-    feature_evict_config.count_threshold = count_threshold;
-    feature_evict_config.count_decay_rate = count_decay_rate;
-    feature_evict_config.l2_weight_threshold = l2_weight_threshold;
 
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
           uniform_init_lower,
           uniform_init_upper,
-          feature_evict_config,
+          evict_trigger_mode,
+          trigger_step_interval,
+          mem_util_threshold,
+          evict_trigger_strategy,
+          count_thresholds,
+          ttls,
+          count_decay_rates,
+          l2_weight_thresholds,
+          embedding_dims,
           num_shards,
           num_threads,
           row_storage_bitwidth,
-          weight_ttl_in_hours,
           enable_async_update,
           table_dims,
           hash_size_cumsum);
@@ -73,11 +71,18 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           max_D,
           uniform_init_lower,
           uniform_init_upper,
-          feature_evict_config,
+          evict_trigger_mode,
+          trigger_step_interval,
+          mem_util_threshold,
+          evict_trigger_strategy,
+          count_thresholds,
+          ttls,
+          count_decay_rates,
+          l2_weight_thresholds,
+          embedding_dims,
           num_shards,
           num_threads,
           row_storage_bitwidth,
-          weight_ttl_in_hours,
           enable_async_update,
           table_dims,
           hash_size_cumsum);
@@ -100,11 +105,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   }
 
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
-    impl_->feature_evict_pause();
     impl_->set(indices, weights, count);
-    // when use ITERATION EvictTriggerMode, trigger evict by step
-    impl_->maybe_evict_by_step();
-    impl_->feature_evict_resume();
+    // when use ITERATION or EvictTriggerMode,
+    // trigger evict by trigger_step_interval or mem_util_threshold
+    impl_->maybe_evict();
   }
 
   void flush() {
@@ -133,9 +137,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor weights,
       at::Tensor count,
       int64_t sleep_ms) {
-    impl_->feature_evict_pause();
     impl_->get(indices, weights, count, sleep_ms);
-    impl_->feature_evict_resume();
   }
 
   void wait_util_filling_work_done() {
@@ -148,6 +150,15 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
 
   size_t get_map_used_memsize() const {
     return impl_->get_map_used_memsize();
+  }
+
+  void get_feature_evict_metric(at::Tensor evicted_counts,
+                                at::Tensor processed_counts,
+                                at::Tensor duration) {
+    FeatureEvictMetricTensors metrics = impl_->get_feature_evict_metric();
+    evicted_counts = metrics.evicted_counts;      // evicted_counts (Long)
+    processed_counts = metrics.processed_counts;  // processed_counts (Long)
+    duration = metrics.duration;                  // duration (unit is ms, Long)
   }
 
  private:
