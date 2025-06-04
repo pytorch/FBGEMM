@@ -13,13 +13,12 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/macros/Macros.h>
 #include <cuda.h> // @manual
-#include <glog/logging.h>
 #include <torch/torch.h> // @manual
 #include <algorithm>
 #include <ctime>
 
 #define TORBOREC_CUDA
-#include "fbgemm_gpu/faster_hash_ops/common_utils.cuh" // @manual
+#include "common_utils.cuh" // @manual
 #include "fbgemm_gpu/faster_hash_ops/faster_hash_ops.cuh" // @manual
 
 namespace fbgemm_gpu {

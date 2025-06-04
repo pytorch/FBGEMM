@@ -12,7 +12,7 @@
 #include <torch/torch.h> // @manual
 #include "c10/core/ScalarType.h" // @manual
 #include "c10/core/TensorImpl.h" // @manual
-#include "fbgemm_gpu/faster_hash_ops/common_utils.cuh" // @manual
+#include "common_utils.cuh" // @manual
 #include "fbgemm_gpu/faster_hash_ops/faster_hash_ops.h" // @manual
 
 /* Inference ONLY op */
