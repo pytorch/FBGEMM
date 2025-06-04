@@ -107,7 +107,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
     impl_->set(indices, weights, count);
     // when use ITERATION or EvictTriggerMode,
-    // trigger evict by trigger_step_interval or mem_util_threshold
+    // trigger evict by trigger_step_interval or mem_util_threshold_GB
     impl_->maybe_evict();
   }
 

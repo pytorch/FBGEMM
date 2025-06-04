@@ -136,7 +136,7 @@ TEST(FeatureEvictTest, TimeBasedEviction) {
       static_cast<EvictTriggerMode>(evict_trigger_mode);
   feature_evict_config.trigger_strategy =
       static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
-  feature_evict_config.ttls = ttls;
+  feature_evict_config.ttls_in_hour = ttls;
 
   if (feature_evict_config.trigger_mode != EvictTriggerMode::DISABLED) {
     feature_evict = create_feature_evict(feature_evict_config,
@@ -219,7 +219,7 @@ TEST(FeatureEvictTest, TimeCounterBasedEviction) {
       static_cast<EvictTriggerMode>(evict_trigger_mode);
   feature_evict_config.trigger_strategy =
       static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
-  feature_evict_config.ttls = ttls;
+  feature_evict_config.ttls_in_hour = ttls;
   feature_evict_config.count_thresholds = count_thresholds;
   feature_evict_config.count_decay_rates = count_decay_rates;
 

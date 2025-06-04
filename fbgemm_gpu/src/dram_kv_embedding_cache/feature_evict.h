@@ -37,8 +37,8 @@ struct FeatureEvictConfig {
   EvictTriggerStrategy trigger_strategy;
   EvictTriggerMode trigger_mode;
   int64_t trigger_step_interval;
-  int64_t mem_util_threshold;
-  std::vector<uint32_t> ttls;
+  int64_t mem_util_threshold_in_GB;
+  std::vector<uint32_t> ttls_in_hour;
   std::vector<uint32_t> count_thresholds;
   std::vector<float> count_decay_rates;
   std::vector<double> l2_weight_thresholds;
@@ -460,7 +460,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
   switch (config.trigger_strategy) {
     case EvictTriggerStrategy::BY_TIMESTAMP: {
       return std::make_unique<TimeBasedEvict<weight_type>>(
-          executor, kv_store, sub_table_hash_cumsum, config.ttls);
+          executor, kv_store, sub_table_hash_cumsum, config.ttls_in_hour);
     }
 
     case EvictTriggerStrategy::BY_COUNTER: {
@@ -489,7 +489,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           executor,
           kv_store,
           sub_table_hash_cumsum,
-          config.ttls,
+          config.ttls_in_hour,
           config.count_decay_rates,
           config.count_thresholds);
     }
