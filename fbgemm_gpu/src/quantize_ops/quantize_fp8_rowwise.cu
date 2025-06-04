@@ -157,6 +157,112 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
   }
 }
 
+template <typename scalar_t>
+struct VectorSizeTraits {
+  // Default to 4 elements for most types (16 bytes for float)
+  static constexpr int value = 4;
+};
+
+// Specialization for half (float16)
+template <>
+struct VectorSizeTraits<half> {
+  // 8 elements for half precision (16 bytes total)
+  static constexpr int value = 8;
+};
+
+// Specialization for __nv_bfloat16
+template <>
+struct VectorSizeTraits<__nv_bfloat16> {
+  // 8 elements for bfloat16 precision (16 bytes total)
+  static constexpr int value = 8;
+};
+
+// aligned vector generates vectorized load/store on CUDA (copy-pasted from
+// MemoryAccess.cuh)
+template <typename scalar_t, int vec_size = VectorSizeTraits<scalar_t>::value>
+struct alignas(sizeof(scalar_t) * vec_size) aligned_vector {
+  scalar_t val[vec_size];
+};
+
+template <typename input_t>
+__global__ inline void _compute_FP8_quantize_cuda_vectorized_kernel(
+    const pta::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
+    const int64_t nrows,
+    const int64_t ncols,
+    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
+    const bool forward) {
+  CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
+
+  int ebit = forward ? 4 : 5;
+  int bias = forward ? 15 : 31;
+  float max_pos = forward ? 0.9375 : 0.875;
+
+  // Calculate output width
+  const auto ncols_aligned = (ncols + 4 - 1) / 4 * 4;
+  const auto output_columns = ncols_aligned + 2 * sizeof(float);
+
+  // Calculate global row index with 2D thread blocks
+  const int64_t gy = blockIdx.y * blockDim.y + threadIdx.y;
+
+  // Early return if row is out of bounds
+  if (gy >= nrows) {
+    return;
+  }
+
+  // Calculate base offsets for the current row
+  const int64_t input_row_offset = gy * ncols;
+  const int64_t output_row_offset = gy * output_columns;
+
+  // Calculate the position where the scale values are stored
+  const int64_t scale_offset = output_row_offset + ncols_aligned;
+  const float scale_value = reinterpret_cast<float*>(&output[scale_offset])[0];
+
+  // Find aligned section boundaries within this row
+  // We'll use vector operations only for the aligned middle section
+  static constexpr int vec_size = VectorSizeTraits<input_t>::value;
+  const int64_t vector_blocks = ncols / vec_size;
+
+  // Thread assignments for vectorized section
+  const int64_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  const int64_t thread_stride = blockDim.x * gridDim.x;
+
+  using vec_t = aligned_vector<input_t, vec_size>;
+  using vec_i = aligned_vector<uint8_t, vec_size>;
+
+  // 1. Process four elements at a time using vectorization where possible
+  for (int64_t vec_idx = thread_idx; vec_idx < vector_blocks;
+       vec_idx += thread_stride) {
+    const int64_t col_idx = vec_idx * vec_size;
+
+    // Don't access beyond the valid input data
+    if (col_idx + 3 < ncols) {
+      // Load 4 elements - handle both aligned and unaligned cases correctly
+      const vec_t* input_row =
+          reinterpret_cast<const vec_t*>(&input[input_row_offset + col_idx]);
+
+      vec_i* output_row =
+          reinterpret_cast<vec_i*>(&output[output_row_offset + col_idx]);
+
+#pragma unroll
+      for (int i = 0; i < vec_size; ++i) {
+        output_row->val[i] = float_to_hfp8(
+            to_float(input_row->val[i]) * scale_value, ebit, bias, max_pos);
+      }
+    }
+  }
+
+  // 2. Process any remaining elements (less than 4) with scalar operations
+  const int64_t remaining_start = vector_blocks * vec_size;
+  for (int64_t col = remaining_start + threadIdx.x; col < ncols;
+       col += blockDim.x) {
+    output[output_row_offset + col] = float_to_hfp8(
+        to_float(input[input_row_offset + col]) * scale_value,
+        ebit,
+        bias,
+        max_pos);
+  }
+}
+
 template <typename output_t>
 __global__ inline void _FP8rowwise_to_float_cuda_kernel(
     pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> input,
@@ -295,27 +401,66 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
     }
 
     {
-      const int blockDim_x =
-          std::min(ncols, static_cast<int64_t>(threads_per_block));
-      dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
-      const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
-      const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
-      dim3 gridDim(gridDim_x, gridDim_y);
+      if ((ncols % VectorSizeTraits<input_t>::value) != 0) {
+        const int blockDim_x =
+            std::min(ncols, static_cast<int64_t>(threads_per_block));
+        dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
+        const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
+        const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
+        dim3 gridDim(gridDim_x, gridDim_y);
 
-      FBGEMM_DISPATCH_FLOATING_TYPES(
-          input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
+        FBGEMM_DISPATCH_FLOATING_TYPES(
+            input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
 #ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "_compute_FP8_quantize_cuda_kernel";
+              const auto func_name = "_compute_FP8_quantize_cuda_kernel";
 #endif
-            _compute_FP8_quantize_cuda_kernel<scalar_t>
-                <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
-                    nrows,
-                    ncols,
-                    MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
-                    forward);
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-          });
+              _compute_FP8_quantize_cuda_kernel<scalar_t>
+                  <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
+                      MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
+                      nrows,
+                      ncols,
+                      MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
+                      forward);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      } else {
+        // Simple thread block configuration for the scalar kernel
+        // Use 256 threads per block with 32 threads in X dimension (for warp
+        // alignment)
+        const int BLOCK_DIM_X = 32; // Keep warp-aligned for best performance
+        const int BLOCK_DIM_Y = 8; // Balance between Y coverage and registers
+        dim3 blockSize(BLOCK_DIM_X, BLOCK_DIM_Y);
+
+        int num_sms = 80;
+        int max_blocks_per_sm = 16;
+        int target_blocks_x = num_sms * max_blocks_per_sm;
+
+        int gridX = std::min(
+            (int)((ncols + blockSize.x - 1) / blockSize.x), target_blocks_x);
+        int gridY = (nrows + blockSize.y - 1) / blockSize.y;
+
+        gridX = std::min(gridX, 65535);
+        gridY = std::min(gridY, 65535);
+        dim3 gridSize(gridX, gridY);
+
+        FBGEMM_DISPATCH_FLOATING_TYPES(
+            input.scalar_type(), "_compute_FP8_quantize_cuda_kernel", [&] {
+#ifdef FBGEMM_GPU_MEMCHECK
+              const auto func_name = "_compute_FP8_quantize_cuda_kernel";
+#endif
+              _compute_FP8_quantize_cuda_vectorized_kernel<scalar_t>
+                  <<<gridSize,
+                     blockSize,
+                     0,
+                     at::cuda::getCurrentCUDAStream()>>>(
+                      MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
+                      nrows,
+                      ncols,
+                      MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
+                      forward);
+              C10_CUDA_KERNEL_LAUNCH_CHECK();
+            });
+      }
     }
   }
 
