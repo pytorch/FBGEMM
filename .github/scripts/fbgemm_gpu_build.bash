@@ -610,6 +610,11 @@ __verify_library_symbols () {
       )
     fi
 
+  elif [ "${fbgemm_build_target}" == "hstu" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::hstu::set_params_fprop
+    )
+
   else
     local lib_symbols_to_check=(
       fbgemm_gpu::asynchronous_inclusive_cumsum_cpu
