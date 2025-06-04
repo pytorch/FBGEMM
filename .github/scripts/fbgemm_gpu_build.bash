@@ -491,7 +491,7 @@ __build_fbgemm_gpu_common_pre_steps () {
   (test_binpath "${env_name}" g++)  || return 1
 
   # Set the default the FBGEMM build variant to be default (i.e. FBGEMM_GPU)
-  if [[ ! " genai hstu default " =~ "$fbgemm_build_target" ]]; then
+  if [[ ! " genai hstu default " =~ " $fbgemm_build_target " ]]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM build TARGET: ${fbgemm_build_target}"
     echo "[BUILD] Exiting ..."
@@ -500,7 +500,7 @@ __build_fbgemm_gpu_common_pre_steps () {
   fi
 
   # Set the default the FBGEMM build variant to be CUDA
-  if [[ ! " docs cpu cuda rocm " =~ "$fbgemm_build_variant" ]]; then
+  if [[ ! " docs cpu cuda rocm " =~ " $fbgemm_build_variant " ]]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM build VARIANT: ${fbgemm_build_variant}"
     echo "[BUILD] Exiting ..."
