@@ -53,6 +53,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
   // timestamp operations
   static uint32_t get_timestamp(const void* block) { return reinterpret_cast<const MetaHeader*>(block)->timestamp; }
+  static void set_timestamp(void* block, uint32_t time) { reinterpret_cast<MetaHeader*>(block)->timestamp = time; }
   static void update_timestamp(void* block) { reinterpret_cast<MetaHeader*>(block)->timestamp = current_timestamp(); }
   static uint32_t current_timestamp() {
     return std::time(nullptr);

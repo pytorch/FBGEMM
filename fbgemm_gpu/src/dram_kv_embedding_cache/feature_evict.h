@@ -7,9 +7,11 @@
 #include <stdexcept>
 #include <vector>
 
+#include <ATen/ATen.h>
 #include <cassert>
 #include <fmt/chrono.h>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/futures/Future.h>
 
@@ -20,30 +22,66 @@ namespace kv_mem {
 enum class EvictTriggerMode {
   DISABLED,   // Do not use feature evict
   ITERATION,  // Trigger based on iteration steps
+  MEM_UTIL,   // Trigger based on memory usage
   MANUAL      // Manually triggered by upstream
 };
 
-enum class EvictTriggerStrategy { BY_TIMESTAMP, BY_COUNTER, BY_TIMESTAMP_AND_COUNTER, BY_L2WEIGHT };
+enum class EvictTriggerStrategy {
+  BY_TIMESTAMP,
+  BY_COUNTER,
+  BY_TIMESTAMP_AND_COUNTER,
+  BY_L2WEIGHT
+};
 
 struct FeatureEvictConfig {
   EvictTriggerStrategy trigger_strategy;
   EvictTriggerMode trigger_mode;
   int64_t trigger_step_interval;
-  uint32_t ttl;
-  uint32_t count_threshold;
-  float count_decay_rate;
-  double l2_weight_threshold;
+  int64_t mem_util_threshold;
+  std::vector<uint32_t> ttls;
+  std::vector<uint32_t> count_thresholds;
+  std::vector<float> count_decay_rates;
+  std::vector<double> l2_weight_thresholds;
+  std::vector<int> embedding_dims;
+};
+
+struct FeatureEvictMetrics {
+  explicit FeatureEvictMetrics(int table_num) {
+    evicted_counts.resize(table_num, 0);
+    processed_counts.resize(table_num, 0);
+    duration = 0;
+  }
+
+  void reset() {
+    std::fill(evicted_counts.begin(), evicted_counts.end(), 0);
+    std::fill(processed_counts.begin(), processed_counts.end(), 0);
+    duration = 0;
+  }
+
+  std::vector<int64_t> evicted_counts;
+  std::vector<int64_t> processed_counts;
+  int64_t duration;
+};
+
+struct FeatureEvictMetricTensors {
+  at::Tensor evicted_counts;
+  at::Tensor processed_counts;
+  at::Tensor duration;
 };
 
 template <typename weight_type>
 class FeatureEvict {
  public:
-  FeatureEvict(folly::CPUThreadPoolExecutor* executor, SynchronizedShardedMap<int64_t, weight_type*>& kv_store)
+  FeatureEvict(folly::CPUThreadPoolExecutor* executor,
+               SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
+               const std::vector<int64_t>& sub_table_hash_cumsum)
       : executor_(executor),
         kv_store_(kv_store),
         evict_flag_(false),
         evict_interrupt_(false),
-        num_shards_(kv_store.getNumShards()) {
+        num_shards_(kv_store.getNumShards()),
+        sub_table_hash_cumsum_(sub_table_hash_cumsum),
+        metrics_(sub_table_hash_cumsum_.size()) {
     init_shard_status();
   }
 
@@ -60,7 +98,14 @@ class FeatureEvict {
     prepare_evict();
   }
 
-  // Resume task execution. Returns true if there is an ongoing task, false otherwise.
+  // Get feature eviction metric.
+  FeatureEvictMetricTensors get_feature_evict_metric() {
+    std::lock_guard<std::mutex> lock(metric_mtx_);
+    return metric_tensors_;
+  }
+
+  // Resume task execution. Returns true if there is an ongoing task, false
+  // otherwise.
   bool resume() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!evict_flag_.load()) return false;
@@ -71,8 +116,8 @@ class FeatureEvict {
     return true;
   };
 
-  // Pause the eviction process. Returns true if there is an ongoing task, false otherwise.
-  // During the pause phase, check whether the eviction is complete.
+  // Pause the eviction process. Returns true if there is an ongoing task, false
+  // otherwise. During the pause phase, check whether the eviction is complete.
   bool pause() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!evict_flag_.load()) return false;
@@ -108,35 +153,45 @@ class FeatureEvict {
     for (int shard_id = 0; shard_id < num_shards_; ++shard_id) {
       auto rlmap = kv_store_.by(shard_id).rlock();
       auto* mempool = kv_store_.pool_by(shard_id);
-      block_nums_snapshot_[shard_id] = mempool->get_chunks().size() * mempool->get_blocks_per_chunk();
+      block_nums_snapshot_[shard_id] =
+          mempool->get_chunks().size() * mempool->get_blocks_per_chunk();
       block_cursors_[shard_id] = 0;
       shards_finished_[shard_id]->store(false);
     }
+    metrics_.reset();
   }
 
   void submit_shard_task(int shard_id) {
     if (shards_finished_[shard_id]->load()) return;
-    futures_.emplace_back(folly::via(executor_).thenValue([this, shard_id](auto&&) { process_shard(shard_id); }));
+    futures_.emplace_back(folly::via(executor_).thenValue(
+        [this, shard_id](auto&&) { process_shard(shard_id); }));
   }
 
   void process_shard(int shard_id) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    size_t evicted_count = 0;
-    size_t processed_count = 0;
+    std::vector<int64_t> evicted_counts(sub_table_hash_cumsum_.size(), 0);
+    std::vector<int64_t> processed_counts(sub_table_hash_cumsum_.size(), 0);
+    std::vector<float> evict_rates(sub_table_hash_cumsum_.size(), 0.0f);
 
     auto wlock = kv_store_.by(shard_id).wlock();
     auto* pool = kv_store_.pool_by(shard_id);
 
-    while (!evict_interrupt_.load() && block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
-      auto* block = pool->template get_block<weight_type>(block_cursors_[shard_id]++);
-      processed_count++;
-      if (block && evict_block(block)) {
-        int64_t key = FixedBlockPool::get_key(block);
+    while (!evict_interrupt_.load() &&
+           block_cursors_[shard_id] < block_nums_snapshot_[shard_id]) {
+      auto* block =
+          pool->template get_block<weight_type>(block_cursors_[shard_id]++);
+      if (block == nullptr) {
+        continue;
+      }
+      int64_t key = FixedBlockPool::get_key(block);
+      int sub_table_id = get_sub_table_id(key);
+      processed_counts[sub_table_id]++;
+      if (evict_block(block, sub_table_id)) {
         auto it = wlock->find(key);
         if (it != wlock->end() && block == it->second) {
           wlock->erase(key);
           pool->template deallocate_t<weight_type>(block);
-          evicted_count++;
+          evicted_counts[sub_table_id]++;
         }
       }
     }
@@ -147,22 +202,36 @@ class FeatureEvict {
     }
 
     auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        end_time - start_time);
+    {
+      std::lock_guard<std::mutex> lock(metric_mtx_);
+      metrics_.duration += duration.count();
+      for (size_t i = 0; i < evicted_counts.size(); ++i) {
+        metrics_.evicted_counts[i] += evicted_counts[i];
+        metrics_.processed_counts[i] += processed_counts[i];
+      }
+    }
 
-    fmt::print(
+    for (size_t i = 0; i < evicted_counts.size(); ++i) {
+      evict_rates[i] = processed_counts[i] > 0
+                           ? (evicted_counts[i] * 100.0f) / processed_counts[i]
+                           : 0.0f;
+    }
+    DLOG(INFO) << fmt::format(
         "Shard {} completed: \n"
         "  - Time taken: {}ms\n"
-        "  - Total blocks processed: {}\n"
-        "  - Blocks evicted: {}\n"
-        "  - Eviction rate: {:.2f}%\n",
+        "  - Total blocks processed: [{}]\n"
+        "  - Blocks evicted: [{}]\n"
+        "  - Eviction rate: [{}]%\n",
         shard_id,
         duration.count(),
-        processed_count,
-        evicted_count,
-        (evicted_count * 100.0f) / processed_count);
+        fmt::join(processed_counts, ", "),
+        fmt::join(evicted_counts, ", "),
+        fmt::join(evict_rates, ", "));
   }
 
-  virtual bool evict_block(weight_type* block) = 0;
+  virtual bool evict_block(weight_type* block, int sub_table_id) = 0;
 
   void wait_completion() {
     folly::collectAll(futures_).wait();
@@ -175,19 +244,83 @@ class FeatureEvict {
     for (int i = 0; i < num_shards_; ++i) {
       if (!shards_finished_[i]->load()) all_finished = false;
     }
-    if (all_finished) evict_flag_.store(false);
+    if (all_finished && evict_flag_.exchange(false)) {
+      record_metrics_to_report_tensor();
+    }
   }
 
-  folly::CPUThreadPoolExecutor* executor_;                           // Thread pool.
-  SynchronizedShardedMap<int64_t, weight_type*>& kv_store_;          // Sharded map.
-  std::vector<std::size_t> block_cursors_;                           // Index of processed blocks.
-  std::vector<std::size_t> block_nums_snapshot_;                     // Snapshot of total blocks at eviction trigger.
-  std::vector<std::unique_ptr<std::atomic<bool>>> shards_finished_;  // Flags indicating whether shards are finished.
-  std::atomic<bool> evict_flag_;                                     // Indicates whether an eviction task is ongoing.
-  std::atomic<bool> evict_interrupt_;                                // Indicates whether the eviction task is paused.
-  std::vector<folly::Future<folly::Unit>> futures_;                  // Records of shard tasks.
-  std::mutex mutex_;  // Interface lock to ensure thread safety for public methods.
-  int num_shards_;    // Number of concurrent tasks.
+  [[nodiscard]] int get_sub_table_id(int64_t key) const {
+    auto it = std::upper_bound(
+        sub_table_hash_cumsum_.begin(), sub_table_hash_cumsum_.end(), key);
+    if (it == sub_table_hash_cumsum_.end()) {
+      CHECK(false) << "key " << key << " doesn't belong to any feature";
+    }
+
+    return std::distance(sub_table_hash_cumsum_.begin(), it);
+  }
+
+  void record_metrics_to_report_tensor() {
+    std::lock_guard<std::mutex> lock(metric_mtx_);
+    metric_tensors_.evicted_counts =
+        at::from_blob(const_cast<int64_t*>(metrics_.evicted_counts.data()),
+                      {static_cast<int64_t>(metrics_.evicted_counts.size())},
+                      at::kLong)
+            .clone();
+
+    metric_tensors_.processed_counts =
+        at::from_blob(const_cast<int64_t*>(metrics_.processed_counts.data()),
+                      {static_cast<int64_t>(metrics_.processed_counts.size())},
+                      at::kLong)
+            .clone();
+
+    metric_tensors_.duration = at::scalar_tensor(metrics_.duration, at::kLong);
+    std::vector<float> evict_rates(metrics_.evicted_counts.size());
+    for (size_t i = 0; i < metrics_.evicted_counts.size(); ++i) {
+      evict_rates[i] = metrics_.processed_counts[i] > 0
+                           ? (metrics_.evicted_counts[i] * 100.0f) /
+                                 metrics_.processed_counts[i]
+                           : 0.0f;
+    }
+    LOG(INFO) << fmt::format(
+        "Feature evict completed: \n"
+        "  - Time taken: {}ms\n"
+        "  - Total blocks processed: [{}]\n"
+        "  - Blocks evicted: [{}]\n"
+        "  - Eviction rate: [{}]%\n",
+        metrics_.duration,
+        fmt::join(metrics_.processed_counts, ", "),
+        fmt::join(metrics_.evicted_counts, ", "),
+        fmt::join(evict_rates, ", "));
+  }
+
+  // Thread pool.
+  folly::CPUThreadPoolExecutor* executor_;
+  // Sharded map.
+  SynchronizedShardedMap<int64_t, weight_type*>& kv_store_;
+  // Index of processed blocks.
+  std::vector<std::size_t> block_cursors_;
+  // Snapshot of total blocks at eviction trigger.
+  std::vector<std::size_t> block_nums_snapshot_;
+  // Flags indicating whether shards are finished.
+  std::vector<std::unique_ptr<std::atomic<bool>>> shards_finished_;
+  // Indicates whether an eviction task is ongoing.
+  std::atomic<bool> evict_flag_;
+  // Indicates whether the eviction task is paused.
+  std::atomic<bool> evict_interrupt_;
+  // Records of shard tasks.
+  std::vector<folly::Future<folly::Unit>> futures_;
+  // Interface lock to ensure thread safety for public methods.
+  std::mutex mutex_;
+  // Number of concurrent tasks.
+  int num_shards_;
+  // used to calculate which sub-table the key belongs to
+  const std::vector<int64_t>& sub_table_hash_cumsum_;
+  // metric lock
+  std::mutex metric_mtx_;
+  // record the statistical information of feature_evict
+  FeatureEvictMetrics metrics_;
+  // report the statistical information of feature_evict
+  FeatureEvictMetricTensors metric_tensors_;
 };
 
 template <typename weight_type>
@@ -195,24 +328,31 @@ class CounterBasedEvict : public FeatureEvict<weight_type> {
  public:
   CounterBasedEvict(folly::CPUThreadPoolExecutor* executor,
                     SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
-                    float decay_rate,
-                    uint32_t threshold)
-      : FeatureEvict<weight_type>(executor, kv_store), decay_rate_(decay_rate), threshold_(threshold) {}
+                    const std::vector<int64_t>& sub_table_hash_cumsum,
+                    const std::vector<float>& decay_rates,
+                    const std::vector<uint32_t>& thresholds)
+      : FeatureEvict<weight_type>(executor, kv_store, sub_table_hash_cumsum),
+        decay_rates_(decay_rates),
+        thresholds_(thresholds) {}
 
-  void update_feature_statistics(weight_type* block) override { FixedBlockPool::update_count(block); }
+  void update_feature_statistics(weight_type* block) override {
+    FixedBlockPool::update_count(block);
+  }
 
  protected:
-  bool evict_block(weight_type* block) override {
+  bool evict_block(weight_type* block, int sub_table_id) override {
+    float decay_rate = decay_rates_[sub_table_id];
+    uint32_t threshold = thresholds_[sub_table_id];
     // Apply decay and check the threshold.
     auto current_count = FixedBlockPool::get_count(block);
-    current_count *= decay_rate_;
+    current_count *= decay_rate;
     FixedBlockPool::set_count(block, current_count);
-    return current_count < threshold_;
+    return current_count < threshold;
   }
 
  private:
-  float decay_rate_;    // Decay rate for the block count.
-  uint32_t threshold_;  // Threshold for eviction.
+  const std::vector<float>& decay_rates_;    // Decay rate for the block count.
+  const std::vector<uint32_t>& thresholds_;  // Threshold for eviction.
 };
 
 template <typename weight_type>
@@ -220,19 +360,24 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
  public:
   TimeBasedEvict(folly::CPUThreadPoolExecutor* executor,
                  SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
-                 uint32_t ttl)
-      : FeatureEvict<weight_type>(executor, kv_store), ttl_(ttl) {}
+                 const std::vector<int64_t>& sub_table_hash_cumsum,
+                 const std::vector<uint32_t>& ttls)
+      : FeatureEvict<weight_type>(executor, kv_store, sub_table_hash_cumsum),
+        ttls_(ttls) {}
 
-  void update_feature_statistics(weight_type* block) override { FixedBlockPool::update_timestamp(block); }
+  void update_feature_statistics(weight_type* block) override {
+    FixedBlockPool::update_timestamp(block);
+  }
 
  protected:
-  bool evict_block(weight_type* block) override {
+  bool evict_block(weight_type* block, int sub_table_id) override {
+    uint32_t ttl = ttls_[sub_table_id];
     auto current_time = FixedBlockPool::current_timestamp();
-    return current_time - FixedBlockPool::get_timestamp(block) > ttl_;
+    return current_time - FixedBlockPool::get_timestamp(block) > ttl * 3600;
   }
 
  private:
-  uint32_t ttl_;  // Time-to-live for eviction.
+  const std::vector<uint32_t>& ttls_;  // Time-to-live for eviction.
 };
 
 template <typename weight_type>
@@ -240,10 +385,14 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
  public:
   TimeCounterBasedEvict(folly::CPUThreadPoolExecutor* executor,
                         SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
-                        uint32_t ttl,
-                        float decay_rate,
-                        uint32_t threshold)
-      : FeatureEvict<weight_type>(executor, kv_store), ttl_(ttl), decay_rate_(decay_rate), threshold_(threshold) {}
+                        const std::vector<int64_t>& sub_table_hash_cumsum,
+                        const std::vector<uint32_t>& ttls,
+                        const std::vector<float>& decay_rates,
+                        const std::vector<uint32_t>& thresholds)
+      : FeatureEvict<weight_type>(executor, kv_store, sub_table_hash_cumsum),
+        ttls_(ttls),
+        decay_rates_(decay_rates),
+        thresholds_(thresholds) {}
 
   void update_feature_statistics(weight_type* block) override {
     FixedBlockPool::update_timestamp(block);
@@ -251,19 +400,23 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
   }
 
  protected:
-  bool evict_block(weight_type* block) override {
+  bool evict_block(weight_type* block, int sub_table_id) override {
+    uint32_t ttl = ttls_[sub_table_id];
+    float decay_rate = decay_rates_[sub_table_id];
+    uint32_t threshold = thresholds_[sub_table_id];
     // Apply decay and check the count threshold and ttl.
     auto current_time = FixedBlockPool::current_timestamp();
     auto current_count = FixedBlockPool::get_count(block);
-    current_count *= decay_rate_;
+    current_count *= decay_rate;
     FixedBlockPool::set_count(block, current_count);
-    return (current_time - FixedBlockPool::get_timestamp(block) > ttl_) && (current_count < threshold_);
+    return (current_time - FixedBlockPool::get_timestamp(block) > ttl * 3600) &&
+           (current_count < threshold);
   }
 
  private:
-  uint32_t ttl_;       // Time-to-live for eviction.
-  float decay_rate_;   // Decay rate for the block count.
-  uint32_t threshold_; // Count threshold for eviction.
+  const std::vector<uint32_t>& ttls_;        // Time-to-live for eviction.
+  const std::vector<float>& decay_rates_;    // Decay rate for the block count.
+  const std::vector<uint32_t>& thresholds_;  // Count threshold for eviction.
 };
 
 template <typename weight_type>
@@ -271,21 +424,27 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
  public:
   L2WeightBasedEvict(folly::CPUThreadPoolExecutor* executor,
                      SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
-                     double threshold,
-                     size_t dimension)
-      : FeatureEvict<weight_type>(executor, kv_store), threshold_(threshold), dimension_(dimension) {}
+                     const std::vector<int64_t>& sub_table_hash_cumsum,
+                     const std::vector<double>& thresholds,
+                     const std::vector<int>& sub_table_dims)
+      : FeatureEvict<weight_type>(executor, kv_store, sub_table_hash_cumsum),
+        thresholds_(thresholds),
+        sub_table_dims_(sub_table_dims) {}
 
-  void update_feature_statistics([[maybe_unused]] weight_type* block) override {}
+  void update_feature_statistics([[maybe_unused]] weight_type* block) override {
+  }
 
  protected:
-  bool evict_block(weight_type* block) override {
-    auto l2weight = FixedBlockPool::get_l2weight(block, dimension_);
-    return l2weight < threshold_;
+  bool evict_block(weight_type* block, int sub_table_id) override {
+    size_t dimension = sub_table_dims_[sub_table_id];
+    double threshold = thresholds_[sub_table_id];
+    auto l2weight = FixedBlockPool::get_l2weight(block, dimension);
+    return l2weight < threshold;
   }
 
  private:
-  double threshold_;  // L2 weight threshold for eviction.
-  size_t dimension_;  // Embedding dimension
+  const std::vector<double>& thresholds_;   // L2 weight threshold for eviction.
+  const std::vector<int>& sub_table_dims_;  // Embedding dimension
 };
 
 template <typename weight_type>
@@ -293,51 +452,66 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
     const FeatureEvictConfig& config,
     folly::CPUThreadPoolExecutor* executor,
     SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
-    size_t dimension) {
+    const std::vector<int64_t>& sub_table_hash_cumsum) {
   if (executor == nullptr) {
     throw std::invalid_argument("executor cannot be null");
   }
 
   switch (config.trigger_strategy) {
     case EvictTriggerStrategy::BY_TIMESTAMP: {
-      if (config.ttl <= 0) {
-        throw std::invalid_argument("ttl must be positive");
-      }
-      return std::make_unique<TimeBasedEvict<weight_type>>(executor, kv_store, config.ttl);
+      return std::make_unique<TimeBasedEvict<weight_type>>(
+          executor, kv_store, sub_table_hash_cumsum, config.ttls);
     }
 
     case EvictTriggerStrategy::BY_COUNTER: {
-      if (config.count_decay_rate <= 0 || config.count_decay_rate > 1) {
-        throw std::invalid_argument("count_decay_rate must be in range (0,1]");
-      }
-      if (config.count_threshold <= 0) {
-        throw std::invalid_argument("count_threshold must be positive");
+      for (auto count_decay_rate : config.count_decay_rates) {
+        if (count_decay_rate <= 0 || count_decay_rate > 1) {
+          throw std::invalid_argument(
+              "count_decay_rate must be in range (0,1]");
+        }
       }
       return std::make_unique<CounterBasedEvict<weight_type>>(
-          executor, kv_store, config.count_decay_rate, config.count_threshold);
+          executor,
+          kv_store,
+          sub_table_hash_cumsum,
+          config.count_decay_rates,
+          config.count_thresholds);
     }
 
     case EvictTriggerStrategy::BY_TIMESTAMP_AND_COUNTER: {
-      if (config.ttl <= 0) {
-        throw std::invalid_argument("ttl must be positive");
-      }
-      if (config.count_decay_rate <= 0 || config.count_decay_rate > 1) {
-        throw std::invalid_argument("count_decay_rate must be in range (0,1]");
-      }
-      if (config.count_threshold <= 0) {
-        throw std::invalid_argument("count_threshold must be positive");
+      for (auto count_decay_rate : config.count_decay_rates) {
+        if (count_decay_rate <= 0 || count_decay_rate > 1) {
+          throw std::invalid_argument(
+              "count_decay_rate must be in range (0,1]");
+        }
       }
       return std::make_unique<TimeCounterBasedEvict<weight_type>>(
-          executor, kv_store, config.ttl, config.count_decay_rate, config.count_threshold);
+          executor,
+          kv_store,
+          sub_table_hash_cumsum,
+          config.ttls,
+          config.count_decay_rates,
+          config.count_thresholds);
     }
 
     case EvictTriggerStrategy::BY_L2WEIGHT: {
-      if (config.l2_weight_threshold <= 0) {
-        throw std::invalid_argument("l2_weight_threshold must be positive");
+      for (auto l2_weight_threshold : config.l2_weight_thresholds) {
+        if (l2_weight_threshold < 0) {
+          throw std::invalid_argument("l2_weight_threshold must be positive");
+        }
       }
-      // TODO: optimizer parameters should not be included in dimension
+      for (auto embedding_dim : config.embedding_dims) {
+        if (embedding_dim <= 0) {
+          throw std::invalid_argument("embedding_dim must be positive");
+        }
+      }
+
       return std::make_unique<L2WeightBasedEvict<weight_type>>(
-          executor, kv_store, config.l2_weight_threshold, dimension);
+          executor,
+          kv_store,
+          sub_table_hash_cumsum,
+          config.l2_weight_thresholds,
+          config.embedding_dims);
     }
 
     default:
