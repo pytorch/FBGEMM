@@ -11,12 +11,12 @@
 #include <chrono>
 #include <cstddef>
 #include <memory_resource>
+#include <numeric>
 #include <stdexcept>
 #include <vector>
-#include <cmath>
-#include <numeric>
 
 #include <cassert>
+#include <cmath>
 
 namespace kv_mem {
 static constexpr uint32_t kMaxInt31Counter = 2147483647;
@@ -34,25 +34,39 @@ class FixedBlockPool : public std::pmr::memory_resource {
   // alignas(8) MetaHeader >= sizeof(void*), avoid mempool block too small.
   struct alignas(8) MetaHeader {  // 16bytes
     int64_t key;                  // feature key 8bytes
-    uint32_t timestamp;           // 4 bytes，the unit is second, uint32 indicates a range of over 120 years
-    uint32_t count : 31;          // only 31 bit is used, max value is 2147483647
-    bool used : 1;                // Mark whether this block is in use for the judgment of memory pool traversal
+    uint32_t timestamp;   // 4 bytes，the unit is second, uint32 indicates a
+                          // range of over 120 years
+    uint32_t count : 31;  // only 31 bit is used, max value is 2147483647
+    bool used : 1;  // Mark whether this block is in use for the judgment of
+                    // memory pool traversal
     // Can be extended with other fields: uint32_t click, etc.
   };
 
   // Metadata operations
 
   // Key operations
-  static uint64_t get_key(const void* block) { return reinterpret_cast<const MetaHeader*>(block)->key; }
-  static void set_key(void* block, uint64_t key) { reinterpret_cast<MetaHeader*>(block)->key = key; }
+  static uint64_t get_key(const void* block) {
+    return reinterpret_cast<const MetaHeader*>(block)->key;
+  }
+  static void set_key(void* block, uint64_t key) {
+    reinterpret_cast<MetaHeader*>(block)->key = key;
+  }
 
   // used operations
-  static bool get_used(const void* block) { return reinterpret_cast<const MetaHeader*>(block)->used; }
-  static void set_used(void* block, bool used) { reinterpret_cast<MetaHeader*>(block)->used = used; }
+  static bool get_used(const void* block) {
+    return reinterpret_cast<const MetaHeader*>(block)->used;
+  }
+  static void set_used(void* block, bool used) {
+    reinterpret_cast<MetaHeader*>(block)->used = used;
+  }
 
   // Score operations
-  static uint32_t get_count(const void* block) { return reinterpret_cast<const MetaHeader*>(block)->count; }
-  static void set_count(void* block, uint32_t count) { reinterpret_cast<MetaHeader*>(block)->count = count; }
+  static uint32_t get_count(const void* block) {
+    return reinterpret_cast<const MetaHeader*>(block)->count;
+  }
+  static void set_count(void* block, uint32_t count) {
+    reinterpret_cast<MetaHeader*>(block)->count = count;
+  }
   static void update_count(void* block) {
     // Avoid addition removal
     if (reinterpret_cast<MetaHeader*>(block)->count < kMaxInt31Counter) {
@@ -60,12 +74,16 @@ class FixedBlockPool : public std::pmr::memory_resource {
     }
   }
   // timestamp operations
-  static uint32_t get_timestamp(const void* block) { return reinterpret_cast<const MetaHeader*>(block)->timestamp; }
-  static void set_timestamp(void* block, uint32_t time) { reinterpret_cast<MetaHeader*>(block)->timestamp = time; }
-  static void update_timestamp(void* block) { reinterpret_cast<MetaHeader*>(block)->timestamp = current_timestamp(); }
-  static uint32_t current_timestamp() {
-    return std::time(nullptr);
+  static uint32_t get_timestamp(const void* block) {
+    return reinterpret_cast<const MetaHeader*>(block)->timestamp;
   }
+  static void set_timestamp(void* block, uint32_t time) {
+    reinterpret_cast<MetaHeader*>(block)->timestamp = time;
+  }
+  static void update_timestamp(void* block) {
+    reinterpret_cast<MetaHeader*>(block)->timestamp = current_timestamp();
+  }
+  static uint32_t current_timestamp() { return std::time(nullptr); }
 
   // Calculate storage size
   template <typename scalar_t>
@@ -82,26 +100,30 @@ class FixedBlockPool : public std::pmr::memory_resource {
   // Data pointer retrieval
   template <typename scalar_t>
   static scalar_t* data_ptr(scalar_t* block) {
-    return reinterpret_cast<scalar_t*>(reinterpret_cast<char*>(block) + sizeof(FixedBlockPool::MetaHeader));
+    return reinterpret_cast<scalar_t*>(reinterpret_cast<char*>(block) +
+                                       sizeof(FixedBlockPool::MetaHeader));
   }
 
   template <typename scalar_t>
   static const scalar_t* data_ptr(const scalar_t* block) {
-    return reinterpret_cast<const scalar_t*>(reinterpret_cast<const char*>(block) + sizeof(FixedBlockPool::MetaHeader));
+    return reinterpret_cast<const scalar_t*>(
+        reinterpret_cast<const char*>(block) +
+        sizeof(FixedBlockPool::MetaHeader));
   }
 
   template <typename scalar_t>
   static scalar_t get_l2weight(scalar_t* block, size_t dimension) {
     scalar_t* data = FixedBlockPool::data_ptr(block);
-    return std::sqrt(
-        std::accumulate(data, data + dimension, scalar_t(0),
-                        [](scalar_t sum, scalar_t val) { return sum + val * val; }));
+    return std::sqrt(std::accumulate(
+        data, data + dimension, scalar_t(0), [](scalar_t sum, scalar_t val) {
+          return sum + val * val;
+        }));
   }
 
   explicit FixedBlockPool(
-      std::size_t block_size, // Size of each memory block
-      std::size_t block_alignment, // Memory block alignment requirement
-      std::size_t blocks_per_chunk = 8192, // Number of blocks per chunk
+      std::size_t block_size,       // Size of each memory block
+      std::size_t block_alignment,  // Memory block alignment requirement
+      std::size_t blocks_per_chunk = 8192,  // Number of blocks per chunk
       std::pmr::memory_resource* upstream = std::pmr::new_delete_resource())
       // Minimum block size is 8 bytes
       : block_size_(std::max(block_size, sizeof(void*))),
@@ -145,7 +167,8 @@ class FixedBlockPool : public std::pmr::memory_resource {
   // Create memory block with metadata
   template <typename scalar_t>
   scalar_t* allocate_t() {
-    return reinterpret_cast<scalar_t*>(this->allocate(block_size_, block_alignment_));
+    return reinterpret_cast<scalar_t*>(
+        this->allocate(block_size_, block_alignment_));
   }
 
   // Destroy memory block
@@ -156,7 +179,8 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   template <typename scalar_t>
   scalar_t* get_block(size_t index) {
-    char* current_chunk = static_cast<char*>(chunks_[index / blocks_per_chunk_].ptr);
+    char* current_chunk =
+        static_cast<char*>(chunks_[index / blocks_per_chunk_].ptr);
     char* block = current_chunk + block_size_ * (index % blocks_per_chunk_);
     if (FixedBlockPool::get_used(block)) {
       return reinterpret_cast<scalar_t*>(block);
@@ -166,11 +190,18 @@ class FixedBlockPool : public std::pmr::memory_resource {
   };
 
   [[nodiscard]] const auto& get_chunks() const noexcept { return chunks_; }
-  [[nodiscard]] std::size_t get_block_size() const noexcept { return block_size_; }
-  [[nodiscard]] std::size_t get_block_alignment() const noexcept { return block_alignment_; }
-  [[nodiscard]] std::size_t get_blocks_per_chunk() const noexcept { return blocks_per_chunk_; }
+  [[nodiscard]] std::size_t get_block_size() const noexcept {
+    return block_size_;
+  }
+  [[nodiscard]] std::size_t get_block_alignment() const noexcept {
+    return block_alignment_;
+  }
+  [[nodiscard]] std::size_t get_blocks_per_chunk() const noexcept {
+    return blocks_per_chunk_;
+  }
   [[nodiscard]] std::size_t get_aligned_block_size() const noexcept {
-    return (block_size_ + block_alignment_ - 1) / block_alignment_ * block_alignment_;
+    return (block_size_ + block_alignment_ - 1) / block_alignment_ *
+           block_alignment_;
   }
 
  protected:
@@ -194,10 +225,9 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
   // Core deallocation function
-  void do_deallocate(
-      void* p,
-      [[maybe_unused]] std::size_t bytes,
-      [[maybe_unused]] std::size_t alignment) override {
+  void do_deallocate(void* p,
+                     [[maybe_unused]] std::size_t bytes,
+                     [[maybe_unused]] std::size_t alignment) override {
     // Insert memory block back to the head of free list
     *static_cast<void**>(p) = free_list_;
     free_list_ = p;
@@ -233,11 +263,11 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
   // Member variables
-  const std::size_t block_size_; // Block size (not less than pointer size)
-  const std::size_t block_alignment_; // Block alignment requirement
-  const std::size_t blocks_per_chunk_; // Number of blocks per chunk
-  std::pmr::memory_resource* upstream_; // Upstream memory resource
-  std::pmr::vector<ChunkInfo> chunks_{1024}; // Records of all allocated chunks
-  void* free_list_ = nullptr; // Free block list head pointer
+  const std::size_t block_size_;  // Block size (not less than pointer size)
+  const std::size_t block_alignment_;         // Block alignment requirement
+  const std::size_t blocks_per_chunk_;        // Number of blocks per chunk
+  std::pmr::memory_resource* upstream_;       // Upstream memory resource
+  std::pmr::vector<ChunkInfo> chunks_{1024};  // Records of all allocated chunks
+  void* free_list_ = nullptr;                 // Free block list head pointer
 };
-} // namespace kv_mem
+}  // namespace kv_mem
