@@ -30,7 +30,7 @@ Follow the instructions for setting up the runtime environment:
 
 
 Install the FBGEMM GenAI Package
-------------------------------
+--------------------------------
 
 Install through PyTorch PIP
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
