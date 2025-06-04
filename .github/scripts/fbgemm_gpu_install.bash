@@ -94,6 +94,7 @@ __install_check_operator_registrations () {
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   local test_operators=()
+  local base_import="fbgemm_gpu"
   echo "[INSTALL] Check for operator registrations ..."
 
   if [ "$installed_fbgemm_target" == "genai" ]; then
@@ -121,6 +122,7 @@ __install_check_operator_registrations () {
       "torch.ops.fbgemm.hstu_varlen_bwd_80"
       "torch.ops.fbgemm.hstu_varlen_bwd_90"
     )
+    base_import="fbgemm_gpu.experimental.hstu"
 
   elif [ "$installed_fbgemm_target" == "genai" ]; then
     test_operators+=(
@@ -131,7 +133,7 @@ __install_check_operator_registrations () {
 
   for operator in "${test_operators[@]}"; do
     # shellcheck disable=SC2086
-    if conda run ${env_prefix} python -c "import torch; import fbgemm_gpu; print($operator)"; then
+    if conda run ${env_prefix} python -c "import torch; import ${base_import}; print($operator)"; then
       echo "[CHECK] FBGEMM_GPU operator appears to be correctly registered: $operator"
     else
       echo "################################################################################"
