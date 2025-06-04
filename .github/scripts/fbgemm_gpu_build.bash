@@ -485,31 +485,27 @@ __build_fbgemm_gpu_common_pre_steps () {
   # Private function that uses variables instantiated by its caller
 
   # Check C/C++ compilers are visible (the build scripts look specifically for `gcc`)
-  (test_binpath "${env_name}" cc) || return 1
-  (test_binpath "${env_name}" gcc) || return 1
-  (test_binpath "${env_name}" c++) || return 1
-  (test_binpath "${env_name}" g++) || return 1
+  (test_binpath "${env_name}" cc)   || return 1
+  (test_binpath "${env_name}" gcc)  || return 1
+  (test_binpath "${env_name}" c++)  || return 1
+  (test_binpath "${env_name}" g++)  || return 1
 
   # Set the default the FBGEMM build variant to be default (i.e. FBGEMM_GPU)
-  if  [ "$fbgemm_build_target" != "genai" ] &&
-      [ "$fbgemm_build_target" != "default" ]; then
+  if [[ ! " genai hstu default " =~ "$fbgemm_build_target" ]]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM build TARGET: ${fbgemm_build_target}"
-    echo "[BUILD] Defaulting to 'default'"
+    echo "[BUILD] Exiting ..."
     echo "################################################################################"
-    export fbgemm_build_target="default"
+    return 1
   fi
 
   # Set the default the FBGEMM build variant to be CUDA
-  if  [ "$fbgemm_build_variant" != "docs" ] &&
-      [ "$fbgemm_build_variant" != "cpu" ] &&
-      [ "$fbgemm_build_variant" != "cuda" ] &&
-      [ "$fbgemm_build_variant" != "rocm" ]; then
+  if [[ ! " docs cpu cuda rocm " =~ "$fbgemm_build_variant" ]]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM build VARIANT: ${fbgemm_build_variant}"
-    echo "[BUILD] Defaulting to CUDA"
+    echo "[BUILD] Exiting ..."
     echo "################################################################################"
-    export fbgemm_build_variant="cuda"
+    return 1
   fi
 
   # Extract and set the Python tag
