@@ -47,7 +47,7 @@ Install NVIDIA Drivers
 
 The NVIDIA display drivers must be installed on the system prior to all other
 environment setup. The steps provided by
-`NVIDIA <https://docs.nvidia.com/datacenter/tesla/tesla-installation-notes/index.html>`__
+`NVIDIA <https://docs.nvidia.com/cuda/index.html>`__
 and
 `PyTorch <https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml>`__
 are the most authoritative instructions for doing this. Driver setup may

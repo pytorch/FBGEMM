@@ -6,7 +6,7 @@ benchmarks (in the ``fbgemm_gpu/experimental/gen_ai/bench/`` directory) provide
 good examples on how to use FBGEMM GenAI operators.
 
 Set Up the FBGEMM GenAI Test Environment
----------------------------------------
+----------------------------------------
 
 After an environment is available from building / installing the FBGEMM GenAI
 package, additional packages need to be installed for tests to run correctly:
