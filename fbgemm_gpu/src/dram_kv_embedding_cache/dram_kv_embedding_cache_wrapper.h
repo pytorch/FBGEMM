@@ -154,11 +154,13 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
 
   void get_feature_evict_metric(at::Tensor evicted_counts,
                                 at::Tensor processed_counts,
-                                at::Tensor duration) {
+                                at::Tensor full_duration_ms,
+                                at::Tensor exec_duration_ms) {
     FeatureEvictMetricTensors metrics = impl_->get_feature_evict_metric();
     evicted_counts = metrics.evicted_counts;      // evicted_counts (Long)
     processed_counts = metrics.processed_counts;  // processed_counts (Long)
-    duration = metrics.duration;                  // duration (unit is ms, Long)
+    full_duration_ms = metrics.full_duration_ms;  // full duration (Long)
+    exec_duration_ms = metrics.exec_duration_ms;  // exec duration (Long)
   }
 
  private:

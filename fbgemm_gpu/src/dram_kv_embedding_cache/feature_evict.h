@@ -49,24 +49,45 @@ struct FeatureEvictMetrics {
   explicit FeatureEvictMetrics(int table_num) {
     evicted_counts.resize(table_num, 0);
     processed_counts.resize(table_num, 0);
-    duration = 0;
+    exec_duration_ms = 0;
+    full_duration_ms = 0;
   }
 
   void reset() {
     std::fill(evicted_counts.begin(), evicted_counts.end(), 0);
     std::fill(processed_counts.begin(), processed_counts.end(), 0);
-    duration = 0;
+    exec_duration_ms = 0;
+    full_duration_ms = 0;
+    start_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::high_resolution_clock::now().time_since_epoch()
+                            ).count();
+  }
+
+  void update_duration(int num_shards) {
+    full_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::high_resolution_clock::now().time_since_epoch()
+                           ).count() - start_time_ms;
+    // The exec_duration of all shards will be accumulated during the statistics
+    // So finally, the number of shards needs to be divided
+    exec_duration_ms /= num_shards;
   }
 
   std::vector<int64_t> evicted_counts;
   std::vector<int64_t> processed_counts;
-  int64_t duration;
+  int64_t exec_duration_ms;
+  int64_t full_duration_ms;
+  int64_t start_time_ms;
 };
 
 struct FeatureEvictMetricTensors {
+  // evicted feature count
   at::Tensor evicted_counts;
+  // feature count before evict
   at::Tensor processed_counts;
-  at::Tensor duration;
+  // feature evict exec duration
+  at::Tensor exec_duration_ms;
+  // feature evict full duration(from trigger to finish)
+  at::Tensor full_duration_ms;
 };
 
 template <typename weight_type>
@@ -206,7 +227,7 @@ class FeatureEvict {
         end_time - start_time);
     {
       std::lock_guard<std::mutex> lock(metric_mtx_);
-      metrics_.duration += duration.count();
+      metrics_.exec_duration_ms += duration.count();
       for (size_t i = 0; i < evicted_counts.size(); ++i) {
         metrics_.evicted_counts[i] += evicted_counts[i];
         metrics_.processed_counts[i] += processed_counts[i];
@@ -261,6 +282,7 @@ class FeatureEvict {
 
   void record_metrics_to_report_tensor() {
     std::lock_guard<std::mutex> lock(metric_mtx_);
+    metrics_.update_duration(num_shards_);
     metric_tensors_.evicted_counts =
         at::from_blob(const_cast<int64_t*>(metrics_.evicted_counts.data()),
                       {static_cast<int64_t>(metrics_.evicted_counts.size())},
@@ -273,7 +295,8 @@ class FeatureEvict {
                       at::kLong)
             .clone();
 
-    metric_tensors_.duration = at::scalar_tensor(metrics_.duration, at::kLong);
+    metric_tensors_.full_duration_ms = at::scalar_tensor(metrics_.full_duration_ms, at::kLong);
+    metric_tensors_.exec_duration_ms = at::scalar_tensor(metrics_.exec_duration_ms, at::kLong);
     std::vector<float> evict_rates(metrics_.evicted_counts.size());
     for (size_t i = 0; i < metrics_.evicted_counts.size(); ++i) {
       evict_rates[i] = metrics_.processed_counts[i] > 0
@@ -283,11 +306,15 @@ class FeatureEvict {
     }
     LOG(INFO) << fmt::format(
         "Feature evict completed: \n"
-        "  - Time taken: {}ms\n"
+        "  - full Time taken: {}ms\n"
+        "  - exec Time taken: {}ms\n"
+        "  - exec / full: {:.2f}%\n"
         "  - Total blocks processed: [{}]\n"
         "  - Blocks evicted: [{}]\n"
         "  - Eviction rate: [{}]%\n",
-        metrics_.duration,
+        metrics_.full_duration_ms,
+        metrics_.exec_duration_ms,
+        metrics_.exec_duration_ms * 100.0f / metrics_.full_duration_ms,
         fmt::join(metrics_.processed_counts, ", "),
         fmt::join(metrics_.evicted_counts, ", "),
         fmt::join(evict_rates, ", "));
