@@ -5,27 +5,27 @@
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
-
 #include <ATen/Dispatch.h> // @manual
 #include <ATen/core/op_registration/op_registration.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContext.h> // @manual
 #include <ATen/cuda/Exceptions.h>
 #include <c10/core/ScalarType.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/macros/Macros.h>
 #include <cuda.h> // @manual
-#include <stdio.h>
+#include <glog/logging.h>
 #include <torch/torch.h> // @manual
 #include <algorithm>
 #include <ctime>
 
 #define TORBOREC_CUDA
-#include "common_utils.cuh" // @manual
+#include "fbgemm_gpu/faster_hash_ops/common_utils.cuh" // @manual
+#include "fbgemm_gpu/faster_hash_ops/faster_hash_ops.cuh" // @manual
 
 namespace fbgemm_gpu {
-using at::Tensor;
 
 namespace {
+using at::Tensor;
 
 static constexpr int32_t kDefaultTensor = -1;
 static constexpr int64_t kMaxIdentityNum = INT32_MAX;
