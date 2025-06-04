@@ -361,9 +361,9 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
   TimeBasedEvict(folly::CPUThreadPoolExecutor* executor,
                  SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
                  const std::vector<int64_t>& sub_table_hash_cumsum,
-                 const std::vector<uint32_t>& ttls)
+                 const std::vector<uint32_t>& ttls_in_hour)
       : FeatureEvict<weight_type>(executor, kv_store, sub_table_hash_cumsum),
-        ttls_(ttls) {}
+        ttls_in_hour_(ttls_in_hour) {}
 
   void update_feature_statistics(weight_type* block) override {
     FixedBlockPool::update_timestamp(block);
@@ -371,13 +371,13 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
 
  protected:
   bool evict_block(weight_type* block, int sub_table_id) override {
-    uint32_t ttl = ttls_[sub_table_id];
+    uint32_t ttl = ttls_in_hour_[sub_table_id];
     auto current_time = FixedBlockPool::current_timestamp();
     return current_time - FixedBlockPool::get_timestamp(block) > ttl * 3600;
   }
 
  private:
-  const std::vector<uint32_t>& ttls_;  // Time-to-live for eviction.
+  const std::vector<uint32_t>& ttls_in_hour_;  // Time-to-live for eviction.
 };
 
 template <typename weight_type>
@@ -386,11 +386,11 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
   TimeCounterBasedEvict(folly::CPUThreadPoolExecutor* executor,
                         SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
                         const std::vector<int64_t>& sub_table_hash_cumsum,
-                        const std::vector<uint32_t>& ttls,
+                        const std::vector<uint32_t>& ttls_in_hour,
                         const std::vector<float>& decay_rates,
                         const std::vector<uint32_t>& thresholds)
       : FeatureEvict<weight_type>(executor, kv_store, sub_table_hash_cumsum),
-        ttls_(ttls),
+        ttls_in_hour_(ttls_in_hour),
         decay_rates_(decay_rates),
         thresholds_(thresholds) {}
 
@@ -401,7 +401,7 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
 
  protected:
   bool evict_block(weight_type* block, int sub_table_id) override {
-    uint32_t ttl = ttls_[sub_table_id];
+    uint32_t ttl = ttls_in_hour_[sub_table_id];
     float decay_rate = decay_rates_[sub_table_id];
     uint32_t threshold = thresholds_[sub_table_id];
     // Apply decay and check the count threshold and ttl.
@@ -414,7 +414,7 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
   }
 
  private:
-  const std::vector<uint32_t>& ttls_;        // Time-to-live for eviction.
+  const std::vector<uint32_t>& ttls_in_hour_;        // Time-to-live for eviction.
   const std::vector<float>& decay_rates_;    // Decay rate for the block count.
   const std::vector<uint32_t>& thresholds_;  // Count threshold for eviction.
 };
