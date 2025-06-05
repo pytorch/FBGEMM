@@ -11,17 +11,15 @@ from enum import IntEnum
 
 import fbgemm_gpu
 
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
 import torch
 
-try:
-    from fbgemm_gpu import open_source  # noqa: F401
-
+if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable
-except Exception:
-    from fbgemm_gpu.test.test_utils import gpu_unavailable
-
-    torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:faster_hash_ops")
+    from test_utils import gpu_unavailable, skipIfRocm
+else:
+    from fbgemm_gpu.test.test_utils import gpu_unavailable, skipIfRocm
 
 
 class HashZchKernelEvictionPolicy(IntEnum):
@@ -30,6 +28,7 @@ class HashZchKernelEvictionPolicy(IntEnum):
 
 
 class FasterHashTest(unittest.TestCase):
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_no_evict(self) -> None:
         # no evict
@@ -173,6 +172,7 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output_readonly.cpu(), output_readonly_cpu))
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_no_evict_rand(self) -> None:
         # no evict - rand number.
@@ -269,6 +269,7 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output.cpu(), output_readonly_cpu))
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_evict(self) -> None:
         # evict
@@ -391,6 +392,7 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output, output_readonly))
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_evict_with_rand_unique_numbers(self) -> None:
         # evict - rand number.
@@ -513,6 +515,7 @@ class FasterHashTest(unittest.TestCase):
             torch.equal(output, output_readonly), f"{output=}, {output_readonly=}"
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_eviction_during_lookup(self) -> None:
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
@@ -579,6 +582,7 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(evict_slots.numel() == 1)
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_output_on_uvm(self) -> None:
         # no evict
@@ -603,6 +607,7 @@ class FasterHashTest(unittest.TestCase):
             torch.equal(((output + add_on) + (output - add_on)), 2 * output)
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_int64_nohash_identity(self) -> None:
         # no evict
@@ -655,6 +660,7 @@ class FasterHashTest(unittest.TestCase):
             f"{identities=} vs {numbers_100_200=}",
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_int32_nohash_identity(self) -> None:
         # no evict
@@ -707,6 +713,7 @@ class FasterHashTest(unittest.TestCase):
             f"{identities=} vs {numbers_100_200=}",
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_fallback(self) -> None:
         # init and add some ids
@@ -790,6 +797,7 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.all(remapped_ids[-20:] == -1))
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_individual_score_evict(self) -> None:
         # evict
@@ -872,6 +880,7 @@ class FasterHashTest(unittest.TestCase):
         # metadata should not be overwritten
         self.assertTrue(torch.equal(metadata, metadata0))
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict(self) -> None:
         # No evict
@@ -1015,6 +1024,7 @@ class FasterHashTest(unittest.TestCase):
             f"{output_readonly_cpu=} v.s {output_readonly.cpu()=}",
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_with_unexpired_slots(self) -> None:
         # No evict
@@ -1147,6 +1157,7 @@ class FasterHashTest(unittest.TestCase):
             f"{output_readonly_cpu=} v.s {output_readonly.cpu()=}",
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_rand_numbers_zch_lru_evict(self) -> None:
         # No evict
@@ -1245,6 +1256,7 @@ class FasterHashTest(unittest.TestCase):
             f"{output_readonly_cpu=} v.s {output_readonly.cpu()=}",
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_with_offsets(self) -> None:
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
@@ -1405,6 +1417,7 @@ class FasterHashTest(unittest.TestCase):
             f"{set(second_half[second_half >= 300].tolist())=}, {set(random_numbers_300_350.tolist())=}",
         )
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_opt_in_with_prob(self) -> None:
         zch_size = 100
@@ -1597,6 +1610,7 @@ class FasterHashTest(unittest.TestCase):
         )
         self.assertTrue(torch.equal(output_readonly_cpu, output_readonly.cpu()))
 
+    @skipIfRocm
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_train_eval(self) -> None:
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
