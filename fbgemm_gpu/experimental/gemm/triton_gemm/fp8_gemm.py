@@ -3372,16 +3372,32 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     ),
 ]
 
+# Set this to enable full autotuning for proper benchmarking.
+# This should only be used when invoking the kernel through
+# Triton directly (e.g. TritonBench)
+#
+# NOTE: This will SIGNIFICANTLY increase autotuning time, often
+# taking hours. You should combine this with TRITON_PRINT_AUTOTUNING=1
+# to extract and add the optimal autotuning configs to
+# MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K.
+
+FULL_NON_PERSISTENT_AUTOTUNING = False
+USED_MATMUL_NON_PERSISTENT_CONFIGS = (
+    MATMUL_CONFIGS_NON_PERSISTENT
+    if FULL_NON_PERSISTENT_AUTOTUNING
+    else MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K
+)
+
 
 @triton.autotune(
-    configs=MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K,
+    configs=USED_MATMUL_NON_PERSISTENT_CONFIGS,
     key=["M", "N", "K"],
     prune_configs_by={
         "early_config_prune": prune_configs,
         "perf_model": None,
         "top_k": None,
     },
-    use_cuda_graph=True,
+    use_cuda_graph=FULL_NON_PERSISTENT_AUTOTUNING,
 )
 @triton.heuristics(
     {
