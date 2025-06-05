@@ -168,6 +168,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         kv_zch_params: Optional[KVZCHParams] = None,
         enable_raw_embedding_streaming: bool = False,  # whether enable raw embedding streaming
         res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
+        flushing_block_size: int = 2_000_000_000,  # 2GB
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -520,15 +521,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         logging.info(f"tbe_unique_id: {tbe_unique_id}")
         if self.backend_type == BackendType.SSD:
             logging.info(
-                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, enable_async_update:{enable_async_update}"
-                f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
-                f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
-                f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},cache_row_dim={self.cache_row_dim},rate_limit_mbps={ssd_rate_limit_mbps},"
-                f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger}, lazy_bulk_init_enabled={lazy_bulk_init_enabled},"
-                f"write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size},max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num},"
-                f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
-                f"row_storage_bitwidth={weights_precision.bit_rate()},block_cache_size_per_tbe={ssd_block_cache_size_per_tbe},"
-                f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB, enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}"
+                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, "
+                f"enable_async_update:{enable_async_update}, passed_in_path={ssd_directory}, "
+                f"num_shards={ssd_rocksdb_shards}, num_threads={ssd_rocksdb_shards}, "
+                f"memtable_flush_period={ssd_memtable_flush_period}, memtable_flush_offset={ssd_memtable_flush_offset}, "
+                f"l0_files_per_compact={ssd_l0_files_per_compact}, max_D={self.max_D}, "
+                f"cache_row_size={self.cache_row_dim}, rate_limit_mbps={ssd_rate_limit_mbps}, "
+                f"size_ratio={ssd_size_ratio}, compaction_trigger={ssd_compaction_trigger}, "
+                f"lazy_bulk_init_enabled={lazy_bulk_init_enabled}, write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size}, "
+                f"max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num}, "
+                f"uniform_init_lower={ssd_uniform_init_lower}, uniform_init_upper={ssd_uniform_init_upper}, "
+                f"row_storage_bitwidth={weights_precision.bit_rate()}, block_cache_size_per_tbe={ssd_block_cache_size_per_tbe}, "
+                f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB, "
+                f"enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}, flushing_block_size:{flushing_block_size}"
             )
             # pyre-fixme[4]: Attribute must be annotated.
             self._ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
@@ -568,6 +573,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if self.enable_optimizer_offloading
                     else None
                 ),
+                flushing_block_size,
             )
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
@@ -2022,19 +2028,40 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
                     )
                     opt_list.append(
-                        tensor_wrapper.narrow(
-                            0,
-                            0,
-                            sorted_id_tensor[t].size(0),
+                        self.get_offloaded_optimizer_states(
+                            tensor_wrapper, sorted_id_tensor[t].numel()
                         )
-                        .view(-1)
-                        .view(self.optimizer.dtype())
                     )
             table_offset += emb_height
         logging.info(
-            f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms"
+            f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
+            f"num ids list: {[ids.numel() for ids in sorted_id_tensor]}"
         )
         return opt_list
+
+    @torch.jit.export
+    def get_offloaded_optimizer_states(
+        self,
+        tensor_wrapper: PartiallyMaterializedTensor,
+        row: int,
+    ) -> torch.Tensor:
+        opt_state_t = torch.empty(
+            row, dtype=self.optimizer.dtype(), device="cpu"
+        )  # 1D optimizer for OptimType.EXACT_ROWWISE_ADAGRAD
+
+        chunk_rows = (
+            10_000_000  # 10M rows => 260(max_D)* 2(ele_bytes) * 10M => 5.2GB mem spike
+        )
+        logging.info(f"split optimizer chunk rows: {chunk_rows}")
+        for i in range(0, row, chunk_rows):
+            actual_rows = min(chunk_rows, row - i)
+            opt_state_t.narrow(0, i, actual_rows).copy_(
+                tensor_wrapper.narrow(0, i, actual_rows)
+                .view(-1)
+                .view(self.optimizer.dtype())
+            )
+        # view optimizer state back to correct dtype
+        return opt_state_t
 
     @torch.jit.export
     def get_optimizer_state(
@@ -2273,7 +2300,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
             )
         logging.info(
-            f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms"
+            f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms, "
+            f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
         )
         return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
 

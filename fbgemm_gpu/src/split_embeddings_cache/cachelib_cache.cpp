@@ -34,6 +34,14 @@ CacheLibCache::CacheLibCache(
   }
 }
 
+size_t CacheLibCache::get_cache_item_size() const {
+  return cache_config_.item_size_bytes;
+}
+
+Cache::AccessIterator CacheLibCache::begin() {
+  return cache_->begin();
+}
+
 std::unique_ptr<Cache> CacheLibCache::initializeCacheLib(
     const CacheConfig& config) {
   auto eviction_cb = [this](
@@ -177,50 +185,41 @@ bool CacheLibCache::put(const at::Tensor& key_tensor, const at::Tensor& data) {
 }
 
 folly::Optional<std::tuple<at::Tensor, at::Tensor, at::Tensor>>
-CacheLibCache::get_all_items() {
+CacheLibCache::get_n_items(int n, Cache::AccessIterator& itr) {
   if (!index_dtype_.has_value() || !weights_dtype_.has_value()) {
     return folly::none;
   }
-  int total_num_items = 0;
-  for (auto& pool_id : pool_ids_) {
-    total_num_items += cache_->getPoolStats(pool_id).numItems();
-  }
   auto weight_dim = cache_config_.max_D_;
   auto indices = at::empty(
-      total_num_items,
-      at::TensorOptions().dtype(index_dtype_.value()).device(at::kCPU));
+      n, at::TensorOptions().dtype(index_dtype_.value()).device(at::kCPU));
   auto weights = at::empty(
-      {total_num_items, weight_dim},
+      {n, weight_dim},
       at::TensorOptions().dtype(weights_dtype_.value()).device(at::kCPU));
+  int cnt = 0;
   FBGEMM_DISPATCH_FLOAT_HALF_AND_BYTE(
-      weights.scalar_type(), "get_all_items", [&] {
+      weights.scalar_type(), "get_n_items", [&] {
         using value_t = scalar_t;
         FBGEMM_DISPATCH_INTEGRAL_TYPES(
-            indices.scalar_type(), "get_all_items", [&] {
+            indices.scalar_type(), "get_n_items", [&] {
               using index_t = scalar_t;
               auto indices_data_ptr = indices.data_ptr<index_t>();
               auto weights_data_ptr = weights.data_ptr<value_t>();
-              int64_t item_idx = 0;
-              for (auto itr = cache_->begin(); itr != cache_->end(); ++itr) {
+              for (; itr != cache_->end() && cnt < n; ++itr, ++cnt) {
                 const auto key_ptr =
                     reinterpret_cast<const index_t*>(itr->getKey().data());
-                indices_data_ptr[item_idx] = *key_ptr;
+                indices_data_ptr[cnt] = *key_ptr;
                 std::copy(
                     reinterpret_cast<const value_t*>(itr->getMemory()),
                     reinterpret_cast<const value_t*>(itr->getMemory()) +
                         weight_dim,
-                    &weights_data_ptr[item_idx * weight_dim]); // dst_start
-                item_idx++;
+                    &weights_data_ptr[cnt * weight_dim]); // dst_start
               }
-              CHECK_EQ(total_num_items, item_idx);
             });
       });
   return std::make_tuple(
       indices,
       weights,
-      at::tensor(
-          {total_num_items},
-          at::TensorOptions().dtype(at::kLong).device(at::kCPU)));
+      at::tensor({cnt}, at::TensorOptions().dtype(at::kLong).device(at::kCPU)));
 }
 
 void CacheLibCache::init_tensor_for_l2_eviction(
