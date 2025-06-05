@@ -431,6 +431,6 @@ if(FBGEMM_BUILD_FBGEMM_GPU)
   add_subdirectory(fbgemm_gpu)
 endif()
 
-if(HAVE_GNU_F2H_IEEE)
-  add_definitions(-DHAVE_GNU_F2H_IEEE)
+if(NOT HAVE_GNU_F2H_IEEE)
+  add_definitions(-DMISSING_GNU_F2H_IEEE)
 endif()
