@@ -30,6 +30,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t max_D,
       double uniform_init_lower,
       double uniform_init_upper,
+      /*
       int64_t evict_trigger_mode = 0,
       int64_t trigger_step_interval = 0,
       int64_t mem_util_threshold_in_GB = 0,
@@ -38,14 +39,23 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       const std::optional<at::Tensor>& ttls_in_hour = std::nullopt,
       const std::optional<at::Tensor>& count_decay_rates = std::nullopt,
       const std::optional<at::Tensor>& l2_weight_thresholds = std::nullopt,
-      const std::optional<at::Tensor>& embedding_dims = std::nullopt,
+      */
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
+      int64_t weight_ttl_in_hours = 2, // shoule delete!
       const std::optional<at::Tensor>& table_dims = std::nullopt,
       const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
       bool enable_async_update = false) {
 
+    int64_t evict_trigger_mode = 0;
+    int64_t trigger_step_interval = 0;
+    int64_t mem_util_threshold_in_GB = 0;
+    int64_t evict_trigger_strategy = 1;
+    const std::optional<at::Tensor>& count_thresholds = std::nullopt;
+    const std::optional<at::Tensor>& ttls_in_hour = std::nullopt;
+    const std::optional<at::Tensor>& count_decay_rates = std::nullopt;
+    const std::optional<at::Tensor>& l2_weight_thresholds = std::nullopt;
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
           max_D,
@@ -59,7 +69,6 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           ttls_in_hour,
           count_decay_rates,
           l2_weight_thresholds,
-          embedding_dims,
           num_shards,
           num_threads,
           row_storage_bitwidth,
@@ -79,7 +88,6 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           ttls_in_hour,
           count_decay_rates,
           l2_weight_thresholds,
-          embedding_dims,
           num_shards,
           num_threads,
           row_storage_bitwidth,
