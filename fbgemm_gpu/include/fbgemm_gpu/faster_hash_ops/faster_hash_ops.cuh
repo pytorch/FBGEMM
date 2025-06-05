@@ -66,4 +66,15 @@ void _zero_collision_hash_cuda(
     int64_t num_reserved_slots,
     const std::optional<Tensor>& opt_in_rands);
 
+///@ingroup faster-hash-ops
+///
+/// CUDA implementation of murmurhash3
+///
+/// @param input the input tensor
+/// @param y the y value
+/// @param seed the seed value
+
+/// @return the output tensor
+Tensor murmur_hash3_cuda(const Tensor& input, int64_t y, int64_t seed);
+
 } // namespace fbgemm_gpu

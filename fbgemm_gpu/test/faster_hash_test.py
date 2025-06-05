@@ -1695,3 +1695,17 @@ class FasterHashTest(unittest.TestCase):
             torch.equal(output_readonly_cpu, output_readonly.cpu()),
             f"{output_readonly_cpu=} v.s {output_readonly=}",
         )
+
+    @skipIfRocm("The CUDA kernel is not supported on ROCm")
+    @unittest.skipIf(*gpu_unavailable)
+    def test_murmur_hash(self) -> None:
+        # # test on cpu
+        input_item = torch.tensor([10000], dtype=torch.int64)
+        output_item_first_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
+        output_item_second_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
+        self.assertTrue(torch.equal(output_item_first_round, output_item_second_round))
+        # test on gpu
+        input_item = torch.tensor([10000], dtype=torch.int64, device="cuda")
+        output_item_first_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
+        output_item_second_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
+        self.assertTrue(torch.equal(output_item_first_round, output_item_second_round))

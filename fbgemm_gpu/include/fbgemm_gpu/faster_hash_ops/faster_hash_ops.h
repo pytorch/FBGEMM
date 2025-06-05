@@ -36,13 +36,25 @@ std::tuple<Tensor, Tensor> create_zch_buffer_cpu(
 
 /// @ingroup faster-hash-ops
 ///
+/// Murmur hash operator for CPU
+///
+/// @param input The input tensor
+/// @param y The y value
+/// @param seed The seed value
+///
+/// @return The output hash value
+Tensor murmur_hash3_cpu(const Tensor& input, int64_t y, int64_t seed);
+
+/// @ingroup faster-hash-ops
+///
 /// Zero collision hash operator for CPU
 ///
 /// @param input The input tensor
 /// @param identities The identity table
 /// @param max_probe The maximum number of probes
 /// @param circular_probe Whether to use circular probe
-/// @param exp_hours The number of hours before identity table item's expirition
+/// @param exp_hours The number of hours before identity table item's
+/// expirition
 /// @param readonly Whether to use readonly mode
 /// @param local_sizes The local sizes tensor
 /// @param offsets The offsets tensor
@@ -123,6 +135,15 @@ std::tuple<Tensor, Tensor> zero_collision_hash_meta(
     int64_t /* opt_in_prob */,
     int64_t /* num_reserved_slots */,
     const std::optional<Tensor>& /* opt_in_rands */);
+
+/// @ingroup faster-hash-ops
+///
+/// Murmur hash operator for Meta device
+///
+/// @param input The input tensor
+/// @param y The y value
+/// @param seed The seed value
+Tensor murmur_hash3_meta(const Tensor& input, int64_t y, int64_t seed);
 
 // /// @ingroup faster-hash-ops
 // ///

@@ -689,6 +689,14 @@ void _zero_collision_hash_cuda(
 #undef INVOKE_KERNEL
 }
 
+Tensor murmur_hash3_cuda(const Tensor& input, int64_t y, int64_t seed) {
+  auto hash = murmur_hash3_2x64(
+      input.item().to<uint64_t>(),
+      static_cast<uint64_t>(y),
+      static_cast<uint64_t>(seed));
+  return at::scalar_tensor(hash, input.options());
+}
+
 std::tuple<Tensor, Tensor> zero_collision_hash_cuda(
     const Tensor& input,
     Tensor& identities,
@@ -863,6 +871,9 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       "zero_collision_hash",
       torch::dispatch(
           c10::DispatchKey::CUDA, TORCH_FN(zero_collision_hash_cuda)));
+  m.impl(
+      "murmur_hash3",
+      torch::dispatch(c10::DispatchKey::CUDA, TORCH_FN(murmur_hash3_cuda)));
 }
 
 } // namespace fbgemm_gpu
