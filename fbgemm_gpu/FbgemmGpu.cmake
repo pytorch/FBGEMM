@@ -42,7 +42,9 @@ set(fbgemm_gpu_sources_cpu_static
     src/sparse_ops/sparse_async_batched_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
-    ${tbe_eeg_cpu_sources})
+    ${tbe_eeg_cpu_sources}
+    src/faster_hash_ops/faster_hash.cpp
+    )
 
 if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   list(APPEND fbgemm_gpu_sources_cpu_static
@@ -121,7 +123,8 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/sparse_ops/sparse_range.cu
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
-      src/sparse_ops/sparse_zipf.cu)
+      src/sparse_ops/sparse_zipf.cu
+      src/faster_hash_ops/faster_hash.cu)
 endif()
 
 
