@@ -485,6 +485,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       case kv_db::RocksdbWriteMode::FLUSH:
         flush_write_dur_ += duration;
         break;
+      case kv_db::RocksdbWriteMode::STREAM:
+        break;
     }
 #endif
     return folly::collect(futures);
