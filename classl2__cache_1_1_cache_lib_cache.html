@@ -109,8 +109,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a28487224efe43ac3f96d4f03981a2f24"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2ccaca2055ff3bd52a63d88b70bdf03b" id="r_a2ccaca2055ff3bd52a63d88b70bdf03b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2ccaca2055ff3bd52a63d88b70bdf03b">put</a> (const at::Tensor &amp;key_tensor, const at::Tensor &amp;data)</td></tr>
 <tr class="separator:a2ccaca2055ff3bd52a63d88b70bdf03b"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a01820cf34749e734c20854106aee52a1" id="r_a01820cf34749e734c20854106aee52a1"><td class="memItemLeft" align="right" valign="top">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a01820cf34749e734c20854106aee52a1">get_all_items</a> ()</td></tr>
-<tr class="separator:a01820cf34749e734c20854106aee52a1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa5f7e7afcf451ee0a0f572d358d344f6" id="r_aa5f7e7afcf451ee0a0f572d358d344f6"><td class="memItemLeft" align="right" valign="top">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#aa5f7e7afcf451ee0a0f572d358d344f6">get_n_items</a> (int n, Cache::AccessIterator &amp;start_itr)</td></tr>
+<tr class="separator:aa5f7e7afcf451ee0a0f572d358d344f6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a7c647623fef9959bd482911050ba9711" id="r_a7c647623fef9959bd482911050ba9711"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a7c647623fef9959bd482911050ba9711">init_tensor_for_l2_eviction</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count)</td></tr>
 <tr class="separator:a7c647623fef9959bd482911050ba9711"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a59d4800235bf477ae8b2da78001519dd" id="r_a59d4800235bf477ae8b2da78001519dd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a59d4800235bf477ae8b2da78001519dd">reset_eviction_states</a> ()</td></tr>
@@ -172,28 +172,32 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a01820cf34749e734c20854106aee52a1" name="a01820cf34749e734c20854106aee52a1"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a01820cf34749e734c20854106aee52a1">&#9670;&#160;</a></span>get_all_items()</h2>
+<a id="aa5f7e7afcf451ee0a0f572d358d344f6" name="aa5f7e7afcf451ee0a0f572d358d344f6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa5f7e7afcf451ee0a0f572d358d344f6">&#9670;&#160;</a></span>get_n_items()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt; get_all_items </td>
+          <td class="memname">folly::Optional&lt; std::tuple&lt; at::Tensor, at::Tensor, at::Tensor &gt; &gt; get_n_items </td>
           <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>n</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">Cache::AccessIterator &amp;</td>          <td class="paramname"><span class="paramname"><em>start_itr</em></span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>iterate through all items in L2 cache, fill them in indices and weights respectively and return indices, weights and count</p>
+<p>iterate through N items in L2 cache, fill them in indices and weights respectively and return indices, weights and count</p>
 <dl class="section return"><dt>Returns</dt><dd>optional value, if cache is empty return none </dd>
 <dd>
 indices The 1D embedding index tensor, should skip on negative value </dd>
 <dd>
 weights The 2D tensor that each row(embeddings) is paired up with relative element in &lt;indices&gt; </dd>
 <dd>
-count A single element tensor that contains the number of indices to be processed</dd></dl>
+count A single element tensor that contains the number of indices to be processed </dd></dl>
 <dl class="section note"><dt>Note</dt><dd>this isn't thread safe, caller needs to make sure put isn't called while this is executed. </dd></dl>
 
 </div>
