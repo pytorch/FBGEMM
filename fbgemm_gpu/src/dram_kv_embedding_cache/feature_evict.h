@@ -42,7 +42,7 @@ struct FeatureEvictConfig {
   std::vector<uint32_t> count_thresholds;
   std::vector<float> count_decay_rates;
   std::vector<double> l2_weight_thresholds;
-  std::vector<int> embedding_dims;
+  std::vector<int64_t> embedding_dims;
 };
 
 struct FeatureEvictMetrics {
@@ -455,7 +455,7 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
                      SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
                      const std::vector<int64_t>& sub_table_hash_cumsum,
                      const std::vector<double>& thresholds,
-                     const std::vector<int>& sub_table_dims)
+                     const std::vector<int64_t>& sub_table_dims)
       : FeatureEvict<weight_type>(executor, kv_store, sub_table_hash_cumsum),
         thresholds_(thresholds),
         sub_table_dims_(sub_table_dims) {}
@@ -473,7 +473,7 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
 
  private:
   const std::vector<double>& thresholds_;   // L2 weight threshold for eviction.
-  const std::vector<int>& sub_table_dims_;  // Embedding dimension
+  const std::vector<int64_t>& sub_table_dims_;  // Embedding dimension
 };
 
 template <typename weight_type>

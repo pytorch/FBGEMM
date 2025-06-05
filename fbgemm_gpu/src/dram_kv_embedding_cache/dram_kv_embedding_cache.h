@@ -191,7 +191,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           feature_evict_config_.l2_weight_thresholds,
           double);
       TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
-          table_dims, feature_evict_config_.embedding_dims, int);
+          table_dims, feature_evict_config_.embedding_dims, int64_t);
     }
     feature_evict_ = create_feature_evict(feature_evict_config_,
                                           executor_.get(),
@@ -310,6 +310,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       CHECK_EQ(indices.size(0), weights.size(0));
                       {
                         auto wlmap = kv_store_.by(shard_id).wlock();
+                        auto* pool = wlmap->get_pool();
                         auto indices_data_ptr = indices.data_ptr<index_t>();
                         for (auto index_iter = indexes.begin();
                              index_iter != indexes.end();
