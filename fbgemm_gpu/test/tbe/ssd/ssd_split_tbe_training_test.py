@@ -1595,9 +1595,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         **default_st,
         num_buckets=st.integers(min_value=10, max_value=15),
-        opt_offloading=st.just(
-            False
-        ),  # make it st.booleans when Benson's opt offloading diff is landed
+        enable_optimizer_offloading=st.booleans(),
         backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
@@ -1617,7 +1615,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         trigger_bounds_check: bool,
         mixed_B: bool,
         num_buckets: int,
-        opt_offloading: bool,
+        enable_optimizer_offloading: bool,
         backend_type: BackendType,
     ) -> None:
         # Constants
@@ -1653,7 +1651,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             share_table=share_table,
             num_buckets=num_buckets,
-            enable_optimizer_offloading=opt_offloading,
+            enable_optimizer_offloading=enable_optimizer_offloading,
             backend_type=backend_type,
         )
 
@@ -1791,8 +1789,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             self.assertLess(table_index, len(emb_state_dict_list))
             assert len(split_optimizer_states[table_index]) == num_ids
             opt = split_optimizer_states[table_index]
-            if opt_offloading:
-                opt = opt[bucket_asc_ids_list[table_index].view(-1)]
             new_ref_weight = torch.addcdiv(
                 emb_r_w.float(),
                 value=-lr,
@@ -1822,6 +1818,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
     @given(
         **default_st,
         num_buckets=st.integers(min_value=10, max_value=15),
+        enable_optimizer_offloading=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_kv_opt_state_w_offloading(
@@ -1840,6 +1837,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         trigger_bounds_check: bool,
         mixed_B: bool,
         num_buckets: int,
+        enable_optimizer_offloading: bool,
     ) -> None:
         # Constants
         lr = 0.5
@@ -1875,7 +1873,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             output_dtype=output_dtype,
             share_table=share_table,
             num_buckets=num_buckets,
-            enable_optimizer_offloading=False,
+            enable_optimizer_offloading=enable_optimizer_offloading,
         )
 
         # Generate inputs
