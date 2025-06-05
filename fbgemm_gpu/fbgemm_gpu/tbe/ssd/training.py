@@ -2022,19 +2022,40 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
                     )
                     opt_list.append(
-                        tensor_wrapper.narrow(
-                            0,
-                            0,
-                            sorted_id_tensor[t].size(0),
+                        self.get_offloaded_optimizer_states(
+                            tensor_wrapper, sorted_id_tensor[t].numel()
                         )
-                        .view(-1)
-                        .view(self.optimizer.dtype())
                     )
             table_offset += emb_height
         logging.info(
-            f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms"
+            f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
+            f"num ids list: {[ids.numel() for ids in sorted_id_tensor]}"
         )
         return opt_list
+
+    @torch.jit.export
+    def get_offloaded_optimizer_states(
+        self,
+        tensor_wrapper: PartiallyMaterializedTensor,
+        row: int,
+    ) -> torch.Tensor:
+        opt_state_t = torch.empty(
+            row, dtype=self.optimizer.dtype(), device="cpu"
+        )  # 1D optimizer for OptimType.EXACT_ROWWISE_ADAGRAD
+
+        chunk_rows = (
+            10_000_000  # 10M rows => 260(max_D)* 2(ele_bytes) * 10M => 5.2GB mem spike
+        )
+        logging.info(f"split optimizer chunk rows: {chunk_rows}")
+        for i in range(0, row, chunk_rows):
+            actual_rows = min(chunk_rows, row - i)
+            opt_state_t.narrow(0, i, actual_rows).copy_(
+                tensor_wrapper.narrow(0, i, actual_rows)
+                .view(-1)
+                .view(self.optimizer.dtype())
+            )
+        # view optimizer state back to correct dtype
+        return opt_state_t
 
     @torch.jit.export
     def get_optimizer_state(
@@ -2273,7 +2294,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
             )
         logging.info(
-            f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms"
+            f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms, "
+            f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
         )
         return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
 
