@@ -17,6 +17,8 @@
 
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 
+namespace fbgemm_gpu::utils {
+
 template <typename T>
 void test_ta_create_1(const at::Tensor& tensor) {
   TA_B(tensor, T, 1, 64).build("test_ta_create");
@@ -78,3 +80,35 @@ TEST(TensorAccessorBuilderTest, test_pta_create) {
   // Test valid type and dimension
   EXPECT_NO_THROW({ test_pta_create_3(tensor); });
 }
+
+template <typename T>
+std::array<T, 3> special_values() {
+  static_assert(
+      std::is_floating_point_v<T>, "Only floating point types supported");
+
+  return {
+      std::numeric_limits<T>::quiet_NaN(),
+      std::numeric_limits<T>::infinity(),
+      -std::numeric_limits<T>::infinity()};
+}
+
+template <typename T>
+void test_check_values() {
+  const auto invalids = special_values<T>();
+
+  for (const auto i : invalids) {
+    const auto tensor = torch::tensor(
+        {1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f}, torch::kFloat32);
+    tensor[rand() % tensor.numel()] = i;
+
+    const auto builder = PTA_B(tensor, float, 1, 64);
+    EXPECT_THROW({ builder.checkValues("test_check_values"); }, std::exception);
+  }
+}
+
+TEST(TensorAccessorBuilderTest, test_check_values) {
+  test_check_values<float>();
+  test_check_values<double>();
+}
+
+} // namespace fbgemm_gpu::utils
