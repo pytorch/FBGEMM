@@ -122,7 +122,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                              enable_async_update),
         max_D_(max_D),
         num_shards_(num_shards),
-        weight_ttl_in_hours_(weight_ttl_in_hours),
         block_size_(FixedBlockPool::calculate_block_size<weight_type>(max_D)),
         block_alignment_(
             FixedBlockPool::calculate_block_alignment<weight_type>()),
