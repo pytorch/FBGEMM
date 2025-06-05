@@ -1150,7 +1150,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.record_function_via_dummy_profile(
                     f"## ssd_set_{name} ##",
                     self.ssd_db.set_cuda,
-                    indices_cpu,
+                    indices_cpu.cpu(),
                     rows_cpu,
                     actions_count_cpu,
                     self.timestep,
@@ -1959,7 +1959,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # init for checkpointing loading
             assert (
                 self._cached_kvzch_data is not None
-                and self._cached_kvzch_data.cached_optimizer_state_per_table is not None
+                and self._cached_kvzch_data.cached_optimizer_state_per_table
             ), "optimizer state is not initialized for load checkpointing"
             return self._cached_kvzch_data.cached_optimizer_state_per_table
 
@@ -2365,12 +2365,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         D_rounded = pad4(weight_state.size(1))  # padded to 4 bytes alignment
         dtype = self.weights_precision.as_dtype()
         kvt = torch.classes.fbgemm.KVTensorWrapper(
-            db=self.ssd_db,
             shape=[weight_state.size(0), self.cache_row_dim],
             dtype=dtype,
             row_offset=row_offset,
             snapshot_handle=None,
             sorted_indices=id_tensor,
+        )
+        (
+            kvt.set_embedding_rocks_dp_wrapper(self.ssd_db)
+            if self.backend_type == BackendType.SSD
+            else kvt.set_dram_db_wrapper(self.ssd_db)
         )
         # TODO: make chunk_size configurable or dynamic
         chunk_size = 10000
@@ -2417,9 +2421,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             logging.info(
                 f"for checkpoint loading, table {i}, weight_state shape is {weight_state.shape}, opt_state shape is {opt_state.shape}"
             )
-            id_tensor = torch.zeros(
-                (self.local_weight_counts[i], 1), dtype=torch.int64, device="cpu"
-            )
+            id_tensor = torch.zeros((rows, 1), dtype=torch.int64, device="cpu")
             # pyre-ignore [16]
             self._cached_kvzch_data.cached_id_tensor_per_table.append(id_tensor)
             # pyre-ignore [16]
@@ -2538,9 +2540,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         if not self.stats_reporter.should_report(self.step):
             return
         self._report_ssd_l1_cache_stats()
-        self._report_ssd_io_stats()
-        self._report_ssd_mem_usage()
-        self._report_l2_cache_perf_stats()
+
+        if self.backend_type == BackendType.SSD:
+            self._report_ssd_io_stats()
+            self._report_ssd_mem_usage()
+            self._report_l2_cache_perf_stats()
 
     @torch.jit.ignore
     def _report_ssd_l1_cache_stats(self) -> None:

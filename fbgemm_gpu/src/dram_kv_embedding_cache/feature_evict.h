@@ -239,6 +239,7 @@ class FeatureEvict {
                            ? (evicted_counts[i] * 100.0f) / processed_counts[i]
                            : 0.0f;
     }
+    /*
     DLOG(INFO) << fmt::format(
         "Shard {} completed: \n"
         "  - Time taken: {}ms\n"
@@ -250,6 +251,7 @@ class FeatureEvict {
         fmt::join(processed_counts, ", "),
         fmt::join(evicted_counts, ", "),
         fmt::join(evict_rates, ", "));
+    */
   }
 
   virtual bool evict_block(weight_type* block, int sub_table_id) = 0;
