@@ -37,8 +37,7 @@ template <
     bool COOP,
     bool FAST_ACCUM,
     bool USE_BIAS,
-    typename INPUT_DTYPE,
-    typename BIAS_DTYPE>
+    typename INPUT_DTYPE>
 at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
@@ -91,7 +90,7 @@ at::Tensor f8f8bf16_rowwise_impl(
   using LayoutB_Transpose =
       typename cutlass::layout::LayoutTranspose<LayoutB>::type;
 
-  using ElementBias = BIAS_DTYPE;
+  using ElementBias = cutlass::bfloat16_t;
 
   using ElementOutput = cutlass::bfloat16_t;
   using LayoutOutput = cutlass::layout::RowMajor;
@@ -363,148 +362,73 @@ at::Tensor f8f8bf16_rowwise_wrapper(
       "Scale tensors must be float32.");
   if (bias.has_value()) {
     TORCH_CHECK(
-        bias.value().dtype() == at::kFloat ||
-            bias.value().dtype() == at::kBFloat16,
-        "Bias type must be bfloat16 or float32 if provided.");
+        bias.value().dtype() == at::kBFloat16, "Bias type must be bfloat16.");
   }
   bool use_bias = bias.has_value();
-  bool bf16_bias = use_bias && bias.value().dtype() == at::kBFloat16;
 
   // Templatize based on input dtype.
   bool use_e5m2 = XQ.dtype() == at::kFloat8_e5m2;
 
   if (use_bias) {
-    if (bf16_bias) {
-      if (use_fast_accum) {
-        if (use_e5m2) {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              true,
-              true,
-              cutlass::float_e5m2_t,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
-        } else {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              true,
-              true,
-              cutlass::float_e4m3_t,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
-        }
+    if (use_fast_accum) {
+      if (use_e5m2) {
+        return f8f8bf16_rowwise_impl<
+            TB_M,
+            TB_N,
+            TB_K,
+            TBS_M,
+            TBS_N,
+            TBS_K,
+            ARCH,
+            PONG,
+            COOP,
+            true,
+            true,
+            cutlass::float_e5m2_t>(XQ, WQ, x_scale, w_scale, bias, output);
       } else {
-        if (use_e5m2) {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              false,
-              true,
-              cutlass::float_e5m2_t,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
-        } else {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              false,
-              true,
-              cutlass::float_e4m3_t,
-              cutlass::bfloat16_t>(XQ, WQ, x_scale, w_scale, bias, output);
-        }
+        return f8f8bf16_rowwise_impl<
+            TB_M,
+            TB_N,
+            TB_K,
+            TBS_M,
+            TBS_N,
+            TBS_K,
+            ARCH,
+            PONG,
+            COOP,
+            true,
+            true,
+            cutlass::float_e4m3_t>(XQ, WQ, x_scale, w_scale, bias, output);
       }
     } else {
-      if (use_fast_accum) {
-        if (use_e5m2) {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              true,
-              true,
-              cutlass::float_e5m2_t,
-              float>(XQ, WQ, x_scale, w_scale, bias, output);
-        } else {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              true,
-              true,
-              cutlass::float_e4m3_t,
-              float>(XQ, WQ, x_scale, w_scale, bias, output);
-        }
+      if (use_e5m2) {
+        return f8f8bf16_rowwise_impl<
+            TB_M,
+            TB_N,
+            TB_K,
+            TBS_M,
+            TBS_N,
+            TBS_K,
+            ARCH,
+            PONG,
+            COOP,
+            false,
+            true,
+            cutlass::float_e5m2_t>(XQ, WQ, x_scale, w_scale, bias, output);
       } else {
-        if (use_e5m2) {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              false,
-              true,
-              cutlass::float_e5m2_t,
-              float>(XQ, WQ, x_scale, w_scale, bias, output);
-        } else {
-          return f8f8bf16_rowwise_impl<
-              TB_M,
-              TB_N,
-              TB_K,
-              TBS_M,
-              TBS_N,
-              TBS_K,
-              ARCH,
-              PONG,
-              COOP,
-              false,
-              true,
-              cutlass::float_e4m3_t,
-              float>(XQ, WQ, x_scale, w_scale, bias, output);
-        }
+        return f8f8bf16_rowwise_impl<
+            TB_M,
+            TB_N,
+            TB_K,
+            TBS_M,
+            TBS_N,
+            TBS_K,
+            ARCH,
+            PONG,
+            COOP,
+            false,
+            true,
+            cutlass::float_e4m3_t>(XQ, WQ, x_scale, w_scale, bias, output);
       }
     }
   } else {
@@ -522,8 +446,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             COOP,
             true,
             false,
-            cutlass::float_e5m2_t,
-            float>(XQ, WQ, x_scale, w_scale, bias, output);
+            cutlass::float_e5m2_t>(XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return f8f8bf16_rowwise_impl<
             TB_M,
@@ -537,8 +460,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             COOP,
             true,
             false,
-            cutlass::float_e4m3_t,
-            float>(XQ, WQ, x_scale, w_scale, bias, output);
+            cutlass::float_e4m3_t>(XQ, WQ, x_scale, w_scale, bias, output);
       }
     } else {
       if (use_e5m2) {
@@ -554,8 +476,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             COOP,
             false,
             false,
-            cutlass::float_e5m2_t,
-            float>(XQ, WQ, x_scale, w_scale, bias, output);
+            cutlass::float_e5m2_t>(XQ, WQ, x_scale, w_scale, bias, output);
       } else {
         return f8f8bf16_rowwise_impl<
             TB_M,
@@ -569,8 +490,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
             COOP,
             false,
             false,
-            cutlass::float_e4m3_t,
-            float>(XQ, WQ, x_scale, w_scale, bias, output);
+            cutlass::float_e4m3_t>(XQ, WQ, x_scale, w_scale, bias, output);
       }
     }
   }
