@@ -13,7 +13,6 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/macros/Macros.h>
 #include <cuda.h> // @manual
-#include <glog/logging.h>
 #include <torch/torch.h> // @manual
 #include <algorithm>
 #include <ctime>
@@ -556,11 +555,11 @@ void _zero_collision_hash_cuda(
     const std::optional<Tensor>& opt_in_rands) {
   constexpr int64_t kThreads = 256L;
   auto block_size = kThreads;
+  // check at::cuda::getCurrentDeviceProperties() is not null
+  TORCH_CHECK(at::cuda::getCurrentDeviceProperties() != nullptr);
   auto grid_size = std::min(
       (input.numel() + block_size - 1) / block_size,
-      128L *
-          CHECK_NOTNULL(at::cuda::getCurrentDeviceProperties())
-              ->multiProcessorCount);
+      128L * at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
   int64_t modulo = identities.size(0);
 
   // auxiliary data structure to lock each slot

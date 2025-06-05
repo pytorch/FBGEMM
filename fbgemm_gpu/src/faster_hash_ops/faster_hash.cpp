@@ -21,7 +21,7 @@
 
 namespace fbgemm_gpu {
 
-using at::Tensor;
+// using at::Tensor;
 
 namespace {
 static constexpr int32_t kDefaultTensor = -1;
