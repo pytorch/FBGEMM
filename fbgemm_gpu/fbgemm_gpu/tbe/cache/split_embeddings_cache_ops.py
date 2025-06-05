@@ -22,8 +22,8 @@ def get_unique_indices_v2(
         torch.Tensor,
         torch.Tensor,
         Optional[torch.Tensor],
-        Tuple[torch.Tensor, torch.Tensor],
     ],
+    Tuple[torch.Tensor, torch.Tensor],
 ]:
     """
     A wrapper for get_unique_indices for overloading the return type
@@ -43,7 +43,6 @@ def get_unique_indices_v2(
         return ret[:-1]
     if compute_inverse_indices:
         # Return (unique_indices, length, inverse_indices)
-        # pyre-fixme[7]: The arity arity of this return is wrong (3 vs 4)
         return ret[0], ret[1], ret[3]
     # Return (unique_indices, length)
     return ret[:-2]
