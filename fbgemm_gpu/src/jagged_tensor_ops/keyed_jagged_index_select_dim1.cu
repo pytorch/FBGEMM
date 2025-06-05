@@ -261,25 +261,28 @@ class KeyedJaggedIndexSelectDim1GPUOp
     const auto output_offsets_contig = output_offsets.expect_contiguous();
 
     if (grid_size != 0) {
-#define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS)          \
-  {                                                                            \
-    keyed_jagged_index_select_dim1_kernel<                                     \
-        value_t,                                                               \
-        index_t,                                                               \
-        offset_t,                                                              \
-        WEIGHT_TYPE,                                                           \
-        WEIGHTED>                                                              \
-        <<<grid_size, kMaxThreads, 0, at::cuda::getCurrentCUDAStream()>>>(     \
-            MAKE_PTA_WITH_NAME(func_name, output, value_t, 1, 64),             \
-            MAKE_PTA_WITH_NAME(func_name, OUTPUT_WEIGHTS, WEIGHT_TYPE, 1, 64), \
-            MAKE_PTA_WITH_NAME(func_name, values, value_t, 1, 64),             \
-            MAKE_PTA_WITH_NAME(func_name, WEIGHTS, WEIGHT_TYPE, 1, 64),        \
-            MAKE_PTA_WITH_NAME(func_name, offsets, offset_t, 1, 32),           \
-            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),            \
-            MAKE_PTA_WITH_NAME(                                                \
-                func_name, *output_offsets_contig, offset_t, 1, 32),           \
-            num_batches,                                                       \
-            batch_size);                                                       \
+#define LAUNCH_KERNEL(WEIGHTED, WEIGHT_TYPE, OUTPUT_WEIGHTS, WEIGHTS) \
+  {                                                                   \
+    FBGEMM_LAUNCH_KERNEL(                                             \
+        (keyed_jagged_index_select_dim1_kernel<                       \
+            value_t,                                                  \
+            index_t,                                                  \
+            offset_t,                                                 \
+            WEIGHT_TYPE,                                              \
+            WEIGHTED>),                                               \
+        grid_size,                                                    \
+        kMaxThreads,                                                  \
+        0,                                                            \
+        at::cuda::getCurrentCUDAStream(),                             \
+        PTA_B(output, value_t, 1, 64),                                \
+        PTA_B(OUTPUT_WEIGHTS, WEIGHT_TYPE, 1, 64),                    \
+        PTA_B(values, value_t, 1, 64),                                \
+        PTA_B(WEIGHTS, WEIGHT_TYPE, 1, 64),                           \
+        PTA_B(offsets, offset_t, 1, 32),                              \
+        PTA_B(indices, index_t, 1, 32),                               \
+        PTA_B(*output_offsets_contig, offset_t, 1, 32),               \
+        num_batches,                                                  \
+        batch_size);                                                  \
   }
 
 #ifdef FBGEMM_GPU_MEMCHECK
@@ -313,12 +316,10 @@ class KeyedJaggedIndexSelectDim1GPUOp
                                     output_weights,
                                     weights.value())
                               });
-                          C10_CUDA_KERNEL_LAUNCH_CHECK();
                         } else {
                           // has_weights = false, passing output and input as
                           // dummy tensors for weights
                           LAUNCH_KERNEL(false, scalar_t, output, values)
-                          C10_CUDA_KERNEL_LAUNCH_CHECK();
                         }
                       });
                 });
