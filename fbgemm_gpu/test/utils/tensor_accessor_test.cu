@@ -6,87 +6,88 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// Enable kernel asserts on ROCm as it is disabled by default
+// https://github.com/pytorch/pytorch/blob/main/c10/macros/Macros.h#L407
+#define C10_USE_ROCM_KERNEL_ASSERT
+
 #include <ATen/ATen.h>
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
-// DISABLE compilation in FBGEMM_GPU_MEMCHECK mode as a test
-#ifdef FBGEMM_GPU_MEMCHECK
-#undef FBGEMM_GPU_MEMCHECK
-#endif
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
-#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
+namespace fbgemm_gpu::utils {
 
-template <typename T>
-void test_ta_create_1(const at::Tensor& tensor) {
-  [[maybe_unused]] const auto func_name = "test_ta_create";
-  [[maybe_unused]] const auto accessor =
-      MAKE_TA_WITH_NAME(func_name, tensor, T, 1);
+TEST(TensorAccessorTest, tensor_access) {
+  const auto tensor1 = torch::tensor(
+      {{1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f},
+       {2.0f, 2.1f, 2.2f, 2.3f, 2.4f, 2.5f, 2.6f, 2.7f}},
+      torch::kFloat32);
+
+  const auto tensor2 = torch::tensor(
+      {{1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f},
+       {2.0f, 2.1f, 2.2f, 2.3f, 42.0f, 2.5f, 2.6f, 2.7f}},
+      torch::kFloat32);
+
+  auto accessor = TensorAccessor<float, 2, DefaultPtrTraits, int64_t>(
+      static_cast<typename DefaultPtrTraits<float>::PtrType>(
+          tensor1.data_ptr<float>()),
+      tensor1.sizes().data(),
+      tensor1.strides().data(),
+      "tensor",
+      "context");
+
+  EXPECT_NO_THROW({
+    // Value update through accessor should work as expected
+    accessor[1][4] = 42.0f;
+
+    EXPECT_TRUE(torch::equal(tensor1, tensor2))
+        << "tensor1 is not equal to tensor2";
+  });
+
+  EXPECT_DEATH({ accessor[10][20] = 3.14f; }, "idx < numel_");
 }
 
-template <size_t N>
-void test_ta_create_2(const at::Tensor& tensor) {
-  [[maybe_unused]] const auto func_name = "test_ta_create";
-  [[maybe_unused]] const auto accessor =
-      MAKE_TA_WITH_NAME(func_name, tensor, float, N);
+TEST(PackedTensorAccessorTest, tensor_access) {
+  const auto tensor1 = torch::tensor(
+      {{1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f},
+       {2.0f, 2.1f, 2.2f, 2.3f, 2.4f, 2.5f, 2.6f, 2.7f}},
+      torch::kFloat32);
+
+  const auto tensor2 = torch::tensor(
+      {{1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f},
+       {2.0f, 2.1f, 2.2f, 2.3f, 42.0f, 2.5f, 2.6f, 2.7f}},
+      torch::kFloat32);
+
+  auto accessor = PackedTensorAccessor<float, 2, RestrictPtrTraits, int64_t>(
+      static_cast<typename RestrictPtrTraits<float>::PtrType>(
+          tensor1.data_ptr<float>()),
+      tensor1.sizes().data(),
+      tensor1.strides().data(),
+      "tensor",
+      "context");
+
+  EXPECT_NO_THROW({
+    // Value update through accessor should work as expected
+    accessor[1][4] = 42.0f;
+
+    EXPECT_TRUE(torch::equal(tensor1, tensor2))
+        << "tensor1 is not equal to tensor2";
+
+    const auto transposed1 = accessor.transpose(0, 1);
+    const auto transposed2 = transposed1.transpose(0, 1);
+
+    for (auto i = 0; i < accessor.size(0); ++i) {
+      for (auto j = 0; j < accessor.size(1); ++j) {
+        // Transpose should work as expected
+        EXPECT_EQ(transposed1[j][i], accessor[i][j]);
+        // Twice-transpose should return the original tensor
+        EXPECT_EQ(transposed2[i][j], accessor[i][j]);
+      }
+    }
+  });
+
+  EXPECT_DEATH({ accessor[10][20] = 3.14f; }, "idx < numel_");
 }
 
-void test_ta_create_3(const at::Tensor& tensor) {
-  [[maybe_unused]] const auto func_name = "test_ta_create";
-  [[maybe_unused]] const auto accessor =
-      MAKE_TA_WITH_NAME(func_name, tensor, float, 1);
-}
-
-TEST(TensorAccessorTest, test_ta_create) {
-  const auto tensor = torch::tensor(
-      {1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f}, torch::kFloat32);
-  // Test mismatched types
-  EXPECT_THROW({ test_ta_create_1<int32_t>(tensor); }, std::exception);
-  EXPECT_THROW({ test_ta_create_1<int64_t>(tensor); }, std::exception);
-  EXPECT_THROW({ test_ta_create_1<double>(tensor); }, std::exception);
-
-  // Test invalid dimensions
-  EXPECT_THROW({ test_ta_create_2<2>(tensor); }, std::exception);
-  EXPECT_THROW({ test_ta_create_2<3>(tensor); }, std::exception);
-  EXPECT_THROW({ test_ta_create_2<4>(tensor); }, std::exception);
-
-  // Test valid type and dimension
-  EXPECT_NO_THROW({ test_ta_create_3(tensor); });
-}
-
-template <typename T>
-void test_pta_create_1(const at::Tensor& tensor) {
-  [[maybe_unused]] const auto func_name = "test_pta_create";
-  [[maybe_unused]] const auto accessor =
-      MAKE_PTA_WITH_NAME(func_name, tensor, T, 1, 64);
-}
-
-template <size_t N>
-void test_pta_create_2(const at::Tensor& tensor) {
-  [[maybe_unused]] const auto func_name = "test_pta_create";
-  [[maybe_unused]] const auto accessor =
-      MAKE_PTA_WITH_NAME(func_name, tensor, float, N, 64);
-}
-
-void test_pta_create_3(const at::Tensor& tensor) {
-  [[maybe_unused]] const auto func_name = "test_pta_create";
-  [[maybe_unused]] const auto accessor =
-      MAKE_PTA_WITH_NAME(func_name, tensor, float, 1, 64);
-}
-
-TEST(PackedTensorAccessorTest, test_pta_create) {
-  const auto tensor = torch::tensor(
-      {1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f}, torch::kFloat32);
-  // Test mismatched types
-  EXPECT_THROW({ test_pta_create_1<int32_t>(tensor); }, std::exception);
-  EXPECT_THROW({ test_pta_create_1<int64_t>(tensor); }, std::exception);
-  EXPECT_THROW({ test_pta_create_1<double>(tensor); }, std::exception);
-
-  // Test invalid dimensions
-  EXPECT_THROW({ test_pta_create_2<2>(tensor); }, std::exception);
-  EXPECT_THROW({ test_pta_create_2<3>(tensor); }, std::exception);
-  EXPECT_THROW({ test_pta_create_2<4>(tensor); }, std::exception);
-
-  // Test valid type and dimension
-  EXPECT_NO_THROW({ test_pta_create_3(tensor); });
-}
+} // namespace fbgemm_gpu::utils
