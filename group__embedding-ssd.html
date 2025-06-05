@@ -148,6 +148,7 @@ Functions</h2></td></tr>
 <p>FWD_L1_EVICTION: L1 cache eviciton will evict data into L2 cache on fwd path</p>
 <p>BWD_L1_CNFLCT_MISS_WRITE_BACK: L1 conflict miss will insert into L2 for embedding update on bwd path</p>
 <p>All the L2 cache filling above will potentially trigger rocksdb write once L2 cache is full</p>
+<p>STREAM: placeholder for raw embedding streaming requests, it doesn't directly interact with L2 and rocksDB</p>
 <p>Additionally we will do ssd io on L2 flush </p>
 
 </div>

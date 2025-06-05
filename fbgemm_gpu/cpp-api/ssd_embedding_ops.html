@@ -466,6 +466,7 @@
 <p>FWD_L1_EVICTION: L1 cache eviciton will evict data into L2 cache on fwd path</p>
 <p>BWD_L1_CNFLCT_MISS_WRITE_BACK: L1 conflict miss will insert into L2 for embedding update on bwd path</p>
 <p>All the L2 cache filling above will potentially trigger rocksdb write once L2 cache is full</p>
+<p>STREAM: placeholder for raw embedding streaming requests, it doesn’t directly interact with L2 and rocksDB</p>
 <p>Additionally we will do ssd io on L2 flush </p>
 <p><em>Values:</em></p>
 <dl class="cpp enumerator">
@@ -486,6 +487,11 @@
 <dl class="cpp enumerator">
 <dt class="sig sig-object cpp" id="_CPPv4N16RocksdbWriteMode5FLUSHE">
 <span id="_CPPv3N16RocksdbWriteMode5FLUSHE"></span><span id="_CPPv2N16RocksdbWriteMode5FLUSHE"></span><span class="target" id="group__embedding-ssd_1ggaf1ce371b1e598c817791f840612cc1a3a365b228f1c799ff897f963650ec33dd9"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">FLUSH</span></span></span><a class="headerlink" href="#_CPPv4N16RocksdbWriteMode5FLUSHE" title="Permalink to this definition">¶</a><br /></dt>
+<dd></dd></dl>
+
+<dl class="cpp enumerator">
+<dt class="sig sig-object cpp" id="_CPPv4N16RocksdbWriteMode6STREAME">
+<span id="_CPPv3N16RocksdbWriteMode6STREAME"></span><span id="_CPPv2N16RocksdbWriteMode6STREAME"></span><span class="target" id="group__embedding-ssd_1ggaf1ce371b1e598c817791f840612cc1a3a5fbbb70faa90e614c7cd5a487e85ced5"></span><span class="k"><span class="pre">enumerator</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">STREAM</span></span></span><a class="headerlink" href="#_CPPv4N16RocksdbWriteMode6STREAME" title="Permalink to this definition">¶</a><br /></dt>
 <dd></dd></dl>
 
 </dd></dl>

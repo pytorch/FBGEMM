@@ -113,6 +113,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:abd9970c497076f72cba47c2ac6a2c712" id="r_abd9970c497076f72cba47c2ac6a2c712"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#abd9970c497076f72cba47c2ac6a2c712">get</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t sleep_ms=0)</td></tr>
 <tr class="separator:abd9970c497076f72cba47c2ac6a2c712"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a97e1cb5dab03e8013e71ebd9ac1d0647" id="r_a97e1cb5dab03e8013e71ebd9ac1d0647"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a97e1cb5dab03e8013e71ebd9ac1d0647">stream</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, bool blocking_tensor_copy=true)</td></tr>
+<tr class="separator:a97e1cb5dab03e8013e71ebd9ac1d0647"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
 <tr class="separator:adac116554b543b7c4228c018a85882f5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft" align="right" valign="top">std::vector&lt; double &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
@@ -253,6 +255,49 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
     <tr><td class="paramname">indices</td><td>The 1D embedding index tensor, should skip on negative value </td></tr>
     <tr><td class="paramname">weights</td><td>The 2D tensor that each row(embeddings) is paired up with relative element in &lt;indices&gt; </td></tr>
     <tr><td class="paramname">count</td><td>A single element tensor that contains the number of indices to be processed</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
+
+</div>
+</div>
+<a id="a97e1cb5dab03e8013e71ebd9ac1d0647" name="a97e1cb5dab03e8013e71ebd9ac1d0647"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a97e1cb5dab03e8013e71ebd9ac1d0647">&#9670;&#160;</a></span>stream()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void stream </td>
+          <td>(</td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>indices</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>weights</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const at::Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>count</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>blocking_tensor_copy</em></span><span class="paramdefsep"> = </span><span class="paramdefval">true</span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<p>Stream out non-negative elements in &lt;indices&gt; and its paired embeddings from &lt;weights&gt; for the first &lt;count&gt; elements in the tensor. It spins up a thread that will copy all 3 tensors to CPU and inject them into the background queue which will be picked up by another set of thread pools for streaming out to the thrift server (co-located on same host now).</p>
+<p>This is used in cuda stream callback, which doesn't require to be serialized with other callbacks, thus a separate thread is used to maximize the overlapping with other callbacks.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">indices</td><td>The 1D embedding index tensor, should skip on negative value </td></tr>
+    <tr><td class="paramname">weights</td><td>The 2D tensor that each row(embeddings) is paired up with relative element in &lt;indices&gt; </td></tr>
+    <tr><td class="paramname">count</td><td>A single element tensor that contains the number of indices to be processed </td></tr>
+    <tr><td class="paramname">blocking_tensor_copy</td><td>whether to copy the tensors to be streamed in a blocking manner</td></tr>
   </table>
   </dd>
 </dl>
