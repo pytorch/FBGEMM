@@ -33,11 +33,7 @@ namespace ssd {
 
 using namespace at;
 
-#ifdef FBGEMM_FBCODE
-constexpr size_t num_ssd_drives = 8;
 const std::string ssd_mount_point = "/data00_nvidia";
-const size_t base_port = 136000;
-#endif
 
 // mem usage propertiese
 // -- block cache usage
@@ -322,23 +318,22 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     auto db_monitor_options = facebook::fb_rocksdb::DBMonitorOptions();
     db_monitor_options.fb303Prefix = "tbe_metrics";
 
-    std::string tbe_uuid = "";
+    tbe_uuid_ = facebook::strings::generateUUID();
+    use_default_ssd_path_ = !use_passed_in_path;
     if (!use_passed_in_path) {
-      path = ssd_mount_point;
-      tbe_uuid = facebook::strings::generateUUID();
+      path_ = std::move(ssd_mount_point);
+    } else {
+      path_ = std::move(path);
     }
+    std::string all_shards_path;
 #endif
     for (auto i = 0; i < num_shards; ++i) {
 #ifdef FBGEMM_FBCODE
-      int ssd_drive_idx = i % num_ssd_drives;
-      std::string ssd_idx_tbe_id_str = "";
-      if (!use_passed_in_path) {
-        ssd_idx_tbe_id_str =
-            std::to_string(ssd_drive_idx) + std::string("/") + tbe_uuid;
-      }
-      auto shard_path =
-          path + ssd_idx_tbe_id_str + std::string("_shard") + std::to_string(i);
-      used_path += shard_path + ", ";
+      auto rocksdb_path = kv_db_utils::get_rocksdb_path(
+          path_, i, tbe_uuid_, !use_passed_in_path);
+      auto shard_path = kv_db_utils::get_rocksdb_shard_path(i, rocksdb_path);
+      kv_db_utils::create_dir(shard_path);
+      all_shards_path += shard_path + ", ";
 #else
       auto shard_path = path + std::string("/shard_") + std::to_string(i);
 #endif
@@ -371,7 +366,8 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
       dbs_.emplace_back(db);
     }
 #ifdef FBGEMM_FBCODE
-    LOG(INFO) << "TBE actual used_path: " << used_path;
+    LOG(INFO) << "TBE uuid: " << tbe_uuid_
+              << ", rocksdb shards paths: " << all_shards_path;
 #endif
   }
 
@@ -1152,6 +1148,9 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
   int64_t elem_size_;
   std::vector<int64_t> sub_table_dims_;
   std::vector<int64_t> sub_table_hash_cumsum_;
+  std::string tbe_uuid_;
+  std::string path_;
+  bool use_default_ssd_path_;
 }; // class EmbeddingRocksDB
 
 } // namespace ssd
