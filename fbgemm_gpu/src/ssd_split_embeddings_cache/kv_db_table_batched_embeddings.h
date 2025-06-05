@@ -142,7 +142,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       int64_t res_server_port = 0,
       std::vector<std::string> table_names = {},
       std::vector<int64_t> table_offsets = {},
-      const std::vector<int64_t>& table_sizes = {});
+      const std::vector<int64_t>& table_sizes = {},
+      int64_t flushing_block_size = 2000000000 /*2GB*/);
 
   virtual ~EmbeddingKVDB();
 
@@ -396,6 +397,8 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& weights);
 
   std::unique_ptr<l2_cache::CacheLibCache> l2_cache_;
+  // when flushing l2, the block size in bytes that we flush l2 progressively
+  int64_t flushing_block_size_;
   const int64_t unique_id_;
   const int64_t num_shards_;
   const int64_t max_D_;

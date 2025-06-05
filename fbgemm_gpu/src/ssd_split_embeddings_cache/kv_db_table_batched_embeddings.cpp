@@ -108,8 +108,10 @@ EmbeddingKVDB::EmbeddingKVDB(
     int64_t res_server_port,
     std::vector<std::string> table_names,
     std::vector<int64_t> table_offsets,
-    const std::vector<int64_t>& table_sizes)
-    : unique_id_(unique_id),
+    const std::vector<int64_t>& table_sizes,
+    int64_t flushing_block_size)
+    : flushing_block_size_(flushing_block_size),
+      unique_id_(unique_id),
       num_shards_(num_shards),
       max_D_(max_D),
       executor_tp_(std::make_unique<folly::CPUThreadPoolExecutor>(num_shards)),
@@ -333,17 +335,29 @@ void EmbeddingKVDB::update_cache_and_storage(
 void EmbeddingKVDB::flush() {
   wait_util_filling_work_done();
   if (l2_cache_) {
-    auto tensor_tuple_opt = l2_cache_->get_all_items();
-    if (!tensor_tuple_opt.has_value()) {
-      XLOG(INFO) << "[TBE_ID" << unique_id_
-                 << "]no items exist in L2 cache, flush nothing";
-      return;
+    int block_size = std::max(
+        (int)(flushing_block_size_ / l2_cache_->get_cache_item_size()), 1);
+    folly::Optional<l2_cache::CacheLibCache::Cache::AccessIterator> start_itr =
+        folly::none;
+    folly::Optional<at::Tensor> count = folly::none;
+    auto itr = l2_cache_->begin();
+    while (count == folly::none || count->item<int64_t>() > 0) {
+      auto res_tuple_opt = l2_cache_->get_n_items(block_size, itr);
+      if (!res_tuple_opt.has_value()) {
+        XLOG(INFO) << "[TBE_ID" << unique_id_
+                   << "]no items exist in L2 cache, flush nothing";
+        return;
+      }
+      auto& indices = std::get<0>(res_tuple_opt.value());
+      auto& weights = std::get<1>(res_tuple_opt.value());
+      count = std::get<2>(res_tuple_opt.value());
+
+      if (count->item<int64_t>() > 0) {
+        set_kv_db_async(
+            indices, weights, count.value(), kv_db::RocksdbWriteMode::FLUSH)
+            .wait();
+      }
     }
-    auto& indices = std::get<0>(tensor_tuple_opt.value());
-    auto& weights = std::get<1>(tensor_tuple_opt.value());
-    auto& count = std::get<2>(tensor_tuple_opt.value());
-    set_kv_db_async(indices, weights, count, kv_db::RocksdbWriteMode::FLUSH)
-        .wait();
   }
 }
 
