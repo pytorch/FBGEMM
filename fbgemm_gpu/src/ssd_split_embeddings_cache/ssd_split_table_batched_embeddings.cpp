@@ -333,6 +333,15 @@ EmbeddingSnapshotHandleWrapper::~EmbeddingSnapshotHandleWrapper() {
   db->release_snapshot(handle);
 }
 
+RocksdbCheckpointHandleWrapper::RocksdbCheckpointHandleWrapper(
+    const std::string& checkpoint_uuid,
+    std::shared_ptr<EmbeddingRocksDB> db)
+    : uuid(checkpoint_uuid), db(std::move(db)) {}
+
+RocksdbCheckpointHandleWrapper::~RocksdbCheckpointHandleWrapper() {
+  db->release_checkpoint(uuid);
+}
+
 KVTensorWrapper::KVTensorWrapper(
     std::vector<int64_t> shape,
     int64_t dtype,
@@ -340,7 +349,8 @@ KVTensorWrapper::KVTensorWrapper(
     const std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
         snapshot_handle,
     std::optional<at::Tensor> sorted_indices,
-    int64_t width_offset_)
+    int64_t width_offset_,
+    c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle)
     : db_(nullptr),
       shape_(std::move(shape)),
       row_offset_(row_offset),
@@ -364,6 +374,7 @@ KVTensorWrapper::KVTensorWrapper(
   if (sorted_indices.has_value()) {
     sorted_indices_ = sorted_indices;
   }
+  checkpoint_handle_ = checkpoint_handle;
 }
 
 void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
@@ -504,6 +515,11 @@ static auto embedding_snapshot_handle_wrapper =
         "fbgemm",
         "EmbeddingSnapshotHandleWrapper");
 
+static auto rocksdb_checkpoint_handle_wrapper =
+    torch::class_<RocksdbCheckpointHandleWrapper>(
+        "fbgemm",
+        "RocksdbCheckpointHandleWrapper");
+
 static auto embedding_rocks_db_wrapper =
     torch::class_<EmbeddingRocksDBWrapper>("fbgemm", "EmbeddingRocksDBWrapper")
         .def(
@@ -618,7 +634,10 @@ static auto embedding_rocks_db_wrapper =
             &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot)
         .def(
             "create_rocksdb_hard_link_snapshot",
-            &EmbeddingRocksDBWrapper::create_rocksdb_hard_link_snapshot);
+            &EmbeddingRocksDBWrapper::create_rocksdb_hard_link_snapshot)
+        .def(
+            "get_active_checkpoint_uuid",
+            &EmbeddingRocksDBWrapper::get_active_checkpoint_uuid);
 
 static auto dram_kv_embedding_cache_wrapper =
     torch::class_<DramKVEmbeddingCacheWrapper>(
@@ -701,7 +720,8 @@ static auto kv_tensor_wrapper =
                 std::optional<
                     c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>,
                 std::optional<at::Tensor>,
-                int64_t>(),
+                int64_t,
+                c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>(),
             "",
             {torch::arg("shape"),
              torch::arg("dtype"),
@@ -710,7 +730,9 @@ static auto kv_tensor_wrapper =
              // not needed for writing
              torch::arg("snapshot_handle") = std::nullopt,
              torch::arg("sorted_indices") = std::nullopt,
-             torch::arg("width_offset") = 0})
+             torch::arg("width_offset") = 0,
+             torch::arg("checkpoint_handle") =
+                 c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>(nullptr)})
         .def(
             "set_embedding_rocks_dp_wrapper",
             &KVTensorWrapper::set_embedding_rocks_dp_wrapper,
