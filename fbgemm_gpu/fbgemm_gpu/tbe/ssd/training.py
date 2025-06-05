@@ -2520,6 +2520,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.ssd_db.flush()
         self.last_flush_step = self.step
 
+    def create_rocksdb_hard_link_snapshot(self) -> None:
+        """
+        Create a rocksdb hard link snapshot to provide cross procs access to the underlying data
+        """
+        self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
+
     def prepare_inputs(
         self,
         indices: Tensor,
