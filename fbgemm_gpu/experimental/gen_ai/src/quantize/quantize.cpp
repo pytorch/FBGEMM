@@ -470,7 +470,7 @@ at::Tensor f8f8bf16_rowwise_meta(
   } else {
     const at::SymInt B = XQ.sym_size(0);
     const at::SymInt M = XQ.sym_size(1);
-    const at::SymInt N = WQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(0);
     Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
   }
   return Y;
