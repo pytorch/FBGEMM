@@ -3164,6 +3164,45 @@ def need_split_k(SIZE_M, SIZE_N, SIZE_K):
     return (SIZE_M < 64 or SIZE_N < 64) and SIZE_K > 1024
 
 
+# Force a failure instead of a warning when all configs are pruned.
+# TODO: Determine a better approach for model level testing. We need
+# to standardize our approach around prune_configs in general.
+FORCE_FAILURE_ON_EMPTY_CONFIGS = False
+
+
+def is_invalid_config(config, N, M, K, mfma, use_bias):
+    """
+    Contains all of the configuration checks for prune_configs
+    that will result in an invalid result if select as the config.
+
+    This is done to ensure that if no config is "optimal" for a given
+    shape we don't accidentally select
+    """
+    BLOCK_SIZE_M = config.kwargs.get("BLOCK_M")
+    BLOCK_SIZE_N = config.kwargs.get("BLOCK_N")
+    BLOCK_SIZE_K = config.kwargs.get("BLOCK_K")
+    SPLIT_K = config.kwargs.get("SPLIT_K")
+    matrix_instr_nonkdim = config.kwargs.get("matrix_instr_nonkdim")
+    if matrix_instr_nonkdim > mfma:
+        return True
+    if mfma == 4 and BLOCK_SIZE_K < 64:
+        return True
+    # some layouts could not work properly in case
+    # number elements per thread is less 1
+    if BLOCK_SIZE_M * BLOCK_SIZE_N < 64:
+        return True
+    if BLOCK_SIZE_M < matrix_instr_nonkdim or BLOCK_SIZE_N < matrix_instr_nonkdim:
+        return True
+    if M <= matrix_instr_nonkdim and BLOCK_SIZE_M != matrix_instr_nonkdim:
+        return True
+    if N <= matrix_instr_nonkdim and BLOCK_SIZE_N != matrix_instr_nonkdim:
+        return True
+    # split_k cannot be used if there is a bias
+    if use_bias and SPLIT_K != 1:
+        return True
+    return False
+
+
 # Configs adapted from https://github.com/ROCm/triton/blob/main_perf/python/perf-kernels/tools/tune_gemm/tune_gemm.py
 def prune_configs(configs, named_args, **kwargs):
     pruned_configs = []
@@ -3188,32 +3227,16 @@ def prune_configs(configs, named_args, **kwargs):
         BLOCK_SIZE_M = config.kwargs.get("BLOCK_M")
         BLOCK_SIZE_N = config.kwargs.get("BLOCK_N")
         BLOCK_SIZE_K = config.kwargs.get("BLOCK_K")
-        num_warps = config.num_warps
-        matrix_instr_nonkdim = config.kwargs.get("matrix_instr_nonkdim")
-        if matrix_instr_nonkdim > mfma:
-            continue
-        if mfma == 4 and BLOCK_SIZE_K < 64:
-            continue
-        # some layouts could not work properly in case
-        # number elemens per thread is less 1
-        if BLOCK_SIZE_M * BLOCK_SIZE_N < 64:
-            continue
         SPLIT_K = config.kwargs.get("SPLIT_K")
         GROUP_M = config.kwargs.get("GROUP_M")
-        if BLOCK_SIZE_M < matrix_instr_nonkdim or BLOCK_SIZE_N < matrix_instr_nonkdim:
-            continue
-        if M <= matrix_instr_nonkdim and BLOCK_SIZE_M != matrix_instr_nonkdim:
-            continue
-        if N <= matrix_instr_nonkdim and BLOCK_SIZE_N != matrix_instr_nonkdim:
+        num_warps = config.num_warps
+        if is_invalid_config(config, N, M, K, mfma, use_bias):
             continue
         # Skip BLOCK_SIZE that is too large compare to M/N
         # unless BLOCK_SIZE is already small enough
         if BLOCK_SIZE_M > M * 2 and BLOCK_SIZE_M != 16:
             continue
         if BLOCK_SIZE_N > N * 2 and BLOCK_SIZE_N != 16:
-            continue
-        # split_k cannot be used if there is a bias
-        if use_bias and SPLIT_K != 1:
             continue
         # skip large split_k when not necessary
         if SPLIT_K != 1 and not need_split_k(M, N, K):
@@ -3248,8 +3271,17 @@ def prune_configs(configs, named_args, **kwargs):
 
     print(f"{len(configs)=} {len(pruned_configs)=}")
     if len(pruned_configs) == 0:
-        print(f"No configs left after pruning! {M=} {N=} {K=}")
-        pruned_configs = configs[:10]
+        if not FORCE_FAILURE_ON_EMPTY_CONFIGS:
+            # Prune configs that can lead to incorrect results even if all configs are sub-optimal.
+            candidate_configs = [
+                c for c in configs if not is_invalid_config(c, N, M, K, mfma, use_bias)
+            ]
+            print(f"No configs left after pruning! {M=} {N=} {K=}")
+            pruned_configs = candidate_configs[:10]
+        if len(pruned_configs) == 0:
+            raise RuntimeError(
+                "No valid configs left after pruning! Consider autotuning further with TritonBench"
+            )
     return pruned_configs
 
 
