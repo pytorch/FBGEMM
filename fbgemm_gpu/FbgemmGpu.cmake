@@ -53,7 +53,8 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
     src/quantize_ops/quantize_ops_gpu.cpp
     src/sparse_ops/sparse_ops_gpu.cpp
     src/metric_ops/metric_ops_host.cpp
-    src/input_combine_ops/input_combine_gpu.cpp)
+    src/input_combine_ops/input_combine_gpu.cpp
+    src/faster_hash_ops/faster_hash.cpp)
 
   if(NVML_LIB_PATH OR FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
@@ -121,7 +122,8 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
       src/sparse_ops/sparse_range.cu
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
-      src/sparse_ops/sparse_zipf.cu)
+      src/sparse_ops/sparse_zipf.cu
+      src/faster_hash_ops/faster_hash.cu)
 endif()
 
 
