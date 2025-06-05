@@ -85,6 +85,18 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
   }
 
+  void stream_cuda(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      bool blocking_tensor_copy = true) {
+    return impl_->stream_cuda(indices, weights, count, blocking_tensor_copy);
+  }
+
+  void stream_sync_cuda() {
+    return impl_->stream_sync_cuda();
+  }
+
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
     return impl_->get_cuda(indices, weights, count);
   }

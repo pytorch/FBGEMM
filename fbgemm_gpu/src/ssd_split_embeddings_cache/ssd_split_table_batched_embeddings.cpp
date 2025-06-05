@@ -549,6 +549,17 @@ static auto embedding_rocks_db_wrapper =
                 torch::arg("timestep"),
                 torch::arg("is_bwd") = false,
             })
+        .def(
+            "stream_cuda",
+            &EmbeddingRocksDBWrapper::stream_cuda,
+            "",
+            {
+                torch::arg("indices"),
+                torch::arg("weights"),
+                torch::arg("count"),
+                torch::arg("blocking_tensor_copy"),
+            })
+        .def("stream_sync_cuda", &EmbeddingRocksDBWrapper::stream_sync_cuda)
         .def("get_cuda", &EmbeddingRocksDBWrapper::get_cuda)
         .def("compact", &EmbeddingRocksDBWrapper::compact)
         .def("flush", &EmbeddingRocksDBWrapper::flush)
