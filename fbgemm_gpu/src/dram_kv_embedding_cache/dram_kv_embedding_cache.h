@@ -84,7 +84,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   /// at::ScalarType::Float
   /// @param l2_weight_thresholds l2 weight threshold for each table,
   /// at::ScalarType::Double
-  /// @param embedding_dims  embedding dims for each table, at::ScalarType::Int
   /// @param num_shards number of shards for the kvstore. This is to improve
   /// parallelization. Each key value pair will be sharded into one shard.
   /// @param num_threads num of threads that kvstore needs to be run upon for
@@ -107,7 +106,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const std::optional<at::Tensor>& ttls_in_hour = std::nullopt,
       const std::optional<at::Tensor>& count_decay_rates = std::nullopt,
       const std::optional<at::Tensor>& l2_weight_thresholds = std::nullopt,
-      const std::optional<at::Tensor>& embedding_dims = std::nullopt,
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
@@ -187,13 +185,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         EvictTriggerStrategy::BY_L2WEIGHT) {
       TORCH_CHECK_TENSOR_PROPERTIES(l2_weight_thresholds,
                                     at::ScalarType::Double);
-      TORCH_CHECK_TENSOR_PROPERTIES(embedding_dims, at::ScalarType::Int);
+      TORCH_CHECK_TENSOR_PROPERTIES(table_dims, at::ScalarType::Long);
       TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
           l2_weight_thresholds,
           feature_evict_config_.l2_weight_thresholds,
           double);
       TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
-          embedding_dims, feature_evict_config_.embedding_dims, int);
+          table_dims, feature_evict_config_.embedding_dims, int);
     }
     feature_evict_ = create_feature_evict(feature_evict_config_,
                                           executor_.get(),
@@ -327,6 +325,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           } else {
                             // Key doesn't exist, allocate new block and insert.
                             block = pool->allocate_t();
+                            FixedBlockPool::set_key(block, id);
                             wlmap->insert({id, block});
                           }
                           if (feature_evict_config_.trigger_mode !=
