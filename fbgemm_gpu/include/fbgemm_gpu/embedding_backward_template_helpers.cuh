@@ -39,12 +39,16 @@ constexpr size_t kBackwardMaxThreads = 512;
 constexpr int32_t kCacheLocationMissing = -1;
 
 DEVICE_INLINE int64_t gpuAtomicIncrement(int64_t* p) {
+#if defined(USE_ROCM)
+  return __atomic_fetch_add(p, 1, __ATOMIC_RELAXED);
+#else
   static_assert(
       sizeof(int64_t) == sizeof(unsigned long long),
       "expected int64_t to be unsigned long long");
   return static_cast<int64_t>(atomicAdd(
       reinterpret_cast<unsigned long long int*>(p),
       static_cast<unsigned long long int>(1)));
+#endif
 }
 
 namespace fbgemm_gpu {
