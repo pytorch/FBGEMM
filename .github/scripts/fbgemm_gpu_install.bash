@@ -120,7 +120,6 @@ __install_check_operator_registrations () {
   elif [ "$installed_fbgemm_target" == "hstu" ]; then
     test_operators+=(
       "torch.ops.fbgemm.hstu_varlen_bwd_80"
-      "torch.ops.fbgemm.hstu_varlen_bwd_90"
     )
     base_import="fbgemm_gpu.experimental.hstu"
 
