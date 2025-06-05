@@ -509,26 +509,34 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count) {
     folly::F14FastMap<int, std::vector<int64_t>> shardid_to_indexes;
 
-    // Due to duplicate indicies, we only need to get/set the first count of
-    // entries.
-    auto conv_count = count.scalar_type() == at::ScalarType::Long
-        ? *(count.data_ptr<int64_t>())
-        : *(count.data_ptr<int32_t>());
+    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+        indices.scalar_type(),
+        "dram_shard_input",
+        [this, &indices, &shardid_to_indexes, &count] {
+          using index_t = scalar_t;
+          // Due to duplicate indicies, we only need to get/set the first count
+          // of
+          // entries.
+          auto conv_count = count.scalar_type() == at::ScalarType::Long
+              ? *(count.data_ptr<int64_t>())
+              : *(count.data_ptr<int32_t>());
+          auto indices_data_ptr = indices.data_ptr<index_t>();
+          // There could be negative indices, which we should skipp
+          for (int i = 0; i < conv_count; i++) {
+            auto index = int64_t(indices_data_ptr[i]);
+            if (index < 0) {
+              continue;
+            }
 
-    // There could be negative indices, which we should skipp
-    for (int i = 0; i < conv_count; i++) {
-      if (indices[i].item<int64_t>() < 0) {
-        continue;
-      }
+            const auto shard_id = kv_db_utils::hash_shard(index, num_shards_);
 
-      const auto shard_id =
-          kv_db_utils::hash_shard(indices[i].item<int64_t>(), num_shards_);
+            if (shardid_to_indexes.find(shard_id) == shardid_to_indexes.end()) {
+              shardid_to_indexes[shard_id] = std::vector<int64_t>();
+            }
+            shardid_to_indexes[shard_id].push_back(i);
+          }
+        });
 
-      if (shardid_to_indexes.find(shard_id) == shardid_to_indexes.end()) {
-        shardid_to_indexes[shard_id] = std::vector<int64_t>();
-      }
-      shardid_to_indexes[shard_id].push_back(i);
-    }
     // chunk request based on bucket sharding
     return shardid_to_indexes;
   }
