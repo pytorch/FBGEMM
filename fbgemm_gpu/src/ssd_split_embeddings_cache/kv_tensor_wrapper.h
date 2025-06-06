@@ -66,6 +66,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle =
           c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>(nullptr));
 
+  explicit KVTensorWrapper(const std::string& serialized);
+
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 
   /// @brief if the backend storage is SSD, use this function
@@ -108,6 +110,16 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   std::string layout_str();
 
+  std::string serialize() const;
+
+  // ONLY FOR DEBUGGING PURPOSES, Please don't use this function in production
+  std::string logs() const;
+
+  void deserialize(const std::string& serialized);
+
+  friend void to_json(json& j, const KVTensorWrapper& kvt);
+  friend void from_json(const json& j, KVTensorWrapper& kvt);
+
  private:
   std::shared_ptr<kv_db::EmbeddingKVDB> db_;
   c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper> snapshot_handle_;
@@ -119,6 +131,26 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   int64_t width_offset_;
   std::mutex mtx;
   c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle_;
+  //   Used for initializting a readonly rocksdb instance, that we will used for
+  //   cross process async read
+  std::shared_ptr<ReadOnlyEmbeddingKVDB> readonly_db_;
+  // below are variables that is used to hold ReadOnlyEmbeddingKVDB constructor
+  // arguments, they will be filled up when serialize happens and will be used
+  // to construct ReadOnlyEmbeddingKVDB instance later after deserialization
+  //
+  // we don't do ReadOnlyEmbeddingKVDB construction upon KVTensorWrapper
+  // construction, because one ReadOnlyEmbeddingKVDB(rdb checkpoint) could store
+  // table shards for multiple tables, they should share the same underlying
+  // ReadOnlyEmbeddingKVDB instance to easily manage rdb checkpoint lifetime.
+  std::vector<std::string> rdb_shard_checkpoint_paths;
+  std::string tbe_uuid;
+  int64_t num_shards{};
+  int64_t num_threads{};
+  int64_t max_D{};
+  std::string checkpoint_uuid;
 };
+
+void to_json(json& j, const KVTensorWrapper& kvt);
+void from_json(const json& j, KVTensorWrapper& kvt);
 
 } // namespace ssd
