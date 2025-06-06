@@ -525,13 +525,11 @@ std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
   TORCH_CHECK(dims == 2 || dims == 3, "The dim of input should be 2 or 3");
   at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
   at::Tensor scale;
-  if (dims == 2) {
-    const at::SymInt M = input.sym_size(0);
-    scale = at::empty_symint({M}, input.options().dtype(at::kFloat));
+  if (dims <= 2) {
+    scale = at::empty({}, input.options().dtype(at::kFloat));
   } else {
     const at::SymInt B = input.sym_size(0);
-    const at::SymInt M = input.sym_size(1);
-    scale = at::empty_symint({B, M}, input.options().dtype(at::kFloat));
+    scale = at::empty_symint({B}, input.options().dtype(at::kFloat));
   }
   return {Y, scale};
 }

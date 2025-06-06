@@ -34,25 +34,38 @@ def int4_row_quantize_zp(
     group_size: int = 128,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     n_bit = 4  # Number of target bits.
-    to_quant = x.reshape(-1, group_size).to(torch.float)
+    # Split input into chunks of group_size. This approach allows K that isnt divisible by group_size.
+    to_quant = torch.split(x.to(torch.float), group_size, dim=-1)
 
-    max_val = to_quant.amax(dim=1, keepdim=True)
-    min_val = to_quant.amin(dim=1, keepdim=True)
+    max_val = [chunk.amax(dim=1, keepdim=True) for chunk in to_quant]
+    min_val = [chunk.amin(dim=1, keepdim=True) for chunk in to_quant]
     max_int = 2**n_bit - 1
     min_int = 0
-    scales = (max_val - min_val).clamp(min=1e-6) / max_int
+    scales = [
+        (max_chunk - min_chunk).clamp(min=1e-6) / max_int
+        for max_chunk, min_chunk in zip(max_val, min_val)
+    ]
 
-    zeros = min_val + scales * (2 ** (n_bit - 1))
+    zeros = [
+        min_chunk + scale_chunk * (2 ** (n_bit - 1))
+        for min_chunk, scale_chunk in zip(min_val, scales)
+    ]
 
-    out = to_quant.sub(min_val).div(scales).round().clamp_(min_int, max_int)
+    out = [
+        chunk.sub(min_chunk).div(scale_chunk).round().clamp_(min_int, max_int)
+        for chunk, min_chunk, scale_chunk in zip(to_quant, min_val, scales)
+    ]
 
     # Recenter output and move to int8.
-    out = (out - 2 ** (n_bit - 1)).to(dtype=torch.int8).reshape(x.shape)
+    out = [(chunk - 2 ** (n_bit - 1)).to(dtype=torch.int8) for chunk in out]
+
+    # Recombine chunks.
+    out = torch.cat(out, dim=-1)
 
     # Cutlass expects column major layout for scale and zero point,
     # so we transpose here and make them contiguous.
-    scales = scales.view(x.shape[0], -1).t().contiguous()
-    zeros = zeros.view(x.shape[0], -1).t().contiguous()
+    scales = torch.cat(scales, dim=-1).t().contiguous()
+    zeros = torch.cat(zeros, dim=-1).t().contiguous()
 
     return out, scales, zeros
 
@@ -72,20 +85,26 @@ def int4_row_quantize(
         group_scale (Tensor): [K / group_size, N] FP32 Scale per group.
     """
     n_bit = 4  # Number of target bits.
-    to_quant = x.reshape(-1, group_size).to(torch.float)
+    # Split input into chunks of group_size. This approach allows K that isnt divisible by group_size.
+    to_quant = torch.split(x.to(torch.float), group_size, dim=-1)
 
-    max_val = torch.abs(to_quant).amax(dim=1, keepdim=True)
+    max_val = [torch.abs(chunk).amax(dim=-1, keepdim=True) for chunk in to_quant]
     max_int = 2 ** (n_bit - 1)
     min_int = -(2 ** (n_bit - 1))
-    scales = max_val.clamp(min=1e-6) / max_int
+    scales = [chunk.clamp(min=1e-6) / max_int for chunk in max_val]
 
-    out = to_quant.div(scales).round().clamp_(min_int, max_int - 1)
+    out = [
+        chunk.div(chunk_scale).round().clamp_(min_int, max_int - 1)
+        for chunk, chunk_scale in zip(to_quant, scales)
+    ]
+    # Recombine chunks.
+    out = torch.cat(out, dim=-1)
 
     # Cast to int8 and restore shape.
-    out = out.to(dtype=torch.int8).reshape(x.shape)
+    out = out.to(dtype=torch.int8)
 
     # Scales should be in [num_groups, N] layout.
-    scales = scales.view(x.shape[0], -1).t().contiguous()
+    scales = torch.cat(scales, dim=-1).t().contiguous()
 
     return out, scales
 
@@ -109,8 +128,6 @@ def quantize_int4_preshuffle(
         scales is a tuple of row_scale ([N]) and group_scale ([K / group_size, 8, N]). When BF16 is
         used, scales is a tuple of group_scale([K / group_size, N]) and group_zero ([K / group_size, N])
     """
-    # Check that K is divisible by group size.
-    assert w.shape[-1] % group_size == 0, "K must be divisible by group size."
 
     def _quantize(
         w: torch.Tensor, dtype: str = "fp8"
