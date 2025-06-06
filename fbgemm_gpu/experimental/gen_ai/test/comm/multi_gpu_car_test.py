@@ -20,6 +20,7 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import numpy as np
 import torch
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import supports_float8_fnuz
 from hypothesis import given, settings, strategies as st, Verbosity
 from torch.distributed.launcher.api import elastic_launch, LaunchConfig
 
@@ -323,7 +324,7 @@ class LLamaMultiGpuTests(unittest.TestCase):
     def test_allgather(self, dtype: torch.dtype) -> None:
         # float8 is only supported in H100 or MI300x
         if dtype == torch.float8_e4m3fn:
-            if torch.version.hip:
+            if supports_float8_fnuz():
                 dtype = torch.float8_e4m3fnuz
             elif torch.cuda.get_device_capability() < (9, 0):
                 self.skipTest(
@@ -366,9 +367,9 @@ class LLamaMultiGpuTests(unittest.TestCase):
         if dst_dtype == torch.float8_e4m3fn or src_dtype == torch.float8_e4m3fn:
             if torch.version.hip:
                 if dst_dtype == torch.float8_e4m3fn:
-                    dst_dtype = torch.float8_e4m3fnuz
+                    dst_dtype = self._hip_float8_e4m3_dtype()
                 if src_dtype == torch.float8_e4m3fn:
-                    src_dtype = torch.float8_e4m3fnuz
+                    src_dtype = self._hip_float8_e4m3_dtype()
             elif torch.cuda.get_device_capability() < (9, 0):
                 self.skipTest(
                     "float8_e4m3fn is only supported in H100 or MI300x, but we're running "

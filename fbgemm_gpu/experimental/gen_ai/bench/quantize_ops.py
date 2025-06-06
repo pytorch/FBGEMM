@@ -19,6 +19,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
 )
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+    get_fp8_constants,
     matmul_fp8_block,
     matmul_fp8_row,
     quantize_fp8_block,
@@ -255,10 +256,7 @@ class ScaledMMBaseline(QuantizeOpBase):
     """
 
     def __init__(self):
-        if torch.version.cuda is not None:
-            self.fp8_dtype = torch.float8_e4m3fn
-        else:
-            self.fp8_dtype = torch.float8_e4m3fnuz
+        self.fp8_dtype, _, _, _ = get_fp8_constants()
         self.E4M3_MAX_POS: float = torch.finfo(self.fp8_dtype).max
         self.E5M2_MAX_POS: float = torch.finfo(torch.float8_e5m2).max
         self.FP16_MAX_POS: float = torch.finfo(torch.float16).max
