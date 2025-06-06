@@ -76,7 +76,7 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
   auto strideC = n;
 
   // computeType is hipblasComputeType_t (e.g., HIPBLAS_COMPUTE_32F) instead of
-  // hipblasDataType (e.g., HIPBLAS_R_32F) and matrixType is hipDataType (e.g.,
+  // hipblasDatatype_t (e.g., HIPBLAS_R_32F) and matrixType is hipDataType (e.g.,
   // HIP_R_16F) instead of hipblasDatatype_t (e.g., HIPBLAS_R_16F) for 
   // hipBLAS 2 and defined(HIPBLAS_V2) or hipBLAS 3 and later
 #if defined(USE_ROCM) && ((hipblasVersionMajor == 2 && defined(HIPBLAS_V2)) || hipblasVersionMajor >= 3)
