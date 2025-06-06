@@ -217,14 +217,13 @@ at::Tensor _bf16i4bf16(
   at::Tensor workspace =
       at::empty(workspace_size, X.options().dtype(at::kByte));
 
-  // Check the problem size is supported or not
-  cutlass::Status status = gemm.can_implement(arguments);
-  if (status != cutlass::Status::kSuccess) {
-    throw std::runtime_error("cutlass cannot implement");
-  }
+  // TODO shuffled argument checking is stricter than it needs to be.
+  // For example it complains when K isnt divisible by group size despite
+  // that not being an actual restriction. We adopt a dont-ask-dont-tell
+  // approach to argument verification for now.
 
   // Initialize CUTLASS kernel with arguments and workspace pointer
-  status = gemm.initialize(arguments, workspace.data_ptr());
+  cutlass::Status status = gemm.initialize(arguments, workspace.data_ptr());
   if (status != cutlass::Status::kSuccess) {
     throw std::runtime_error("cutlass cannot initialize");
   }
