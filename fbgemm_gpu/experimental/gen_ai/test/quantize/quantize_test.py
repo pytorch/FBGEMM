@@ -16,6 +16,7 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import torch
 import triton  # noqa: F401
+from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import supports_float8_fnuz
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -41,7 +42,7 @@ except ImportError:
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
 # Supported FP8 format is different on NV and AMD.
-if torch.version.hip is not None:
+if supports_float8_fnuz():
     fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
     fp8_e5m2: torch.dtype = torch.float8_e5m2fnuz
 else:
