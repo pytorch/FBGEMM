@@ -2461,6 +2461,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             no_snapshot=no_snapshot,
             should_flush=should_flush,
         )
+        checkpoint_handle = self.ssd_db.get_active_checkpoint_uuid(self.step)
 
         dtype = self.weights_precision.as_dtype()
         if self.load_state_dict and self.kv_zch_params:
@@ -2552,6 +2553,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 sorted_indices=(
                     bucket_ascending_id_tensor if self.kv_zch_params else None
                 ),
+                checkpoint_handle=checkpoint_handle,
             )
             (
                 tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)

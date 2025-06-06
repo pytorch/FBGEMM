@@ -9,6 +9,7 @@
 #pragma once
 
 #include <ATen/Tensor.h> // @manual=//caffe2:ATen-core
+#include <nlohmann/json.hpp>
 #include <torch/custom_class.h>
 
 namespace kv_mem {
@@ -21,7 +22,10 @@ class EmbeddingKVDB;
 
 namespace ssd {
 
+using json = nlohmann::json;
+
 class EmbeddingRocksDB;
+class ReadOnlyEmbeddingKVDB;
 class EmbeddingRocksDBWrapper;
 class SnapshotHandle;
 
@@ -37,6 +41,18 @@ struct EmbeddingSnapshotHandleWrapper : public torch::jit::CustomClassHolder {
   std::shared_ptr<EmbeddingRocksDB> db;
 };
 
+// @lint-ignore CLANGTIDY cppcoreguidelines-special-member-functions
+struct RocksdbCheckpointHandleWrapper : public torch::jit::CustomClassHolder {
+  explicit RocksdbCheckpointHandleWrapper(
+      const std::string& checkpoint_uuid,
+      std::shared_ptr<EmbeddingRocksDB> db);
+
+  ~RocksdbCheckpointHandleWrapper();
+
+  std::string uuid;
+  std::shared_ptr<EmbeddingRocksDB> db;
+};
+
 class KVTensorWrapper : public torch::jit::CustomClassHolder {
  public:
   explicit KVTensorWrapper(
@@ -46,7 +62,9 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
           snapshot_handle = std::nullopt,
       std::optional<at::Tensor> sorted_indices = std::nullopt,
-      int64_t width_offset = 0);
+      int64_t width_offset = 0,
+      c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle =
+          c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>(nullptr));
 
   at::Tensor narrow(int64_t dim, int64_t start, int64_t length);
 
@@ -100,6 +118,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   std::optional<at::Tensor> sorted_indices_ = std::nullopt;
   int64_t width_offset_;
   std::mutex mtx;
+  c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle_;
 };
 
 } // namespace ssd
