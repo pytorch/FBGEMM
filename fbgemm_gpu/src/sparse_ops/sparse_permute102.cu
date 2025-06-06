@@ -66,23 +66,29 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
   float alpha = 1.0f;
   float beta = 1.0f;
 
-  auto Btype = HIPBLAS_R_16F;
+  auto Btype = HIP_R_16F;
   auto ldb = n;
   auto strideB = n * k;
 
-  auto Atype = HIPBLAS_R_16F;
   auto lda = k * batch_size;
   auto strideA = k;
 
-  auto Ctype = HIPBLAS_R_16F;
   auto ldc = n * batch_size;
   auto strideC = n;
 
   // computeType is hipblasComputeType_t (e.g., HIPBLAS_COMPUTE_32F) instead of
-  // hipDataType (e.g., HIPBLAS_R_32F) after RoCM 6.0
-#if defined(USE_ROCM) && ROCM_VERSION >= 60000 && defined(HIPBLAS_V2)
+  // hipDataType (e.g., HIPBLAS_R_32F) and matrixType is hipDataType (e.g.,
+  // HIP_R_16F) instead of hipblasDatatype_t (e.g., HIPBLAS_R_16F) for 
+  // hipBLAS 2 and defined(HIPBLAS_V2) or hipBLAS 3 and later
+#if defined(USE_ROCM) && ((hipblasVersionMajor = 2 && defined(HIPBLAS_V2)) || hipblasVersionMajor >= 3)
+  auto Btype = HIP_R_16F;
+  auto Atype = HIP_R_16F;
+  auto Ctype = HIP_R_16F;
   auto computeType = HIPBLAS_COMPUTE_32F;
 #else
+  auto Btype = HIPBLAS_R_16F;
+  auto Atype = HIPBLAS_R_16F;
+  auto Ctype = HIPBLAS_R_16F;
   auto computeType = HIPBLAS_R_32F;
 #endif
 
