@@ -66,7 +66,6 @@ DLL_PUBLIC Tensor permute102_baddbmm_permute102_cuda(
   float alpha = 1.0f;
   float beta = 1.0f;
 
-  auto Btype = HIP_R_16F;
   auto ldb = n;
   auto strideB = n * k;
 
