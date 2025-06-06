@@ -18,7 +18,7 @@
 #include "embedding_rocksdb_wrapper.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
-
+#include "rocksdb/utilities/checkpoint.h"
 using namespace at;
 using namespace ssd;
 using namespace kv_mem;
@@ -291,6 +291,37 @@ void SnapshotHandle::release() {
 snapshot_ptr_t SnapshotHandle::get_snapshot_for_shard(size_t shard) const {
   CHECK_LE(shard, shard_snapshots_.size());
   return shard_snapshots_[shard];
+}
+
+CheckpointHandle::CheckpointHandle(
+    EmbeddingRocksDB* db,
+    const std::string& tbe_uuid,
+    const std::string& ckpt_uuid,
+    const std::string& base_path,
+    bool use_default_ssd_path)
+    : db_(db), ckpt_uuid_(ckpt_uuid) {
+  auto num_shards = db->num_shards();
+  CHECK_GT(num_shards, 0);
+  shard_checkpoints_.reserve(num_shards);
+  for (auto shard = 0; shard < num_shards; ++shard) {
+    auto rocksdb_path = kv_db_utils::get_rocksdb_path(
+        base_path, shard, tbe_uuid, use_default_ssd_path);
+    auto checkpoint_shard_dir =
+        kv_db_utils::get_rocksdb_checkpoint_dir(shard, rocksdb_path);
+    kv_db_utils::create_dir(checkpoint_shard_dir);
+    rocksdb::Checkpoint* checkpoint = nullptr;
+    rocksdb::Status s =
+        rocksdb::Checkpoint::Create(db->dbs_[shard].get(), &checkpoint);
+    CHECK(s.ok()) << "ERROR: Checkpoint init for tbe_uuid " << tbe_uuid
+                  << ", db shard " << shard << " failed, " << s.code() << ", "
+                  << s.ToString();
+    std::string checkpoint_shard_path = checkpoint_shard_dir + "/" + ckpt_uuid_;
+    s = checkpoint->CreateCheckpoint(checkpoint_shard_path);
+    CHECK(s.ok()) << "ERROR: Checkpoint creation for tbe_uuid " << tbe_uuid
+                  << ", db shard " << shard << " failed, " << s.code() << ", "
+                  << s.ToString();
+    shard_checkpoints_.push_back(checkpoint_shard_path);
+  }
 }
 
 EmbeddingSnapshotHandleWrapper::EmbeddingSnapshotHandleWrapper(
