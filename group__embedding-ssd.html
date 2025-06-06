@@ -104,6 +104,8 @@ Classes</h2></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classssd_1_1_read_only_embedding_k_v_d_b.html">ReadOnlyEmbeddingKVDB</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="enum-members" name="enum-members"></a>
 Enumerations</h2></td></tr>
@@ -116,6 +118,12 @@ Functions</h2></td></tr>
 <tr class="separator:ga62f470c1f80d566177fd011b4f7181ac"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gab0454abe665989e744169d08e3cc3629" id="r_gab0454abe665989e744169d08e3cc3629"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; at::Tensor, at::Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gab0454abe665989e744169d08e3cc3629">get_bucket_sorted_indices_and_bucket_tensor</a> (const at::Tensor &amp;unordered_indices, int64_t hash_mode, int64_t bucket_start, int64_t bucket_end, std::optional&lt; int64_t &gt; bucket_size, std::optional&lt; int64_t &gt; total_num_buckets)</td></tr>
 <tr class="separator:gab0454abe665989e744169d08e3cc3629"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga98fc7b5eba1766169b34844aafb50d67" id="r_ga98fc7b5eba1766169b34844aafb50d67"><td class="memItemLeft" align="right" valign="top">std::string&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga98fc7b5eba1766169b34844aafb50d67">get_rocksdb_path</a> (const std::string &amp;base_path, int db_shard_id, const std::string &amp;tbe_uuid, bool default_path)</td></tr>
+<tr class="separator:ga98fc7b5eba1766169b34844aafb50d67"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga9a9bc710655553ab60ef6db0bf479eb9" id="r_ga9a9bc710655553ab60ef6db0bf479eb9"><td class="memItemLeft" align="right" valign="top">std::string&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga9a9bc710655553ab60ef6db0bf479eb9">get_rocksdb_shard_path</a> (int db_shard_id, const std::string &amp;rocksdb_path)</td></tr>
+<tr class="separator:ga9a9bc710655553ab60ef6db0bf479eb9"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga07a319d7c7a3db2830e1c8895946f270" id="r_ga07a319d7c7a3db2830e1c8895946f270"><td class="memItemLeft" align="right" valign="top">std::string&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga07a319d7c7a3db2830e1c8895946f270">get_rocksdb_checkpoint_dir</a> (int db_shard_id, const std::string &amp;rocksdb_path)</td></tr>
+<tr class="separator:ga07a319d7c7a3db2830e1c8895946f270"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga14b70f98db5378da5071b9049b7356db" id="r_ga14b70f98db5378da5071b9049b7356db"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga14b70f98db5378da5071b9049b7356db">cuda_callback_func</a> (cudaStream_t stream, cudaError_t status, void *functor)</td></tr>
 <tr class="separator:ga14b70f98db5378da5071b9049b7356db"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gaf16c3a72b210803c8ed97db57215ea49" id="r_gaf16c3a72b210803c8ed97db57215ea49"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gaf16c3a72b210803c8ed97db57215ea49">masked_index_put_cuda</a> (Tensor self, Tensor indices, Tensor values, Tensor count, const bool use_pipeline, const int64_t preferred_sms)</td></tr>
@@ -300,6 +308,135 @@ Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>list of 2 tensors, first tensor is bucket sorted ids, second tensor is bucket size </dd></dl>
+
+</div>
+</div>
+<a id="ga07a319d7c7a3db2830e1c8895946f270" name="ga07a319d7c7a3db2830e1c8895946f270"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga07a319d7c7a3db2830e1c8895946f270">&#9670;&#160;</a></span>get_rocksdb_checkpoint_dir()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::string get_rocksdb_checkpoint_dir </td>
+          <td>(</td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>db_shard_id</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::string &amp;</td>          <td class="paramname"><span class="paramname"><em>rocksdb_path</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>generate a directory to hold rocksdb checkpoint for a particular rocksdb shard path the file hierarchy will be &lt;rocksdb_shard_path&gt;/checkpoint_shard_&lt;db_shard&gt; </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">db_shard_id</td><td>the rocksdb shard index </td></tr>
+    <tr><td class="paramname">rocksdb_path</td><td>the base path for rocksdb shard</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>the directory that holds rocksdb checkpoints for one rocksdb shard </dd></dl>
+
+</div>
+</div>
+<a id="ga98fc7b5eba1766169b34844aafb50d67" name="ga98fc7b5eba1766169b34844aafb50d67"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga98fc7b5eba1766169b34844aafb50d67">&#9670;&#160;</a></span>get_rocksdb_path()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::string get_rocksdb_path </td>
+          <td>(</td>
+          <td class="paramtype">const std::string &amp;</td>          <td class="paramname"><span class="paramname"><em>base_path</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>db_shard_id</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::string &amp;</td>          <td class="paramname"><span class="paramname"><em>tbe_uuid</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>default_path</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>default way to generate rocksdb path based on a user provided base_path the file hierarchy will be &lt;base_path&gt;&lt;ssd_idx&gt;/&lt;tbe_uuid&gt; for default SSD mount &lt;base_path&gt;/&lt;tbe_uuid&gt; for user provided base path </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">base_path</td><td>the base path for all the rocksdb shards tied to one TBE/EmbeddingRocksDB </td></tr>
+    <tr><td class="paramname">db_shard_id</td><td>the rocksdb shard index, this is used to determine which SSD to use </td></tr>
+    <tr><td class="paramname">tbe_uuid</td><td>unique identifier per TBE at the lifetime of a training job </td></tr>
+    <tr><td class="paramname">default_path</td><td>whether the base_path is default SSD mount or user-provided</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>the base path to that rocksdb shard </dd></dl>
+
+</div>
+</div>
+<a id="ga9a9bc710655553ab60ef6db0bf479eb9" name="ga9a9bc710655553ab60ef6db0bf479eb9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ga9a9bc710655553ab60ef6db0bf479eb9">&#9670;&#160;</a></span>get_rocksdb_shard_path()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">std::string get_rocksdb_shard_path </td>
+          <td>(</td>
+          <td class="paramtype">int</td>          <td class="paramname"><span class="paramname"><em>db_shard_id</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::string &amp;</td>          <td class="paramname"><span class="paramname"><em>rocksdb_path</em></span>&#160;)</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>generate rocksdb shard path, based on rocksdb_path the file hierarchy will be &lt;rocksdb_shard_path&gt;/shard_&lt;db_shard&gt; </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">db_shard_id</td><td>the rocksdb shard index </td></tr>
+    <tr><td class="paramname">rocksdb_path</td><td>the base path for rocksdb shard</td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>the rocksdb shard path </dd></dl>
 
 </div>
 </div>

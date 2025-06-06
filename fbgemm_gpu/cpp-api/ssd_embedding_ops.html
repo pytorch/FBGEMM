@@ -535,6 +535,59 @@
 </dd></dl>
 
 <dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv416get_rocksdb_pathRKNSt6stringEiRKNSt6stringEb">
+<span id="_CPPv316get_rocksdb_pathRKNSt6stringEiRKNSt6stringEb"></span><span id="_CPPv216get_rocksdb_pathRKNSt6stringEiRKNSt6stringEb"></span><span id="get_rocksdb_path__ssCR.i.ssCR.b"></span><span class="target" id="group__embedding-ssd_1ga98fc7b5eba1766169b34844aafb50d67"></span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">get_rocksdb_path</span></span></span><span class="sig-paren">(</span><span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">base_path</span></span>, <span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">db_shard_id</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">tbe_uuid</span></span>, <span class="kt"><span class="pre">bool</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">default_path</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv416get_rocksdb_pathRKNSt6stringEiRKNSt6stringEb" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>default way to generate rocksdb path based on a user provided base_path the file hierarchy will be &lt;base_path&gt;&lt;ssd_idx&gt;/&lt;tbe_uuid&gt; for default SSD mount &lt;base_path&gt;/&lt;tbe_uuid&gt; for user provided base path </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_path</strong> – the base path for all the rocksdb shards tied to one TBE/EmbeddingRocksDB </p></li>
+<li><p><strong>db_shard_id</strong> – the rocksdb shard index, this is used to determine which SSD to use </p></li>
+<li><p><strong>tbe_uuid</strong> – unique identifier per TBE at the lifetime of a training job </p></li>
+<li><p><strong>default_path</strong> – whether the base_path is default SSD mount or user-provided</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>the base path to that rocksdb shard </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv422get_rocksdb_shard_pathiRKNSt6stringE">
+<span id="_CPPv322get_rocksdb_shard_pathiRKNSt6stringE"></span><span id="_CPPv222get_rocksdb_shard_pathiRKNSt6stringE"></span><span id="get_rocksdb_shard_path__i.ssCR"></span><span class="target" id="group__embedding-ssd_1ga9a9bc710655553ab60ef6db0bf479eb9"></span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">get_rocksdb_shard_path</span></span></span><span class="sig-paren">(</span><span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">db_shard_id</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">rocksdb_path</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv422get_rocksdb_shard_pathiRKNSt6stringE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>generate rocksdb shard path, based on rocksdb_path the file hierarchy will be &lt;rocksdb_shard_path&gt;/shard_&lt;db_shard&gt; </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>db_shard_id</strong> – the rocksdb shard index </p></li>
+<li><p><strong>rocksdb_path</strong> – the base path for rocksdb shard</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>the rocksdb shard path </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
+<dt class="sig sig-object cpp" id="_CPPv426get_rocksdb_checkpoint_diriRKNSt6stringE">
+<span id="_CPPv326get_rocksdb_checkpoint_diriRKNSt6stringE"></span><span id="_CPPv226get_rocksdb_checkpoint_diriRKNSt6stringE"></span><span id="get_rocksdb_checkpoint_dir__i.ssCR"></span><span class="target" id="group__embedding-ssd_1ga07a319d7c7a3db2830e1c8895946f270"></span><span class="k"><span class="pre">inline</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">get_rocksdb_checkpoint_dir</span></span></span><span class="sig-paren">(</span><span class="kt"><span class="pre">int</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">db_shard_id</span></span>, <span class="k"><span class="pre">const</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">string</span></span><span class="w"> </span><span class="p"><span class="pre">&amp;</span></span><span class="n sig-param"><span class="pre">rocksdb_path</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv426get_rocksdb_checkpoint_diriRKNSt6stringE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><p>generate a directory to hold rocksdb checkpoint for a particular rocksdb shard path the file hierarchy will be &lt;rocksdb_shard_path&gt;/checkpoint_shard_&lt;db_shard&gt; </p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>db_shard_id</strong> – the rocksdb shard index </p></li>
+<li><p><strong>rocksdb_path</strong> – the base path for rocksdb shard</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>the directory that holds rocksdb checkpoints for one rocksdb shard </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="cpp function">
 <dt class="sig sig-object cpp" id="_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv">
 <span id="_CPPv318cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="_CPPv218cuda_callback_func12cudaStream_t11cudaError_tPv"></span><span id="cuda_callback_func__cudaStream_t.cudaError_t.voidP"></span><span class="target" id="group__embedding-ssd_1ga14b70f98db5378da5071b9049b7356db"></span><span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">cuda_callback_func</span></span></span><span class="sig-paren">(</span><span class="n"><span class="pre">cudaStream_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">stream</span></span>, <span class="n"><span class="pre">cudaError_t</span></span><span class="w"> </span><span class="n sig-param"><span class="pre">status</span></span>, <span class="kt"><span class="pre">void</span></span><span class="w"> </span><span class="p"><span class="pre">*</span></span><span class="n sig-param"><span class="pre">functor</span></span><span class="sig-paren">)</span><a class="headerlink" href="#_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv" title="Permalink to this definition">¶</a><br /></dt>
 <dd><p>A callback function for <code class="docutils literal notranslate"><span class="pre">cudaStreamAddCallback</span></code></p>
@@ -747,6 +800,14 @@
 <em>#include &lt;ssd_table_batched_embeddings.h&gt;</em></div>
 <p>An implementation of EmbeddingKVDB for RocksDB. </p>
 <p>Subclassed by MockEmbeddingRocksDB</p>
+</dd></dl>
+
+<dl class="cpp class">
+<dt class="sig sig-object cpp" id="_CPPv4N3ssd21ReadOnlyEmbeddingKVDBE">
+<span id="_CPPv3N3ssd21ReadOnlyEmbeddingKVDBE"></span><span id="_CPPv2N3ssd21ReadOnlyEmbeddingKVDBE"></span><span id="ssd::ReadOnlyEmbeddingKVDB"></span><span class="target" id="classssd_1_1_read_only_embedding_k_v_d_b"></span><span class="k"><span class="pre">class</span></span><span class="w"> </span><span class="sig-name descname"><span class="n"><span class="pre">ReadOnlyEmbeddingKVDB</span></span></span><span class="w"> </span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="k"><span class="pre">public</span></span><span class="w"> </span><span class="n"><span class="pre">std</span></span><span class="p"><span class="pre">::</span></span><span class="n"><span class="pre">enable_shared_from_this</span></span><span class="p"><span class="pre">&lt;</span></span><a class="reference internal" href="#_CPPv4N3ssd21ReadOnlyEmbeddingKVDBE" title="ssd::ReadOnlyEmbeddingKVDB"><span class="n"><span class="pre">ReadOnlyEmbeddingKVDB</span></span></a><span class="p"><span class="pre">&gt;</span></span><a class="headerlink" href="#_CPPv4N3ssd21ReadOnlyEmbeddingKVDBE" title="Permalink to this definition">¶</a><br /></dt>
+<dd><div class="docutils container">
+<em>#include &lt;ssd_table_batched_embeddings.h&gt;</em></div>
+<p>An implementation of <a class="reference internal" href="#classssd_1_1_read_only_embedding_k_v_d_b"><span class="std std-ref">ReadOnlyEmbeddingKVDB</span></a> for RocksDB. </p>
 </dd></dl>
 
 </section>
