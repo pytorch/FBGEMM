@@ -15,7 +15,7 @@ fp8_rowwise_256x16x64x128_16x16_1x1_16x16x1_8x32x1_1x16x1x16_4x4x1_1x1_intrawave
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
-  using DeviceGemmInstance = DeviceGemmHelper<
+  return f8f8bf16_rowwise_wrapper<
       256,
       16,
       64,
@@ -32,14 +32,11 @@ fp8_rowwise_256x16x64x128_16x16_1x1_16x16x1_8x32x1_1x16x1x16_4x4x1_1x1_intrawave
       1,
       ck::BlockGemmPipelineScheduler::Intrawave,
       ck::BlockGemmPipelineVersion::v2,
-      ck::tensor_operation::device::GemmSpecialization::Default,
-      8,  // AReadVecLength
+      8, // AReadVecLength
       16, // BReadVecLength
-      8,  // ADstVecLength
+      8, // ADstVecLength
       16, // BDstVecLength
-      8,  // AK1
-      16  // BK1
-      >;
-  // Run kernel instance.
-  return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y, 8);
+      8, // AK1
+      16 // BK1
+      >(XQ, WQ, x_scale, w_scale, Y, 8);
 }
