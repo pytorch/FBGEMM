@@ -233,3 +233,31 @@ def scale_nvfp4_quant(
     torch.ops.fbgemm.scaled_fp4_quant(output, input, output_scale, input_global_scale)
     output_scale = output_scale.view(torch.float8_e4m3fn)
     return output, output_scale
+
+
+def ck_preshuffle(src: torch.Tensor, NXdl: int = 16) -> torch.Tensor:
+    """
+    Applies shuffling to make weights more efficient for use with CK kernels.
+    Args:
+        src (torch.Tensor): Input tensor with dtype float8_e4m3fnuz.
+        NXdl (int): Wave tile size along N.
+    Returns:
+        torch.Tensor: The shuffled tensor.
+    """
+    # Check input datatype
+    if src.dtype != torch.float8_e4m3fnuz:
+        raise TypeError("Input must be type float8_e4m3fnuz.")
+    N, K = src.shape
+    KPack = 16
+    NLane = NXdl
+    KLane = 64 // NLane
+    K0 = K // (KLane * KPack)
+    # Reshape src to enable the required permutation
+    # Original shape: (N, K)
+    # Desired intermediate shape for permutation: (N0, NLane, K0, KLane, KPack)
+    src = src.reshape(N // NLane, NLane, K0, KLane, KPack)
+    # Apply permutation: (N0, NLane, K0, KLane, KPack) -> (N0, K0, KLane, NLane, KPack)
+    dst = src.permute(0, 2, 3, 1, 4).contiguous()
+    # Reshape to original input shape.
+    dst = dst.reshape(N, K)
+    return dst

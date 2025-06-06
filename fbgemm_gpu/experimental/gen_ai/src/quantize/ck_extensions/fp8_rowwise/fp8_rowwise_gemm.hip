@@ -496,7 +496,8 @@ RowwiseKernel rowwise_dispatch(int M, int N, int K) {
   return rowwise_heuristic_dispatch(M, N, K);
 }
 
-at::Tensor f8f8bf16_rowwise_wrapper(
+template <at::ScalarType OUTPUT_DTYPE>
+at::Tensor f8f8_rowwise_wrapper(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -513,6 +514,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
       (x_scale.dtype() == at::kFloat) && (w_scale.dtype() == at::kFloat),
       "Scales must be float32.");
   TORCH_CHECK(use_fast_accum, "AMD does not support disabling use_fast_accum.");
+  TORCH_CHECK(!bias.has_value(), "AMD does not support fused bias.");
 
   // Check inputs are in expected format.
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
@@ -530,7 +532,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
   // Handle case where an input dimension is zero.
   if (M == 0 || N == 0 || K == 0) {
     // Return a tensor of zeros to handle case where K is 0.
-    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+    return at::zeros(out_sizes, XQ.options().dtype(OUTPUT_DTYPE));
   }
 
   // Prepare output tensor if needed.
@@ -540,9 +542,9 @@ at::Tensor f8f8bf16_rowwise_wrapper(
     // Make sure the provided output has the proper shape and dtype.
     int Y_M = size_to_dim_(Y.dim() - 1, Y.sizes());
     TORCH_CHECK(Y_M == M && Y.sizes().vec().back() == N);
-    TORCH_CHECK(Y.dtype() == at::kBFloat16);
+    TORCH_CHECK(Y.dtype() == OUTPUT_DTYPE);
   } else {
-    Y = at::empty(out_sizes, XQ.options().dtype(at::kBFloat16));
+    Y = at::empty(out_sizes, XQ.options().dtype(OUTPUT_DTYPE));
   }
 
   RowwiseKernel rowwise_impl = rowwise_dispatch(M, N, K);
@@ -557,7 +559,19 @@ at::Tensor f8f8bf16_rowwise(
     std::optional<at::Tensor> bias,
     bool use_fast_accum) {
   // Invoke f8f8bf16 rowwise without preallocated output.
-  return f8f8bf16_rowwise_wrapper(
+  return f8f8_rowwise_wrapper<at::kBFloat16>(
+      XQ, WQ, x_scale, w_scale, bias, use_fast_accum);
+}
+
+at::Tensor f8f8f16_rowwise(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> bias,
+    bool use_fast_accum) {
+  // Invoke f8f8bf16 rowwise without preallocated output.
+  return f8f8_rowwise_wrapper<at::kHalf>(
       XQ, WQ, x_scale, w_scale, bias, use_fast_accum);
 }
 
@@ -570,7 +584,7 @@ void f8f8bf16_rowwise_out(
     std::optional<at::Tensor> bias,
     bool use_fast_accum) {
   // Invoke f8f8bf16 rowwise with preallocated output.
-  f8f8bf16_rowwise_wrapper(
+  f8f8_rowwise_wrapper<at::kBFloat16>(
       XQ, WQ, x_scale, w_scale, bias, use_fast_accum, output);
 }
 
