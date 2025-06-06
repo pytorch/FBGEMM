@@ -232,10 +232,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
                       CHECK_EQ(indices.size(0), weights.size(0));
+                      int64_t stride = weights.size(1);
+                      auto indices_data_ptr = indices.data_ptr<index_t>();
+                      auto weights_data_ptr = weights.data_ptr<weight_type>();
                       {
                         auto wlmap = kv_store_.by(shard_id).wlock();
                         auto* pool = kv_store_.pool_by(shard_id);
-                        auto indices_data_ptr = indices.data_ptr<index_t>();
                         for (auto index_iter = indexes.begin();
                              index_iter != indexes.end();
                              index_iter++) {
@@ -258,11 +260,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           auto* data_ptr =
                               StoreValueUtils::data_ptr<weight_type>(block);
                           std::copy(
-                              weights[id_index]
-                                  .template data_ptr<weight_type>(),
-                              weights[id_index]
-                                      .template data_ptr<weight_type>() +
-                                  weights[id_index].numel(),
+                              weights_data_ptr + id_index * stride,
+                              weights_data_ptr + (id_index + 1) * stride,
                               data_ptr);
                         }
                       }
