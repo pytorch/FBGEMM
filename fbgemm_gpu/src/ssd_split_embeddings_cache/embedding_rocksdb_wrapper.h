@@ -190,6 +190,10 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
     return impl_->get_snapshot_count();
   }
 
+  void create_rocksdb_hard_link_snapshot(int64_t global_step) {
+    impl_->create_checkpoint(global_step);
+  }
+
  private:
   friend class KVTensorWrapper;
 
