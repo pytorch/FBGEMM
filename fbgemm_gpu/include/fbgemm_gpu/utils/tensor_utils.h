@@ -50,7 +50,7 @@ inline const std::string torch_tensor_shape_str(const at::Tensor& ten) {
   std::stringstream ss;
   const auto sizes = ten.sizes();
   ss << "[";
-  for (auto i = 0; i < sizes.size(); ++i) {
+  for (std::size_t i = 0; i < sizes.size(); ++i) {
     ss << sizes[i];
     if (i != sizes.size() - 1) {
       ss << ", ";
