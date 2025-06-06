@@ -8,11 +8,14 @@
 # pyre-ignore-all-errors[3,6,56]
 
 import math
+import pickle
 import tempfile
 
 import threading
 import time
 import unittest
+
+from dataclasses import dataclass
 
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
@@ -560,3 +563,59 @@ class SSDCheckpointTest(unittest.TestCase):
                 weight_opt[:, pad4_d:], torch.zeros(1, max_D - pad4_d, dtype=dtype)
             )
             offsets += E
+
+    @given(
+        T=st.integers(min_value=3, max_value=3),
+        D=st.integers(min_value=1, max_value=1),
+        log_E=st.integers(min_value=1, max_value=1),
+        mixed=st.booleans(),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+    )
+    @settings(**default_settings)
+    def test_rocksdb_se_de_testing(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        mixed: bool,
+        weights_precision: SparseType,
+    ) -> None:
+
+        # Generating a TBE with 3 tables, each with 1 feature and 1 embedding
+        emb, Es, Ds = self.generate_fbgemm_kv_tbe(T, D, log_E, weights_precision, mixed)
+
+        total_E = sum(Es)
+        indices = torch.as_tensor(
+            np.random.choice(total_E, replace=False, size=(total_E,)), dtype=torch.int64
+        )
+        indices = torch.arange(total_E, dtype=torch.int64)
+
+        weights = torch.randn(
+            total_E, emb.cache_row_dim, dtype=weights_precision.as_dtype()
+        )
+
+        count = torch.as_tensor([total_E])
+
+        # Set the weights and indices into the TBE
+        emb.ssd_db.set(indices, weights, count)
+        emb.ssd_db.wait_util_filling_work_done()
+
+        # Flushing data from the TBE cache to the SSD
+        emb.ssd_db.flush()
+
+        # Creating a hard_link_snapshot (i.e., rocksdb checkpoint)
+        emb.ssd_db.create_rocksdb_hard_link_snapshot(0)
+        pmts = emb.split_embedding_weights(no_snapshot=False)
+
+        # Iterate through the partially materialized tensors
+        # Serialize them using pickle.dumps and then deserialize them using pickle.loads
+        # Provides us a KVTensor backed by ReadOnlyEmbeddingKVDB that can be accessed by multiple processes
+        # Read through the KVTensor and verify that the data is correct with the original weights
+        for i, pmt in enumerate(pmts[0]):
+            if type(pmt) is torch.Tensor:
+                continue
+            dmp = pickle.dumps(pmt)
+            lo = pickle.loads(dmp)
+            t1 = pmt.wrapped.narrow(0, 0, Es[i])
+            t2 = lo.wrapped.narrow(0, 0, Es[i])
+            assert torch.equal(t1, t2)
