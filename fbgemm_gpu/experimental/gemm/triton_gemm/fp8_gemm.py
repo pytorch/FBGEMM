@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # pyre-unsafe
+import functools
 import logging
 from typing import List, Optional, Tuple, Union
 
@@ -42,6 +43,20 @@ except ModuleNotFoundError:
         yield None
 
 
+@functools.lru_cache
+def supports_float8_fnuz() -> bool:
+    if torch.version.hip:
+        device_capability = torch.cuda.get_device_capability()
+
+        if device_capability < (9, 4):
+            gpu_arch = torch.cuda.get_device_properties("cuda").gcnArchName
+            raise RuntimeError(f"Unsupported GPU arch: {gpu_arch} for FP8")
+        elif device_capability == (9, 4):
+            return True
+
+    return False
+
+
 def get_fp8_constants() -> Tuple[torch.dtype, tl.dtype, float, float]:
     """
     Helper function to get constant values for the current platform.
@@ -52,12 +67,13 @@ def get_fp8_constants() -> Tuple[torch.dtype, tl.dtype, float, float]:
         max_fp8 (float): The maximum reprsentable value for the fp8 datatype.
         eps (float): Minimum clip value to prevent divide by zero.
     """
-    if torch.version.hip is not None:
+    if supports_float8_fnuz():
         pt_fp8_dtype = torch.float8_e4m3fnuz
         tl_fp8_dtype = tl.float8e4b8
     else:
         pt_fp8_dtype = torch.float8_e4m3fn
         tl_fp8_dtype = tl.float8e4nv
+
     return pt_fp8_dtype, tl_fp8_dtype, torch.finfo(pt_fp8_dtype).max, 1e-12
 
 
