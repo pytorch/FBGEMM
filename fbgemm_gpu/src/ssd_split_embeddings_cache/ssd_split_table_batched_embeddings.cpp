@@ -626,7 +626,10 @@ static auto embedding_rocks_db_wrapper =
         .def("get_snapshot_count", &EmbeddingRocksDBWrapper::get_snapshot_count)
         .def(
             "get_keys_in_range_by_snapshot",
-            &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot);
+            &EmbeddingRocksDBWrapper::get_keys_in_range_by_snapshot)
+        .def(
+            "create_rocksdb_hard_link_snapshot",
+            &EmbeddingRocksDBWrapper::create_rocksdb_hard_link_snapshot);
 
 static auto dram_kv_embedding_cache_wrapper =
     torch::class_<DramKVEmbeddingCacheWrapper>(
