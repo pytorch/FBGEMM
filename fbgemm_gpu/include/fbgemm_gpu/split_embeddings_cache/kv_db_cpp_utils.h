@@ -10,14 +10,19 @@
 
 #include <ATen/ATen.h>
 #include <folly/hash/Hash.h>
+#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <filesystem>
 #include <optional>
-
 /// @defgroup embedding-ssd Embedding SSD Operators
 ///
 
 namespace kv_db_utils {
+
+#ifdef FBGEMM_FBCODE
+constexpr size_t num_ssd_drives = 8;
+#endif
 
 /// @ingroup embedding-ssd
 ///
@@ -65,4 +70,94 @@ std::tuple<at::Tensor, at::Tensor> get_bucket_sorted_indices_and_bucket_tensor(
     std::optional<int64_t> bucket_size,
     std::optional<int64_t> total_num_buckets);
 
+/// @ingroup embedding-ssd
+///
+/// @brief default way to generate rocksdb path based on a user provided
+/// base_path the file hierarchy will be
+///   <base_path><ssd_idx>/<tbe_uuid> for default SSD mount
+///   <base_path>/<tbe_uuid> for user provided base path
+///
+/// @param base_path the base path for all the rocksdb shards tied to one
+/// TBE/EmbeddingRocksDB
+/// @param db_shard_id the rocksdb shard index, this is used to determine which
+/// SSD to use
+/// @param tbe_uuid unique identifier per TBE at the lifetime of a training job
+/// @param default_path whether the base_path is default SSD mount or
+/// user-provided
+///
+/// @return the base path to that rocksdb shard
+inline std::string get_rocksdb_path(
+    const std::string& base_path,
+    int db_shard_id,
+    const std::string& tbe_uuid,
+    bool default_path) {
+  if (default_path) {
+    int ssd_drive_idx = db_shard_id % num_ssd_drives;
+    std::string ssd_idx_tbe_id_str =
+        std::to_string(ssd_drive_idx) + std::string("/") + tbe_uuid;
+    return base_path + ssd_idx_tbe_id_str;
+  } else {
+    return base_path + std::string("/") + tbe_uuid;
+  }
+}
+
+/// @ingroup embedding-ssd
+///
+/// @brief generate rocksdb shard path, based on rocksdb_path
+/// the file hierarchy will be
+///   <rocksdb_shard_path>/shard_<db_shard>
+///
+/// @param db_shard_id the rocksdb shard index
+/// @param rocksdb_path the base path for rocksdb shard
+///
+/// @return the rocksdb shard path
+inline std::string get_rocksdb_shard_path(
+    int db_shard_id,
+    const std::string& rocksdb_path) {
+  return rocksdb_path + std::string("/shard_") + std::to_string(db_shard_id);
+}
+
+/// @ingroup embedding-ssd
+///
+/// @brief generate a directory to hold rocksdb checkpoint for a particular
+/// rocksdb shard path the file hierarchy will be
+///   <rocksdb_shard_path>/checkpoint_shard_<db_shard>
+///
+/// @param db_shard_id the rocksdb shard index
+/// @param rocksdb_path the base path for rocksdb shard
+///
+/// @return the directory that holds rocksdb checkpoints for one rocksdb shard
+inline std::string get_rocksdb_checkpoint_dir(
+    int db_shard_id,
+    const std::string& rocksdb_path) {
+  return rocksdb_path + std::string("/checkpoint_shard_") +
+      std::to_string(db_shard_id);
+}
+
+inline void create_dir(const std::string& dir_path) {
+  try {
+    std::filesystem::path fs_path(dir_path);
+    bool res = std::filesystem::create_directories(fs_path);
+    if (!res) {
+      LOG(ERROR) << "dir: " << dir_path << " already exists";
+    }
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "Error creating directory: " << e.what();
+  }
+}
+
+inline void remove_dir(const std::string& path) {
+  if (std::filesystem::exists(path)) {
+    try {
+      if (std::filesystem::is_directory(path)) {
+        std::filesystem::remove_all(path);
+      } else {
+        std::filesystem::remove(path);
+      }
+    } catch (const std::filesystem::filesystem_error& e) {
+      LOG(ERROR) << "Error removing path: " << path
+                 << ", exception:" << e.what();
+    }
+  }
+}
 }; // namespace kv_db_utils
