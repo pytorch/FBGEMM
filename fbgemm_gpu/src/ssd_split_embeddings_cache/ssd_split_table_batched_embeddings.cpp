@@ -11,6 +11,7 @@
 #include <c10/core/ScalarTypeToTypeMeta.h>
 #include <torch/library.h>
 
+#include <nlohmann/json.hpp>
 #include <torch/custom_class.h>
 #include <mutex>
 #include "../dram_kv_embedding_cache/dram_kv_embedding_cache_wrapper.h"
@@ -324,6 +325,10 @@ CheckpointHandle::CheckpointHandle(
   }
 }
 
+std::vector<std::string> CheckpointHandle::get_shard_checkpoints() const {
+  return shard_checkpoints_;
+}
+
 EmbeddingSnapshotHandleWrapper::EmbeddingSnapshotHandleWrapper(
     const SnapshotHandle* handle,
     std::shared_ptr<EmbeddingRocksDB> db)
@@ -375,6 +380,64 @@ KVTensorWrapper::KVTensorWrapper(
     sorted_indices_ = sorted_indices;
   }
   checkpoint_handle_ = checkpoint_handle;
+}
+
+std::string KVTensorWrapper::serialize() const {
+  // auto call to_json()
+  ssd::json json_serialized = *this;
+  return json_serialized.dump();
+}
+
+std::string KVTensorWrapper::logs() const {
+  std::stringstream ss;
+  if (db_) {
+    CHECK(readonly_db_ == nullptr) << "rdb logs, ro_rdb must be nullptr";
+    ss << "from ckpt paths: " << std::endl;
+    // Required to cast as the KVTensorWrapper.db_ is a pointer for the
+    // EmbeddingKVDB class which is inherited by the EmbeddingRocksDB class
+    auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
+    auto ckpts = db->get_checkpoints(checkpoint_handle_->uuid);
+    for (int i = 0; i < ckpts.size(); i++) {
+      ss << "  shard:" << i << ", ckpt_path:" << ckpts[i] << std::endl;
+    }
+    ss << "  tbe_uuid: " << db->get_tbe_uuid() << std::endl;
+    ss << "  num_shards: " << db->num_shards() << std::endl;
+    ss << "  num_threads: " << db->num_threads() << std::endl;
+    ss << "  max_D: " << db->get_max_D() << std::endl;
+    ss << "  row_offset: " << row_offset_ << std::endl;
+    ss << "  shape: " << shape_ << std::endl;
+    ss << "  dtype: " << static_cast<int64_t>(options_.dtype().toScalarType())
+       << std::endl;
+    ss << "  checkpoint_uuid: " << checkpoint_handle_->uuid << std::endl;
+  } else {
+    CHECK(readonly_db_) << "ro_rdb logs, ro_rdb must be valid";
+    ss << "from ckpt paths: " << std::endl;
+    auto* db = dynamic_cast<ReadOnlyEmbeddingKVDB*>(readonly_db_.get());
+    auto rdb_shard_checkpoint_paths = db->get_rdb_shard_checkpoint_paths();
+    for (int i = 0; i < rdb_shard_checkpoint_paths.size(); i++) {
+      ss << "  shard:" << i << ", ckpt_path:" << rdb_shard_checkpoint_paths[i]
+         << std::endl;
+    }
+    ss << "  tbe_uuid: " << db->get_tbe_uuid() << std::endl;
+    ss << "  num_shards: " << db->num_shards() << std::endl;
+    ss << "  num_threads: " << db->num_threads() << std::endl;
+    ss << "  max_D: " << db->get_max_D() << std::endl;
+    ss << "  row_offset: " << row_offset_ << std::endl;
+    ss << "  shape: " << shape_ << std::endl;
+    ss << "  dtype: " << static_cast<int64_t>(options_.dtype().toScalarType())
+       << std::endl;
+    ss << "  checkpoint_uuid: " << checkpoint_uuid << std::endl;
+  }
+  return ss.str();
+}
+
+void KVTensorWrapper::deserialize(const std::string& serialized) {
+  ssd::json json_serialized = ssd::json::parse(serialized);
+  from_json(json_serialized, *this);
+}
+
+KVTensorWrapper::KVTensorWrapper(const std::string& serialized) {
+  deserialize(serialized);
 }
 
 void KVTensorWrapper::set_embedding_rocks_dp_wrapper(
@@ -454,6 +517,59 @@ void KVTensorWrapper::set_weights_and_ids(
     CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
     db_->set_kv_to_storage(linearized_ids, padded_weights);
   }
+}
+
+void to_json(ssd::json& j, const KVTensorWrapper& kvt) {
+  // Required to cast as the KVTensorWrapper.db_ is a pointer for the
+  // EmbeddingKVDB class which is inherited by the EmbeddingRocksDB class
+  std::shared_ptr<EmbeddingRocksDB> db =
+      std::dynamic_pointer_cast<EmbeddingRocksDB>(kvt.db_);
+  j = ssd::json{
+      {"rdb_shard_checkpoint_paths",
+       db->get_checkpoints(kvt.checkpoint_handle_->uuid)},
+      {"tbe_uuid", db->get_tbe_uuid()},
+      {"num_shards", db->num_shards()},
+      {"num_threads", db->num_threads()},
+      {"max_D", db->get_max_D()},
+      {"row_offset", kvt.row_offset_},
+      {"shape", kvt.shape_},
+      {"dtype", static_cast<int64_t>(kvt.options_.dtype().toScalarType())},
+      {"checkpoint_uuid", kvt.checkpoint_handle_->uuid},
+      {"width_offset", kvt.width_offset_}};
+}
+
+void from_json(const ssd::json& j, KVTensorWrapper& kvt) {
+  std::vector<std::string> rdb_shard_checkpoint_paths;
+  std::string tbe_uuid;
+  int64_t num_shards;
+  int64_t num_threads;
+  int64_t max_D;
+  int64_t dtype;
+  int64_t width_offset;
+  j.at("rdb_shard_checkpoint_paths").get_to(rdb_shard_checkpoint_paths);
+  j.at("tbe_uuid").get_to(tbe_uuid);
+  j.at("num_shards").get_to(num_shards);
+  j.at("num_threads").get_to(num_threads);
+  j.at("max_D").get_to(max_D);
+  j.at("dtype").get_to(dtype);
+  j.at("width_offset").get_to(width_offset);
+
+  // initialize ro rdb during KV tensor deserialization
+  // one rdb checkpoint is related to # tables of KVT, this way each KVT will
+  // hold their own rdb instance link to the same checkpoint during
+  // destruction, they will delete the same checkpoint, but since ckpt path
+  // has been opened during ro rdb init, OS will not delete the file until all
+  // file handles are closed
+  kvt.readonly_db_ = std::make_shared<ReadOnlyEmbeddingKVDB>(
+      rdb_shard_checkpoint_paths, tbe_uuid, num_shards, num_threads, max_D);
+  j.at("checkpoint_uuid").get_to(kvt.checkpoint_uuid);
+  j.at("row_offset").get_to(kvt.row_offset_);
+  j.at("shape").get_to(kvt.shape_);
+  j.at("width_offset").get_to(kvt.width_offset_);
+  kvt.options_ = at::TensorOptions()
+                     .dtype(static_cast<at::ScalarType>(dtype))
+                     .device(at::kCPU)
+                     .layout(at::kStrided);
 }
 
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
