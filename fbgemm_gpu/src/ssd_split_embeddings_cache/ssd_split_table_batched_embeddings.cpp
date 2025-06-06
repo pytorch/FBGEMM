@@ -781,16 +781,30 @@ static auto dram_kv_embedding_cache_wrapper =
                 int64_t,
                 std::optional<at::Tensor>,
                 std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
+                int64_t,
+                int64_t,
+                int64_t,
+                std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
                 bool>(),
             "",
             {
                 torch::arg("max_D"),
                 torch::arg("uniform_init_lower"),
                 torch::arg("uniform_init_upper"),
+                torch::arg("evict_trigger_mode") = 0,
+                torch::arg("trigger_step_interval") = 0,
+                torch::arg("mem_util_threshold_in_GB") = 0,
+                torch::arg("evict_trigger_strategy") = 0,
+                torch::arg("counter_thresholds") = std::nullopt,
+                torch::arg("ttls_in_mins") = std::nullopt,
+                torch::arg("counter_decay_rates") = std::nullopt,
+                torch::arg("l2_weight_thresholds") = std::nullopt,
                 torch::arg("num_shards") = 8,
                 torch::arg("num_threads") = 32,
                 torch::arg("row_storage_bitwidth") = 32,
-                torch::arg("weight_ttl_in_hours") = 2,
                 torch::arg("table_dims") = std::nullopt,
                 torch::arg("hash_size_cumsum") = std::nullopt,
                 torch::arg("enable_async_update") = false,
@@ -835,7 +849,10 @@ static auto dram_kv_embedding_cache_wrapper =
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",
-            &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot);
+            &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot)
+        .def(
+            "get_feature_evict_metric",
+            &DramKVEmbeddingCacheWrapper::get_feature_evict_metric);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
