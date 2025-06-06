@@ -901,7 +901,17 @@ static auto kv_tensor_wrapper =
             &KVTensorWrapper::sizes,
             std::string(
                 "Returns the shape of the original tensor. Only the narrowed part is materialized."))
-        .def_property("strides", &KVTensorWrapper::strides);
+        .def_property("strides", &KVTensorWrapper::strides)
+        .def_pickle(
+            // __getstate__
+            [](const c10::intrusive_ptr<KVTensorWrapper>& self) -> std::string {
+              return self->serialize();
+            },
+            // __setstate__
+            [](std::string data) -> c10::intrusive_ptr<KVTensorWrapper> {
+              return c10::make_intrusive<KVTensorWrapper>(data);
+            })
+        .def("logs", &KVTensorWrapper::logs, "");
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
