@@ -10,5 +10,6 @@ var searchData=
   ['conv_5fparam_5ft_7',['conv_param_t',['../structfbgemm_1_1conv__param__t.html#a926431139532f74306f6cd6dc08d171a',1,'fbgemm::conv_param_t']]],
   ['convfastpath_8',['ConvFastPath',['../namespacefbgemm.html#ad5bda89769bca9a01ddf81591f20ef02',1,'fbgemm']]],
   ['copy_5fto_5fshared_9',['copy_to_shared',['../group__cumem-utils.html#ga5fffe2dc08b30ada0d71581d880220ad',1,'fbgemm_gpu']]],
-  ['cuda_5fcallback_5ffunc_10',['cuda_callback_func',['../group__embedding-ssd.html#ga14b70f98db5378da5071b9049b7356db',1,'kv_db_utils']]]
+  ['create_5fzch_5fbuffer_5fcpu_10',['create_zch_buffer_cpu',['../group__faster-hash-ops.html#gabd2d0b5ab04c31b247d9faa23d6f4de7',1,'fbgemm_gpu']]],
+  ['cuda_5fcallback_5ffunc_11',['cuda_callback_func',['../group__embedding-ssd.html#ga14b70f98db5378da5071b9049b7356db',1,'kv_db_utils']]]
 ];

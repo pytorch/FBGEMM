@@ -23,5 +23,6 @@ var searchData=
   ['_5fmsfp_5fto_5ffloat_5fgpu_20',['_msfp_to_float_gpu',['../group__quantize-ops-cuda.html#ga6bf8bd180a3ed7174965bf73d18c3f2e',1,'fbgemm_gpu']]],
   ['_5fpaddedfp8rowwise_5fto_5ffloat_5fgpu_21',['_paddedFP8rowwise_to_float_gpu',['../group__quantize-ops-cuda.html#ga6c6d6fc1318239ecfaf902349a988cd6',1,'fbgemm_gpu']]],
   ['_5fsingle_5for_5fhalf_5fprecision_5fto_5ffused8bitrowwise_5fgpu_22',['_single_or_half_precision_to_fused8bitrowwise_gpu',['../group__quantize-ops-cuda.html#gace06316bba9b336a20b9de76ca38943b',1,'fbgemm_gpu']]],
-  ['_5fsingle_5for_5fhalf_5fprecision_5fto_5ffusednbitrowwise_5fgpu_23',['_single_or_half_precision_to_fusednbitrowwise_gpu',['../group__quantize-ops-cuda.html#gaae960240a6e2884a30205ed3fa9d3111',1,'fbgemm_gpu']]]
+  ['_5fsingle_5for_5fhalf_5fprecision_5fto_5ffusednbitrowwise_5fgpu_23',['_single_or_half_precision_to_fusednbitrowwise_gpu',['../group__quantize-ops-cuda.html#gaae960240a6e2884a30205ed3fa9d3111',1,'fbgemm_gpu']]],
+  ['_5fzero_5fcollision_5fhash_5fcuda_24',['_zero_collision_hash_cuda',['../group__faster-hash-ops.html#gac6534da9b47e25427b48cde7c7dadadd',1,'fbgemm_gpu']]]
 ];

@@ -29,9 +29,10 @@ var searchData=
   ['cpu_26',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
   ['cpu_20autovectorization_20fp8_2016_2032_27',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
   ['cpu_20operators_28',['CPU Operators',['../group__embedding-cpu.html',1,'Embedding CPU Operators'],['../group__layout-transform-cpu.html',1,'Layout Transformation CPU Operators'],['../group__quantize-data-cpu.html',1,'Quantize Data CPU Operators'],['../group__sparse-data-cpu.html',1,'Sparse Data CPU Operators']]],
-  ['cu_202_29',['43 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
-  ['cuda_30',['CUDA',['../group__permute-pooled-embs-gpu.html',1,'Permute Pooled Embeddings Operators (CUDA)'],['../group__quantize-ops-cuda.html',1,'Quantization Operators (CUDA)']]],
-  ['cuda_20memory_20operators_31',['CUDA Memory Operators',['../group__cumem-utils.html',1,'']]],
-  ['cuda_20operators_32',['CUDA Operators',['../group__table-batched-embed-cuda.html',1,'CUDA Operators'],['../group__embedding-cuda.html',1,'Embedding CUDA Operators'],['../group__jagged-tensor-ops-cuda.html',1,'Jagged Tensor CUDA Operators'],['../group__layout-transform-cuda.html',1,'Layout Transformation CUDA Operators'],['../group__sparse-data-cuda.html',1,'Sparse Data CUDA Operators']]],
-  ['cuda_5fcallback_5ffunc_33',['cuda_callback_func',['../group__embedding-ssd.html#ga14b70f98db5378da5071b9049b7356db',1,'kv_db_utils']]]
+  ['create_5fzch_5fbuffer_5fcpu_29',['create_zch_buffer_cpu',['../group__faster-hash-ops.html#gabd2d0b5ab04c31b247d9faa23d6f4de7',1,'fbgemm_gpu']]],
+  ['cu_202_30',['43 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['cuda_31',['CUDA',['../group__permute-pooled-embs-gpu.html',1,'Permute Pooled Embeddings Operators (CUDA)'],['../group__quantize-ops-cuda.html',1,'Quantization Operators (CUDA)']]],
+  ['cuda_20memory_20operators_32',['CUDA Memory Operators',['../group__cumem-utils.html',1,'']]],
+  ['cuda_20operators_33',['CUDA Operators',['../group__faster-hash-ops.html',1,'CUDA Operators'],['../group__table-batched-embed-cuda.html',1,'CUDA Operators'],['../group__embedding-cuda.html',1,'Embedding CUDA Operators'],['../group__jagged-tensor-ops-cuda.html',1,'Jagged Tensor CUDA Operators'],['../group__layout-transform-cuda.html',1,'Layout Transformation CUDA Operators'],['../group__sparse-data-cuda.html',1,'Sparse Data CUDA Operators']]],
+  ['cuda_5fcallback_5ffunc_34',['cuda_callback_func',['../group__embedding-ssd.html#ga14b70f98db5378da5071b9049b7356db',1,'kv_db_utils']]]
 ];
