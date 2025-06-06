@@ -15,50 +15,21 @@ fp8_rowwise_256x32x64x512_16x16_1x2_32x8x1_32x8x1_1x32x1x8_8x8x1_1x2_intrawave_v
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor Y) {
-  int K = WQ.size(1);
-  bool kpad = (K % 512 != 0);
-  if (kpad) {
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        32,
-        64,
-        512,
-        16,
-        16,
-        1,
-        2,
-        S<32, 8, 1>,
-        S<32, 8, 1>,
-        S<1, 32, 1, 8>,
-        S<8, 8, 1>,
-        1,
-        2,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3,
-        ck::tensor_operation::device::GemmSpecialization::KPadding>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
-  } else {        
-    using DeviceGemmInstance = DeviceGemmHelper<
-        256,
-        32,
-        64,
-        512,
-        16,
-        16,
-        1,
-        2,
-        S<32, 8, 1>,
-        S<32, 8, 1>,
-        S<1, 32, 1, 8>,
-        S<8, 8, 1>,
-        1,
-        2,
-        ck::BlockGemmPipelineScheduler::Intrawave,
-        ck::BlockGemmPipelineVersion::v3,
-        ck::tensor_operation::device::GemmSpecialization::Default>;
-    // Run kernel instance.
-    return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
-  }
+  return f8f8bf16_rowwise_wrapper<
+      256,
+      32,
+      64,
+      512,
+      16,
+      16,
+      1,
+      2,
+      S<32, 8, 1>,
+      S<32, 8, 1>,
+      S<1, 32, 1, 8>,
+      S<8, 8, 1>,
+      1,
+      2,
+      ck::BlockGemmPipelineScheduler::Intrawave,
+      ck::BlockGemmPipelineVersion::v3>(XQ, WQ, x_scale, w_scale, Y, 1);
 }
-
