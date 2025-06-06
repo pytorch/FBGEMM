@@ -93,6 +93,12 @@ class PartiallyMaterializedTensor:
     def get_weights_by_ids(self, ids: torch.Tensor) -> torch.Tensor:
         return self._wrapped.get_weights_by_ids(ids)
 
+    def __reduce__(self):
+        return (
+            PartiallyMaterializedTensor,
+            (self._wrapped,),
+        )
+
     def full_tensor(self) -> torch.Tensor:
         """
         This loads the full tensor into memory (may OOM).
