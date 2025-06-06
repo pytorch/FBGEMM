@@ -30,6 +30,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
   const auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
   index_t invalid_i = -1, invalid_idx = -1;
   int32_t invalid_b_t = -1;
+  int64_t warning_inc = 0;
 
   // Check the last element
   if (b_t_start == 0 && threadIdx.x == 0) {
@@ -131,8 +132,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
           invalid_idx = idx;
           invalid_b_t = b_t;
           indices[indices_start + i] = 0;
-          // Count warnings to keep the unit tests happy
-          gpuAtomicIncrement(&warning[0]);
+          warning_inc += 1;
         }
       } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
         if (idx < 0 || idx >= num_rows) {
@@ -142,6 +142,9 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     }
   } // for b_t
 
+  if (warning_inc > 0) {
+    gpuAtomicAdd(&warning[0], warning_inc);
+  }
   if (bounds_check_mode == BoundsCheckMode::WARNING && invalid_i != -1 &&
       static_cast<int64_t>(atomicAdd(
           reinterpret_cast<unsigned long long int*>(&warning[0]), 0)) == 0) {
@@ -153,7 +156,10 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v2(
     int32_t B = vbe ? (B_offsets[t + 1] - B_offsets[t]) : (total_B / T);
 
     printf(
-        "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for batch: %d, table: %d, bag element: %lld, idx: %lld, num_rows: %lld, indices_start: %lld, indices_end: %lld, T: %d, B: %d, b_t: %d. Setting idx to zero.\n",
+        "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
+        "batch: %d, table: %d, bag element: %lld, idx: %lld, num_rows: %lld, "
+        "indices_start: %lld, indices_end: %lld, T: %d, B: %d, b_t: %d. "
+        "Setting idx to zero.\n",
         vbe ? "true" : "false",
         b,
         t,

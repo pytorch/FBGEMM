@@ -43,7 +43,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       std::vector<int64_t> table_offsets = {},
       const std::vector<int64_t>& table_sizes = {},
       std::optional<at::Tensor> table_dims = std::nullopt,
-      std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
+      std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
+      int64_t flushing_block_size = 2000000000 /*2GB*/)
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -72,7 +73,8 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             std::move(table_offsets),
             table_sizes,
             table_dims,
-            hash_size_cumsum)) {}
+            hash_size_cumsum,
+            flushing_block_size)) {}
 
   void set_cuda(
       at::Tensor indices,
@@ -81,6 +83,18 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       int64_t timestep,
       bool is_bwd) {
     return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
+  }
+
+  void stream_cuda(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      bool blocking_tensor_copy = true) {
+    return impl_->stream_cuda(indices, weights, count, blocking_tensor_copy);
+  }
+
+  void stream_sync_cuda() {
+    return impl_->stream_sync_cuda();
   }
 
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
@@ -174,6 +188,21 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
   int64_t get_snapshot_count() const {
     return impl_->get_snapshot_count();
+  }
+
+  void create_rocksdb_hard_link_snapshot(int64_t global_step) {
+    impl_->create_checkpoint(global_step);
+  }
+
+  c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> get_active_checkpoint_uuid(
+      int64_t global_step) {
+    auto uuid_opt = impl_->get_active_checkpoint_uuid(global_step);
+    if (uuid_opt.has_value()) {
+      return c10::make_intrusive<RocksdbCheckpointHandleWrapper>(
+          uuid_opt.value(), impl_);
+    } else {
+      return nullptr;
+    }
   }
 
  private:

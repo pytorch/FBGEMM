@@ -108,8 +108,10 @@ EmbeddingKVDB::EmbeddingKVDB(
     int64_t res_server_port,
     std::vector<std::string> table_names,
     std::vector<int64_t> table_offsets,
-    const std::vector<int64_t>& table_sizes)
-    : unique_id_(unique_id),
+    const std::vector<int64_t>& table_sizes,
+    int64_t flushing_block_size)
+    : flushing_block_size_(flushing_block_size),
+      unique_id_(unique_id),
       num_shards_(num_shards),
       max_D_(max_D),
       executor_tp_(std::make_unique<folly::CPUThreadPoolExecutor>(num_shards)),
@@ -203,7 +205,8 @@ EmbeddingKVDB::~EmbeddingKVDB() {
   }
 #ifdef FBGEMM_FBCODE
   if (enable_raw_embedding_streaming_) {
-    weights_stream_thread_->join();
+    join_stream_tensor_copy_thread();
+    join_weights_stream_thread();
   }
 #endif
 }
@@ -300,6 +303,39 @@ folly::coro::Task<void> EmbeddingKVDB::tensor_stream(
   }
   co_return;
 }
+
+void EmbeddingKVDB::copy_and_enqueue_stream_tensors(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::copy_and_enqueue_stream_tensors ##");
+  auto stream_item =
+      tensor_copy(indices, weights, count, kv_db::RocksdbWriteMode::STREAM);
+  weights_to_stream_queue_.enqueue(stream_item);
+  rec->record.end();
+}
+
+void EmbeddingKVDB::join_stream_tensor_copy_thread() {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::join_stream_tensor_copy_thread ##");
+  if (stream_tensor_copy_thread_ != nullptr &&
+      stream_tensor_copy_thread_->joinable()) {
+    stream_tensor_copy_thread_->join();
+  }
+  rec->record.end();
+}
+
+void EmbeddingKVDB::join_weights_stream_thread() {
+  if (weights_stream_thread_ != nullptr && weights_stream_thread_->joinable()) {
+    stop_ = true;
+    weights_stream_thread_->join();
+  }
+}
+
+uint64_t EmbeddingKVDB::get_weights_to_stream_queue_size() {
+  return weights_to_stream_queue_.size();
+}
 #endif
 
 void EmbeddingKVDB::update_cache_and_storage(
@@ -333,17 +369,29 @@ void EmbeddingKVDB::update_cache_and_storage(
 void EmbeddingKVDB::flush() {
   wait_util_filling_work_done();
   if (l2_cache_) {
-    auto tensor_tuple_opt = l2_cache_->get_all_items();
-    if (!tensor_tuple_opt.has_value()) {
-      XLOG(INFO) << "[TBE_ID" << unique_id_
-                 << "]no items exist in L2 cache, flush nothing";
-      return;
+    int block_size = std::max(
+        (int)(flushing_block_size_ / l2_cache_->get_cache_item_size()), 1);
+    folly::Optional<l2_cache::CacheLibCache::Cache::AccessIterator> start_itr =
+        folly::none;
+    folly::Optional<at::Tensor> count = folly::none;
+    auto itr = l2_cache_->begin();
+    while (count == folly::none || count->item<int64_t>() > 0) {
+      auto res_tuple_opt = l2_cache_->get_n_items(block_size, itr);
+      if (!res_tuple_opt.has_value()) {
+        XLOG(INFO) << "[TBE_ID" << unique_id_
+                   << "]no items exist in L2 cache, flush nothing";
+        return;
+      }
+      auto& indices = std::get<0>(res_tuple_opt.value());
+      auto& weights = std::get<1>(res_tuple_opt.value());
+      count = std::get<2>(res_tuple_opt.value());
+
+      if (count->item<int64_t>() > 0) {
+        set_kv_db_async(
+            indices, weights, count.value(), kv_db::RocksdbWriteMode::FLUSH)
+            .wait();
+      }
     }
-    auto& indices = std::get<0>(tensor_tuple_opt.value());
-    auto& weights = std::get<1>(tensor_tuple_opt.value());
-    auto& count = std::get<2>(tensor_tuple_opt.value());
-    set_kv_db_async(indices, weights, count, kv_db::RocksdbWriteMode::FLUSH)
-        .wait();
   }
 }
 
@@ -387,6 +435,45 @@ void EmbeddingKVDB::set_cuda(
       functor,
       0));
   rec->record.end();
+}
+
+void EmbeddingKVDB::stream_cuda(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    bool blocking_tensor_copy) {
+#ifdef FBGEMM_FBCODE
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::stream_cuda ##");
+  check_tensor_type_consistency(indices, weights);
+  // take reference to self to avoid lifetime issues.
+  auto self = shared_from_this();
+  std::function<void()>* functor = new std::function<void()>(
+      [=]() { self->stream(indices, weights, count, blocking_tensor_copy); });
+  AT_CUDA_CHECK(cudaStreamAddCallback(
+      at::cuda::getCurrentCUDAStream(),
+      kv_db_utils::cuda_callback_func,
+      functor,
+      0));
+  rec->record.end();
+#endif
+}
+
+void EmbeddingKVDB::stream_sync_cuda() {
+#ifdef FBGEMM_FBCODE
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::stream_sync_cuda ##");
+  // take reference to self to avoid lifetime issues.
+  auto self = shared_from_this();
+  std::function<void()>* functor = new std::function<void()>(
+      [=]() { self->join_stream_tensor_copy_thread(); });
+  AT_CUDA_CHECK(cudaStreamAddCallback(
+      at::cuda::getCurrentCUDAStream(),
+      kv_db_utils::cuda_callback_func,
+      functor,
+      0));
+  rec->record.end();
+#endif
 }
 
 std::vector<double> EmbeddingKVDB::get_l2cache_perf(
@@ -458,6 +545,9 @@ void EmbeddingKVDB::set(
     return;
   }
   CHECK_EQ(max_D_, weights.size(1));
+
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::set_callback ##");
   // defer the L2 cache/rocksdb update to the background thread as it could
   // be parallelized with other cuda kernels, as long as all updates are
   // finished before the next L2 cache lookup
@@ -473,6 +563,7 @@ void EmbeddingKVDB::set(
   } else {
     update_cache_and_storage(indices, weights, count, write_mode);
   }
+  rec->record.end();
 }
 
 void EmbeddingKVDB::get(
@@ -486,6 +577,8 @@ void EmbeddingKVDB::get(
         << num_lookups;
     return;
   }
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::get_callback ##");
   CHECK_GE(max_D_, weights.size(1));
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   wait_util_filling_work_done();
@@ -546,6 +639,33 @@ void EmbeddingKVDB::get(
     get_kv_db_async(indices, weights, count).wait();
   }
   get_total_duration_ += facebook::WallClockUtil::NowInUsecFast() - start_ts;
+  rec->record.end();
+}
+
+void EmbeddingKVDB::stream(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    bool blocking_tensor_copy) {
+  if (!enable_raw_embedding_streaming_) {
+    return;
+  }
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::stream_callback ##");
+  if (blocking_tensor_copy) {
+    copy_and_enqueue_stream_tensors(indices, weights, count);
+    return;
+  }
+  // Make sure the previous thread is done before starting a new one
+  join_stream_tensor_copy_thread();
+  // Cuda dispatches the host callbacks all in the same CPU thread. But the
+  // callbacks don't need to be serialized.
+  // So, We need to spin up a new thread to unblock the CUDA stream, so the CUDA
+  // can continue executing other host callbacks, eg. get/evict.
+  stream_tensor_copy_thread_ = std::make_unique<std::thread>([=, this]() {
+    copy_and_enqueue_stream_tensors(indices, weights, count);
+  });
+  rec->record.end();
 }
 
 std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(

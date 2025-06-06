@@ -168,6 +168,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         kv_zch_params: Optional[KVZCHParams] = None,
         enable_raw_embedding_streaming: bool = False,  # whether enable raw embedding streaming
         res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
+        flushing_block_size: int = 2_000_000_000,  # 2GB
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -520,15 +521,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         logging.info(f"tbe_unique_id: {tbe_unique_id}")
         if self.backend_type == BackendType.SSD:
             logging.info(
-                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, enable_async_update:{enable_async_update}"
-                f"passed_in_path={ssd_directory}, num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
-                f"memtable_flush_period={ssd_memtable_flush_period},memtable_flush_offset={ssd_memtable_flush_offset},"
-                f"l0_files_per_compact={ssd_l0_files_per_compact},max_D={self.max_D},cache_row_dim={self.cache_row_dim},rate_limit_mbps={ssd_rate_limit_mbps},"
-                f"size_ratio={ssd_size_ratio},compaction_trigger={ssd_compaction_trigger}, lazy_bulk_init_enabled={lazy_bulk_init_enabled},"
-                f"write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size},max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num},"
-                f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
-                f"row_storage_bitwidth={weights_precision.bit_rate()},block_cache_size_per_tbe={ssd_block_cache_size_per_tbe},"
-                f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB, enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}"
+                f"Logging SSD offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB, "
+                f"enable_async_update:{enable_async_update}, passed_in_path={ssd_directory}, "
+                f"num_shards={ssd_rocksdb_shards}, num_threads={ssd_rocksdb_shards}, "
+                f"memtable_flush_period={ssd_memtable_flush_period}, memtable_flush_offset={ssd_memtable_flush_offset}, "
+                f"l0_files_per_compact={ssd_l0_files_per_compact}, max_D={self.max_D}, "
+                f"cache_row_size={self.cache_row_dim}, rate_limit_mbps={ssd_rate_limit_mbps}, "
+                f"size_ratio={ssd_size_ratio}, compaction_trigger={ssd_compaction_trigger}, "
+                f"lazy_bulk_init_enabled={lazy_bulk_init_enabled}, write_buffer_size_per_tbe={ssd_rocksdb_write_buffer_size}, "
+                f"max_write_buffer_num_per_db_shard={ssd_max_write_buffer_num}, "
+                f"uniform_init_lower={ssd_uniform_init_lower}, uniform_init_upper={ssd_uniform_init_upper}, "
+                f"row_storage_bitwidth={weights_precision.bit_rate()}, block_cache_size_per_tbe={ssd_block_cache_size_per_tbe}, "
+                f"use_passed_in_path:{use_passed_in_path}, real_path will be printed in EmbeddingRocksDB, "
+                f"enable_raw_embedding_streaming:{self.enable_raw_embedding_streaming}, flushing_block_size:{flushing_block_size}"
             )
             # pyre-fixme[4]: Attribute must be annotated.
             self._ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
@@ -568,6 +573,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if self.enable_optimizer_offloading
                     else None
                 ),
+                flushing_block_size,
             )
             if self.bulk_init_chunk_size > 0:
                 self.ssd_uniform_init_lower: float = ssd_uniform_init_lower
@@ -647,6 +653,62 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.ssd_event_sp_idxq_insert: torch.cuda.streams.Event = torch.cuda.Event()
             # SSD scratch pad index queue lookup completion event
             self.ssd_event_sp_idxq_lookup: torch.cuda.streams.Event = torch.cuda.Event()
+
+        if self.enable_raw_embedding_streaming:
+            # RES reuse the eviction stream
+            self.ssd_event_cache_streamed: torch.cuda.streams.Event = torch.cuda.Event()
+            self.ssd_event_cache_streaming_synced: torch.cuda.streams.Event = (
+                torch.cuda.Event()
+            )
+            self.ssd_event_cache_streaming_computed: torch.cuda.streams.Event = (
+                torch.cuda.Event()
+            )
+            self.ssd_event_sp_streamed: torch.cuda.streams.Event = torch.cuda.Event()
+
+            # Updated buffers
+            self.register_buffer(
+                "lxu_cache_updated_weights",
+                torch.ops.fbgemm.new_unified_tensor(
+                    torch.zeros(
+                        1,
+                        device=self.current_device,
+                        dtype=cache_dtype,
+                    ),
+                    self.lxu_cache_weights.shape,
+                    is_host_mapped=self.uvm_host_mapped,
+                ),
+            )
+
+            # For storing embedding indices to update to
+            self.register_buffer(
+                "lxu_cache_updated_indices",
+                torch.ops.fbgemm.new_unified_tensor(
+                    torch.zeros(
+                        1,
+                        device=self.current_device,
+                        dtype=torch.long,
+                    ),
+                    (self.lxu_cache_weights.shape[0],),
+                    is_host_mapped=self.uvm_host_mapped,
+                ),
+            )
+
+            # For storing the number of updated rows
+            self.register_buffer(
+                "lxu_cache_updated_count",
+                torch.ops.fbgemm.new_unified_tensor(
+                    torch.zeros(
+                        1,
+                        device=self.current_device,
+                        dtype=torch.int,
+                    ),
+                    (1,),
+                    is_host_mapped=self.uvm_host_mapped,
+                ),
+            )
+
+            # (Indices, Count)
+            self.prefetched_info: List[Tuple[Tensor, Tensor]] = []
 
         self.timesteps_prefetched: List[int] = []
         # TODO: add type annotation
@@ -1135,6 +1197,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             is_rows_uvm (bool): A flag to indicate whether `rows` is a UVM
                                 tensor (which is accessible on both host and
                                 device)
+            is_bwd (bool): A flag to indicate if the eviction is during backward
         Returns:
             None
         """
@@ -1155,6 +1218,95 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     actions_count_cpu,
                     self.timestep,
                     is_bwd,
+                )
+
+                if post_event is not None:
+                    stream.record_event(post_event)
+
+    def raw_embedding_stream_sync(
+        self,
+        stream: torch.cuda.Stream,
+        pre_event: Optional[torch.cuda.Event],
+        post_event: Optional[torch.cuda.Event],
+        name: Optional[str] = "",
+    ) -> None:
+        """
+        Blocking wait the copy operation of the tensors to be streamed,
+        to make sure they are not overwritten
+        Args:
+            stream (Stream): The CUDA stream that cudaStreamAddCallback will
+                             synchronize the host function with.  Moreover, the
+                             asynchronous D->H memory copies will operate on
+                             this stream
+            pre_event (Event): The CUDA event that the stream has to wait on
+            post_event (Event): The CUDA event that the current will record on
+                                when the eviction is done
+        Returns:
+            None
+        """
+        with record_function(f"## ssd_stream_{name} ##"):
+            with torch.cuda.stream(stream):
+                if pre_event is not None:
+                    stream.wait_event(pre_event)
+
+                self.record_function_via_dummy_profile(
+                    f"## ssd_stream_sync_{name} ##",
+                    self.ssd_db.stream_sync_cuda,
+                )
+
+                if post_event is not None:
+                    stream.record_event(post_event)
+
+    def raw_embedding_stream(
+        self,
+        rows: Tensor,
+        indices_cpu: Tensor,
+        actions_count_cpu: Tensor,
+        stream: torch.cuda.Stream,
+        pre_event: Optional[torch.cuda.Event],
+        post_event: Optional[torch.cuda.Event],
+        is_rows_uvm: bool,
+        blocking_tensor_copy: bool = True,
+        name: Optional[str] = "",
+    ) -> None:
+        """
+        Stream data from the given input tensors to a remote service
+        Args:
+            rows (Tensor): The 2D tensor that contains rows to evict
+            indices_cpu (Tensor): The 1D CPU tensor that contains the row
+                                  indices that the rows will be evicted to
+            actions_count_cpu (Tensor): A scalar tensor that contains the
+                                        number of rows that the evict function
+                                        has to process
+            stream (Stream): The CUDA stream that cudaStreamAddCallback will
+                             synchronize the host function with.  Moreover, the
+                             asynchronous D->H memory copies will operate on
+                             this stream
+            pre_event (Event): The CUDA event that the stream has to wait on
+            post_event (Event): The CUDA event that the current will record on
+                                when the eviction is done
+            is_rows_uvm (bool): A flag to indicate whether `rows` is a UVM
+                                tensor (which is accessible on both host and
+                                device)
+        Returns:
+            None
+        """
+        with record_function(f"## ssd_stream_{name} ##"):
+            with torch.cuda.stream(stream):
+                if pre_event is not None:
+                    stream.wait_event(pre_event)
+
+                rows_cpu = rows if is_rows_uvm else self.to_pinned_cpu(rows)
+
+                rows.record_stream(stream)
+
+                self.record_function_via_dummy_profile(
+                    f"## ssd_stream_{name} ##",
+                    self.ssd_db.stream_cuda,
+                    indices_cpu,
+                    rows_cpu,
+                    actions_count_cpu,
+                    blocking_tensor_copy,
                 )
 
                 if post_event is not None:
@@ -1196,6 +1348,18 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if not do_evict:
                 return
 
+            if self.enable_raw_embedding_streaming:
+                self.raw_embedding_stream(
+                    rows=inserted_rows,
+                    indices_cpu=post_bwd_evicted_indices_cpu,
+                    actions_count_cpu=actions_count_cpu,
+                    stream=self.ssd_eviction_stream,
+                    pre_event=self.ssd_event_backward,
+                    post_event=self.ssd_event_sp_streamed,
+                    is_rows_uvm=True,
+                    blocking_tensor_copy=True,
+                    name="scratch_pad",
+                )
             self.evict(
                 rows=inserted_rows,
                 indices_cpu=post_bwd_evicted_indices_cpu,
@@ -1437,6 +1601,79 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 masks=torch.where(evicted_indices != -1, 1, 0),
                 count=actions_count_gpu,
             )
+            has_raw_embedding_streaming = False
+            if self.enable_raw_embedding_streaming:
+                # when pipelining is enabled
+                # prefetch in iter i happens before the backward sparse in iter i - 1
+                # so embeddings for iter i - 1's changed ids are not updated.
+                # so we can only fetch the indices from the iter i - 2
+                # when pipelining is disabled
+                # prefetch in iter i happens before forward iter i
+                # so we can get the iter i - 1's changed ids safely.
+                target_prev_iter = 1
+                if self.prefetch_pipeline:
+                    target_prev_iter = 2
+                if len(self.prefetched_info) > (target_prev_iter - 1):
+                    with record_function(
+                        "## ssd_lookup_prefetched_rows {} {} ##".format(
+                            self.timestep, self.tbe_unique_id
+                        )
+                    ):
+                        # wait for the copy to finish before overwriting the buffer
+                        self.raw_embedding_stream_sync(
+                            stream=self.ssd_eviction_stream,
+                            pre_event=self.ssd_event_cache_streamed,
+                            post_event=self.ssd_event_cache_streaming_synced,
+                            name="cache_update",
+                        )
+                        current_stream.wait_event(self.ssd_event_cache_streaming_synced)
+                        (updated_indices, updated_counts_gpu) = (
+                            self.prefetched_info.pop(0)
+                        )
+                        self.lxu_cache_updated_indices[: updated_indices.size(0)].copy_(
+                            updated_indices,
+                            non_blocking=True,
+                        )
+                        self.lxu_cache_updated_count[:1].copy_(
+                            updated_counts_gpu, non_blocking=True
+                        )
+                        has_raw_embedding_streaming = True
+
+                with record_function(
+                    "## ssd_save_prefetched_rows {} {} ##".format(
+                        self.timestep, self.tbe_unique_id
+                    )
+                ):
+                    masked_updated_indices = torch.where(
+                        torch.where(lxu_cache_locations != -1, True, False),
+                        linear_cache_indices,
+                        -1,
+                    )
+
+                    (
+                        uni_updated_indices,
+                        uni_updated_indices_length,
+                    ) = get_unique_indices_v2(
+                        masked_updated_indices,
+                        self.total_hash_size,
+                        compute_count=False,
+                        compute_inverse_indices=False,
+                    )
+                    assert uni_updated_indices is not None
+                    assert uni_updated_indices_length is not None
+                    # The unique indices has 1 more -1 element than needed,
+                    # which might make the tensor length go out of range
+                    # compared to the pre-allocated buffer.
+                    unique_len = min(
+                        self.lxu_cache_weights.size(0),
+                        uni_updated_indices.size(0),
+                    )
+                    self.prefetched_info.append(
+                        (
+                            uni_updated_indices.narrow(0, 0, unique_len),
+                            uni_updated_indices_length.clamp(max=unique_len),
+                        )
+                    )
 
             with record_function("## ssd_d2h_inserted_indices ##"):
                 # Transfer actions_count and insert_indices right away to
@@ -1579,6 +1816,41 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             current_stream.wait_event(self.ssd_event_sp_evict)
             # Ensure that D2H is done
             current_stream.wait_event(self.ssd_event_get_inputs_cpy)
+
+            if self.enable_raw_embedding_streaming and has_raw_embedding_streaming:
+                current_stream.wait_event(self.ssd_event_sp_streamed)
+                with record_function(
+                    "## ssd_compute_updated_rows {} {} ##".format(
+                        self.timestep, self.tbe_unique_id
+                    )
+                ):
+                    # cache rows that are changed in the previous iteration
+                    updated_cache_locations = torch.ops.fbgemm.lxu_cache_lookup(
+                        self.lxu_cache_updated_indices,
+                        self.lxu_cache_state,
+                        self.total_hash_size,
+                        self.gather_ssd_cache_stats,
+                        self.local_ssd_cache_stats,
+                    )
+                    torch.ops.fbgemm.masked_index_select(
+                        self.lxu_cache_updated_weights,
+                        updated_cache_locations,
+                        self.lxu_cache_weights,
+                        self.lxu_cache_updated_count,
+                    )
+                current_stream.record_event(self.ssd_event_cache_streaming_computed)
+
+                self.raw_embedding_stream(
+                    rows=self.lxu_cache_updated_weights,
+                    indices_cpu=self.lxu_cache_updated_indices,
+                    actions_count_cpu=self.lxu_cache_updated_count,
+                    stream=self.ssd_eviction_stream,
+                    pre_event=self.ssd_event_cache_streaming_computed,
+                    post_event=self.ssd_event_cache_streamed,
+                    is_rows_uvm=True,
+                    blocking_tensor_copy=False,
+                    name="cache_update",
+                )
 
             if self.gather_ssd_cache_stats:
                 # call to collect past SSD IO dur right before next rocksdb IO
@@ -2022,19 +2294,40 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
                     )
                     opt_list.append(
-                        tensor_wrapper.narrow(
-                            0,
-                            0,
-                            sorted_id_tensor[t].size(0),
+                        self.get_offloaded_optimizer_states(
+                            tensor_wrapper, sorted_id_tensor[t].numel()
                         )
-                        .view(-1)
-                        .view(self.optimizer.dtype())
                     )
             table_offset += emb_height
         logging.info(
-            f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms"
+            f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
+            f"num ids list: {[ids.numel() for ids in sorted_id_tensor]}"
         )
         return opt_list
+
+    @torch.jit.export
+    def get_offloaded_optimizer_states(
+        self,
+        tensor_wrapper: PartiallyMaterializedTensor,
+        row: int,
+    ) -> torch.Tensor:
+        opt_state_t = torch.empty(
+            row, dtype=self.optimizer.dtype(), device="cpu"
+        )  # 1D optimizer for OptimType.EXACT_ROWWISE_ADAGRAD
+
+        chunk_rows = (
+            10_000_000  # 10M rows => 260(max_D)* 2(ele_bytes) * 10M => 5.2GB mem spike
+        )
+        logging.info(f"split optimizer chunk rows: {chunk_rows}")
+        for i in range(0, row, chunk_rows):
+            actual_rows = min(chunk_rows, row - i)
+            opt_state_t.narrow(0, i, actual_rows).copy_(
+                tensor_wrapper.narrow(0, i, actual_rows)
+                .view(-1)
+                .view(self.optimizer.dtype())
+            )
+        # view optimizer state back to correct dtype
+        return opt_state_t
 
     @torch.jit.export
     def get_optimizer_state(
@@ -2168,6 +2461,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             no_snapshot=no_snapshot,
             should_flush=should_flush,
         )
+        checkpoint_handle = self.ssd_db.get_active_checkpoint_uuid(self.step)
 
         dtype = self.weights_precision.as_dtype()
         if self.load_state_dict and self.kv_zch_params:
@@ -2259,6 +2553,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 sorted_indices=(
                     bucket_ascending_id_tensor if self.kv_zch_params else None
                 ),
+                checkpoint_handle=checkpoint_handle,
             )
             (
                 tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
@@ -2273,7 +2568,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 )
             )
         logging.info(
-            f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms"
+            f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms, "
+            f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
         )
         return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
 
@@ -2491,6 +2787,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         self.ssd_db.flush()
         self.last_flush_step = self.step
+
+    def create_rocksdb_hard_link_snapshot(self) -> None:
+        """
+        Create a rocksdb hard link snapshot to provide cross procs access to the underlying data
+        """
+        self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
 
     def prepare_inputs(
         self,

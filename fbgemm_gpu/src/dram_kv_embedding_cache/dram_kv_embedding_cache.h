@@ -7,25 +7,29 @@
  */
 
 #pragma once
+#include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
+
+#include <folly/coro/BlockingWait.h>
+#include <folly/coro/Task.h>
+#include <folly/executors/FunctionScheduler.h>
+
+#include "SynchronizedShardedMap.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/initializer.h"
+
 #include <ATen/core/ivalue.h>
 #include <caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h>
 #include <common/base/Proc.h>
 #include <common/stats/Stats.h>
+#include <common/time/Time.h>
 #include <folly/SocketAddress.h>
 #include <folly/coro/BlockingWait.h>
 #include <folly/coro/Collect.h>
 #include <folly/coro/Invoke.h>
-#include <folly/coro/Task.h>
-#include <folly/executors/FunctionScheduler.h>
 #include <folly/logging/xlog.h>
 #include <servicerouter/client/cpp2/ServiceRouter.h>
 #include <thrift/lib/cpp2/protocol/CompactProtocol.h>
 #include <thrift/lib/cpp2/protocol/Serializer.h>
 #include <torch/script.h>
-
-#include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
-#include "SynchronizedShardedMap.h"
-#include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/initializer.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
@@ -478,9 +482,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return get_kv_db_async_impl(indices, weights, count);
   }
 
-  void set_range_to_storage(const at::Tensor& weights,
-                            const int64_t start,
-                            const int64_t length) {
+  void set_range_to_storage(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length) {
     const auto seq_indices =
         at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
     const auto count = at::tensor({length}, at::ScalarType::Long);
@@ -491,7 +496,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length,
-      const ssd::SnapshotHandle* snapshot_handle,  // should be nullptr for dram
+      const ssd::SnapshotHandle* snapshot_handle, // should be nullptr for dram
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) override {
     CHECK(snapshot_handle == nullptr);
@@ -506,7 +511,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   void get_kv_from_storage_by_snapshot(
       const at::Tensor& ids,
       const at::Tensor& weights,
-      const ssd::SnapshotHandle* snapshot_handle,  // should be nullptr for dram
+      const ssd::SnapshotHandle* snapshot_handle, // should be nullptr for dram
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) override {
     CHECK(snapshot_handle == nullptr);
@@ -571,9 +576,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return max_D_;
   }
 
-  int64_t get_width_for_weights(int64_t weight_idx,
-                                int64_t width_offset,
-                                int64_t row_width) const {
+  int64_t get_width_for_weights(
+      int64_t weight_idx,
+      int64_t width_offset,
+      int64_t row_width) const {
     // when init an untouch embedding, we only want to init the weights part
     // and set the optimizer part to 0. This function helps us to get the dim
     // for each sub table, calculate the max bytes we should copy to the passed
@@ -584,13 +590,14 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return std::min(feature_width, row_width);
   }
 
-  void fill_from_row_storage(int shard_id,
-                             unsigned char* weights_data_ptr,
-                             int64_t weights_row_index,
-                             unsigned char* row_storage_data_ptr,
-                             int64_t width_offset,
-                             int64_t row_width,
-                             int64_t copied_width) {
+  void fill_from_row_storage(
+      int shard_id,
+      unsigned char* weights_data_ptr,
+      int64_t weights_row_index,
+      unsigned char* row_storage_data_ptr,
+      int64_t width_offset,
+      int64_t row_width,
+      int64_t copied_width) {
     CHECK_GE(row_width, copied_width);
     CHECK_GE(max_D_, row_width);
     int64_t storage_row_bytes = elem_size_ * max_D_;
@@ -600,11 +607,13 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     int64_t row_index;
     initializers_[shard_id]->producer_queue_.dequeue(row_index);
     // TODO: fill the opt state as zeros for init value?
-    std::copy(&(row_storage_data_ptr[row_index * storage_row_bytes +
-                                     start_offset_bytes]),
-              &(row_storage_data_ptr[row_index * storage_row_bytes +
-                                     start_offset_bytes + copied_bytes]),
-              &(weights_data_ptr[weights_row_index * row_bytes]));
+    std::copy(
+        &(row_storage_data_ptr
+              [row_index * storage_row_bytes + start_offset_bytes]),
+        &(row_storage_data_ptr
+              [row_index * storage_row_bytes + start_offset_bytes +
+               copied_bytes]),
+        &(weights_data_ptr[weights_row_index * row_bytes]));
     if (row_bytes > copied_bytes) {
       std::memset(
           &(weights_data_ptr[weights_row_index * row_bytes + copied_bytes]),
@@ -623,29 +632,38 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   ///
   /// @return a map of shard id to a vector of id indexes
   folly::F14FastMap<int, std::vector<int64_t>> shard_input(
-      const at::Tensor& indices, const at::Tensor& count) {
+      const at::Tensor& indices,
+      const at::Tensor& count) {
     folly::F14FastMap<int, std::vector<int64_t>> shardid_to_indexes;
 
-    // Due to duplicate indicies, we only need to get/set the first count of
-    // entries.
-    auto conv_count = count.scalar_type() == at::ScalarType::Long
-                          ? *(count.data_ptr<int64_t>())
-                          : *(count.data_ptr<int32_t>());
+    FBGEMM_DISPATCH_INTEGRAL_TYPES(
+        indices.scalar_type(),
+        "dram_shard_input",
+        [this, &indices, &shardid_to_indexes, &count] {
+          using index_t = scalar_t;
+          // Due to duplicate indicies, we only need to get/set the first count
+          // of
+          // entries.
+          auto conv_count = count.scalar_type() == at::ScalarType::Long
+              ? *(count.data_ptr<int64_t>())
+              : *(count.data_ptr<int32_t>());
+          auto indices_data_ptr = indices.data_ptr<index_t>();
+          // There could be negative indices, which we should skipp
+          for (int i = 0; i < conv_count; i++) {
+            auto index = int64_t(indices_data_ptr[i]);
+            if (index < 0) {
+              continue;
+            }
 
-    // There could be negative indices, which we should skipp
-    for (int i = 0; i < conv_count; i++) {
-      if (indices[i].item<int64_t>() < 0) {
-        continue;
-      }
+            const auto shard_id = kv_db_utils::hash_shard(index, num_shards_);
 
-      const auto shard_id =
-          kv_db_utils::hash_shard(indices[i].item<int64_t>(), num_shards_);
+            if (shardid_to_indexes.find(shard_id) == shardid_to_indexes.end()) {
+              shardid_to_indexes[shard_id] = std::vector<int64_t>();
+            }
+            shardid_to_indexes[shard_id].push_back(i);
+          }
+        });
 
-      if (shardid_to_indexes.find(shard_id) == shardid_to_indexes.end()) {
-        shardid_to_indexes[shard_id] = std::vector<int64_t>();
-      }
-      shardid_to_indexes[shard_id].push_back(i);
-    }
     // chunk request based on bucket sharding
     return shardid_to_indexes;
   }
@@ -683,4 +701,4 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   int current_iter_ = 0;
 };  // class DramKVEmbeddingCache
 
-}  // namespace kv_mem
+} // namespace kv_mem
