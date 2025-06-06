@@ -45,10 +45,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
   // Metadata operations
 
   // Key operations
-  static uint64_t get_key(const void* block) {
+  static int64_t get_key(const void* block) {
     return reinterpret_cast<const MetaHeader*>(block)->key;
   }
-  static void set_key(void* block, uint64_t key) {
+  static void set_key(void* block, int64_t key) {
     reinterpret_cast<MetaHeader*>(block)->key = key;
   }
 

@@ -108,6 +108,7 @@ class FeatureEvict {
 
   virtual ~FeatureEvict() {
     wait_completion();  // Wait for all asynchronous tasks to complete.
+    check_and_reset_evict_flag();
   };
 
   // Trigger asynchronous eviction.
@@ -143,8 +144,8 @@ class FeatureEvict {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!evict_flag_.load()) return false;
     evict_interrupt_.store(true);
-    check_and_reset_evict_flag();
     wait_completion();
+    check_and_reset_evict_flag();
     return true;
   }
 
