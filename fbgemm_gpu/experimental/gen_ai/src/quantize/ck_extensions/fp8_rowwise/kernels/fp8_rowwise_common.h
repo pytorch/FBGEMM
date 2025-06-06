@@ -10,6 +10,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <numeric>
+#include <variant>
 
 #include <ATen/ATen.h>
 #ifdef USE_ROCM
@@ -49,7 +50,6 @@ using BDataType = ck::f8_t;
 using D0DataType = float;
 using D1DataType = float;
 using DsDataType = ck::Tuple<D0DataType, D1DataType>;
-using EDataType = ck::bhalf_t;
 using AccDataType = float;
 using CShuffleDataType = float;
 
@@ -81,6 +81,18 @@ struct RowwiseScale {
 
     e = ck::type_convert<ck::bhalf_t>(x0_f);
   }
+
+  template <>
+  __host__ __device__ constexpr void
+  operator()<ck::half_t, float, float, float>(
+      ck::half_t& e,
+      const float& c,
+      const float& d0,
+      const float& d1) const {
+    const float x0_f = c * d0 * d1;
+
+    e = ck::type_convert<ck::half_t>(x0_f);
+  }
 };
 
 using CDEElementOp = RowwiseScale;
@@ -102,63 +114,15 @@ template <
     int CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
     ck::BlockGemmPipelineScheduler LOOP_SCHED,
     ck::BlockGemmPipelineVersion PIPELINE_VERSION,
-    ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
-        ck::tensor_operation::device::GemmSpecialization::MNKPadding,
     ck::index_t AReadVecLength = 16,
     ck::index_t BReadVecLength = 16,
     ck::index_t ADstVecLength = 16,
     ck::index_t BDstVecLength = 16,
     int AK1 = 16,
-    int BK1 = 16>
-using DeviceGemmHelper =
-    ck::tensor_operation::device::DeviceGemmMultiD_Xdl_CShuffle_V3<
-        ALayout,
-        BLayout,
-        DsLayout,
-        ELayout,
-        ADataType,
-        BDataType,
-        DsDataType,
-        EDataType,
-        AccDataType,
-        CShuffleDataType,
-        AElementOp,
-        BElementOp,
-        CDEElementOp,
-        GEMM_SPEC,
-        BLOCK_SIZE, // Block Size
-        MBLOCK, // M per Block
-        NBLOCK, // N per Block
-        KBLOCK, // K per Block
-        AK1,
-        BK1,
-        WAVE_TILE_M, // M per Xdl
-        WAVE_TILE_N, // N per Xdl
-        WAVE_MAP_M, // Mxdl per Wave
-        WAVE_MAP_N, // Nxdl per Wave
-        ABLOCK_TRANSFER,
-        S<1, 0, 2>,
-        S<1, 0, 2>,
-        2,
-        AReadVecLength,
-        ADstVecLength,
-        0,
-        BBLOCK_TRANSFER,
-        S<1, 0, 2>,
-        S<1, 0, 2>,
-        2,
-        BReadVecLength,
-        BDstVecLength,
-        0,
-        CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
-        CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
-        CBLOCK_TRANSFER,
-        CBLOCK_SPV,
-        LOOP_SCHED,
-        PIPELINE_VERSION,
-        ComputeType>;
-
-template <typename DeviceGemmInstance>
+    int BK1 = 16,
+    ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
+        ck::tensor_operation::device::GemmSpecialization::MNKPadding,
+    typename EDataType = ck::bhalf_t>
 at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -166,6 +130,55 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor w_scale,
     at::Tensor Y,
     int KBatch = 1) {
+  // Create GEMM definition.
+  using DeviceGemmInstance =
+      ck::tensor_operation::device::DeviceGemmMultiD_Xdl_CShuffle_V3<
+          ALayout,
+          BLayout,
+          DsLayout,
+          ELayout,
+          ADataType,
+          BDataType,
+          DsDataType,
+          EDataType,
+          AccDataType,
+          CShuffleDataType,
+          AElementOp,
+          BElementOp,
+          CDEElementOp,
+          GEMM_SPEC,
+          BLOCK_SIZE, // Block Size
+          MBLOCK, // M per Block
+          NBLOCK, // N per Block
+          KBLOCK, // K per Block
+          AK1,
+          BK1,
+          WAVE_TILE_M, // M per Xdl
+          WAVE_TILE_N, // N per Xdl
+          WAVE_MAP_M, // Mxdl per Wave
+          WAVE_MAP_N, // Nxdl per Wave
+          ABLOCK_TRANSFER,
+          S<1, 0, 2>,
+          S<1, 0, 2>,
+          2,
+          AReadVecLength,
+          ADstVecLength,
+          0,
+          BBLOCK_TRANSFER,
+          S<1, 0, 2>,
+          S<1, 0, 2>,
+          2,
+          BReadVecLength,
+          BDstVecLength,
+          0,
+          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+          CBLOCK_TRANSFER,
+          CBLOCK_SPV,
+          LOOP_SCHED,
+          PIPELINE_VERSION,
+          ComputeType>;
+
   // Get input information.
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
   int N = WQ.size(0);
@@ -214,4 +227,159 @@ at::Tensor f8f8bf16_rowwise_impl(
   invoker.Run(argument, StreamConfig{stream, false});
 
   return Y;
+}
+
+template <
+    int BLOCK_SIZE,
+    int MBLOCK,
+    int NBLOCK,
+    int KBLOCK,
+    int WAVE_TILE_M,
+    int WAVE_TILE_N,
+    int WAVE_MAP_M,
+    int WAVE_MAP_N,
+    typename ABLOCK_TRANSFER,
+    typename BBLOCK_TRANSFER,
+    typename CBLOCK_TRANSFER,
+    typename CBLOCK_SPV,
+    int CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+    int CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+    ck::BlockGemmPipelineScheduler LOOP_SCHED,
+    ck::BlockGemmPipelineVersion PIPELINE_VERSION,
+    ck::index_t AReadVecLength = 16,
+    ck::index_t BReadVecLength = 16,
+    ck::index_t ADstVecLength = 16,
+    ck::index_t BDstVecLength = 16,
+    int AK1 = 16,
+    int BK1 = 16>
+at::Tensor f8f8bf16_rowwise_wrapper(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y,
+    int KBatch = 1) {
+  // Start by checking output type, either bf16 or fp16.
+  bool out_bf16 = true;
+  if (Y.dtype() == at::kHalf) {
+    out_bf16 = false;
+  }
+  // Check if this kernel needs K padding.
+  int64_t K = WQ.size(1);
+  bool k_padding = K % KBLOCK != 0;
+
+  // Create proper dispatch around various kernel configurations.
+  if (k_padding) {
+    if (out_bf16) {
+      // kernel without preshuffle + padding + bf16 output
+      return f8f8bf16_rowwise_impl<
+          BLOCK_SIZE,
+          MBLOCK,
+          NBLOCK,
+          KBLOCK,
+          WAVE_TILE_M,
+          WAVE_TILE_N,
+          WAVE_MAP_M,
+          WAVE_MAP_N,
+          ABLOCK_TRANSFER,
+          BBLOCK_TRANSFER,
+          CBLOCK_TRANSFER,
+          CBLOCK_SPV,
+          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+          LOOP_SCHED,
+          PIPELINE_VERSION,
+          AReadVecLength,
+          BReadVecLength,
+          ADstVecLength,
+          BDstVecLength,
+          AK1,
+          BK1,
+          ck::tensor_operation::device::GemmSpecialization::KPadding,
+          ck::bhalf_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
+    } else {
+      // kernel without preshuffle + padding + fp16 output
+      return f8f8bf16_rowwise_impl<
+          BLOCK_SIZE,
+          MBLOCK,
+          NBLOCK,
+          KBLOCK,
+          WAVE_TILE_M,
+          WAVE_TILE_N,
+          WAVE_MAP_M,
+          WAVE_MAP_N,
+          ABLOCK_TRANSFER,
+          BBLOCK_TRANSFER,
+          CBLOCK_TRANSFER,
+          CBLOCK_SPV,
+          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+          LOOP_SCHED,
+          PIPELINE_VERSION,
+          AReadVecLength,
+          BReadVecLength,
+          ADstVecLength,
+          BDstVecLength,
+          AK1,
+          BK1,
+          ck::tensor_operation::device::GemmSpecialization::KPadding,
+          ck::half_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
+    }
+  } else {
+    if (out_bf16) {
+      // kernel without preshuffle + no padding + bf16 output
+      return f8f8bf16_rowwise_impl<
+          BLOCK_SIZE,
+          MBLOCK,
+          NBLOCK,
+          KBLOCK,
+          WAVE_TILE_M,
+          WAVE_TILE_N,
+          WAVE_MAP_M,
+          WAVE_MAP_N,
+          ABLOCK_TRANSFER,
+          BBLOCK_TRANSFER,
+          CBLOCK_TRANSFER,
+          CBLOCK_SPV,
+          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+          LOOP_SCHED,
+          PIPELINE_VERSION,
+          AReadVecLength,
+          BReadVecLength,
+          ADstVecLength,
+          BDstVecLength,
+          AK1,
+          BK1,
+          ck::tensor_operation::device::GemmSpecialization::Default,
+          ck::bhalf_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
+    } else {
+      // kernel no preshuffle + no padding + fp16 output
+      return f8f8bf16_rowwise_impl<
+          BLOCK_SIZE,
+          MBLOCK,
+          NBLOCK,
+          KBLOCK,
+          WAVE_TILE_M,
+          WAVE_TILE_N,
+          WAVE_MAP_M,
+          WAVE_MAP_N,
+          ABLOCK_TRANSFER,
+          BBLOCK_TRANSFER,
+          CBLOCK_TRANSFER,
+          CBLOCK_SPV,
+          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+          LOOP_SCHED,
+          PIPELINE_VERSION,
+          AReadVecLength,
+          BReadVecLength,
+          ADstVecLength,
+          BDstVecLength,
+          AK1,
+          BK1,
+          ck::tensor_operation::device::GemmSpecialization::Default,
+          ck::half_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
+    }
+  }
 }
