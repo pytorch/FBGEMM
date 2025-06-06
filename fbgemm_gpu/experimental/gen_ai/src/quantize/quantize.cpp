@@ -102,6 +102,13 @@ at::Tensor f8f8f16_rowwise(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true);
+at::Tensor f8f8bf16_rowwise_preshuffle(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> bias = std::nullopt,
+    bool use_fast_accum = true);
 void f8f8bf16_rowwise_out(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -350,6 +357,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("flush_icache_hip", flush_icache_ck);
   m.def(
       "f8f8f16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
+  m.def(
+      "f8f8bf16_rowwise_preshuffle(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
 #endif
 }
 
@@ -394,6 +403,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 #endif
 #ifdef USE_ROCM
   m.impl("f8f8f16_rowwise", f8f8f16_rowwise);
+  m.impl("f8f8bf16_rowwise_preshuffle", f8f8bf16_rowwise_preshuffle);
 #endif
 }
 
@@ -773,6 +783,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
 #endif
 #ifdef USE_ROCM
   m.impl("f8f8f16_rowwise", f8f8f16_rowwise_meta);
+  m.impl("f8f8bf16_rowwise_preshuffle", f8f8bf16_rowwise_meta);
 #endif
 }
 
