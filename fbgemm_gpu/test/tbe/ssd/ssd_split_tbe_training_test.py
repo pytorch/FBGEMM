@@ -2263,7 +2263,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
 
-    @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
     def test_apply_kv_state_dict_dram(
         self,
     ) -> None:
