@@ -12,7 +12,6 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include "fbgemm_gpu/utils/device_properties.cuh"
 #include "fbgemm_gpu/utils/kernel_execution_timer.cuh"
 #include "fbgemm_gpu/utils/source_context.h"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -98,11 +97,8 @@ template <
 struct KernelLauncher {
   const SourceContext context;
 
-  constexpr inline KernelLauncher(
-      const source_location& location,
-      const std::string_view& summary,
-      const std::string_view& secondaryLocation) noexcept
-      : context(SourceContext(location, summary, secondaryLocation)) {}
+  constexpr inline KernelLauncher(const SourceContext& ctx) noexcept
+      : context(ctx) {}
 
   constexpr inline void checkGridSizesInRange(
       const cudaDeviceProp& properties,
@@ -350,7 +346,7 @@ struct KernelLauncher {
           transform_kernel_arg(context, std::forward<Args>(args))...,
           launch_registry.get_uvm_assertions_ptr_for_current_device(),
           launch_registry.insert(
-              context.location.file_name(),
+              context.dsa_file_descriptor_.data(),
               context.location.function_name(),
               context.location.line(),
               context.summary.data(),
@@ -399,6 +395,23 @@ struct KernelLauncher {
 } // namespace fbgemm_gpu::utils
 
 ////////////////////////////////////////////////////////////////////////////////
+// Macro create a compile-time concatenation of __TEMPLATE_SOURCE_FILE__ and
+// __FILE__
+//
+// This is used for reporting the template filename into to Torch DSA.  Runtime
+// strings cannot be used here because the Torch DSA error reporting mechanism
+// is located higher in the stack than where the DSA launch_registry.insert() is
+// called, and requires a compile-timme defined char * for the reporting to work
+// correctly.
+////////////////////////////////////////////////////////////////////////////////
+
+#ifdef __TEMPLATE_SOURCE_FILE__
+#define DSA_FILESRC_IMPL "[" __TEMPLATE_SOURCE_FILE__ "] " __FILE__
+#else
+#define DSA_FILESRC_IMPL __FILE__
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
 // General Kernel Launch Macros for FBGEMM GPU Kernels
 //
 // This macro is used to launch GPU kernels in FBGEMM GPU codebase. It runs a
@@ -438,38 +451,59 @@ struct KernelLauncher {
 #define _FKL_TENSORCHECK_ false
 #endif
 
+////////////////////////////////////////////////////////////////////////////////
+// SourceContext Builder Macro
+//
+// This macro is used to build a SourceContext object for the kernel launcher,
+// can be used elsewhere as well.
+//
+// NOTE: The builder is defined as a macro in specifically in this header file ,
+// instead of static class method in source_context.h, so that __FILE__ and
+// __TEMPLATE_SOURCE_FILE__ can be correctly expanded to point to actual call
+// site.
+////////////////////////////////////////////////////////////////////////////////
+
+#define SOURCE_CONTEXT_CURRENT(KERNEL)               \
+  fbgemm_gpu::utils::SourceContext(                  \
+      fbgemm_gpu::utils::source_location::current(), \
+      #KERNEL,                                       \
+      _FKL_TFILE_,                                   \
+      DSA_FILESRC_IMPL);
+
+////////////////////////////////////////////////////////////////////////////////
+// Kernel Launcher Macros for FBGEMM GPU Kernels
+//
+// This macro simplifies the kernel launch process by wrapping the kernel
+// launches into simple-to-use macros.
+////////////////////////////////////////////////////////////////////////////////
+
 #define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)        \
   ([&] {                                                                    \
-    using source_location = fbgemm_gpu::utils::source_location;             \
-    constexpr auto location = source_location::current();                   \
+    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
     decltype(KERNEL)& kernel = KERNEL;                                      \
                                                                             \
     return fbgemm_gpu::utils::                                              \
-        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(           \
-               location, #KERNEL, _FKL_TFILE_)                              \
+        KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)   \
             .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
   }())
 
 #define FBGEMM_LAUNCH_DSA_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)    \
   ([&] {                                                                    \
-    using source_location = fbgemm_gpu::utils::source_location;             \
-    constexpr auto location = source_location::current();                   \
+    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
     decltype(KERNEL)& kernel = KERNEL;                                      \
                                                                             \
     return fbgemm_gpu::utils::                                              \
-        KernelLauncher<true, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(            \
-               location, #KERNEL, _FKL_TFILE_)                              \
+        KernelLauncher<true, _FKL_BLOCKING_, _FKL_TENSORCHECK_>(context)    \
             .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
   }())
 
 #define FBGEMM_TIME_KERNEL_RUN(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)      \
   ([&] {                                                                    \
-    using source_location = fbgemm_gpu::utils::source_location;             \
-    constexpr auto location = source_location::current();                   \
+    constexpr auto context = SOURCE_CONTEXT_CURRENT(KERNEL);                \
     decltype(KERNEL)& kernel = KERNEL;                                      \
                                                                             \
     return fbgemm_gpu::utils::                                              \
         KernelLauncher<false, _FKL_BLOCKING_, _FKL_TENSORCHECK_, true>(     \
-               location, #KERNEL, _FKL_TFILE_)                              \
+               context)                                                     \
             .launch_kernel(kernel, GRID, BLOCK, SMEM, STREAM, __VA_ARGS__); \
   }())

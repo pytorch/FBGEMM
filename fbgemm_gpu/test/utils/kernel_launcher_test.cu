@@ -6,8 +6,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// Define __TEMPLATE_SOURCE_FILE__, which is similar to __FILE, but is used in
-// FBGEMM codebase to denote the template source file in auto-generated code.
+// Define __TEMPLATE_SOURCE_FILE__, which is similar to __FILE__, but is used in
+// the FBGEMM codebase to denote the template source file in auto-generated
+// code.
 #define __TEMPLATE_SOURCE_FILE__ "FOO/BAR/BAZ-123.cpp"
 
 // Enable tensor value checking before and after executing kernels
@@ -21,7 +22,6 @@
 #include <gtest/gtest.h>
 #include <torch/types.h> // @manual=//caffe2:torch-cpp-cpu
 
-#include "fbgemm_gpu/utils/device_properties.cuh"
 #include "fbgemm_gpu/utils/host_device_buffer_pair.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -147,39 +147,18 @@ auto sample_tensors(const long size) {
 
 TEST(KernelLauncherTest, template_source_file) {
   {
-    const auto launcher = KernelLauncher<true>(
-        source_location::current(), "kernel", __TEMPLATE_SOURCE_FILE__);
+    constexpr auto context = SOURCE_CONTEXT_CURRENT("kernel");
+    const auto launcher = KernelLauncher<true>(context);
 
     ASSERT_THAT(launcher.context.description(), HasSubstr(__FILE__));
-
     ASSERT_THAT(
         launcher.context.description(), HasSubstr(TemplateSourceFileReference));
   }
 
   {
-    const auto launcher =
-        KernelLauncher<true>(source_location::current(), "kernel", "");
-
-    ASSERT_THAT(
-        launcher.context.description(),
-        Not(HasSubstr(TemplateSourceFileReference)));
-  }
-}
-
-TEST(KernelLauncherTest, no_template_source_file) {
-  {
-    const auto launcher = KernelLauncher<true>(
-        source_location::current(), "kernel", __TEMPLATE_SOURCE_FILE__);
-
-    ASSERT_THAT(launcher.context.description(), HasSubstr(__FILE__));
-
-    ASSERT_THAT(
-        launcher.context.description(), HasSubstr(TemplateSourceFileReference));
-  }
-
-  {
-    const auto launcher =
-        KernelLauncher<true>(source_location::current(), "kernel", "");
+    constexpr auto context =
+        SourceContext(source_location::current(), "kernel", "", "");
+    const auto launcher = KernelLauncher<true>(context);
 
     ASSERT_THAT(
         launcher.context.description(),
@@ -362,7 +341,6 @@ TEST(KernelLauncherTest, tensor_value_checks) {
 
   {
     // Test for bad INPUT tensors
-
     const float values[] = {
         std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::infinity(),
@@ -418,7 +396,6 @@ TEST(KernelLauncherTest, tensor_value_checks) {
 
   {
     // Test for bad OUTPUT tensors
-
     EXPECT_THROW(
         {
           FBGEMM_LAUNCH_DSA_KERNEL(
@@ -471,7 +448,9 @@ TEST(KernelLauncherTest, throws_dsa_exception) {
               "CUDA device-side assertion failures were found on GPU #0!"));
 
       ASSERT_THAT(
-          err_str, HasSubstr("File containing kernel launch = " __FILE__));
+          err_str,
+          HasSubstr("File containing kernel launch = [" __TEMPLATE_SOURCE_FILE__
+                    "] " __FILE__));
 
       ASSERT_THAT(
           err_str,

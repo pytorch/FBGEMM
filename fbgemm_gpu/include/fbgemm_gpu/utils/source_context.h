@@ -8,9 +8,14 @@
 
 #pragma once
 
-#include <optional>
 #include <sstream>
 #include <string_view>
+
+////////////////////////////////////////////////////////////////////////////////
+// Source Location Import
+//
+// Handles experiemntal source location import for different versions of C++
+////////////////////////////////////////////////////////////////////////////////
 
 #if __cplusplus > 201703L && __has_builtin(__builtin_source_location)
 #include <source_location>
@@ -21,7 +26,7 @@
 namespace fbgemm_gpu::utils {
 
 ////////////////////////////////////////////////////////////////////////////////
-// Wrapper around std::experimental::source_location
+// Wrapper Around std::experimental::source_location
 //
 // Older versions of Clang have <source_location> but do not have
 // __builtin_source_location defined, so we have to fall back to
@@ -40,50 +45,51 @@ using source_location = std::experimental::source_location;
 ////////////////////////////////////////////////////////////////////////////////
 // Source Context
 //
-// This is a wrapper abstraction around two bits of context information, the
-// source location and a summary string.  It is used to generate consistent
-// descriptions in log messages around kernel executions.
+// This is a wrapper abstraction around some source context information,
+// including the source location, template filepath, and summary string.  It is
+// used to generate consistent descriptions in log messages around kernel
+// executions.
 ////////////////////////////////////////////////////////////////////////////////
 
 struct SourceContext {
-  // The source location of interest
+  // The source location
   const source_location location;
-  // A summary of the context
+  // A summary of the context (usually the kernel name)
   const std::string_view summary;
-  // Secondary source file location (for template-generated source files)
-  const std::string_view secondaryLocation;
-
-  // Cached description of the context
-  mutable std::optional<std::string> desc_;
+  // The originating template filepath (for template-generated source files)
+  const std::string_view template_;
+  // The file descriptor for DSA error reporting (needs to be generated at
+  // compile-time)
+  const std::string_view dsa_file_descriptor_;
 
   constexpr inline SourceContext(
       const source_location& loc_,
       const std::string_view& sum_,
-      const std::string_view& loc2_) noexcept
-      : location(loc_), summary(sum_), secondaryLocation(loc2_) {}
+      const std::string_view& tmpl_,
+      const std::string_view& dsa_) noexcept
+      : location(loc_),
+        summary(sum_),
+        template_(tmpl_),
+        dsa_file_descriptor_(dsa_) {}
 
-  inline const std::string_view description() const noexcept {
+  inline const std::string description() const noexcept {
     // Generate and cache the description if it hasn't been generated yet
-    if (!desc_) {
-      std::stringstream ss;
+    std::stringstream ss;
 
-      // Append template source file location if it exists
-      if (!secondaryLocation.empty()) {
-        ss << "[" << secondaryLocation << "] ";
-      }
-
-      ss << "[" << location.file_name() << '(' << location.line() << ':'
-         << location.column() << ")] [" << summary << "]";
-
-      desc_ = ss.str();
+    // Append template source file location if it exists
+    if (!template_.empty()) {
+      ss << "[" << template_ << "] ";
     }
 
-    return *desc_;
+    ss << "[" << location.file_name() << '(' << location.line() << ':'
+       << location.column() << ")] [" << summary << "]";
+
+    return ss.str();
   }
 
   inline SourceContext withSummary(
       const std::string_view& sum_) const noexcept {
-    return SourceContext(location, sum_, secondaryLocation);
+    return SourceContext(location, sum_, template_, dsa_file_descriptor_);
   }
 };
 
