@@ -2576,8 +2576,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         logging.info(
             f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms, "
-            f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
         )
+        if self.kv_zch_params is not None:
+            logging.info(
+                f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
+            )
+
         return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
 
     @torch.jit.ignore
