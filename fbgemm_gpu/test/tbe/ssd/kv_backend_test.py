@@ -15,8 +15,6 @@ import threading
 import time
 import unittest
 
-from dataclasses import dataclass
-
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
