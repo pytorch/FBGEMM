@@ -560,7 +560,7 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
       1, 1, 1, 1,               // All the same. Range: 0, min: 1
       -64, -2.75, 61.625, 191,  // Range: 255, min: -64. Picking 61.625 because it differs under FP16 (will become 61.5).
     };
-    assert(float_test_input.size() == row * col);
+    assert(float_test_input.size() == static_cast<size_t>(row * col));
 
     float16_test_input.resize(float_test_input.size());
     std::transform(

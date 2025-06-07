@@ -613,20 +613,27 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.cache_row_dim,
                 ssd_uniform_init_lower,
                 ssd_uniform_init_upper,
-                ssd_rocksdb_shards,
-                ssd_rocksdb_shards,
-                weights_precision.bit_rate(),
-                2,
+                0,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+                0,  # trigger_step_interval if trigger mode is iteration
+                0,  # mem_util_threshold_in_GB if trigger mode is mem_util
+                0,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+                None,  # count_thresholds for each table if eviction strategy is feature score
+                None,  # ttls_in_mins for each table if eviction strategy is timestamp
+                None,  # count_decay_rates for each table if eviction strategy is feature score
+                None,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+                ssd_rocksdb_shards,  # num_shards
+                ssd_rocksdb_shards,  # num_threads
+                weights_precision.bit_rate(),  # row_storage_bitwidth
                 (
                     tensor_pad4(self.feature_dims.cpu())
                     if self.enable_optimizer_offloading
                     else None
-                ),
+                ),  # table_dims
                 (
                     self.hash_size_cumsum.cpu()
                     if self.enable_optimizer_offloading
                     else None
-                ),
+                ),  # hash_size_cumsum
             )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
@@ -2569,8 +2576,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
         logging.info(
             f"split_embedding_weights latency: {(time.time() - start_time) * 1000} ms, "
-            f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
         )
+        if self.kv_zch_params is not None:
+            logging.info(
+                f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
+            )
+
         return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
 
     @torch.jit.ignore

@@ -452,28 +452,42 @@ void KVTensorWrapper::set_dram_db_wrapper(
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-  CHECK_TRUE(db_ != nullptr);
-  CHECK_GE(db_->get_max_D(), shape_[1]);
-  CHECK_GE(db_->get_max_D(), shape_[1] + width_offset_);
-  TORCH_CHECK(
-      (snapshot_handle_ == nullptr) ==
-          (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
-      "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
-  if (!sorted_indices_.has_value()) {
-    auto t = at::empty(c10::IntArrayRef({length, shape_[1]}), options_);
-    db_->get_range_from_snapshot(
-        t,
-        start + row_offset_,
-        length,
-        snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
-        width_offset_,
-        shape_[1]);
-    CHECK(t.is_contiguous());
-    return t;
+  if (db_) {
+    CHECK_TRUE(db_ != nullptr);
+    CHECK_GE(db_->get_max_D(), shape_[1]);
+    TORCH_CHECK(
+        (snapshot_handle_ == nullptr) ==
+            (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
+        "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
+    if (!sorted_indices_.has_value()) {
+      int64_t tensor_width = shape_[1] - width_offset_;
+      auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
+      db_->get_range_from_snapshot(
+          t,
+          start + row_offset_,
+          length,
+          snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
+          width_offset_,
+          tensor_width);
+      CHECK(t.is_contiguous());
+      return t;
+    } else {
+      at::Tensor sliced_ids =
+          sorted_indices_.value().slice(0, start, start + length);
+      return get_weights_by_ids(sliced_ids);
+    }
   } else {
-    at::Tensor sliced_ids =
-        sorted_indices_.value().slice(0, start, start + length);
-    return get_weights_by_ids(sliced_ids);
+    CHECK(readonly_db_)
+        << "ReadOnlyEmbeddingKVDB pointer must be valid to read tensor";
+    int64_t tensor_width = shape_[1] - width_offset_;
+    auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
+    // auto t = at::empty(
+    // c10::IntArrayRef({length, readonly_db_->get_max_D()}), options_);
+    readonly_db_->get_range_from_rdb_checkpoint(
+        t, start + row_offset_, length, width_offset_);
+    // TBE may have multiple embeddings in one table padded to max D
+    // narrow to the actual shape here before returning
+    return t.narrow(1, 0, shape_[1]);
   }
 }
 
@@ -485,6 +499,7 @@ void KVTensorWrapper::set_range(
   // Mutex lock for disabling concurrent writes to the same KVTensor
   std::lock_guard<std::mutex> lock(mtx);
   CHECK_EQ(weights.device(), at::kCPU);
+  CHECK(db_) << "EmbeddingRocksDB must be a valid pointer to call set_range";
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
   CHECK_GE(db_->get_max_D(), shape_[1]);
@@ -781,16 +796,30 @@ static auto dram_kv_embedding_cache_wrapper =
                 int64_t,
                 std::optional<at::Tensor>,
                 std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
+                int64_t,
+                int64_t,
+                int64_t,
+                std::optional<at::Tensor>,
+                std::optional<at::Tensor>,
                 bool>(),
             "",
             {
                 torch::arg("max_D"),
                 torch::arg("uniform_init_lower"),
                 torch::arg("uniform_init_upper"),
+                torch::arg("evict_trigger_mode") = 0,
+                torch::arg("trigger_step_interval") = 0,
+                torch::arg("mem_util_threshold_in_GB") = 0,
+                torch::arg("evict_trigger_strategy") = 0,
+                torch::arg("counter_thresholds") = std::nullopt,
+                torch::arg("ttls_in_mins") = std::nullopt,
+                torch::arg("counter_decay_rates") = std::nullopt,
+                torch::arg("l2_weight_thresholds") = std::nullopt,
                 torch::arg("num_shards") = 8,
                 torch::arg("num_threads") = 32,
                 torch::arg("row_storage_bitwidth") = 32,
-                torch::arg("weight_ttl_in_hours") = 2,
                 torch::arg("table_dims") = std::nullopt,
                 torch::arg("hash_size_cumsum") = std::nullopt,
                 torch::arg("enable_async_update") = false,
@@ -835,7 +864,10 @@ static auto dram_kv_embedding_cache_wrapper =
         .def("flush", &DramKVEmbeddingCacheWrapper::flush)
         .def(
             "get_keys_in_range_by_snapshot",
-            &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot);
+            &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot)
+        .def(
+            "get_feature_evict_metric",
+            &DramKVEmbeddingCacheWrapper::get_feature_evict_metric);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
@@ -886,7 +918,17 @@ static auto kv_tensor_wrapper =
             &KVTensorWrapper::sizes,
             std::string(
                 "Returns the shape of the original tensor. Only the narrowed part is materialized."))
-        .def_property("strides", &KVTensorWrapper::strides);
+        .def_property("strides", &KVTensorWrapper::strides)
+        .def_pickle(
+            // __getstate__
+            [](const c10::intrusive_ptr<KVTensorWrapper>& self) -> std::string {
+              return self->serialize();
+            },
+            // __setstate__
+            [](std::string data) -> c10::intrusive_ptr<KVTensorWrapper> {
+              return c10::make_intrusive<KVTensorWrapper>(data);
+            })
+        .def("logs", &KVTensorWrapper::logs, "");
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
