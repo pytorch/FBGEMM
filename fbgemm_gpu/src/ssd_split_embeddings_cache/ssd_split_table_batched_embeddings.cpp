@@ -355,7 +355,8 @@ KVTensorWrapper::KVTensorWrapper(
         snapshot_handle,
     std::optional<at::Tensor> sorted_indices,
     int64_t width_offset_,
-    c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle)
+    const std::optional<c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>
+        checkpoint_handle)
     : db_(nullptr),
       shape_(std::move(shape)),
       row_offset_(row_offset),
@@ -379,7 +380,9 @@ KVTensorWrapper::KVTensorWrapper(
   if (sorted_indices.has_value()) {
     sorted_indices_ = sorted_indices;
   }
-  checkpoint_handle_ = checkpoint_handle;
+  if (checkpoint_handle.has_value()) {
+    checkpoint_handle_ = checkpoint_handle.value();
+  }
 }
 
 std::string KVTensorWrapper::serialize() const {
@@ -880,7 +883,8 @@ static auto kv_tensor_wrapper =
                     c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>,
                 std::optional<at::Tensor>,
                 int64_t,
-                c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>(),
+                std::optional<
+                    c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>>(),
             "",
             {torch::arg("shape"),
              torch::arg("dtype"),
@@ -890,8 +894,7 @@ static auto kv_tensor_wrapper =
              torch::arg("snapshot_handle") = std::nullopt,
              torch::arg("sorted_indices") = std::nullopt,
              torch::arg("width_offset") = 0,
-             torch::arg("checkpoint_handle") =
-                 c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>(nullptr)})
+             torch::arg("checkpoint_handle") = std::nullopt})
         .def(
             "set_embedding_rocks_dp_wrapper",
             &KVTensorWrapper::set_embedding_rocks_dp_wrapper,
