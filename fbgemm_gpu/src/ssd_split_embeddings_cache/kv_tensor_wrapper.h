@@ -63,8 +63,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
           snapshot_handle = std::nullopt,
       std::optional<at::Tensor> sorted_indices = std::nullopt,
       int64_t width_offset = 0,
-      c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> checkpoint_handle =
-          c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>(nullptr));
+      const std::optional<c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>
+          checkpoint_handle = std::nullopt);
 
   explicit KVTensorWrapper(const std::string& serialized);
 

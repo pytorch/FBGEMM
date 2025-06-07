@@ -2419,6 +2419,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # Force device synchronize for now
         torch.cuda.synchronize()
         snapshot_handle = None
+        checkpoint_handle = None
         if self.backend_type == BackendType.SSD:
             # Create a rocksdb snapshot
             if not no_snapshot:
@@ -2428,12 +2429,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     f"flush latency for weight states: {(time.time() - start_time) * 1000} ms"
                 )
                 snapshot_handle = self.ssd_db.create_snapshot()
+                checkpoint_handle = self.ssd_db.get_active_checkpoint_uuid(self.step)
                 logging.info(
                     f"created snapshot for weight states: {snapshot_handle}, latency: {(time.time() - start_time) * 1000} ms"
                 )
         elif self.backend_type == BackendType.DRAM:
             self.flush(force=should_flush)
-        return snapshot_handle
+        return snapshot_handle, checkpoint_handle
 
     @torch.jit.export
     def split_embedding_weights(
@@ -2464,11 +2466,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             3rd arg: active id count per bucket id, tensor size is [bucket_id_end - bucket_id_start]
                     where for the i th element, we have i + bucket_id_start = global bucket id
         """
-        snapshot_handle = self._may_create_snapshot_for_state_dict(
+        snapshot_handle, checkpoint_handle = self._may_create_snapshot_for_state_dict(
             no_snapshot=no_snapshot,
             should_flush=should_flush,
         )
-        checkpoint_handle = self.ssd_db.get_active_checkpoint_uuid(self.step)
 
         dtype = self.weights_precision.as_dtype()
         if self.load_state_dict and self.kv_zch_params:
