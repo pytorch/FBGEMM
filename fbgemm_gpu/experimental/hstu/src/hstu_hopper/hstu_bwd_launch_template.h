@@ -1,12 +1,15 @@
 /*
- * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar,
- * Pradeep Ramani, Tri Dao.
- * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Portions Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
+ */
+
+/*
+ * Copyright (c) 2024, Jay Shah, Ganesh Bikshandi, Ying Zhang, Vijay Thakkar,
+ * Pradeep Ramani, Tri Dao.
+ * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
  */
 
 #pragma once
@@ -126,7 +129,7 @@ void run_hstu_bwd(Hstu_bwd_params& params, cudaStream_t stream) {
            params.window_size_left,
            params.window_size_right,
            params.target_group_size,
-           1.0 / params.target_group_size,
+           1.0f / params.target_group_size,
            params.alpha,
            params.dq_semaphore});
 

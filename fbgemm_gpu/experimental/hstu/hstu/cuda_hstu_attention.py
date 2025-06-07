@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024, NVIDIA Corporation & AFFILIATES.
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Portions Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# Copyright (c) 2024, NVIDIA Corporation & AFFILIATES.
+
 # pyre-strict
 
-from typing import Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 
 
 class HstuAttnVarlenFunc(torch.autograd.Function):
     @staticmethod
-    def forward(
-        ctx,
+    def forward(  # pyre-ignore[14]
+        ctx,  # pyre-ignore[2]
         q: torch.Tensor,  # need grad
         k: torch.Tensor,  # need grad
         v: torch.Tensor,  # need grad
@@ -29,12 +30,12 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
         target_group_size: int,
         window_size: Tuple[int, int] = (-1, -1),
         alpha: float = 1.0,
-        rab: torch.Tensor = None,  # need grad
+        rab: Optional[torch.Tensor] = None,  # need grad
         has_drab: bool = False,
         is_delta_q: bool = False,
-        descale_q: torch.Tensor = None,
-        descale_k: torch.Tensor = None,
-        descale_v: torch.Tensor = None,
+        descale_q: Optional[torch.Tensor] = None,
+        descale_k: Optional[torch.Tensor] = None,
+        descale_v: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         assert q.dim() == 3, "q shape should be (L, num_heads, head_dim)"
         assert k.dim() == 3, "k shape should be (L, num_heads, head_dim)"
@@ -104,10 +105,10 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
         return out
 
     @staticmethod
-    def backward(
-        ctx,
+    def backward(  # pyre-ignore[14]
+        ctx,  # pyre-ignore[2]
         dout: torch.Tensor,
-        *args: any,
+        *args: Any,
     ) -> tuple[
         torch.Tensor,
         torch.Tensor,
@@ -214,6 +215,7 @@ class HstuAttnVarlenFunc(torch.autograd.Function):
         )
 
 
+# pyre-ignore[3]
 def hstu_attn_varlen_func(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -227,12 +229,12 @@ def hstu_attn_varlen_func(
     target_group_size: int = 1,
     window_size: Tuple[int, int] = (-1, -1),
     alpha: float = 1.0,
-    rab: torch.Tensor = None,
+    rab: Optional[torch.Tensor] = None,
     has_drab: bool = False,
     is_delta_q: bool = False,
-    descale_q: torch.Tensor = None,
-    descale_k: torch.Tensor = None,
-    descale_v: torch.Tensor = None,
+    descale_q: Optional[torch.Tensor] = None,
+    descale_k: Optional[torch.Tensor] = None,
+    descale_v: Optional[torch.Tensor] = None,
 ):
     """
     Arguments:
