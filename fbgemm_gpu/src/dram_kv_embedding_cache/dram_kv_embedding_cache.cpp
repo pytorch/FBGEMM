@@ -21,6 +21,7 @@
 
 #include <torch/script.h>
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
+#include "feature_evict_util.h"
 #include "fixed_block_pool.h"
 
 namespace kv_mem {
