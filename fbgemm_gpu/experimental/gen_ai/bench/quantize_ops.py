@@ -16,7 +16,7 @@ import triton  # @manual=//triton:triton
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
     triton_quantize_mx4_unpack,
-    triton_scale_nvfpr_quant,
+    triton_scale_nvfp4_quant,
 )
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -2068,8 +2068,8 @@ class NVFP4Quantize(QuantizeOpBase):
         )
         global_scale = 1 / (x_global_scale * w_global_scale)
 
-        xq, x_scale = triton_scale_nvfpr_quant(x, x_global_scale)
-        wq, w_scale = triton_scale_nvfpr_quant(w, w_global_scale)
+        xq, x_scale = triton_scale_nvfp4_quant(x, x_global_scale)
+        wq, w_scale = triton_scale_nvfp4_quant(w, w_global_scale)
 
         return xq, wq, x_scale, w_scale, global_scale
 
