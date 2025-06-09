@@ -1,25 +1,27 @@
 /*
- * Copyright (c) 2023, Tri Dao.
- * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
- * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Portions Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
 
+/*
+ * Copyright (c) 2023, Tri Dao.
+ * Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
+ */
+
 // Include these 2 headers instead of torch/extension.h since we don't need all
 // of the torch headers.
 #include <ATen/ATen.h>
-#include <torch/library.h>
-
-#include "c10/core/ScalarType.h"
-
 #include <ATen/core/op_registration/op_registration.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/core/ScalarType.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <c10/util/Optional.h>
+#include <torch/library.h>
 #include <torch/nn/functional.h>
+
+#include <optional>
 
 #include "hstu.h"
 #include "static_switch.h"
@@ -440,13 +442,13 @@ std::tuple<at::Tensor, at::Tensor> hstu_varlen_fwd_80(
     const at::Tensor& cu_seqlens_k, // b+1
     const int64_t max_seqlen_q,
     const int64_t max_seqlen_k,
-    const c10::optional<at::Tensor>& num_contexts, // b
-    const c10::optional<at::Tensor>& num_targets, // b
+    const std::optional<at::Tensor>& num_contexts, // b
+    const std::optional<at::Tensor>& num_targets, // b
     const int64_t target_group_size,
     int64_t window_size_left,
     int64_t window_size_right,
     const double alpha,
-    c10::optional<at::Tensor> rab,
+    std::optional<at::Tensor> rab,
     const bool is_delta_q) {
   auto dprops = at::cuda::getCurrentDeviceProperties();
   TORCH_CHECK(dprops->major >= 8, "HSTU only supports Ampere GPUs or newer.");
@@ -738,13 +740,13 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> hstu_varlen_bwd_80(
     const at::Tensor& cu_seqlens_k, // b+1
     const int64_t max_seqlen_q,
     const int64_t max_seqlen_k,
-    const c10::optional<at::Tensor>& num_contexts, // b
-    const c10::optional<at::Tensor>& num_targets, // b
+    const std::optional<at::Tensor>& num_contexts, // b
+    const std::optional<at::Tensor>& num_targets, // b
     const int64_t target_group_size,
     int64_t window_size_left,
     int64_t window_size_right,
     const double alpha,
-    const c10::optional<at::Tensor>& rab,
+    const std::optional<at::Tensor>& rab,
     const bool has_drab,
     const bool is_delta_q,
     const bool deterministic) {
