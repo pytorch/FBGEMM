@@ -150,6 +150,21 @@ install_pytorch_pip () {
   local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
 
+  echo "[CHECK] Verifying PyTorch device properties ..."
+  # shellcheck disable=SC2086,SC2155
+  local torch_cuda_available=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.is_available())")
+  # shellcheck disable=SC2086,SC2155
+  local torch_version_cuda=$(conda run ${env_prefix} python -c "import torch; print(torch.version.cuda)")
+  # shellcheck disable=SC2086,SC2155
+  local torch_version_hip=$(conda run ${env_prefix} python -c "import torch; print(torch.version.hip)")
+  echo ""
+  echo "################################################################################"
+  echo "[CHECK] torch.cuda.is_available(): ${torch_cuda_available}"
+  echo "[CHECK] torch.version.cuda: ${torch_version_cuda}"
+  echo "[CHECK] torch.version.hip: ${torch_version_hip}"
+  echo "################################################################################"
+  echo ""
+
   echo "[CHECK] NOTE: Checking _GLIBCXX_USE_CXX11_ABI ..."
   # shellcheck disable=SC2086,SC2155
   conda run ${env_prefix} python -c 'import torch; print(torch._C._GLIBCXX_USE_CXX11_ABI); print(torch.compiled_with_cxx11_abi())'

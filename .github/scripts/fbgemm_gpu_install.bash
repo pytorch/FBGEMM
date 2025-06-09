@@ -44,6 +44,7 @@ __install_fetch_version_and_variant_info () {
   installed_fbgemm_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
   # shellcheck disable=SC2086,SC2155
   installed_fbgemm_version=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__version__)")
+  echo ""
   echo "################################################################################"
   echo "[CHECK] The installed FBGEMM TARGET is: ${installed_fbgemm_target}"
   echo "[CHECK] The installed FBGEMM VARIANT is: ${installed_fbgemm_variant}"

@@ -36,54 +36,39 @@ run_tbe_microbench () {
       local managed="managed"
     fi
 
-    # Old TBE benchmark script
-    # shellcheck disable=SC2086
-    print_exec conda run --no-capture-output ${env_prefix} python tbe/split_table_batched_embeddings_benchmark.py device \
-      --batch-size 13107 \
-      --embedding-dim 256 \
-      --iters 400 \
-      --warmup-runs 50 \
-      --alpha 1.15 \
-      --bag-size 55 \
-      --weights-precision fp16 \
-      --cache-precision "${cache_type}" \
-      --output-dtype fp16 \
-      --managed="${managed}" \
-      --num-embeddings 10000000 \
-      --num-tables 1 \
-      --row-wise
-
     # New TBE benchmark script
     #
     # Invoke `python tbe/tbe_training_benchmark.py device --help` for
     # documentation on all available flags
     # shellcheck disable=SC2086
     print_exec conda run --no-capture-output ${env_prefix} python tbe/tbe_training_benchmark.py device \
-      --bench-iterations 400 \
-      --bench-warmup-iterations 50 \
-      --bench-num-requests 10 \
-      --tbe-batch-size 13107 \
-      --tbe-embedding-dim 256 \
-      --tbe-pooling-size 55 \
-      --tbe-num-embeddings 10000000 \
-      --tbe-num-tables 1 \
-      --emb-weights-dtype fp16 \
-      --emb-cache-dtype "${cache_type}" \
-      --emb-output-dtype fp16 \
-      --emb-location "${managed}" \
-      --row-wise
+        --tbe-batch-size 131072 \
+        --tbe-embedding-dim 256 \
+        --tbe-pooling-size 55 \
+        --tbe-num-embeddings 10000000 \
+        --tbe-num-tables 1 \
+        --tbe-indices-zipf 1.0 1.15 \
+        --emb-weights-dtype fp16 \
+        --emb-cache-dtype "${cache_type}" \
+        --emb-output-dtype bf16 \
+        --emb-location managed \
+        --emb-pooling-mode none \
+        --row-wise \
+        --bench-iterations 400 \
+        --bench-warmup-iterations 50 \
+        --bench-export-trace --bench-trace-url "test_${cache_type}.json"
   }
 
   pushd fbgemm_gpu/bench || return 1
 
   local cache_types=(
-    # fp16
+    fp16
     fp32
   )
 
   local embedding_locations=(
-    # uvm
-    hbm
+    uvm
+    # hbm
   )
 
   for cache_type in "${cache_types[@]}"; do
