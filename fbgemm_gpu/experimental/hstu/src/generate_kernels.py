@@ -1,15 +1,21 @@
-# Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+#!/usr/bin/env python3
+# Portions Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+# Copyright (c) 2024, NVIDIA CORPORATION & AFFILIATES.
+
 import itertools
 import os
 
 
-def generate_kernels_ampere():
+def generate_kernels_ampere(install_dir: str):
+    """
+    Generate HSTU kernels for Ampere architecture.
+    """
+
     DTYPE_16 = ["bf16", "fp16"]
     HEAD_DIMENSIONS = [32, 64, 128, 256]
     RAB = ["", "_rab"]
@@ -29,6 +35,8 @@ def generate_kernels_ampere():
         "bf16": "cutlass::bfloat16_t",
         "fp16": "cutlass::half_t",
     }
+
+    os.makedirs(install_dir, exist_ok=True)
 
     ampere_fwd_file_head = """
 /*
@@ -51,9 +59,7 @@ template void run_hstu_fwd_80<{}, {}, {}, {}, {}, {}, {}, {}>
     for hdim, dtype, rab, mask in itertools.product(
         HEAD_DIMENSIONS, DTYPE_16, RAB, MASK
     ):
-        file_name = (
-            f"hstu_ampere/instantiations/hstu_fwd_hdim{hdim}_{dtype}{rab}{mask}_sm80.cu"
-        )
+        file_name = f"{install_dir}/hstu_fwd_hdim{hdim}_{dtype}{rab}{mask}_sm80.cu"
         if not os.path.exists(file_name):
             with open(file_name, "w") as f:
                 f.write(
@@ -90,7 +96,7 @@ template void run_hstu_bwd_80<{}, {}, {}, {}, {}, {}, {}, {}, {}>
     for hdim, dtype, rab_drab, mask in itertools.product(
         HEAD_DIMENSIONS, DTYPE_16, RAB_DRAB, MASK
     ):
-        file_name = f"hstu_ampere/instantiations/hstu_bwd_hdim{hdim}_{dtype}{rab_drab}{mask}_sm80.cu"
+        file_name = f"{install_dir}/hstu_bwd_hdim{hdim}_{dtype}{rab_drab}{mask}_sm80.cu"
         if not os.path.exists(file_name):
             with open(file_name, "w") as f:
                 f.write(
@@ -108,7 +114,11 @@ template void run_hstu_bwd_80<{}, {}, {}, {}, {}, {}, {}, {}, {}>
                 )
 
 
-def generate_kernels_hopper():
+def generate_kernels_hopper(install_dir: str):
+    """
+    Generate HSTU kernels for Hopper architecture.
+    """
+
     DTYPE_16 = ["bf16", "fp16"]
     HEAD_DIMENSIONS = [32, 64, 128, 256]
     RAB = ["", "_rab"]
@@ -129,6 +139,8 @@ def generate_kernels_hopper():
         "bf16": "cutlass::bfloat16_t",
         "fp16": "cutlass::half_t",
     }
+
+    os.makedirs(install_dir, exist_ok=True)
 
     hopper_fwd_file_head = """
 /*
@@ -151,9 +163,7 @@ template void run_hstu_fwd_<90, {}, {}, {}, {}, {}, {}, {}, {}>
     for hdim, dtype, rab, mask in itertools.product(
         HEAD_DIMENSIONS, DTYPE_16, RAB, MASK
     ):
-        file_name = (
-            f"hstu_hopper/instantiations/hstu_fwd_hdim{hdim}_{dtype}{rab}{mask}_sm90.cu"
-        )
+        file_name = f"{install_dir}/hstu_fwd_hdim{hdim}_{dtype}{rab}{mask}_sm90.cu"
         if not os.path.exists(file_name):
             with open(file_name, "w") as f:
                 f.write(
@@ -172,9 +182,7 @@ template void run_hstu_fwd_<90, {}, {}, {}, {}, {}, {}, {}, {}>
     for hdim, rab, mask in itertools.product(HEAD_DIMENSIONS, RAB, FP8_MASK):
         if hdim == 32:
             continue
-        file_name = (
-            f"hstu_hopper/instantiations/hstu_fwd_hdim{hdim}_e4m3{rab}{mask}_sm90.cu"
-        )
+        file_name = f"{install_dir}/hstu_fwd_hdim{hdim}_e4m3{rab}{mask}_sm90.cu"
         if not os.path.exists(file_name):
             with open(file_name, "w") as f:
                 f.write(
@@ -211,7 +219,7 @@ template void run_hstu_bwd_<90, {}, {}, {}, {}, {}, {}, {}, {}, {}>
     for hdim, dtype, rab_drab, mask in itertools.product(
         HEAD_DIMENSIONS, DTYPE_16, RAB_DRAB, MASK
     ):
-        file_name = f"hstu_hopper/instantiations/hstu_bwd_hdim{hdim}_{dtype}{rab_drab}{mask}_sm90.cu"
+        file_name = f"{install_dir}/hstu_bwd_hdim{hdim}_{dtype}{rab_drab}{mask}_sm90.cu"
         if not os.path.exists(file_name):
             with open(file_name, "w") as f:
                 f.write(
@@ -229,8 +237,7 @@ template void run_hstu_bwd_<90, {}, {}, {}, {}, {}, {}, {}, {}, {}>
                 )
 
 
-if __name__ == "__main__":
-
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -240,10 +247,22 @@ if __name__ == "__main__":
         default="8.0 9.0",
         help="Comma-separated list of CUDA architectures to generate kernels for",
     )
+    parser.add_argument(
+        "--install_dir",
+        type=str,
+        default=None,
+        help="Output directory for generated source files",
+    )
     args = parser.parse_args()
 
     if "8.0" in args.arch_list:
-        generate_kernels_ampere()
+        # In OSS, the generated files will be written to hstu_ampere/instantiations
+        generate_kernels_ampere(args.install_dir or "hstu_ampere/instantiations")
 
     if "9.0" in args.arch_list:
-        generate_kernels_hopper()
+        # In OSS, the generated files will be written to hstu_hopper/instantiations
+        generate_kernels_hopper(args.install_dir or "hstu_hopper/instantiations")
+
+
+if __name__ == "__main__":
+    main()

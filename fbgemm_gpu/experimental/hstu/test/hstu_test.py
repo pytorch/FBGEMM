@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024, NVIDIA Corporation & AFFILIATES.
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Portions Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
+
+# Copyright (c) 2024, NVIDIA Corporation & AFFILIATES.
 
 import logging
 import math
@@ -14,7 +15,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn.functional as F
 from einops import rearrange
-from fbgemm_gpu.experimental.hstu.cuda_hstu_attention import hstu_attn_varlen_func
+from fbgemm_gpu.experimental.hstu import hstu_attn_varlen_func
 
 from hypothesis import given, settings, strategies as st, Verbosity
 
@@ -193,7 +194,7 @@ def generate_input(
     seq_offsets_c = torch.zeros(
         (batch_size + 1,),
         dtype=torch.int32,
-        device=torch.accelerator.current_accelerator("cuda"),
+        device=torch.accelerator.current_accelerator(),
     )
     seq_offsets_c[1:] = torch.cumsum(num_contexts, dim=0)
 
@@ -202,7 +203,7 @@ def generate_input(
         lengths_k = (
             torch.ones(
                 (batch_size,),
-                device=torch.accelerator.current_accelerator("cuda"),
+                device=torch.accelerator.current_accelerator(),
                 dtype=torch.int32,
             )
             * max_seq_len_k
@@ -214,7 +215,7 @@ def generate_input(
     seq_offsets_k = torch.zeros(
         (batch_size + 1,),
         dtype=torch.int32,
-        device=torch.accelerator.current_accelerator("cuda"),
+        device=torch.accelerator.current_accelerator(),
     )
     seq_offsets_k[1:] = torch.cumsum(lengths_k, dim=0)
 
@@ -242,7 +243,7 @@ def generate_input(
     seq_offsets_t = torch.zeros(
         (batch_size + 1,),
         dtype=torch.int32,
-        device=torch.accelerator.current_accelerator("cuda"),
+        device=torch.accelerator.current_accelerator(),
     )
     seq_offsets_t[1:] = torch.cumsum(num_targets, dim=0)
 
@@ -263,14 +264,14 @@ def generate_input(
             for i in range(batch_size):
                 lengths_q[i] = torch.randint(
                     1,
-                    min(max_seq_len_q, lengths_k[i]) + 1,
+                    min(max_seq_len_q, lengths_k[i]) + 1,  # pyre-ignore[6]
                     size=(1,),
                     device=torch.device("cuda"),
                 )
         seq_offsets_q = torch.zeros(
             (batch_size + 1,),
             dtype=torch.int32,
-            device=torch.accelerator.current_accelerator("cuda"),
+            device=torch.accelerator.current_accelerator(),
         )
         seq_offsets_q[1:] = torch.cumsum(lengths_q, dim=0)
     else:
@@ -324,7 +325,7 @@ def generate_input(
             max_context_len + max_seq_len_k + max_target_len,
         ),
         dtype=dtype_init,
-        device=torch.accelerator.current_accelerator("cuda"),
+        device=torch.accelerator.current_accelerator(),
     ).uniform_(-1, 1)
     if has_drab:
         rab = rab.requires_grad_()
@@ -661,18 +662,18 @@ class HSTU16Test(unittest.TestCase):
                 retain_graph=True,
             )
 
-        assert (dv_hstu - dv_ref).abs().max().item() <= 5 * (
+        assert (dv_hstu - dv_ref).abs().max().item() <= 5 * (  # pyre-ignore[58]
             dv_torch - dv_ref
         ).abs().max().item()
-        assert (dk_hstu - dk_ref).abs().max().item() <= 5 * (
+        assert (dk_hstu - dk_ref).abs().max().item() <= 5 * (  # pyre-ignore[58]
             dk_torch - dk_ref
         ).abs().max().item()
-        assert (dq_hstu - dq_ref).abs().max().item() <= 5 * (
+        assert (dq_hstu - dq_ref).abs().max().item() <= 5 * (  # pyre-ignore[58]
             dq_torch - dq_ref
         ).abs().max().item()
         if has_drab:
-            assert (drab_hstu - drab_ref).abs().max().item() <= 5 * (
-                drab_torch - drab_ref
+            assert (drab_hstu - drab_ref).abs().max().item() <= 5 * (  # pyre-ignore[58,61]
+                drab_torch - drab_ref  # pyre-ignore[61]
             ).abs().max().item()
         torch.cuda.synchronize()
 
@@ -724,8 +725,8 @@ def _hstu_attention_maybe_from_cache_fp8(
         padded_q[0],
         padded_k[0],
         out_dtype=torch.float,
-        scale_a=descale_q,
-        scale_b=descale_k,
+        scale_a=descale_q,  # pyre-ignore[6]
+        scale_b=descale_k,  # pyre-ignore[6]
     )
     for i in range(1, padded_q.size(0)):
         qk_attn = torch.cat(
@@ -735,8 +736,8 @@ def _hstu_attention_maybe_from_cache_fp8(
                     padded_q[i],
                     padded_k[i],
                     out_dtype=torch.float,
-                    scale_a=descale_q,
-                    scale_b=descale_k,
+                    scale_a=descale_q,  # pyre-ignore[6]
+                    scale_b=descale_k,  # pyre-ignore[6]
                 ),
             ),
             dim=0,
@@ -787,7 +788,7 @@ def _hstu_attention_maybe_from_cache_fp8(
         padded_v[0],
         out_dtype=torch.float,
         scale_a=descale_a,
-        scale_b=descale_v,
+        scale_b=descale_v,  # pyre-ignore[6]
     )
     for i in range(1, masked_qk_attn.size(0)):
         attn_output = torch.cat(
@@ -798,7 +799,7 @@ def _hstu_attention_maybe_from_cache_fp8(
                     padded_v[i],
                     out_dtype=torch.float,
                     scale_a=descale_a,
-                    scale_b=descale_v,
+                    scale_b=descale_v,  # pyre-ignore[6]
                 ),
             ),
             dim=0,
@@ -946,8 +947,8 @@ class HSTU8Test(unittest.TestCase):
             seq_offsets_k=seq_offsets_k,
             max_seqlen_q=max_seq_len_q,
             max_seqlen_k=max_seq_len_k,
-            num_contexts=None,
-            num_targets=None,
+            num_contexts=None,  # pyre-ignore[6]
+            num_targets=None,  # pyre-ignore[6]
             target_group_size=1,
             window_size=window_size,
             alpha=alpha,
