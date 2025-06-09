@@ -2909,7 +2909,11 @@ __global__ void quantizeQKVPerHead(
   auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
   for (int b_t = b_t_start; b_t < B_T; b_t += blockDim.y * gridDim.x) {
     b = varseq_batch ? varseq_batch[b_t] : b_t;
-    last_b = b_t == 0 ? -1 : varseq_batch[b_t - 1];
+    if (b_t > 0) {
+      last_b = varseq_batch ? varseq_batch[b_t - 1] : b_t - 1;
+    } else {
+      last_b = -1;
+    }
     {
       // Skip quantization of KV if scale is pre-calculated for K/V
       // as in decode and partial prefill cases
@@ -2955,7 +2959,7 @@ __global__ void quantizeQKVPerHead(
         float scale = 0;
         val = fminf(val, 12000);
         scale = fmaxf(val / FP8_E4M3_MAX::value, min_scaling_factor);
-        bool is_first_token = (b_t == 0 || !varseq_batch || last_b != b);
+        bool is_first_token = b != last_b;
         if (threadIdx.x == 0 && h == 0 && is_first_token) {
           *qparam = scale;
         }
@@ -2983,7 +2987,7 @@ __global__ void quantizeQKVPerHead(
 }
 
 at::Tensor quantize_qkv_per_head(
-    at::Tensor xqkv_amax_row, // [B_T, HH]
+    at::Tensor xqkv_amax_row, // [B, HH]
     at::Tensor xqkv, // [B_T, HH, D_H]
     at::Tensor varseq_seqpos, // [B_T]
     std::optional<at::Tensor> varseq_batch, // [B_T]
@@ -2992,8 +2996,8 @@ at::Tensor quantize_qkv_per_head(
     at::Tensor cache_V, // [B][MAX_T][N_KVH][D_H]
     at::Tensor XQ_O, // [B_T][N_H][D]
     int64_t B, // Batch size
-    std::optional<at::Tensor> qparam_k,
-    std::optional<at::Tensor> qparam_v) {
+    std::optional<at::Tensor> qparam_k = std::nullopt,
+    std::optional<at::Tensor> qparam_v = std::nullopt) {
   auto N_KVH_L = cache_K.size(2);
 
   float* qparam_k_ptr = nullptr;
@@ -3010,9 +3014,6 @@ at::Tensor quantize_qkv_per_head(
   auto scale_q = at::zeros({B, N_KVH_L}, XQ_O.options().dtype(at::kFloat));
   float* const scale_q_ptr = scale_q.data_ptr<float>();
   // Launch the kernel
-  // TODO: Launch the kernel with B_T * N_H_L blocks only in case of decode.
-  // Currently, we are launching the kernel with B_T * HH blocks for decode
-  // and KV blocks just return when qparam_k is passed as nullptr.
   quantizeQKVPerHead<<<
       grid_size,
       block_size,
