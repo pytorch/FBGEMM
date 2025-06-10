@@ -156,7 +156,7 @@ def device(  # noqa C901
                     embconfig.embedding_location,
                     (
                         ComputeDevice.CUDA
-                        if torch.cuda.is_available()
+                        if torch.cuda.is_available() or torch.version.hip
                         else ComputeDevice.CPU
                     ),
                 )
