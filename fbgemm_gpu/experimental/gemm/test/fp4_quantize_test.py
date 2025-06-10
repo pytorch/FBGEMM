@@ -8,6 +8,7 @@ import math
 import unittest
 from typing import Tuple
 
+import fbgemm_gpu
 import torch
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
@@ -20,8 +21,13 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
     triton_silu_quantize_mx4_unpack,
 )
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, RoundingMode
-from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm
-from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
+
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+if not open_source:
+    from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm
+    from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
 
 
 @unittest.skipIf(
@@ -206,6 +212,7 @@ class TestNVFp4SiluQuantize(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
 
+    @unittest.skipIf(open_source, "silu_mul is not available")
     def test_silu_quantize_nvfp4(self) -> None:
 
         def _test_silu_quantize_nvfp4(
@@ -247,6 +254,7 @@ class TestNVFp4RmsQuantize(unittest.TestCase):
     def setUp(self) -> None:
         torch.manual_seed(0)
 
+    @unittest.skipIf(open_source, "rms_norm is not available")
     def test_rms_quantize_nvfp4(self) -> None:
 
         def _test_rms_quantize_nvfp4(
