@@ -8,15 +8,26 @@ import math
 import unittest
 from typing import Tuple
 
+import fbgemm_gpu
 import torch
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
     _to_blocked,
     triton_quantize_mx4_unpack,
     triton_rms_quantize_mx4_unpack,
+    triton_scale_nvfp4_quant,
+    triton_scale_nvfp4_quant_rms,
+    triton_scale_nvfp4_quant_silu,
     triton_silu_quantize_mx4_unpack,
 )
 from fbgemm_gpu.quantize_utils import fp32_to_mx4, RoundingMode
+
+# pyre-fixme[16]: Module `fbgemm_gpu` has no attribute `open_source`.
+open_source: bool = getattr(fbgemm_gpu, "open_source", False)
+
+if not open_source:
+    from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm
+    from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
 
 
 @unittest.skipIf(
@@ -190,3 +201,94 @@ class TestFp4SiluQuantize(unittest.TestCase):
         _test_silu_quantize_fp4((3, 512))
         _test_silu_quantize_fp4((128, 1024))
         _test_silu_quantize_fp4((10240, 10240))
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_properties(torch.cuda.current_device()).major < 9,
+    "Skip when H100 is not available",
+)
+class TestNVFp4SiluQuantize(unittest.TestCase):
+    def setUp(self) -> None:
+        torch.manual_seed(0)
+
+    @unittest.skipIf(open_source, "silu_mul is not available")
+    def test_silu_quantize_nvfp4(self) -> None:
+
+        def _test_silu_quantize_nvfp4(
+            shape: Tuple[int, int],
+            device: str = "cuda",
+        ) -> None:
+            M, N = shape
+            group_size = 16
+            x = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+            w = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+            x_global_scale = torch.tensor([448.0 * 6.0]).to(
+                device=x.device
+            ) / torch.amax(x.flatten(), dim=-1)
+            xq_ref, x_scale_ref = triton_scale_nvfp4_quant_silu(
+                x,
+                w,
+                x_global_scale,
+                group_size=group_size,
+            )
+
+            intermediate = silu_mul(x.reshape(-1, 16), w.reshape(-1, 16))
+            intermediate = intermediate.to(torch.bfloat16).reshape(M, N)
+            xq, x_scale = triton_scale_nvfp4_quant(
+                intermediate,
+                x_global_scale,
+                group_size=group_size,
+            )
+
+            self.assertTrue(torch.equal(xq, xq_ref))
+            self.assertTrue(torch.equal(x_scale, x_scale_ref))
+
+        _test_silu_quantize_nvfp4((1, 128))
+        _test_silu_quantize_nvfp4((4, 512))
+        _test_silu_quantize_nvfp4((128, 1024))
+        _test_silu_quantize_nvfp4((10240, 10240))
+
+
+class TestNVFp4RmsQuantize(unittest.TestCase):
+    def setUp(self) -> None:
+        torch.manual_seed(0)
+
+    @unittest.skipIf(open_source, "rms_norm is not available")
+    def test_rms_quantize_nvfp4(self) -> None:
+
+        def _test_rms_quantize_nvfp4(
+            shape: Tuple[int, int],
+            device: str = "cuda",
+        ) -> None:
+            M, N = shape
+            group_size = 16
+            x = torch.randn(M, N, dtype=torch.bfloat16, device=device)
+            w = torch.randn(group_size, dtype=torch.bfloat16, device=device)
+            x_global_scale = torch.tensor([448.0 * 6.0]).to(
+                device=x.device
+            ) / torch.amax(x.flatten(), dim=-1)
+            xq_ref, x_scale_ref = triton_scale_nvfp4_quant_rms(
+                x,
+                w.repeat(M * N // group_size),
+                x_global_scale,
+                group_size=group_size,
+                EPS=1e-5,
+            )
+
+            intermediate = rms_norm(x.reshape(-1, 16), w, eps=1e-5)
+            intermediate = intermediate.to(torch.bfloat16).reshape(M, N)
+            xq, x_scale = triton_scale_nvfp4_quant(
+                intermediate,
+                x_global_scale,
+                group_size=group_size,
+            )
+
+            self.assertTrue(torch.equal(xq, xq_ref))
+            self.assertTrue(torch.equal(x_scale, x_scale_ref))
+
+        _test_rms_quantize_nvfp4((1, 128))
+        _test_rms_quantize_nvfp4((4, 512))
+        _test_rms_quantize_nvfp4((128, 1024))
+        _test_rms_quantize_nvfp4((1024, 10240))
+        # Note, large testing tensors may lead to slight numerical differences

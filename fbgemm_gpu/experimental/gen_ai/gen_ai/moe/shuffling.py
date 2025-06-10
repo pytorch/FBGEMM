@@ -121,7 +121,7 @@ _COMBINE_SHUFFLING_OP_NAME = "fbgemm::combine_shuffling"
 
 torch.library.define(
     "fbgemm::combine_shuffling",
-    "(Tensor tokens, Tensor token_counts, int expert_start, int expert_end, bool is_balanced) -> (Tensor, Tensor)",
+    "(Tensor tokens, Tensor token_counts, int? expert_start = None, int? expert_end = None, bool? is_balanced = False) -> (Tensor, Tensor)",
 )
 
 
@@ -168,7 +168,7 @@ _SPLIT_SHUFFLING_OP_NAME = "fbgemm::split_shuffling"
 
 torch.library.define(
     "fbgemm::split_shuffling",
-    "(Tensor tokens, Tensor token_counts, int expert_start, int expert_end, bool is_balanced) -> Tensor",
+    "(Tensor tokens, Tensor token_counts, int? expert_start = None, int? expert_end = None, bool? is_balanced = False) -> Tensor",
 )
 
 

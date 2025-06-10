@@ -17,6 +17,7 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+#include <ATen/hip/HIPContext.h>
 #include <c10/hip/HIPStream.h>
 #include <torch/torch.h>
 
@@ -504,6 +505,17 @@ void set_dynamic_kernel_args(
   }
 }
 
+static std::pair<at::ScalarType, std::string> get_float8_e4m3_dtype() {
+  if (at::detail::getCUDAHooks().isGPUArch({"gfx942"})) {
+    return std::make_pair(at::kFloat8_e4m3fnuz, "float8_e4m3fnuz");
+  } else if (at::detail::getCUDAHooks().isGPUArch({"gfx950"})) {
+    return std::make_pair(at::kFloat8_e4m3fn, "float8_e4m3fn");
+  } else {
+    std::string gcn_arch_name = at::cuda::getCurrentDeviceProperties()->gcnArchName;
+    TORCH_CHECK(false, "Unsupported GPU architecture for FP8: ", gcn_arch_name);
+  }
+}
+
 template <typename OutputType>
 OutputType _f8f8bf16_rowwise_grouped(
     at::TensorList XQ,
@@ -512,6 +524,7 @@ OutputType _f8f8bf16_rowwise_grouped(
     at::TensorList w_scale) {
   // Check that input datatypes are valid.
   // First confirm that there are the same number of groups in all inputs.
+  static auto float8_dtype = get_float8_e4m3_dtype();
   TORCH_CHECK(
       XQ.size() == WQ.size() && XQ.size() == x_scale.size() &&
           XQ.size() == w_scale.size(),
@@ -522,15 +535,15 @@ OutputType _f8f8bf16_rowwise_grouped(
     TORCH_CHECK(x.is_cuda() && x.is_contiguous());
     TORCH_CHECK(x.dim() == 2, "Inputs must be 2D.");
     TORCH_CHECK(
-        x.dtype() == at::kFloat8_e4m3fnuz,
-        "Inputs must be type float8_e4m3fnuz.");
+        x.dtype() == float8_dtype.first,
+        "Inputs must be type ", float8_dtype.second);
   }
   for (at::Tensor w : WQ) {
     TORCH_CHECK(w.is_cuda() && w.is_contiguous());
     TORCH_CHECK(w.dim() == 2, "Inputs must be 2D.");
     TORCH_CHECK(
-        w.dtype() == at::kFloat8_e4m3fnuz,
-        "Inputs must be type float8_e4m3fnuz.");
+        w.dtype() == float8_dtype.first,
+        "Inputs must be type ", float8_dtype.second);
     TORCH_CHECK(
         w.size(0) >= 512 && w.size(1) >= 512,
         "N and K must be at least 512 for grouped gemm. For smaller inputs, consider unrolling.");
@@ -626,15 +639,16 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
   // Iterate over inputs and check they are valid.
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(XQ.dim() == 2, "Input XQ must be 2D (total_M,K).");
+  static auto float8_dtype = get_float8_e4m3_dtype();
   TORCH_CHECK(
-      XQ.dtype() == at::kFloat8_e4m3fnuz,
-      "Input XQ must be type float8_e4m3fnuz.");
+      XQ.dtype() == float8_dtype.first,
+      "Input XQ must be type ", float8_dtype.second);
 
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
   TORCH_CHECK(WQ.dim() == 3, "Input WQ must be 3D (G,N,K).");
   TORCH_CHECK(
-      WQ.dtype() == at::kFloat8_e4m3fnuz,
-      "Input WQ must be type float8_e4m3fnuz.");
+      WQ.dtype() == float8_dtype.first,
+      "Input WQ must be type ", float8_dtype.second);
   TORCH_CHECK(
       WQ.size(1) >= 512 && WQ.size(2) >= 512,
       "N and K must be at least 512 for grouped gemm. For smaller inputs, consider unrolling.");
@@ -684,15 +698,16 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
   // Iterate over inputs and check they are valid.
   TORCH_CHECK(XQ.is_cuda() && XQ.is_contiguous());
   TORCH_CHECK(XQ.dim() == 3, "Input XQ must be 3D (G,M,K).");
+  static auto float8_dtype = get_float8_e4m3_dtype();
   TORCH_CHECK(
-      XQ.dtype() == at::kFloat8_e4m3fnuz,
-      "Input XQ must be type float8_e4m3fnuz.");
+      XQ.dtype() == float8_dtype.first,
+      "Input XQ must be type ", float8_dtype.second);
 
   TORCH_CHECK(WQ.is_cuda() && WQ.is_contiguous());
   TORCH_CHECK(WQ.dim() == 3, "Input WQ must be 3D (G,N,K).");
   TORCH_CHECK(
-      WQ.dtype() == at::kFloat8_e4m3fnuz,
-      "Input WQ must be type float8_e4m3fnuz.");
+      WQ.dtype() == float8_dtype.first,
+      "Input WQ must be type ", float8_dtype.second);
   TORCH_CHECK(
       WQ.size(1) >= 512 && WQ.size(2) >= 512,
       "N and K must be at least 512 for grouped gemm. For smaller inputs, consider unrolling.");

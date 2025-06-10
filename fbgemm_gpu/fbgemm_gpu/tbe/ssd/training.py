@@ -2246,7 +2246,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"split_optimizer_states for KV ZCH: {no_snapshot=}, {should_flush=}"
         )
         start_time = time.time()
-        snapshot_handle = self._may_create_snapshot_for_state_dict(
+        snapshot_handle, _ = self._may_create_snapshot_for_state_dict(
             no_snapshot=no_snapshot,
             should_flush=should_flush,
         )

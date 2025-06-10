@@ -16,9 +16,11 @@ import triton  # @manual=//triton:triton
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
     triton_quantize_mx4_unpack,
+    triton_scale_nvfp4_quant,
 )
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+    get_fp8_constants,
     matmul_fp8_block,
     matmul_fp8_row,
     quantize_fp8_block,
@@ -255,10 +257,7 @@ class ScaledMMBaseline(QuantizeOpBase):
     """
 
     def __init__(self):
-        if torch.version.cuda is not None:
-            self.fp8_dtype = torch.float8_e4m3fn
-        else:
-            self.fp8_dtype = torch.float8_e4m3fnuz
+        self.fp8_dtype, _, _, _ = get_fp8_constants()
         self.E4M3_MAX_POS: float = torch.finfo(self.fp8_dtype).max
         self.E5M2_MAX_POS: float = torch.finfo(torch.float8_e5m2).max
         self.FP16_MAX_POS: float = torch.finfo(torch.float16).max
@@ -2026,6 +2025,7 @@ class NVFP4Gemm(QuantizeOpBase):
 
         xq, x_scale = scale_nvfp4_quant(x, x_global_scale)
         wq, w_scale = scale_nvfp4_quant(w, w_global_scale)
+
         return xq, wq, x_scale, w_scale, global_scale
 
     def compute(self, xq, wq, x_scale, w_scale, global_scale):
@@ -2035,13 +2035,53 @@ class NVFP4Gemm(QuantizeOpBase):
 
     def quantize_and_compute(self, x, w):
         xq, wq, x_scale, w_scale, global_scale = self.quantize(x, w)
-        return self.compute(
-            xq, wq, x_scale, w_scale, global_scale=global_scale, use_mx=False
-        )
+        return self.compute(xq, wq, x_scale, w_scale, global_scale=global_scale)
 
     @property
     def name(self) -> str:
         return "cutlass_nv_f4f4bf16"
+
+    @property
+    def hip(self) -> bool:
+        # F4F4BF16 only supported for cuda.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class NVFP4Quantize(QuantizeOpBase):
+    """
+    NVFP4 quantization with block-wise scaling.
+    """
+
+    def quantize(self, x, w):
+        x_global_scale = ((448.0 * 6.0) / torch.amax(x.flatten(), dim=-1)).to(
+            torch.float32
+        )
+        w_global_scale = ((448.0 * 6.0) / torch.amax(w.flatten(), dim=-1)).to(
+            torch.float32
+        )
+        global_scale = 1 / (x_global_scale * w_global_scale)
+
+        xq, x_scale = triton_scale_nvfp4_quant(x, x_global_scale)
+        wq, w_scale = triton_scale_nvfp4_quant(w, w_global_scale)
+
+        return xq, wq, x_scale, w_scale, global_scale
+
+    def compute(self, xq, wq, x_scale, w_scale, global_scale):
+        return torch.ops.fbgemm.f4f4bf16(
+            xq, wq, x_scale, w_scale, global_scale=global_scale, use_mx=False
+        )
+
+    def quantize_and_compute(self, x, w):
+        return self.quantize(x, w)
+
+    @property
+    def name(self) -> str:
+        return "nvfp4_quantize"
 
     @property
     def hip(self) -> bool:

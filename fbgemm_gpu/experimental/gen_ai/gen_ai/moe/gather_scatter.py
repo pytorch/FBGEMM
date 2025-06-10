@@ -278,7 +278,7 @@ _GATHER_SCALE_DENSE_TOKENS_OP_NAME = "fbgemm::gather_scale_dense_tokens"
 
 torch.library.define(
     "fbgemm::gather_scale_dense_tokens",
-    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores) -> Tensor",
+    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores, Tensor? valid_token_count) -> Tensor",
 )
 
 
@@ -316,7 +316,7 @@ _GATHER_SCALE_QUANT_DENSE_TOKENS_OP_NAME = "fbgemm::gather_scale_quant_dense_tok
 
 torch.library.define(
     "fbgemm::gather_scale_quant_dense_tokens",
-    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores, Tensor? scale_ub) -> Tensor",
+    "(Tensor x, Tensor token_indices, Tensor expert_indices, Tensor scores, Tensor? scale_ub, Tensor? valid_token_count) -> Tensor",
 )
 
 
