@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 #include <array>
 #include <cstdint>
+#include "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/feature_evict_util.h"
 
 // #include
 // "deeplearning/fbgemm/fbgemm_gpu/src/dram_kv_embedding_cache/SynchronizedShardedMap.h"
