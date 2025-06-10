@@ -54,7 +54,7 @@ run_tbe_microbench () {
         --emb-location managed \
         --emb-pooling-mode none \
         --row-wise \
-        --bench-iterations 400 \
+        --bench-iterations 100 \
         --bench-warmup-iterations 50 \
         --bench-export-trace --bench-trace-url "test_${cache_type}.json"
   }
