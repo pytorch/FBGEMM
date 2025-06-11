@@ -26,13 +26,14 @@ var searchData=
   ['conv_5fparam_5ft_3c_20spatial_5fdim_20_3e_23',['conv_param_t&lt; SPATIAL_DIM &gt;',['../structfbgemm_1_1conv__param__t.html',1,'fbgemm']]],
   ['convfastpath_24',['ConvFastPath',['../namespacefbgemm.html#ad5bda89769bca9a01ddf81591f20ef02',1,'fbgemm']]],
   ['copy_5fto_5fshared_25',['copy_to_shared',['../group__cumem-utils.html#ga5fffe2dc08b30ada0d71581d880220ad',1,'fbgemm_gpu']]],
-  ['cpu_26',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
-  ['cpu_20autovectorization_20fp8_2016_2032_27',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
-  ['cpu_20operators_28',['CPU Operators',['../group__embedding-cpu.html',1,'Embedding CPU Operators'],['../group__layout-transform-cpu.html',1,'Layout Transformation CPU Operators'],['../group__quantize-data-cpu.html',1,'Quantize Data CPU Operators'],['../group__sparse-data-cpu.html',1,'Sparse Data CPU Operators']]],
-  ['create_5fzch_5fbuffer_5fcpu_29',['create_zch_buffer_cpu',['../group__faster-hash-ops.html#gabd2d0b5ab04c31b247d9faa23d6f4de7',1,'fbgemm_gpu']]],
-  ['cu_202_30',['43 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
-  ['cuda_31',['CUDA',['../group__permute-pooled-embs-gpu.html',1,'Permute Pooled Embeddings Operators (CUDA)'],['../group__quantize-ops-cuda.html',1,'Quantization Operators (CUDA)']]],
-  ['cuda_20memory_20operators_32',['CUDA Memory Operators',['../group__cumem-utils.html',1,'']]],
-  ['cuda_20operators_33',['CUDA Operators',['../group__faster-hash-ops.html',1,'CUDA Operators'],['../group__table-batched-embed-cuda.html',1,'CUDA Operators'],['../group__embedding-cuda.html',1,'Embedding CUDA Operators'],['../group__jagged-tensor-ops-cuda.html',1,'Jagged Tensor CUDA Operators'],['../group__layout-transform-cuda.html',1,'Layout Transformation CUDA Operators'],['../group__sparse-data-cuda.html',1,'Sparse Data CUDA Operators']]],
-  ['cuda_5fcallback_5ffunc_34',['cuda_callback_func',['../group__embedding-ssd.html#ga14b70f98db5378da5071b9049b7356db',1,'kv_db_utils']]]
+  ['cpp_20operators_26',['CPP Operators',['../group__faster-hash-ops-cpu.html',1,'']]],
+  ['cpu_27',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
+  ['cpu_20autovectorization_20fp8_2016_2032_28',['TBE CPU Autovectorization (FP8/16/32)',['../group__tbe-cpu-autovec.html',1,'']]],
+  ['cpu_20operators_29',['CPU Operators',['../group__embedding-cpu.html',1,'Embedding CPU Operators'],['../group__layout-transform-cpu.html',1,'Layout Transformation CPU Operators'],['../group__quantize-data-cpu.html',1,'Quantize Data CPU Operators'],['../group__sparse-data-cpu.html',1,'Sparse Data CPU Operators']]],
+  ['create_5fzch_5fbuffer_5fcpu_30',['create_zch_buffer_cpu',['../group__faster-hash-ops-cpu.html#gabd2d0b5ab04c31b247d9faa23d6f4de7',1,'fbgemm_gpu']]],
+  ['cu_202_31',['43 &quot;/__w/FBGEMM/FBGEMM/fbgemm_gpu/codegen/training/forward/embedding_forward_split_template.cu&quot; 2',['..//__w/FBGEMM/FBGEMM/fbgemm_gpu/include/fbgemm_gpu/split_embeddings_cache_cuda.cuh#autotoc_md0',1,'']]],
+  ['cuda_32',['CUDA',['../group__permute-pooled-embs-gpu.html',1,'Permute Pooled Embeddings Operators (CUDA)'],['../group__quantize-ops-cuda.html',1,'Quantization Operators (CUDA)']]],
+  ['cuda_20memory_20operators_33',['CUDA Memory Operators',['../group__cumem-utils.html',1,'']]],
+  ['cuda_20operators_34',['CUDA Operators',['../group__faster-hash-ops-cuda.html',1,'CUDA Operators'],['../group__table-batched-embed-cuda.html',1,'CUDA Operators'],['../group__embedding-cuda.html',1,'Embedding CUDA Operators'],['../group__jagged-tensor-ops-cuda.html',1,'Jagged Tensor CUDA Operators'],['../group__layout-transform-cuda.html',1,'Layout Transformation CUDA Operators'],['../group__sparse-data-cuda.html',1,'Sparse Data CUDA Operators']]],
+  ['cuda_5fcallback_5ffunc_35',['cuda_callback_func',['../group__embedding-ssd.html#ga14b70f98db5378da5071b9049b7356db',1,'kv_db_utils']]]
 ];

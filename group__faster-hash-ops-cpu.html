@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=11"/>
 <meta name="generator" content="Doxygen 1.13.2"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>fbgemm_gpu: CUDA Operators</title>
+<title>fbgemm_gpu: CPP Operators</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -86,17 +86,12 @@ $(function(){ initResizable(false); });
 <div class="header">
   <div class="summary">
 <a href="#func-members">Functions</a>  </div>
-  <div class="headertitle"><div class="title">CUDA Operators</div></div>
+  <div class="headertitle"><div class="title">CPP Operators</div></div>
 </div><!--header-->
 <div class="contents">
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
-<tr class="memitem:gac6534da9b47e25427b48cde7c7dadadd" id="r_gac6534da9b47e25427b48cde7c7dadadd"><td class="memTemplParams" colspan="2">template&lt;typename TInput, typename TIdentity&gt; </td></tr>
-<tr class="memitem:gac6534da9b47e25427b48cde7c7dadadd"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#gac6534da9b47e25427b48cde7c7dadadd">_zero_collision_hash_cuda</a> (Tensor &amp;output, Tensor &amp;evict_slots, const Tensor &amp;input, Tensor &amp;identities, int64_t max_probe, bool circular_probe, int64_t cur_hour, bool readonly, bool support_evict, const std::optional&lt; Tensor &gt; &amp;local_sizes, const std::optional&lt; Tensor &gt; &amp;offsets, int32_t hash_identity, const std::optional&lt; Tensor &gt; &amp;metadata, bool disable_fallback, const std::optional&lt; Tensor &gt; &amp;input_metadata, int64_t eviction_threshold, int64_t eviction_policy, int64_t opt_in_prob, int64_t num_reserved_slots, const std::optional&lt; Tensor &gt; &amp;opt_in_rands)</td></tr>
-<tr class="separator:gac6534da9b47e25427b48cde7c7dadadd"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga3015cb500f9ca4b6fc44272df813a6f0" id="r_ga3015cb500f9ca4b6fc44272df813a6f0"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga3015cb500f9ca4b6fc44272df813a6f0">murmur_hash3_cuda</a> (const Tensor &amp;input, int64_t y, int64_t seed)</td></tr>
-<tr class="separator:ga3015cb500f9ca4b6fc44272df813a6f0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:gabd2d0b5ab04c31b247d9faa23d6f4de7" id="r_gabd2d0b5ab04c31b247d9faa23d6f4de7"><td class="memItemLeft" align="right" valign="top">std::tuple&lt; Tensor, Tensor &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#gabd2d0b5ab04c31b247d9faa23d6f4de7">create_zch_buffer_cpu</a> (const int64_t size, bool support_evict, std::optional&lt; at::Device &gt; device, bool long_type)</td></tr>
 <tr class="separator:gabd2d0b5ab04c31b247d9faa23d6f4de7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga4f61ccf02dd0ff377cb26e0032ad3d9a" id="r_ga4f61ccf02dd0ff377cb26e0032ad3d9a"><td class="memItemLeft" align="right" valign="top">Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ga4f61ccf02dd0ff377cb26e0032ad3d9a">murmur_hash3_cpu</a> (const Tensor &amp;input, int64_t y, int64_t seed)</td></tr>
@@ -109,148 +104,7 @@ Functions</h2></td></tr>
 <tr class="separator:ga8b278cc30f24cae8571384812aa95af9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<p>The following are CUDA Operators </p>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="gac6534da9b47e25427b48cde7c7dadadd" name="gac6534da9b47e25427b48cde7c7dadadd"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#gac6534da9b47e25427b48cde7c7dadadd">&#9670;&#160;</a></span>_zero_collision_hash_cuda()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename TInput, typename TIdentity&gt; </div>
-      <table class="memname">
-        <tr>
-          <td class="memname">void _zero_collision_hash_cuda </td>
-          <td>(</td>
-          <td class="paramtype">Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>output</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>evict_slots</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>identities</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>max_probe</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>circular_probe</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>cur_hour</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>readonly</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>support_evict</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>local_sizes</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>offsets</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int32_t</td>          <td class="paramname"><span class="paramname"><em>hash_identity</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>metadata</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>disable_fallback</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>input_metadata</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>eviction_threshold</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>eviction_policy</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>opt_in_prob</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>num_reserved_slots</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>opt_in_rands</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-<p>CUDA implementation of zero collision hash</p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">output</td><td>the output tensor that will be modified in place </td></tr>
-    <tr><td class="paramname">evict_slots</td><td>the slots that will be evicted </td></tr>
-    <tr><td class="paramname">input</td><td>the input tensor </td></tr>
-    <tr><td class="paramname">identities</td><td>the identity tensor </td></tr>
-    <tr><td class="paramname">max_probe</td><td>the maximum number of probes </td></tr>
-    <tr><td class="paramname">circular_probe</td><td>whether to use circular probe </td></tr>
-    <tr><td class="paramname">cur_hour</td><td>the current hour </td></tr>
-    <tr><td class="paramname">readonly</td><td>whether to use readonly mode </td></tr>
-    <tr><td class="paramname">support_evict</td><td>whether to support evict </td></tr>
-    <tr><td class="paramname">local_sizes</td><td>the local sizes tensor </td></tr>
-    <tr><td class="paramname">offsets</td><td>the offsets tensor </td></tr>
-    <tr><td class="paramname">hash_identity</td><td>whether to hash the identity </td></tr>
-    <tr><td class="paramname">metadata</td><td>the metadata tensor </td></tr>
-    <tr><td class="paramname">disable_fallback</td><td>whether to disable fallback </td></tr>
-    <tr><td class="paramname">input_metadata</td><td>the input metadata tensor </td></tr>
-    <tr><td class="paramname">eviction_threshold</td><td>the eviction threshold </td></tr>
-    <tr><td class="paramname">eviction_policy</td><td>the eviction policy </td></tr>
-    <tr><td class="paramname">opt_in_prob</td><td>the opt-in probability </td></tr>
-    <tr><td class="paramname">num_reserved_slots</td><td>the number of reserved slots </td></tr>
-    <tr><td class="paramname">opt_in_rands</td><td>the opt-in randoms tensor</td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>None </dd></dl>
-
-</div>
-</div>
 <a id="gabd2d0b5ab04c31b247d9faa23d6f4de7" name="gabd2d0b5ab04c31b247d9faa23d6f4de7"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#gabd2d0b5ab04c31b247d9faa23d6f4de7">&#9670;&#160;</a></span>create_zch_buffer_cpu()</h2>
 
@@ -279,7 +133,8 @@ template&lt;typename TInput, typename TIdentity&gt; </div>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Create buffers for identity table and metadata table for ZCH</p>
+
+<p>Create buffers for identity table and metadata table for ZCH This function declare and initialize the identity table and metadata table for ZCH. The identity table is a tensor of size [size, 1] and the metadata table is a tensor of size [size, 1]. Slots in both the identity table and metadata table are initialized with default value as -1. </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">size</td><td>The target tensor dimensions </td></tr>
@@ -316,7 +171,9 @@ template&lt;typename TInput, typename TIdentity&gt; </div>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Murmur hash operator for CPU</p>
+
+<p>Murmur hash operator for CPU. </p>
+<p>This function implements the Murmur hash algorithm. Given an input tensor a y value and a seed value, it returns the hash value of the input tensor. The hash value is calculated using the Murmur hash3 x64 algorithm implemented in the <code>murmur_hash3_2x64</code> function in <code>common_utils.cuh</code>.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">input</td><td>The input tensor </td></tr>
@@ -326,42 +183,6 @@ template&lt;typename TInput, typename TIdentity&gt; </div>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>The output hash value </dd></dl>
-
-</div>
-</div>
-<a id="ga3015cb500f9ca4b6fc44272df813a6f0" name="ga3015cb500f9ca4b6fc44272df813a6f0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ga3015cb500f9ca4b6fc44272df813a6f0">&#9670;&#160;</a></span>murmur_hash3_cuda()</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">Tensor murmur_hash3_cuda </td>
-          <td>(</td>
-          <td class="paramtype">const Tensor &amp;</td>          <td class="paramname"><span class="paramname"><em>input</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>y</em></span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>seed</em></span>&#160;)</td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-<p>CUDA implementation of murmurhash3</p>
-<dl class="params"><dt>Parameters</dt><dd>
-  <table class="params">
-    <tr><td class="paramname">input</td><td>the input tensor </td></tr>
-    <tr><td class="paramname">y</td><td>the y value </td></tr>
-    <tr><td class="paramname">seed</td><td>the seed value</td></tr>
-  </table>
-  </dd>
-</dl>
-<dl class="section return"><dt>Returns</dt><dd>the output tensor </dd></dl>
 
 </div>
 </div>
@@ -388,7 +209,9 @@ template&lt;typename TInput, typename TIdentity&gt; </div>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Murmur hash operator for Meta device</p>
+
+<p>Murmur hash operator for Meta device. </p>
+<p>This function implements the Murmur hash algorithm. Given an input tensor a y value and a seed value, it returns the hash value of the input tensor. The hash value is calculated using the Murmur hash3 x64 algorithm implemented in the <code>murmur_hash3_2x64</code> function in <code>common_utils.cuh</code>.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">input</td><td>The input tensor </td></tr>
@@ -498,7 +321,14 @@ template&lt;typename TInput, typename TIdentity&gt; </div>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Zero collision hash operator for CPU</p>
+
+<p>Zero collision hash operator for CPU. </p>
+<p>This function performs zero collision hash on the input feature IDs in the input tensor and returns the remapped IDs in the output tensor. It also updates the metadata table if the eviction policy is enabled. Specifically, it performs the following steps:</p><ol type="1">
+<li>For each input feature ID, it computes the hash value using the MurmurHash3 algorithm. And the hash value will be forwarded to the identity table (tensor named identities).</li>
+<li>Check if the slot in the identity table indexed by the hash value is empty. If it is empty, the feature ID will be inserted into the slot and the hash value will be returned as the remapped ID.</li>
+<li>If the slot is not empty, it will linearly probe the next slot until it finds an empty slot or reaches the maximum number of probes. If an empty slot is found, the feature ID will be inserted into that slot and the index of the empty slot will be returned as the remapped ID.</li>
+<li>If no empty slot is found, it will find the evictable slot based on the eviction policy and evict the feature ID in that slot. Then, it will insert the current feature ID into the evicted slot and return the index of the evicted slot as the remapped ID. The metadata table will also be updated accordingly.</li>
+</ol>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">input</td><td>The input tensor </td></tr>
@@ -624,7 +454,14 @@ template&lt;typename TInput, typename TIdentity&gt; </div>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Zero collision hash operator for data on meta device</p>
+
+<p>Zero collision hash operator for Meta device. </p>
+<p>This function performs zero collision hash on the input feature IDs in the input tensor and returns the remapped IDs in the output tensor. It also updates the metadata table if the eviction policy is enabled. Specifically, it performs the following steps:</p><ol type="1">
+<li>For each input feature ID, it computes the hash value using the MurmurHash3 algorithm. And the hash value will be forwarded to the identity table (tensor named identities).</li>
+<li>Check if the slot in the identity table indexed by the hash value is empty. If it is empty, the feature ID will be inserted into the slot and the hash value will be returned as the remapped ID.</li>
+<li>If the slot is not empty, it will linearly probe the next slot until it finds an empty slot or reaches the maximum number of probes. If an empty slot is found, the feature ID will be inserted into that slot and the index of the empty slot will be returned as the remapped ID.</li>
+<li>If no empty slot is found, it will find the evictable slot based on the eviction policy and evict the feature ID in that slot. Then, it will insert the current feature ID into the evicted slot and return the index of the evicted slot as the remapped ID. The metadata table will also be updated accordingly.</li>
+</ol>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">input</td><td>The input tensor </td></tr>

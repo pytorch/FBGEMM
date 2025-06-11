@@ -358,6 +358,7 @@
 <li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu/cpp-api/ssd_embedding_ops.html">SSD Embedding Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu/cpp-api/experimental_ops.html">Experimental Operators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu/cpp-api/feature_gates.html">Feature Gates (C++)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="fbgemm_gpu/cpp-api/faster_hash_ops.html">Faster Hash Operators</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FBGEMM_GPU Python API</span></p>
 <ul>
@@ -476,6 +477,7 @@
  | <a href="#T"><strong>T</strong></a>
  | <a href="#U"><strong>U</strong></a>
  | <a href="#X"><strong>X</strong></a>
+ | <a href="#Z"><strong>Z</strong></a>
  
 </div>
 <h2 id="_">_</h2>
@@ -535,6 +537,8 @@
 </li>
       <li><a href="fbgemm_gpu/cpp-api/quantize_ops.html#_CPPv449_single_or_half_precision_to_fusednbitrowwise_gpuRK6TensorK7int64_t">_single_or_half_precision_to_fusednbitrowwise_gpu (C++ function)</a>
 </li>
+      <li><a href="fbgemm_gpu/cpp-api/faster_hash_ops.html#_CPPv4I00E25_zero_collision_hash_cudavR6TensorR6TensorRK6TensorR6Tensor7int64_tb7int64_tbbRKNSt8optionalI6TensorEERKNSt8optionalI6TensorEE7int32_tRKNSt8optionalI6TensorEEbRKNSt8optionalI6TensorEE7int64_t7int64_t7int64_t7int64_tRKNSt8optionalI6TensorEE">_zero_collision_hash_cuda (C++ function)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -578,6 +582,8 @@
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu/cpp-api/memory_utils.html#_CPPv414copy_to_sharedRK6Tensor">copy_to_shared (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu/cpp-api/faster_hash_ops.html#_CPPv421create_zch_buffer_cpuK7int64_tbNSt8optionalIN2at6DeviceEEEb">create_zch_buffer_cpu (C++ function)</a>
 </li>
       <li><a href="fbgemm_gpu/cpp-api/ssd_embedding_ops.html#_CPPv418cuda_callback_func12cudaStream_t11cudaError_tPv">cuda_callback_func (C++ function)</a>
 </li>
@@ -830,8 +836,6 @@
 </li>
       <li><a href="fbgemm_gpu/cpp-api/ssd_embedding_ops.html#_CPPv424masked_index_select_cuda6Tensor6Tensor6Tensor6TensorKbK7int64_t">masked_index_select_cuda (C++ function)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm_gpu/python-api/pooled_embedding_ops.html#torch.ops.fbgemm.merge_pooled_embeddings">merge_pooled_embeddings() (in module torch.ops.fbgemm)</a>
 </li>
       <li>
@@ -841,6 +845,14 @@
         <li><a href="fbgemm_gpu/python-api/feature_gates.html#module-fbgemm_gpu">fbgemm_gpu</a>, <a href="fbgemm_gpu/python-api/jagged_tensor_ops.html#module-fbgemm_gpu">[1]</a>, <a href="fbgemm_gpu/python-api/pooled_embedding_modules.html#module-fbgemm_gpu">[2]</a>, <a href="fbgemm_gpu/python-api/pooled_embedding_ops.html#module-fbgemm_gpu">[3]</a>, <a href="fbgemm_gpu/python-api/quantize_ops.html#module-fbgemm_gpu">[4]</a>, <a href="fbgemm_gpu/python-api/sparse_ops.html#module-fbgemm_gpu">[5]</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu/cpp-api/faster_hash_ops.html#_CPPv416murmur_hash3_cpuRK6Tensor7int64_t7int64_t">murmur_hash3_cpu (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu/cpp-api/faster_hash_ops.html#_CPPv417murmur_hash3_cudaRK6Tensor7int64_t7int64_t">murmur_hash3_cuda (C++ function)</a>
+</li>
+      <li><a href="fbgemm_gpu/cpp-api/faster_hash_ops.html#_CPPv417murmur_hash3_metaRK6Tensor7int64_t7int64_t">murmur_hash3_meta (C++ function)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -1040,6 +1052,18 @@
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="fbgemm/cpp-api/QuantUtils.html#_CPPv46Xor128v">Xor128 (C++ function)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="Z">Z</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu/cpp-api/faster_hash_ops.html#_CPPv423zero_collision_hash_cpuRK6TensorR6Tensor7int64_tb7int64_tbRKNSt8optionalI6TensorEERKNSt8optionalI6TensorEERKNSt8optionalI6TensorEEbbbRKNSt8optionalI6TensorEE7int64_t7int64_t7int64_t7int64_tRKNSt8optionalI6TensorEE">zero_collision_hash_cpu (C++ function)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="fbgemm_gpu/cpp-api/faster_hash_ops.html#_CPPv424zero_collision_hash_metaRK6TensorR6Tensor7int64_tb7int64_tbRKNSt8optionalI6TensorEERKNSt8optionalI6TensorEERKNSt8optionalI6TensorEEbbbRKNSt8optionalI6TensorEE7int64_t7int64_t7int64_t7int64_tRKNSt8optionalI6TensorEE">zero_collision_hash_meta (C++ function)</a>
 </li>
   </ul></td>
 </tr></table>
