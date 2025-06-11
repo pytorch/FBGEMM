@@ -2364,54 +2364,80 @@ at::Tensor xpos_qkv_decoding(
  * 32-63 to convert the V tensors. NV only has threads 0-31 per warp.
  */
 __global__ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel(
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
-        cache_K, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint8_t, 4, at::RestrictPtrTraits>
-        cache_V, // [B][MAX_T][N_KVH][D_H]
-    at::PackedTensorAccessor64<uint32_t, 4, at::RestrictPtrTraits> qparam_K,
-    at::PackedTensorAccessor64<uint32_t, 4, at::RestrictPtrTraits> qparam_V) {
-  auto N_KVH = cache_K.size(2);
-  auto MAX_T = cache_K.size(1);
-  auto D_H = cache_K.size(3);
+    at::PackedTensorAccessor64<uint8_t, 5, at::RestrictPtrTraits>
+        cache_K, // [N_H_L][B][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<uint8_t, 5, at::RestrictPtrTraits>
+        cache_V, // [N_H_L][B][MAX_T][N_KVH][D_H]
+    at::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_K,
+    at::PackedTensorAccessor64<int32_t, 5, at::RestrictPtrTraits> qparam_V,
+    int* errorFlag,
+    half* beforeVal,
+    half* afterVal) {
+  auto N_KVH = cache_K.size(3);
+  auto MAX_T = cache_K.size(2);
+  auto D_H = cache_K.size(4);
   CUDA_KERNEL_ASSERT(D_H == 128);
 
-  auto b = blockIdx.x;
+  auto l = blockIdx.x;
+  auto b = blockIdx.y;
   int h = 0, t = 0;
   uint8_t* head;
-  __half* qparam_scale_ptr;
+  __half2* shift_scale;
 
-  for (auto t_h = threadIdx.y + blockIdx.y * blockDim.y; t_h < MAX_T * N_KVH;
-       t_h += blockDim.y * gridDim.y) {
+  for (auto t_h = threadIdx.y + blockIdx.z * blockDim.y; t_h < MAX_T * N_KVH;
+       t_h += blockDim.y * gridDim.z) {
     h = t_h % N_KVH;
     t = t_h / N_KVH;
 
     auto tidx = threadIdx.x;
     if (threadIdx.x < 32) {
-      head = &cache_K[b][t][h][0];
-      qparam_scale_ptr = reinterpret_cast<__half*>(&qparam_K[b][t][h][0]);
+      head = &cache_K[l][b][t][h][0];
+      shift_scale = reinterpret_cast<__half2*>(&qparam_K[l][b][t][h][0]);
     } else {
-      head = &cache_V[b][t][h][0];
-      qparam_scale_ptr = reinterpret_cast<__half*>(&qparam_V[b][t][h][0]);
+      head = &cache_V[l][b][t][h][0];
+      shift_scale = reinterpret_cast<__half2*>(&qparam_V[l][b][t][h][0]);
       tidx -= 32;
     }
     auto D_H_idx = tidx * 4; // Reading 4 bytes at once.
+    auto negative_zero = 0x80;
 
     // Our only goal here is to detect negative zeros that are valid
-    // in e4m3fn, but not valid in e4m3fnuz, and overwrite them with zeros.
-    // E.g. 0x80708070u ^ 0x80808080u = 0xf000f0u & 0x80708070u = 0x00700070u
+    // in e4m3fn, but not valid in e4m3fnuz, and overwrite them with positive
+    // zeros.
     uint32_t packed_fp8x4_vals = *reinterpret_cast<uint32_t*>(&head[D_H_idx]);
-    *reinterpret_cast<uint32_t*>(&head[D_H_idx]) =
-        (packed_fp8x4_vals ^ 0x80808080) & packed_fp8x4_vals;
+    if (((packed_fp8x4_vals >> 24) & 0xff) == negative_zero) {
+      packed_fp8x4_vals &= 0x00ffffff;
+    }
+    if (((packed_fp8x4_vals >> 16) & 0xff) == negative_zero) {
+      packed_fp8x4_vals &= 0xff00ffff;
+    }
+    if (((packed_fp8x4_vals >> 8) & 0xff) == negative_zero) {
+      packed_fp8x4_vals &= 0xffff00ff;
+    }
+    if ((packed_fp8x4_vals & 0xff) == negative_zero) {
+      packed_fp8x4_vals &= 0xffffff00;
+    }
+    *reinterpret_cast<uint32_t*>(&head[D_H_idx]) = packed_fp8x4_vals;
 
     // Multiply qparam scale (member x) by 2 to compensate for the exponent
-    // bias difference (1) between e4m3fn and e4m3fnuz. We only need to do this
-    // once per row. In debug mode, assert that 2.0*scale as a float would not
-    // exceed the max value of __half.
+    // bias difference (1) between e4m3fn and e4m3fnuz. We only need to do
+    // this once per row. In debug mode, assert that 2.0*scale as a float would
+    // not exceed the max value of __half.
     if (tidx == 0) {
-      CUDA_KERNEL_ASSERT(
-          __half2float(*qparam_scale_ptr) * 2.0f <=
-          __half2float(std::numeric_limits<__half>::max()));
-      *qparam_scale_ptr = __float2half(__half2float(*qparam_scale_ptr) * 2.0f);
+      __half shift = __high2half(*shift_scale);
+      __half scale = __low2half(*shift_scale);
+
+      CUDA_KERNEL_ASSERT(__half2float(scale) * 2.0f <= 65504.0f);
+
+      __half new_scale = __hmul(scale, __float2half(2.0f));
+      *shift_scale = __half2(new_scale, shift);
+
+      if (__half2float(scale) * 2.0f > 65504.0f) {
+        // Record error if scale overflows.
+        *beforeVal = scale;
+        *afterVal = new_scale;
+        *errorFlag = 1;
+      }
     }
   }
 }
@@ -2423,23 +2449,66 @@ void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
     at::Tensor qparam_V) {
   TORCH_CHECK(cache_K.is_cuda());
   TORCH_CHECK(cache_V.is_cuda());
+  TORCH_CHECK(qparam_K.is_cuda());
+  TORCH_CHECK(qparam_V.is_cuda());
 
-  auto B = cache_K.size(0);
+  auto N_H_L = cache_K.size(0);
+  auto B = cache_K.size(1);
 
-  constexpr int32_t kMaxBlocks = 1;
-  dim3 blocks(B, std::max<int32_t>(1, kMaxBlocks / B));
+  constexpr int32_t kMaxBlocks = 512;
+  // Blocks: (N_H_L, B, residual from max blocks)
+  dim3 blocks(N_H_L, B, std::max<int32_t>(1, kMaxBlocks / (B * N_H_L)));
   dim3 threads(kThreadsPerWarp, kWarpsPerBlock);
+
+  int* d_errorFlag;
+  int h_errorFlag = 0;
+  cudaMalloc(&d_errorFlag, sizeof(int));
+  cudaMemcpy(d_errorFlag, &h_errorFlag, sizeof(int), cudaMemcpyHostToDevice);
+
+  half* d_beforeVal;
+  half h_beforeVal = __float2half(0.0f);
+  cudaMalloc(&d_beforeVal, sizeof(__half));
+  cudaMemcpy(d_beforeVal, &h_beforeVal, sizeof(__half), cudaMemcpyHostToDevice);
+
+  half* d_afterVal;
+  half h_afterVal = __float2half(0.0f);
+  cudaMalloc(&d_afterVal, sizeof(__half));
+  cudaMemcpy(d_afterVal, &h_afterVal, sizeof(__half), cudaMemcpyHostToDevice);
 
   convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace_kernel<<<
       blocks,
       threads,
       0,
       at::cuda::getCurrentCUDAStream()>>>(
-      cache_K.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
-      cache_V.packed_accessor64<uint8_t, 4, at::RestrictPtrTraits>(),
-      qparam_K.packed_accessor64<uint32_t, 4, at::RestrictPtrTraits>(),
-      qparam_V.packed_accessor64<uint32_t, 4, at::RestrictPtrTraits>());
+      cache_K.packed_accessor64<uint8_t, 5, at::RestrictPtrTraits>(),
+      cache_V.packed_accessor64<uint8_t, 5, at::RestrictPtrTraits>(),
+      qparam_K.packed_accessor64<int32_t, 5, at::RestrictPtrTraits>(),
+      qparam_V.packed_accessor64<int32_t, 5, at::RestrictPtrTraits>(),
+      d_errorFlag,
+      d_beforeVal,
+      d_afterVal);
+
   C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  cudaMemcpy(&h_errorFlag, d_errorFlag, sizeof(int), cudaMemcpyDeviceToHost);
+  cudaMemcpy(&h_beforeVal, d_beforeVal, sizeof(__half), cudaMemcpyDeviceToHost);
+  cudaMemcpy(&h_afterVal, d_afterVal, sizeof(__half), cudaMemcpyDeviceToHost);
+  // Check the error flag
+  if (h_errorFlag != 0) {
+    std::stringstream ss;
+    ss << "Error detected in convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace execution! ["
+       << h_errorFlag << "] scale before: ";
+    uint16_t h_beforeVal_u16 = std::bit_cast<uint16_t>(h_beforeVal);
+    for (int i = 15; i >= 0; --i) {
+      ss << ((h_beforeVal_u16 >> i) & 1);
+    }
+    ss << " scale after: ";
+    uint16_t h_afterVal_u16 = std::bit_cast<uint16_t>(h_afterVal);
+    for (int i = 15; i >= 0; --i) {
+      ss << ((h_afterVal_u16 >> i) & 1);
+    }
+    LOG(ERROR) << ss.str() << std::endl;
+  }
 }
 #else
 void convert_e4m3fn_kv_cache_to_e4m3fnuz_inplace(
@@ -2909,7 +2978,11 @@ __global__ void quantizeQKVPerHead(
   auto b_t_start = blockIdx.x * blockDim.y + threadIdx.y;
   for (int b_t = b_t_start; b_t < B_T; b_t += blockDim.y * gridDim.x) {
     b = varseq_batch ? varseq_batch[b_t] : b_t;
-    last_b = b_t == 0 ? -1 : varseq_batch[b_t - 1];
+    if (b_t > 0) {
+      last_b = varseq_batch ? varseq_batch[b_t - 1] : b_t - 1;
+    } else {
+      last_b = -1;
+    }
     {
       // Skip quantization of KV if scale is pre-calculated for K/V
       // as in decode and partial prefill cases
@@ -2955,7 +3028,7 @@ __global__ void quantizeQKVPerHead(
         float scale = 0;
         val = fminf(val, 12000);
         scale = fmaxf(val / FP8_E4M3_MAX::value, min_scaling_factor);
-        bool is_first_token = (b_t == 0 || !varseq_batch || last_b != b);
+        bool is_first_token = b != last_b;
         if (threadIdx.x == 0 && h == 0 && is_first_token) {
           *qparam = scale;
         }
@@ -2983,7 +3056,7 @@ __global__ void quantizeQKVPerHead(
 }
 
 at::Tensor quantize_qkv_per_head(
-    at::Tensor xqkv_amax_row, // [B_T, HH]
+    at::Tensor xqkv_amax_row, // [B, HH]
     at::Tensor xqkv, // [B_T, HH, D_H]
     at::Tensor varseq_seqpos, // [B_T]
     std::optional<at::Tensor> varseq_batch, // [B_T]
@@ -2992,8 +3065,8 @@ at::Tensor quantize_qkv_per_head(
     at::Tensor cache_V, // [B][MAX_T][N_KVH][D_H]
     at::Tensor XQ_O, // [B_T][N_H][D]
     int64_t B, // Batch size
-    std::optional<at::Tensor> qparam_k,
-    std::optional<at::Tensor> qparam_v) {
+    std::optional<at::Tensor> qparam_k = std::nullopt,
+    std::optional<at::Tensor> qparam_v = std::nullopt) {
   auto N_KVH_L = cache_K.size(2);
 
   float* qparam_k_ptr = nullptr;
@@ -3010,9 +3083,6 @@ at::Tensor quantize_qkv_per_head(
   auto scale_q = at::zeros({B, N_KVH_L}, XQ_O.options().dtype(at::kFloat));
   float* const scale_q_ptr = scale_q.data_ptr<float>();
   // Launch the kernel
-  // TODO: Launch the kernel with B_T * N_H_L blocks only in case of decode.
-  // Currently, we are launching the kernel with B_T * HH blocks for decode
-  // and KV blocks just return when qparam_k is passed as nullptr.
   quantizeQKVPerHead<<<
       grid_size,
       block_size,
