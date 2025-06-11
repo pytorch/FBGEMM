@@ -39,6 +39,19 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_no_evict(self) -> None:
+        """
+        Test the basic functionality of zero collision hash without evicting.
+        It creates a identity table with 200 slots, and insert two batches of
+        100 numbers with zero collision hash.
+
+        Assertions:
+            1. The outputs of two batches match their inputs.
+            2. The identity table is fully utilized.
+            3. The readonly lookup matches the original output.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # no evict
         identities, _ = torch.ops.fbgemm.create_zch_buffer(
             200, device=torch.device("cuda")
@@ -183,6 +196,19 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_no_evict_rand(self) -> None:
+        """
+        Test the basic functionality of zero collision hash without evicting.
+        It creates a identity table with 100 slots, and insert 100 random numbers
+        with zero collision hash.
+
+        Assertions:
+            1. The outputs of two batches match their inputs.
+            2. The identity table is fully utilized.
+            3. The readonly lookup matches the original output.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # no evict - rand number.
         identities, _ = torch.ops.fbgemm.create_zch_buffer(
             100, device=torch.device("cuda")
@@ -280,6 +306,20 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_evict(self) -> None:
+        """
+        Test the basic functionality of zero collision hash with evicting.
+        It creates a identity table with 100 slots, and insert 100 numbers
+        from 0 to 99 with zero collision hash. Then it inserts 100 numbers
+        from 100 to 199 with zero collision hash. The last 100 numbers should
+        evict the first 100 numbers.
+
+        Assertions (besides the no-evict assertions):
+            1. No evictions happen in the first batch.
+            2. The evicted indices are the first 100 numbers.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # evict
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, device=torch.device("cuda")
@@ -403,6 +443,19 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_evict_with_rand_unique_numbers(self) -> None:
+        """
+        Test the basic functionality of zero collision hash with evicting.
+        It creates a identity table with 100 slots, and insert 100 random numbers
+        with zero collision hash. Then it inserts 100 random numbers with zero
+        collision hash. The last 100 numbers should evict the first 100 numbers.
+
+        Assertions (besides the no-evict assertions):
+            1. No evictions happen in the first batch.
+            2. The evicted indices are the first 100 numbers.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # evict - rand number.
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, device=torch.device("cuda")
@@ -526,6 +579,26 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_eviction_during_lookup(self) -> None:
+        """
+        Test the basic functionality of zero collision hash with evicting.
+        It creates a identity table with 100 slots, and insert 99 numbers
+        with zero collision hash. Then it inserts 1 random number 101 with zero
+        collision hash, then all the slots should be filled. Then it makes all
+        the slots expired except for the 101 one, and insert the number 101 again
+        with zero collision hash, then none slot should be evicted but all the identity
+        table should only have one value. Then it inserts 1 random number 102 with zero
+        collision hash, then one slot should be evicted.
+
+        Assertions:
+            1. After inserting 99 numbers, there is only one empty slot.
+            2. After inserting 101, all the slots are filled.
+            3. After making all the slots expired, and inserting 101 again, there is only one
+                slot with value 101.
+            4. After inserting 102, one slot should be evicted.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, device=torch.device("cuda")
         )
@@ -593,6 +666,19 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_output_on_uvm(self) -> None:
+        """
+        Test the zero collision hash output on uvm.
+        It creates a identity table with 200 slots, and insert 100 numbers
+        with zero collision hash. Then it inserts 100 random numbers with zero
+        collision hash. The output should be on uvm (cpu).
+
+        Assertions:
+            1. The output is on cpu.
+            2. The output is correct.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # no evict
         identities, _ = torch.ops.fbgemm.create_zch_buffer(
             200, device=torch.device("cuda")
@@ -618,6 +704,17 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_int64_nohash_identity(self) -> None:
+        """
+        Test with the capability of procesing int64_t data for
+        zero collision hash.
+
+        Assertions:
+            1. The output is correct for zero collision hash.
+            2. The eviction works correctly when processing int64_t data.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # no evict
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, device=torch.device("cuda"), support_evict=True, long_type=True
@@ -671,6 +768,17 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_int32_nohash_identity(self) -> None:
+        """
+        Test with the capability of procesing int32_t data for
+        zero collision hash.
+
+        Assertions:
+            1. The output is correct for zero collision hash.
+            2. The eviction works correctly when processing int32_t data.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # no evict
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, device=torch.device("cuda"), support_evict=True, long_type=False
@@ -724,6 +832,21 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_fallback(self) -> None:
+        """
+        Test the fallback functionality of zero collision hash.
+        It creates a identity table with 100 slots, and insert 100 numbers
+        with zero collision hash. Then it inserts 20 random numbers 90-109 with zero
+        collision hash when all the slots should be filled. When enabling fallback,
+        all the ids (including unexisting ones) are mapped to a position. When disabling
+        fallback, existing ids are mapped to a position and unexisting ones are mapped to -1.
+
+        Assertions:
+            1. When fallback is enabled, all the ids (including unexisting ones) are mapped to a position.
+            2. When fallback is disabled, existing ids are mapped to a position and unexisting ones are mapped to -1.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # init and add some ids
         identities, _ = torch.ops.fbgemm.create_zch_buffer(
             100, device=torch.device("cuda"), long_type=True
@@ -808,6 +931,28 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_simple_zch_individual_score_evict(self) -> None:
+        """
+        Test the zero collision hash with individual score evict.
+        It creates a identity table with 100 slots, and insert 100 numbers
+        with zero collision hash. Then it sets a threshold to make half of the
+        slots evictable. Then it inserts 100 random numbers with zero collision
+        hash, and check the number of evicted slots. Then it looks up with the
+        values between 0 and 99, and check the output is correct.
+
+        Assertions:
+            1. After inserting 100 numbers, there is none empty slot, and the remmaped ids are in range [0, 99].
+            2. The metadata for the inserted ids are mapped correctly.
+            3. None eviction happens after inserting 100 numbers.
+            4. Readonly lookup works correctly.
+            5. After setting the threshold to make half of the slots evictable, and inserting 100 random numbers,
+                half (50) of the slots are evicted.
+            6. The metadata for the evicted ids are set correctly.
+            7. The metadata for the inserted ids are mapped correctly.
+            8. The read-only output values for the requried 0-99 are correct.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # evict
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, long_type=True, device=torch.device("cuda")
@@ -891,6 +1036,11 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict(self) -> None:
+        """
+        Test the zero collision hash with LRU eviction.
+
+        Tested eviction policy: HashZchKernelEvictionPolicy.LRU_EVICTION.value
+        """
         # No evict
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, device=torch.device("cuda")
@@ -1035,6 +1185,13 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_with_unexpired_slots(self) -> None:
+        """
+        Test the zero collision hash with LRU eviction with unexpired slots.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior,
+                an assertion error will be raised.
+        """
         # No evict
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, device=torch.device("cuda")
@@ -1168,6 +1325,13 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_rand_numbers_zch_lru_evict(self) -> None:
+        """
+        Test the zero collision hash with LRU eviction with random input numbers.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior,
+                an assertion error will be raised.
+        """
         # No evict
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, device=torch.device("cuda"), long_type=True
@@ -1267,6 +1431,16 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_with_offsets(self) -> None:
+        """
+        Test the zero collision hash with LRU eviction with offsets.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior,
+                an assertion error will be raised.
+
+        Skips:
+            The test will be skipped if the GPU is not available, or not running on a CUDA device.
+        """
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             200,
             device=torch.device("cuda"),
@@ -1428,6 +1602,13 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_opt_in_with_prob(self) -> None:
+        """
+        Test the zero collision hash with opt-in with probability.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior,
+                an assertion error will be raised.
+        """
         zch_size = 100
         num_reserved_slots = 10
         num_opt_in_slots = zch_size - num_reserved_slots
@@ -1621,6 +1802,13 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_zch_lru_evict_train_eval(self) -> None:
+        """
+        Test the zero collision hash with LRU eviction policy.
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior,
+                an assertion error will be raised.
+        """
         identities, metadata = torch.ops.fbgemm.create_zch_buffer(
             100, support_evict=True, long_type=True, device=torch.device("cuda")
         )
@@ -1703,6 +1891,16 @@ class FasterHashTest(unittest.TestCase):
     @skipIfRocm("The CUDA kernel is not supported on ROCm")
     @unittest.skipIf(*gpu_unavailable)
     def test_murmur_hash(self) -> None:
+        """
+        This test is to verify the correctness of murmur hash3 kernel.
+        Given a tensor, two rounds of murmur hash3 should return the same result.
+
+        Assertions:
+            1. output of two rounds of murmur hash3 should be equal
+
+        Raises:
+            AssertionError: If the test detects a mismatch from the expected behavior.
+        """
         # # test on cpu
         input_item = torch.tensor([10000], dtype=torch.int64)
         output_item_first_round = torch.ops.fbgemm.murmur_hash3(input_item, 0, 0)
