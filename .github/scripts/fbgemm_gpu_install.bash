@@ -77,7 +77,7 @@ __install_check_subpackages () {
     "fbgemm_gpu.tbe.cache"
   )
 
-  if [ "$installed_fbgemm_target" != "genai" ]; then
+  if [ "$installed_fbgemm_target" == "default" ]; then
     subpackages+=(
       "fbgemm_gpu.split_embedding_codegen_lookup_invokers"
       "fbgemm_gpu.tbe.ssd"
@@ -91,10 +91,13 @@ __install_check_subpackages () {
 }
 
 __install_check_operator_registrations () {
+  # shellcheck disable=SC2155
   local env_prefix=$(env_name_or_prefix "${env_name}")
 
   local test_operators=()
+  local base_import="fbgemm_gpu"
   echo "[INSTALL] Check for operator registrations ..."
+
   if [ "$installed_fbgemm_target" == "genai" ]; then
     # NOTE: Currently, ROCm builds of GenAI only include quantization
     # operators.
@@ -115,7 +118,13 @@ __install_check_operator_registrations () {
       fi
     fi
 
-  else
+  elif [ "$installed_fbgemm_target" == "hstu" ]; then
+    test_operators+=(
+      "torch.ops.fbgemm.hstu_varlen_bwd_80"
+    )
+    base_import="fbgemm_gpu.experimental.hstu"
+
+  elif [ "$installed_fbgemm_target" == "genai" ]; then
     test_operators+=(
       "torch.ops.fbgemm.asynchronous_inclusive_cumsum"
       "torch.ops.fbgemm.split_embedding_codegen_lookup_sgd_function_pt2"
@@ -124,7 +133,7 @@ __install_check_operator_registrations () {
 
   for operator in "${test_operators[@]}"; do
     # shellcheck disable=SC2086
-    if conda run ${env_prefix} python -c "import torch; import fbgemm_gpu; print($operator)"; then
+    if conda run ${env_prefix} python -c "import torch; import ${base_import}; print($operator)"; then
       echo "[CHECK] FBGEMM_GPU operator appears to be correctly registered: $operator"
     else
       echo "################################################################################"

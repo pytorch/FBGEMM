@@ -9,6 +9,7 @@
 
 import logging
 import math
+import os
 import unittest
 from typing import Optional, Tuple
 
@@ -18,6 +19,8 @@ from einops import rearrange
 from fbgemm_gpu.experimental.hstu import hstu_attn_varlen_func
 
 from hypothesis import given, settings, strategies as st, Verbosity
+
+running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -453,6 +456,9 @@ def _hstu_attention_maybe_from_cache(
 class HSTU16Test(unittest.TestCase):
     """Test HSTU attention with float16 inputs."""
 
+    @unittest.skipIf(
+        running_on_github, "GitHub runners are unable to run the test at this time"
+    )
     @given(
         batch_size=st.sampled_from([32]),
         heads=st.sampled_from([2]),
