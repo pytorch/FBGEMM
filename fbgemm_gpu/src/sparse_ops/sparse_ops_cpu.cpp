@@ -1445,9 +1445,15 @@ void reorder_batched_ad_lengths_(
     Tensor& output,
     const int64_t max_batch_size = 0) {
   const int64_t nB = batch_offsets.numel() - 1;
-  const int64_t nT = broadcast_lengths
-      ? cat_ad_lengths.numel() / nB
-      : cat_ad_lengths.numel() / num_ads_in_batch;
+  auto num_lengths = cat_ad_lengths.numel();
+  int64_t nT;
+  if (broadcast_lengths) {
+    TORCH_CHECK(num_lengths % nB == 0);
+    nT = num_lengths / nB;
+  } else {
+    TORCH_CHECK(num_lengths % num_ads_in_batch == 0);
+    nT = num_lengths / num_ads_in_batch;
+  }
   int64_t output_batch_size = num_ads_in_batch;
   if (max_batch_size > 0) {
     TORCH_CHECK_GE(max_batch_size, num_ads_in_batch);
