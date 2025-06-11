@@ -596,8 +596,12 @@ Tensor cat_dim_2d(
       cat_dim_2d_output_shape(tensors, uncat_dim_size, cat_dim);
 
   auto* prop = at::cuda::getCurrentDeviceProperties();
-  auto output =
-      at::empty(output_shape, tensors.front().options().device(output_device));
+  auto output = at::empty(
+      output_shape,
+      tensors.front()
+          .options()
+          .device(output_device)
+          .dtype(tensors[0].dtype()));
   TORCH_CHECK(
       output.stride(0) * output.element_size() <=
       static_cast<int64_t>(prop->memPitch));
