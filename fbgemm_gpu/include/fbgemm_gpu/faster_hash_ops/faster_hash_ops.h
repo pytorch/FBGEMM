@@ -14,12 +14,17 @@ namespace fbgemm_gpu {
 
 using at::Tensor;
 
-/// @defgroup faster-hash-ops CPP Operators
+/// @defgroup faster-hash-ops-cpu CPP Operators
 ///
 
-/// @ingroup faster-hash-ops
+/// @ingroup faster-hash-ops-cpu
 ///
-/// Create buffers for identity table and metadata table for ZCH
+/// @brief Create buffers for identity table and metadata table for ZCH
+/// This function declare and initialize the identity table and metadata table
+/// for ZCH. The identity table is a tensor of size [size, 1] and the metadata
+/// table is a tensor of size [size, 1]. Slots in both the identity table and
+/// metadata table are initialized with default value as -1.
+///
 ///
 /// @param size The target tensor dimensions
 /// @param support_evict Whether to support eviction
@@ -34,9 +39,14 @@ std::tuple<Tensor, Tensor> create_zch_buffer_cpu(
     std::optional<at::Device> device,
     bool long_type);
 
-/// @ingroup faster-hash-ops
+/// @ingroup faster-hash-ops-cpu
 ///
-/// Murmur hash operator for CPU
+/// @brief Murmur hash operator for CPU
+///
+/// This function implements the Murmur hash algorithm. Given an input tensor
+/// a y value and a seed value, it returns the hash value of the input tensor.
+/// The hash value is calculated using the Murmur hash3 x64 algorithm
+/// implemented in the `murmur_hash3_2x64` function in `common_utils.cuh`.
 ///
 /// @param input The input tensor
 /// @param y The y value
@@ -45,9 +55,29 @@ std::tuple<Tensor, Tensor> create_zch_buffer_cpu(
 /// @return The output hash value
 Tensor murmur_hash3_cpu(const Tensor& input, int64_t y, int64_t seed);
 
-/// @ingroup faster-hash-ops
+/// @ingroup faster-hash-ops-cpu
 ///
-/// Zero collision hash operator for CPU
+/// @brief Zero collision hash operator for CPU
+///
+/// This function performs zero collision hash on the input feature IDs in the
+/// input tensor and returns the remapped IDs in the output tensor. It also
+/// updates the metadata table if the eviction policy is enabled.
+/// Specifically, it performs the following steps:
+/// 1. For each input feature ID, it computes the hash value using the
+/// MurmurHash3 algorithm. And the hash value will be forwarded to the identity
+/// table (tensor named identities).
+/// 2. Check if the slot in the identity table indexed by the hash value is
+/// empty. If it is empty, the feature ID will be inserted into the slot and the
+/// hash value will be returned as the remapped ID.
+/// 3. If the slot is not empty, it will linearly probe the next slot until it
+/// finds an empty slot or reaches the maximum number of probes. If an empty
+/// slot is found, the feature ID will be inserted into that slot and the index
+/// of the empty slot will be returned as the remapped ID.
+/// 4. If no empty slot is found, it will find the evictable slot based on the
+/// eviction policy and evict the feature ID in that slot. Then, it will insert
+/// the current feature ID into the evicted slot and return the index of the
+/// evicted slot as the remapped ID. The metadata table will also be updated
+/// accordingly.
 ///
 /// @param input The input tensor
 /// @param identities The identity table
@@ -91,9 +121,29 @@ std::tuple<Tensor, Tensor> zero_collision_hash_cpu(
     int64_t num_reserved_slots,
     const std::optional<Tensor>& opt_in_rands);
 
-/// @ingroup faster-hash-ops
+/// @ingroup faster-hash-ops-cpu
 ///
-/// Zero collision hash operator for data on meta device
+/// @brief Zero collision hash operator for Meta device
+///
+/// This function performs zero collision hash on the input feature IDs in the
+/// input tensor and returns the remapped IDs in the output tensor. It also
+/// updates the metadata table if the eviction policy is enabled.
+/// Specifically, it performs the following steps:
+/// 1. For each input feature ID, it computes the hash value using the
+/// MurmurHash3 algorithm. And the hash value will be forwarded to the identity
+/// table (tensor named identities).
+/// 2. Check if the slot in the identity table indexed by the hash value is
+/// empty. If it is empty, the feature ID will be inserted into the slot and the
+/// hash value will be returned as the remapped ID.
+/// 3. If the slot is not empty, it will linearly probe the next slot until it
+/// finds an empty slot or reaches the maximum number of probes. If an empty
+/// slot is found, the feature ID will be inserted into that slot and the index
+/// of the empty slot will be returned as the remapped ID.
+/// 4. If no empty slot is found, it will find the evictable slot based on the
+/// eviction policy and evict the feature ID in that slot. Then, it will insert
+/// the current feature ID into the evicted slot and return the index of the
+/// evicted slot as the remapped ID. The metadata table will also be updated
+/// accordingly.
 ///
 /// @param input The input tensor
 /// @param identities The identity table
@@ -136,9 +186,14 @@ std::tuple<Tensor, Tensor> zero_collision_hash_meta(
     int64_t /* num_reserved_slots */,
     const std::optional<Tensor>& /* opt_in_rands */);
 
-/// @ingroup faster-hash-ops
+/// @ingroup faster-hash-ops-cpu
 ///
-/// Murmur hash operator for Meta device
+/// @brief Murmur hash operator for Meta device
+///
+/// This function implements the Murmur hash algorithm. Given an input tensor
+/// a y value and a seed value, it returns the hash value of the input tensor.
+/// The hash value is calculated using the Murmur hash3 x64 algorithm
+/// implemented in the `murmur_hash3_2x64` function in `common_utils.cuh`.
 ///
 /// @param input The input tensor
 /// @param y The y value

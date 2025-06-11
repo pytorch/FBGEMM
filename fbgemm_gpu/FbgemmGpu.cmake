@@ -44,6 +44,11 @@ set(fbgemm_gpu_sources_cpu_static
     src/sparse_ops/sparse_ops_meta.cpp
     ${tbe_eeg_cpu_sources})
 
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
+  list(APPEND fbgemm_gpu_sources_cpu_static
+    src/faster_hash_ops/faster_hash.cpp)
+endif()
+
 if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   list(APPEND fbgemm_gpu_sources_cpu_static
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
@@ -54,11 +59,6 @@ if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
     src/sparse_ops/sparse_ops_gpu.cpp
     src/metric_ops/metric_ops_host.cpp
     src/input_combine_ops/input_combine_gpu.cpp)
-
-  if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
-    list(APPEND fbgemm_gpu_sources_cpu_static
-      src/faster_hash_ops/faster_hash.cpp)
-  endif()
 
   if(NVML_LIB_PATH OR FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")

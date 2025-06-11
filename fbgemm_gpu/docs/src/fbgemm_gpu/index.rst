@@ -54,6 +54,7 @@ transformation, and quantization support.
    cpp-api/ssd_embedding_ops
    cpp-api/experimental_ops
    cpp-api/feature_gates
+   cpp-api/faster_hash_ops
 
 .. _fbgemm-gpu.toc.api.python:
 
