@@ -270,7 +270,7 @@ class FP8Tests(unittest.TestCase):
             x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
         w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
         bias = (
-            torch.randn(size=(HD_L,), dtype=torch.bfloat16, device="cuda")
+            torch.randn(size=(HD_L,), dtype=torch.float32, device="cuda")
             if Bias
             else None
         )
