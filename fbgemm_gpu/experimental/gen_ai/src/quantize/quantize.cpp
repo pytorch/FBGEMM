@@ -340,9 +340,9 @@ at::Tensor i8i8bf16_meta(
     at::Tensor WQ, // INT8
     double scale,
     int64_t split_k) {
-  int M = XQ.size(0);
-  int N = WQ.size(0);
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  const at::SymInt M = XQ.sym_size(0);
+  const at::SymInt N = WQ.sym_size(0);
+  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -353,9 +353,9 @@ at::Tensor f4f4bf16_meta(
     at::Tensor /* w_scale */,
     std::optional<at::Tensor> /* global_scale = std::nullopt */,
     bool /* use_mx */) {
-  int M = XQ.size(0);
-  int N = WQ.size(0);
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  const at::SymInt M = XQ.sym_size(0);
+  const at::SymInt N = WQ.sym_size(0);
+  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -404,10 +404,10 @@ at::Tensor f8f8bf16_rowwise_batched_meta(
     std::optional<at::Tensor> /* bias = std::nullopt */,
     bool /* use_fast_accum = true */,
     std::optional<at::Tensor> /* output = std::nullopt */) {
-  int B = XQ.size(0);
-  int M = XQ.size(1);
-  int N = WQ.size(1);
-  auto Y = at::empty({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  const at::SymInt B = XQ.sym_size(0);
+  const at::SymInt M = XQ.sym_size(1);
+  const at::SymInt N = WQ.sym_size(1);
+  auto Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -419,9 +419,9 @@ at::Tensor f8f8bf16_blockwise_meta(
     int64_t /* block_m = 128*/,
     int64_t /* block_n = 128*/,
     int64_t /* block_k = 128*/) {
-  int M = XQ.size(0);
-  int N = WQ.size(0);
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  const at::SymInt M = XQ.sym_size(0);
+  const at::SymInt N = WQ.sym_size(0);
+  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -435,7 +435,7 @@ std::vector<at::Tensor> quantize_fp8_per_tensor_meta(
   at::Tensor Y = at::empty_like(input, input.options().dtype(torch_fp8_e4m3));
   at::Tensor scale;
   if (dims <= 2) {
-    scale = at::empty({}, input.options().dtype(at::kFloat));
+    scale = at::empty_symint({}, input.options().dtype(at::kFloat));
   } else {
     const at::SymInt B = input.sym_size(0);
     scale = at::empty_symint({B}, input.options().dtype(at::kFloat));
@@ -528,9 +528,9 @@ at::Tensor f8i4bf16_rowwise_meta(
     at::Tensor x_scale,
     at::Tensor w_scale,
     at::Tensor w_zp) {
-  int M = XQ.size(0);
-  int N = WQ.size(0);
-  auto Y = at::empty({M, N}, XQ.options().dtype(at::kBFloat16));
+  const at::SymInt M = XQ.sym_size(0);
+  const at::SymInt N = WQ.sym_size(0);
+  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -540,9 +540,9 @@ at::Tensor bf16i4bf16_rowwise_meta(
     at::Tensor /*  w_scale_group */,
     at::Tensor /* w_zero_group */
 ) {
-  int M = X.size(0);
-  int N = W.size(0);
-  auto Y = at::empty({M, N}, X.options().dtype(at::kBFloat16));
+  const at::SymInt M = X.sym_size(0);
+  const at::SymInt N = W.sym_size(0);
+  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -552,10 +552,10 @@ at::Tensor bf16i4bf16_rowwise_batched_meta(
     at::Tensor /* w_scale_group */,
     at::Tensor /* w_zero_group */
 ) {
-  int B = X.size(0);
-  int M = X.size(1);
-  int N = W.size(1);
-  auto Y = at::empty({B, M, N}, X.options().dtype(at::kBFloat16));
+  const at::SymInt B = X.sym_size(0);
+  const at::SymInt M = X.sym_size(1);
+  const at::SymInt N = W.sym_size(1);
+  auto Y = at::empty_symint({B, M, N}, X.options().dtype(at::kBFloat16));
   return Y;
 }
 
@@ -623,10 +623,11 @@ at::Tensor bf16bf16bf16_grouped_dynamic_meta(
     at::Tensor X,
     at::Tensor W,
     at::Tensor /* zero_start_index_M */) {
-  int G = X.size(0);
-  int M = X.size(1);
-  int N = W.size(1);
-  at::Tensor Y = at::empty({G, M, N}, X[0].options().dtype(at::kBFloat16));
+  const at::SymInt G = X.sym_size(0);
+  const at::SymInt M = X.sym_size(1);
+  const at::SymInt N = W.sym_size(1);
+  at::Tensor Y =
+      at::empty_symint({G, M, N}, X[0].options().dtype(at::kBFloat16));
   return Y;
 }
 
