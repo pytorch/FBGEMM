@@ -54,7 +54,7 @@ class GatherScatterTests(unittest.TestCase):
 
     @given(
         E=st.sampled_from([2, 4, 8]),
-        T=st.sampled_from([1, 128, 2048, 4096, 16384]),
+        T=st.sampled_from([0, 1, 128, 2048, 4096, 16384]),
         D=st.sampled_from([5120, 7168]),
         partial=st.sampled_from([True, False]),
         rowmajor=st.sampled_from([True, False]),
