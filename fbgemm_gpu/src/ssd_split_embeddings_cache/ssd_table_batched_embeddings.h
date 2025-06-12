@@ -418,6 +418,16 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     }
   }
 
+  void maybe_evict() override {
+    // no op for now
+    return;
+  }
+
+  void resume_ongoing_eviction() override {
+    // no op for now
+    return;
+  }
+
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,

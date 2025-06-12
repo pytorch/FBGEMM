@@ -30,14 +30,8 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t max_D,
       double uniform_init_lower,
       double uniform_init_upper,
-      int64_t evict_trigger_mode = 0,
-      int64_t trigger_step_interval = 0,
-      int64_t mem_util_threshold_in_GB = 0,
-      int64_t evict_trigger_strategy = 1,
-      const std::optional<at::Tensor>& counter_thresholds = std::nullopt,
-      const std::optional<at::Tensor>& ttls_in_mins = std::nullopt,
-      const std::optional<at::Tensor>& counter_decay_rates = std::nullopt,
-      const std::optional<at::Tensor>& l2_weight_thresholds = std::nullopt,
+      std::optional<c10::intrusive_ptr<kv_mem::FeatureEvictConfig>>
+          feature_evict_config,
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
@@ -49,14 +43,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           max_D,
           uniform_init_lower,
           uniform_init_upper,
-          evict_trigger_mode,
-          trigger_step_interval,
-          mem_util_threshold_in_GB,
-          evict_trigger_strategy,
-          counter_thresholds,
-          ttls_in_mins,
-          counter_decay_rates,
-          l2_weight_thresholds,
+          feature_evict_config,
           num_shards,
           num_threads,
           row_storage_bitwidth,
@@ -68,14 +55,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           max_D,
           uniform_init_lower,
           uniform_init_upper,
-          evict_trigger_mode,
-          trigger_step_interval,
-          mem_util_threshold_in_GB,
-          evict_trigger_strategy,
-          counter_thresholds,
-          ttls_in_mins,
-          counter_decay_rates,
-          l2_weight_thresholds,
+          feature_evict_config,
           num_shards,
           num_threads,
           row_storage_bitwidth,
@@ -98,16 +78,10 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
 
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
     impl_->get_cuda(indices, weights, count);
-    // when use ITERATION or EvictTriggerMode,
-    // trigger evict by trigger_step_interval or mem_util_threshold_GB
-    impl_->maybe_evict();
   }
 
   void set(at::Tensor indices, at::Tensor weights, at::Tensor count) {
     impl_->set(indices, weights, count);
-    // when use ITERATION or EvictTriggerMode,
-    // trigger evict by trigger_step_interval or mem_util_threshold_GB
-    impl_->maybe_evict();
   }
 
   void flush() {
@@ -156,18 +130,28 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       at::Tensor processed_counts,
       at::Tensor full_duration_ms,
       at::Tensor exec_duration_ms) {
-    FeatureEvictMetricTensors metrics = impl_->get_feature_evict_metric();
-    evicted_counts = metrics.evicted_counts; // evicted_counts (Long)
-    processed_counts = metrics.processed_counts; // processed_counts (Long)
-    full_duration_ms = metrics.full_duration_ms; // full duration (Long)
-    exec_duration_ms = metrics.exec_duration_ms; // exec duration (Long)
+    auto metrics = impl_->get_feature_evict_metric();
+    if (metrics.has_value()) {
+      evicted_counts.copy_(
+          metrics.value().evicted_counts); // evicted_counts (Long)
+      processed_counts.copy_(
+          metrics.value().processed_counts); // processed_counts (Long)
+      full_duration_ms.copy_(
+          metrics.value().full_duration_ms); // full duration (Long)
+      exec_duration_ms.copy_(
+          metrics.value().exec_duration_ms); // exec duration (Long)
+    }
+  }
+
+  void wait_until_eviction_done() {
+    impl_->wait_until_eviction_done();
   }
 
  private:
   // friend class EmbeddingRocksDBWrapper;
   friend class ssd::KVTensorWrapper;
 
-  std::shared_ptr<kv_mem::DramKVEmbeddingBase> impl_;
+  std::shared_ptr<kv_db::EmbeddingKVDB> impl_;
 };
 
 } // namespace kv_mem
