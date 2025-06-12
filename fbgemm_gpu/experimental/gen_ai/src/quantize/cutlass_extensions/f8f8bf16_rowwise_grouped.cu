@@ -50,6 +50,24 @@ at::Tensor dispatch_fp8_grouped_kernel(
 
   // Use heuristics to pick the best kernel implementation.
   if (arch == 10) {
+    // Llama4 shapes
+    if ((max_N == 5120 && max_K == 1024) || (max_N == 2048 && max_K == 5120)) {
+      if (total_M <= 256) {
+        return f8f8bf16_rowwise_grouped_256_32_128_2_1_1_10_f(
+            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      } else if (total_M <= 512) {
+        return f8f8bf16_rowwise_grouped_256_64_128_2_1_1_10_f(
+            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      } else if (total_M <= 1024) {
+        return f8f8bf16_rowwise_grouped_256_128_128_2_1_1_10_f(
+            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      } else {
+        return f8f8bf16_rowwise_grouped_256_256_128_2_1_1_10_f(
+            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      }
+    }
+
+    // Fallback to legacy heuristic.
     if (total_M <= 64 || (total_M <= 256 and max_N <= 1024)) {
       if (max_K <= 4096) {
         return f8f8bf16_rowwise_grouped_256_32_128_2_1_1_10_f(
