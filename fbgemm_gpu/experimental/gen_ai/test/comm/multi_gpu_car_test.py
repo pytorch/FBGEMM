@@ -20,10 +20,13 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import numpy as np
 import torch
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
-    get_fp8_constants,
-    supports_float8_fnuz,
-)
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        get_fp8_constants,
+        supports_float8_fnuz,
+    )
+
 from hypothesis import given, settings, strategies as st, Verbosity
 from torch.distributed.launcher.api import elastic_launch, LaunchConfig
 
