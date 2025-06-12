@@ -78,6 +78,8 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     } else {
         weights = {{ "nullptr" if ssd else "&uvm_weights[weights_offset + idx * D_emb]" }};
     }
+
+    #if 0
     if (weights_placement == PlacementType::MANAGED_CACHING) {
         const auto {{ locs_or_addrs_idx }} = sorted_{{ locs_or_addrs_tensor }}[cache_loc_run_id];
         {%- if ssd %}
@@ -89,6 +91,8 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
         }
         {%- endif %}
     }
+    #endif
+
     {%- for tensor in args.split_tensors %}
     {{ args.split_tensor_types[tensor] }}* __restrict__ {{ tensor }};
     const auto {{ tensor }}_placement = static_cast<PlacementType>({{ tensor }}_placements[t]);
