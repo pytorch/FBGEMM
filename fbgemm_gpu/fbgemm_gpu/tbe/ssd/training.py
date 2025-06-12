@@ -607,20 +607,64 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"self.cache_row_dim={self.cache_row_dim},"
                 f"enable_optimizer_offloading={self.enable_optimizer_offloading},"
                 f"feature_dims={self.feature_dims},"
-                f"hash_size_cumsum={self.hash_size_cumsum}"
+                f"hash_size_cumsum={self.hash_size_cumsum}, "
+                f"eviction_policy={self.kv_zch_params.eviction_policy}, "
             )
+            # prepare eviction policy parameters
+            counter_eviction_threshold_tensor = None
+            ttls_in_mins_tensor = None
+            counter_decay_rates_tensor = None
+            l2_weight_thresholds_tensor = None
+            if self.kv_zch_params.eviction_policy.eviction_trigger_mode != 0:
+                counter_eviction_threshold = [
+                    self.kv_zch_params.eviction_policy.counter_thresholds[t]
+                    for t in self.feature_table_map
+                ]
+                counter_eviction_threshold_tensor = torch.tensor(
+                    counter_eviction_threshold,
+                    device=torch.device("cpu"),
+                    dtype=torch.uint32,
+                )
+                ttls_in_mins = [
+                    self.kv_zch_params.eviction_policy.ttls_in_mins[t]
+                    for t in self.feature_table_map
+                ]
+                ttls_in_mins_tensor = torch.tensor(
+                    ttls_in_mins,
+                    device=torch.device("cpu"),
+                    dtype=torch.uint32,
+                )
+                counter_decay_rates = [
+                    self.kv_zch_params.eviction_policy.counter_decay_rates[t]
+                    for t in self.feature_table_map
+                ]
+                counter_decay_rates_tensor = torch.tensor(
+                    counter_decay_rates,
+                    device=torch.device("cpu"),
+                    dtype=torch.float32,
+                )
+                l2_weight_thresholds = [
+                    self.kv_zch_params.eviction_policy.l2_weight_thresholds[t]
+                    for t in self.feature_table_map
+                ]
+                l2_weight_thresholds_tensor = torch.tensor(
+                    l2_weight_thresholds,
+                    device=torch.device("cpu"),
+                    dtype=torch.float32,
+                )
+
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
                 ssd_uniform_init_lower,
                 ssd_uniform_init_upper,
-                0,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
-                0,  # trigger_step_interval if trigger mode is iteration
-                0,  # mem_util_threshold_in_GB if trigger mode is mem_util
-                0,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
-                None,  # count_thresholds for each table if eviction strategy is feature score
-                None,  # ttls_in_mins for each table if eviction strategy is timestamp
-                None,  # count_decay_rates for each table if eviction strategy is feature score
-                None,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+                self.kv_zch_params.eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+                self.kv_zch_params.eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
+                l2_cache_size,  # mem_util_threshold_in_GB if trigger mode is mem_util
+                self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+                counter_eviction_threshold_tensor,  # counter_thresholds for each table if eviction strategy is feature score
+                ttls_in_mins_tensor,  # ttls_in_mins for each table if eviction strategy is timestamp
+                counter_decay_rates_tensor,  # counter_decay_rates for each table if eviction strategy is feature score
+                l2_weight_thresholds_tensor,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
                 ssd_rocksdb_shards,  # num_shards
                 ssd_rocksdb_shards,  # num_threads
                 weights_precision.bit_rate(),  # row_storage_bitwidth

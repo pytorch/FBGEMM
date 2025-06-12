@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -49,6 +49,30 @@ class EmbeddingLocation(enum.IntEnum):
             raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
 
 
+class EvictionPolicy(NamedTuple):
+    eviction_trigger_mode: int = (
+        0  # disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+    )
+    eviction_strategy: int = (
+        0  # 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+    )
+    eviction_step_intervals: int = (
+        0  # trigger_step_interval if trigger mode is iteration
+    )
+    counter_thresholds: Optional[List[int]] = (
+        None  # count_thresholds for each feature if eviction strategy is feature score
+    )
+    ttls_in_mins: Optional[List[int]] = (
+        None  # ttls_in_mins for each feature if eviction strategy is timestamp
+    )
+    counter_decay_rates: Optional[List[float]] = (
+        None  # count_decay_rates for each feature if eviction strategy is feature score
+    )
+    l2_weight_thresholds: Optional[List[float]] = (
+        None  # l2_weight_thresholds for each feature if eviction strategy is feature l2 norm
+    )
+
+
 class KVZCHParams(NamedTuple):
     # global bucket id start and global bucket id end offsets for each logical table,
     # where start offset is inclusive and end offset is exclusive
@@ -58,6 +82,7 @@ class KVZCHParams(NamedTuple):
     bucket_sizes: List[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
+    eviction_policy: EvictionPolicy = EvictionPolicy()
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
