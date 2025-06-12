@@ -260,16 +260,27 @@ __configure_fbgemm_gpu_build_cuda () {
     #   https://github.com/NVIDIA/nvbench/discussions/129
     #   https://github.com/vllm-project/vllm/blob/main/CMakeLists.txt#L187
     #   https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/gemm/kernel/sm90_gemm_tma_warpspecialized.hpp#L224
+
+    # NOTE: It turns out that the order of the arch_list matters, and that
+    # appending 7.0/7.5 to the back of the list mysteriously results in
+    # undefined symbol errors on .SO loads
+    if [[ $fbgemm_build_target == "hstu" ]]; then
+      # HSTU requires sm_75 or higher
+      local arch_list="7.5"
+    else
+      local arch_list="7.0"
+    fi
+
     if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
-      local arch_list="7.0;8.0;9.0a;10.0a;12.0a"
+      local arch_list="${arch_list};8.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
           [[ $cuda_version_nvcc == *"V12.4"* ]] ||
           [[ $cuda_version_nvcc == *"V12.1"* ]]; then
-      local arch_list="7.0;8.0;9.0a"
+      local arch_list="${arch_list};8.0;9.0a"
 
     else
-      local arch_list="7.0;8.0;9.0"
+      local arch_list="${arch_list};8.0;9.0"
     fi
   fi
   echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
@@ -474,31 +485,29 @@ __build_fbgemm_gpu_common_pre_steps () {
   # Private function that uses variables instantiated by its caller
 
   # Check C/C++ compilers are visible (the build scripts look specifically for `gcc`)
-  (test_binpath "${env_name}" cc) || return 1
-  (test_binpath "${env_name}" gcc) || return 1
-  (test_binpath "${env_name}" c++) || return 1
-  (test_binpath "${env_name}" g++) || return 1
+  (test_binpath "${env_name}" cc)   || return 1
+  (test_binpath "${env_name}" gcc)  || return 1
+  (test_binpath "${env_name}" c++)  || return 1
+  (test_binpath "${env_name}" g++)  || return 1
 
   # Set the default the FBGEMM build variant to be default (i.e. FBGEMM_GPU)
-  if  [ "$fbgemm_build_target" != "genai" ] &&
-      [ "$fbgemm_build_target" != "default" ]; then
+  # shellcheck disable=SC2076
+  if [[ ! " genai hstu default " =~ " $fbgemm_build_target " ]]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM build TARGET: ${fbgemm_build_target}"
-    echo "[BUILD] Defaulting to 'default'"
+    echo "[BUILD] Exiting ..."
     echo "################################################################################"
-    export fbgemm_build_target="default"
+    return 1
   fi
 
   # Set the default the FBGEMM build variant to be CUDA
-  if  [ "$fbgemm_build_variant" != "docs" ] &&
-      [ "$fbgemm_build_variant" != "cpu" ] &&
-      [ "$fbgemm_build_variant" != "cuda" ] &&
-      [ "$fbgemm_build_variant" != "rocm" ]; then
+  # shellcheck disable=SC2076
+  if [[ ! " docs cpu cuda rocm " =~ " $fbgemm_build_variant " ]]; then
     echo "################################################################################"
     echo "[BUILD] Unknown FBGEMM build VARIANT: ${fbgemm_build_variant}"
-    echo "[BUILD] Defaulting to CUDA"
+    echo "[BUILD] Exiting ..."
     echo "################################################################################"
-    export fbgemm_build_variant="cuda"
+    return 1
   fi
 
   # Extract and set the Python tag
@@ -602,6 +611,11 @@ __verify_library_symbols () {
         fbgemm_gpu::car_init
       )
     fi
+
+  elif [ "${fbgemm_build_target}" == "hstu" ]; then
+    local lib_symbols_to_check=(
+      fbgemm_gpu::hstu::set_params_fprop
+    )
 
   else
     local lib_symbols_to_check=(
