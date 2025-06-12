@@ -84,9 +84,9 @@ __global__ void set_kernel_args_kernel(
         StrideB{}, cute::make_shape(int(N), int(K), 1));
     stride_c_ptr[i] = cutlass::make_cute_packed_stride(
         StrideC{}, cute::make_shape(int(N), int(M), 1));
-    layout_SFA[i] = cutlass::detail::Sm100BlockScaledConfig<SFVecSize>::
+    layout_SFA[i] = cutlass::detail::Sm1xxBlockScaledConfig<SFVecSize>::
         tile_atom_to_shape_SFA(cute::make_shape(int(M), int(N), int(K), 1));
-    layout_SFB[i] = cutlass::detail::Sm100BlockScaledConfig<SFVecSize>::
+    layout_SFB[i] = cutlass::detail::Sm1xxBlockScaledConfig<SFVecSize>::
         tile_atom_to_shape_SFB(cute::make_shape(int(M), int(N), int(K), 1));
     if (global_scale != nullptr) {
       global_scale_ptr[i] = global_scale;
@@ -179,10 +179,10 @@ __global__ void set_stacked_kernel_args_kernel(
       stride_c_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
           StrideC{}, cute::make_shape(int(N), int(M), 1));
       layout_SFA[non_zero_idx] = cutlass::detail::
-          Sm100BlockScaledConfig<SFVecSize>::tile_atom_to_shape_SFA(
+          Sm1xxBlockScaledConfig<SFVecSize>::tile_atom_to_shape_SFA(
               cute::make_shape(int(M), int(N), int(K), 1));
       layout_SFB[non_zero_idx] = cutlass::detail::
-          Sm100BlockScaledConfig<SFVecSize>::tile_atom_to_shape_SFB(
+          Sm1xxBlockScaledConfig<SFVecSize>::tile_atom_to_shape_SFB(
               cute::make_shape(int(M), int(N), int(K), 1));
       if (global_scale != nullptr) {
         global_scale_ptr[non_zero_idx] = global_scale + group_index;

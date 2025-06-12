@@ -152,11 +152,11 @@ at::Tensor _f4f4bf16(
       decltype(cute::make_layout(cute::make_shape(0, 0, 0), StrideOutput{}));
 
   // For SFA and SFB tensors layouts
-  using Sm100BlkScaledConfig =
-      typename Gemm::GemmKernel::CollectiveMainloop::Sm100BlkScaledConfig;
+  using Sm1xxBlkScaledConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
   // For SFD tensor layout
   using Sm100BlockScaledOutputConfig =
-      typename Gemm::GemmKernel::CollectiveMainloop::Sm100BlkScaledConfig;
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
   StrideA stride_A =
       cutlass::make_cute_packed_stride(StrideA{}, cute::make_shape(M, K, 1));
@@ -169,9 +169,9 @@ at::Tensor _f4f4bf16(
   LayoutB layout_B = make_layout(cute::make_shape(N, K, 1), stride_B);
   LayoutOutput layout_output =
       make_layout(cute::make_shape(N, M, 1), stride_output);
-  LayoutSFA layout_SFA = Sm100BlkScaledConfig::tile_atom_to_shape_SFA(
+  LayoutSFA layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
       cute::make_shape(M, N, K, 1));
-  LayoutSFB layout_SFB = Sm100BlkScaledConfig::tile_atom_to_shape_SFB(
+  LayoutSFB layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
       cute::make_shape(M, N, K, 1));
 
   using DataTypeA = typename ElementA::DataType;
