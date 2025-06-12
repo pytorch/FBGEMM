@@ -99,6 +99,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
 #ifdef USE_ROCM
   m.def("flush_icache_hip() -> ()");
+  m.def(
+      "f8f8f16_rowwise(Tensor XQ, Tensor WQ, Tensor x_scale, Tensor w_scale, Tensor? bias=None, bool use_fast_accum=True) -> Tensor");
 #endif
 }
 
