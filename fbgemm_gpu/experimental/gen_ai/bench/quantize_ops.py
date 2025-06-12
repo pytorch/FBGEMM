@@ -35,6 +35,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
     grouped_gemm_fp8_rowwise,
 )
 from fbgemm_gpu.experimental.gen_ai.quantize import (
+    ck_preshuffle,
     quantize_int4_preshuffle,
     scale_nvfp4_quant,
 )
@@ -622,6 +623,7 @@ class FP8RowwiseGemm(QuantizeOpBase):
 
     def __init__(self):
         self.fast_accum = True
+        self.gemm_op = torch.ops.fbgemm.f8f8bf16_rowwise
 
     def preprocess(self, x, w):
         # Prequantize weights.
@@ -651,7 +653,7 @@ class FP8RowwiseGemm(QuantizeOpBase):
             output = []
             for i in range(len(xq)):
                 output.append(
-                    torch.ops.fbgemm.f8f8bf16_rowwise(
+                    self.gemm_op(
                         xq[i],
                         wq[i],
                         x_scale[i],
@@ -666,14 +668,12 @@ class FP8RowwiseGemm(QuantizeOpBase):
             _, N, _ = wq.shape
             y = torch.empty((B, M, N), device=xq.device, dtype=torch.bfloat16)
             for i in range(B):
-                y[i] = torch.ops.fbgemm.f8f8bf16_rowwise(
+                y[i] = self.gemm_op(
                     xq[i], wq[i], x_scale[i], w_scale[i], use_fast_accum=self.fast_accum
                 )
             return y
         # Otherwise return normal gemm result.
-        return torch.ops.fbgemm.f8f8bf16_rowwise(
-            xq, wq, x_scale, w_scale, use_fast_accum=self.fast_accum
-        )
+        return self.gemm_op(xq, wq, x_scale, w_scale, use_fast_accum=self.fast_accum)
 
     def quantize_and_compute(self, x, wq, w_scale):
         xq, wq, x_scale, w_scale = self.quantize(x, wq, w_scale)
@@ -693,6 +693,38 @@ class FP8RowwiseGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+@register_quantize_op
+class FP8RowwisePreshuffleGemm(FP8RowwiseGemm):
+    """
+    FP8 matmul with rowwise scaling and preshuffling of input B.
+    """
+
+    def __init__(self):
+        self.fast_accum = True
+        if self.supported:
+            self.gemm_op = torch.ops.fbgemm.f8f8bf16_rowwise_preshuffle
+
+    def preprocess(self, x, w):
+        x, wq, w_scale = super().preprocess(x, w)
+        return x, ck_preshuffle(wq, 16), w_scale
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_rowwise_preshuffle"
+        else:
+            return "ck_rowwise_preshuffle"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        # Not yet supported on nvidia.
+        return False
 
 
 @register_quantize_op

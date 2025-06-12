@@ -22,7 +22,7 @@
 #include "ck/utility/blkgemmpipe_scheduler.hpp"
 #include "ck/utility/data_type.hpp"
 
-#include "ck/tensor_operation/gpu/device/impl/device_gemm_multiple_d_xdl_cshuffle_v3.hpp"
+#include "ck/tensor_operation/gpu/device/impl/device_gemm_multiple_d_xdl_cshuffle_v3_b_preshuffle.hpp"
 
 // Define commonly used types.
 template <ck::index_t... Is>
@@ -110,7 +110,7 @@ template <
     ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
         ck::tensor_operation::device::GemmSpecialization::MNKPadding,
     typename EDataType = ck::bhalf_t>
-at::Tensor f8f8bf16_rowwise_impl(
+at::Tensor f8f8bf16_rowwise_preshuffle_impl(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -118,8 +118,8 @@ at::Tensor f8f8bf16_rowwise_impl(
     at::Tensor Y,
     int KBatch = 1) {
   // Create GEMM definition.
-  using DeviceGemmInstance =
-      ck::tensor_operation::device::DeviceGemmMultiD_Xdl_CShuffle_V3<
+  using DeviceGemmInstance = ck::tensor_operation::device::
+      DeviceGemmMultiD_Xdl_CShuffle_V3_BPreshuffle<
           ALayout,
           BLayout,
           DsLayout,
@@ -239,7 +239,7 @@ template <
     ck::index_t BDstVecLength = 16,
     int AK1 = 16,
     int BK1 = 16>
-at::Tensor f8f8bf16_rowwise_wrapper(
+at::Tensor f8f8bf16_rowwise_preshuffle_wrapper(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -259,7 +259,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
   if (k_padding) {
     if (out_bf16) {
       // kernel without preshuffle + padding + bf16 output
-      return f8f8bf16_rowwise_impl<
+      return f8f8bf16_rowwise_preshuffle_impl<
           BLOCK_SIZE,
           MBLOCK,
           NBLOCK,
@@ -286,7 +286,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
           ck::bhalf_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
     } else {
       // kernel without preshuffle + padding + fp16 output
-      return f8f8bf16_rowwise_impl<
+      return f8f8bf16_rowwise_preshuffle_impl<
           BLOCK_SIZE,
           MBLOCK,
           NBLOCK,
@@ -315,7 +315,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
   } else {
     if (out_bf16) {
       // kernel without preshuffle + no padding + bf16 output
-      return f8f8bf16_rowwise_impl<
+      return f8f8bf16_rowwise_preshuffle_impl<
           BLOCK_SIZE,
           MBLOCK,
           NBLOCK,
@@ -342,7 +342,7 @@ at::Tensor f8f8bf16_rowwise_wrapper(
           ck::bhalf_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
     } else {
       // kernel no preshuffle + no padding + fp16 output
-      return f8f8bf16_rowwise_impl<
+      return f8f8bf16_rowwise_preshuffle_impl<
           BLOCK_SIZE,
           MBLOCK,
           NBLOCK,
