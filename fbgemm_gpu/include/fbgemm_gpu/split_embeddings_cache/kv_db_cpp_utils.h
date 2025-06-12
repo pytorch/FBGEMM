@@ -33,7 +33,7 @@ constexpr size_t num_ssd_drives = 8;
 ///
 /// @return shard id ranges from [0, num_shards)
 inline size_t hash_shard(int64_t id, size_t num_shards) {
-  auto hash = folly::hash::fnv64_buf(
+  auto hash = folly::hash::fnv64_buf_BROKEN(
       reinterpret_cast<const char*>(&id), sizeof(int64_t));
   __uint128_t wide = __uint128_t{num_shards} * hash;
   return static_cast<size_t>(wide >> 64);
