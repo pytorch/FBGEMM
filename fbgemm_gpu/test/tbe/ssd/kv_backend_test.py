@@ -22,6 +22,7 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import EvictionPolicy
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.common import pad4
 from fbgemm_gpu.tbe.ssd.training import BackendType, KVZCHParams
@@ -51,6 +52,70 @@ default_settings: Dict[str, Any] = {
 @unittest.skipIf(*running_in_oss)
 @unittest.skipIf(*gpu_unavailable)
 class SSDCheckpointTest(unittest.TestCase):
+    def generate_fbgemm_kv_backend(
+        self,
+        max_D: int,
+        weight_precision: SparseType,
+        enable_l2: bool = True,
+        feature_dims: Optional[torch.Tensor] = None,
+        hash_size_cumsum: Optional[torch.Tensor] = None,
+        backend_type: BackendType = BackendType.SSD,
+        flushing_block_size: int = 1000,
+        ssd_directory: Optional[str] = None,
+        eviction_policy: Optional[EvictionPolicy] = None,
+    ) -> object:
+        if backend_type == BackendType.SSD:
+            assert ssd_directory
+            return torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                8,  # num_shards
+                8,  # num_threads
+                0,  # ssd_memtable_flush_period,
+                0,  # ssd_memtable_flush_offset,
+                4,  # ssd_l0_files_per_compact,
+                max_D,
+                0,  # ssd_rate_limit_mbps,
+                1,  # ssd_size_ratio,
+                8,  # ssd_compaction_trigger,
+                536870912,  # 512MB ssd_write_buffer_size,
+                8,  # ssd_max_write_buffer_num,
+                -0.01,  # ssd_uniform_init_lower
+                0.01,  # ssd_uniform_init_upper
+                weight_precision.bit_rate(),  # row_storage_bitwidth
+                0,  # ssd_block_cache_size_per_tbe
+                True,  # use_passed_in_path
+                l2_cache_size=1 if enable_l2 else 0,
+                enable_async_update=False,
+                table_dims=feature_dims,
+                hash_size_cumsum=hash_size_cumsum,
+                flushing_block_size=flushing_block_size,
+            )
+        elif backend_type == BackendType.DRAM:
+            eviction_config = None
+            if eviction_policy:
+                eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
+                    eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+                    eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+                    eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
+                    None,  # mem_util_threshold_in_GB if trigger mode is mem_util
+                    eviction_policy.ttls_in_mins,  # ttls_in_mins for each table if eviction strategy is timestamp
+                    eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is feature score
+                    eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is feature score
+                    eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+                    feature_dims.tolist() if feature_dims is not None else None,
+                )
+            return torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+                max_D,  # num elements in value field, including weight, opt, etc
+                -0.01,  # ssd_uniform_init_lower
+                0.01,  # ssd_uniform_init_upper
+                eviction_config,
+                8,  # num_shards
+                8,  # num_threads
+                weight_precision.bit_rate(),  # row_storage_bitwidth
+                table_dims=feature_dims,
+                hash_size_cumsum=hash_size_cumsum,
+            )
+
     def generate_fbgemm_kv_tbe(
         self,
         T: int,
@@ -617,3 +682,92 @@ class SSDCheckpointTest(unittest.TestCase):
             t1 = pmt.wrapped.narrow(0, 0, Es[i])
             t2 = lo.wrapped.narrow(0, 0, Es[i])
             assert torch.equal(t1, t2)
+
+    def test_dram_kv_eviction(self) -> None:
+        max_D = 132  # 128 + 4
+        E = 1000
+        weight_precision = SparseType.FP16
+        T = 4
+        feature_dims = torch.tensor([64, 32, 128, 64], dtype=torch.int64)
+        hash_size_cumsum = torch.tensor(
+            [0, E / T, 2 * E / T, 3 * E / T, 4 * E / T + 10], dtype=torch.int64
+        )
+        eviction_policy: EvictionPolicy = EvictionPolicy(
+            eviction_trigger_mode=1,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+            eviction_strategy=1,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+            eviction_step_intervals=2,  # trigger_step_interval if trigger mode is iteration
+            counter_thresholds=[
+                1,
+                1,
+                1,
+                1,
+            ],  # count_thresholds for each table if eviction strategy is feature score
+            counter_decay_rates=[
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+            ],  # count_decay_rates for each table if eviction strategy is feature score
+        )
+        dram_kv_backend = self.generate_fbgemm_kv_backend(
+            max_D=max_D,
+            weight_precision=weight_precision,
+            enable_l2=False,
+            feature_dims=feature_dims,
+            hash_size_cumsum=hash_size_cumsum,
+            backend_type=BackendType.DRAM,
+            flushing_block_size=1000,
+            eviction_policy=eviction_policy,
+        )
+
+        # stimulating training for 10 iterations
+
+        indices = torch.as_tensor(
+            np.random.choice(E, replace=False, size=(E,)), dtype=torch.int64
+        )
+        weights = torch.randn(E, max_D, dtype=weight_precision.as_dtype())
+        weights_out = torch.empty_like(weights)
+        count = torch.as_tensor([E])
+
+        evicted_counts = torch.empty(T, dtype=torch.int64)
+        processed_counts = torch.empty(T, dtype=torch.int64)
+        full_duration_ms = torch.empty(T, dtype=torch.int64)
+        exec_duration_ms = torch.empty(T, dtype=torch.int64)
+
+        # init
+        dram_kv_backend.set(indices, weights, count)  # pyre-ignore
+        for _ in range(10):
+            dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
+            dram_kv_backend.set(indices, weights, count)
+            time.sleep(0.01)  # 20ms, stimulate training forward time
+            dram_kv_backend.set(indices, weights, count)
+            time.sleep(0.01)  # 20ms, stimulate training backward time
+            dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
+                evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+            )
+            self.assertTrue(all(evicted_counts == 0))
+            self.assertTrue(all(processed_counts == 250))
+            self.assertTrue(all(full_duration_ms > 0))
+            self.assertTrue(all(exec_duration_ms >= 0))
+
+        # after another 10 rounds, the original ids should all be evicted
+        for _ in range(10):
+            # E+1 is a new indices, doesn't interference with the existing setup, just use it to decay count
+            # and evict everything
+            dram_kv_backend.get(
+                torch.tensor([E + 1]), weights_out[0].view(1, -1), torch.tensor([1])
+            )
+            time.sleep(0.01)  # 20ms, stimulate training forward time
+            dram_kv_backend.set(
+                torch.tensor([E + 1]), weights[0].view(1, -1), torch.tensor([1])
+            )
+            time.sleep(0.01)  # 20ms, stimulate training backward time
+            dram_kv_backend.get_feature_evict_metric(
+                evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+            )
+            if evicted_counts.sum() > 1:  # ID E+1 might be evicted
+                break
+        self.assertTrue(all(evicted_counts >= 250))
+        self.assertTrue(all(processed_counts >= 250))
+        self.assertTrue(all(full_duration_ms > 0))
+        self.assertTrue(all(exec_duration_ms >= 0))

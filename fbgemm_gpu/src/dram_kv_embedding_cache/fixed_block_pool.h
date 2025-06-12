@@ -272,7 +272,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
   const std::size_t block_alignment_; // Block alignment requirement
   const std::size_t blocks_per_chunk_; // Number of blocks per chunk
   std::pmr::memory_resource* upstream_; // Upstream memory resource
-  std::pmr::vector<ChunkInfo> chunks_{1024}; // Records of all allocated chunks
+  std::pmr::vector<ChunkInfo> chunks_; // Records of all allocated chunks
   void* free_list_ = nullptr; // Free block list head pointer
 };
 } // namespace kv_mem

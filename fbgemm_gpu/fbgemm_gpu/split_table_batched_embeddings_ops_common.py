@@ -60,16 +60,16 @@ class EvictionPolicy(NamedTuple):
         0  # trigger_step_interval if trigger mode is iteration
     )
     counter_thresholds: Optional[List[int]] = (
-        None  # count_thresholds for each feature if eviction strategy is feature score
+        None  # count_thresholds for each table if eviction strategy is feature score
     )
     ttls_in_mins: Optional[List[int]] = (
-        None  # ttls_in_mins for each feature if eviction strategy is timestamp
+        None  # ttls_in_mins for each table if eviction strategy is timestamp
     )
     counter_decay_rates: Optional[List[float]] = (
-        None  # count_decay_rates for each feature if eviction strategy is feature score
+        None  # count_decay_rates for each table if eviction strategy is feature score
     )
     l2_weight_thresholds: Optional[List[float]] = (
-        None  # l2_weight_thresholds for each feature if eviction strategy is feature l2 norm
+        None  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
     )
 
 
@@ -82,7 +82,7 @@ class KVZCHParams(NamedTuple):
     bucket_sizes: List[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
-    eviction_policy: EvictionPolicy = EvictionPolicy()
+    eviction_policy: Optional[EvictionPolicy] = None
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
