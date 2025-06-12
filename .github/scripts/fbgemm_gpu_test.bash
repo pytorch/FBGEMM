@@ -184,9 +184,8 @@ __setup_fbgemm_gpu_test () {
     print_exec conda env config vars set ${env_prefix} KMP_DUPLICATE_LIB_OK=1
   fi
 
-  # NOTE: Uncomment to enable PyTorch C++ stacktraces
   # shellcheck disable=SC2086
-  # print_exec conda env config vars set ${env_prefix} TORCH_SHOW_CPP_STACKTRACES=1
+  print_exec conda env config vars set ${env_prefix} TORCH_SHOW_CPP_STACKTRACES=1
 
   echo "[TEST] Installing PyTest ..."
   # shellcheck disable=SC2086
@@ -266,6 +265,11 @@ __determine_test_directories () {
         fbgemm_gpu/experimental/gemm/test
       )
     fi
+
+  elif [ "$fbgemm_build_target" == "hstu" ]; then
+    target_directories+=(
+      fbgemm_gpu/experimental/hstu/test
+    )
 
   else
     target_directories+=(

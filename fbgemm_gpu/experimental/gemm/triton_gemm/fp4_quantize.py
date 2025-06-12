@@ -334,8 +334,11 @@ def _to_blocked(x: torch.Tensor) -> torch.Tensor:
         padded[:rows, :cols] = x
 
     # Rearrange the blocks
-    blocks = padded.view(n_row_blocks, 128, n_col_blocks, 4).permute(0, 2, 1, 3)
-    rearranged = blocks.reshape(-1, 4, 32, 4).transpose(1, 2).reshape(-1, 32, 16)
+    rearranged = (
+        padded.view(n_row_blocks, 4, 32, n_col_blocks, 4)
+        .permute(0, 3, 2, 1, 4)
+        .reshape(-1, 32, 16)
+    )
 
     return rearranged.flatten()
 
@@ -1319,6 +1322,7 @@ def _kernel_nvfp4_quantize(
     FP4_EXP_BIAS: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
+    SCALE_K: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -1460,16 +1464,26 @@ def _kernel_nvfp4_quantize(
             pack=1,
         )
 
-        # We're done with group_exp now so we can write it out.
-        # We readd fp16_exp_bias for compatibility with cuda dequant.
+        n_col_blocks = SCALE_K // 4
+        first_dim = exp_offset // (512 * n_col_blocks)
+        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = exp_offset % 4
+        actual_offset = (
+            first_dim * (512 * n_col_blocks)
+            + fourth_dim * (512)
+            + third_dim * (16)
+            + second_dim * (4)
+            + fifth_dim
+        )
         tl.store(
-            scale + exp_offset,
+            scale + actual_offset,
             scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
             & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1))),
         )
-
         # Write out packed values to output tensor.
         tl.store(
             out + output_offset,
@@ -1612,8 +1626,11 @@ def triton_scale_nvfp4_quant(
         GROUP_LOAD=GROUP_LOAD,
         # pyre-ignore[6]
         USE_INT64=use_int64,
+        # pyre-ignore[6]
+        SCALE_K=rounded_K,
     )
-    scale = _to_blocked(scale)
+
+    scale = scale.flatten()
     return out.view(list(orig_shape[:-1]) + [-1]).view(torch.uint8), scale
 
 
@@ -1638,6 +1655,7 @@ def _kernel_nvfp4_quantize_silu(
     FP4_EXP_BIAS: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
+    SCALE_K: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -1795,8 +1813,21 @@ def _kernel_nvfp4_quantize_silu(
 
         # We're done with group_exp now so we can write it out.
         # We readd fp16_exp_bias for compatibility with cuda dequant.
+        n_col_blocks = SCALE_K // 4
+        first_dim = exp_offset // (512 * n_col_blocks)
+        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = exp_offset % 4
+        actual_offset = (
+            first_dim * (512 * n_col_blocks)
+            + fourth_dim * (512)
+            + third_dim * (16)
+            + second_dim * (4)
+            + fifth_dim
+        )
         tl.store(
-            scale + exp_offset,
+            scale + actual_offset,
             scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
@@ -1944,9 +1975,11 @@ def triton_scale_nvfp4_quant_silu(
         GROUP_LOAD=GROUP_LOAD,
         # pyre-ignore[6]
         USE_INT64=use_int64,
+        # pyre-ignore[6]
+        SCALE_K=rounded_K,
     )
 
-    scale = _to_blocked(scale)
+    scale = scale.flatten()
     return out.view(list(orig_shape[:-1]) + [-1]).view(torch.uint8), scale
 
 
@@ -1972,6 +2005,7 @@ def _kernel_nvfp4_quantize_rms(
     FP4_EXP_BIAS: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
     USE_INT64: tl.constexpr,
+    SCALE_K: tl.constexpr,
 ) -> None:
     """Quantize a 1D float tensor into a packed MX4 tensor.
 
@@ -2140,8 +2174,21 @@ def _kernel_nvfp4_quantize_rms(
 
         # We're done with group_exp now so we can write it out.
         # We readd fp16_exp_bias for compatibility with cuda dequant.
+        n_col_blocks = SCALE_K // 4
+        first_dim = exp_offset // (512 * n_col_blocks)
+        second_dim = (exp_offset % (512 * n_col_blocks)) // (128 * n_col_blocks)
+        third_dim = (exp_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (exp_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = exp_offset % 4
+        actual_offset = (
+            first_dim * (512 * n_col_blocks)
+            + fourth_dim * (512)
+            + third_dim * (16)
+            + second_dim * (4)
+            + fifth_dim
+        )
         tl.store(
-            scale + exp_offset,
+            scale + actual_offset,
             scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
             # Prevent writing outside this chunk or the main array.
             mask=(exp_offset < SCALE_SIZE)
@@ -2292,7 +2339,9 @@ def triton_scale_nvfp4_quant_rms(
         GROUP_LOAD=GROUP_LOAD,
         # pyre-ignore[6]
         USE_INT64=use_int64,
+        # pyre-ignore[6]
+        SCALE_K=rounded_K,
     )
 
-    scale = _to_blocked(scale)
+    scale = scale.flatten()
     return out.view(list(orig_shape[:-1]) + [-1]).view(torch.uint8), scale
