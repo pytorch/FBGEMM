@@ -420,6 +420,7 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
     kINT8QparamsBytes = 8
 
     if pooling_mode == PoolingMode.NONE:
+        kINT8QparamsBytes = 4
         D = max(
             [
                 max_int2_D,
@@ -435,7 +436,7 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
         torch._check(D > 0)
         adjusted_D = D
         if SparseType.from_int(output_dtype_int) == SparseType.INT8:
-            adjusted_D += T * kINT8QparamsBytes
+            adjusted_D += kINT8QparamsBytes
         output = dev_weights.new_empty([total_L, adjusted_D], dtype=output_dtype)
         return output
 
