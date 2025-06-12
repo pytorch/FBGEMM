@@ -17,6 +17,8 @@ import triton  # @manual=//triton:triton
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
     triton_quantize_mx4_unpack,
     triton_scale_nvfp4_quant,
+    triton_scale_nvfp4_quant_rms,
+    triton_scale_nvfp4_quant_silu,
 )
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -36,6 +38,9 @@ from fbgemm_gpu.experimental.gen_ai.quantize import (
     quantize_int4_preshuffle,
     scale_nvfp4_quant,
 )
+
+from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm
+from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
 
 try:
     from tinygemm.utils import group_quantize_tensor
@@ -2057,6 +2062,50 @@ class NVFP4Quantize(QuantizeOpBase):
     NVFP4 quantization with block-wise scaling.
     """
 
+    def quantize_rms(self, x, w):
+        M, N = w.shape
+        group_size = 16
+        w = torch.randn(group_size, dtype=torch.bfloat16, device=w.device)
+        x_global_scale = torch.tensor([448.0 * 6.0]).to(device=x.device) / torch.amax(
+            x.flatten(), dim=-1
+        )
+        xq_ref, x_scale_ref = triton_scale_nvfp4_quant_rms(
+            x,
+            w.repeat(M * N // group_size),
+            x_global_scale,
+            group_size=group_size,
+            EPS=1e-5,
+        )
+
+        intermediate = rms_norm(x.reshape(-1, 16), w, eps=1e-5)
+        intermediate = intermediate.to(torch.bfloat16).reshape(M, N)
+        xq, x_scale = triton_scale_nvfp4_quant(
+            intermediate,
+            x_global_scale,
+            group_size=group_size,
+        )
+
+    def quantize_silu(self, x, w):
+        M, N = x.shape
+        group_size = 16
+        x_global_scale = torch.tensor([448.0 * 6.0]).to(device=x.device) / torch.amax(
+            x.flatten(), dim=-1
+        )
+        xq_ref, x_scale_ref = triton_scale_nvfp4_quant_silu(
+            x,
+            w,
+            x_global_scale,
+            group_size=group_size,
+        )
+
+        intermediate = silu_mul(x.reshape(-1, 16), w.reshape(-1, 16))
+        intermediate = intermediate.to(torch.bfloat16).reshape(M, N)
+        xq, x_scale = triton_scale_nvfp4_quant(
+            intermediate,
+            x_global_scale,
+            group_size=group_size,
+        )
+
     def quantize(self, x, w):
         x_global_scale = ((448.0 * 6.0) / torch.amax(x.flatten(), dim=-1)).to(
             torch.float32
@@ -2068,7 +2117,6 @@ class NVFP4Quantize(QuantizeOpBase):
 
         xq, x_scale = triton_scale_nvfp4_quant(x, x_global_scale)
         wq, w_scale = triton_scale_nvfp4_quant(w, w_global_scale)
-
         return xq, wq, x_scale, w_scale, global_scale
 
     def compute(self, xq, wq, x_scale, w_scale, global_scale):
@@ -2314,6 +2362,8 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
         xq = torch.stack(xq, dim=0).contiguous()
         x_scale = torch.stack(x_scale, dim=0).contiguous()
         xq = xq.view(-1, xq.shape[-1])
+
+        x = torch.concat(x, dim=0).contiguous()
         global_scale = torch.stack(global_scale, dim=0).contiguous()
         return xq, wq, x_scale, w_scale, m_sizes, global_scale
 
