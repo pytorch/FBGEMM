@@ -391,6 +391,29 @@ std::string KVTensorWrapper::serialize() const {
   return json_serialized.dump();
 }
 
+std::vector<std::string> KVTensorWrapper::get_kvtensor_serializable_metadata()
+    const {
+  std::vector<std::string> metadata;
+  auto* db = dynamic_cast<EmbeddingRocksDB*>(db_.get());
+  auto checkpoint_paths = db->get_checkpoints(checkpoint_handle_->uuid);
+  metadata.push_back(std::to_string(checkpoint_paths.size()));
+  for (const auto& path : checkpoint_paths) {
+    metadata.push_back(path);
+  }
+  metadata.push_back(db->get_tbe_uuid());
+  metadata.push_back(std::to_string(db->num_shards()));
+  metadata.push_back(std::to_string(db->num_threads()));
+  metadata.push_back(std::to_string(db->get_max_D()));
+  metadata.push_back(std::to_string(row_offset_));
+  CHECK_EQ(shape_.size(), 2);
+  metadata.push_back(std::to_string(shape_[0]));
+  metadata.push_back(std::to_string(shape_[1]));
+  metadata.push_back(
+      std::to_string(static_cast<int64_t>(options_.dtype().toScalarType())));
+  metadata.push_back(checkpoint_handle_->uuid);
+  return metadata;
+}
+
 std::string KVTensorWrapper::logs() const {
   std::stringstream ss;
   if (db_) {
@@ -871,6 +894,26 @@ static auto dram_kv_embedding_cache_wrapper =
         .def(
             "get_feature_evict_metric",
             &DramKVEmbeddingCacheWrapper::get_feature_evict_metric);
+static auto embedding_rocks_db_read_only_wrapper =
+    torch::class_<ReadOnlyEmbeddingKVDB>("fbgemm", "ReadOnlyEmbeddingKVDB")
+        .def(
+            torch::init<
+                std::vector<std::string>,
+                std::string,
+                int64_t,
+                int64_t,
+                int64_t,
+                int64_t>(),
+            "",
+            {torch::arg("rdb_shard_checkpoint_paths"),
+             torch::arg("tbe_uuid"),
+             torch::arg("num_shards"),
+             torch::arg("num_threads"),
+             torch::arg("max_D"),
+             torch::arg("cache_size") = 0})
+        .def(
+            "get_range_from_rdb_checkpoint",
+            &ReadOnlyEmbeddingKVDB::get_range_from_rdb_checkpoint);
 
 static auto kv_tensor_wrapper =
     torch::class_<KVTensorWrapper>("fbgemm", "KVTensorWrapper")
@@ -931,7 +974,10 @@ static auto kv_tensor_wrapper =
             [](std::string data) -> c10::intrusive_ptr<KVTensorWrapper> {
               return c10::make_intrusive<KVTensorWrapper>(data);
             })
-        .def("logs", &KVTensorWrapper::logs, "");
+        .def("logs", &KVTensorWrapper::logs, "")
+        .def(
+            "get_kvtensor_serializable_metadata",
+            &KVTensorWrapper::get_kvtensor_serializable_metadata);
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(

@@ -1286,8 +1286,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
 ///
 /// @brief An implementation of ReadOnlyEmbeddingKVDB for RocksDB
 ///
-class ReadOnlyEmbeddingKVDB
-    : public std::enable_shared_from_this<ReadOnlyEmbeddingKVDB> {
+class ReadOnlyEmbeddingKVDB : public torch::jit::CustomClassHolder {
  public:
   explicit ReadOnlyEmbeddingKVDB(
       const std::vector<std::string>& rdb_shard_checkpoint_paths,
