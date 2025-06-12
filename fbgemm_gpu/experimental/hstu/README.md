@@ -1,6 +1,6 @@
 # FBGEMM HSTU
 
-FBGEMM HSTU(Hierarchical Sequential Transduction Units)
+FBGEMM HSTU (Hierarchical Sequential Transduction Units)
 
 # **1. Overview**
 
