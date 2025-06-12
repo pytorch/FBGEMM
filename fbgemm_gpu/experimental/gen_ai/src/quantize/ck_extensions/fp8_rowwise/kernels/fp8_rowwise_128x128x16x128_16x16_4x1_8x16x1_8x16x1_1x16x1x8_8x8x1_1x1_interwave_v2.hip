@@ -16,7 +16,7 @@ fp8_rowwise_128x128x16x128_16x16_4x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_
     at::Tensor w_scale,
     at::Tensor Y) {
   // A kernel that works well on small but not super tiny shapes.
-  using DeviceGemmInstance = DeviceGemmHelper<
+  return f8f8bf16_rowwise_wrapper<
       128,
       128,
       16,
@@ -32,7 +32,5 @@ fp8_rowwise_128x128x16x128_16x16_4x1_8x16x1_8x16x1_1x16x1x8_8x8x1_1x1_interwave_
       1,
       1,
       ck::BlockGemmPipelineScheduler::Interwave,
-      ck::BlockGemmPipelineVersion::v2>;
-  // Run kernel instance.
-  return f8f8bf16_rowwise_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, Y);
+      ck::BlockGemmPipelineVersion::v2>(XQ, WQ, x_scale, w_scale, Y, 1);
 }
