@@ -32,6 +32,7 @@
 {%- if has_vbe_support %}
 #include "fbgemm_gpu/utils/pt2_autograd_utils.h"
 {%- endif %}
+#include "fbgemm_gpu/utils/torch_library.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -309,6 +310,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         wdesc, vdesc
         )
     %}
+    
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_forward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
         "    Tensor host_weights, "
         "    Tensor dev_weights, "
@@ -352,6 +355,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         , {PT2_COMPLIANT_TAG}
         {%- endif %}
         );
+    }
+
     DISPATCH_TO_CPU("{{ embedding_codegen_forward_op }}_wrapper", {{ embedding_codegen_forward_op }}_cpu_wrapper);
 
     {%- else %} {#-/* backward */#}
