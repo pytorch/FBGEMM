@@ -741,22 +741,24 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
 
         self.weights_precision = weights_precision
 
-        if torch.cuda.is_available() and torch.version.hip:
-            # NOTE: It was discovered that FP16 cache precision caused a 500x
-            # slowdown in performance of split_embedding_nobag_backward_codegen_rowwise_adagrad_unweighted_kernel_warp_per_row_1
-            # kernel on ROCm, so to work around this, we fix cache precision to
-            # be FP32 always for the ROCm environment case.
-            #
-            # See:
-            #   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/
-            cache_precision = SparseType.FP32
-            self.log("Override cache_precision=SparseType.FP32 on ROCm")
-        else:
-            # NOTE: The changes from D65865527 are retained here until we can
-            # test that the the hack also works for non-ROCm environments.
-            cache_precision = (
-                weights_precision if cache_precision is None else cache_precision
-            )
+        # if torch.cuda.is_available() and torch.version.hip:
+        #     # NOTE: It was discovered that FP16 cache precision caused a 500x
+        #     # slowdown in performance of split_embedding_nobag_backward_codegen_rowwise_adagrad_unweighted_kernel_warp_per_row_1
+        #     # kernel on ROCm, so to work around this, we fix cache precision to
+        #     # be FP32 always for the ROCm environment case.
+        #     #
+        #     # See:
+        #     #   https://fb.workplace.com/groups/fbgemmusers/permalink/9438488366231860/
+        #     cache_precision = SparseType.FP32
+        #     self.log("Override cache_precision=SparseType.FP32 on ROCm")
+        # else:
+
+        # NOTE: The changes from D65865527 are retained here until we can
+        # test that the the hack also works for non-ROCm environments.
+        cache_precision = (
+            weights_precision if cache_precision is None else cache_precision
+        )
+        self.log(f"[TEST] {cache_precision=}")
 
         self.output_dtype: int = output_dtype.as_int()
         assert (
