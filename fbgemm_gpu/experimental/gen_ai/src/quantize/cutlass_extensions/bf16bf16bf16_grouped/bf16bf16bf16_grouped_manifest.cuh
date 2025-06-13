@@ -180,4 +180,21 @@ at::Tensor bf16bf16bf16_grouped_128_256_128_2_1_1_f(
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes);
 
+template <typename InputType>
+using Kernel_bf16bf16bf16_grouped = at::Tensor (*)(
+    InputType,
+    InputType,
+    at::Tensor,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>);
+
+template <typename InputType>
+const std::unordered_map<std::string, Kernel_bf16bf16bf16_grouped<InputType>>&
+get_bf16bf16bf16_grouped_kernels() {
+  static const std::
+      unordered_map<std::string, Kernel_bf16bf16bf16_grouped<InputType>>
+          kernels = {};
+  return kernels;
+}
+
 } // namespace fbgemm_gpu
