@@ -2804,7 +2804,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         Create a rocksdb hard link snapshot to provide cross procs access to the underlying data
         """
-        self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
+        if self.backend_type == BackendType.SSD:
+            self.ssd_db.create_rocksdb_hard_link_snapshot(self.step)
+        else:
+            logging.warning(
+                "create_rocksdb_hard_link_snapshot is only supported for SSD backend"
+            )
 
     def prepare_inputs(
         self,
