@@ -116,6 +116,14 @@ __configure_fbgemm_gpu_test_rocm () {
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} FBGEMM_TBE_ROCM_INFERENCE_PACKED_BAGS=1
 
+  # AMD GPUs need to be visible from PyTorch
+  # shellcheck disable=SC2155,SC2126
+  local num_gpus=$(rocm-smi --showproductname | grep GUID | wc -l)
+  # shellcheck disable=SC2155
+  local gpu_indices=$(seq 0 $((num_gpus - 1)) | paste -sd, -)
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} HIP_VISIBLE_DEVICES="${gpu_indices}"
+
   # Starting from MI250 AMD GPUs support per process XNACK mode change
   # shellcheck disable=SC2155
   local rocm_version=$(awk -F'[.-]' '{print $1 * 10000 + $2 * 100 + $3}' /opt/rocm/.info/version-dev)
