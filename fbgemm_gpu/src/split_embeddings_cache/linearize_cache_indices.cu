@@ -212,7 +212,7 @@ get_unique_indices_cuda_impl(
   CUDA_DEVICE_GUARD(linear_indices);
 
   TORCH_CHECK(linear_indices.numel() < std::numeric_limits<int32_t>::max());
-  const int32_t N = linear_indices.numel();
+  const auto N = linear_indices.numel();
   auto sorted_indices = at::empty_like(linear_indices);
   auto unique_indices = at::empty_like(linear_indices);
   auto unique_indices_length =
