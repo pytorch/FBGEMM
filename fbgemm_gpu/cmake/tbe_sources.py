@@ -319,6 +319,7 @@ static_cpu_files_training = [
 static_cpu_files_common = [
     "codegen/utils/embedding_bounds_check_host_cpu.cpp",
     "codegen/training/forward/embedding_forward_split_cpu.cpp",
+    "codegen/training/forward/embedding_forward_split_nobag_cpu.cpp",
     "codegen/training/pt2/pt2_autograd_utils.cpp",
 ]
 
