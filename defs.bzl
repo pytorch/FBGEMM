@@ -202,6 +202,7 @@ def get_fbgemm_inline_neon_srcs(msvc = False, buck = False):
 def get_fbgemm_autovec_srcs():
     return [
         "src/EmbeddingSpMDMAutovec.cc",
+        "src/EmbeddingStatsTracker.cc",
     ]
 
 def get_fbgemm_tests(skip_tests = ["test/FP32Test.cc"]):

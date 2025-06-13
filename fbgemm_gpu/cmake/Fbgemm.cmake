@@ -18,7 +18,7 @@ set(fbgemm_sources_normal
   "${FBGEMM}/src/Utils.cc")
 
 if(NOT DISABLE_FBGEMM_AUTOVEC)
-  list(APPEND fbgemm_sources_normal "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc")
+  list(APPEND fbgemm_sources_normal "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc" "${FBGEMM}/src/EmbeddingStatsTracker.cc")
 endif()
 
 set(fbgemm_sources_avx2

@@ -431,6 +431,7 @@ FBGEMM_API bool is_radix_sort_accelerated_with_openmp();
 FBGEMM_API bool is_autovec_disabled();
 FBGEMM_API bool is_autovec_forced();
 FBGEMM_API bool is_asmjit_disabled();
+FBGEMM_API bool is_stats_enabled();
 
 /**
  * @brief A function to check if the input parameter in the nbit CPU TBE kernel
