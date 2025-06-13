@@ -16,7 +16,6 @@ import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import torch
 import triton  # noqa: F401
-from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import supports_float8_fnuz
 
 if torch.cuda.is_available():
     from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
@@ -24,6 +23,7 @@ if torch.cuda.is_available():
         matmul_fp8_row,
         quantize_fp8_block,
         quantize_fp8_row,
+        supports_float8_fnuz,
     )
     from fbgemm_gpu.experimental.gen_ai.quantize import quantize_int4_preshuffle
 
@@ -41,13 +41,14 @@ except ImportError:
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
-# Supported FP8 format is different on NV and AMD.
-if supports_float8_fnuz():
+if torch.version.hip and supports_float8_fnuz():
+    # Supported FP8 format is different on NV and AMD.
     fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
     fp8_e5m2: torch.dtype = torch.float8_e5m2fnuz
 else:
     fp8_e4m3: torch.dtype = torch.float8_e4m3fn
     fp8_e5m2: torch.dtype = torch.float8_e5m2
+
 
 E4M3_MAX_POS: float = torch.finfo(fp8_e4m3).max
 EPS: float = 1e-12
@@ -1198,6 +1199,7 @@ class FP8Tests(unittest.TestCase):
         )
         torch.compile(torch.ops.fbgemm.f8f8bf16_tensorwise)(XQ, WQ, 1.0)
         torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise)(XQ, WQ, row_scale, col_scale)
+        torch.compile(torch.ops.fbgemm.f8f8f16_rowwise)(XQ, WQ, row_scale, col_scale)
 
         # Check that preallocated output writing is correct.
         torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise_out)(

@@ -53,6 +53,10 @@ def gather_scale_dense_tokens(
     # a = K * T
     a = token_indices.shape[0]
 
+    out = torch.empty((a, D), device="cuda", dtype=torch.bfloat16)
+    if a == 0 or D == 0:
+        return out
+
     assert x.is_contiguous()
     assert token_indices.is_contiguous()
     assert expert_indices.is_contiguous()
@@ -63,8 +67,6 @@ def gather_scale_dense_tokens(
 
     stride_t = scores.stride(0)
     stride_e = scores.stride(1)
-
-    out = torch.empty((a, D), device="cuda", dtype=torch.bfloat16)
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
     if a >= NUM_SMS:

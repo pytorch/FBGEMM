@@ -95,6 +95,27 @@ at::Tensor f8f8bf16_rowwise(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true);
+at::Tensor f8f8f16_rowwise(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> bias = std::nullopt,
+    bool use_fast_accum = true);
+at::Tensor f8f8bf16_rowwise_preshuffle(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> bias = std::nullopt,
+    bool use_fast_accum = true);
+at::Tensor f8f8f16_rowwise_preshuffle(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> bias = std::nullopt,
+    bool use_fast_accum = true);
 void f8f8bf16_rowwise_out(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -292,6 +313,11 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 #ifdef USE_ROCM
   m.impl("flush_icache_hip", flush_icache_ck);
 #endif
+#ifdef USE_ROCM
+  m.impl("f8f8f16_rowwise", f8f8f16_rowwise);
+  m.impl("f8f8bf16_rowwise_preshuffle", f8f8bf16_rowwise_preshuffle);
+  m.impl("f8f8f16_rowwise_preshuffle", f8f8bf16_rowwise_preshuffle);
+#endif
 }
 
 // Though it should never be used, it still seems helpful to define these
@@ -382,6 +408,19 @@ at::Tensor f8f8bf16_rowwise_meta(
     const at::SymInt N = WQ.sym_size(0);
     Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
   }
+  return Y;
+}
+
+at::Tensor f8f8f16_rowwise_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // FP8
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    std::optional<at::Tensor> /* bias = std::nullopt */,
+    bool /* use_fast_accum = true */) {
+  const at::SymInt M = XQ.sym_size(0);
+  const at::SymInt N = WQ.sym_size(0);
+  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kHalf));
   return Y;
 }
 
@@ -655,6 +694,11 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
   m.impl("f8f8bf16_lite", f8f8bf16_lite_meta);
   m.impl("scaled_fp4_quant", scaled_fp4_quant_meta);
+#endif
+#ifdef USE_ROCM
+  m.impl("f8f8f16_rowwise", f8f8f16_rowwise_meta);
+  m.impl("f8f8bf16_rowwise_preshuffle", f8f8bf16_rowwise_meta);
+  m.impl("f8f8f16_rowwise_preshuffle", f8f8f16_rowwise_meta);
 #endif
 }
 
