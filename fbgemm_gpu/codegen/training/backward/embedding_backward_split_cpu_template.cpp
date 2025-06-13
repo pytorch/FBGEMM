@@ -233,6 +233,76 @@ for (const auto t : c10::irange(num_tables)) {
   } // for each table
 }
 
+template <typename index_t, typename scalar_t, typename grad_t>
+void split_embedding_nobag_backward_exact_cpu_kernel(
+    const Tensor& grad_output,
+    const Tensor& host_weights,
+    const at::TensorAccessor<int64_t, 1> weights_offsets_data,
+    int64_t D,
+    const Tensor& hash_size_cumsum,
+    const Tensor& indices,
+    const Tensor& offsets,
+    int num_tables,
+    int B,
+    {% if "momentum1_offsets" in args.split_function_arg_names %}
+    const at::TensorAccessor<int64_t, 1> momentum1_offsets_data,
+    {% endif %}
+    {% if "momentum2_offsets" in args.split_function_arg_names %}
+    const at::TensorAccessor<int64_t, 1> momentum2_offsets_data,
+    {% endif %}
+    {{ args.split_cpu_kernel_args | join(", ") }}) {
+  const grad_t* grad_output_data = grad_output.data_ptr<grad_t>();
+  auto host_weights_data = host_weights.accessor<scalar_t, 1>();
+  const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
+  const auto indices_data = indices.data_ptr<index_t>();
+  const auto offsets_data = offsets.data_ptr<index_t>();
+
+  at::parallel_for(0, num_tables, 0, [&](int64_t t_begin, int64_t t_end) {
+  for (const auto t : c10::irange(t_begin, t_end)) {
+    int64_t hash_size = 0;
+    int64_t t_temp = static_cast<int64_t>(t) + 1;
+    do {
+      hash_size = hash_size_cumsum_data[t_temp] - hash_size_cumsum_data[t];
+      ++t_temp;
+    } while (hash_size == 0);
+    
+    [[maybe_unused]] const auto table_begin = weights_offsets_data[t];
+    bool success = true;
+    
+    at::parallel_for(0, B, 0, [&](int64_t b_begin, int64_t b_end) {
+      for (const auto b : c10::irange(b_begin, b_end)) {
+        const auto indices_start = offsets_data[t * B + b];
+        const auto indices_end = offsets_data[t * B + b + 1];
+        
+        [[maybe_unused]] const auto feature_begin = t;
+        
+        for (auto i = indices_start; i < indices_end; ++i) {
+          const auto idx = indices_data[i];
+          if (idx < 0 || idx >= hash_size) {
+            success = false;
+            continue;
+          }
+          
+          [[maybe_unused]] const int64_t embedding_begin = table_begin + idx * D;
+          
+          at::acc_type<grad_t, true> grad_buffer[D];  
+          for (const auto d : c10::irange(D)) {
+            grad_buffer[d] = grad_output_data[i * D + d];
+          }
+          
+          {{ split_weight_update_cpu }}
+        }
+      }
+    });
+    
+    if (!success) {
+      fbgemm_gpu::report_embedding_error(
+        t, B, 0, B, offsets_data, indices_data, hash_size);
+      }
+    }
+  });
+}
+
 template <typename index_t, typename scalar_t>
 void split_embedding_backward_exact_cpu_dense_kernel(
     Tensor grad,
@@ -294,45 +364,58 @@ for (const auto d : c10::irange(D)) {
 }
 } // namespace
 
+{%- for nobag in ([False] if (dense) else [True, False]) %}
+{%- set ndesc = "_nobag" if nobag else "" %}
 // The template for exact optimizers
-{{ "void" if not dense else "Tensor" }}  split_embedding_backward_codegen_{{ optimizer }}_cpu(
+{{ "void" if not dense else "Tensor" }}  split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu(
     Tensor grad_output,
     Tensor host_weights,
     {% if not dense %}
     Tensor weights_placements,
     {% endif %}
     Tensor weights_offsets,
+    {% if nobag %}
+    int64_t D,
+    {% else %}
     Tensor D_offsets,
     int64_t max_D,
+    {% endif %}
     Tensor hash_size_cumsum,
     int64_t total_hash_size_bits,
     Tensor indices,
     Tensor offsets,
+    {% if not nobag %}
     int64_t pooling_mode,
     Tensor indice_weights,
+    {% endif %}
     {% if not dense %}
     bool stochastic_rounding,
-    {{ args.split_function_args | join(", ") }},
-    int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
+    {{ args.split_function_args | join(", ") }}
+    {%- if not nobag %}
+    , int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)
+    {%- endif %}
     {% else %}
     {{ args.split_function_args | join(", ") }}
     {% endif %}
 ) {
-
+  {% if not nobag %}
   int64_t T = D_offsets.numel() - 1;
+  const auto D_offsets_data = D_offsets.accessor<int, 1>();
+  {% else %}
+  int64_t T = weights_offsets.size(0) - 1;
+  {% endif %}
   TORCH_CHECK_GT(T, 0);
   // offsets = [T x B  + 1]
   int64_t B = (offsets.size(0) - 1) / T;
   TORCH_CHECK_GE(B, 0);
-
+  
   {%- if "learning_rate" in args.split_cpu_kernel_arg_constructors %}
   // convert `learning rate` to float since `learning rate` is float in kernels
   const float learning_rate = learning_rate_tensor.item<float>();
   {%- endif %}
-
+  
   const auto weights_offsets_data = weights_offsets.accessor<int64_t, 1>();
-  const auto D_offsets_data = D_offsets.accessor<int, 1>();
-
+  
   const auto hash_size_cumsum_data = hash_size_cumsum.accessor<int64_t, 1>();
 
   int num_tables = 0; // # of physical tables
@@ -372,19 +455,27 @@ for (const auto d : c10::irange(D)) {
         host_weights.scalar_type(), 
         "split_embedding_backward_exact_cpu_kernel_3", [&] {
 
-          split_embedding_backward_exact_cpu_kernel<index_t, scalar_t, grad_t>(
+          split_embedding{{ ndesc }}_backward_exact_cpu_kernel<index_t, scalar_t, grad_t>(
               grad_output,
               host_weights,
               weights_offsets_data,
+              {% if nobag %}
+              D,
+              {% else %}
               D_offsets_data,
+              {% endif %}
               hash_size_cumsum,
               indices,
               offsets,
+              {% if not nobag %}
               pooling_mode,
               indice_weights,
+              {% endif %}
               num_tables,
               B,
+              {% if not nobag %}
               table_to_feature_offset,
+              {% endif %}
               {% if "momentum1_offsets" in args.split_function_arg_names %}
               momentum1_offsets_data,
               {% endif %}
@@ -428,14 +519,44 @@ for (const auto d : c10::irange(D)) {
   return grad;
   {% endif %}
 }
+{%- endfor %} {#-/*for nobag*/#}   
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
+  {%- for nobag in ([False] if (dense) else [True, False]) %}
+  {%- set ndesc = "_nobag" if nobag else "" %}
+
   {% if not dense %}
-  m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_placements, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, bool stochastic_rounding, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}, int output_dtype = 0) -> ()");
+  m.def("split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu("
+    "Tensor grad_output, "
+    "Tensor(a!) host_weights, "
+    "Tensor weights_placements, "
+    "Tensor weights_offsets, "
+    {%- if nobag %}
+    "int D, "
+    {%- else %}
+    "Tensor D_offsets, "
+    "int max_D, "
+    {%- endif %}
+    "Tensor hash_size_cumsum, "
+    "int total_hash_size_bits, "
+    "Tensor indices, "
+    "Tensor offsets, "
+    {%- if not nobag %}
+    "int pooling_mode, "
+    "Tensor indice_weights, "
+    {%- endif %}
+    "bool stochastic_rounding, "
+    "{{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}"
+    {%- if not nobag %}
+    ", int output_dtype = 0"
+    {%- endif %}
+    ") -> ()");
   {% else %}
   m.def("split_embedding_backward_codegen_{{ optimizer }}_cpu(Tensor grad_output, Tensor(a!) host_weights, Tensor weights_offsets, Tensor D_offsets, int max_D, Tensor hash_size_cumsum, int total_hash_size_bits, Tensor indices, Tensor offsets,int pooling_mode, Tensor indice_weights, {{ (args.split_function_args | join(", ")).replace("double", "float").replace("int64_t", "int").replace("Tensor momentum1_host", "Tensor(b!) momentum1_host")}}) -> Tensor");
   {% endif %}
-  DISPATCH_TO_CPU("split_embedding_backward_codegen_{{ optimizer }}_cpu", split_embedding_backward_codegen_{{ optimizer }}_cpu);
+  DISPATCH_TO_CPU("split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu", split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_cpu);
+
+  {%- endfor %} {#-/*for nobag*/#}   
 }
 
 // clang-format on
