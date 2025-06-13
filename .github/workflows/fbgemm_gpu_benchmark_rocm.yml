@@ -132,7 +132,7 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "rocm" },
+          { arch: x86, instance: "linux.rocm.gpu.2" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.13" ]
@@ -192,3 +192,10 @@ jobs:
     - name: Run FBGEMM_GPU Benchmark
       timeout-minutes: 40
       run: . $PRELUDE; run_tbe_microbench $BUILD_ENV
+
+    - name: Upload Traces as GHA Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: fbgemm_gpu_traces_${{ matrix.host-machine.arch }}_${{ matrix.python-version }}_rocm${{ matrix.rocm-version }}.zip
+        path: fbgemm_gpu/bench/*.json
+        if-no-files-found: error
