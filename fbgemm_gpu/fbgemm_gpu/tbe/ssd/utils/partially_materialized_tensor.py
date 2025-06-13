@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import functools
-import logging
 from typing import List, Optional, Union
 
 import torch
@@ -24,58 +23,6 @@ def implements(torch_function):
         return func
 
     return decorator
-
-
-class KVTensorMetadata:
-    """
-    Class that is used to represent a KVTensor as a Serialized Metadata in python
-    This object is used to reconstruct the KVTensor in the publish component
-    """
-
-    checkpoint_paths: List[str]
-    tbe_uuid: str
-    rdb_num_shards: int
-    rdb_num_threads: int
-    max_D: int
-    table_offset: int
-    table_shape: List[int]
-    dtype: int
-    checkpoint_uuid: str
-
-    def __init__(
-        self,
-        checkpoint_paths: List[str],
-        tbe_uuid: str,
-        rdb_num_shards: int,
-        rdb_num_threads: int,
-        max_D: int,
-        table_offset: int,
-        table_shape: List[int],
-        dtype: int,
-        checkpoint_uuid: str,
-    ) -> None:
-        """
-        Ensure caller loads the module before creating this object.
-
-        ```
-        load_torch_module(
-            "//deeplearning/fbgemm/fbgemm_gpu:ssd_split_table_batched_embeddings"
-        )
-        ```
-
-        Args:
-
-            wrapped: torch.classes.fbgemm.KVTensorWrapper
-        """
-        self.checkpoint_paths = checkpoint_paths
-        self.tbe_uuid = tbe_uuid
-        self.rdb_num_shards = rdb_num_shards
-        self.rdb_num_threads = rdb_num_threads
-        self.max_D = max_D
-        self.table_offset = table_offset
-        self.table_shape = table_shape
-        self.checkpoint_uuid = checkpoint_uuid
-        self.dtype = dtype
 
 
 class PartiallyMaterializedTensor:
@@ -103,55 +50,6 @@ class PartiallyMaterializedTensor:
         self._wrapped = wrapped
         self._is_virtual = is_virtual
         self._requires_grad = False
-
-    @property
-    def generate_kvtensor_metadata(self) -> KVTensorMetadata:
-        serialized_metadata = self.wrapped.get_kvtensor_serializable_metadata()
-        try:
-            metadata_itr = 0
-            num_rdb_ckpts = int(serialized_metadata[0])
-            metadata_itr += 1
-            checkpoint_paths: List[str] = []
-            for i in range(num_rdb_ckpts):
-                checkpoint_paths.append(serialized_metadata[i + metadata_itr])
-            metadata_itr += num_rdb_ckpts
-            tbe_uuid = serialized_metadata[metadata_itr]
-            metadata_itr += 1
-            rdb_num_shards = int(serialized_metadata[metadata_itr])
-            metadata_itr += 1
-            rdb_num_threads = int(serialized_metadata[metadata_itr])
-            metadata_itr += 1
-            max_D = int(serialized_metadata[metadata_itr])
-            metadata_itr += 1
-            table_offset = int(serialized_metadata[metadata_itr])
-            metadata_itr += 1
-            table_shape: List[int] = []
-            table_shape.append(int(serialized_metadata[metadata_itr]))
-            metadata_itr += 1
-            table_shape.append(int(serialized_metadata[metadata_itr]))
-            metadata_itr += 1
-            dtype = int(serialized_metadata[metadata_itr])
-            metadata_itr += 1
-            checkpoint_uuid = serialized_metadata[metadata_itr]
-            metadata_itr += 1
-            res = KVTensorMetadata(
-                checkpoint_paths,
-                tbe_uuid,
-                rdb_num_shards,
-                rdb_num_threads,
-                max_D,
-                table_offset,
-                table_shape,
-                dtype,
-                checkpoint_uuid,
-            )
-
-            return res
-        except Exception as e:
-            logging.error(
-                f"Failed to parse metadata: {e}, here is metadata: {serialized_metadata}"
-            )
-            raise e
 
     @property
     def wrapped(self):

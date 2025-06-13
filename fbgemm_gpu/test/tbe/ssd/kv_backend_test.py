@@ -21,6 +21,11 @@ from unittest.mock import patch
 import hypothesis.strategies as st
 import numpy as np
 import torch
+
+from aiplatform.modelstore.checkpointing.utils.kv_tensor_metadata import (
+    generate_kvtensor_metadata,
+)
+
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.common import pad4
@@ -668,8 +673,9 @@ class SSDCheckpointTest(unittest.TestCase):
         for i, pmt in enumerate(pmts[0]):
             if type(pmt) is torch.Tensor:
                 continue
-            kv_metadata = pmt.generate_kvtensor_metadata
-
+            # kv_metadata = pmt.generate_kvtensor_metadata
+            serialized_kv_metadata = pmt.wrapped.get_kvtensor_serializable_metadata()
+            kv_metadata = generate_kvtensor_metadata(serialized_kv_metadata)
             readonly_rdb = torch.classes.fbgemm.ReadOnlyEmbeddingKVDB(
                 kv_metadata.checkpoint_paths,
                 kv_metadata.tbe_uuid,
