@@ -111,12 +111,13 @@ __configure_fbgemm_gpu_test_rocm () {
 
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} FBGEMM_TEST_WITH_ROCM=1
+  # Disabled by default; enable for debugging
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} HIP_LAUNCH_BLOCKING=1
   # shellcheck disable=SC2086
   print_exec conda env config vars set ${env_prefix} FBGEMM_TBE_ROCM_INFERENCE_PACKED_BAGS=1
 
-  # AMD GPUs need to be visible from PyTorch
+  # AMD GPUs need to be explicitly made visible to PyTorch for use
   # shellcheck disable=SC2155,SC2126
   local num_gpus=$(rocm-smi --showproductname | grep GUID | wc -l)
   # shellcheck disable=SC2155

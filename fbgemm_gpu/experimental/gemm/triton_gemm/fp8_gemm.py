@@ -44,14 +44,19 @@ except ModuleNotFoundError:
 
 
 @functools.lru_cache
-def supports_float8_fnuz() -> bool:
+def supports_float8_fnuz(throw_on_hip_incompatibility: bool = True) -> bool:
     if torch.version.hip:
         device_capability = torch.cuda.get_device_capability()
-        print(f"[DEBUG] {device_capability=}")
 
         if device_capability < (9, 4):
             gpu_arch = torch.cuda.get_device_properties("cuda").gcnArchName
-            raise RuntimeError(f"Unsupported GPU arch: {gpu_arch} for FP8")
+            msg = f"Unsupported GPU arch: {gpu_arch} for FP8"
+            if throw_on_hip_incompatibility:
+                raise RuntimeError(msg)
+            else:
+                logging.error(msg)
+                return False
+
         elif device_capability == (9, 4):
             return True
 
