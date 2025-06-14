@@ -2060,8 +2060,8 @@ class NVFP4Gemm(QuantizeOpBase):
         )
         global_scale = 1 / (x_global_scale * w_global_scale)
 
-        xq, x_scale = scale_nvfp4_quant(x, x_global_scale)
-        wq, w_scale = scale_nvfp4_quant(w, w_global_scale)
+        xq, x_scale = triton_scale_nvfp4_quant(x, x_global_scale)
+        wq, w_scale = triton_scale_nvfp4_quant(w, w_global_scale)
 
         return xq, wq, x_scale, w_scale, global_scale
 
@@ -2277,10 +2277,10 @@ class NVFP4GroupedGemm(QuantizeOpBase):
 
         # Quantize weights and activations
         wq, w_scale = zip(
-            *[scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
+            *[triton_scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
         )
         xq, x_scale = zip(
-            *[scale_nvfp4_quant(x[i], x_global_scale[i]) for i in range(G)]
+            *[triton_scale_nvfp4_quant(x[i], x_global_scale[i]) for i in range(G)]
         )
         return xq, wq, x_scale, w_scale, global_scale
 
@@ -2355,19 +2355,31 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
     NVFP4 grouped matmul with blockwise scaling and stacked inputs.
     """
 
-    def quantize(self, x, w):
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        return x, w, m_sizes
+
+    def quantize(self, x, w, m_sizes):
         def get_global_scale(x, w):
-            x_global_scale = ((448.0 * 6.0) / torch.amax(x.flatten(), dim=-1)).to(
-                torch.float32
-            )
+
             w_global_scale = ((448.0 * 6.0) / torch.amax(w.flatten(), dim=-1)).to(
                 torch.float32
             )
-            global_scale = 1 / (x_global_scale * w_global_scale)
-            return x_global_scale, w_global_scale, global_scale
 
-        m_values = [i.shape[0] for i in x]
-        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+            if x.shape[0] != 0:
+                x_global_scale = ((448.0 * 6.0) / torch.amax(x.flatten(), dim=-1)).to(
+                    torch.float32
+                )
+            else:
+                x_global_scale = w_global_scale
+
+            if x.shape[0] != 0:
+                global_scale = 1 / (x_global_scale * w_global_scale)
+            else:
+                global_scale = 1 / (w_global_scale)
+
+            return x_global_scale, w_global_scale, global_scale
 
         # Compute global scale for each group
         G = len(x)
@@ -2383,17 +2395,21 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             global_scale.append(global_scale_)
 
         wq, w_scale = zip(
-            *[scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
+            *[triton_scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
         )
         wq = torch.stack(wq, dim=0).contiguous()
         w_scale = torch.stack(w_scale, dim=0).contiguous()
 
-        xq, x_scale = zip(
-            *[scale_nvfp4_quant(x[i], x_global_scale[i]) for i in range(G)]
-        )
-        xq = torch.stack(xq, dim=0).contiguous()
-        x_scale = torch.stack(x_scale, dim=0).contiguous()
-        xq = xq.view(-1, xq.shape[-1])
+        xq = []
+        x_scale = []
+        for i in range(G):
+            if x[i].shape[0] != 0:
+                o_a, o_b = triton_scale_nvfp4_quant(x[i], x_global_scale[i])
+                xq.append(o_a)
+                o_b = o_b.reshape(-1, x[i].shape[1] // 16)
+                x_scale.append(o_b)
+        xq = torch.vstack(xq).contiguous()
+        x_scale = torch.vstack(x_scale).contiguous()
 
         x = torch.concat(x, dim=0).contiguous()
         global_scale = torch.stack(global_scale, dim=0).contiguous()
@@ -2404,8 +2420,8 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             xq, wq, x_scale, w_scale, m_sizes, global_scale, use_mx=False
         )
 
-    def quantize_and_compute(self, x, w):
-        xq, wq, x_scale, w_scale, m_sizes, global_scale = self.quantize(x, w)
+    def quantize_and_compute(self, x, w, m_sizes):
+        xq, wq, x_scale, w_scale, m_sizes, global_scale = self.quantize(x, w, m_sizes)
         return self.compute(xq, wq, x_scale, w_scale, m_sizes, global_scale)
 
     @property

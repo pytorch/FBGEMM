@@ -35,6 +35,17 @@ class EmbeddingLocation(enum.IntEnum):
 
     @classmethod
     # pyre-ignore[3]
+    def str_values(cls):
+        return [
+            "device",
+            "managed",
+            "managed_caching",
+            "host",
+            "mtia",
+        ]
+
+    @classmethod
+    # pyre-ignore[3]
     def from_str(cls, key: str):
         lookup = {
             "device": EmbeddingLocation.DEVICE,

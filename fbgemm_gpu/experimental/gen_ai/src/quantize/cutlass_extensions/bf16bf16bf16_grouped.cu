@@ -10,10 +10,131 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include "bf16bf16bf16_grouped/bf16bf16bf16_grouped_manifest.cuh"
+#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/utils.h"
 
 namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
+
+namespace {
+TuningCache& getTuningCache() {
+  // This kernel has multiple APIs templated based on InputType, so we use this
+  // to have a single cache instance across APIs.
+  static TuningCache cache("bf16bf16bf16_grouped");
+  return cache;
+}
+} // namespace
+
+template <typename InputType>
+Kernel_bf16bf16bf16_grouped<InputType>
+get_kernel_via_heuristic(int G, int total_M, int N, int K) {
+  // Use heuristics to pick best kernel implementation.
+
+  // Llama4 128E
+  if (G == 128) {
+    if (N == 5120 && K == 1024) {
+      if (total_M <= 128) {
+        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+      } else if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
+      } else if (total_M <= 2048) {
+        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+      } else if (total_M <= 4096) {
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
+      } else if (total_M <= 8192) {
+        return bf16bf16bf16_grouped_128_64_128_1_1_1_f;
+      } else if (total_M <= 16384) {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_t;
+      } else {
+        return bf16bf16bf16_grouped_128_256_128_2_1_1_f;
+      }
+    }
+
+    if (N == 2048 && K == 5120) {
+      if (total_M <= 2048) {
+        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_t;
+      }
+    }
+  }
+
+  // Llama4 64E
+  if (G == 16) {
+    if (N == 5120 && K == 1024) {
+      if (total_M <= 32) {
+        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+      } else if (total_M <= 64) {
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
+      } else if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+      } else if (total_M <= 512) {
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
+      } else if (total_M <= 1024) {
+        return bf16bf16bf16_grouped_128_64_128_2_1_1_f;
+      } else {
+        return bf16bf16bf16_grouped_128_256_128_2_1_1_f;
+      }
+    }
+
+    if (N == 2048 && K == 5120) {
+      if (total_M <= 16) {
+        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+      } else if (total_M <= 64) {
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
+      } else if (total_M <= 256) {
+        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+      } else if (total_M <= 512) {
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
+      } else if (total_M <= 1024) {
+        return bf16bf16bf16_grouped_128_64_128_1_1_1_f;
+      } else {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_t;
+      }
+    }
+  }
+
+  // Fallback to legacy heuristic for now.
+  if (total_M <= 16) {
+    return bf16bf16bf16_grouped_128_16_128_1_1_1_f;
+  } else if (total_M <= 32) {
+    return bf16bf16bf16_grouped_128_32_128_1_1_1_f;
+  } else if (total_M <= 64) {
+    return bf16bf16bf16_grouped_128_64_128_1_1_1_f;
+  } else if (total_M <= 128) {
+    return bf16bf16bf16_grouped_128_128_128_1_1_1_f;
+  } else if (total_M <= 512) {
+    return bf16bf16bf16_grouped_256_128_128_2_1_1_f;
+  } else {
+    return bf16bf16bf16_grouped_128_256_128_2_1_1_f;
+  }
+}
+
+template <typename InputType>
+Kernel_bf16bf16bf16_grouped<InputType> get_kernel_via_tuning(
+    int G,
+    int total_M,
+    int N,
+    int K,
+    InputType X, // BF16
+    InputType W, // BF16
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
+    std::optional<at::Tensor> M_sizes = std::nullopt) {
+  auto& cache = getTuningCache();
+
+  // Reducing amount of auto tuning by rounding up total_m to next power of 2.
+  total_M = nextPowerOf2(total_M);
+  // Use (total_M, N, K, G) shape as the key.
+  const std::string shape_key = std::to_string(total_M) + "_" +
+      std::to_string(N) + "_" + std::to_string(K) + "_" + std::to_string(G);
+  const auto& kernels = get_bf16bf16bf16_grouped_kernels<InputType>();
+  auto kernel = cache.findBestKernelMaybeAutotune(
+      shape_key, kernels, X, W, output, zero_start_index_M, M_sizes);
+
+  return kernel;
+}
 
 // BF16 grouped cutlass kernel dispatch.
 template <typename InputType>
@@ -27,113 +148,17 @@ at::Tensor dispatch_bf16_grouped_kernel(
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
-  // Use heuristics to pick best kernel implementation.
-
-  // Llama4 128E
-  if (G == 128) {
-    if (N == 5120 && K == 1024) {
-      if (total_M <= 128) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_t(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 2048) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 4096) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 8192) {
-        return bf16bf16bf16_grouped_128_64_128_1_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 16384) {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_t(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else {
-        return bf16bf16bf16_grouped_128_256_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      }
+  // Select kernel to run via heuristics or tuning.
+  auto kernel = [&]() {
+    if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
+      return get_kernel_via_tuning(
+          G, total_M, N, K, X, W, output, zero_start_index_M, M_sizes);
+    } else {
+      return get_kernel_via_heuristic<InputType>(G, total_M, N, K);
     }
-
-    if (N == 2048 && K == 5120) {
-      if (total_M <= 2048) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_t(
-            X, W, output, zero_start_index_M, M_sizes);
-      }
-    }
-  }
-
-  // Llama4 64E
-  if (G == 16) {
-    if (N == 5120 && K == 1024) {
-      if (total_M <= 32) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 64) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_t(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_t(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_64_128_2_1_1_t(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else {
-        return bf16bf16bf16_grouped_128_256_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      }
-    }
-
-    if (N == 2048 && K == 5120) {
-      if (total_M <= 16) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 64) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_64_128_1_1_1_f(
-            X, W, output, zero_start_index_M, M_sizes);
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_t(
-            X, W, output, zero_start_index_M, M_sizes);
-      }
-    }
-  }
-
-  // Fallback to legacy heuristic for now.
-  if (total_M <= 16) {
-    return bf16bf16bf16_grouped_128_16_128_1_1_1_f(
-        X, W, output, zero_start_index_M, M_sizes);
-  } else if (total_M <= 32) {
-    return bf16bf16bf16_grouped_128_32_128_1_1_1_f(
-        X, W, output, zero_start_index_M, M_sizes);
-  } else if (total_M <= 64) {
-    return bf16bf16bf16_grouped_128_64_128_1_1_1_f(
-        X, W, output, zero_start_index_M, M_sizes);
-  } else if (total_M <= 128) {
-    return bf16bf16bf16_grouped_128_128_128_1_1_1_f(
-        X, W, output, zero_start_index_M, M_sizes);
-  } else if (total_M <= 512) {
-    return bf16bf16bf16_grouped_256_128_128_2_1_1_f(
-        X, W, output, zero_start_index_M, M_sizes);
-  } else {
-    return bf16bf16bf16_grouped_128_256_128_2_1_1_f(
-        X, W, output, zero_start_index_M, M_sizes);
-  }
+  }();
+  // Invoke kernel
+  return kernel(X, W, output, zero_start_index_M, M_sizes);
 }
 
 template <typename OutputType>

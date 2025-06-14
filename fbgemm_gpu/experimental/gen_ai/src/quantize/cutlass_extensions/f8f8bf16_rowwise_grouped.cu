@@ -13,24 +13,25 @@
 
 #include "f8f8bf16_rowwise_grouped/f8f8bf16_rowwise_grouped_manifest.cuh"
 #include "f8f8bf16_rowwise_grouped_sm100/f8f8bf16_rowwise_grouped_manifest.cuh"
+#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/utils.h"
 
 namespace fbgemm_gpu {
 
 #if CUDART_VERSION >= 12000
 
-// FP8 rowwise grouped cutlass kernel dispatch.
+namespace {
+TuningCache& getTuningCache() {
+  // This kernel has multiple APIs templated based on InputType, so we use this
+  // to have a single cache instance across APIs.
+  static TuningCache cache("f8f8bf16_rowwise_grouped");
+  return cache;
+}
+} // namespace
+
 template <typename InputType>
-at::Tensor dispatch_fp8_grouped_kernel(
-    int total_M,
-    int max_N,
-    int max_K,
-    InputType XQ, // FP8
-    InputType WQ, // FP8
-    InputType x_scale,
-    InputType w_scale,
-    at::Tensor output,
-    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
-    std::optional<at::Tensor> M_sizes = std::nullopt) {
+Kernel_f8f8bf16_rowwise_grouped<InputType>
+get_kernel_via_heuristics(int total_M, int max_N, int max_K, int G) {
   static int arch = -1;
   // Avoid expensive cudaGetDeviceProperties call.
   if (arch < 0) {
@@ -52,81 +53,207 @@ at::Tensor dispatch_fp8_grouped_kernel(
   if (arch == 10) {
     if (total_M <= 64 || (total_M <= 256 and max_N <= 1024)) {
       if (max_K <= 4096) {
-        return f8f8bf16_rowwise_grouped_256_32_128_2_1_1_10_f(
-            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+        return f8f8bf16_rowwise_grouped_256_32_128_2_1_1_10_f;
       } else {
-        return f8f8bf16_rowwise_grouped_128_32_128_2_1_1_10_f(
-            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+        return f8f8bf16_rowwise_grouped_128_32_128_2_1_1_10_f;
       }
     } else if (total_M <= 512) {
       if (max_N <= 1024) {
-        return f8f8bf16_rowwise_grouped_128_64_128_2_1_1_10_f(
-            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+        return f8f8bf16_rowwise_grouped_128_64_128_2_1_1_10_f;
       } else if (max_N <= 8192) {
         if (max_K <= 2048) {
-          return f8f8bf16_rowwise_grouped_256_32_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_256_32_128_2_1_1_10_f;
         } else if (max_K <= 4096) {
-          return f8f8bf16_rowwise_grouped_128_32_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_128_32_128_2_1_1_10_f;
         } else {
-          return f8f8bf16_rowwise_grouped_128_64_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_128_64_128_2_1_1_10_f;
         }
       }
     } else if (total_M <= 1024) {
       if (max_N <= 1024) {
-        return f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f(
-            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+        return f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f;
       } else if (max_N <= 8192) {
         if (max_K <= 2048) {
-          return f8f8bf16_rowwise_grouped_256_64_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_256_64_128_2_1_1_10_f;
         } else if (max_K <= 4096) {
-          return f8f8bf16_rowwise_grouped_128_64_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_128_64_128_2_1_1_10_f;
         } else {
-          return f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f;
         }
       }
     } else if (total_M <= 2048) {
       if (max_N <= 1024) {
-        return f8f8bf16_rowwise_grouped_256_256_128_2_1_1_10_f(
-            XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+        return f8f8bf16_rowwise_grouped_256_256_128_2_1_1_10_f;
       } else if (max_N <= 8192) {
         if (max_K <= 2048) {
-          return f8f8bf16_rowwise_grouped_256_128_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_256_128_128_2_1_1_10_f;
         } else if (max_K <= 4096) {
-          return f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f(
-              XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+          return f8f8bf16_rowwise_grouped_128_128_128_2_1_1_10_f;
         }
       }
     }
-    return f8f8bf16_rowwise_grouped_256_256_128_2_1_1_10_f(
-        XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+    return f8f8bf16_rowwise_grouped_256_256_128_2_1_1_10_f;
   } else {
+    // LLama4 16E
+    if (max_N == 2048 && max_K == 5120 && G == 16) {
+      if (total_M <= 256) {
+        return f8f8bf16_rowwise_grouped_128_16_128_2_1_1_9_f;
+      } else if (total_M <= 512) {
+        return f8f8bf16_rowwise_grouped_128_32_128_2_1_1_9_f;
+      } else if (total_M <= 1024) {
+        return f8f8bf16_rowwise_grouped_128_64_128_2_1_1_9_f;
+      } else if (total_M <= 2048) {
+        return f8f8bf16_rowwise_grouped_128_128_128_2_1_1_9_f;
+      } else {
+        return f8f8bf16_rowwise_grouped_128_256_128_1_1_1_9_f;
+      }
+    }
+    if (max_N == 5120 && max_K == 1024 && G == 16) {
+      if (total_M <= 16) {
+        return f8f8bf16_rowwise_grouped_128_16_128_2_1_1_9_f;
+      } else if (total_M <= 256) {
+        return f8f8bf16_rowwise_grouped_256_32_128_4_1_1_9_f;
+      } else if (total_M <= 512) {
+        return f8f8bf16_rowwise_grouped_256_32_128_1_1_1_9_f;
+      } else if (total_M <= 1024) {
+        return f8f8bf16_rowwise_grouped_256_64_128_1_1_1_9_f;
+      } else if (total_M <= 1536) {
+        return f8f8bf16_rowwise_grouped_256_128_128_4_1_1_9_f;
+      } else if (total_M <= 2048) {
+        return f8f8bf16_rowwise_grouped_256_64_128_1_1_1_9_f;
+      } else if (total_M <= 4096) {
+        return f8f8bf16_rowwise_grouped_128_256_128_2_1_1_9_f;
+      } else {
+        return f8f8bf16_rowwise_grouped_128_256_128_1_1_1_9_f;
+      }
+    }
+    // LLama4 128E
+    if (max_N == 5120 && max_K == 1024 && G == 128) {
+      if (total_M <= 128) {
+        return f8f8bf16_rowwise_grouped_256_16_128_2_1_1_9_f;
+      } else if (total_M <= 256) {
+        return f8f8bf16_rowwise_grouped_256_16_128_2_1_1_9_f;
+      } else if (total_M <= 2048) {
+        return f8f8bf16_rowwise_grouped_256_16_128_1_1_1_9_f;
+      } else if (total_M <= 4096) {
+        return f8f8bf16_rowwise_grouped_256_32_128_1_1_1_9_f;
+      } else if (total_M <= 8192) {
+        return f8f8bf16_rowwise_grouped_256_64_128_1_1_1_9_f;
+      } else if (total_M <= 12288) {
+        return f8f8bf16_rowwise_grouped_256_128_128_2_1_1_9_f;
+      } else if (total_M <= 32768) {
+        return f8f8bf16_rowwise_grouped_256_128_128_1_1_1_9_f;
+      } else {
+        return f8f8bf16_rowwise_grouped_128_256_128_2_1_1_9_f;
+      }
+    }
+    if (max_N == 2048 && max_K == 5120 && G == 128) {
+      if (total_M <= 128) {
+        return f8f8bf16_rowwise_grouped_256_16_128_1_1_1_9_f;
+      } else if (total_M <= 512) {
+        return f8f8bf16_rowwise_grouped_256_16_128_4_1_1_9_f;
+      } else if (total_M <= 1024) {
+        return f8f8bf16_rowwise_grouped_256_32_128_4_1_1_9_f;
+      } else if (total_M <= 2048) {
+        return f8f8bf16_rowwise_grouped_256_16_128_2_1_1_9_f;
+      } else if (total_M <= 4096) {
+        return f8f8bf16_rowwise_grouped_256_32_128_4_1_1_9_f;
+      } else if (total_M <= 8192) {
+        return f8f8bf16_rowwise_grouped_256_64_128_4_1_1_9_f;
+      } else if (total_M <= 16384) {
+        return f8f8bf16_rowwise_grouped_128_128_128_1_1_1_9_f;
+      } else {
+        return f8f8bf16_rowwise_grouped_128_256_128_2_1_1_9_f;
+      }
+    }
+
     if (total_M <= 16) {
-      return f8f8bf16_rowwise_grouped_128_16_128_1_1_1_9_f(
-          XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      return f8f8bf16_rowwise_grouped_128_16_128_1_1_1_9_f;
     } else if (total_M <= 32) {
-      return f8f8bf16_rowwise_grouped_128_32_128_1_1_1_9_f(
-          XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      return f8f8bf16_rowwise_grouped_128_32_128_1_1_1_9_f;
     } else if (total_M <= 64) {
-      return f8f8bf16_rowwise_grouped_128_64_128_1_1_1_9_f(
-          XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      return f8f8bf16_rowwise_grouped_128_64_128_1_1_1_9_f;
     } else if (total_M <= 128) {
-      return f8f8bf16_rowwise_grouped_128_128_128_1_1_1_9_f(
-          XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      return f8f8bf16_rowwise_grouped_128_128_128_1_1_1_9_f;
     } else if (total_M <= 512) {
-      return f8f8bf16_rowwise_grouped_256_128_128_2_1_1_9_f(
-          XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      return f8f8bf16_rowwise_grouped_256_128_128_2_1_1_9_f;
     } else {
-      return f8f8bf16_rowwise_grouped_128_256_128_2_1_1_9_f(
-          XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+      return f8f8bf16_rowwise_grouped_128_256_128_2_1_1_9_f;
     }
   }
+}
+
+template <typename InputType>
+Kernel_f8f8bf16_rowwise_grouped<InputType> get_kernel_via_tuning(
+    int total_M,
+    int max_N,
+    int max_K,
+    int G,
+    InputType XQ, // FP8
+    InputType WQ, // FP8
+    InputType x_scale,
+    InputType w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
+    std::optional<at::Tensor> M_sizes = std::nullopt) {
+  auto& cache = getTuningCache();
+
+  // Reducing amount of auto tuning by rounding up total_M to next power of 2.
+  total_M = nextPowerOf2(total_M);
+  // Use (total_M, max_N, max_K, G) shape as the key.
+  const std::string shape_key = std::to_string(total_M) + "_" +
+      std::to_string(max_N) + "_" + std::to_string(max_K) + "_" +
+      std::to_string(G);
+  const auto& kernels = get_f8f8bf16_rowwise_grouped_kernels<InputType>();
+  auto kernel = cache.findBestKernelMaybeAutotune(
+      shape_key,
+      kernels,
+      XQ,
+      WQ,
+      x_scale,
+      w_scale,
+      output,
+      zero_start_index_M,
+      M_sizes);
+
+  return kernel;
+}
+
+// FP8 rowwise grouped cutlass kernel dispatch.
+template <typename InputType>
+at::Tensor dispatch_fp8_grouped_kernel(
+    int total_M,
+    int max_N,
+    int max_K,
+    int G,
+    InputType XQ, // FP8
+    InputType WQ, // FP8
+    InputType x_scale,
+    InputType w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M = std::nullopt,
+    std::optional<at::Tensor> M_sizes = std::nullopt) {
+  // Select kernel to run via heuristics or tuning.
+  auto kernel = [&]() {
+    if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
+      return get_kernel_via_tuning(
+          total_M,
+          max_N,
+          max_K,
+          G,
+          XQ,
+          WQ,
+          x_scale,
+          w_scale,
+          output,
+          zero_start_index_M,
+          M_sizes);
+    } else {
+      return get_kernel_via_heuristics<InputType>(total_M, max_N, max_K, G);
+    }
+  }();
+  // Invoke kernel
+  return kernel(XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
 }
 
 template <typename OutputType>
@@ -163,7 +290,7 @@ OutputType _f8f8bf16_rowwise_grouped(
 
   // Run kernel.
   at::Tensor g_out = dispatch_fp8_grouped_kernel<at::TensorList>(
-      total_M, max_N, max_K, XQ, WQ, x_scale, w_scale, Y);
+      total_M, max_N, max_K, G, XQ, WQ, x_scale, w_scale, Y);
 
   // Return appropriate output type.
   if constexpr (std::is_same_v<OutputType, at::Tensor>) {
@@ -218,7 +345,7 @@ at::Tensor f8f8bf16_rowwise_grouped_stacked(
   }
   // Return continuous view of output.
   at::Tensor out = dispatch_fp8_grouped_kernel<at::Tensor>(
-      total_M, N, K, XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_sizes);
+      total_M, N, K, G, XQ, WQ, x_scale, w_scale, Y, std::nullopt, M_sizes);
   return out.view({total_M, N});
 }
 
@@ -246,7 +373,7 @@ at::Tensor f8f8bf16_rowwise_grouped_dynamic(
 
   // Return continuous view of output.
   at::Tensor output = dispatch_fp8_grouped_kernel<at::Tensor>(
-      G * M, N, K, XQ, WQ, x_scale, w_scale, Y, zero_start_index_M);
+      G * M, N, K, G, XQ, WQ, x_scale, w_scale, Y, zero_start_index_M);
   // View as proper shape.
   return output.view({G, M, N});
 }
