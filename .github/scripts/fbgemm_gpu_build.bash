@@ -372,7 +372,7 @@ __configure_fbgemm_gpu_build () {
   if [ "$fbgemm_release_channel" != "release" ] || [ "$BUILD_DEBUG" -eq 1 ]; then
     echo "[BUILD] Enabling debug features in the build ..."
     build_args+=(
-      --debug
+      --debug=1
     )
   fi
 
@@ -787,10 +787,9 @@ build_fbgemm_gpu_install () {
   # Parallelism may need to be limited to prevent the build from being
   # canceled for going over ulimits
   echo "[BUILD] Building + installing FBGEMM wheel (TARGET=${fbgemm_build_target}, VARIANT=${fbgemm_build_variant}) ..."
-  # shellcheck disable=SC2086
+  # shellcheck disable=SC2086,SC2145
   print_exec conda run --no-capture-output ${env_prefix} \
-    python setup.py "${run_multicore}" install \
-      "${build_args[@]}" || return 1
+    sh -c \"python setup.py "${run_multicore}" install "${build_args[@]}"\" || return 1
 
   # Run checks on the built libraries
   __run_fbgemm_gpu_postbuild_checks || return 1
