@@ -15,5 +15,6 @@ var searchData=
   ['transformation_20cuda_20operators_12',['Layout Transformation CUDA Operators',['../group__layout-transform-cuda.html',1,'']]],
   ['transpose_5f8rows_13',['transpose_8rows',['../namespacefbgemm.html#a9ee41553113b6cd89e0e336022acf250',1,'fbgemm']]],
   ['transpose_5fref_14',['transpose_ref',['../namespacefbgemm.html#a18832d0507cb6d8bce78371b97f66479',1,'fbgemm']]],
-  ['transpose_5fsimd_15',['transpose_simd',['../namespacefbgemm.html#a75b4ad78ae16c6e6782f82e1ff4012a8',1,'fbgemm']]]
+  ['transpose_5fsimd_15',['transpose_simd',['../namespacefbgemm.html#a75b4ad78ae16c6e6782f82e1ff4012a8',1,'fbgemm']]],
+  ['tuningcache_16',['TuningCache',['../class_tuning_cache.html',1,'']]]
 ];
