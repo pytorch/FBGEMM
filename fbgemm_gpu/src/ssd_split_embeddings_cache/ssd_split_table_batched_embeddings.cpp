@@ -478,6 +478,7 @@ void KVTensorWrapper::set_dram_db_wrapper(
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
+  CHECK_EQ(width_offset_, 0);
   if (db_) {
     CHECK_TRUE(db_ != nullptr);
     CHECK_GE(db_->get_max_D(), shape_[1]);
@@ -486,15 +487,14 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
             (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
         "snapshot handler must be valid for rocksdb and nullptr for emb kvdb");
     if (!sorted_indices_.has_value()) {
-      int64_t tensor_width = shape_[1] - width_offset_;
-      auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
+      auto t = at::empty(c10::IntArrayRef({length, shape_[1]}), options_);
       db_->get_range_from_snapshot(
           t,
           start + row_offset_,
           length,
           snapshot_handle_ != nullptr ? snapshot_handle_->handle : nullptr,
           width_offset_,
-          tensor_width);
+          shape_[1]);
       CHECK(t.is_contiguous());
       return t;
     } else {
@@ -505,10 +505,10 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   } else {
     CHECK(readonly_db_)
         << "ReadOnlyEmbeddingKVDB pointer must be valid to read tensor";
-    int64_t tensor_width = shape_[1] - width_offset_;
-    auto t = at::empty(c10::IntArrayRef({length, tensor_width}), options_);
-    // auto t = at::empty(
-    // c10::IntArrayRef({length, readonly_db_->get_max_D()}), options_);
+    CHECK_GE(readonly_db_->get_max_D(), shape_[1]);
+    CHECK_EQ(width_offset_, 0)
+        << "Width offset must be 0 for ro_rdb becuase the functionality is not supported yet";
+    auto t = at::empty(c10::IntArrayRef({length, shape_[1]}), options_);
     readonly_db_->get_range_from_rdb_checkpoint(
         t, start + row_offset_, length, width_offset_);
     // TBE may have multiple embeddings in one table padded to max D
