@@ -159,18 +159,25 @@ __global__ void set_stacked_kernel_args_kernel(
       // We compute the offset by getting the cumulative sum over
       // prior groups.
       int64_t offset_M = 0;
+      int64_t accumulated_x_scale = 0;
+      int64_t accumulated_w_scale = 0;
       for (int i = 0; i < group_index; i++) {
         offset_M += M_sizes[i];
+        /* It's calculated this way since the scales are at least padded to
+           multiples of (128, 4), and there is a group of 16 elements per scale.
+        */
+        accumulated_x_scale +=
+            (((M_sizes[i] + 128 - 1) / 128) * 128 * ((K + 4 - 1) / 4) * 4 / 16);
+        accumulated_w_scale +=
+            (((N + 128 - 1) / 128) * 128 * ((K + 4 - 1) / 4) * 4 / 16);
       }
       // Set the problem shape for this group.
       problem_shape_ptr[non_zero_idx] = ProblemShape(N, M, K);
       // Set input pointers.
       xq_ptr[non_zero_idx] = xq + (offset_M * K / 2);
       wq_ptr[non_zero_idx] = wq + (group_index * N * K / 2);
-      x_scale_ptr[non_zero_idx] =
-          x_scale + (group_index * num_x_scale_per_group);
-      w_scale_ptr[non_zero_idx] =
-          w_scale + (group_index * num_w_scale_per_group);
+      x_scale_ptr[non_zero_idx] = x_scale + accumulated_x_scale;
+      w_scale_ptr[non_zero_idx] = w_scale + accumulated_w_scale;
       output_ptr[non_zero_idx] = output + (offset_M * N);
       stride_a_ptr[non_zero_idx] = cutlass::make_cute_packed_stride(
           StrideA{}, cute::make_shape(int(M), int(K), 1));
@@ -220,7 +227,9 @@ at::Tensor f4f4bf16_grouped_impl(
     TORCH_CHECK(
         zero_start_index_M.has_value() != M_sizes.has_value(),
         "One of zero_start_index_M or M_sizes must be provided.");
-    G = WQ.size(0);
+    TORCH_CHECK(M_sizes.has_value(), "M_sizes is assumed to be provided.");
+    at::Tensor M_sizes_actual = M_sizes.value_or(at::zeros({0}));
+    G = M_sizes_actual.size(0);
     options = XQ.options();
   }
 
@@ -364,7 +373,7 @@ at::Tensor f4f4bf16_grouped_impl(
 
   // Global scale
   const int64_t global_scale_offset = layout_SFB_offset + layout_SFB_buffer;
-  int64_t global_scale_buffer = _byte_align(G * sizeof(ElementGlobalScale));
+  int64_t global_scale_buffer = _byte_align(G * sizeof(ElementGlobalScale**));
 
   // Compute total buffer size
   int64_t total_buffer_size = global_scale_offset + global_scale_buffer;
