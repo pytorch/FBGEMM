@@ -47,6 +47,7 @@ except ModuleNotFoundError:
 def supports_float8_fnuz() -> bool:
     if torch.version.hip:
         device_capability = torch.cuda.get_device_capability()
+        print(f"[DEBUG] {device_capability=}")
 
         if device_capability < (9, 4):
             gpu_arch = torch.cuda.get_device_properties("cuda").gcnArchName
