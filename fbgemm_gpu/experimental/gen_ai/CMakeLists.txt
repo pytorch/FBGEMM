@@ -11,7 +11,8 @@
 glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
   src/attention/*.cpp
   src/coalesce/*.cpp
-  src/quantize/*.cpp)
+  src/quantize/*.cpp
+  src/quantize/common/*.cpp)
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
   src/attention/*.cu
@@ -98,6 +99,7 @@ gpu_cpp_library(
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kv_cache
   CPU_SRCS
     ${experimental_gen_ai_cpp_source_files_cpu}
