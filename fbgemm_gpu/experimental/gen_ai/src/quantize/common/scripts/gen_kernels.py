@@ -20,6 +20,7 @@ COPYRIGHT = """/*
 KERNEL_ID_TEMPLATES = {
     "bf16bf16bf16_grouped": "bf16bf16bf16_grouped_{tM}_{tN}_{tK}_{cM}_{cN}_{cK}_{pong[0]}",
     "f8f8bf16_rowwise": "f8f8bf16_rowwise_{tM}_{tN}_{tK}_{cM}_{cN}_{cK}_{arch}_{pong[0]}_{coop[0]}",
+    "f8f8bf16_rowwise_grouped": "f8f8bf16_rowwise_grouped_{tM}_{tN}_{tK}_{cM}_{cN}_{cK}_{arch}_{pong[0]}",
 }
 
 bf16bf16bf16_grouped_decl_template = """
@@ -49,9 +50,30 @@ at::Tensor {kernel_id}(
     std::optional<at::Tensor> output = std::nullopt);
     """
 
+f8f8bf16_rowwise_grouped_decl_template = """
+at::Tensor {kernel_id}(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+
+at::Tensor {kernel_id}(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList x_scale,
+    at::TensorList w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes);
+"""
+
 DECL_TEMPLATES = {
     "bf16bf16bf16_grouped": bf16bf16bf16_grouped_decl_template,
     "f8f8bf16_rowwise": f8f8bf16_rowwise_decl_template,
+    "f8f8bf16_rowwise_grouped": f8f8bf16_rowwise_grouped_decl_template,
 }
 
 
@@ -92,9 +114,39 @@ at::Tensor {kernel_id}(
 }}
 """
 
+f8f8bf16_rowwise_grouped_file_template = """
+at::Tensor {kernel_id}(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes) {{
+  // Dispatch this kernel to the correct underlying implementation.
+  return f8f8bf16_rowwise_grouped_impl<at::Tensor, {tM}, {tN}, {tK}, {cM}, {cN}, {cK}, {arch}, {pong}>(
+    XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+}}
+
+at::Tensor {kernel_id}(
+    at::TensorList XQ,
+    at::TensorList WQ,
+    at::TensorList x_scale,
+    at::TensorList w_scale,
+    at::Tensor output,
+    std::optional<at::Tensor> zero_start_index_M,
+    std::optional<at::Tensor> M_sizes) {{
+  // Dispatch this kernel to the correct underlying implementation.
+  return f8f8bf16_rowwise_grouped_impl<
+      at::TensorList, {tM}, {tN}, {tK}, {cM}, {cN}, {cK}, {arch}, {pong}>(
+        XQ, WQ, x_scale, w_scale, output, zero_start_index_M, M_sizes);
+}}
+"""
+
 FILE_TEMPLATES = {
     "bf16bf16bf16_grouped": bf16bf16bf16_grouped_file_template,
     "f8f8bf16_rowwise": f8f8bf16_rowwise_file_template,
+    "f8f8bf16_rowwise_grouped": f8f8bf16_rowwise_grouped_file_template,
 }
 
 bf16bf16bf16_grouped_kernel_map_template = """
@@ -142,8 +194,32 @@ get_f8f8bf16_rowwise_kernels(int arch) {{
 }}
 """
 
+f8f8bf16_rowwise_grouped_kernel_map_template = """
+template <typename InputType>
+using Kernel_f8f8bf16_rowwise_grouped = at::Tensor (*)(
+    InputType,
+    InputType,
+    InputType,
+    InputType,
+    at::Tensor,
+    std::optional<at::Tensor>,
+    std::optional<at::Tensor>);
+
+template <typename InputType>
+const std::unordered_map<std::string, Kernel_f8f8bf16_rowwise_grouped<InputType>>&
+get_f8f8bf16_rowwise_grouped_kernels() {{
+  static const std:: unordered_map<std::string, Kernel_f8f8bf16_rowwise_grouped<InputType>> kernels = {{
+    {body}
+  }};
+  return kernels;
+}}
+"""
+
 ARCH_MAP_TEMPLATES = {"f8f8bf16_rowwise": f8f8bf16_rowwise_kernel_map_template}
-MAP_TEMPLATES = {"bf16bf16bf16_grouped": bf16bf16bf16_grouped_kernel_map_template}
+MAP_TEMPLATES = {
+    "bf16bf16bf16_grouped": bf16bf16bf16_grouped_kernel_map_template,
+    "f8f8bf16_rowwise_grouped": f8f8bf16_rowwise_grouped_kernel_map_template,
+}
 
 
 def gen_kernel_map_body(kernel_confs, arch=None):
@@ -186,7 +262,7 @@ def get_kernel_confs_nv(kernel_name):
     clusters = [(1, 1, 1), (2, 1, 1), (4, 1, 1)]
     schedules = [("false", "false"), ("true", "false"), ("false", "true")]
     # SM90 and SM100
-    archs = [9, 10]
+    archs = [9]
 
     # Some kernels may not support all parameters (e.g. only 1 type of schedule), filter them out to prevent duplicates.
     generated = set()
@@ -200,15 +276,19 @@ def get_kernel_confs_nv(kernel_name):
                     if tM < 128 and (
                         coop == "true"
                         # This kernel only supports pong OR coop, and not regular warp persistent
-                        or (kernel_name == "bf16bf16bf16_grouped" and pong == "false")
+                        or (
+                            kernel_name
+                            in ["bf16bf16bf16_grouped", "f8f8bf16_rowwise_grouped"]
+                            and pong == "false"
+                        )
                     ):
                         continue
 
-                    # This tile size is generally bad
+                    # This tile is generally bad
                     if tM == 256 and tN == 256:
                         continue
 
-                    # To compile less kernels skip pong & coop for smaller tiles as they don't reach the compute roofline
+                    # To compile less kernels skip pong & coop for smaller tiles as they don't reach the compute roofline anyways
                     if (pong == "true" or coop == "true") and not (
                         tM >= 128 and tN >= 128
                     ):
