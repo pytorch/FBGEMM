@@ -170,3 +170,10 @@ jobs:
     - name: Run FBGEMM_GPU Benchmark
       timeout-minutes: 40
       run: . $PRELUDE; run_tbe_microbench $BUILD_ENV
+
+    - name: Upload Benchmark Traces as GHA Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: fbgemm_gpu_traces_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cpu.zip
+        path: fbgemm_gpu/bench/*.json
+        if-no-files-found: error

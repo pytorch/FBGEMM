@@ -99,9 +99,7 @@ class EmbeddingOpsCommonConfigLoader:
             click.option(
                 "--emb-location",
                 default="device",
-                type=click.Choice(
-                    ["device", "managed", "managed_caching"], case_sensitive=False
-                ),
+                type=click.Choice(EmbeddingLocation.str_values(), case_sensitive=False),
                 help="Memory location of the embeddings",
             ),
             click.option(
