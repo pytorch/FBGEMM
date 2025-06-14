@@ -37,7 +37,7 @@ get_kernel_via_heuristic(int G, int total_M, int N, int K) {
       if (total_M <= 128) {
         return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
       } else if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_t;
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
       } else if (total_M <= 2048) {
         return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
       } else if (total_M <= 4096) {
@@ -66,13 +66,13 @@ get_kernel_via_heuristic(int G, int total_M, int N, int K) {
       if (total_M <= 32) {
         return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
       } else if (total_M <= 64) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_t;
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
       } else if (total_M <= 256) {
         return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
       } else if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_t;
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
       } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_64_128_2_1_1_t;
+        return bf16bf16bf16_grouped_128_64_128_2_1_1_f;
       } else {
         return bf16bf16bf16_grouped_128_256_128_2_1_1_f;
       }
