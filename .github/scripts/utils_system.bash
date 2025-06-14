@@ -170,18 +170,18 @@ print_gpu_info () {
       return 1
     fi
   else
-    local smi_programs=( rocminfo rocm-smi )
+    if which rocm-smi; then
+      # If the program is installed on a machine without GPUs, invoking it will return error
+      (print_exec rocm-smi --showproductname) || true
+    else
+      echo "[CHECK] rocm-smi not found"
+    fi
 
-    for smi_program in "${smi_programs[@]}"; do
-      # shellcheck disable=SC2086
-      if which $smi_program; then
-        # If the program is installed on a machine without GPUs, invoking it will return error
-        # shellcheck disable=SC2086
-        (print_exec $smi_program) || true
-      else
-        echo "[CHECK] $smi_program not found"
-      fi
-    done
+    if which rocminfo; then
+      (print_exec rocminfo) || true
+    else
+      echo "[CHECK] rocminfo not found"
+    fi
   fi
 }
 
