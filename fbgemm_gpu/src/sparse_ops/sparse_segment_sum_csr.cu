@@ -66,7 +66,7 @@ DLL_PUBLIC Tensor segment_sum_csr_cuda(
   }
 
   constexpr uint32_t threads_per_block = 256;
-  const uint32_t num_blocks = csr_seg.numel() - 1;
+  const auto num_blocks = csr_seg.numel() - 1;
 
   FBGEMM_DISPATCH_ALL_TYPES(
       values.scalar_type(), "_segment_sum_csr_cuda_1", [&] {

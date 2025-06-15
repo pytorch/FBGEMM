@@ -102,7 +102,7 @@ DLL_PUBLIC void lxu_cache_flush_cuda(
 
   CUDA_DEVICE_GUARD(lxu_cache_weights);
 
-  const int32_t T = D_offsets.numel() - 1;
+  const auto T = D_offsets.numel() - 1;
   const int32_t S = lxu_cache_weights.size(0);
   const int32_t tx = std::min<int32_t>(total_D / 4 / T, kMaxThreads);
   const dim3 threads(tx, kMaxThreads / tx);

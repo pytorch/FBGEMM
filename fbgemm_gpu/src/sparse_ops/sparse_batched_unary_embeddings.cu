@@ -58,8 +58,8 @@ Tensor batched_unary_embeddings_forward_cuda(
 
   // N: number of tasks, T: number of tables, B: batch size
   const int32_t N = weight.size(0);
-  const int32_t T = table_offsets.numel() - 1;
-  const int32_t B = (offsets.numel() - 1) / T;
+  const auto T = table_offsets.numel() - 1;
+  const auto B = (offsets.numel() - 1) / T;
   TORCH_CHECK(N > 0);
   TORCH_CHECK(B > 0);
   TORCH_CHECK(T > 0);
@@ -215,7 +215,7 @@ DLL_PUBLIC Tensor batched_unary_embeddings_backward_cuda(
           info_B_num_bits,
           info_B_mask);
 
-  int threads = std::min<int32_t>(sorted_linear_indices_run.numel(), 512);
+  auto threads = std::min<int32_t>(sorted_linear_indices_run.numel(), 512);
   dim3 blocks(
       cuda_calc_xblock_count(sorted_linear_indices_run.numel(), threads), N);
   auto grad_weight = at::zeros_like(weight);

@@ -369,7 +369,7 @@ ssd_cache_populate_actions_cuda(
           .to(at::kInt);
 
   TORCH_CHECK_LT(unique_indices.numel(), std::numeric_limits<int32_t>::max());
-  const int32_t N = unique_indices.numel();
+  const auto N = unique_indices.numel();
 
   auto evicted_indices = empty_like(unique_indices);
   const auto int_options = unique_indices.options().dtype(at::kInt);
