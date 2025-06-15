@@ -41,6 +41,9 @@ except Exception:
     torch.ops.load_library(
         "//deeplearning/fbgemm/fbgemm_gpu:permute_pooled_embedding_ops_split_cpu"
     )
+    torch.ops.load_library(
+        "//deeplearning/fbgemm/fbgemm_gpu:permute_multi_embedding_ops_cpu"
+    )
 
 
 import torch.utils._pytree as pytree
@@ -417,6 +420,7 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
     kINT8QparamsBytes = 8
 
     if pooling_mode == PoolingMode.NONE:
+        kINT8QparamsBytes = 4
         D = max(
             [
                 max_int2_D,
@@ -432,7 +436,7 @@ def int_nbit_split_embedding_codegen_lookup_function_meta(
         torch._check(D > 0)
         adjusted_D = D
         if SparseType.from_int(output_dtype_int) == SparseType.INT8:
-            adjusted_D += T * kINT8QparamsBytes
+            adjusted_D += kINT8QparamsBytes
         output = dev_weights.new_empty([total_L, adjusted_D], dtype=output_dtype)
         return output
 
@@ -460,6 +464,7 @@ def block_bucketize_sparse_features_meta(
     block_bucketize_pos: Optional[torch.Tensor] = None,
     keep_orig_idx: bool = False,
     total_num_blocks: Optional[torch.Tensor] = None,
+    keep_orig_idx_per_feature: Optional[torch.Tensor] = None,
 ) -> Tuple[
     torch.Tensor,
     torch.Tensor,
@@ -829,6 +834,8 @@ def bounds_check_indices_abstract(
     b_t_map: Optional[torch.Tensor] = None,
     info_B_num_bits: int = -1,
     info_B_mask: int = -1,
+    bounds_check_version: int = 1,
+    prefetch_pipeline: bool = False,
 ) -> None:
     """
     This meta function is used to fake the bounds checking
@@ -1121,6 +1128,48 @@ def generic_histogram_binning_calibration_by_feature(
     )
 
 
+def permute_multi_embedding_function_impl_abstract(
+    pooled_embs: List[Tensor],
+    permutes: Tensor,
+    in_shapes: Tensor,
+    out_shapes: Tensor,
+    out_lengths: List[int],
+    reverse: bool = False,
+) -> List[Tensor]:
+    out_dtype = pooled_embs[0].dtype
+    bs = pooled_embs[0].shape[0]
+    torch._check(permutes.shape[1] == 6, lambda: "permutes must have 6 columns")
+
+    output = []
+    for i in range(len(out_lengths)):
+        output.append(torch.empty([bs, out_lengths[i]], dtype=out_dtype))
+    return output
+
+
+def lengths_range_abstract(
+    lengths: Tensor,
+    output_shape: Optional[Sequence[int]] = None,
+) -> Tensor:
+    torch._check(lengths.dim() == 1, lambda: "lengths must be a 1D tensor")
+    output_size = 0
+    if output_shape is not None:
+        output_size = math.prod(output_shape)
+    else:
+        ctx = torch.library.get_ctx()
+        output_size = ctx.new_dynamic_size()
+    return lengths.new_empty([output_size], dtype=lengths.dtype)
+
+
+def all_to_one_device(
+    input_tensors: List[Tensor],
+    target_device: torch.device,
+) -> List[Tensor]:
+    return [
+        torch.empty_like(input_tensor, device=torch.device("meta"))
+        for input_tensor in input_tensors
+    ]
+
+
 def _setup() -> None:
     # pyre-ignore[16]
     _setup.done = getattr(_setup, "done", False)
@@ -1191,6 +1240,7 @@ def _setup() -> None:
         )
         impl_abstract("fbgemm::segment_sum_csr", segment_sum_csr_abstract)
         impl_abstract("fbgemm::dense_to_jagged_forward", dense_to_jagged_forward)
+        impl_abstract("fbgemm::all_to_one_device", all_to_one_device)
         impl_abstract(
             "fbgemm::batch_index_select_dim0", batch_index_select_dim0_abstract
         )
@@ -1259,6 +1309,14 @@ def _setup() -> None:
             generic_histogram_binning_calibration_by_feature,
         )
         impl_abstract(
+            "fbgemm::lengths_range",
+            lengths_range_abstract,
+        )
+        impl_abstract(
+            "fbgemm::permute_multi_embedding_function",
+            permute_multi_embedding_function_impl_abstract,
+        )
+        impl_abstract(
             "fbgemm::FloatToHFP8Quantized",
             float_to_hfp8_quantized,
         )
@@ -1302,29 +1360,3 @@ def _setup() -> None:
 
 
 _setup()
-
-
-@torch.library.register_fake("fbgemm::lengths_range")
-def lengths_range_abstract(
-    lengths: Tensor,
-    output_shape: Optional[Sequence[int]] = None,
-) -> Tensor:
-    torch._check(lengths.dim() == 1, lambda: "lengths must be a 1D tensor")
-    output_size = 0
-    if output_shape is not None:
-        output_size = math.prod(output_shape)
-    else:
-        ctx = torch.library.get_ctx()
-        output_size = ctx.new_dynamic_size()
-    return lengths.new_empty([output_size], dtype=lengths.dtype)
-
-
-@torch.library.register_fake("fbgemm::all_to_one_device")
-def all_to_one_device(
-    input_tensors: List[Tensor],
-    target_device: torch.device,
-) -> List[Tensor]:
-    return [
-        torch.empty_like(input_tensor, device=torch.device("meta"))
-        for input_tensor in input_tensors
-    ]

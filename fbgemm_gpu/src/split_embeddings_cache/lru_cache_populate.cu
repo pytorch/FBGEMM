@@ -45,7 +45,7 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         lxu_cache_locking_counter) {
   const int32_t C = lxu_cache_state.size(0);
   int32_t n_conflict_misses = 0;
-  for (int32_t n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
+  for (auto n = blockIdx.x * blockDim.y + threadIdx.y; n < *N_unique;
        n += gridDim.x * blockDim.y) {
     // check if this warp is responsible for this whole segment.
     const bool segment_start =
@@ -70,20 +70,20 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
 
     // now, we need to insert the (unique!) values in indices[n:n + SL] into
     // our slots.
-    const int32_t slot = threadIdx.x;
+    const auto slot = threadIdx.x;
     const int64_t slot_time = lru_state[cache_set][slot];
     int64_t costs[1] = {slot_time};
-    int32_t slots[1] = {slot};
+    uint32_t slots[1] = {slot};
 
-    BitonicSort<int64_t, int32_t, 1, Comparator<int64_t>>::sort(costs, slots);
-    const int32_t sorted_slot = slots[0];
-    const int64_t sorted_lru_cost = costs[0];
+    BitonicSort<int64_t, uint32_t, 1, Comparator<int64_t>>::sort(costs, slots);
+    const auto sorted_slot = slots[0];
+    const auto sorted_lru_cost = costs[0];
     const auto stoc_rounding_salt = kWarpSize *
         (blockIdx.x * blockDim.x * blockDim.y + threadIdx.y * blockDim.x +
          threadIdx.x);
 
     for (int32_t l = 0; l < min(SL, kWarpSize); ++l) {
-      const int32_t insert_slot = shfl_sync(sorted_slot, l);
+      const auto insert_slot = shfl_sync(sorted_slot, l);
       if (lock_cache_line) {
         auto count = lxu_cache_locking_counter[cache_set][insert_slot];
         if (count > 0) {
@@ -118,21 +118,20 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         const int32_t D_start_current = D_offsets[t_current];
         const int32_t D_end_current = D_offsets[t_current + 1];
         const int32_t D_current = D_end_current - D_start_current;
+
         int32_t D_emb = D_current;
         if constexpr (std::is_same_v<emb_t, uint8_t>) {
           D_emb += kINT8QparamsBytes;
         }
 
-        StochasticRoundingRNGState state;
-        auto weight_row = WeightRow<emb_t, cache_t, cache_t>(
+        WeightRow<emb_t, cache_t, cache_t>(
             &weights[weights_offset_current + idx_current * D_emb + 0],
             &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
             D_current,
-            stochastic_rounding ? &state : nullptr,
+            stochastic_rounding,
             &stochastic_rounding_philox_args,
-            stoc_rounding_salt + l);
-
-        weight_row.warp_evict_cache(D_current, blockDim.x, threadIdx.x);
+            stoc_rounding_salt + l)
+            .warp_cache_evict(blockDim.x, threadIdx.x);
       }
 
       int32_t D_emb = D_insert;
@@ -140,16 +139,11 @@ __global__ __launch_bounds__(kMaxThreads) void lru_cache_insert_kernel(
         D_emb += kINT8QparamsBytes;
       }
 
-      auto weight_row_emb = WeightRow<emb_t, cache_t, cache_t>(
+      WeightRow<emb_t, cache_t, cache_t>(
           &weights[weights_offset_insert + idx_insert * D_emb + 0],
-          nullptr,
-          D_insert);
-
-      weight_row_emb.warp_copy_to_cache(
           &lxu_cache_weights[cache_set * kWarpSize + insert_slot][0],
-          D_insert,
-          blockDim.x,
-          threadIdx.x);
+          D_insert)
+          .warp_cache_load(blockDim.x, threadIdx.x);
 
       if (threadIdx.x == 0) {
         lxu_cache_state[cache_set][insert_slot] = insert_idx;
@@ -234,39 +228,30 @@ void lru_cache_insert_cuda(
             ? div_round_up(get_device_sm_cnt_(), ALL_TO_PREFETCH_SM_RATIO)
             : div_round_up(N, kMaxThreads / kWarpSize);
 
-#ifdef FBGEMM_GPU_MEMCHECK
-        const char* func_name = "lru_cache_insert_kernel";
-#endif
-        lru_cache_insert_kernel<emb_t, cache_t>
-            <<<grid_size,
-               dim3(kWarpSize, kMaxThreads / kWarpSize),
-               0,
-               at::cuda::getCurrentCUDAStream()>>>(
-                MAKE_PTA_WITH_NAME(func_name, weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_hash_size_cumsum, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_index_table_map, int32_t, 1, 64),
-                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, sorted_cache_sets, int32_t, 1, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, cache_set_sorted_unique_indices, int64_t, 1, 32),
-                unique_indices_length.data_ptr<int32_t>(),
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
-                MAKE_PTA_WITH_NAME(
-                    func_name, lxu_cache_weights, cache_t, 2, 64),
-                time_stamp,
-                MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
-                stochastic_rounding_,
-                rng_engine_inputs,
-                gather_cache_stats,
-                MAKE_PTA_WITH_NAME(func_name, uvm_cache_stats, int32_t, 1, 32),
-                lock_cache_line,
-                MAKE_PTA_WITH_NAME(
-                    func_name, lxu_cache_locking_counter, int32_t, 2, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+        FBGEMM_LAUNCH_KERNEL(
+            (lru_cache_insert_kernel<emb_t, cache_t>),
+            grid_size,
+            dim3(kWarpSize, kMaxThreads / kWarpSize),
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(weights, emb_t, 1, 64),
+            PTA_B(cache_hash_size_cumsum, int64_t, 1, 32),
+            PTA_B(cache_index_table_map, int32_t, 1, 64),
+            PTA_B(weights_offsets, int64_t, 1, 32),
+            PTA_B(D_offsets, int32_t, 1, 32),
+            PTA_B(sorted_cache_sets, int32_t, 1, 32),
+            PTA_B(cache_set_sorted_unique_indices, int64_t, 1, 32),
+            unique_indices_length.data_ptr<int32_t>(),
+            PTA_B(lxu_cache_state, int64_t, 2, 32),
+            PTA_B(lxu_cache_weights, cache_t, 2, 64),
+            time_stamp,
+            PTA_B(lru_state, int64_t, 2, 32),
+            stochastic_rounding_,
+            rng_engine_inputs,
+            gather_cache_stats,
+            PTA_B(uvm_cache_stats, int32_t, 1, 32),
+            lock_cache_line,
+            PTA_B(lxu_cache_locking_counter, int32_t, 2, 32));
       }));
 }
 

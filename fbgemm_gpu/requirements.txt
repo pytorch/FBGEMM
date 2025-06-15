@@ -14,6 +14,7 @@ backports.tarfile
 build
 cmake
 click
+einops
 hypothesis
 jinja2
 mpmath==1.3.0
@@ -26,3 +27,4 @@ setuptools
 setuptools_git_versioning
 tabulate
 patchelf
+fairscale

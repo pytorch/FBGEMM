@@ -27,6 +27,7 @@ float fused_moe(fused_moe_traits t, fused_moe_args a, const ck_tile::stream_conf
         a.sorted_expert_ids_ptr,                     // void* p_sorted_expert_ids;
         a.num_sorted_tiles_ptr,                      // void* p_total_tokens_post_pad;
         a.o_ptr,                                     // void* p_moe_buf;
+        a.ws_ptr,                                    // moe_sorting_ws
         a.num_tokens,                                // index_t tokens;
         a.block_m,                                   // index_t unit_size;
         a.num_experts,                               // index_t num_experts;

@@ -10,13 +10,16 @@
 
 set(fbgemm_sources_normal
   "${FBGEMM}/src/EmbeddingSpMDM.cc"
-  "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc"
   "${FBGEMM}/src/EmbeddingSpMDMNBit.cc"
   "${FBGEMM}/src/QuantUtils.cc"
   "${FBGEMM}/src/RefImplementations.cc"
   "${FBGEMM}/src/RowWiseSparseAdagradFused.cc"
   "${FBGEMM}/src/SparseAdagrad.cc"
   "${FBGEMM}/src/Utils.cc")
+
+if(NOT DISABLE_FBGEMM_AUTOVEC)
+  list(APPEND fbgemm_sources_normal "${FBGEMM}/src/EmbeddingSpMDMAutovec.cc")
+endif()
 
 set(fbgemm_sources_avx2
   "${FBGEMM}/src/EmbeddingSpMDMAvx2.cc"
@@ -43,7 +46,7 @@ if(CXX_AVX2_FOUND)
     ${fbgemm_sources}
     ${fbgemm_sources_avx2})
 endif()
-if(NOT USE_ROCM AND CXX_AVX512_FOUND)
+if((NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM) AND CXX_AVX512_FOUND)
   set(fbgemm_sources
     ${fbgemm_sources}
     ${fbgemm_sources_avx2}

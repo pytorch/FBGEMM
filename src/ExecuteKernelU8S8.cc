@@ -6,7 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "./ExecuteKernelU8S8.h"
+#include "./ExecuteKernelU8S8.h" // @manual
 #include <cpuinfo.h>
 #include <chrono>
 

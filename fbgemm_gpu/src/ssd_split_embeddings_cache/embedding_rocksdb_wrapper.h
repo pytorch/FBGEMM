@@ -35,7 +35,16 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       bool use_passed_in_path = false,
       int64_t tbe_unique_id = 0,
       int64_t l2_cache_size_gb = 0,
-      bool enable_async_update = false)
+      bool enable_async_update = false,
+      bool enable_raw_embedding_streaming = false,
+      int64_t res_store_shards = 0,
+      int64_t res_server_port = 0,
+      std::vector<std::string> table_names = {},
+      std::vector<int64_t> table_offsets = {},
+      const std::vector<int64_t>& table_sizes = {},
+      std::optional<at::Tensor> table_dims = std::nullopt,
+      std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
+      int64_t flushing_block_size = 2000000000 /*2GB*/)
       : impl_(std::make_shared<ssd::EmbeddingRocksDB>(
             path,
             num_shards,
@@ -56,7 +65,16 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
             use_passed_in_path,
             tbe_unique_id,
             l2_cache_size_gb,
-            enable_async_update)) {}
+            enable_async_update,
+            enable_raw_embedding_streaming,
+            res_store_shards,
+            res_server_port,
+            std::move(table_names),
+            std::move(table_offsets),
+            table_sizes,
+            table_dims,
+            hash_size_cumsum,
+            flushing_block_size)) {}
 
   void set_cuda(
       at::Tensor indices,
@@ -65,6 +83,18 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       int64_t timestep,
       bool is_bwd) {
     return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
+  }
+
+  void stream_cuda(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      bool blocking_tensor_copy = true) {
+    return impl_->stream_cuda(indices, weights, count, blocking_tensor_copy);
+  }
+
+  void stream_sync_cuda() {
+    return impl_->stream_sync_cuda();
   }
 
   void get_cuda(at::Tensor indices, at::Tensor weights, at::Tensor count) {
@@ -80,6 +110,28 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
       const int64_t start,
       const int64_t length) {
     return impl_->set_range_to_storage(weights, start, length);
+  }
+
+  at::Tensor get_keys_in_range_by_snapshot(
+      int64_t start_id,
+      int64_t end_id,
+      int64_t id_offset,
+      std::optional<c10::intrusive_ptr<EmbeddingSnapshotHandleWrapper>>
+          snapshot_handle) {
+    return impl_->get_keys_in_range_by_snapshot(
+        start_id,
+        end_id,
+        id_offset,
+        snapshot_handle.has_value() ? snapshot_handle.value()->handle
+                                    : nullptr);
+  }
+
+  void toggle_compaction(bool enable) {
+    impl_->toggle_compaction(enable);
+  }
+
+  bool is_auto_compaction_enabled() {
+    return impl_->is_auto_compaction_enabled();
   }
 
   void get(
@@ -136,6 +188,21 @@ class EmbeddingRocksDBWrapper : public torch::jit::CustomClassHolder {
 
   int64_t get_snapshot_count() const {
     return impl_->get_snapshot_count();
+  }
+
+  void create_rocksdb_hard_link_snapshot(int64_t global_step) {
+    impl_->create_checkpoint(global_step);
+  }
+
+  c10::intrusive_ptr<RocksdbCheckpointHandleWrapper> get_active_checkpoint_uuid(
+      int64_t global_step) {
+    auto uuid_opt = impl_->get_active_checkpoint_uuid(global_step);
+    if (uuid_opt.has_value()) {
+      return c10::make_intrusive<RocksdbCheckpointHandleWrapper>(
+          uuid_opt.value(), impl_);
+    } else {
+      return nullptr;
+    }
   }
 
  private:

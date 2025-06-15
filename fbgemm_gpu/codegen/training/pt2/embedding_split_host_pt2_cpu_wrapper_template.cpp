@@ -32,6 +32,7 @@
 {%- if has_vbe_support %}
 #include "fbgemm_gpu/utils/pt2_autograd_utils.h"
 {%- endif %}
+#include "fbgemm_gpu/utils/torch_library.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -61,24 +62,25 @@ Tensor split_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_cpu_wrapper(
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
     const Tensor& vbe_B_offsets_rank_per_feature,
-    const int64_t max_B
+    const c10::SymInt max_B
     {%- else %}
     const Tensor& feature_requires_grad
     {%- endif %}
 ) {
     {%- if vbe %}
     Tensor offsets_;
+    const int64_t max_B_int = max_B.guard_int(__FILE__, __LINE__);
     AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_grad_indices", [&]() {
         offsets_ = reshape_vbe_offsets<index_t>(
             offsets,
             vbe_B_offsets_rank_per_feature,
-            max_B,
+            max_B_int,
             D_offsets.numel() - 1
         );
     });
     const auto grad_output_ = reshape_vbe_output(
         grad_output,
-        max_B,
+        max_B_int,
         vbe_B_offsets_rank_per_feature,
         D_offsets
     );
@@ -128,14 +130,16 @@ Tensor split_embedding_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
     const int64_t info_B_mask_int64,
     const Tensor& vbe_B_offsets_rank_per_feature,
     const Tensor& vbe_output_offsets_feature_rank,
-    const int64_t max_B,
+    const c10::SymInt max_B,
+    const Tensor& B_offsets,
     {%- endif %}
     const bool /*is_experimental = false*/,
     const int64_t output_dtype = static_cast<int64_t>(SparseType::FP32)) {
     Tensor offsets_;
     {%- if vbe %}
+    const int64_t max_B_int = max_B.guard_int(__FILE__, __LINE__);
     AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_forward", [&]() {
-        offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B, D_offsets.numel() - 1);
+        offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B_int, D_offsets.numel() - 1);
     });
     {%- endif %}
     static auto op =
@@ -206,7 +210,7 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
     const Tensor& D_offsets,
-    const int64_t max_D,
+    const c10::SymInt max_D,
     const bool mixed_D,
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -225,7 +229,7 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
     const Tensor& vbe_B_offsets_rank_per_feature,
-    const int64_t max_B,
+    const c10::SymInt max_B,
     {%- endif %}
     const bool /*use_uniq_cache_locations*/,
     const bool /*use_homogeneous_placements*/,
@@ -235,11 +239,12 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     {%- endif %})
     {
         {%- if vbe %}
+        const int64_t max_B_int = max_B.guard_int(__FILE__, __LINE__);
         Tensor offsets_;
         AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "reshape_vbe_offsets_cpu_backward", [&]() {
-            offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B, D_offsets.numel() - 1);
+            offsets_ = reshape_vbe_offsets<index_t>(offsets, vbe_B_offsets_rank_per_feature, max_B_int, D_offsets.numel() - 1);
         });
-        const auto grad_output_ = reshape_vbe_output(grad_output, max_B, vbe_B_offsets_rank_per_feature, D_offsets);
+        const auto grad_output_ = reshape_vbe_output(grad_output, max_B_int, vbe_B_offsets_rank_per_feature, D_offsets);
         {%- endif %}
         {%- set backward_op = "split_embedding_backward_codegen_{}_cpu".format(
                 optimizer
@@ -276,7 +281,7 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
             weights_placements,
             weights_offsets,
             D_offsets,
-            max_D,
+            max_D.guard_int(__FILE__, __LINE__),
             hash_size_cumsum,
             total_hash_size_bits,
             indices,
@@ -305,6 +310,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         wdesc, vdesc
         )
     %}
+    
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_forward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
         "    Tensor host_weights, "
         "    Tensor dev_weights, "
@@ -336,7 +343,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int info_B_mask_int64, "
         "    Tensor vbe_B_offsets_rank_per_feature, "
         "    Tensor vbe_output_offsets_feature_rank, "
-        "    int max_B, "
+        "    SymInt max_B, "
+        "    Tensor B_offsets, "
         {%- endif %}
         "    bool is_experimental, "
         "    int output_dtype "
@@ -347,6 +355,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         , {PT2_COMPLIANT_TAG}
         {%- endif %}
         );
+    }
+
     DISPATCH_TO_CPU("{{ embedding_codegen_forward_op }}_wrapper", {{ embedding_codegen_forward_op }}_cpu_wrapper);
 
     {%- else %} {#-/* backward */#}
@@ -390,7 +400,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
         "    Tensor vbe_B_offsets_rank_per_feature, "
-        "    int max_B, "
+        "    SymInt max_B, "
         {%- endif %}
         "    bool use_uniq_cache_locations, "
         "    bool use_homogeneous_placements,"
@@ -429,7 +439,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    int info_B_num_bits, "
         "    int info_B_mask_int64, "
         "    Tensor vbe_B_offsets_rank_per_feature, "
-        "    int max_B "
+        "    SymInt max_B "
         {%- else %}
         "    Tensor feature_requires_grad"
         {%- endif %}

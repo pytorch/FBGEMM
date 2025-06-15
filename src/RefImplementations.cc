@@ -7,10 +7,11 @@
  */
 
 #define FBGEMM_EXPORTS
-#include "./RefImplementations.h"
+#include "./RefImplementations.h" // @manual
 
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FbgemmConvert.h"
+#include "fbgemm/FloatConversion.h"
 
 #include <algorithm>
 #include <cassert>
@@ -90,11 +91,11 @@ void FloatToFloat16_ref(
   if (do_clip) {
     for (size_t i = 0; i < size; i++) {
       float cur_src = std::max(-FP16_MAX, std::min(src[i], FP16_MAX));
-      dst[i] = cpu_float2half_rn(cur_src);
+      dst[i] = cpu_float2half(cur_src);
     }
   } else {
     for (size_t i = 0; i < size; i++) {
-      dst[i] = cpu_float2half_rn(src[i]);
+      dst[i] = cpu_float2half(src[i]);
     }
   }
 }

@@ -18,9 +18,10 @@
 #include <stdexcept>
 #include <vector>
 
-#include "./FbgemmPackMatrixB.h"
-#include "./Types.h"
-#include "./Utils.h"
+#include "./FbgemmPackMatrixB.h" // @manual
+#include "./FloatConversion.h" // @manual
+#include "./Types.h" // @manual
+#include "./Utils.h" // @manual
 
 namespace fbgemm {
 
@@ -29,7 +30,7 @@ struct TypeConverter<float16> {
   float16 operator()(float src) const {
     constexpr float FP16_MAX = 65504.f;
     const float fp16 = std::max(-FP16_MAX, std::min(src, FP16_MAX));
-    return cpu_float2half_rn(fp16);
+    return cpu_float2half(fp16);
   }
 };
 

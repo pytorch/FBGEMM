@@ -7,7 +7,7 @@
  */
 
 #pragma once
-#include "./ExecuteKernel.h"
+#include "./ExecuteKernel.h" // @manual
 
 namespace fbgemm {
 

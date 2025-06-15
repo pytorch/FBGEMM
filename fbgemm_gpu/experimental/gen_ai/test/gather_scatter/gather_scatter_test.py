@@ -53,24 +53,6 @@ class GatherScatterTests(unittest.TestCase):
 
             self.assertTrue((dst == ref_dst).all().item())
 
-            # Load src, store dst. x2.
-            data_size_in_terabytes = N * K * 2 * 2 / 1e12
-
-            time_in_us = triton.testing.do_bench(fn) * 1e3
-            time_in_second = time_in_us / 1e6
-            terabytes_per_second = data_size_in_terabytes / time_in_second
-
-            ref_time_in_us = triton.testing.do_bench(ref_fn) * 1e3
-            ref_time_in_second = ref_time_in_us / 1e6
-            ref_terabytes_per_second = data_size_in_terabytes / ref_time_in_second
-
-            logger.info(
-                f"FBGEMM time: {time_in_us:.2f} us. Bandwidth: {terabytes_per_second:.2f} TB/s"
-            )
-            logger.info(
-                f"PyTorch time: {ref_time_in_us:.2f} us. Bandwidth: {ref_terabytes_per_second:.2f} TB/s"
-            )
-
         _test_gather_along_first_dim(127, 257, 1023)
         _test_gather_along_first_dim(127, 257, 1024)
         _test_gather_along_first_dim(255, 129, 2049)
@@ -83,6 +65,7 @@ class GatherScatterTests(unittest.TestCase):
         _test_gather_along_first_dim(2048, 2048, 5120)
         _test_gather_along_first_dim(4096, 4096, 5120)
         _test_gather_along_first_dim(8192, 8192, 5120)
+        _test_gather_along_first_dim(16384, 16384, 5120)
 
     def test_scatter_add_along_first_dim(self) -> None:
         def _test_scatter_add_along_first_dim(
@@ -109,33 +92,6 @@ class GatherScatterTests(unittest.TestCase):
 
             torch.testing.assert_close(test_dst, ref_dst, atol=1e-3, rtol=2.1e-2)
 
-            def fn():
-                op = torch.ops.fbgemm.scatter_add_along_first_dim
-                if compile:
-                    op = torch.compile(op, backend="inductor", fullgraph=True)
-                op(test_dst, src, indices_1d)
-
-            def ref_fn():
-                ref_dst.scatter_add_(0, indices_2d, src)
-
-            # Load src, load dst, store dst. x3.
-            data_size_in_terabytes = N * K * 2 * 3 / 1e12
-
-            time_in_us = triton.testing.do_bench(fn) * 1e3
-            time_in_second = time_in_us / 1e6
-            terabytes_per_second = data_size_in_terabytes / time_in_second
-
-            ref_time_in_us = triton.testing.do_bench(ref_fn) * 1e3
-            ref_time_in_second = ref_time_in_us / 1e6
-            ref_terabytes_per_second = data_size_in_terabytes / ref_time_in_second
-
-            logger.info(
-                f"FBGEMM time: {time_in_us:.2f} us. Bandwidth: {terabytes_per_second:.2f} TB/s"
-            )
-            logger.info(
-                f"PyTorch time: {ref_time_in_us:.2f} us. Bandwidth: {ref_terabytes_per_second:.2f} TB/s"
-            )
-
         _test_scatter_add_along_first_dim(127, 257, 1023)
         _test_scatter_add_along_first_dim(127, 257, 1024)
         _test_scatter_add_along_first_dim(255, 129, 2049)
@@ -148,6 +104,9 @@ class GatherScatterTests(unittest.TestCase):
         _test_scatter_add_along_first_dim(2048, 2048, 5120)
         _test_scatter_add_along_first_dim(4096, 4096, 5120)
         _test_scatter_add_along_first_dim(8192, 8192, 5120)
+        _test_scatter_add_along_first_dim(16384, 16384, 5120)
+
+        _test_scatter_add_along_first_dim(0, 10, 5120)
 
 
 if __name__ == "__main__":

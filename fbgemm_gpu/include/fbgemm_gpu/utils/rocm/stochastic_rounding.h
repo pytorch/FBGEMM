@@ -49,7 +49,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
     const Vec2T<at::Half>& value,
     StochasticRoundingRNGState& state,
     const float2 /* not used */) {
-  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const auto random_bits = state.rand4();
   Half2 v;
   v.a = __halves2half2(
       stochastic_rounding_scalar(value.acc.x, random_bits.x),
@@ -64,7 +64,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
     const Vec2T<float>& value,
     StochasticRoundingRNGState& state,
     const float2 /* not used */) {
-  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const auto random_bits = state.rand4();
   Half2 v;
   v.a = __halves2half2(
       stochastic_rounding_scalar(value.acc.x, random_bits.x),
@@ -79,7 +79,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
     const Vec2T<float>& value,
     StochasticRoundingRNGState& state,
     const float2 qparams) {
-  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const auto random_bits = state.rand4();
   const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = stochastic_rounding_scalar_uint8(
       (value.acc.x - qparams.y) * inv_scale, random_bits.x);
@@ -93,7 +93,7 @@ DEVICE_INLINE void stochastic_rounding_vector(
     const Vec2T<at::Half>& value,
     StochasticRoundingRNGState& state,
     const float2 qparams) {
-  const uint4 random_bits = stochastic_rounding_rand4(&state);
+  const auto random_bits = state.rand4();
   const float inv_scale = 255.0f / (qparams.x * 255.0f + kQParamEps);
   output[0] = stochastic_rounding_scalar_uint8(
       (value.acc.x - qparams.y) * inv_scale, random_bits.x);

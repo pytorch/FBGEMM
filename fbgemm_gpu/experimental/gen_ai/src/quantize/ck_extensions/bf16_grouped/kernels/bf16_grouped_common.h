@@ -88,8 +88,8 @@ using DeviceGemmHelper =
         MBLOCK, // M per Block
         NBLOCK, // N per Block
         KBLOCK, // K per Block
-        8, // AK1
-        8, // BK1
+        KBLOCK / ABLOCK_TRANSFER{}.At(0), // AK1
+        KBLOCK / BBLOCK_TRANSFER{}.At(0), // BK1
         WAVE_TILE_M, // M per Xdl
         WAVE_TILE_N, // N per Xdl
         WAVE_MAP_M, // Mxdl per Wave
@@ -98,15 +98,15 @@ using DeviceGemmHelper =
         S<1, 0, 2>,
         S<1, 0, 2>,
         2,
-        8,
-        8,
+        KBLOCK / ABLOCK_TRANSFER{}.At(0), // AK1
+        KBLOCK / ABLOCK_TRANSFER{}.At(0), // AK1
         0,
         BBLOCK_TRANSFER,
         S<1, 0, 2>,
         S<1, 0, 2>,
         2,
-        8,
-        8,
+        KBLOCK / BBLOCK_TRANSFER{}.At(0), // BK1
+        KBLOCK / BBLOCK_TRANSFER{}.At(0), // BK1
         0,
         CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
         CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
@@ -116,14 +116,20 @@ using DeviceGemmHelper =
         PIPELINE_VERSION,
         ComputeType>;
 
-template <typename DeviceGemmInstance>
-std::vector<at::Tensor> bf16_grouped_impl(
-    at::TensorList A,
-    at::TensorList B,
+// Templated kernel launch to accommodate different input and output types.
+template <typename DeviceGemmInstance, typename InputType, typename OutputType>
+OutputType bf16_grouped_impl(
+    InputType A,
+    InputType B,
     at::Tensor kernel_args,
-    std::vector<at::Tensor> Y) {
+    OutputType Y) {
   // Get input information.
-  int group_count = A.size();
+  int group_count;
+  if constexpr (std::is_same_v<InputType, at::Tensor>) {
+    group_count = B.size(0);
+  } else {
+    group_count = A.size();
+  }
   using KernelArguments =
       ck::tensor_operation::device::GroupedGemmKernelArgument<0>;
   using GemmDesc = ck::tensor_operation::device::GemmDesc;
@@ -139,18 +145,31 @@ std::vector<at::Tensor> bf16_grouped_impl(
   A_args.reserve(group_count);
   B_args.reserve(group_count);
   C_args.reserve(group_count);
+  int M, N, K;
   // Populate arguments.
   for (int i = 0; i < group_count; i++) {
     // Set the shape arguments for this gemm.
-    int M = A[i].size(0);
-    int K = A[i].size(1);
-    int N = B[i].size(0);
+    if constexpr (std::is_same_v<InputType, at::Tensor>) {
+      M = A.size(A.dim() - 2);
+      N = B.size(1);
+      K = B.size(2);
+      // These pointers dont seem to actually be used since the kernel arguments
+      // contains the correct version. For simplicity, we just point to the
+      // start of the tensor.
+      A_args.push_back(reinterpret_cast<ADataType*>(A.data_ptr()));
+      B_args.push_back(reinterpret_cast<BDataType*>(B.data_ptr()));
+      C_args.push_back(reinterpret_cast<CDataType*>(Y.data_ptr()));
+    } else {
+      M = A[i].size(0);
+      K = A[i].size(1);
+      N = B[i].size(0);
+      // Set pointers to inputs and outputs.
+      A_args.push_back(reinterpret_cast<ADataType*>(A[i].data_ptr()));
+      B_args.push_back(reinterpret_cast<BDataType*>(B[i].data_ptr()));
+      C_args.push_back(reinterpret_cast<CDataType*>(Y[i].data_ptr()));
+    }
     GemmDesc gemm_desc = {M, N, K, K, K, N, {}};
     gemm_descs.push_back(gemm_desc);
-    // Set pointers to inputs and outputs.
-    A_args.push_back(reinterpret_cast<ADataType*>(A[i].data_ptr()));
-    B_args.push_back(reinterpret_cast<BDataType*>(B[i].data_ptr()));
-    C_args.push_back(reinterpret_cast<CDataType*>(Y[i].data_ptr()));
   }
 
   // Create gemm launcher and arguments.

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import functools
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import torch
 
@@ -33,7 +33,7 @@ class PartiallyMaterializedTensor:
     or use `full_tensor()` to get the full tensor (this could OOM).
     """
 
-    def __init__(self, wrapped) -> None:
+    def __init__(self, wrapped, is_virtual: bool = False) -> None:
         """
         Ensure caller loads the module before creating this object.
 
@@ -48,6 +48,7 @@ class PartiallyMaterializedTensor:
             wrapped: torch.classes.fbgemm.KVTensorWrapper
         """
         self._wrapped = wrapped
+        self._is_virtual = is_virtual
         self._requires_grad = False
 
     @property
@@ -56,6 +57,17 @@ class PartiallyMaterializedTensor:
         Get the wrapped extension class for C++ interop.
         """
         return self._wrapped
+
+    @property
+    def is_virtual(self):
+        """
+        Indicate whether PMT is a virtual tensor.
+        This indicator is needed for checkpoint or publish.
+        They need to know wheether it is PMT for kvzch or for normal emb table
+        for kvzch, checkpoint and publish need to call all-gather to recalculate the correct
+        metadata of the ShardedTensor
+        """
+        return self._is_virtual
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
@@ -74,6 +86,18 @@ class PartiallyMaterializedTensor:
             a torch tensor
         """
         return self._wrapped.narrow(dim, start, length)
+
+    def set_weights_and_ids(self, weights: torch.Tensor, ids: torch.Tensor) -> None:
+        self._wrapped.set_weights_and_ids(weights, ids)
+
+    def get_weights_by_ids(self, ids: torch.Tensor) -> torch.Tensor:
+        return self._wrapped.get_weights_by_ids(ids)
+
+    def __reduce__(self):
+        return (
+            PartiallyMaterializedTensor,
+            (self._wrapped,),
+        )
 
     def full_tensor(self) -> torch.Tensor:
         """
@@ -141,6 +165,8 @@ class PartiallyMaterializedTensor:
 
     @property
     def dtype(self) -> torch.dtype:
+        if isinstance(self._wrapped, torch.Tensor):
+            return self._wrapped.dtype
         mapping = {"c10::Half": "half"}
         dtype_str: str = self._wrapped.dtype_str
         dtype_str = mapping.get(dtype_str, dtype_str)
@@ -151,6 +177,8 @@ class PartiallyMaterializedTensor:
 
     @property
     def device(self) -> torch.device:
+        if isinstance(self._wrapped, torch.Tensor):
+            return self._wrapped.device
         device_str: str = self._wrapped.device_str
         device = torch.device(device_str)
         assert isinstance(device, torch.device)
@@ -158,7 +186,8 @@ class PartiallyMaterializedTensor:
 
     @property
     def layout(self) -> torch.layout:
-        pass
+        if isinstance(self._wrapped, torch.Tensor):
+            return self._wrapped.layout
         layout_str_mapping = {
             "SparseCsr": "sparse_csr",
             "Strided": "strided",
@@ -219,6 +248,9 @@ class PartiallyMaterializedTensor:
             return False
 
         return torch.equal(tensor1.full_tensor(), tensor2.full_tensor())
+
+    def get_kvtensor_serializable_metadata(self) -> List[str]:
+        return self._wrapped.get_kvtensor_serializable_metadata()
 
     def __hash__(self):
         return id(self)

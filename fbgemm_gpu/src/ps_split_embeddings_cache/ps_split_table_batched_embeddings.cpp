@@ -52,6 +52,18 @@ class EmbeddingParameterServerWrapper : public torch::jit::CustomClassHolder {
     return impl_->set_cuda(indices, weights, count, timestep, is_bwd);
   }
 
+  void stream_cuda(
+      const Tensor& indices,
+      const Tensor& weights,
+      const Tensor& count,
+      bool blocking_tensor_copy = true) {
+    return impl_->stream_cuda(indices, weights, count, blocking_tensor_copy);
+  }
+
+  void stream_sync_cuda() {
+    return impl_->stream_sync_cuda();
+  }
+
   void get_cuda(Tensor indices, Tensor weights, Tensor count) {
     return impl_->get_cuda(indices, weights, count);
   }
@@ -95,6 +107,10 @@ static auto embedding_parameter_server_wrapper =
              int64_t,
              int64_t>())
         .def("set_cuda", &EmbeddingParameterServerWrapper::set_cuda)
+        .def("stream_cuda", &EmbeddingParameterServerWrapper::stream_cuda)
+        .def(
+            "stream_sync_cuda",
+            &EmbeddingParameterServerWrapper::stream_sync_cuda)
         .def("get_cuda", &EmbeddingParameterServerWrapper::get_cuda)
         .def("compact", &EmbeddingParameterServerWrapper::compact)
         .def("flush", &EmbeddingParameterServerWrapper::flush)

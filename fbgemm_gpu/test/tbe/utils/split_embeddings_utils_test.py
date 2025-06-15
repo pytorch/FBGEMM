@@ -237,6 +237,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             ]
         ),
         mixed_B=st.booleans(),
+        bounds_check_version=st.sampled_from((1, 2)),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
     def test_bounds_check(  # noqa C901
@@ -249,6 +250,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
         weighted: bool,
         dtype: torch.dtype,
         mixed_B: bool,
+        bounds_check_version: int,
     ) -> None:
         rows_per_table = torch.tensor(
             np.random.randint(low=1, high=1000, size=(T,))
@@ -348,6 +350,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
             bounds_check_mode,
             warning,
             weights,
+            bounds_check_version=bounds_check_version,
             **vbe_args,
         )
         # we don't modify when we are in-bounds.
@@ -361,6 +364,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 bounds_check_mode,
                 warning,
                 weights,
+                bounds_check_version=bounds_check_version,
                 **vbe_args,
             )
             torch.testing.assert_close(indices, torch.zeros_like(indices))
@@ -376,6 +380,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                         bounds_check_mode,
                         warning,
                         weights,
+                        bounds_check_version=bounds_check_version,
                         **vbe_args,
                     )
             # It would be nice to test the CUDA implementation of BoundsCheckMode==FATAL,
@@ -397,6 +402,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 bounds_check_mode,
                 warning,
                 weights,
+                bounds_check_version=bounds_check_version,
                 **vbe_args,
             )
             if offsets.numel() > 0:
@@ -417,6 +423,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                         bounds_check_mode,
                         warning,
                         weights,
+                        bounds_check_version=bounds_check_version,
                     )
 
         # test offsets.size(0) ! = B * T + 1 case. Here we test with T >= 2 case.
@@ -444,6 +451,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                     bounds_check_mode,
                     warning,
                     weights,
+                    bounds_check_version=bounds_check_version,
                 )
 
         # test weights.size(0) != indices.size(0) case
@@ -459,6 +467,7 @@ class SplitEmbeddingsUtilsTest(unittest.TestCase):
                 warning,
                 weights,
                 **vbe_args,
+                bounds_check_version=bounds_check_version,
             )
 
     @given(

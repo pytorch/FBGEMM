@@ -76,6 +76,7 @@ def benchmark_ssd_function(
     total_time_write_ns = 0
 
     for i in range(iters):
+        time.sleep(1)
         start = (i + warmup_iters) * indices_per_itr
         end = start + indices_per_itr
         indices_this_itr = indices[start:end]
@@ -105,6 +106,7 @@ def benchmark_read_write(
     num_shards: int,
     num_threads: int,
     block_cache_size_mb: int,
+    use_dram_kv: bool,
 ) -> None:
     idx_dtype = torch.int64
     data_dtype = torch.float32
@@ -112,26 +114,41 @@ def benchmark_read_write(
     torch.random.manual_seed(43)
     elem_size = 4
 
+    ssd_uniform_init_lower = -0.01
+    ssd_uniform_init_upper = 0.01
+    row_storage_bitwidth = 32
+
     with tempfile.TemporaryDirectory(prefix=ssd_prefix) as ssd_directory:
-        # pyre-fixme[16]: Module `classes` has no attribute `fbgemm`.
-        ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
-            ssd_directory,
-            num_shards,
-            num_threads,
-            0,  # ssd_memtable_flush_period,
-            0,  # ssd_memtable_flush_offset,
-            4,  # ssd_l0_files_per_compact,
-            embedding_dim,
-            0,  # ssd_rate_limit_mbps,
-            1,  # ssd_size_ratio,
-            8,  # ssd_compaction_trigger,
-            536870912,  # 512MB ssd_write_buffer_size,
-            8,  # ssd_max_write_buffer_num,
-            -0.01,  # ssd_uniform_init_lower
-            0.01,  # ssd_uniform_init_upper
-            32,  # row_storage_bitwidth
-            block_cache_size_mb * (2**20),  # block cache size
-        )
+        if use_dram_kv:
+            logging.info("Using DRAM KV")
+            ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+                embedding_dim,
+                ssd_uniform_init_lower,
+                ssd_uniform_init_upper,
+                num_shards,
+                num_threads,
+                row_storage_bitwidth,
+            )
+        else:
+            logging.info("Using SSD")
+            ssd_db = torch.classes.fbgemm.EmbeddingRocksDBWrapper(
+                ssd_directory,
+                num_shards,
+                num_threads,
+                0,  # ssd_memtable_flush_period,
+                0,  # ssd_memtable_flush_offset,
+                4,  # ssd_l0_files_per_compact,
+                embedding_dim,
+                0,  # ssd_rate_limit_mbps,
+                1,  # ssd_size_ratio,
+                8,  # ssd_compaction_trigger,
+                536870912,  # 512MB ssd_write_buffer_size,
+                8,  # ssd_max_write_buffer_num,
+                ssd_uniform_init_lower,
+                ssd_uniform_init_upper,
+                row_storage_bitwidth,
+                block_cache_size_mb * (2**20),  # block cache size
+            )
 
         total_indices = (warmup_iters + iters) * batch_size * bag_size
         indices_per_itr = batch_size * bag_size
@@ -175,6 +192,7 @@ def benchmark_read_write(
 @click.option("--num-shards", default=8)
 @click.option("--num-threads", default=8)
 @click.option("--block-cache-size-mb", default=0)
+@click.option("--use-dram-kv", default=False)
 def ssd_read_write(
     ssd_prefix: str,
     num_embeddings: int,
@@ -186,6 +204,7 @@ def ssd_read_write(
     num_shards: int,
     num_threads: int,
     block_cache_size_mb: int,
+    use_dram_kv: bool,
 ) -> None:
     benchmark_read_write(
         ssd_prefix,
@@ -198,6 +217,7 @@ def ssd_read_write(
         num_shards,
         num_threads,
         block_cache_size_mb,
+        use_dram_kv,
     )
 
 

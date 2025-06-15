@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Tuple
 
 import torch
 from torch import Tensor
@@ -33,19 +33,66 @@ class EmbeddingLocation(enum.IntEnum):
     HOST = 3
     MTIA = 4
 
+    @classmethod
+    # pyre-ignore[3]
+    def str_values(cls):
+        return [
+            "device",
+            "managed",
+            "managed_caching",
+            "host",
+            "mtia",
+        ]
 
-def str_to_embedding_location(key: str) -> EmbeddingLocation:
-    lookup = {
-        "device": EmbeddingLocation.DEVICE,
-        "managed": EmbeddingLocation.MANAGED,
-        "managed_caching": EmbeddingLocation.MANAGED_CACHING,
-        "host": EmbeddingLocation.HOST,
-        "mtia": EmbeddingLocation.MTIA,
-    }
-    if key in lookup:
-        return lookup[key]
-    else:
-        raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "device": EmbeddingLocation.DEVICE,
+            "managed": EmbeddingLocation.MANAGED,
+            "managed_caching": EmbeddingLocation.MANAGED_CACHING,
+            "host": EmbeddingLocation.HOST,
+            "mtia": EmbeddingLocation.MTIA,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
+
+
+class KVZCHParams(NamedTuple):
+    # global bucket id start and global bucket id end offsets for each logical table,
+    # where start offset is inclusive and end offset is exclusive
+    bucket_offsets: List[Tuple[int, int]] = []
+    # bucket size for each logical table
+    # the value indicates corresponding input space for each bucket id, e.g. 2^50 / total_num_buckets
+    bucket_sizes: List[int] = []
+    # enable optimizer offloading or not
+    enable_optimizer_offloading: bool = False
+
+    def validate(self) -> None:
+        assert len(self.bucket_offsets) == len(self.bucket_sizes), (
+            "bucket_offsets and bucket_sizes must have the same length, "
+            f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
+        )
+
+
+class BackendType(enum.IntEnum):
+    SSD = 0
+    DRAM = 1
+    PS = 2
+
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "ssd": BackendType.SSD,
+            "dram": BackendType.DRAM,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into BackendType: {key}")
 
 
 class CacheAlgorithm(enum.Enum):
@@ -74,17 +121,18 @@ class PoolingMode(enum.IntEnum):
     def do_pooling(self) -> bool:
         return self is not PoolingMode.NONE
 
-
-def str_to_pooling_mode(key: str) -> PoolingMode:
-    lookup = {
-        "sum": PoolingMode.SUM,
-        "mean": PoolingMode.MEAN,
-        "none": PoolingMode.NONE,
-    }
-    if key in lookup:
-        return lookup[key]
-    else:
-        raise ValueError(f"Cannot parse value into PoolingMode: {key}")
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "sum": PoolingMode.SUM,
+            "mean": PoolingMode.MEAN,
+            "none": PoolingMode.NONE,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into PoolingMode: {key}")
 
 
 class BoundsCheckMode(enum.IntEnum):
@@ -102,6 +150,12 @@ class BoundsCheckMode(enum.IntEnum):
     V2_WARNING = 5
     # FATAL with V2 enabled
     V2_FATAL = 6
+
+
+class ComputeDevice(enum.IntEnum):
+    CPU = 0
+    CUDA = 1
+    MTIA = 2
 
 
 class EmbeddingSpecInfo(enum.IntEnum):
@@ -213,3 +267,13 @@ def get_new_embedding_location(
     # UVM caching
     else:
         return EmbeddingLocation.MANAGED_CACHING
+
+
+def get_bounds_check_version_for_platform() -> int:
+    # NOTE: Use bounds_check_indices v2 on ROCm because ROCm has a
+    # constraint that the gridDim * blockDim has to be smaller than
+    # 2^32. The v1 kernel can be launched with gridDim * blockDim >
+    # 2^32 while the v2 kernel limits the gridDim size to 64 * # of
+    # SMs.  Thus, its gridDim * blockDim is guaranteed to be smaller
+    # than 2^32
+    return 2 if (torch.cuda.is_available() and torch.version.hip) else 1

@@ -18,6 +18,7 @@ include(${CMAKEMODULES}/Utilities.cmake)
 set(tbe_eeg_cpu_sources
   src/tbe/eeg/eeg_models.cpp
   src/tbe/eeg/eeg_utils.cpp
+  src/tbe/eeg/indices_estimator_ops.cpp
   src/tbe/eeg/indices_estimator.cpp
   src/tbe/eeg/indices_generator_ops.cpp
   src/tbe/eeg/indices_generator.cpp)
@@ -38,11 +39,17 @@ set(fbgemm_gpu_sources_cpu_static
     src/layout_transform_ops/layout_transform_ops_cpu.cpp
     src/quantize_ops/quantize_ops_cpu.cpp
     src/quantize_ops/quantize_ops_meta.cpp
+    src/sparse_ops/sparse_async_batched_cumsum.cpp
     src/sparse_ops/sparse_ops_cpu.cpp
     src/sparse_ops/sparse_ops_meta.cpp
     ${tbe_eeg_cpu_sources})
 
-if(NOT FBGEMM_CPU_ONLY)
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
+  list(APPEND fbgemm_gpu_sources_cpu_static
+    src/faster_hash_ops/faster_hash.cpp)
+endif()
+
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   list(APPEND fbgemm_gpu_sources_cpu_static
     src/intraining_embedding_pruning_ops/intraining_embedding_pruning_gpu.cpp
     src/layout_transform_ops/layout_transform_ops_gpu.cpp
@@ -53,7 +60,7 @@ if(NOT FBGEMM_CPU_ONLY)
     src/metric_ops/metric_ops_host.cpp
     src/input_combine_ops/input_combine_gpu.cpp)
 
-  if(NVML_LIB_PATH OR USE_ROCM)
+  if(NVML_LIB_PATH OR FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
     message(STATUS "Adding merge_pooled_embeddings sources")
     list(APPEND fbgemm_gpu_sources_cpu_static
       src/merge_pooled_embedding_ops/merge_pooled_embedding_ops_gpu.cpp
@@ -63,7 +70,7 @@ if(NOT FBGEMM_CPU_ONLY)
   endif()
 endif()
 
-if(NOT FBGEMM_CPU_ONLY)
+if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
   set(fbgemm_gpu_sources_gpu_static
       src/histogram_binning_calibration_ops.cu
       src/input_combine_ops/input_combine.cu
@@ -100,6 +107,7 @@ if(NOT FBGEMM_CPU_ONLY)
       src/quantize_ops/quantize_msfp.cu
       src/quantize_ops/quantize_padded_fp8_rowwise.cu
       src/quantize_ops/quantize_mx.cu
+      src/sparse_ops/sparse_async_batched_cumsum.cu
       src/sparse_ops/sparse_block_bucketize_features.cu
       src/sparse_ops/sparse_bucketize_features.cu
       src/sparse_ops/sparse_batched_unary_embeddings.cu
@@ -119,6 +127,11 @@ if(NOT FBGEMM_CPU_ONLY)
       src/sparse_ops/sparse_reorder_batched_ad.cu
       src/sparse_ops/sparse_segment_sum_csr.cu
       src/sparse_ops/sparse_zipf.cu)
+
+  if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
+    list(APPEND fbgemm_gpu_sources_gpu_static
+      src/faster_hash_ops/faster_hash.cu)
+  endif()
 endif()
 
 

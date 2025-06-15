@@ -34,7 +34,7 @@
 {%- set locs_or_addrs_type = "int64_t" if ssd else "int32_t" %}
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 {%- if optimizer != "none" and not dense %}
 #include "gen_embedding_optimizer_{{ optimizer }}_{{ mdesc }}_device_kernel.cuh"
@@ -133,6 +133,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- endif %}
     const float gwd_lower_bound,
     {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,
     const bool permute_output_dim_0_1
@@ -145,7 +148,7 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
     {%- else %}
     int32_t T = weights_offsets.size(0);
     {%- endif %}
-    const int32_t start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
+    const auto start_run_id = blockIdx.x * blockDim.y + threadIdx.y;
     {%- if is_gwd_kernel %}
     const float weight_decay_base = 1 - learning_rate * weight_decay;
     {%- endif %}
@@ -296,6 +299,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row(
               {%- endif %}
               shfl_sync_mask,
               max_vecs,
+              {%- if ssd %}
+              enable_optimizer_offloading,
+              {%- endif %}
               {{ args.split_kernel_arg_names | join(", ") }}
         );
         {%- else %}
@@ -425,6 +431,9 @@ batch_index_select_dim0_codegen_backward_kernel_warp_per_row
     const int64_t iter,
     {%- endif %}
     const float gwd_lower_bound,
+    {%- endif %}
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
     {%- endif %}
     {%- if is_index_select %}
     const at::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> grad_offsets,

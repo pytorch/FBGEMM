@@ -29,7 +29,30 @@ except ImportError:
             super().__init__()
 
 
-from .quantize_ops import get_quantize_ops, QuantizeOpBase
+from fbgemm_gpu.experimental.gen_ai.quantize_ops import get_quantize_ops, QuantizeOpBase
+
+
+def generate_group_tensor(G, M):
+    """
+    Generate a tensor with G elements whose integer elements sum to A.
+
+    Args:
+        G (int): Number of elements in the tensor.
+        M (int): Sum of the elements in the tensor.
+
+    Returns:
+        torch.Tensor: A tensor with G elements whose integer elements sum to M.
+    """
+
+    # First, we generate a random tensor with G elements
+    random_tensor = torch.rand(G)
+    # Then, we normalize this tensor so it sums up to 1
+    normalized_tensor = random_tensor / random_tensor.sum()
+    # Finally, we multiply this tensor by M and round to the nearest integer
+    output_tensor = torch.round(normalized_tensor * M).to(torch.int64)
+    # Adjust the last element to ensure the sum is exactly M
+    output_tensor[-1] += max(0, M - output_tensor.sum())
+    return output_tensor.tolist()
 
 
 def set_amd_env_vars() -> None:
@@ -49,19 +72,26 @@ def get_llama_shapes() -> List[Tuple[int, int, int, int]]:
 
     llama_shapes = []
     for M in [1, 16, 32, 64, 96, 128, 16384]:
-        # Add shapes for llama 70B
+        # Add shapes for llama3 70B
         llama_shapes += [
             (1, M, 1280, 8192),
             (1, M, 8192, 1024),
             (1, M, 7168, 8192),
             (1, M, 8192, 3584),
         ]
-        # Add shapes for llama 405B
+        # Add shapes for llama3 405B
         llama_shapes += [
             (1, M, 13312, 6656),
             (1, M, 13312, 16384),
             (1, M, 16384, 6656),
             (1, M, 16384, 16384),
+        ]
+        # Add shapes for llama4 Scout/Maverick (17Bx{16,128})
+        llama_shapes += [
+            (1, M, 896, 5120),
+            (1, M, 5120, 640),
+            (1, M, 2048, 5120),
+            (1, M, 5120, 1024),
         ]
 
     return llama_shapes
@@ -177,9 +207,10 @@ def benchmark_grouped(
             output = [o[: m[i]] for i, o in enumerate(output)]
         # Compare the quantize op output to reference as a sanity check.
         for i in range(num_groups):
-            metrics.sim += float(
-                torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
-            )
+            if m[i] > 0:
+                metrics.sim += float(
+                    torch.mean(torch.pow(output[i] - out_ref[i], 2)).item()
+                )
         for _ in range(num_iters):
             # Now perform benchmark.
             if bench_quantize:
@@ -205,17 +236,21 @@ def benchmark_grouped(
                 metrics.tflops += (
                     2 * b[i] * m[i] * n[i] * k[i] / (ms_runtime / 1e3) / 1e12
                 )
-                metrics.gbps += (
-                    (
-                        quantized_vals[0][i][: m[i]].numel()
-                        * quantized_vals[0][i][: m[i]].element_size()
-                        + quantized_vals[1][i].numel()
-                        * quantized_vals[1][i].element_size()
-                        + output[i].numel() * output[i].element_size()
+                output_multiplier = 2 if "fuse_scatter_add" in quantize_op.name else 1
+                if m[i] > 0:
+                    metrics.gbps += (
+                        (
+                            b[i] * m[i] * k[i] * quantized_vals[0][0].element_size()
+                            + b[i] * n[i] * k[i] * quantized_vals[1][0].element_size()
+                            + output_multiplier
+                            * b[i]
+                            * m[i]
+                            * n[i]
+                            * output[0].element_size()
+                        )
+                        / (ms_runtime / 1e3)
+                        / 1e9
                     )
-                    / (ms_runtime / 1e3)
-                    / 1e9
-                )
             metrics.ms += ms_runtime
         metrics.ms /= num_iters
         metrics.tflops /= num_iters
@@ -269,6 +304,7 @@ def benchmark(
         # Compute the output given quantized values.
         output = quantize_op.compute(*quantized_vals)
         # Compare the quantize op output to reference as a sanity check.
+        # TODO(shikaili): This calculation is incorrect for scatter add fusion.
         metrics.sim = torch.mean(torch.pow(output - out_ref, 2)).item()
 
         for _ in range(num_iters):
@@ -410,11 +446,24 @@ def main(args: Any):
             MNK = list(itertools.product(B, M, N, K))
     # When groups is provided transform shapes into grouped format.
     if args.groups:
-        groups = int(args.groups)
-        MNK = [
-            [[b] * groups, [m] * groups, [n] * groups, [k] * groups]
-            for b, m, n, k in MNK
-        ]
+        groups = [int(g) for g in args.groups.strip().split(",")]
+        if args.total_M:
+            MNK = [
+                [
+                    [b] * g,
+                    generate_group_tensor(g, int(args.total_M)),
+                    [n] * g,
+                    [k] * g,
+                ]
+                for g in groups
+                for b, _, n, k in MNK
+            ]
+        else:
+            MNK = [
+                [[b] * g, [m] * g, [n] * g, [k] * g]
+                for g in groups
+                for b, m, n, k in MNK
+            ]
 
     # Iterate over shapes and benchmark.
     benchmark_results = []
@@ -510,7 +559,13 @@ def invoke_main() -> None:
     parser.add_argument(
         "--groups",
         default=None,
-        help="If set with grouped mode, repeat input shapes this many times.",
+        help="If set with grouped mode, repeat input shapes this many times. Comma separated list of groups to benchmark",
+    )
+    parser.add_argument(
+        "--total_M",
+        default=None,
+        help="If set, Adjusts the M values to sum to this number. "
+        "This can help simulate real grouped workloads.",
     )
     parser.add_argument(
         "--no_cuda_graph",
@@ -551,3 +606,7 @@ def invoke_main() -> None:
 
     args = parser.parse_args()
     main(args)
+
+
+if __name__ == "__main__":
+    invoke_main()  # pragma: no cover

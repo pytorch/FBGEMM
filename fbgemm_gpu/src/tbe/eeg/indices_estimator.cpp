@@ -15,11 +15,29 @@
 
 namespace fbgemm_gpu::tbe {
 
-// Helper: log table computation for fast maximum likelihood
-// estimation
-void IndicesEstimator::computeLogTable_() {
-  auto maxIndex = freqs_.size();
-  logTable_.resize((maxIndex + kMaxQ + 1) * kLevels_);
+void IndicesEstimator::populateIndexFreqs_(const torch::Tensor& indices) {
+  // Count the frequency of indices
+  const auto* data = indices.data_ptr<int64_t>();
+  for (auto i = 0; i < indices.numel(); i++) {
+    const auto idx = data[i];
+    indexCounts_[idx] += 1;
+  }
+
+  // Collect the frequencies
+  for (const auto& [_, count] : indexCounts_) {
+    freqs_.emplace_back(static_cast<double>(count));
+  }
+
+  // Sort and normalize the frequencies
+  std::sort(std::begin(freqs_), std::end(freqs_), std::greater{});
+  auto normalize_const = std::reduce(std::begin(freqs_), std::end(freqs_));
+  for (auto& freq : freqs_) {
+    freq /= normalize_const;
+  }
+}
+
+void IndicesEstimator::populateLogTable_() {
+  logTable_.resize((maxIndex() + kMaxQ + 1) * kLevels_);
   double cur = 1.0;
   for (int64_t i = 0; i < logTable_.size(); ++i) {
     logTable_[i] = log(cur);
@@ -27,86 +45,89 @@ void IndicesEstimator::computeLogTable_() {
   }
 }
 
+IndicesEstimator::IndicesEstimator(const torch::Tensor& indices) {
+  TORCH_CHECK(
+      indices.numel() > 0, "indices numel is ", indices.numel(), "(< 1)");
+
+  TORCH_CHECK(
+      indices.dtype() == at::kLong,
+      "indices dtype is ",
+      indices.dtype(),
+      "(!= I64)");
+
+  // Populate the index frequencies
+  populateIndexFreqs_(indices);
+
+  // Populate the log table
+  populateLogTable_();
+}
+
 IndicesEstimator::IndicesEstimator(const std::filesystem::path& tensors_path) {
-  // PyTorch API requires us to use a torch::pickle_load on a
+  // NOTE: PyTorch API requires us to use a torch::pickle_load on a
   // vector<char> (torch::load doesn't work here)
   // https://fb.workplace.com/groups/1405155842844877/posts/4947064988653927/?comment_id=4947149218645504
-  std::ifstream input(tensors_path, std::ios::binary);
 
+  // Open the file
+  std::ifstream input(tensors_path, std::ios::binary);
   std::vector<char> bytes(
       (std::istreambuf_iterator<char>(input)),
       (std::istreambuf_iterator<char>()));
-
   input.close();
+
+  // Load the tensor
   auto ival = torch::pickle_load(bytes);
   assert((ival.isTensor()) && "Loaded file is not a tensor!");
-  tensor_ = ival.toTensor();
-  assert(
-      (tensor_.dtype().itemsize() == 8) &&
-      "Indices are abnormal, not 8 byte each");
-  indices_ = std::vector<int64_t>{
-      tensor_.data_ptr<int64_t>(),
-      tensor_.data_ptr<int64_t>() + tensor_.numel()};
 
-  if (indices_.empty()) {
-    std::cerr
-        << "Warning: No indices found for this tensor, no estimation possible!\n";
-    return;
-  }
-
-  // Setup the frequency data structures
-  for (auto idx : indices_) {
-    indexToLocations_[idx].emplace_back(idx);
-  }
-
-  for (const auto& item : indexToLocations_) {
-    freqs_.emplace_back(static_cast<double>(item.second.size()));
-  }
-
-  // Sort the frequencies into descending order and normalize
-  std::sort(std::begin(freqs_), std::end(freqs_), std::greater{});
-  auto normalize_const = std::reduce(std::begin(freqs_), std::end(freqs_));
-  std::for_each(std::begin(freqs_), std::end(freqs_), [=](double& freq) {
-    freq /= normalize_const;
-  });
-
-  computeLogTable_();
+  // Pass it to the tensor-based constructor
+  IndicesEstimator(ival.toTensor());
 }
 
-std::vector<double> IndicesEstimator::estimateHeavyHitters_() {
-  std::vector<double> heavyHitters;
+std::vector<double> IndicesEstimator::heavyHitters() const {
+  std::vector<double> hitters;
+
   double cdf = 0.0;
   for (int i = 0; i < kHeavyHitterMaxEntries_; ++i) {
-    heavyHitters.emplace_back(freqs_[i]);
+    hitters.emplace_back(freqs_[i]);
     cdf += freqs_[i];
     if (cdf > kHeavyHitterThreshold_) {
       break;
     }
   }
-  return heavyHitters;
+
+  return hitters;
 }
 
-std::optional<IndicesDistributionParameters> IndicesEstimator::estimate() {
-  if (indices_.empty()) {
-    return std::nullopt;
+int64_t IndicesEstimator::numIndices() const {
+  int64_t sum = 0;
+  for (const auto& [_, value] : indexCounts_) {
+    sum += value;
+  }
+  return sum;
+}
+
+int64_t IndicesEstimator::maxIndex() const {
+  if (!cacheMaxIndex_.has_value()) {
+    cacheMaxIndex_ =
+        std::max_element(
+            indexCounts_.begin(),
+            indexCounts_.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; })
+            ->first;
   }
 
-  using timer = std::chrono::high_resolution_clock;
-  using us = std::chrono::microseconds;
+  return *cacheMaxIndex_;
+}
 
-  auto t0 = timer::now();
-  IndicesDistributionParameters params;
-  // First get the heavy hitters
-  params.heavyHitters = estimateHeavyHitters_();
-  params.maxIndex = freqs_.size() - 1;
-  params.numIndices = indices_.size();
-  auto zipfStart = params.heavyHitters.size();
+ZipfParameters IndicesEstimator::zipfParams(
+    const std::vector<double>& heavyHitters) const {
+  ZipfParameters zipfParams;
+
+  auto zipfStart = heavyHitters.size();
 
   // Now do the MLE estimation conditioned on the rest
   auto zipfTotalFreq =
       std::reduce(std::begin(freqs_) + zipfStart, std::end(freqs_));
-  double maxLogLikelihood = -std::numeric_limits<double>::infinity();
-  ZipfParameters zipfParams;
+  auto maxLogLikelihood = -std::numeric_limits<double>::infinity();
 
   // Sweep over q in outer loop, and s in the inner
   // loop since q requires recomputing inner products
@@ -120,15 +141,18 @@ std::optional<IndicesDistributionParameters> IndicesEstimator::estimate() {
   static constexpr double kHeavyHitterUpperBound_ = 5.0;
   static constexpr double kHeavyHitterLowerBound_ = 1.0;
 
-  double minHeavyHitterProb = params.heavyHitters.back();
+  double minHeavyHitterProb = heavyHitters.back();
   double qIncr = 1.0;
+
   for (double q = 1.0; q < kMaxQ; q += qIncr) {
     double freqTerm = 0.0;
     long logTableIdx = lrint((zipfStart + q) * kLevels_ - 1);
+
     for (int64_t k = zipfStart; k < freqs_.size();
          ++k, logTableIdx += kLevels_) {
       freqTerm -= freqs_[k] * logTable_[logTableIdx];
     }
+
     for (double s = kMinS_; s < kMaxS_; s += kSStep_) {
       // Consistency test before proceeding with estimate.
       double normalizeConst =
@@ -136,6 +160,7 @@ std::optional<IndicesDistributionParameters> IndicesEstimator::estimate() {
       double zipfMaxProb =
           (zipfTotalFreq / normalizeConst) * std::pow(q + zipfStart, -s);
       double ratio = minHeavyHitterProb / zipfMaxProb;
+
       if ((ratio < kHeavyHitterLowerBound_) ||
           (ratio > kHeavyHitterUpperBound_)) {
         std::cout << "Skipping (s,q) (" << s << ", " << q
@@ -153,18 +178,39 @@ std::optional<IndicesDistributionParameters> IndicesEstimator::estimate() {
         zipfParams.s = s;
       }
     }
+
     qIncr = exp10(std::floor(std::log10(q))) / kQSweepGranularity_;
   }
 
-  params.zipfParams = zipfParams;
+  return zipfParams;
+}
+
+std::optional<IndicesDistributionParameters> IndicesEstimator::estimate()
+    const {
+  if (indexCounts_.empty()) {
+    return std::nullopt;
+  }
+
+  using timer = std::chrono::high_resolution_clock;
+  using us = std::chrono::microseconds;
+  auto t0 = timer::now();
+
+  const auto hitters = heavyHitters();
+  auto params = IndicesDistributionParameters{
+      hitters,
+      zipfParams(hitters),
+      maxIndex(),
+      numIndices(),
+  };
+
   auto t1 = timer::now();
   std::cout << "Time taken to estimate parameters (us): "
             << std::chrono::duration_cast<us>(t1 - t0).count() << "\n";
   return params;
 }
 
-double IndicesEstimator::getEstimateQuality(
-    const IndicesDistributionParameters& params) {
+double IndicesEstimator::estimateQuality(
+    const IndicesDistributionParameters& params) const {
   // KL divergence between the true indices distribution and the estimated one
   // (in bits)
   const auto zipfStart = params.heavyHitters.size();
@@ -181,15 +227,18 @@ double IndicesEstimator::getEstimateQuality(
     if (trueProb == 0.0) {
       continue;
     }
-    double estProb;
+
+    double estProb = 1; // Initializing to 1 to silence lint errors
     if (i < zipfStart) {
       estProb = params.heavyHitters[i];
     } else {
       estProb = (zipfTotalFreq / normalizeConst) *
           std::pow(params.zipfParams.q + i, -params.zipfParams.s);
     }
+
     kl += trueProb * std::log2(trueProb / estProb);
   }
+
   return kl;
 }
 

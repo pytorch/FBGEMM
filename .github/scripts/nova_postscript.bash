@@ -25,6 +25,11 @@ echo "[NOVA] Current working directory: $(pwd)"
 # Record time for each step
 start_time=$(date +%s)
 
+echo "################################################################################"
+echo "Environment Variables:"
+printenv
+echo "################################################################################"
+
 # Collect PyTorch environment information
 collect_pytorch_env_info "${BUILD_ENV_NAME}"
 end_time=$(date +%s)
@@ -40,23 +45,9 @@ start_time=${end_time}
 echo "[NOVA] Time taken to install wheel: ${runtime} seconds"
 
 # Test with PyTest
-echo "[NOVA] Current working directory: $(pwd)"
-if [[ $CU_VERSION = cu* ]]; then
-  echo "[NOVA] Testing the CUDA variant of FBGEMM_GPU ..."
-  export fbgemm_variant="cuda"
-
-elif [[ $CU_VERSION = rocm* ]]; then
-  echo "[NOVA] Testing the ROCm variant of FBGEMM_GPU ..."
-  export fbgemm_variant="rocm"
-
-else
-  echo "[NOVA] Testing the CPU variant of FBGEMM_GPU ..."
-  export fbgemm_variant="cpu"
-fi
-
 $CONDA_RUN python3 -c "import torch; print('cuda.is_available() ', torch.cuda.is_available()); print ('device_count() ',torch.cuda.device_count());"
 cd "${FBGEMM_REPO}" || { echo "[NOVA] Failed to cd to ${FBGEMM_REPO} from $(pwd)"; };
-test_all_fbgemm_gpu_modules "${BUILD_ENV_NAME}" "${fbgemm_variant}"
+test_all_fbgemm_gpu_modules "${BUILD_ENV_NAME}"
 end_time=$(date +%s)
 runtime=$((end_time-start_time))
 start_time=${end_time}

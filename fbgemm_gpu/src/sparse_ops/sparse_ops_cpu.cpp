@@ -365,7 +365,8 @@ void _block_bucketize_sparse_features_cpu_kernel(
     const std::optional<Tensor>& batch_size_per_feature,
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const std::optional<Tensor>& bucket_mapping,
-    const bool keep_orig_idx) {
+    const bool keep_orig_idx,
+    const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
   // allocate tensors and buffers
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
@@ -487,6 +488,13 @@ void _block_bucketize_sparse_features_cpu_kernel(
         : my_size;
     const index_t global_idx_size = blk_size * global_num_blks;
     const index_t local_idx_size = blk_size * local_num_blks;
+    auto keep_idx = keep_orig_idx;
+    if (keep_orig_idx_per_feature.has_value()) {
+      // When keep_orig_idx_per_feature is set, override global
+      // keep_orig_idx settings
+      keep_idx = keep_orig_idx_per_feature.value().data_ptr<bool>()[t];
+    }
+
     for (const auto b : c10::irange(cur_batch_size)) {
       const auto b_t = (variable_batch_size ? cur_offset : t * B) + b;
       const offset_t rowstart = offsets_data[b_t];
@@ -503,7 +511,7 @@ void _block_bucketize_sparse_features_cpu_kernel(
         if (variable_bucket_sizes) {
           int64_t lb = lower_bounds[i];
           p = lb < my_size ? lb : idx % my_size;
-          if (keep_orig_idx) {
+          if (keep_idx) {
             new_idx = idx;
           } else if (blk_size == 0) {
             new_idx = idx / global_num_blks;
@@ -517,7 +525,7 @@ void _block_bucketize_sparse_features_cpu_kernel(
           const uindex_t ub = static_cast<uindex_t>(global_idx_size);
           p = idx < ub ? idx / local_idx_size
                        : (idx % global_num_blks) / local_num_blks;
-          if (keep_orig_idx) {
+          if (keep_idx) {
             new_idx = idx;
           } else if (idx < ub) {
             new_idx = idx % local_idx_size;
@@ -1134,7 +1142,8 @@ _block_bucketize_sparse_features_cpu(
     const int64_t /* max_batch_size */, // Only used in GPU variant
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping,
-    const bool keep_orig_idx) {
+    const bool keep_orig_idx,
+    const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
   const auto lengths_size = lengths.numel();
   const auto new_lengths_size = lengths_size * my_size;
   auto new_lengths = at::zeros({new_lengths_size}, lengths.options());
@@ -1183,7 +1192,8 @@ _block_bucketize_sparse_features_cpu(
                         batch_size_per_feature,                  \
                         block_bucketize_pos,                     \
                         bucket_mapping,                          \
-                        keep_orig_idx);                          \
+                        keep_orig_idx,                           \
+                        keep_orig_idx_per_feature);              \
                   });                                            \
             });                                                  \
       });
@@ -1219,7 +1229,8 @@ _block_bucketize_sparse_features_cpu(
                   batch_size_per_feature,                                   \
                   block_bucketize_pos,                                      \
                   bucket_mapping,                                           \
-                  keep_orig_idx);                                           \
+                  keep_orig_idx,                                            \
+                  keep_orig_idx_per_feature);                               \
             });                                                             \
       });
   const auto lengths_sum = indices.numel();
@@ -1289,7 +1300,8 @@ block_bucketize_sparse_features_cpu(
     const int64_t /* max_batch_size */, // Only used in GPU variant
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool keep_orig_idx,
-    const std::optional<Tensor>& total_num_blocks) {
+    const std::optional<Tensor>& total_num_blocks = std::nullopt,
+    const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
   Tensor new_lengths;
   Tensor new_indices;
   std::optional<Tensor> new_weights;
@@ -1315,7 +1327,8 @@ block_bucketize_sparse_features_cpu(
           -1, /* placeholder for max_batch_size */
           block_bucketize_pos,
           false,
-          keep_orig_idx);
+          keep_orig_idx,
+          keep_orig_idx_per_feature);
   return {new_lengths, new_indices, new_weights, new_pos, unbucketize_permute};
 }
 
@@ -1339,7 +1352,8 @@ block_bucketize_sparse_features_inference_cpu(
     const std::optional<std::vector<at::Tensor>>& block_bucketize_pos,
     const bool return_bucket_mapping,
     const bool keep_orig_idx,
-    const std::optional<Tensor>& total_num_blocks) {
+    const std::optional<Tensor>& total_num_blocks = std::nullopt,
+    const std::optional<Tensor>& keep_orig_idx_per_feature = std::nullopt) {
   return _block_bucketize_sparse_features_cpu(
       lengths,
       indices,
@@ -1353,7 +1367,8 @@ block_bucketize_sparse_features_inference_cpu(
       -1, /* placeholder for max_batch_size */
       block_bucketize_pos,
       return_bucket_mapping,
-      keep_orig_idx);
+      keep_orig_idx,
+      keep_orig_idx_per_feature);
 }
 
 // This function partitions sparse features
@@ -1430,9 +1445,15 @@ void reorder_batched_ad_lengths_(
     Tensor& output,
     const int64_t max_batch_size = 0) {
   const int64_t nB = batch_offsets.numel() - 1;
-  const int64_t nT = broadcast_lengths
-      ? cat_ad_lengths.numel() / nB
-      : cat_ad_lengths.numel() / num_ads_in_batch;
+  auto num_lengths = cat_ad_lengths.numel();
+  int64_t nT;
+  if (broadcast_lengths) {
+    TORCH_CHECK(num_lengths % nB == 0);
+    nT = num_lengths / nB;
+  } else {
+    TORCH_CHECK(num_lengths % num_ads_in_batch == 0);
+    nT = num_lengths / num_ads_in_batch;
+  }
   int64_t output_batch_size = num_ads_in_batch;
   if (max_batch_size > 0) {
     TORCH_CHECK_GE(max_batch_size, num_ads_in_batch);
@@ -2288,18 +2309,17 @@ std::tuple<Tensor, Tensor> generic_histogram_binning_calibration_by_feature_cpu(
 
   return std::make_tuple(calibrated_prediction, bin_ids);
 }
-
-template <typename scalar_t>
+template <typename value_t, typename index_t>
 void _segment_sum_csr_cpu_kernel(
     const int num_segments,
     const int batch_size,
-    const int* const csr_seg_data,
-    const scalar_t* const values_data,
-    scalar_t* const output_data) {
+    const index_t* const csr_seg_data,
+    const value_t* const values_data,
+    value_t* const output_data) {
   for (const auto i : c10::irange(num_segments)) {
-    const int seg_start = csr_seg_data[i] * batch_size;
-    const int seg_end = csr_seg_data[i + 1] * batch_size;
-    scalar_t v = 0;
+    const index_t seg_start = csr_seg_data[i] * batch_size;
+    const index_t seg_end = csr_seg_data[i + 1] * batch_size;
+    value_t v = 0;
     for (const auto j : c10::irange(seg_start, seg_end)) {
       v += values_data[j];
     }
@@ -2315,14 +2335,19 @@ Tensor segment_sum_csr_cpu(
   TENSOR_ON_CPU(values);
 
   auto output = at::empty(csr_seg.numel() - 1, values.options());
-  FBGEMM_DISPATCH_ALL_TYPES(values.scalar_type(), "_segment_sum_csr_cpu", [&] {
-    _segment_sum_csr_cpu_kernel<scalar_t>(
-        csr_seg.numel() - 1,
-        batch_size,
-        csr_seg.data_ptr<int>(),
-        values.data_ptr<scalar_t>(),
-        output.data_ptr<scalar_t>());
-  });
+  FBGEMM_DISPATCH_ALL_TYPES(
+      values.scalar_type(), "_segment_sum_csr_cpu_1", [&] {
+        using value_t = scalar_t;
+        AT_DISPATCH_INDEX_TYPES(
+            csr_seg.scalar_type(), "_segment_sum_csr_cpu_2", [&] {
+              _segment_sum_csr_cpu_kernel<value_t, index_t>(
+                  csr_seg.numel() - 1,
+                  batch_size,
+                  csr_seg.data_ptr<index_t>(),
+                  values.data_ptr<value_t>(),
+                  output.data_ptr<value_t>());
+            });
+      });
   return output;
 }
 
@@ -2453,7 +2478,6 @@ Tensor& lengths_range_out(
 
   const auto t_in_contig = t_in.expect_contiguous();
   const auto num_seq = t_in_contig->numel();
-
   int64_t output_size;
   if (shape.has_value()) {
     output_size = c10::multiply_integers(shape.value());
@@ -3398,9 +3422,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.def(
       "populate_bucketized_permute(Tensor lengths, Tensor bucketized_lengths, Tensor bucket_mapping) -> Tensor");
   m.def(
-      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool keep_orig_idx=False, Tensor? total_num_blocks=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
+      "block_bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool keep_orig_idx=False, Tensor? total_num_blocks=None, Tensor? keep_orig_idx_per_feature=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?)");
   m.def(
-      "block_bucketize_sparse_features_inference(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool return_bucket_mapping=False, bool keep_orig_idx=False, Tensor? total_num_blocks=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?)");
+      "block_bucketize_sparse_features_inference(Tensor lengths, Tensor indices, bool bucketize_pos, bool sequence, Tensor block_sizes, SymInt my_size, Tensor? weights=None, Tensor? batch_size_per_feature=None, SymInt max_B= -1, Tensor[]? block_bucketize_pos=None, bool return_bucket_mapping=False, bool keep_orig_idx=False, Tensor? total_num_blocks=None, Tensor? keep_orig_idx_per_feature=None) -> (Tensor, Tensor, Tensor?, Tensor?, Tensor?, Tensor?)");
   m.def(
       "bucketize_sparse_features(Tensor lengths, Tensor indices, bool bucketize_pos, SymInt my_size, Tensor? weights=None) -> (Tensor, Tensor, Tensor?, Tensor?)");
   m.def(

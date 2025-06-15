@@ -31,7 +31,7 @@ on:
         required: true
         default: "nightly"
       fbgemm_gpu_channel_version:
-        description: FBGEMM-GPU Channel + Version (e.g. '1.1.0', 'nightly', 'test/1.0.0r1')
+        description: FBGEMM-GPU Channel + Version (e.g. '1.2.0', 'nightly', 'test/1.2.0')
         type: string
         required: true
         default: "nightly"
@@ -125,7 +125,7 @@ jobs:
           { instance: "linux.g5.4xlarge.nvidia.gpu" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3", "12.8.0" ]
+        cuda-version: [ "11.8.0", "12.6.3", "12.8.0" ]
 
     steps:
     # Cannot upgrade to actions/checkout@v4 yet because GLIBC on the instance is too old
@@ -193,11 +193,11 @@ jobs:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "rocm" },
+          { arch: x86, instance: "linux.rocm.gpu.2" },
         ]
         # ROCm machines are limited, so we only test a subset of Python versions
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        rocm-version: [ "6.2.4", "6.3" ]
+        rocm-version: [ "6.3", "6.4" ]
 
     steps:
     - name: Setup Build Container

@@ -1,0 +1,78 @@
+name: Build FBGEMM GenAI x86 Linux Wheels
+
+on:
+  pull_request:
+  push:
+    branches:
+      - nightly
+      - main
+    tags:
+      # Release candidate tag look like: v1.11.0-rc1
+      - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
+      - v[0-9]+.[0-9]+.[0-9]+
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  generate-matrix:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    with:
+      package-type: wheel
+      os: linux
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      with-cuda: enable
+      with-rocm: enable
+      with-cpu: disable
+
+  filter-matrix:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: generate-matrix
+    runs-on: linux.24_04.4x
+    outputs:
+      matrix: ${{ steps.filter.outputs.matrix }}
+    steps:
+    - uses: actions/setup-python@v4
+    - name: Checkout FBGEMM repository
+      uses: actions/checkout@v4
+      with:
+        repository: pytorch/fbgemm
+    - name: Filter Generated Built Matrix
+      id: filter
+      env:
+        MAT: ${{ needs.generate-matrix.outputs.matrix }}
+      run: |
+        set -ex
+        pwd
+        ls
+        MATRIX_BLOB="$( python .github/scripts/filter_nova_matrix.py --filter gpu_arch_version:11.8 --filter 'gpu_arch_type:rocm;python_version:3.13t' )"
+        echo "${MATRIX_BLOB}"
+        echo "matrix=${MATRIX_BLOB}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    if: ${{ github.repository_owner == 'pytorch' }}
+    needs: filter-matrix
+    name: pytorch/FBGEMM
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
+    with:
+      repository: pytorch/FBGEMM
+      ref: ""
+      pre-script: ../.github/scripts/nova_prescript.bash
+      post-script: ../.github/scripts/nova_postscript.bash
+      smoke-test-script: ""
+      env-var-script: .github/scripts/nova_dir.bash
+      package-name: fbgemm_gpu
+      build-target: genai
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      build-matrix: ${{ needs.filter-matrix.outputs.matrix }}
+      trigger-event: ${{ github.event_name }}
+      timeout: 150

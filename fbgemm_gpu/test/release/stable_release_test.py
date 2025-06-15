@@ -151,7 +151,7 @@ class StableRelease(TestSuite):  # pyre-ignore[11]
         """
         Test the schema compatibility of the operators against previous versions of the API.
         """
-        for version in ["1.0.0", "1.1.0"]:
+        for version in ["1.0.0", "1.1.0", "1.2.0"]:
             try:
                 self._test_stable_schema(version)
             except Exception as e:

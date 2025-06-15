@@ -67,6 +67,32 @@ DEVICE_INLINE bf16x8 add_bf16x8(bf16x8 a, bf16x8 b) {
   return c;
 }
 
+static DEVICE_INLINE void st_flag_release(int32_t& flag, int32_t* flag_addr) {
+#if defined(USE_ROCM)
+  __atomic_store_n(flag_addr, flag, __ATOMIC_RELEASE);
+#elif __CUDA_ARCH__ >= 700
+  asm volatile(
+      "st.global.release.sys.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
+#else
+  __threadfence_system();
+  asm volatile("st.global.volatile.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
+#endif
+}
+
+static DEVICE_INLINE void ld_flag_acquire(int32_t& flag, int32_t* flag_addr) {
+#if defined(USE_ROCM)
+  flag = __atomic_load_n(flag_addr, __ATOMIC_ACQUIRE);
+#elif __CUDA_ARCH__ >= 700
+  asm volatile("ld.global.acquire.sys.b32 %0, [%1];"
+               : "=r"(flag)
+               : "l"(flag_addr));
+#else
+  asm volatile("ld.global.volatile.b32 %0, [%1];"
+               : "=r"(flag)
+               : "l"(flag_addr));
+#endif
+}
+
 template <int32_t kWorldSize, bool has_acc>
 #if defined(USE_ROCM)
 __launch_bounds__(512)
@@ -106,25 +132,17 @@ __launch_bounds__(512)
 #endif
   }
   // Synchronize the ranks.
-  volatile int32_t* barrier_d = barriers[rank];
   if (threadIdx.x < kWorldSize) {
     // The 1st block notifies the other ranks.
     if (blockIdx.x == 0) {
-#if defined(USE_ROCM)
-      __atomic_store_n(barriers[threadIdx.x] + rank, flag, __ATOMIC_RELEASE);
-#else
-      barriers[threadIdx.x][rank] = flag;
-#endif
+      st_flag_release(flag, barriers[threadIdx.x] + rank);
     }
 
     // Busy-wait until all ranks are ready.
-#if defined(USE_ROCM)
-    while (__atomic_load_n(barrier_d + threadIdx.x, __ATOMIC_ACQUIRE) != flag) {
-    }
-#else
-    while (barrier_d[threadIdx.x] != flag) {
-    }
-#endif
+    int32_t rank_barrier = 0;
+    do {
+      ld_flag_acquire(rank_barrier, barriers[rank] + threadIdx.x);
+    } while (rank_barrier != flag);
   }
 
   // Make sure we can move on...
@@ -146,7 +164,7 @@ __launch_bounds__(512)
     bf16x8 vals[kWorldSize];
 #pragma unroll kWorldSize
     for (int ii = 0; ii < kWorldSize; ++ii) {
-      *reinterpret_cast<uint4*>(&vals[ii]) =
+      *reinterpret_cast<uint4*>(&vals[(ii + kWorldSize - rank) % kWorldSize]) =
           reinterpret_cast<const uint4*>(&src_d[ii][i])[0];
     }
 
@@ -177,27 +195,137 @@ __launch_bounds__(512)
 
   if (threadIdx.x < kWorldSize) {
     // notify all other blocks this blockIdx is ready
-    const int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    const auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
 
-#if defined(USE_ROCM)
-    __atomic_store_n(
-        barriers[threadIdx.x] + flag_block_offset + rank,
-        flag,
-        __ATOMIC_RELEASE);
-#else
-    barriers[threadIdx.x][flag_block_offset + rank] = flag;
-#endif
+    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
+
+    int32_t rank_barrier = 0;
 
     // busy-wait until all ranks are ready
+    do {
+      ld_flag_acquire(
+          rank_barrier, barriers[rank] + flag_block_offset + threadIdx.x);
+    } while (rank_barrier != flag);
+  }
+}
+
+template <int32_t kWorldSize, bool has_acc>
 #if defined(USE_ROCM)
-    while (__atomic_load_n(
-               barrier_d + flag_block_offset + threadIdx.x, __ATOMIC_ACQUIRE) !=
-           flag) {
-    }
-#else
-    while (barrier_d[flag_block_offset + threadIdx.x] != flag) {
-    }
+__launch_bounds__(512)
 #endif
+    __global__ void one_shot_all_reduce_pipelined(
+        int32_t rank,
+        int32_t world_size,
+        int32_t flag,
+        std::array<int32_t*, 8> barriers,
+        std::array<at::BFloat16*, 8> inputs,
+#if defined(USE_ROCM)
+        at::BFloat16* __restrict__ ar_input,
+        at::BFloat16* __restrict__ acc,
+        at::BFloat16* __restrict__ output,
+#else
+    at::BFloat16* ar_input,
+    at::BFloat16* acc,
+    at::BFloat16* output,
+#endif
+        int32_t N) {
+  // It is expensive to launch hipMemcpyAsync on ROCm
+  // Move data copy here. Each block copies part of input data
+  at::BFloat16* input = inputs[rank];
+  for (size_t i = blockDim.x * blockIdx.x * 8 + threadIdx.x * 8; i < N;
+       i += (size_t)blockDim.x * gridDim.x * 8) {
+#if defined(USE_ROCM)
+    __builtin_nontemporal_store(
+        reinterpret_cast<uint64_t*>(&ar_input[i])[0], (uint64_t*)(&input[i]));
+    __builtin_nontemporal_store(
+        reinterpret_cast<uint64_t*>(&ar_input[i])[1],
+        (uint64_t*)(&input[i]) + 1);
+#else
+    *reinterpret_cast<uint64_t*>(&input[i]) =
+        reinterpret_cast<uint64_t*>(&ar_input[i])[0];
+    *(reinterpret_cast<uint64_t*>(&input[i]) + 1) =
+        reinterpret_cast<uint64_t*>(&ar_input[i])[1];
+#endif
+  }
+  // Synchronize the ranks.
+  if (threadIdx.x < kWorldSize) {
+    // The 1st block notifies the other ranks.
+    if (blockIdx.x == 0) {
+      st_flag_release(flag, barriers[threadIdx.x] + rank);
+    }
+
+    // Busy-wait until all ranks are ready.
+    int32_t rank_barrier = 0;
+    do {
+      ld_flag_acquire(rank_barrier, barriers[rank] + threadIdx.x);
+    } while (rank_barrier != flag);
+  }
+
+  // Make sure we can move on...
+  __syncthreads();
+  // The source pointers. Distributed round-robin for the different warps.
+  const at::BFloat16* src_d[kWorldSize];
+#pragma unroll kWorldSize
+  for (int ii = 0; ii < kWorldSize; ++ii) {
+    int src_rank = (rank + ii) % kWorldSize;
+    src_d[ii] = inputs[src_rank];
+  }
+
+  // Each block accumulates the values from the different GPUs on the same
+  // node.
+  for (size_t i = blockDim.x * blockIdx.x * 8 + threadIdx.x * 8; i < N;
+       i += blockDim.x * gridDim.x * 8) {
+    // Sum the values from the different ranks.
+    bf16x8 sums;
+    if constexpr (has_acc) {
+      *reinterpret_cast<uint4*>(&sums) =
+          *reinterpret_cast<const uint4*>(&acc[i]);
+    } else {
+      *reinterpret_cast<uint4*>(&sums) = uint4{0};
+    }
+
+    // Pipelining read val from other ranks and accumulation
+    bf16x8 vals[2];
+    // Prologue: read data from current rank
+    *reinterpret_cast<uint4*>(&vals[0]) =
+        reinterpret_cast<const uint4*>(&src_d[rank][i])[0];
+
+#pragma unroll kWorldSize - 1
+    for (int ii = 0; ii < kWorldSize - 1; ++ii) {
+      // Kick-off read data from next rank
+      *reinterpret_cast<uint4*>(&vals[(ii + 1) & 1]) =
+          reinterpret_cast<const uint4*>(
+              &src_d[(ii + rank + 1) % kWorldSize][i])[0];
+      // Do accumulation for current rank
+      sums = add_bf16x8(sums, vals[ii & 1]);
+    }
+    // Epilogue: accumulation for last rank
+    sums = add_bf16x8(sums, vals[(kWorldSize - 1) & 1]);
+
+    // Store to the destination buffer.
+    *reinterpret_cast<uint4*>(&output[i]) =
+        *reinterpret_cast<const uint4*>(&sums);
+  }
+
+  // barrier to sync with all other ranks on the same blockIdx
+  // this is needed to ensure this-rank won't override its inputs buffer
+  // (as we always do memcpy from srcbuff to inputs buffer first)
+  // while other ranks are still reading them.
+  __syncthreads();
+
+  if (threadIdx.x < kWorldSize) {
+    // notify all other blocks this blockIdx is ready
+    const auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+
+    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
+
+    int32_t rank_barrier = 0;
+
+    // busy-wait until all ranks are ready
+    do {
+      ld_flag_acquire(
+          rank_barrier, barriers[rank] + flag_block_offset + threadIdx.x);
+    } while (rank_barrier != flag);
   }
 }
 
@@ -319,32 +447,6 @@ at::Tensor car_tensor() {
       at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA));
 }
 
-static DEVICE_INLINE void st_flag_release(int32_t& flag, int32_t* flag_addr) {
-#if defined(USE_ROCM)
-  __atomic_store_n(flag_addr, flag, __ATOMIC_RELEASE);
-#elif __CUDA_ARCH__ >= 700
-  asm volatile(
-      "st.global.release.sys.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
-#else
-  __threadfence_system();
-  asm volatile("st.global.volatile.b32 [%1], %0;" ::"r"(flag), "l"(flag_addr));
-#endif
-}
-
-static DEVICE_INLINE void ld_flag_acquire(int32_t& flag, int32_t* flag_addr) {
-#if defined(USE_ROCM)
-  flag = __atomic_load_n(flag_addr, __ATOMIC_ACQUIRE);
-#elif __CUDA_ARCH__ >= 700
-  asm volatile("ld.global.acquire.sys.b32 %0, [%1];"
-               : "=r"(flag)
-               : "l"(flag_addr));
-#else
-  asm volatile("ld.global.volatile.b32 %0, [%1];"
-               : "=r"(flag)
-               : "l"(flag_addr));
-#endif
-}
-
 template <int32_t kWorldSize, bool split_last_dim>
 #if defined(USE_ROCM)
 __launch_bounds__(512) __global__ void reduce_scatter(
@@ -437,7 +539,7 @@ __launch_bounds__(1024) __global__ void reduce_scatter(
   // barriers among the blocks with the same idx (release-acuqire semantics)
   if (threadIdx.x < kWorldSize) {
     // The all blocks notifies the other ranks.
-    int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
     st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
 
     // Busy-wait until all ranks are ready.
@@ -472,25 +574,17 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   int32_t N_start = N_per_rank * rank;
 
   // Synchronize the ranks.
-  volatile int32_t* barrier_d = barriers[rank];
   if (threadIdx.x < kWorldSize) {
     // The 1st block notifies the other ranks.
     if (blockIdx.x == 0) {
-#if defined(USE_ROCM)
-      __atomic_store_n(barriers[threadIdx.x] + rank, flag, __ATOMIC_RELEASE);
-#else
-      barriers[threadIdx.x][rank] = flag;
-#endif
+      st_flag_release(flag, barriers[threadIdx.x] + rank);
     }
 
     // Busy-wait until all ranks are ready.
-#if defined(USE_ROCM)
-    while (__atomic_load_n(barrier_d + threadIdx.x, __ATOMIC_ACQUIRE) != flag) {
-    }
-#else
-    while (barrier_d[threadIdx.x] != flag) {
-    }
-#endif
+    int32_t rank_flag = 0;
+    do {
+      ld_flag_acquire(rank_flag, barriers[rank] + threadIdx.x);
+    } while (rank_flag != flag);
   }
 
   __syncthreads();
@@ -510,7 +604,7 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
     bf16x8 vals[kWorldSize];
 #pragma unroll kWorldSize
     for (int ii = 0; ii < kWorldSize; ++ii) {
-      *reinterpret_cast<uint4*>(&vals[ii]) =
+      *reinterpret_cast<uint4*>(&vals[(ii + kWorldSize - rank) % kWorldSize]) =
           reinterpret_cast<const uint4*>(&src_d[ii][i + N_start])[0];
     }
 
@@ -538,7 +632,126 @@ __launch_bounds__(1024) __global__ void two_shot_all_reduce(
   // barriers among the blocks with the same idx (release-acuqire semantics)
   if (threadIdx.x < kWorldSize) {
     // The all blocks notifies the other ranks.
-    int32_t flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
+    st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
+
+    // Busy-wait until all ranks are ready.
+    int32_t rank_barrier = 0;
+    int32_t* peer_barrier_d = barriers[rank] + flag_block_offset + threadIdx.x;
+    do {
+      ld_flag_acquire(rank_barrier, peer_barrier_d);
+    } while (rank_barrier != flag);
+  }
+
+  __syncthreads();
+
+  // Gather all needed elts from other intra-node ranks
+  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+       i += gridDim.x * blockDim.x * 8) {
+    uint4 temp[kWorldSize];
+#pragma unroll kWorldSize
+    for (int ii = 0; ii < kWorldSize; ++ii) {
+      int d_rank = (rank + ii) % kWorldSize;
+      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      temp[ii] = reinterpret_cast<const uint4*>(&src_d[ii][i_r])[0];
+    }
+
+#pragma unroll kWorldSize
+    for (int ii = 0; ii < kWorldSize; ++ii) {
+      int d_rank = (rank + ii) % kWorldSize;
+      int i_r = N_start + i + (d_rank - rank) * N_per_rank;
+      *reinterpret_cast<uint4*>(&output[i_r]) = temp[ii];
+    }
+  }
+}
+
+template <int32_t kWorldSize, bool has_acc>
+#if defined(USE_ROCM)
+__launch_bounds__(512) __global__ void two_shot_all_reduce_pipelined(
+#else
+__launch_bounds__(1024) __global__ void two_shot_all_reduce_pipelined(
+#endif
+    int32_t rank,
+    int32_t world_size,
+    int32_t flag,
+    std::array<int32_t*, 8> barriers,
+    std::array<at::BFloat16*, 8> inputs,
+#if defined(USE_ROCM)
+    at::BFloat16* __restrict__ acc,
+    at::BFloat16* __restrict__ output,
+#else
+    at::BFloat16* acc,
+    at::BFloat16* output,
+#endif
+    int32_t N) {
+  int32_t N_per_rank = N / kWorldSize;
+  int32_t N_start = N_per_rank * rank;
+
+  // Synchronize the ranks.
+  if (threadIdx.x < kWorldSize) {
+    // The 1st block notifies the other ranks.
+    if (blockIdx.x == 0) {
+      st_flag_release(flag, barriers[threadIdx.x] + rank);
+    }
+
+    // Busy-wait until all ranks are ready.
+    int32_t rank_flag = 0;
+    do {
+      ld_flag_acquire(rank_flag, barriers[rank] + threadIdx.x);
+    } while (rank_flag != flag);
+  }
+
+  __syncthreads();
+
+  at::BFloat16* src_d[kWorldSize];
+
+#pragma unroll kWorldSize
+  for (int ii = 0; ii < kWorldSize; ++ii) {
+    int d_rank = (rank + ii) % kWorldSize;
+    src_d[ii] = inputs[d_rank];
+  }
+
+  // Each block accumulates the values from the different GPUs on the same
+  // node.
+  for (size_t i = threadIdx.x * 8 + blockIdx.x * blockDim.x * 8; i < N_per_rank;
+       i += gridDim.x * blockDim.x * 8) {
+    bf16x8 sums;
+
+    if constexpr (has_acc) {
+      *reinterpret_cast<uint4*>(&sums) =
+          *reinterpret_cast<const uint4*>(&acc[i + N_start]);
+    } else {
+      *reinterpret_cast<uint4*>(&sums) = uint4{0};
+    }
+
+    // Pipelining read val from other ranks and accumulation
+    bf16x8 vals[2];
+    // Prologue: read data from current rank
+    *reinterpret_cast<uint4*>(&vals[0]) =
+        reinterpret_cast<const uint4*>(&src_d[rank][i + N_start])[0];
+#pragma unroll kWorldSize - 1
+    for (int ii = 0; ii < kWorldSize - 1; ++ii) {
+      // Kick-off read data from next rank
+      *reinterpret_cast<uint4*>(&vals[(ii + 1) & 1]) =
+          reinterpret_cast<const uint4*>(
+              &src_d[(ii + rank + 1) % kWorldSize][i + N_start])[0];
+      // Do accumulation for current rank
+      sums = add_bf16x8(sums, vals[ii & 1]);
+    }
+    // Epilogue: accumulation for last rank
+    sums = add_bf16x8(sums, vals[(kWorldSize - 1) & 1]);
+
+    // Store to the local buffer.
+    *reinterpret_cast<uint4*>(&src_d[0][i + N_start]) =
+        *reinterpret_cast<const uint4*>(&sums);
+  }
+
+  __syncthreads();
+
+  // barriers among the blocks with the same idx (release-acuqire semantics)
+  if (threadIdx.x < kWorldSize) {
+    // The all blocks notifies the other ranks.
+    auto flag_block_offset = kWorldSize + blockIdx.x * kWorldSize;
     st_flag_release(flag, barriers[threadIdx.x] + flag_block_offset + rank);
 
     // Busy-wait until all ranks are ready.
@@ -575,8 +788,9 @@ void one_shot_car_allreduce(
     at::Tensor y_allreduce,
     at::Tensor y,
     std::optional<at::Tensor> z,
-    int64_t comm_idx) { // match the API with nccl_allreduce in
-                        // https://fburl.com/code/v538vig9
+    int64_t comm_idx,
+    bool enable_pipelining) { // match the API with nccl_allreduce in
+                              // https://fburl.com/code/v538vig9
   c10::cuda::CUDAGuard gg(y_allreduce.device());
   TORCH_CHECK(y_allreduce.is_contiguous());
   TORCH_CHECK(y.is_contiguous());
@@ -631,10 +845,10 @@ void one_shot_car_allreduce(
     threads.x = threads_per_block;
   }
 
-#define X(kWorldSize)                                                 \
+#define X(kWorldSize, KERNEL_NAME)                                    \
   if (state->world_size_ == kWorldSize) {                             \
     if (z) {                                                          \
-      one_shot_all_reduce<kWorldSize, true>                           \
+      KERNEL_NAME<kWorldSize, true>                                   \
           <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                           \
               state->world_size_,                                     \
@@ -648,7 +862,7 @@ void one_shot_car_allreduce(
       C10_CUDA_KERNEL_LAUNCH_CHECK();                                 \
       return;                                                         \
     } else {                                                          \
-      one_shot_all_reduce<kWorldSize, false>                          \
+      KERNEL_NAME<kWorldSize, false>                                  \
           <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                           \
               state->world_size_,                                     \
@@ -663,15 +877,22 @@ void one_shot_car_allreduce(
       return;                                                         \
     }                                                                 \
   }
-
   TORCH_CHECK(
       state->world_size_ == 2 || state->world_size_ == 4 ||
       state->world_size_ == 8);
-  X(2);
-  X(4);
-  X(8);
+
+  if (enable_pipelining) {
+    X(2, one_shot_all_reduce_pipelined);
+    X(4, one_shot_all_reduce_pipelined);
+    X(8, one_shot_all_reduce_pipelined);
+  } else {
+    X(2, one_shot_all_reduce);
+    X(4, one_shot_all_reduce);
+    X(8, one_shot_all_reduce);
+  }
 
 #undef X
+
   return;
 } // namespace fbgemm_gpu
 
@@ -679,8 +900,9 @@ void two_shot_car_allreduce(
     at::Tensor y_allreduce,
     at::Tensor y,
     std::optional<at::Tensor> z,
-    int64_t comm_idx) { // match the API with nccl_allreduce in
-                        // https://fburl.com/code/v538vig9
+    int64_t comm_idx,
+    bool enable_pipelining) { // match the API with nccl_allreduce in
+                              // https://fburl.com/code/v538vig9
   c10::cuda::CUDAGuard gg(y_allreduce.device());
   TORCH_CHECK(y_allreduce.is_contiguous());
   TORCH_CHECK(y.is_contiguous());
@@ -729,10 +951,10 @@ void two_shot_car_allreduce(
   auto blocks = std::min<int32_t>(
       cuda_calc_block_count(threads_per_rank, kThreadsPerBlock), kMaxBlocks);
 
-#define X(kWorldSize)                                                          \
+#define X(kWorldSize, KERNEL_NAME)                                             \
   if (state->world_size_ == kWorldSize) {                                      \
     if (z) {                                                                   \
-      two_shot_all_reduce<kWorldSize, true>                                    \
+      KERNEL_NAME<kWorldSize, true>                                            \
           <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                                    \
               state->world_size_,                                              \
@@ -745,7 +967,7 @@ void two_shot_car_allreduce(
       C10_CUDA_KERNEL_LAUNCH_CHECK();                                          \
       return;                                                                  \
     } else {                                                                   \
-      two_shot_all_reduce<kWorldSize, false>                                   \
+      KERNEL_NAME<kWorldSize, false>                                           \
           <<<blocks, kThreadsPerBlock, 0, at::cuda::getCurrentCUDAStream()>>>( \
               state->rank_,                                                    \
               state->world_size_,                                              \
@@ -759,13 +981,19 @@ void two_shot_car_allreduce(
       return;                                                                  \
     }                                                                          \
   }
-
   TORCH_CHECK(
       state->world_size_ == 2 || state->world_size_ == 4 ||
       state->world_size_ == 8);
-  X(2);
-  X(4);
-  X(8);
+
+  if (enable_pipelining) {
+    X(2, two_shot_all_reduce_pipelined);
+    X(4, two_shot_all_reduce_pipelined);
+    X(8, two_shot_all_reduce_pipelined);
+  } else {
+    X(2, two_shot_all_reduce);
+    X(4, two_shot_all_reduce);
+    X(8, two_shot_all_reduce);
+  }
 
 #undef X
   return;

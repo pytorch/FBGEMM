@@ -103,8 +103,8 @@ torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_cpu")
 @torch.jit.ignore
 {%- endif %}
 def invoke(
-    common_args: CommonArgsPT2,
-    optimizer_args: OptimizerArgsPT2,
+    common_args: CommonArgs,
+    optimizer_args: OptimizerArgs,
     {%- if "momentum1" in args_pt2.unified_pt2.split_unpacked_arg_names %}
     momentum1: Momentum,
     {%- endif %}
@@ -203,7 +203,13 @@ def invoke(
         "use_uniq_cache_locations_bwd": common_args.use_uniq_cache_locations_bwd,
         "use_homogeneous_placements": common_args.use_homogeneous_placements,
         "apply_global_weight_decay": apply_global_weight_decay,
+        {%- if not ssd %}
         "mixed_D": mixed_D
+        {%- else %}
+        "mixed_D": mixed_D,
+        # TODO: Update this when frontend is ready to land
+        "enable_optimizer_offloading": False
+        {%- endif %}
     }
     dict_optim_int: Dict[str, int] = {}
     dict_optim_float: Dict[str, float] = {}
@@ -215,6 +221,7 @@ def invoke(
     {%- else %}
     dict_aux_tensor["prev_iter_dev"] = prev_iter.dev
     {%- endif %}
+    
 
     # optimizer_args
     {%- if optimizer == "none" %}
@@ -297,20 +304,21 @@ def invoke(
     {{ pack_tensors("row_counter") }}
     {%- endif %}
     {%- if "row_counter" in args_pt2.unified_pt2.split_saved_tensorlist_optional %}
-    if not optimizer_args.use_rowwise_bias_correction or row_counter is None:
+    
+    if optimizer_args.use_rowwise_bias_correction and row_counter is not None:
+        row_counter_host = None # not supported on CPU
+        row_counter_dev = row_counter.dev
+        row_counter_uvm = row_counter.uvm
+        row_counter_offsets = row_counter.offsets
+        row_counter_placements = row_counter.placements   
+    elif optimizer_args.use_rowwise_bias_correction:
+        assert False, "`use_rowwise_bias_correction` is set, `row_counter` cannot be None"
+    else:
         row_counter_host = None
         row_counter_dev = None
         row_counter_uvm = None
         row_counter_offsets = None
-        row_counter_placements = None
-    elif optimizer_args.use_rowwise_bias_correction and row_counter is None:
-        assert False, "use_rowwise_bias_correction is set but row_counter cannot be None"
-    else:
-        row_counter_host = None
-        row_counter_dev = row_counter.dev
-        row_counter_uvm = row_counter.uvm
-        row_counter_offsets = row_counter.offsets
-        row_counter_placements = row_counter.placements    
+        row_counter_placements = None  
     {%- endif %}
 
     {{ pack_to_list("aux_tensor") }}
@@ -388,7 +396,7 @@ def invoke(
         # aux_bool
         aux_bool=aux_bool,
         {%- if "learning_rate_tensor" in args_pt2.unified_pt2.split_unpacked_arg_names %}
-        learning_rate_tensor=optimizer_args.learning_rate_tensor,
+        learning_rate_tensor=common_args.learning_rate_tensor,
         {%- endif %}
 
         # momentum1
