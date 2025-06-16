@@ -9,9 +9,14 @@
 #include <optional>
 
 #include <ATen/ATen.h>
+#include <ATen/Dispatch.h>
 #include <c10/cuda/CUDAStream.h>
 #include <cuda_bf16.h>
 #include <torch/torch.h>
+
+#define DISPATCH_CASE_FLOATING_TYPES(...)              \
+  AT_DISPATCH_CASE(at::ScalarType::Float, __VA_ARGS__) \
+  AT_DISPATCH_CASE(at::ScalarType::BFloat16, __VA_ARGS__)
 
 namespace fbgemm_gpu {
 
@@ -287,113 +292,132 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> index_shuffling_torch(
     const std::optional<int64_t>& expert_index_start,
     const std::optional<int64_t>& expert_index_end,
     const std::optional<at::Tensor>& valid_token_count) {
-  TORCH_CHECK(routing_scores.dtype() == torch::kBFloat16);
-  using DataType = __nv_bfloat16;
+  TORCH_CHECK(
+      routing_scores.dtype() == torch::kBFloat16 ||
+          routing_scores.dtype() == torch::kFloat,
+      "routing_scores must be either BFloat16 or Float");
+
   using IndexType = int32_t;
 
-  TORCH_CHECK(routing_scores.dim() == 2);
-  const int num_tokens = routing_scores.size(0);
-  const int num_experts = routing_scores.size(1);
-  TORCH_CHECK(num_experts == 16 || num_experts == 128);
+  // Declare tensors outside the dispatch to ensure they're accessible for the
+  // return statement
+  at::Tensor token_count_per_expert;
+  at::Tensor shuffled_expert_indices;
+  at::Tensor shuffled_token_indices;
 
-  auto allocate_index_tensor = [&](int size) {
-    return at::empty(
-        {size},
-        at::TensorOptions().dtype(at::kInt).device(routing_scores.device()));
-  };
-  at::Tensor token_count_per_expert = allocate_index_tensor(num_experts + 2);
-  at::Tensor shuffled_expert_indices = allocate_index_tensor(num_tokens);
-  at::Tensor shuffled_token_indices = allocate_index_tensor(num_tokens);
-  at::Tensor buffered_expert_indices = allocate_index_tensor(num_tokens);
-  at::Tensor buffered_token_indices = allocate_index_tensor(num_tokens);
+  AT_DISPATCH_SWITCH(
+      routing_scores.scalar_type(),
+      "index_shuffling_params",
+      DISPATCH_CASE_FLOATING_TYPES([&] {
+        using DataType = scalar_t;
 
-#ifdef USE_ROCM
-  // TODO(shikaili): hipMetsetAsync is more expensive than ATen set zero.
-  token_count_per_expert.zero_();
-#else
-  cudaMemsetAsync(
-      token_count_per_expert.data_ptr(),
-      0,
-      token_count_per_expert.numel() *
-          token_count_per_expert.dtype().itemsize(),
-      at::cuda::getCurrentCUDAStream());
-#endif
+        TORCH_CHECK(routing_scores.dim() == 2);
+        const int num_tokens = routing_scores.size(0);
+        const int num_experts = routing_scores.size(1);
+        TORCH_CHECK(num_experts == 16 || num_experts == 128);
 
-  // Avoid expensive `cudaGetDeviceProperties` call.
-  static int num_sms = -1;
-  if (num_sms < 0) {
-    cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp, 0);
-    num_sms = deviceProp.multiProcessorCount;
-  }
+        auto allocate_index_tensor = [&](int size) {
+          return at::empty(
+              {size},
+              at::TensorOptions().dtype(at::kInt).device(
+                  routing_scores.device()));
+        };
+        token_count_per_expert = allocate_index_tensor(num_experts + 2);
+        shuffled_expert_indices = allocate_index_tensor(num_tokens);
+        shuffled_token_indices = allocate_index_tensor(num_tokens);
+        at::Tensor buffered_expert_indices = allocate_index_tensor(num_tokens);
+        at::Tensor buffered_token_indices = allocate_index_tensor(num_tokens);
 
 #ifdef USE_ROCM
-  constexpr int kNumTokensPerTile = 32;
+        // TODO(shikaili): hipMetsetAsync is more expensive than ATen set zero.
+        token_count_per_expert.zero_();
 #else
-  constexpr int kNumTokensPerTile = 16;
+        cudaMemsetAsync(
+            token_count_per_expert.data_ptr(),
+            0,
+            token_count_per_expert.numel() *
+                token_count_per_expert.dtype().itemsize(),
+            at::cuda::getCurrentCUDAStream());
 #endif
 
-  void* kernel;
-  int smem_size;
+        // Avoid expensive `cudaGetDeviceProperties` call.
+        static int num_sms = -1;
+        if (num_sms < 0) {
+          cudaDeviceProp deviceProp;
+          cudaGetDeviceProperties(&deviceProp, 0);
+          num_sms = deviceProp.multiProcessorCount;
+        }
+
+#ifdef USE_ROCM
+        constexpr int kNumTokensPerTile = 32;
+#else
+        constexpr int kNumTokensPerTile = 16;
+#endif
+
+        void* kernel;
+        int smem_size;
 
 #define DISPATCH(E, B)                                               \
   kernel = (void*)index_shuffling_kernel<DataType, IndexType, E, B>; \
   smem_size = sizeof(SharedStorage<DataType, IndexType, E, B>);
 
-  if (num_experts == 16) {
-    DISPATCH(16, kNumTokensPerTile);
-  } else {
-    TORCH_CHECK(num_experts == 128);
-    DISPATCH(128, kNumTokensPerTile);
-  }
+        if (num_experts == 16) {
+          DISPATCH(16, kNumTokensPerTile);
+        } else {
+          TORCH_CHECK(num_experts == 128);
+          DISPATCH(128, kNumTokensPerTile);
+        }
 
-  const int num_tiles = ceil_of_ratio(num_tokens, kNumTokensPerTile);
-  const int num_ctas = std::min(num_tiles, num_sms);
-  const int num_tiles_per_cta =
-      ceil_of_ratio(ceil_of_ratio(num_tokens, num_ctas), kNumTokensPerTile);
-  const int num_tokens_per_cta = num_tiles_per_cta * kNumTokensPerTile;
+        const int num_tiles = ceil_of_ratio(num_tokens, kNumTokensPerTile);
+        const int num_ctas = std::min(num_tiles, num_sms);
+        const int num_tiles_per_cta = ceil_of_ratio(
+            ceil_of_ratio(num_tokens, num_ctas), kNumTokensPerTile);
+        const int num_tokens_per_cta = num_tiles_per_cta * kNumTokensPerTile;
 
-  Params<DataType, IndexType> params = {
-      // Inputs
-      .routing_scores = reinterpret_cast<DataType*>(routing_scores.data_ptr()),
-      .stride_t = static_cast<int>(routing_scores.stride(0)),
-      .stride_e = static_cast<int>(routing_scores.stride(1)),
-      .expert_index_start =
-          expert_index_start.has_value() ? int(*expert_index_start) : 0,
-      .expert_index_end =
-          expert_index_end.has_value() ? int(*expert_index_end) : num_experts,
-      .valid_token_count = reinterpret_cast<IndexType*>(
-          valid_token_count.has_value() ? valid_token_count->data_ptr()
-                                        : nullptr),
-      .num_tokens = num_tokens,
-      .num_tokens_per_cta = num_tokens_per_cta,
-      // Buffer
-      .buffered_expert_indices =
-          reinterpret_cast<IndexType*>(buffered_expert_indices.data_ptr()),
-      .buffered_token_indices =
-          reinterpret_cast<IndexType*>(buffered_token_indices.data_ptr()),
-      // Outputs
-      .token_count_per_expert =
-          reinterpret_cast<IndexType*>(token_count_per_expert.data_ptr()),
-      .shuffled_expert_indices =
-          reinterpret_cast<IndexType*>(shuffled_expert_indices.data_ptr()),
-      .shuffled_token_indices =
-          reinterpret_cast<IndexType*>(shuffled_token_indices.data_ptr())};
+        Params<DataType, IndexType> params = {
+            // Inputs
+            .routing_scores =
+                reinterpret_cast<DataType*>(routing_scores.data_ptr()),
+            .stride_t = static_cast<int>(routing_scores.stride(0)),
+            .stride_e = static_cast<int>(routing_scores.stride(1)),
+            .expert_index_start =
+                expert_index_start.has_value() ? int(*expert_index_start) : 0,
+            .expert_index_end = expert_index_end.has_value()
+                ? int(*expert_index_end)
+                : num_experts,
+            .valid_token_count = reinterpret_cast<IndexType*>(
+                valid_token_count.has_value() ? valid_token_count->data_ptr()
+                                              : nullptr),
+            .num_tokens = num_tokens,
+            .num_tokens_per_cta = num_tokens_per_cta,
+            // Buffer
+            .buffered_expert_indices = reinterpret_cast<IndexType*>(
+                buffered_expert_indices.data_ptr()),
+            .buffered_token_indices =
+                reinterpret_cast<IndexType*>(buffered_token_indices.data_ptr()),
+            // Outputs
+            .token_count_per_expert =
+                reinterpret_cast<IndexType*>(token_count_per_expert.data_ptr()),
+            .shuffled_expert_indices = reinterpret_cast<IndexType*>(
+                shuffled_expert_indices.data_ptr()),
+            .shuffled_token_indices = reinterpret_cast<IndexType*>(
+                shuffled_token_indices.data_ptr())};
 
-  dim3 grids(num_ctas);
-  dim3 blocks(kNumThreads);
-  void* args[] = {(void*)&params};
-  auto stream = at::cuda::getCurrentCUDAStream();
+        dim3 grids(num_ctas);
+        dim3 blocks(kNumThreads);
+        void* args[] = {(void*)&params};
+        auto stream = at::cuda::getCurrentCUDAStream();
 
 #ifdef USE_ROCM
-  // hipLaunchCooperativeKernel seems to cause incorrect memory order across
-  // kernel launches.
-  C10_CUDA_CHECK(
-      hipLaunchKernel((void*)kernel, grids, blocks, args, smem_size, stream));
+        // hipLaunchCooperativeKernel seems to cause incorrect memory order
+        // across kernel launches.
+        C10_CUDA_CHECK(hipLaunchKernel(
+            (void*)kernel, grids, blocks, args, smem_size, stream));
 #else
-  C10_CUDA_CHECK(cudaLaunchCooperativeKernel(
-      (void*)kernel, grids, blocks, args, smem_size, stream));
+        C10_CUDA_CHECK(cudaLaunchCooperativeKernel(
+            (void*)kernel, grids, blocks, args, smem_size, stream));
 #endif
+      }));
 
   return std::make_tuple(
       token_count_per_expert, shuffled_expert_indices, shuffled_token_indices);
