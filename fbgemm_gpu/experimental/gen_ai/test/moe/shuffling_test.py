@@ -59,6 +59,7 @@ class ShufflingTests(unittest.TestCase):
         padded=st.sampled_from([True, False]),
         rowmajor=st.sampled_from([True, False]),
         compiled=st.sampled_from([True, False]),
+        routing_score_dtype=st.sampled_from([torch.float, torch.bfloat16]),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=_MAX_SAMPLES, deadline=None)
     def test_top1_index_shuffling(
@@ -69,7 +70,17 @@ class ShufflingTests(unittest.TestCase):
         padded: bool,
         rowmajor: bool,
         compiled: bool,
+        routing_score_dtype: torch.dtype,
     ) -> None:
+        if (
+            routing_score_dtype == torch.float
+            and num_experts == 128
+            and torch.version.hip
+        ):
+            self.skipTest(
+                f"Skipping test for {routing_score_dtype=}, {num_experts=} due to torch.AcceleratorError: HIP error: out of memory"
+            )
+
         torch.manual_seed(0)
 
         expert_index_start: int = 0
@@ -87,7 +98,10 @@ class ShufflingTests(unittest.TestCase):
             valid_token_counts = torch.tensor([num_tokens], device="cuda")
 
         routing_scores: torch.Tensor = torch.randn(
-            num_total_tokens, num_experts, device="cuda", dtype=torch.bfloat16
+            num_total_tokens,
+            num_experts,
+            device=torch.accelerator.current_accelerator(),
+            dtype=routing_score_dtype,
         ).contiguous()
         if not rowmajor:
             routing_scores = routing_scores.transpose(0, 1).contiguous().transpose(0, 1)
