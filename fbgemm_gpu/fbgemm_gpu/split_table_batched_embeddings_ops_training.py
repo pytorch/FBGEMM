@@ -1947,6 +1947,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             per_sample_weights,
             batch_size_per_feature_per_rank,
             force_cast_input_types=True,
+            prefetch_pipeline=False,
         )
 
         # Print input stats if enable (for debugging purpose only)
@@ -2478,6 +2479,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
             per_sample_weights=None,
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
             force_cast_input_types=False,
+            prefetch_pipeline=self.prefetch_pipeline,
         )
 
         with self._recording_to_timer(
@@ -3543,6 +3545,7 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
         per_sample_weights: Optional[Tensor] = None,
         batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
         force_cast_input_types: bool = True,
+        prefetch_pipeline: bool = False,
     ) -> Tuple[Tensor, Tensor, Optional[Tensor], invokers.lookup_args.VBEMetadata]:
         """
         Prepare TBE inputs as follows:
@@ -3613,9 +3616,17 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 per_sample_weights = per_sample_weights.float()
 
         if self.bounds_check_mode_int != BoundsCheckMode.NONE.value:
+            # Override the bounds check version based on prefetch_pipeline
+            use_bounds_check_v2 = self.bounds_check_version == 2 or prefetch_pipeline
+            bounds_check_version = (
+                2 if use_bounds_check_v2 else self.bounds_check_version
+            )
+
+            vbe = vbe_metadata.B_offsets is not None
+
             # Compute B info and VBE metadata for bounds_check_indices only if
             # VBE and bounds check indices v2 are used
-            if vbe and self.bounds_check_version == 2:
+            if vbe and use_bounds_check_v2:
                 B_offsets = vbe_metadata.B_offsets
                 B_offsets_rank_per_feature = vbe_metadata.B_offsets_rank_per_feature
                 output_offsets_feature_rank = vbe_metadata.output_offsets_feature_rank
@@ -3653,7 +3664,8 @@ class SplitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 b_t_map=b_t_map,
                 info_B_num_bits=self.info_B_num_bits,
                 info_B_mask=self.info_B_mask,
-                bounds_check_version=self.bounds_check_version,
+                bounds_check_version=bounds_check_version,
+                prefetch_pipeline=prefetch_pipeline,
             )
 
         return indices, offsets, per_sample_weights, vbe_metadata
