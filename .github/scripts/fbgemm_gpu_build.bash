@@ -129,7 +129,8 @@ __configure_fbgemm_gpu_build_nvcc () {
 
 __configure_fbgemm_gpu_cuda_home () {
   if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
     # shellcheck disable=SC2155,SC2086
     local conda_prefix=$(conda run ${env_prefix} printenv CONDA_PREFIX)
     local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
