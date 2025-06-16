@@ -19,7 +19,8 @@ __set_cuda_symlinks_envvars () {
   local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
 
   if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
     # CUDA 12.6 installation has a very different package layout than previous
     # CUDA versions - notably, NVTX has been moved elsewhere, which causes
     # PyTorch CMake scripts to complain.
@@ -91,7 +92,8 @@ __set_nvcc_prepend_flags () {
   # unwanted hook
   print_exec ls -la "${conda_prefix}/etc/conda/activate.d"
   if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
     echo "[INSTALL] Removing the -ccbin=CXX hook from NVCC activation scripts ..."
     print_exec sed -i '/-ccbin=/d' "${conda_prefix}/etc/conda/activate.d/*cuda-nvcc_activate.sh"
   fi
@@ -195,7 +197,8 @@ install_cuda () {
   # (except for versions 11.8 and below, which are only available through
   # nvidia/label/cuda-*)
   if  [[ "$cuda_version" =~ ^12.6.*$ ]] ||
-      [[ "$cuda_version" =~ ^12.8.*$ ]]; then
+      [[ "$cuda_version" =~ ^12.8.*$ ]] ||
+      [[ "$cuda_version" =~ ^12.9.*$ ]]; then
     # shellcheck disable=SC2086
     (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
       cuda=${cuda_version}) || return 1

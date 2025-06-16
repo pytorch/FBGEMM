@@ -100,8 +100,8 @@ distribution and CUDA version.
 
 .. code:: sh
 
-  # Run for Ubuntu 22.04, CUDA 11.8
-  docker run -it --entrypoint "/bin/bash" nvidia/cuda:11.8.0-devel-ubuntu22.04
+  # Run for Ubuntu 22.04, CUDA 12.6
+  docker run -it --entrypoint "/bin/bash" nvidia/cuda:12.6.0-devel-ubuntu22.04
 
 From here, the rest of the build environment may be constructed through Conda,
 as it is still the recommended mechanism for creating an isolated and

@@ -53,7 +53,7 @@ jobs:
           { arch: x86, instance: "linux.24xlarge" },
         ]
         python-version: [ "3.13" ]
-        cuda-version: [ "12.8.0" ]
+        cuda-version: [ "12.8.1" ]
         compiler: [ "gcc" ]
 
     steps:
@@ -136,7 +136,7 @@ jobs:
           # { arch: x86, instance: "linux.gcp.a100" },
         ]
         python-version: [ "3.13" ]
-        cuda-version: [ "12.8.0" ]
+        cuda-version: [ "12.8.1" ]
         compiler: [ "gcc" ]
     needs: build_artifact
 

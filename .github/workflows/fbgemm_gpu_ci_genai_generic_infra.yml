@@ -60,7 +60,7 @@ jobs:
           { arch: x86, instance: "32-core-ubuntu" },
         ]
         python-version: [ "3.13" ]
-        cuda-version: [ "12.8.0" ]
+        cuda-version: [ "12.9.1" ]
         compiler: [ "gcc" ]
 
     steps:
@@ -147,7 +147,7 @@ jobs:
           { arch: x86, instance: "ubuntu-latest" },
         ]
         python-version: [ "3.13" ]
-        cuda-version: [ "12.8.0" ]
+        cuda-version: [ "12.9.1" ]
         compiler: [ "gcc" ]
     needs: build_artifact
 
