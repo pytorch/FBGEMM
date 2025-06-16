@@ -239,8 +239,7 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu
     }
 {% else %}
 {#-/* PT2 wrapper function for backward CPU */#}
-{%- if not nobag %}
-Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
+Tensor split_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_pt2_cpu_wrapper(
     const Tensor& grad_output,
     const Tensor& host_weights,
     const Tensor& /*dev_weights*/,
@@ -248,15 +247,21 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
     const Tensor& /*lxu_cache_weights*/,
     const Tensor& weights_placements,
     const Tensor& weights_offsets,
+    {%- if nobag %}
+    const c10::SymInt D,
+    {%- else %}
     const Tensor& D_offsets,
     const c10::SymInt max_D,
     const bool mixed_D,
+    {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
     const Tensor& offsets,
+    {%- if not nobag %}
     const int64_t pooling_mode,
     const Tensor& indice_weights,
+    {%- endif %}
     const Tensor& /*lxu_cache_locations*/,
     const int64_t /*BT_block_size*/,
     const int64_t /*max_segment_length_per_warp*/,
@@ -285,8 +290,8 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
         });
         const auto grad_output_ = reshape_vbe_output(grad_output, max_B_int, vbe_B_offsets_rank_per_feature, D_offsets);
         {%- endif %}
-        {%- set backward_op = "split_embedding_backward_codegen_{}_cpu".format(
-                optimizer
+        {%- set backward_op = "split_embedding{}_backward_codegen_{}_cpu".format(
+                ndesc, optimizer
             )
         %}
         static auto op =
@@ -297,14 +302,20 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
                     Tensor, /* host_weights */
                     Tensor, /* weights_placements */
                     Tensor, /* weights_offsets */
+                    {%- if nobag %}
+                    int64_t, /* D */
+                    {%- else %}
                     Tensor, /* D_offsets */
                     int64_t, /* max_D */
+                    {%- endif %}
                     Tensor, /* hash_size_cumsum */
                     int64_t, /* total_hash_size_bits */
                     Tensor, /* indices */
                     Tensor, /* offsets */
+                    {%- if not nobag %}
                     int64_t, /* pooling_mode */
                     Tensor, /* indices_weights */
+                    {%- endif %}
                     bool, /* stochastic_rounding */
                     {%- for arg_type in args.split_function_args %}
                     {{ arg_type.split(' ')[0]}}{%- if not loop.last %}{{ "," }}{%- endif %}
@@ -319,14 +330,20 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
             host_weights,
             weights_placements,
             weights_offsets,
+            {%- if nobag %}
+            D.guard_int(__FILE__, __LINE__),
+            {%- else %}
             D_offsets,
             max_D.guard_int(__FILE__, __LINE__),
+            {%- endif %}
             hash_size_cumsum,
             total_hash_size_bits,
             indices,
             {{ "offsets_" if vbe else "offsets" }},
+            {%- if not nobag %}
             pooling_mode,
             indice_weights,
+            {%- endif %}
             stochastic_rounding,
             {{ args.split_function_arg_names | join(", ") }}
             {%- if not nobag %}
@@ -335,7 +352,6 @@ Tensor split_embedding_backward_codegen_{{ optimizer }}_{{ wdesc }}{{ vdesc }}_p
             );
         return Tensor();
     }
-{% endif %} {#-/*if not nobag*/#}
 {% endif %}
 {%- endfor %} {#-/*for nobag*/#}
 {%- endfor %} {#-/*for weighted*/#}
@@ -403,11 +419,11 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     DISPATCH_TO_CPU("{{ embedding_codegen_forward_op }}_wrapper", {{ embedding_codegen_forward_op }}_cpu_wrapper);
 
     {%- else %} {#-/* backward */#}
-    {%- if not nobag %}
-    {%- set embedding_codegen_backward_op = "split_embedding_backward_codegen_{}_{}{}_pt2".format(
-        optimizer, wdesc, vdesc
+    {%- set embedding_codegen_backward_op = "split_embedding{}_backward_codegen_{}_{}{}_pt2".format(
+        ndesc, optimizer, wdesc, vdesc
         )
     %}
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_backward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
         "    Tensor{{ schema_annotation['weights_host'] }} host_weights, "
@@ -453,8 +469,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    , int output_dtype=0 "
         {%- endif %}
         ") -> Tensor");
+    }
     DISPATCH_TO_CPU("{{ embedding_codegen_backward_op }}_wrapper", {{ embedding_codegen_backward_op }}_cpu_wrapper);
-    {%- endif %} {#-/*if not nobag*/#}
     {%- endif %} {#-/*if is_forward*/#}
     {%- endfor %} {#-/*for nobag*/#}
     {%- endfor %} {#-/*for weighted*/#}

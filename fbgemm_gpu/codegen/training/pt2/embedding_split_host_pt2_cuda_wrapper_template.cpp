@@ -513,7 +513,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       )
     %}
     {%- if ssd or is_gwd or nobag %}
-    /* Register scehema for wrappers with GPU-only support */
+    /* Register scehema for wrappers with GPU-only support */    
     if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_forward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
         "    Tensor host_weights, "
@@ -584,6 +584,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     %}
     {%- if ssd or is_gwd or nobag or not has_cpu_support %}
     /* Register scehema for wrappers with GPU-only support */
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_backward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
         "    Tensor{{ schema_annotation['weights_host'] }} host_weights, "
@@ -645,6 +646,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    , int output_dtype=0 "
         {%- endif %}
         ") -> Tensor");
+    }
     {%- endif %}
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_backward_op }}_wrapper",
