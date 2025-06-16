@@ -22,10 +22,6 @@ import hypothesis.strategies as st
 import numpy as np
 import torch
 
-from aiplatform.modelstore.checkpointing.utils.kv_tensor_metadata import (
-    generate_kvtensor_metadata,
-)
-
 from fbgemm_gpu.split_embedding_configs import SparseType
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.ssd.common import pad4
@@ -34,7 +30,13 @@ from fbgemm_gpu.tbe.utils import round_up
 from hypothesis import given, settings, Verbosity
 
 from .. import common  # noqa E402
-from ..common import gpu_unavailable, running_in_oss
+from ..common import gpu_unavailable, open_source, running_in_oss
+
+if not open_source:
+    from aiplatform.modelstore.checkpointing.utils.kv_tensor_metadata import (
+        generate_kvtensor_metadata,
+    )
+
 
 MAX_EXAMPLES = 100
 WORLD_SIZE = 4
