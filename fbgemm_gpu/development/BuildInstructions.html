@@ -534,8 +534,8 @@ to be present for builds, since they are only used at runtime.</p>
 <p>For setups through Docker, simply pull the pre-installed <a class="reference external" href="https://hub.docker.com/r/nvidia/cuda">Docker image
 for CUDA</a> for the desired Linux
 distribution and CUDA version.</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run for Ubuntu 22.04, CUDA 11.8</span>
-docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--entrypoint<span class="w"> </span><span class="s2">&quot;/bin/bash&quot;</span><span class="w"> </span>nvidia/cuda:11.8.0-devel-ubuntu22.04
+<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># Run for Ubuntu 22.04, CUDA 12.6</span>
+docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span>--entrypoint<span class="w"> </span><span class="s2">&quot;/bin/bash&quot;</span><span class="w"> </span>nvidia/cuda:12.6.0-devel-ubuntu22.04
 </pre></div>
 </div>
 <p>From here, the rest of the build environment may be constructed through Conda,
