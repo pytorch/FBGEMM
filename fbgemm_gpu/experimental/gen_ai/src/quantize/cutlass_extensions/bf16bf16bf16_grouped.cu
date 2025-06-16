@@ -28,91 +28,150 @@ TuningCache& getTuningCache() {
 
 template <typename InputType>
 Kernel_bf16bf16bf16_grouped<InputType>
-get_kernel_via_heuristic(int G, int total_M, int N, int K) {
+get_kernel_via_heuristic(int arch, int G, int total_M, int N, int K) {
   // Use heuristics to pick best kernel implementation.
-
-  // Llama4 128E
-  if (G == 128) {
-    if (N == 5120 && K == 1024) {
-      if (total_M <= 128) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
-      } else if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
-      } else if (total_M <= 2048) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
-      } else if (total_M <= 4096) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
-      } else if (total_M <= 8192) {
-        return bf16bf16bf16_grouped_128_64_128_1_1_1_f;
-      } else if (total_M <= 16384) {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_t;
-      } else {
-        return bf16bf16bf16_grouped_128_256_128_2_1_1_f;
-      }
-    }
-
-    if (N == 2048 && K == 5120) {
-      if (total_M <= 2048) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
-      } else {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_t;
-      }
-    }
-  }
-
-  // Llama4 64E
-  if (G == 16) {
-    if (N == 5120 && K == 1024) {
-      if (total_M <= 32) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
-      } else if (total_M <= 64) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
-      } else if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
+  if (arch == 10) {
+    // Llama4 shapes
+    if ((N == 5120 && K == 1024) || (N == 2048 && K == 5120)) {
+      if (total_M <= 256) {
+        return bf16bf16bf16_grouped_256_32_128_2_1_1_10_f;
       } else if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
+        return bf16bf16bf16_grouped_256_64_128_2_1_1_10_f;
       } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_64_128_2_1_1_f;
+        return bf16bf16bf16_grouped_256_128_128_2_1_1_10_f;
       } else {
-        return bf16bf16bf16_grouped_128_256_128_2_1_1_f;
+        return bf16bf16bf16_grouped_256_256_128_2_1_1_10_f;
       }
     }
 
-    if (N == 2048 && K == 5120) {
-      if (total_M <= 16) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
-      } else if (total_M <= 64) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
-      } else if (total_M <= 256) {
-        return bf16bf16bf16_grouped_128_16_128_2_1_1_f;
-      } else if (total_M <= 512) {
-        return bf16bf16bf16_grouped_128_32_128_2_1_1_f;
-      } else if (total_M <= 1024) {
-        return bf16bf16bf16_grouped_128_64_128_1_1_1_f;
+    // Fallback to legacy heuristic.
+    if (total_M <= 64 || (total_M <= 256 and N <= 1024)) {
+      if (K <= 4096) {
+        return bf16bf16bf16_grouped_256_32_128_2_1_1_10_f;
       } else {
-        return bf16bf16bf16_grouped_128_128_128_2_1_1_t;
+        return bf16bf16bf16_grouped_128_32_128_2_1_1_10_f;
+      }
+    } else if (total_M <= 512) {
+      if (N <= 1024) {
+        return bf16bf16bf16_grouped_128_64_128_2_1_1_10_f;
+      } else if (N <= 8192) {
+        if (K <= 2048) {
+          return bf16bf16bf16_grouped_256_32_128_2_1_1_10_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_10_f;
+        } else {
+          return bf16bf16bf16_grouped_128_64_128_2_1_1_10_f;
+        }
+      }
+    } else if (total_M <= 1024) {
+      if (N <= 1024) {
+        return bf16bf16bf16_grouped_128_128_128_2_1_1_10_f;
+      } else if (N <= 8192) {
+        if (K <= 2048) {
+          return bf16bf16bf16_grouped_256_64_128_2_1_1_10_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_64_128_2_1_1_10_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_10_f;
+        }
+      }
+    } else if (total_M <= 2048) {
+      if (N <= 1024) {
+        return bf16bf16bf16_grouped_256_256_128_2_1_1_10_f;
+      } else if (N <= 8192) {
+        if (K <= 2048) {
+          return bf16bf16bf16_grouped_256_128_128_2_1_1_10_f;
+        } else if (K <= 4096) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_10_f;
+        }
       }
     }
-  }
-
-  // Fallback to legacy heuristic for now.
-  if (total_M <= 16) {
-    return bf16bf16bf16_grouped_128_16_128_1_1_1_f;
-  } else if (total_M <= 32) {
-    return bf16bf16bf16_grouped_128_32_128_1_1_1_f;
-  } else if (total_M <= 64) {
-    return bf16bf16bf16_grouped_128_64_128_1_1_1_f;
-  } else if (total_M <= 128) {
-    return bf16bf16bf16_grouped_128_128_128_1_1_1_f;
-  } else if (total_M <= 512) {
-    return bf16bf16bf16_grouped_256_128_128_2_1_1_f;
+    return bf16bf16bf16_grouped_256_256_128_2_1_1_10_f;
   } else {
-    return bf16bf16bf16_grouped_128_256_128_2_1_1_f;
+    // Llama4 128E
+    if (G == 128) {
+      if (N == 5120 && K == 1024) {
+        if (total_M <= 128) {
+          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+        } else if (total_M <= 256) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (total_M <= 2048) {
+          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+        } else if (total_M <= 4096) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (total_M <= 8192) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else if (total_M <= 16384) {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        } else {
+          return bf16bf16bf16_grouped_128_256_128_2_1_1_9_f;
+        }
+      }
+
+      if (N == 2048 && K == 5120) {
+        if (total_M <= 2048) {
+          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        }
+      }
+    }
+
+    // Llama4 64E
+    if (G == 16) {
+      if (N == 5120 && K == 1024) {
+        if (total_M <= 32) {
+          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+        } else if (total_M <= 64) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (total_M <= 256) {
+          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+        } else if (total_M <= 512) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (total_M <= 1024) {
+          return bf16bf16bf16_grouped_128_64_128_2_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_256_128_2_1_1_9_f;
+        }
+      }
+
+      if (N == 2048 && K == 5120) {
+        if (total_M <= 16) {
+          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+        } else if (total_M <= 64) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (total_M <= 256) {
+          return bf16bf16bf16_grouped_128_16_128_2_1_1_9_f;
+        } else if (total_M <= 512) {
+          return bf16bf16bf16_grouped_128_32_128_2_1_1_9_f;
+        } else if (total_M <= 1024) {
+          return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+        } else {
+          return bf16bf16bf16_grouped_128_128_128_2_1_1_9_t;
+        }
+      }
+    }
+
+    // Fallback to legacy heuristic for now.
+    if (total_M <= 16) {
+      return bf16bf16bf16_grouped_128_16_128_1_1_1_9_f;
+    } else if (total_M <= 32) {
+      return bf16bf16bf16_grouped_128_32_128_1_1_1_9_f;
+    } else if (total_M <= 64) {
+      return bf16bf16bf16_grouped_128_64_128_1_1_1_9_f;
+    } else if (total_M <= 128) {
+      return bf16bf16bf16_grouped_128_128_128_1_1_1_9_f;
+    } else if (total_M <= 512) {
+      return bf16bf16bf16_grouped_256_128_128_2_1_1_9_f;
+    } else {
+      return bf16bf16bf16_grouped_128_256_128_2_1_1_9_f;
+    }
   }
 }
 
 template <typename InputType>
 Kernel_bf16bf16bf16_grouped<InputType> get_kernel_via_tuning(
+    int arch,
     int G,
     int total_M,
     int N,
@@ -129,7 +188,7 @@ Kernel_bf16bf16bf16_grouped<InputType> get_kernel_via_tuning(
   // Use (total_M, N, K, G) shape as the key.
   const std::string shape_key = std::to_string(total_M) + "_" +
       std::to_string(N) + "_" + std::to_string(K) + "_" + std::to_string(G);
-  const auto& kernels = get_bf16bf16bf16_grouped_kernels<InputType>();
+  const auto& kernels = get_bf16bf16bf16_grouped_kernels<InputType>(arch);
   auto kernel = cache.findBestKernelMaybeAutotune(
       shape_key, kernels, X, W, output, zero_start_index_M, M_sizes);
 
@@ -148,13 +207,30 @@ at::Tensor dispatch_bf16_grouped_kernel(
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt) {
+  static int arch = -1;
+  // Avoid expensive cudaGetDeviceProperties call.
+  if (arch < 0) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    if (prop.major >= 10) {
+      arch = 10;
+      int runtimeVersion;
+      C10_CUDA_CHECK(cudaRuntimeGetVersion(&runtimeVersion));
+      TORCH_CHECK(
+          runtimeVersion >= 12080,
+          "FP8 grouped GEMM on sm100a or above requires cuda >= 12.8");
+    } else {
+      arch = 9;
+    }
+  }
+
   // Select kernel to run via heuristics or tuning.
   auto kernel = [&]() {
     if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
       return get_kernel_via_tuning(
-          G, total_M, N, K, X, W, output, zero_start_index_M, M_sizes);
+          arch, G, total_M, N, K, X, W, output, zero_start_index_M, M_sizes);
     } else {
-      return get_kernel_via_heuristic<InputType>(G, total_M, N, K);
+      return get_kernel_via_heuristic<InputType>(arch, G, total_M, N, K);
     }
   }();
   // Invoke kernel
