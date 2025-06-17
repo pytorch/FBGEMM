@@ -26,6 +26,7 @@
 #include <torch/script.h>
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/utils/torch_library.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -513,6 +514,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
     %}
     {%- if ssd or is_gwd or nobag %}
     /* Register scehema for wrappers with GPU-only support */
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_forward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
         "    Tensor host_weights, "
         "    Tensor dev_weights, "
@@ -567,6 +569,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         , {PT2_COMPLIANT_TAG}
         {%- endif %}
         );
+    }
     {%- endif %}
     DISPATCH_TO_CUDA(
       "{{ embedding_codegen_forward_op }}_wrapper",
