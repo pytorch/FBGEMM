@@ -117,7 +117,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     }
 
     {%- if not ssd %}
-    constexpr auto enable_optimizer_offloading = false;
+    [[maybe_unused]] constexpr auto enable_optimizer_offloading = false;
     {%- endif %}
 
     {{ split_precomputation }}
