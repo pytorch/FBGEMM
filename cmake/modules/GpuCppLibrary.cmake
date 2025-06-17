@@ -308,7 +308,7 @@ function(gpu_cpp_library)
     target_compile_options(${lib_name} PRIVATE
         ${args_CC_FLAGS}
         # Silence compiler warnings (in asmjit)
-        -Wno-deprecated-anon-enum-enum-conversion
+        -Wno-deprecated-enum-enum-conversion
         -Wno-deprecated-declarations)
 
     ############################################################################
