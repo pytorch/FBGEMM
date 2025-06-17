@@ -26,6 +26,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
   int32_t t;
   int32_t B = 0;
   int32_t total_B = offsets.size(0) - 1;
+  int64_t warning_inc = 0; // relaxed atomic add for better performance
 
   if (!vbe && b_t >= total_B) {
     return;
@@ -62,7 +63,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
   } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
     if (indices_start < 0 || indices_start > indices_end ||
         indices_end > num_indices) {
-      if (gpuAtomicIncrement(&warning[0]) == 0) {
+      if (warning_inc == 0) {
         printf(
             "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for "
             "batch: %d, table: %d, indices_start: %lld, indices_end: %lld,"
@@ -75,6 +76,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
             static_cast<int64_t>(indices_end),
             static_cast<int64_t>(num_indices));
       }
+      warning_inc++;
       adjust_offset_kernel(
           indices_start,
           indices_end,
@@ -106,7 +108,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
           idx < num_rows && "Failed idx < num_rows in bounds_check_indices");
     } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
       if (idx < 0 || idx >= num_rows) {
-        if (gpuAtomicIncrement(&warning[0]) == 0) {
+        if (warning_inc == 0) {
           printf(
               "EmbeddingBoundsCheck (VBE %s): (at least one) Out of bounds access for batch: %d, table: %d, bag element: %lld, idx: %lld, num_rows: %lld, indices_start: %lld, indices_end: %lld, T: %d, B: %d, b_t: %d. Setting idx to zero.\n",
               vbe ? "true" : "false",
@@ -122,6 +124,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
               b_t);
         }
         indices[indices_start + i] = 0;
+        warning_inc++;
       }
     } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
       if (idx < 0 || idx >= num_rows) {
@@ -134,7 +137,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     CUDA_KERNEL_ASSERT2(num_indices == offsets[total_B]);
   } else if (bounds_check_mode == BoundsCheckMode::WARNING) {
     if (num_indices != offsets[total_B]) {
-      if (gpuAtomicIncrement(&warning[0]) == 0) {
+      if (warning_inc == 0) {
         printf(
             "EmbeddingBoundsCheck (VBE %s): the last element in offsets is incorrect for "
             "total batch size %s: %d, total table num T: %d, "
@@ -148,6 +151,7 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
             static_cast<int64_t>(num_indices));
       }
       offsets[total_B] = num_indices;
+      warning_inc++;
     }
   } else if (bounds_check_mode == BoundsCheckMode::IGNORE) {
     if (num_indices != offsets[total_B]) {
