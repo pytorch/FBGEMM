@@ -37,7 +37,6 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.grouped_gemm import (
 from fbgemm_gpu.experimental.gen_ai.quantize import (
     ck_preshuffle,
     quantize_int4_preshuffle,
-    scale_nvfp4_quant,
 )
 
 from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm

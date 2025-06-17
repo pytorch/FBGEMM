@@ -500,10 +500,9 @@ test_fbgemm_gpu_setup_and_pip_install () {
 
   if [ "$variant_type" == "cuda" ] || [ "$variant_type" == "genai" ]; then
     local variant_versions=(
-      11.8.0
-      12.4.1
       12.6.3
-      12.8.0
+      12.8.1
+      12.9.1
     )
   elif [ "$variant_type" == "rocm" ]; then
     local variant_versions=(
