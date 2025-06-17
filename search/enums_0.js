@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['featuregatename_0',['FeatureGateName',['../group__fbgemm-gpu-config.html#gad33a2827298233d7e9954d00d0cc4ce7',1,'fbgemm_gpu::config']]]
+  ['datatype_0',['DataType',['../classfbgemm_1_1_embedding_stats_tracker.html#ad8ed01ff3ff33333d8e19db4d2818bb6',1,'fbgemm::EmbeddingStatsTracker']]]
 ];
