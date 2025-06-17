@@ -513,6 +513,9 @@
     <span class="c1"># Enable bounds_check_indices_v2</span>
     <span class="n">BOUNDS_CHECK_INDICES_V2</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
 
+    <span class="c1"># Disable FP8 quantization vectorization</span>
+    <span class="n">DISABLE_FP8_QUANT_VECTORIZATION</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
     <span class="k">def</span><span class="w"> </span><span class="nf">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">FeatureGate</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
 
