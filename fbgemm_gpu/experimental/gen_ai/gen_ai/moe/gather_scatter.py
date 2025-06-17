@@ -362,7 +362,7 @@ _SCATTER_ADD_DENSE_TOKENS_OP_NAME = "fbgemm::scatter_add_dense_tokens"
 
 torch.library.define(
     "fbgemm::scatter_add_dense_tokens",
-    "(Tensor out_tokens, Tensor in_tokens, Tensor token_indices) -> None",
+    "(Tensor out_tokens, Tensor in_tokens, Tensor token_indices, Tensor? valid_token_count=None) -> None",
 )
 
 
