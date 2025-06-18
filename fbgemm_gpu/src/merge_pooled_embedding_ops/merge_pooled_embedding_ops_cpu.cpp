@@ -29,7 +29,7 @@ Tensor merge_pooled_embeddings_cpu(
       n += t.numel();
     }
     Tensor r;
-    if (n == 0) {
+    if (ts.empty()) {
       r = at::empty({n});
     } else {
       r = at::empty({n}, ts[0].options());
