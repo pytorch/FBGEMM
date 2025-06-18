@@ -504,6 +504,7 @@
     <span class="n">generate_vbe_metadata</span><span class="p">,</span>
     <span class="n">is_torchdynamo_compiling</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.tbe.stats</span><span class="w"> </span><span class="kn">import</span> <span class="n">TBEBenchmarkParamsReporter</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">fbgemm_gpu.tbe_input_multiplexer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">TBEInfo</span><span class="p">,</span>
     <span class="n">TBEInputInfo</span><span class="p">,</span>
@@ -1894,6 +1895,11 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats_factory</span><span class="p">()</span>
         <span class="p">)</span>
 
+        <span class="c1"># Get a reporter function pointer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_report_input_params</span><span class="p">:</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__report_input_params_factory</span><span class="p">()</span>
+        <span class="p">)</span>
+
         <span class="k">if</span> <span class="n">optimizer</span> <span class="o">==</span> <span class="n">OptimType</span><span class="o">.</span><span class="n">EXACT_SGD</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_writeback_bwd_prehook</span><span class="p">:</span>
             <span class="c1"># Register writeback hook for Exact_SGD optimizer</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">log</span><span class="p">(</span>
@@ -2405,6 +2411,18 @@
 
         <span class="c1"># Print input stats if enable (for debugging purpose only)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_debug_print_input_stats</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">per_sample_weights</span><span class="p">)</span>
+
+        <span class="c1"># Extract and Write input stats if enable</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_report_input_params</span><span class="p">(</span>
+            <span class="n">feature_rows</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rows_per_table</span><span class="p">,</span>
+            <span class="n">feature_dims</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">feature_dims</span><span class="p">,</span>
+            <span class="n">iteration</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">iter</span><span class="o">.</span><span class="n">item</span><span class="p">()</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;iter&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="n">indices</span><span class="o">=</span><span class="n">indices</span><span class="p">,</span>
+            <span class="n">offsets</span><span class="o">=</span><span class="n">offsets</span><span class="p">,</span>
+            <span class="n">op_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">uuid</span><span class="p">,</span>
+            <span class="n">per_sample_weights</span><span class="o">=</span><span class="n">per_sample_weights</span><span class="p">,</span>
+            <span class="n">batch_size_per_feature_per_rank</span><span class="o">=</span><span class="n">batch_size_per_feature_per_rank</span><span class="p">,</span>
+        <span class="p">)</span>
 
         <span class="k">if</span> <span class="ow">not</span> <span class="n">is_torchdynamo_compiling</span><span class="p">():</span>
             <span class="c1"># Mutations of nn.Module attr forces dynamo restart of Analysis which increases compilation time</span>
@@ -4255,7 +4273,40 @@
             <span class="c1">#  attribute `debug_step`.</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">debug_step</span> <span class="o">=</span> <span class="mi">0</span>
             <span class="k">return</span> <span class="n">_debug_print_input_stats_factory_impl</span>
-        <span class="k">return</span> <span class="n">_debug_print_input_stats_factory_null</span></div>
+        <span class="k">return</span> <span class="n">_debug_print_input_stats_factory_null</span>
+
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__report_input_params_factory</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        This function returns a function pointer based on the environment variable `FBGEMM_REPORT_INPUT_PARAMS_INTERVAL`.</span>
+
+<span class="sd">        If `FBGEMM_REPORT_INPUT_PARAMS_INTERVAL` is set to a value greater than 0, it returns a function pointer that:</span>
+<span class="sd">        - Reports input parameters (TBEDataConfig).</span>
+<span class="sd">        - Writes the output as a JSON file.</span>
+
+<span class="sd">        If `FBGEMM_REPORT_INPUT_PARAMS_INTERVAL` is not set or is set to 0, it returns a dummy function pointer that performs no action.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="nd">@torch</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">ignore</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">__report_input_params_factory_null</span><span class="p">(</span>
+            <span class="n">feature_rows</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+            <span class="n">feature_dims</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+            <span class="n">iteration</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+            <span class="n">indices</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+            <span class="n">offsets</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">,</span>
+            <span class="n">op_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">per_sample_weights</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="n">batch_size_per_feature_per_rank</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feature_is_enabled</span><span class="p">(</span><span class="n">FeatureGateName</span><span class="o">.</span><span class="n">TBE_REPORT_INPUT_PARAMS</span><span class="p">):</span>
+
+            <span class="n">reporter</span> <span class="o">=</span> <span class="n">TBEBenchmarkParamsReporter</span><span class="o">.</span><span class="n">create</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">reporter</span><span class="o">.</span><span class="n">report_stats</span>
+        <span class="k">return</span> <span class="n">__report_input_params_factory_null</span></div>
 
 
 <span class="k">class</span><span class="w"> </span><span class="nc">DenseTableBatchedEmbeddingBagsCodegen</span><span class="p">(</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">):</span>
