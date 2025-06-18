@@ -102,27 +102,24 @@ Inheritance diagram for DramKVEmbeddingCache&lt; weight_type &gt;:</div>
  <div class="center">
   <img src="classkv__mem_1_1_dram_k_v_embedding_cache.png" usemap="#DramKVEmbeddingCache_3C_20weight_5Ftype_20_3E_map" alt=""/>
   <map id="DramKVEmbeddingCache_3C_20weight_5Ftype_20_3E_map" name="DramKVEmbeddingCache_3C_20weight_5Ftype_20_3E_map">
-<area href="classkv__mem_1_1_dram_k_v_embedding_base.html" title="Interface for DRAM KV embedding." alt="DramKVEmbeddingBase" shape="rect" coords="0,56,249,80"/>
 <area href="classkv__db_1_1_embedding_k_v_d_b.html" title="A class for interacting with different cache layers and storage layers, public calls are executed on ..." alt="EmbeddingKVDB" shape="rect" coords="0,0,249,24"/>
   </map>
 </div></div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:a434f750a80e63e00ac893c99c3a93386" id="r_a434f750a80e63e00ac893c99c3a93386"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a434f750a80e63e00ac893c99c3a93386">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, int64_t evict_trigger_mode=0, int64_t trigger_step_interval=0, int64_t mem_util_threshold_in_GB=0.0, int64_t evict_trigger_strategy=1, const std::optional&lt; at::Tensor &gt; &amp;counter_thresholds=std::nullopt, const std::optional&lt; at::Tensor &gt; &amp;ttls_in_mins=std::nullopt, const std::optional&lt; at::Tensor &gt; &amp;counter_decay_rates=std::nullopt, const std::optional&lt; at::Tensor &gt; &amp;l2_weight_thresholds=std::nullopt, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt)</td></tr>
-<tr class="separator:a434f750a80e63e00ac893c99c3a93386"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2c0798e8a9360bea483c47e0c5b619cd" id="r_a2c0798e8a9360bea483c47e0c5b619cd"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a2c0798e8a9360bea483c47e0c5b619cd">DramKVEmbeddingCache</a> (int64_t max_D, double uniform_init_lower, double uniform_init_upper, std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt; feature_evict_config, int64_t num_shards=8, int64_t num_threads=32, int64_t row_storage_bitwidth=32, bool enable_async_update=false, std::optional&lt; at::Tensor &gt; table_dims=std::nullopt, std::optional&lt; at::Tensor &gt; hash_size_cumsum=std::nullopt)</td></tr>
+<tr class="separator:a2c0798e8a9360bea483c47e0c5b619cd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3ec3ec693cdf42996def471797fcbba9" id="r_a3ec3ec693cdf42996def471797fcbba9"><td class="memItemLeft" align="right" valign="top">at::Tensor&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a3ec3ec693cdf42996def471797fcbba9">get_keys_in_range_impl</a> (int64_t start, int64_t end, std::optional&lt; int64_t &gt; offset=std::nullopt) override</td></tr>
 <tr class="separator:a3ec3ec693cdf42996def471797fcbba9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab197c34bb53bdad19a2521898a341ffc" id="r_ab197c34bb53bdad19a2521898a341ffc"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#ab197c34bb53bdad19a2521898a341ffc">set_kv_db_async</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const <a class="el" href="group__embedding-ssd.html#gaf1ce371b1e598c817791f840612cc1a3">kv_db::RocksdbWriteMode</a> w_mode=kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ) override</td></tr>
 <tr class="separator:ab197c34bb53bdad19a2521898a341ffc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a31225c0d4a54952f46db295152b22065" id="r_a31225c0d4a54952f46db295152b22065"><td class="memItemLeft" align="right" valign="top">folly::SemiFuture&lt; std::vector&lt; folly::Unit &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a31225c0d4a54952f46db295152b22065">get_kv_db_async_impl</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, int64_t width_offset=0, std::optional&lt; int64_t &gt; width_length=std::nullopt)</td></tr>
 <tr class="separator:a31225c0d4a54952f46db295152b22065"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:afddda259e364a63ec6da19c97bf96a1f" id="r_afddda259e364a63ec6da19c97bf96a1f"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#afddda259e364a63ec6da19c97bf96a1f">maybe_evict</a> ()</td></tr>
-<tr class="separator:afddda259e364a63ec6da19c97bf96a1f"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a528a01b57d71acdfb711c4f334472881" id="r_a528a01b57d71acdfb711c4f334472881"><td class="memItemLeft" align="right" valign="top">size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a528a01b57d71acdfb711c4f334472881">get_map_used_memsize</a> () const</td></tr>
-<tr class="separator:a528a01b57d71acdfb711c4f334472881"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a762b48bb502420fbcb8d0d2dcfe7e387" id="r_a762b48bb502420fbcb8d0d2dcfe7e387"><td class="memItemLeft" align="right" valign="top">FeatureEvictMetricTensors&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a762b48bb502420fbcb8d0d2dcfe7e387">get_feature_evict_metric</a> () const</td></tr>
-<tr class="separator:a762b48bb502420fbcb8d0d2dcfe7e387"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a089b321f90b6319a7c99cf01406cbd76" id="r_a089b321f90b6319a7c99cf01406cbd76"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a089b321f90b6319a7c99cf01406cbd76">maybe_evict</a> () override</td></tr>
+<tr class="separator:a089b321f90b6319a7c99cf01406cbd76"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a71c708c8f40caee7246c9bfa7deebf7f" id="r_a71c708c8f40caee7246c9bfa7deebf7f"><td class="memItemLeft" align="right" valign="top">size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a71c708c8f40caee7246c9bfa7deebf7f">get_map_used_memsize</a> () const override</td></tr>
+<tr class="separator:a71c708c8f40caee7246c9bfa7deebf7f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="inherit_header pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td colspan="2" onclick="javascript:dynsection.toggleInherit('pub_methods_classkv__db_1_1_embedding_k_v_d_b')"><img src="closed.png" alt="-"/>&#160;Public Member Functions inherited from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html">EmbeddingKVDB</a></td></tr>
 <tr class="memitem:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b" id="r_adb957639fad4dbeac745636e51721feb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#adb957639fad4dbeac745636e51721feb">set</a> (const at::Tensor &amp;indices, const at::Tensor &amp;weights, const at::Tensor &amp;count, const bool is_bwd=false)</td></tr>
 <tr class="separator:adb957639fad4dbeac745636e51721feb inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -136,8 +133,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a52afc11e0dda55903f95469edb66ab6c inherit pub_methods_classkv__db_1_1_embedding_k_v_d_b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
-<a id="a434f750a80e63e00ac893c99c3a93386" name="a434f750a80e63e00ac893c99c3a93386"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a434f750a80e63e00ac893c99c3a93386">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
+<a id="a2c0798e8a9360bea483c47e0c5b619cd" name="a2c0798e8a9360bea483c47e0c5b619cd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2c0798e8a9360bea483c47e0c5b619cd">&#9670;&#160;</a></span>DramKVEmbeddingCache()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -165,42 +162,7 @@ template&lt;typename weight_type&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>evict_trigger_mode</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>trigger_step_interval</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>mem_util_threshold_in_GB</em></span><span class="paramdefsep"> = </span><span class="paramdefval">0.0</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">int64_t</td>          <td class="paramname"><span class="paramname"><em>evict_trigger_strategy</em></span><span class="paramdefsep"> = </span><span class="paramdefval">1</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>counter_thresholds</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>ttls_in_mins</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>counter_decay_rates</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
-        </tr>
-        <tr>
-          <td class="paramkey"></td>
-          <td></td>
-          <td class="paramtype">const std::optional&lt; at::Tensor &gt; &amp;</td>          <td class="paramname"><span class="paramname"><em>l2_weight_thresholds</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::nullopt</span>, </td>
+          <td class="paramtype">std::optional&lt; c10::intrusive_ptr&lt; kv_mem::FeatureEvictConfig &gt; &gt;</td>          <td class="paramname"><span class="paramname"><em>feature_evict_config</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -249,7 +211,7 @@ template&lt;typename weight_type&gt; </div>
     <tr><td class="paramname">trigger_step_interval</td><td>trigger step interval (EvictTriggerMode::ITERATION used) </td></tr>
     <tr><td class="paramname">mem_util_threshold_in_GB</td><td>mem util threshold (.GB EvictTriggerMode::MEM_UTIL used) </td></tr>
     <tr><td class="paramname">evict_trigger_strategy</td><td>evict trigger strategy, reference EvictTriggerStrategy </td></tr>
-    <tr><td class="paramname">counter_thresholds</td><td>count threshold for each table, at::ScalarType::UInt32 </td></tr>
+    <tr><td class="paramname">counter_thresholds</td><td>count threshold for each table, at::ScalarType::Int32 </td></tr>
     <tr><td class="paramname">ttls_in_mins</td><td>the time to feature live for each table,(.minutes) at::ScalarType::UInt32 </td></tr>
     <tr><td class="paramname">counter_decay_rates</td><td>count decay rate for each table, at::ScalarType::Float </td></tr>
     <tr><td class="paramname">l2_weight_thresholds</td><td>l2 weight threshold for each table, at::ScalarType::Double </td></tr>
@@ -267,38 +229,6 @@ template&lt;typename weight_type&gt; </div>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
-<a id="a762b48bb502420fbcb8d0d2dcfe7e387" name="a762b48bb502420fbcb8d0d2dcfe7e387"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a762b48bb502420fbcb8d0d2dcfe7e387">&#9670;&#160;</a></span>get_feature_evict_metric()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<div class="memtemplate">
-template&lt;typename weight_type&gt; </div>
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">FeatureEvictMetricTensors get_feature_evict_metric </td>
-          <td>(</td>
-          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>Get feature eviction metrics. </p>
-<dl class="section return"><dt>Returns</dt><dd>Metrics about feature eviction including counts and durations. </dd></dl>
-
-<p>Implements <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_base.html#aac4d058255a02e7111cbd7cc660b84b9">DramKVEmbeddingBase</a>.</p>
-
-</div>
-</div>
 <a id="a3ec3ec693cdf42996def471797fcbba9" name="a3ec3ec693cdf42996def471797fcbba9"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a3ec3ec693cdf42996def471797fcbba9">&#9670;&#160;</a></span>get_keys_in_range_impl()</h2>
 
@@ -395,8 +325,8 @@ template&lt;typename weight_type&gt; </div>
 
 </div>
 </div>
-<a id="a528a01b57d71acdfb711c4f334472881" name="a528a01b57d71acdfb711c4f334472881"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a528a01b57d71acdfb711c4f334472881">&#9670;&#160;</a></span>get_map_used_memsize()</h2>
+<a id="a71c708c8f40caee7246c9bfa7deebf7f" name="a71c708c8f40caee7246c9bfa7deebf7f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a71c708c8f40caee7246c9bfa7deebf7f">&#9670;&#160;</a></span>get_map_used_memsize()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -415,7 +345,7 @@ template&lt;typename weight_type&gt; </div>
       </table>
   </td>
   <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
@@ -423,12 +353,12 @@ template&lt;typename weight_type&gt; </div>
 <p>Get the memory usage of the map. </p>
 <dl class="section return"><dt>Returns</dt><dd>Size of memory used by the map in bytes. </dd></dl>
 
-<p>Implements <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_base.html#a21dab11f93f26bcd3f52364850ca6c3d">DramKVEmbeddingBase</a>.</p>
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a5d98931875ff7f6fc4024e1d69b02cf2">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>
-<a id="afddda259e364a63ec6da19c97bf96a1f" name="afddda259e364a63ec6da19c97bf96a1f"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afddda259e364a63ec6da19c97bf96a1f">&#9670;&#160;</a></span>maybe_evict()</h2>
+<a id="a089b321f90b6319a7c99cf01406cbd76" name="a089b321f90b6319a7c99cf01406cbd76"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a089b321f90b6319a7c99cf01406cbd76">&#9670;&#160;</a></span>maybe_evict()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -447,7 +377,7 @@ template&lt;typename weight_type&gt; </div>
       </table>
   </td>
   <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel override">override</span><span class="mlabel virtual">virtual</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
@@ -455,7 +385,7 @@ template&lt;typename weight_type&gt; </div>
 <p>Potentially evict features based on configured strategy. </p>
 <p>This method is called in between get and set to check if feature eviction should be triggered based on the configured eviction strategy. </p>
 
-<p>Implements <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_base.html#ac987c114dfb448ed737b7bd23ce7957c">DramKVEmbeddingBase</a>.</p>
+<p>Reimplemented from <a class="el" href="classkv__db_1_1_embedding_k_v_d_b.html#a15046e704688bd9fc930567ec176e866">EmbeddingKVDB</a>.</p>
 
 </div>
 </div>

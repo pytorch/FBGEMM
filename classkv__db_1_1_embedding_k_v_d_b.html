@@ -102,9 +102,8 @@ Inheritance diagram for EmbeddingKVDB:</div>
  <div class="center">
   <img src="classkv__db_1_1_embedding_k_v_d_b.png" usemap="#EmbeddingKVDB_map" alt=""/>
   <map id="EmbeddingKVDB_map" name="EmbeddingKVDB_map">
-<area href="classkv__mem_1_1_dram_k_v_embedding_base.html" title="Interface for DRAM KV embedding." alt="DramKVEmbeddingBase" shape="rect" coords="0,56,249,80"/>
+<area href="classkv__mem_1_1_dram_k_v_embedding_cache.html" title="An implementation of EmbeddingKVDB for ZCH v.Next." alt="DramKVEmbeddingCache&lt; weight_type &gt;" shape="rect" coords="0,56,249,80"/>
 <area href="classps_1_1_embedding_parameter_server.html" title="An implementation of EmbeddingKVDB for Training Parameter Service (TPS) client." alt="EmbeddingParameterServer" shape="rect" coords="259,56,508,80"/>
-<area href="classkv__mem_1_1_dram_k_v_embedding_cache.html" title="An implementation of EmbeddingKVDB for ZCH v.Next." alt="DramKVEmbeddingCache&lt; weight_type &gt;" shape="rect" coords="0,112,249,136"/>
   </map>
 </div></div>
 <table class="memberdecls">
@@ -118,6 +117,10 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a97e1cb5dab03e8013e71ebd9ac1d0647"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adac116554b543b7c4228c018a85882f5" id="r_adac116554b543b7c4228c018a85882f5"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#adac116554b543b7c4228c018a85882f5">flush</a> ()</td></tr>
 <tr class="separator:adac116554b543b7c4228c018a85882f5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a15046e704688bd9fc930567ec176e866" id="r_a15046e704688bd9fc930567ec176e866"><td class="memItemLeft" align="right" valign="top">virtual void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a15046e704688bd9fc930567ec176e866">maybe_evict</a> ()</td></tr>
+<tr class="separator:a15046e704688bd9fc930567ec176e866"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5d98931875ff7f6fc4024e1d69b02cf2" id="r_a5d98931875ff7f6fc4024e1d69b02cf2"><td class="memItemLeft" align="right" valign="top">virtual size_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a5d98931875ff7f6fc4024e1d69b02cf2">get_map_used_memsize</a> () const</td></tr>
+<tr class="separator:a5d98931875ff7f6fc4024e1d69b02cf2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a52afc11e0dda55903f95469edb66ab6c" id="r_a52afc11e0dda55903f95469edb66ab6c"><td class="memItemLeft" align="right" valign="top">std::vector&lt; double &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a52afc11e0dda55903f95469edb66ab6c">get_l2cache_perf</a> (const int64_t step, const int64_t interval)</td></tr>
 <tr class="separator:a52afc11e0dda55903f95469edb66ab6c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
@@ -219,6 +222,66 @@ flush only flushes L2 cache, if there is cache on the backend storage, that flus
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>a list of doubles with predefined order for each metrics </dd></dl>
+
+</div>
+</div>
+<a id="a5d98931875ff7f6fc4024e1d69b02cf2" name="a5d98931875ff7f6fc4024e1d69b02cf2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5d98931875ff7f6fc4024e1d69b02cf2">&#9670;&#160;</a></span>get_map_used_memsize()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual size_t get_map_used_memsize </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Get the memory usage of the map. </p>
+<dl class="section return"><dt>Returns</dt><dd>Size of memory used by the map in bytes. </dd></dl>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a71c708c8f40caee7246c9bfa7deebf7f">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
+
+</div>
+</div>
+<a id="a15046e704688bd9fc930567ec176e866" name="a15046e704688bd9fc930567ec176e866"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a15046e704688bd9fc930567ec176e866">&#9670;&#160;</a></span>maybe_evict()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">virtual void maybe_evict </td>
+          <td>(</td>
+          <td class="paramname"><span class="paramname"><em></em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel inline">inline</span><span class="mlabel virtual">virtual</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Potentially evict features based on configured strategy. </p>
+<p>This method is called in between get and set to check if feature eviction should be triggered based on the configured eviction strategy. </p>
+
+<p>Reimplemented in <a class="el" href="classkv__mem_1_1_dram_k_v_embedding_cache.html#a089b321f90b6319a7c99cf01406cbd76">DramKVEmbeddingCache&lt; weight_type &gt;</a>.</p>
 
 </div>
 </div>
