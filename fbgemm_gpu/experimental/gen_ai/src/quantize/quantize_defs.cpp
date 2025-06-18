@@ -50,6 +50,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "bf16i4bf16_rowwise_batched(Tensor X, Tensor WQ, Tensor w_scale, Tensor w_zp) -> Tensor");
   m.def(
       "i8i8bf16_dynamic(Tensor XQ, Tensor WQ, Tensor scale, int split_k=1) -> Tensor");
+
 #endif
   m.def("bf16bf16bf16_grouped(Tensor[] X, Tensor[] W) -> Tensor[]");
   m.def("bf16bf16bf16_grouped_cat(Tensor[] X, Tensor[] W) -> Tensor");
@@ -96,6 +97,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 
   m.def(
       "scaled_fp4_quant(Tensor! output, Tensor input, Tensor! output_scale, Tensor input_scale) -> ()");
+
+  m.def(
+      "fake_quantize_nvfp4_per_tensor(Tensor input, Tensor? static_scales=None, Tensor? bs=None, Tensor? scale_ub=None) -> Tensor[]");
 
 #ifdef USE_ROCM
   m.def("flush_icache_hip() -> ()");
