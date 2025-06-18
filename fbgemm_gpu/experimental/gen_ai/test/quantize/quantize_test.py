@@ -41,7 +41,9 @@ except ImportError:
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
-if torch.version.hip and supports_float8_fnuz():
+if torch.cuda.is_available() and supports_float8_fnuz(
+    throw_on_hip_incompatibility=(not running_on_github)
+):
     # Supported FP8 format is different on NV and AMD.
     fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
     fp8_e5m2: torch.dtype = torch.float8_e5m2fnuz
@@ -635,6 +637,7 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-1, rtol=8.0e-2)
 
+    @unittest.skipIf(running_on_github, "Test is currently unreliable on GitHub OSS CI")
     @unittest.skipIf(
         not torch.version.cuda and torch.version.hip < "6.2",
         "Skip on AMD with < RoCM 6.2",

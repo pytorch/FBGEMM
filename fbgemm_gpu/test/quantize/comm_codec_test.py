@@ -18,6 +18,10 @@ from hypothesis import assume, given, settings
 
 
 class QuantizedCommCodecTest(unittest.TestCase):
+    @unittest.skipIf(
+        not torch.cuda.is_available(),
+        "Skip when no GPU is available",
+    )
     @settings(deadline=8000)
     # pyre-ignore
     @given(

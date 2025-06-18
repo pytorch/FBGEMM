@@ -189,6 +189,9 @@ jobs:
     - name: Install FBGEMM_GPU Wheel
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
+    - name: Set Up for FBGEMM_GPU Benchmark
+      run: . $PRELUDE; setup_fbgemm_gpu_bench $BUILD_ENV
+
     - name: Run FBGEMM_GPU Benchmark
       timeout-minutes: 40
       run: . $PRELUDE; run_tbe_microbench $BUILD_ENV

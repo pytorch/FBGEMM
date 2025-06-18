@@ -47,7 +47,8 @@ environment:
 
   # !! Run inside the Conda environment !!
 
-  # Enable for running in CPU-only mode (when on a GPU-capable machine)
+  # Specify the specific CUDA devices to run the tests on
+  # Alternatively, set to -1 for running in CPU-only mode (when on a GPU-capable machine)
   export CUDA_VISIBLE_DEVICES=-1
 
   # Enable for debugging failed kernel executions
@@ -73,7 +74,14 @@ For ROCm machines, testing against a ROCm GPU needs to be enabled with
   cd test
 
   export FBGEMM_TEST_WITH_ROCM=1
-  # Enable for debugging failed kernel executions
+
+  # Specify the specific HIP devices to run the tests on
+  #
+  # NOTE: This is necessary if PyTorch is unable to see the devices that
+  # `rocm-smi --showproductname` can see
+  export HIP_VISIBLE_DEVICES=0,1,2,3
+
+  # Enable for debugging kernel executions
   export HIP_LAUNCH_BLOCKING=1
 
   python -m pytest -v -rsx -s -W ignore::pytest.PytestCollectionWarning split_table_batched_embeddings_test.py
