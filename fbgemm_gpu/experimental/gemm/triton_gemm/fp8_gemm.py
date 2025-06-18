@@ -3418,6 +3418,34 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
         num_warps=8,
         num_stages=2,
     ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 128,
+            "BLOCK_K": 64,
+            "GROUP_M": 4,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 64,
+            "BLOCK_K": 64,
+            "GROUP_M": 4,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
 ]
 
 # Set this to enable full autotuning for proper benchmarking.
