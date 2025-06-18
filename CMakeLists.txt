@@ -17,14 +17,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
   execute_process(
-    COMMAND "${PYTHON_EXECUTABLE}" -c
+    COMMAND "${Python_EXECUTABLE}" -c
             "exec(open('defs.bzl').read());print(';'.join(${name}))"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     OUTPUT_VARIABLE _tempvar
     RESULT_VARIABLE _resvar
     ERROR_VARIABLE _errvar)
   if(NOT "${_resvar}" EQUAL "0")
-    message(WARNING "Failed to execute Python (${PYTHON_EXECUTABLE})\n"
+    message(WARNING "Failed to execute Python (${Python_EXECUTABLE})\n"
       "Result: ${_resvar}\n"
       "Error: ${_errvar}\n")
   endif()
