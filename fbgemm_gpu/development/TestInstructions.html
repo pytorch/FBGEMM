@@ -493,7 +493,8 @@ machine in CPU-only mode, <code class="docutils literal notranslate"><span class
 environment:</p>
 <div class="highlight-sh notranslate"><div class="highlight"><pre><span></span><span class="c1"># !! Run inside the Conda environment !!</span>
 
-<span class="c1"># Enable for running in CPU-only mode (when on a GPU-capable machine)</span>
+<span class="c1"># Specify the specific CUDA devices to run the tests on</span>
+<span class="c1"># Alternatively, set to -1 for running in CPU-only mode (when on a GPU-capable machine)</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span>-1
 
 <span class="c1"># Enable for debugging failed kernel executions</span>
@@ -517,7 +518,14 @@ python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> <
 <span class="nb">cd</span><span class="w"> </span><span class="nb">test</span>
 
 <span class="nb">export</span><span class="w"> </span><span class="nv">FBGEMM_TEST_WITH_ROCM</span><span class="o">=</span><span class="m">1</span>
-<span class="c1"># Enable for debugging failed kernel executions</span>
+
+<span class="c1"># Specify the specific HIP devices to run the tests on</span>
+<span class="c1">#</span>
+<span class="c1"># NOTE: This is necessary if PyTorch is unable to see the devices that</span>
+<span class="c1"># `rocm-smi --showproductname` can see</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">HIP_VISIBLE_DEVICES</span><span class="o">=</span><span class="m">0</span>,1,2,3
+
+<span class="c1"># Enable for debugging kernel executions</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">HIP_LAUNCH_BLOCKING</span><span class="o">=</span><span class="m">1</span>
 
 python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>-v<span class="w"> </span>-rsx<span class="w"> </span>-s<span class="w"> </span>-W<span class="w"> </span>ignore::pytest.PytestCollectionWarning<span class="w"> </span>split_table_batched_embeddings_test.py
