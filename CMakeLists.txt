@@ -148,10 +148,6 @@ endif()
 find_package(OpenMP)
 if(OpenMP_FOUND)
   message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
-  include_directories(${OpenMP_C_INCLUDE_DIRS})
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 else()
   message(WARNING "OpenMP is not supported by the compiler")
 endif()
@@ -375,7 +371,7 @@ target_include_directories(fbgemm BEFORE
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
 
-target_link_libraries(fbgemm
+target_link_libraries(fbgemm PRIVATE
   $<BUILD_INTERFACE:asmjit>
   $<BUILD_INTERFACE:cpuinfo>)
 add_dependencies(fbgemm
@@ -383,7 +379,8 @@ add_dependencies(fbgemm
   cpuinfo)
 
 if(OpenMP_FOUND)
-  target_link_libraries(fbgemm OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm PRIVATE OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm_generic PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
 install(
