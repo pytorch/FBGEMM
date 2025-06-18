@@ -23,7 +23,7 @@ function(get_filelist name outputvar)
     OUTPUT_VARIABLE _tempvar
     RESULT_VARIABLE _resvar
     ERROR_VARIABLE _errvar)
-  if (NOT "${_resvar}" EQUAL "0")
+  if(NOT "${_resvar}" EQUAL "0")
     message(WARNING "Failed to execute Python (${PYTHON_EXECUTABLE})\n"
       "Result: ${_resvar}\n"
       "Error: ${_errvar}\n")
@@ -136,7 +136,7 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
 
 # We should default to a Release build
-if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 
@@ -146,7 +146,7 @@ endif()
 
 # Check if compiler supports OpenMP
 find_package(OpenMP)
-if (OpenMP_FOUND)
+if(OpenMP_FOUND)
   message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
   include_directories(${OpenMP_C_INCLUDE_DIRS})
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
