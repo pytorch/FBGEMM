@@ -155,26 +155,6 @@ Tensor split_embedding_nobag_codegen_forward_cpu(
   return output;
 }
 
-Tensor split_embedding_nobag_codegen_forward_cpu_meta(
-    const Tensor& weights,
-    const Tensor& /* weights_offsets */,
-    int64_t D,
-    const Tensor& /* hash_size_cumsum */,
-    const Tensor& indices,
-    const Tensor& /* offsets */,
-    int64_t output_dtype) {
-  c10::SymInt num_indices = indices.sym_size(0);
-  auto dtype = weights.options();
-  if (output_dtype == static_cast<int64_t>(SparseType::FP32)) {
-    dtype = weights.options().dtype(at::kFloat);
-  } else if (output_dtype == static_cast<int64_t>(SparseType::FP16)) {
-    dtype = weights.options().dtype(at::kHalf);
-  } else if (output_dtype == static_cast<int64_t>(SparseType::BF16)) {
-    dtype = weights.options().dtype(at::kBFloat16);
-  }
-  return at::empty_symint({num_indices, D}, dtype);
-}
-
 namespace {
 
 TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
@@ -190,9 +170,5 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CPU(
       "split_embedding_nobag_codegen_forward_cpu",
       split_embedding_nobag_codegen_forward_cpu);
-
-  DISPATCH_TO_META(
-      "split_embedding_nobag_codegen_forward_cpu",
-      split_embedding_nobag_codegen_forward_cpu_meta);
 }
 } // namespace
