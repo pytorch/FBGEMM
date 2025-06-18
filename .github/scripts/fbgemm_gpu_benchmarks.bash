@@ -8,10 +8,40 @@
 
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
+. "$( dirname -- "$BASH_SOURCE"; )/fbgemm_gpu_test.bash"
 
 ################################################################################
 # FBGEMM_GPU Test Helper Functions
 ################################################################################
+
+setup_fbgemm_gpu_bench () {
+  env_name="$1"
+
+  # shellcheck disable=SC2155
+  local env_prefix=$(env_name_or_prefix "${env_name}")
+
+  # shellcheck disable=SC2086
+  fbgemm_build_variant=$(conda run ${env_prefix} python -c "import fbgemm_gpu; print(fbgemm_gpu.__variant__)")
+  echo "[BENCH] Determined FBGEMM_GPU variant from installation: ${fbgemm_build_variant}"
+
+  if [ "$fbgemm_build_variant" == "rocm" ]; then
+    echo "[BENCH] Configuring for ROCm-based benchmarking ..."
+    __configure_fbgemm_gpu_test_rocm
+  fi
+
+  if [[ $MACHINE_NAME == 'aarch64' ]]; then
+    # NOTE: Setting KMP_DUPLICATE_LIB_OK silences the error about multiple
+    # OpenMP being linked when FBGEMM_GPU is compiled under Clang on aarch64
+    # machines:
+    #   https://stackoverflow.com/questions/53014306/error-15-initializing-libiomp5-dylib-but-found-libiomp5-dylib-already-initial
+    echo "[TEST] Platform is aarch64; will set KMP_DUPLICATE_LIB_OK ..."
+    # shellcheck disable=SC2086
+    print_exec conda env config vars set ${env_prefix} KMP_DUPLICATE_LIB_OK=1
+  fi
+
+  # shellcheck disable=SC2086
+  print_exec conda env config vars set ${env_prefix} TORCH_SHOW_CPP_STACKTRACES=1
+}
 
 run_tbe_microbench () {
   local env_name="$1"
