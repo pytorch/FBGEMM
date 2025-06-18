@@ -33,6 +33,11 @@ from fbgemm_gpu.tbe.bench import (
     TBEBenchmarkingConfigLoader,
     TBEDataConfigLoader,
 )
+from fbgemm_gpu.tbe.bench.tbe_data_config_bench_helper import (
+    generate_embedding_dims,
+    generate_feature_requires_grad,
+    generate_requests,
+)
 from fbgemm_gpu.tbe.ssd import SSDTableBatchedEmbeddingBags
 from fbgemm_gpu.tbe.utils import get_device
 from torch.profiler import profile
@@ -102,13 +107,13 @@ def device(  # noqa C901
 
     # Generate feature_requires_grad
     feature_requires_grad = (
-        tbeconfig.generate_feature_requires_grad(weighted_num_requires_grad)
+        generate_feature_requires_grad(tbeconfig, weighted_num_requires_grad)
         if weighted_num_requires_grad
         else None
     )
 
     # Generate embedding dims
-    effective_D, Ds = tbeconfig.generate_embedding_dims()
+    effective_D, Ds = generate_embedding_dims(tbeconfig)
 
     # Determine the optimizer
     optimizer = OptimType.EXACT_ROWWISE_ADAGRAD if row_wise else OptimType.EXACT_ADAGRAD
@@ -212,7 +217,7 @@ def device(  # noqa C901
         f"Accessed weights per batch: {tbeconfig.batch_params.B * sum(Ds) * tbeconfig.pooling_params.L * param_size_multiplier / 1.0e9: .2f} GB"
     )
 
-    requests = tbeconfig.generate_requests(benchconfig.num_requests)
+    requests = generate_requests(tbeconfig, benchconfig.num_requests)
 
     # pyre-ignore[53]
     def _kineto_trace_handler(p: profile, phase: str) -> None:
