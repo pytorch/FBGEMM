@@ -5,6 +5,24 @@
 # LICENSE file in the root directory of this source tree.
 
 ################################################################################
+# CMake Prelude
+################################################################################
+
+cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
+
+set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/modules)
+include(${CMAKEMODULES}/Utilities.cmake)
+include(${CMAKEMODULES}/GpuCppLibrary.cmake)
+
+# CUDA Setup
+include(${CMAKEMODULES}/CudaSetup.cmake)
+
+# ROCm and HIPify Setup
+include(${CMAKEMODULES}/RocmSetup.cmake)
+
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
+################################################################################
 # Target Sources
 ################################################################################
 
@@ -91,16 +109,36 @@ list(FILTER experimental_gen_ai_cpp_source_files_hip
 # Build Shared Library
 ################################################################################
 
+# Customizations for PyTorch build integration
+IF(DEFINED CAFFE2_THIRD_PARTY_ROOT)
+  # Remove "experimental" from the library name
+  set(FBGEMM_GENAI_LIB_NAME fbgemm_gpu_gen_ai)
+  # Keep lib prefix
+  set(KEEP_PREFIX ON)
+  # Install the library in the build directory
+  set(DESTINATION ${CMAKE_INSTALL_LIBDIR})
+else()
+  set(FBGEMM_GENAI_LIB_NAME fbgemm_gpu_experimental_gen_ai)
+  set(KEEP_PREFIX OFF)
+  set(DESTINATION "")
+endif()
+
 gpu_cpp_library(
   PREFIX
-    fbgemm_gpu_experimental_gen_ai
+    ${FBGEMM_GENAI_LIB_NAME}
   TYPE
     SHARED
+  DESTINATION
+    ${DESTINATION}
+  KEEP_PREFIX
+    ${KEEP_PREFIX}
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kv_cache
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    ${FBGEMM_GENAI_INCLUDE_DIRS}
   CPU_SRCS
     ${experimental_gen_ai_cpp_source_files_cpu}
   GPU_SRCS
@@ -108,7 +146,11 @@ gpu_cpp_library(
   CUDA_SPECIFIC_SRCS
     ${experimental_gen_ai_cpp_source_files_cuda}
   HIP_SPECIFIC_SRCS
-    ${experimental_gen_ai_cpp_source_files_hip})
+    ${experimental_gen_ai_cpp_source_files_hip}
+  TORCH_LIBS
+    # Used when building as part of PyTorch
+    ${FBGEMM_GENAI_TORCH_LIBS})
+
 
 
 ################################################################################
@@ -117,7 +159,7 @@ gpu_cpp_library(
 
 add_to_package(
   DESTINATION fbgemm_gpu/experimental/gen_ai
-  TARGETS fbgemm_gpu_experimental_gen_ai)
+  TARGETS ${FBGEMM_GENAI_LIB_NAME})
 
 install(
   DIRECTORY bench
