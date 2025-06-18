@@ -106,7 +106,6 @@ Tensor
     const bool is_experimental
 ) {
     // NB: omitted the device tests TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL
-
     {%- if not nobag %}
     auto T = D_offsets.sym_numel() - 1;
     {%- else %}
@@ -140,6 +139,8 @@ Tensor
     {%- endif %}
 
     Tensor output;
+    // Fix tensor does not have device error for faketensor when all of the weights are undefined tensors.
+    auto options = dev_weights.defined() ? dev_weights.options() : at::TensorOptions().device(at::kMeta);
     {%- if nobag %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     {%- if is_index_select %}
@@ -155,7 +156,7 @@ Tensor
 
     // If permute_output_dim_0_1 is true, output shape is (batch_size * total_D)
     // Else, output shape is (output_size)
-    output = at::empty_symint({output_size}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    output = at::empty_symint({output_size}, options.dtype(getScalarType(o_dtype)));
     {%- else %}
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
@@ -165,15 +166,13 @@ Tensor
         adjusted_D += T * int64_t(kINT8QparamsBytes);
     }
 
-    output = at::empty_symint({total_L, adjusted_D}, dev_weights.options().dtype(getScalarType(o_dtype)));
+    output = at::empty_symint({total_L, adjusted_D}, options.dtype(getScalarType(o_dtype)));
     {%- endif %}
     {%- else %}
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
     
-    // Fix tensor does not have device error for faketensor when all of the weights are undefined tensors.
-    auto options = dev_weights.defined() ? dev_weights.options() : at::TensorOptions().device(at::kMeta);
     {%- if vbe %}
     output = at::empty_symint(
         {vbe_output_size},
