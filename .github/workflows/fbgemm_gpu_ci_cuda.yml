@@ -80,8 +80,7 @@ jobs:
           { arch: x86, instance: "linux.12xlarge.memory", build-target: "genai", cuda-version: "12.8.1" },
           { arch: x86, instance: "linux.12xlarge.memory", build-target: "genai", cuda-version: "12.9.1" },
 
-          { arch: x86, instance: "linux.24xlarge.memory", build-target: "hstu", cuda-version: "12.6.3" },
-          { arch: x86, instance: "linux.24xlarge.memory", build-target: "hstu", cuda-version: "12.8.1" },
+          # Since FBGEMM HSTU is released yet, we reduce to one CUDA version to conserve CI resources
           { arch: x86, instance: "linux.24xlarge.memory", build-target: "hstu", cuda-version: "12.9.1" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]

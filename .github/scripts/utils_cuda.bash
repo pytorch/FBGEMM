@@ -241,7 +241,9 @@ install_cudnn () {
   test_network_connection || return 1
 
   # Install cuDNN manually
-  # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+  # Based on install script in:
+  #   https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+  #   https://github.com/pytorch/pytorch/blob/main/.ci/docker/common/install_cudnn.sh
   declare -A cudnn_packages=(
     ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
@@ -250,6 +252,8 @@ install_cudnn () {
     ["121"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-8.9.2.26_cuda12-archive.tar.xz"
     ["124"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-8.9.2.26_cuda12-archive.tar.xz"
     ["126"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-9.5.1.17_cuda12-archive.tar.xz"
+    ["128"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-9.10.2.21_cuda12-archive.tar.xz"
+    ["129"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-9.10.2.21_cuda12-archive.tar.xz"
   )
 
   # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
