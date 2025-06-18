@@ -360,9 +360,19 @@ void EmbeddingKVDB::update_cache_and_storage(
 
       set_kv_db_async(evicted_indices, evicted_weights, evicted_count, mode)
           .wait();
+      // no need to resume eviction given it is only applicable to dram kv
+      // solution
     }
   } else {
     set_kv_db_async(indices, weights, count, mode).wait();
+    // only resume eviction on the set instead of get
+    // because here is the calling order in training, there isn't too much room
+    // between get and set to conduct eviction, so just don't result on get
+    // forward:
+    //  prefetch: get() -> set()
+    //  forward:
+    // backward: set()
+    resume_ongoing_eviction();
   }
 }
 
@@ -390,6 +400,8 @@ void EmbeddingKVDB::flush() {
         set_kv_db_async(
             indices, weights, count.value(), kv_db::RocksdbWriteMode::FLUSH)
             .wait();
+        // no need to resume eviction given it is only applicable to dram kv
+        // solution
       }
     }
   }
@@ -571,6 +583,8 @@ void EmbeddingKVDB::get(
     const at::Tensor& weights,
     const at::Tensor& count,
     int64_t sleep_ms) {
+  // trigger evict by trigger_step_interval or mem_util_threshold_GB
+  maybe_evict();
   if (auto num_lookups = get_maybe_uvm_scalar(count); num_lookups <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
         << "[TBE_ID" << unique_id_ << "]skip get_cuda since number lookups is "
@@ -582,7 +596,6 @@ void EmbeddingKVDB::get(
   CHECK_GE(max_D_, weights.size(1));
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   wait_util_filling_work_done();
-
   std::unique_lock<std::mutex> lock(l2_cache_mtx_);
   get_cache_lock_wait_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - start_ts;
@@ -593,21 +606,15 @@ void EmbeddingKVDB::get(
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     XLOG(INFO) << "get sleep end";
   }
-
   auto cache_context = get_cache(indices, count);
   if (cache_context != nullptr) {
     if (cache_context->num_misses > 0) {
-      // std::vector<folly::coro::Task<void>> tasks;
-
       auto weight_fillup_start_ts = facebook::WallClockUtil::NowInUsecFast();
-      // tasks.emplace_back(get_kv_db_async(indices, weights, count));
-      // tasks.emplace_back(
-      //     cache_memcpy(weights, cache_context->cached_addr_list));
       auto rocksdb_fut_vec = get_kv_db_async(indices, weights, count);
+      // no need to resume eviction as it is only applicable to dram kv solution
       auto l2_fut_vec = cache_memcpy(weights, cache_context->cached_addr_list);
       rocksdb_fut_vec.wait();
       l2_fut_vec.wait();
-      // folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
       get_weights_fillup_total_duration_ +=
           facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
 
@@ -637,6 +644,13 @@ void EmbeddingKVDB::get(
     }
   } else { // no l2 cache
     get_kv_db_async(indices, weights, count).wait();
+    // only resume eviction on the set instead of get
+    // because here is the calling order in training, there isn't too much room
+    // between get and set to conduct eviction, so just don't result on get
+    // forward:
+    //  prefetch: get() -> set()
+    //  forward:
+    // backward: set()
   }
   get_total_duration_ += facebook::WallClockUtil::NowInUsecFast() - start_ts;
   rec->record.end();
