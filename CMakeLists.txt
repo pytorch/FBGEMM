@@ -94,7 +94,7 @@ project(fbgemm VERSION 0.1 LANGUAGES CXX C)
 include(GNUInstallDirs)
 
 # Load Python
-find_package(PythonInterp)
+find_package(Python)
 
 set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
@@ -149,9 +149,9 @@ find_package(OpenMP)
 if (OpenMP_FOUND)
   message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
   include_directories(${OpenMP_C_INCLUDE_DIRS})
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 else()
   message(WARNING "OpenMP is not supported by the compiler")
 endif()
@@ -267,7 +267,7 @@ if(NOT TARGET asmjit)
 
   # Build asmjit
   # For MSVC shared build, asmjit needs to be shared also.
-  if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+  if(MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
     set(ASMJIT_STATIC OFF)
   else()
     set(ASMJIT_STATIC ON)
