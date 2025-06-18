@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -60,6 +60,43 @@ class EmbeddingLocation(enum.IntEnum):
             raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
 
 
+class EvictionPolicy(NamedTuple):
+    eviction_trigger_mode: int = (
+        0  # disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+    )
+    eviction_strategy: int = (
+        0  # 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+    )
+    eviction_step_intervals: Optional[int] = (
+        None  # trigger_step_interval if trigger mode is iteration
+    )
+    eviction_mem_threshold_gb: Optional[int] = (
+        None  # eviction trigger condition if trigger mode is mem_util
+    )
+    counter_thresholds: Optional[List[int]] = (
+        None  # count_thresholds for each table if eviction strategy is feature score
+    )
+    ttls_in_mins: Optional[List[int]] = (
+        None  # ttls_in_mins for each table if eviction strategy is timestamp
+    )
+    counter_decay_rates: Optional[List[float]] = (
+        None  # count_decay_rates for each table if eviction strategy is feature score
+    )
+    l2_weight_thresholds: Optional[List[float]] = (
+        None  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+    )
+    interval_for_insufficient_eviction_s: int = (
+        # wait at least # seconds before trigger next round of eviction, if last finished eviction is insufficient
+        # insufficient means we didn't evict enough rows, so we want to wait longer time to
+        # avoid another insufficient eviction
+        600
+    )
+    interval_for_sufficient_eviction_s: int = (
+        # wait at least # seconds before trigger next round of eviction, if last finished eviction is sufficient
+        60
+    )
+
+
 class KVZCHParams(NamedTuple):
     # global bucket id start and global bucket id end offsets for each logical table,
     # where start offset is inclusive and end offset is exclusive
@@ -69,6 +106,7 @@ class KVZCHParams(NamedTuple):
     bucket_sizes: List[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
+    eviction_policy: Optional[EvictionPolicy] = None
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (

@@ -26,7 +26,6 @@
 #include "../ssd_split_embeddings_cache/initializer.h"
 #include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
 #include "SynchronizedShardedMap.h"
-#include "dram_kv_embedding_base.h"
 #include "fbgemm_gpu/split_embeddings_cache/kv_db_cpp_utils.h"
 #include "feature_evict.h"
 #include "fixed_block_pool.h"
@@ -64,7 +63,7 @@ namespace kv_mem {
 /// @brief An implementation of EmbeddingKVDB for ZCH v.Next
 ///
 template <typename weight_type>
-class DramKVEmbeddingCache : public DramKVEmbeddingBase {
+class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
  public:
   /// DramKVEmbeddingCache constructor
   ///
@@ -79,7 +78,7 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
   /// @param evict_trigger_strategy evict trigger strategy, reference
   /// EvictTriggerStrategy
   /// @param counter_thresholds count threshold for each table,
-  /// at::ScalarType::UInt32
+  /// at::ScalarType::Int32
   /// @param ttls_in_mins the time to feature live for each table,(.minutes)
   /// at::ScalarType::UInt32
   /// @param counter_decay_rates count decay rate for each table,
@@ -100,21 +99,15 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
       int64_t max_D,
       double uniform_init_lower,
       double uniform_init_upper,
-      int64_t evict_trigger_mode = 0,
-      int64_t trigger_step_interval = 0,
-      int64_t mem_util_threshold_in_GB = 0.0,
-      int64_t evict_trigger_strategy = 1,
-      const std::optional<at::Tensor>& counter_thresholds = std::nullopt,
-      const std::optional<at::Tensor>& ttls_in_mins = std::nullopt,
-      const std::optional<at::Tensor>& counter_decay_rates = std::nullopt,
-      const std::optional<at::Tensor>& l2_weight_thresholds = std::nullopt,
+      std::optional<c10::intrusive_ptr<kv_mem::FeatureEvictConfig>>
+          feature_evict_config,
       int64_t num_shards = 8,
       int64_t num_threads = 32,
       int64_t row_storage_bitwidth = 32,
       bool enable_async_update = false,
       std::optional<at::Tensor> table_dims = std::nullopt,
       std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
-      : DramKVEmbeddingBase(
+      : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
             0, // l2_cache_size_gb =0 to disable l2 cache
@@ -131,7 +124,8 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
             block_size_,
             block_alignment_,
             /*blocks_per_chunk=*/8192)),
-        elem_size_(row_storage_bitwidth / 8) {
+        elem_size_(row_storage_bitwidth / 8),
+        feature_evict_config_(feature_evict_config) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(std::max<size_t>(
         num_threads, facebook::Proc::getCpuInfo().numCpuCores));
     initialize_initializers(
@@ -149,63 +143,13 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
           hash_size_cumsum->data_ptr<int64_t>() + 1, // skip the first 0
           hash_size_cumsum->data_ptr<int64_t>() + hash_size_cumsum->numel());
     }
-
-    // feature evict config
-    feature_evict_config_.trigger_mode =
-        static_cast<EvictTriggerMode>(evict_trigger_mode);
-    if (feature_evict_config_.trigger_mode == EvictTriggerMode::DISABLED) {
-      return;
+    if (feature_evict_config_.has_value() &&
+        feature_evict_config_.value()->trigger_mode_ !=
+            EvictTriggerMode::DISABLED) {
+      TORCH_CHECK(hash_size_cumsum.has_value());
+      feature_evict_ = create_feature_evict(
+          feature_evict_config_.value(), kv_store_, sub_table_hash_cumsum_);
     }
-    // feature evict must need hash_size_cumsum!
-    // only support mutli table config now.
-    TORCH_CHECK(hash_size_cumsum.has_value());
-    feature_evict_config_.trigger_strategy =
-        static_cast<EvictTriggerStrategy>(evict_trigger_strategy);
-    feature_evict_config_.trigger_step_interval = trigger_step_interval;
-    feature_evict_config_.mem_util_threshold_in_GB = mem_util_threshold_in_GB;
-
-    if (feature_evict_config_.trigger_strategy ==
-            EvictTriggerStrategy::BY_COUNTER ||
-        feature_evict_config_.trigger_strategy ==
-            EvictTriggerStrategy::BY_TIMESTAMP_AND_COUNTER) {
-      TORCH_CHECK_TENSOR_PROPERTIES(counter_thresholds, at::ScalarType::UInt32);
-      TORCH_CHECK_TENSOR_PROPERTIES(counter_decay_rates, at::ScalarType::Float);
-      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
-          counter_thresholds,
-          feature_evict_config_.counter_thresholds,
-          uint32_t);
-      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
-          counter_decay_rates,
-          feature_evict_config_.counter_decay_rates,
-          float);
-    }
-
-    if (feature_evict_config_.trigger_strategy ==
-            EvictTriggerStrategy::BY_TIMESTAMP ||
-        feature_evict_config_.trigger_strategy ==
-            EvictTriggerStrategy::BY_TIMESTAMP_AND_COUNTER) {
-      TORCH_CHECK_TENSOR_PROPERTIES(ttls_in_mins, at::ScalarType::UInt32);
-      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
-          ttls_in_mins, feature_evict_config_.ttls_in_mins, uint32_t);
-    }
-
-    if (feature_evict_config_.trigger_strategy ==
-        EvictTriggerStrategy::BY_L2WEIGHT) {
-      TORCH_CHECK_TENSOR_PROPERTIES(
-          l2_weight_thresholds, at::ScalarType::Double);
-      TORCH_CHECK_TENSOR_PROPERTIES(table_dims, at::ScalarType::Long);
-      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
-          l2_weight_thresholds,
-          feature_evict_config_.l2_weight_thresholds,
-          double);
-      TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
-          table_dims, feature_evict_config_.embedding_dims, int64_t);
-    }
-    feature_evict_ = create_feature_evict(
-        feature_evict_config_,
-        executor_.get(),
-        kv_store_,
-        sub_table_hash_cumsum_);
   }
 
   void initialize_initializers(
@@ -297,9 +241,7 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
       const at::Tensor& count,
       const kv_db::RocksdbWriteMode w_mode =
           kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ /*unused*/) override {
-    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
-      feature_evict_pause();
-    }
+    pause_ongoing_eviction();
     std::vector<folly::Future<folly::Unit>> futures;
     auto shardid_to_indexes = shard_input(indices, count);
     for (auto iter = shardid_to_indexes.begin();
@@ -342,7 +284,8 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
                             FixedBlockPool::set_key(block, id);
                             wlmap->insert({id, block});
                           }
-                          if (feature_evict_config_.trigger_mode !=
+                          if (feature_evict_config_.has_value() &&
+                              feature_evict_config_.value()->trigger_mode_ !=
                                   EvictTriggerMode::DISABLED &&
                               feature_evict_) {
                             feature_evict_->update_feature_statistics(block);
@@ -359,11 +302,7 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
               });
       futures.push_back(std::move(f));
     }
-    auto result = folly::collect(futures);
-    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
-      feature_evict_resume();
-    }
-    return result;
+    return folly::collect(futures);
   }
 
   /// Get embeddings from kvstore.
@@ -383,9 +322,9 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
       const at::Tensor& count,
       int64_t width_offset = 0,
       std::optional<int64_t> width_length = std::nullopt) {
-    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
-      feature_evict_pause();
-    }
+    // assuming get is called once each iteration and only by train
+    // iteration(excluding state_dict)
+    pause_ongoing_eviction(); // noop calls, no impact if called multiple times
     std::vector<folly::Future<folly::Unit>> futures;
     auto row_width = weights.size(1);
     auto copy_width = width_length.value_or(row_width);
@@ -476,17 +415,14 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
               });
       futures.push_back(std::move(f));
     }
-    auto result = folly::collect(futures);
-    if (feature_evict_config_.trigger_mode != EvictTriggerMode::DISABLED) {
-      feature_evict_resume();
-    }
-    return result;
+    return folly::collect(futures);
   };
 
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
       const at::Tensor& indices,
       const at::Tensor& weights,
       const at::Tensor& count) override {
+    current_iter_++;
     return get_kv_db_async_impl(indices, weights, count);
   }
 
@@ -514,6 +450,10 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
     get_kv_db_async_impl(
         seq_indices, weights, count, width_offset, width_length)
         .wait();
+    // this is called by checkpoint mostly, and checkpoint should wait until
+    // eviction finishes so that we could reacha consistent state before/after
+    // state_dict() calls
+    // TODO: assert there isn't any eviction including paused
   }
 
   void get_kv_from_storage_by_snapshot(
@@ -526,6 +466,10 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
     const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
     get_kv_db_async_impl(ids, weights, count, width_offset, width_length)
         .wait();
+    // this is called by checkpoint mostly, and checkpoint should wait until
+    // eviction finishes so that we could reacha consistent state before/after
+    // state_dict() calls
+    // TODO: assert there isn't any eviction including paused
   }
 
   void compact() override {}
@@ -536,11 +480,16 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
     }
   }
 
-  void maybe_evict() {
-    switch (feature_evict_config_.trigger_mode) {
+  void maybe_evict() override {
+    if (!feature_evict_config_.has_value()) {
+      return;
+    }
+    switch (feature_evict_config_.value()->trigger_mode_) {
       case EvictTriggerMode::ITERATION: {
-        if (feature_evict_config_.trigger_step_interval > 0 &&
-            ++current_iter_ % feature_evict_config_.trigger_step_interval ==
+        if (feature_evict_config_.value()->trigger_step_interval_.value() > 0 &&
+            current_iter_ %
+                    feature_evict_config_.value()
+                        ->trigger_step_interval_.value() ==
                 0) {
           trigger_feature_evict();
         }
@@ -548,7 +497,8 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
       }
       case EvictTriggerMode::MEM_UTIL: {
         auto mem_util = get_map_used_memsize() / (1024 * 1024 * 1024);
-        if (mem_util > feature_evict_config_.mem_util_threshold_in_GB) {
+        if (mem_util >
+            feature_evict_config_.value()->mem_util_threshold_in_GB_.value()) {
           trigger_feature_evict();
         }
         break;
@@ -558,12 +508,24 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
     }
   }
 
-  size_t get_map_used_memsize() const {
+  // wait until eviction finishes, if any
+  void wait_until_eviction_done() override {
+    if (feature_evict_) {
+      feature_evict_->wait_until_eviction_done();
+    }
+  }
+
+  size_t get_map_used_memsize() const override {
     return kv_store_.getUsedMemSize();
   }
 
-  FeatureEvictMetricTensors get_feature_evict_metric() const {
-    if (feature_evict_config_.trigger_mode == EvictTriggerMode::DISABLED) {
+  std::optional<FeatureEvictMetricTensors> get_feature_evict_metric()
+      const override {
+    if (!feature_evict_config_.has_value()) {
+      return std::nullopt;
+    }
+    if (feature_evict_config_.value()->trigger_mode_ ==
+        EvictTriggerMode::DISABLED) {
       throw std::runtime_error("feature evict is disabled");
     }
     return feature_evict_->get_feature_evict_metric();
@@ -681,15 +643,21 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
 
   void flush_or_compact(const int64_t timestep) override {}
 
-  void feature_evict_resume() {
+  void resume_ongoing_eviction() override {
     if (feature_evict_) {
       feature_evict_->resume();
     }
   }
 
-  void feature_evict_pause() {
-    if (feature_evict_) {
-      feature_evict_->pause();
+  void pause_ongoing_eviction() override {
+    if (!feature_evict_config_.has_value()) {
+      return;
+    }
+    if (feature_evict_config_.value()->trigger_mode_ !=
+        EvictTriggerMode::DISABLED) {
+      if (feature_evict_) {
+        feature_evict_->pause();
+      }
     }
   }
 
@@ -707,7 +675,7 @@ class DramKVEmbeddingCache : public DramKVEmbeddingBase {
   int64_t elem_size_;
   std::vector<int64_t> sub_table_dims_;
   std::vector<int64_t> sub_table_hash_cumsum_;
-  FeatureEvictConfig feature_evict_config_;
+  std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
   int current_iter_ = 0;
 }; // class DramKVEmbeddingCache

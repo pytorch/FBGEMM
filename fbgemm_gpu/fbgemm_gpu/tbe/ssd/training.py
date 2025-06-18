@@ -248,6 +248,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.total_hash_size_bits: int = 0
         else:
             self.total_hash_size_bits: int = int(log2(float(hash_size_cumsum[-1])) + 1)
+        self.register_buffer(
+            "table_hash_size_cumsum",
+            torch.tensor(
+                hash_size_cumsum, device=self.current_device, dtype=torch.int64
+            ),
+        )
         # The last element is to easily access # of rows of each table by
         self.total_hash_size_bits = int(log2(float(hash_size_cumsum[-1])) + 1)
         self.total_hash_size: int = hash_size_cumsum[-1]
@@ -287,6 +293,10 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.register_buffer(
             "feature_dims",
             torch.tensor(feature_dims, device="cpu", dtype=torch.int64),
+        )
+        self.register_buffer(
+            "table_dims",
+            torch.tensor(dims, device="cpu", dtype=torch.int64),
         )
 
         (info_B_num_bits_, info_B_mask_) = torch.ops.fbgemm.get_infos_metadata(
@@ -518,6 +528,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 logging.warning("dist is not initialized, treating as single gpu cases")
                 tbe_unique_id = SSDTableBatchedEmbeddingBags._local_instance_index
         self.tbe_unique_id = tbe_unique_id
+        self.l2_cache_size = l2_cache_size
         logging.info(f"tbe_unique_id: {tbe_unique_id}")
         if self.backend_type == BackendType.SSD:
             logging.info(
@@ -564,12 +575,12 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 self.res_params.table_offsets,
                 self.res_params.table_sizes,
                 (
-                    tensor_pad4(self.feature_dims.cpu())
+                    tensor_pad4(self.table_dims)
                     if self.enable_optimizer_offloading
                     else None
                 ),
                 (
-                    self.hash_size_cumsum.cpu()
+                    self.table_hash_size_cumsum.cpu()
                     if self.enable_optimizer_offloading
                     else None
                 ),
@@ -609,28 +620,42 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"feature_dims={self.feature_dims},"
                 f"hash_size_cumsum={self.hash_size_cumsum}"
             )
+            table_dims = (
+                tensor_pad4(self.table_dims)
+                if self.enable_optimizer_offloading
+                else None
+            )  # table_dims
+            eviction_config = None
+            if self.kv_zch_params and self.kv_zch_params.eviction_policy:
+                eviction_mem_threshold_gb = (
+                    self.kv_zch_params.eviction_policy.eviction_mem_threshold_gb
+                    if self.kv_zch_params.eviction_policy.eviction_mem_threshold_gb
+                    else self.l2_cache_size
+                )
+                eviction_config = torch.classes.fbgemm.FeatureEvictConfig(
+                    self.kv_zch_params.eviction_policy.eviction_trigger_mode,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+                    self.kv_zch_params.eviction_policy.eviction_strategy,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+                    self.kv_zch_params.eviction_policy.eviction_step_intervals,  # trigger_step_interval if trigger mode is iteration
+                    eviction_mem_threshold_gb,  # mem_util_threshold_in_GB if trigger mode is mem_util
+                    self.kv_zch_params.eviction_policy.ttls_in_mins,  # ttls_in_mins for each table if eviction strategy is timestamp
+                    self.kv_zch_params.eviction_policy.counter_thresholds,  # counter_thresholds for each table if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.counter_decay_rates,  # counter_decay_rates for each table if eviction strategy is feature score
+                    self.kv_zch_params.eviction_policy.l2_weight_thresholds,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+                    table_dims.tolist() if table_dims is not None else None,
+                    self.kv_zch_params.eviction_policy.interval_for_insufficient_eviction_s,
+                    self.kv_zch_params.eviction_policy.interval_for_sufficient_eviction_s,
+                )
             self._ssd_db = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
                 self.cache_row_dim,
                 ssd_uniform_init_lower,
                 ssd_uniform_init_upper,
-                0,  # eviction is disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
-                0,  # trigger_step_interval if trigger mode is iteration
-                0,  # mem_util_threshold_in_GB if trigger mode is mem_util
-                0,  # evict_trigger_strategy: 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
-                None,  # count_thresholds for each table if eviction strategy is feature score
-                None,  # ttls_in_mins for each table if eviction strategy is timestamp
-                None,  # count_decay_rates for each table if eviction strategy is feature score
-                None,  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+                eviction_config,
                 ssd_rocksdb_shards,  # num_shards
                 ssd_rocksdb_shards,  # num_threads
                 weights_precision.bit_rate(),  # row_storage_bitwidth
+                table_dims,
                 (
-                    tensor_pad4(self.feature_dims.cpu())
-                    if self.enable_optimizer_offloading
-                    else None
-                ),  # table_dims
-                (
-                    self.hash_size_cumsum.cpu()
+                    self.table_hash_size_cumsum.cpu()
                     if self.enable_optimizer_offloading
                     else None
                 ),  # hash_size_cumsum
@@ -2434,6 +2459,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     f"created snapshot for weight states: {snapshot_handle}, latency: {(time.time() - start_time) * 1000} ms"
                 )
         elif self.backend_type == BackendType.DRAM:
+            # if there is any ongoing eviction, lets wait until eviction is finished before state_dict
+            # so that we can reach consistent model state before/after state_dict
+            evict_wait_start_time = time.time()
+            self.ssd_db.wait_until_eviction_done()
+            logging.info(
+                f"state_dict wait for ongoing eviction: {time.time() - evict_wait_start_time} s"
+            )
             self.flush(force=should_flush)
         return snapshot_handle, checkpoint_handle
 
