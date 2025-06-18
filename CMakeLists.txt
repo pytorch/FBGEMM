@@ -371,12 +371,9 @@ target_include_directories(fbgemm BEFORE
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
 
-target_link_libraries(fbgemm PRIVATE
+target_link_libraries(fbgemm PUBLIC
   $<BUILD_INTERFACE:asmjit>
   $<BUILD_INTERFACE:cpuinfo>)
-add_dependencies(fbgemm
-  asmjit
-  cpuinfo)
 
 if(OpenMP_FOUND)
   target_link_libraries(fbgemm PRIVATE OpenMP::OpenMP_CXX)
