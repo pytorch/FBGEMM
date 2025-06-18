@@ -44,13 +44,19 @@ except ModuleNotFoundError:
 
 
 @functools.lru_cache
-def supports_float8_fnuz() -> bool:
+def supports_float8_fnuz(throw_on_hip_incompatibility: bool = True) -> bool:
     if torch.version.hip:
         device_capability = torch.cuda.get_device_capability()
 
         if device_capability < (9, 4):
             gpu_arch = torch.cuda.get_device_properties("cuda").gcnArchName
-            raise RuntimeError(f"Unsupported GPU arch: {gpu_arch} for FP8")
+            msg = f"Unsupported GPU arch: {gpu_arch} for FP8"
+            if throw_on_hip_incompatibility:
+                raise RuntimeError(msg)
+            else:
+                logging.error(msg)
+                return False
+
         elif device_capability == (9, 4):
             return True
 
@@ -3416,6 +3422,34 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
             "kpack": 1,
         },
         num_warps=8,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 128,
+            "BLOCK_K": 64,
+            "GROUP_M": 4,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 64,
+            "BLOCK_K": 64,
+            "GROUP_M": 4,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
         num_stages=2,
     ),
 ]

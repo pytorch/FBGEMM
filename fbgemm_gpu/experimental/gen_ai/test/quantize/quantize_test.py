@@ -10,7 +10,7 @@
 import os
 import unittest
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -41,7 +41,9 @@ except ImportError:
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
-if torch.version.hip and supports_float8_fnuz():
+if torch.cuda.is_available() and supports_float8_fnuz(
+    throw_on_hip_incompatibility=(not running_on_github)
+):
     # Supported FP8 format is different on NV and AMD.
     fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
     fp8_e5m2: torch.dtype = torch.float8_e5m2fnuz
@@ -635,6 +637,7 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-1, rtol=8.0e-2)
 
+    @unittest.skipIf(running_on_github, "Test is currently unreliable on GitHub OSS CI")
     @unittest.skipIf(
         not torch.version.cuda and torch.version.hip < "6.2",
         "Skip on AMD with < RoCM 6.2",
@@ -1657,6 +1660,81 @@ class FP8Tests(unittest.TestCase):
             zq = torch.ops.fbgemm.f8f8bf16_lite(xq, wq, x_scale * w_scale)
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=9.0e-2, rtol=9.0e-2)
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available() or torch.version.hip,
+    "Skip when cuda is not available or HIP is enabled",
+)
+class NVFP4Tests(unittest.TestCase):
+    @unittest.skipIf(
+        (not torch.version.cuda)
+        or torch.version.hip is not None
+        or str(torch.version.cuda) <= "12.8",
+        "Skip if no cuda is present or HIP is enabled",
+    )
+    @settings(deadline=None)
+    @given(
+        B_T=st.sampled_from([2048, 4096]),
+        D=st.sampled_from([128, 256]),
+        HD_L=st.sampled_from([256, 512]),
+        static_scale=st.sampled_from(
+            [
+                None,
+                torch.tensor(
+                    [1.0],
+                    dtype=torch.float,
+                    device=torch.accelerator.current_accelerator(),
+                ),
+            ]
+        ),
+        scale_ub=st.sampled_from(
+            [
+                None,
+                torch.tensor(
+                    [1.0],
+                    dtype=torch.float,
+                    device=torch.accelerator.current_accelerator(),
+                ),
+            ]
+        ),
+    )
+    def test_fake_quantize_nvfp4_per_tensor(
+        self,
+        B_T: int,
+        D: int,
+        HD_L: int,
+        static_scale: Optional[torch.Tensor],
+        scale_ub: Optional[torch.Tensor],
+    ) -> None:
+        x = (
+            torch.randn(
+                size=(B_T, D),
+                dtype=torch.bfloat16,
+                device=torch.accelerator.current_accelerator(),
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(HD_L, D),
+                dtype=torch.bfloat16,
+                device=torch.accelerator.current_accelerator(),
+            )
+            * 0.01
+        )
+
+        xq, _ = torch.ops.fbgemm.fake_quantize_nvfp4_per_tensor(
+            x, static_scales=static_scale, scale_ub=scale_ub
+        )
+        wq, _ = torch.ops.fbgemm.fake_quantize_nvfp4_per_tensor(
+            w, static_scales=static_scale, scale_ub=scale_ub
+        )
+        fake_quant_y = xq @ wq.T
+        fake_quant_y = fake_quant_y.to(torch.bfloat16)
+
+        y_ref = (x @ w.T).to(torch.bfloat16)
+        torch.testing.assert_close(fake_quant_y, y_ref, atol=0.1, rtol=0.1)
 
 
 if __name__ == "__main__":

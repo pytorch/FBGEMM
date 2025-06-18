@@ -272,7 +272,8 @@ __configure_fbgemm_gpu_build_cuda () {
       local arch_list="7.0"
     fi
 
-    if    [[ $cuda_version_nvcc == *"V12.8"* ]]; then
+    if    [[ $cuda_version_nvcc == *"V12.9"* ]] ||
+          [[ $cuda_version_nvcc == *"V12.8"* ]]; then
       local arch_list="${arch_list};8.0;9.0a;10.0a;12.0a"
 
     elif  [[ $cuda_version_nvcc == *"V12.6"* ]] ||
@@ -282,6 +283,7 @@ __configure_fbgemm_gpu_build_cuda () {
 
     else
       local arch_list="${arch_list};8.0;9.0"
+      echo "[BUILD] Unknown NVCC version $cuda_version_nvcc - setting TORCH_CUDA_ARCH_LIST to: ${arch_list}"
     fi
   fi
   echo "[BUILD] Setting the following CUDA targets: ${arch_list}"

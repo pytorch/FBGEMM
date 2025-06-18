@@ -60,6 +60,12 @@ class FeatureGateName(Enum):
     # Enable bounds_check_indices_v2
     BOUNDS_CHECK_INDICES_V2 = auto()
 
+    # Disable FP8 quantization vectorization
+    DISABLE_FP8_QUANT_VECTORIZATION = auto()
+
+    # Enable TBE input parameters extraction
+    TBE_REPORT_INPUT_PARAMS = auto()
+
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)
 
