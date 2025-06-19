@@ -111,7 +111,7 @@ class TBEDataConfigLoader:
                 "--tbe-offsets-dtype",
                 type=click.Choice(["32", "64"]),
                 default="64",
-                help="The dtype of the table indices offsets",
+                help="The dtype of the table offsets",
             ),
             ####################################################################
             # Pooling Parameters
