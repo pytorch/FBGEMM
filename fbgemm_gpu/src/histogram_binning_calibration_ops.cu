@@ -31,7 +31,7 @@ __launch_bounds__(kMaxThreads) void histogram_binning_calibration_kernel(
     const double* const bin_num_positives_data,
     T* const calibrated_prediction_data,
     int64_t* const bin_ids_data) {
-  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_logits) {
     return;
   }
@@ -106,7 +106,7 @@ __global__ __launch_bounds__(kMaxThreads) void to_dense_segment_value_kernel(
     const ValueType* const segment_value_data,
     const OffsetType* const segment_offsets_data,
     ValueType* const dense_segment_value_data) {
-  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_lengths - 1) {
     return;
   }
@@ -138,7 +138,7 @@ __launch_bounds__(kMaxThreads) void histogram_binning_calibration_by_feature_ker
     const double* const bin_num_positives_data,
     LogitType* const calibrated_prediction_data,
     int64_t* const bin_ids_data) {
-  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_logits) {
     return;
   }
@@ -281,7 +281,7 @@ __launch_bounds__(kMaxThreads) void generic_histogram_binning_calibration_by_fea
     const double* const bin_boundaries,
     LogitType* const calibrated_prediction_data,
     int64_t* const bin_ids_data) {
-  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_logits) {
     return;
   }

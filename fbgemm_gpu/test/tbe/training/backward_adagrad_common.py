@@ -82,8 +82,10 @@ common_strategy: Dict[str, Any] = {
     "use_cache": st.booleans(),
     "cache_algorithm": st.sampled_from(CacheAlgorithm),
     "use_cpu": use_cpu_strategy(),
-    "output_dtype": st.sampled_from(
-        [SparseType.FP32, SparseType.FP16, SparseType.BF16]
+    "output_dtype": (
+        st.sampled_from([SparseType.FP32, SparseType.FP16, SparseType.BF16])
+        if gpu_available
+        else st.sampled_from([SparseType.FP32, SparseType.FP16])
     ),
 }
 
@@ -127,10 +129,8 @@ def execute_backward_adagrad(  # noqa C901
     # max_norm is only applicable to EXACT_ROWWISE_ADAGRAD GPU version
     assume(max_norm == 0.0 or (not use_cpu and row_wise))
 
-    assume(
-        pooling_mode == PoolingMode.SUM or not weighted
-    )  # No bag ops only work on GPUs, no mixed, no weighted
-    assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+    assume(pooling_mode == PoolingMode.SUM or not weighted)
+    # no mixed, no weighted
     assume(not mixed or pooling_mode != PoolingMode.NONE)
     assume(not weighted or pooling_mode != PoolingMode.NONE)
     # TODO: Support these cases

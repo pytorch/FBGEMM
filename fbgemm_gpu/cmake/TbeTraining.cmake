@@ -26,8 +26,20 @@ handle_genfiles_rocm(gen_gpu_files_forward_split)
 get_tbe_sources_list(static_cpu_files_training)
 get_tbe_sources_list(gen_cpu_files_training)
 get_tbe_sources_list(gen_gpu_files_training)
+get_tbe_sources_list(gen_cpu_files_training_pt2)
+get_tbe_sources_list(gen_gpu_files_training_pt2)
+get_tbe_sources_list(gen_gpu_files_training_dense)
+get_tbe_sources_list(gen_gpu_files_training_split_host)
+get_tbe_sources_list(gen_gpu_files_training_gwd)
+get_tbe_sources_list(gen_gpu_files_training_vbe)
 handle_genfiles_rocm(gen_cpu_files_training)
 handle_genfiles_rocm(gen_gpu_files_training)
+handle_genfiles_rocm(gen_cpu_files_training_pt2)
+handle_genfiles_rocm(gen_gpu_files_training_pt2)
+handle_genfiles_rocm(gen_gpu_files_training_dense)
+handle_genfiles_rocm(gen_gpu_files_training_split_host)
+handle_genfiles_rocm(gen_gpu_files_training_gwd)
+handle_genfiles_rocm(gen_gpu_files_training_vbe)
 
 # Index Select
 get_tbe_sources_list(static_cpu_files_index_select)
@@ -75,6 +87,7 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
   CPU_SRCS
     src/split_embeddings_utils/split_embeddings_utils_cpu.cpp
+    src/split_embeddings_utils/split_embeddings_utils_meta.cpp
   GPU_SRCS
     src/split_embeddings_utils/split_embeddings_utils.cpp
     src/split_embeddings_utils/generate_vbe_metadata.cu
@@ -111,10 +124,11 @@ gpu_cpp_library(
     ${static_cpu_files_common}
   GPU_SRCS
     ${static_gpu_files_common}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm
+    fbgemm_gpu_config
   DESTINATION
     fbgemm_gpu)
 
@@ -127,7 +141,7 @@ gpu_cpp_library(
     ${fbgemm_sources_include_directories}
   GPU_SRCS
     ${gen_defused_optim_src_files}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DESTINATION
     fbgemm_gpu)
@@ -143,8 +157,33 @@ gpu_cpp_library(
     ${gen_cpu_files_forward_split}
   GPU_SRCS
     ${gen_gpu_files_forward_split}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_common
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward_pt2
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  CPU_SRCS
+    ${gen_cpu_files_training_pt2}
+  GPU_SRCS
+    ${gen_gpu_files_training_pt2}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm
+    fbgemm_gpu_config
+    fbgemm_gpu_tbe_cache
+    fbgemm_gpu_tbe_common
+    fbgemm_gpu_tbe_utils
+    fbgemm_gpu_sparse_async_cumsum
   DESTINATION
     fbgemm_gpu)
 
@@ -162,7 +201,7 @@ gpu_cpp_library(
     ${gen_gpu_files_training}
   HIP_SPECIFIC_SRCS
     ${gen_hip_files_training}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm
@@ -171,6 +210,71 @@ gpu_cpp_library(
     fbgemm_gpu_tbe_common
     fbgemm_gpu_tbe_utils
     fbgemm_gpu_sparse_async_cumsum
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward_gwd
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${gen_gpu_files_training_gwd}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_training_backward
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward_vbe
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${gen_gpu_files_training_vbe}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_training_backward
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward_dense
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${gen_gpu_files_training_dense}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_tbe_training_backward
+  DESTINATION
+    fbgemm_gpu)
+
+gpu_cpp_library(
+  PREFIX
+    fbgemm_gpu_tbe_training_backward_split_host
+  TYPE
+    SHARED
+  INCLUDE_DIRS
+    ${fbgemm_sources_include_directories}
+  GPU_SRCS
+    ${gen_gpu_files_training_split_host}
+  NVCC_FLAGS
+    ${TORCH_CUDA_OPTIONS}
+  DEPS
+    fbgemm_gpu_config
+    fbgemm_gpu_tbe_utils
   DESTINATION
     fbgemm_gpu)
 
@@ -186,7 +290,7 @@ gpu_cpp_library(
   GPU_SRCS
     ${static_gpu_files_index_select}
     ${gen_gpu_files_index_select}
-  GPU_FLAGS
+  NVCC_FLAGS
     ${TORCH_CUDA_OPTIONS}
   DEPS
     fbgemm_gpu_sparse_async_cumsum

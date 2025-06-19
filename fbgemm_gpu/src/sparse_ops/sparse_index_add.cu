@@ -30,7 +30,7 @@ __launch_bounds__(kMaxThreads) void index_add_2d_with_unique_indices_kernel(
     const int remaining_D,
     const bool consecutive_indices,
     const int consecutive_range_start) {
-  const int start_offset = blockIdx.x == 0 ? 0 : offsets[blockIdx.x - 1];
+  const auto start_offset = blockIdx.x == 0 ? 0 : offsets[blockIdx.x - 1];
   const int end_offset = offsets[blockIdx.x];
   index_t dst_idx = consecutive_indices ? blockIdx.x + consecutive_range_start
                                         : unique_indices[blockIdx.x];

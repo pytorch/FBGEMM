@@ -25,7 +25,7 @@ class FeatureGateName(Enum):
 
     .. code-block:: python
 
-        from deeplearning.fbgemm.fbgemm_gpu.config import FeatureGateName
+        from fbgemm_gpu.config import FeatureGateName
 
         def foo():
             if FeatureGateName.TBE_V2.is_enabled():
@@ -51,8 +51,17 @@ class FeatureGateName(Enum):
     # Enable Ensemble Rowwise Adagrad (D60189486 stack)
     TBE_ENSEMBLE_ROWWISE_ADAGRAD = auto()
 
+    # Enable ROCm packed bags optimization in TBE inference
+    TBE_ROCM_INFERENCE_PACKED_BAGS = auto()
+
+    # Enable HIP-based backward kernels in TBE training
+    TBE_ROCM_HIP_BACKWARD_KERNEL = auto()
+
     # Enable bounds_check_indices_v2
     BOUNDS_CHECK_INDICES_V2 = auto()
+
+    # Disable FP8 quantization vectorization
+    DISABLE_FP8_QUANT_VECTORIZATION = auto()
 
     def is_enabled(self) -> bool:
         return FeatureGate.is_enabled(self)

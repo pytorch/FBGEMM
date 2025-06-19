@@ -23,7 +23,7 @@ try:
     #  in `deeplearning.fbgemm.fbgemm_gpu.codegen.genscript.optimizers`.
     from .optimizers import *
     from .common import CodeTemplate
-    from .optimizer_args import OptimizerArgsSet
+    from .optimizer_args import annotation_dict, OptimizerArgsSet
     from .scripts_argsparse import args
 except ImportError:
     from optimizers import *
@@ -32,7 +32,7 @@ except ImportError:
     from common import CodeTemplate
 
     # pyre-ignore[21]
-    from optimizer_args import OptimizerArgsSet
+    from optimizer_args import annotation_dict, OptimizerArgsSet
 
     # pyre-ignore[21]
     from scripts_argsparse import args
@@ -187,7 +187,11 @@ class BackwardSplitGenerator:
                     ),
                 ]:
                     CodeTemplate.load(template_filepath).write(
-                        filename, is_forward=False, ssd=ssd, **kwargs
+                        filename,
+                        is_forward=False,
+                        ssd=ssd,
+                        schema_annotation=annotation_dict,
+                        **kwargs,
                     )
 
                 if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
@@ -197,7 +201,6 @@ class BackwardSplitGenerator:
                     )
                     for filename in [
                         f"lookup_{optimizer}{sdesc}.py",
-                        f"lookup_{optimizer}{sdesc}_pt2.py",
                     ]:
                         template.write(
                             filename, is_fbcode=args.is_fbcode, ssd=ssd, **kwargs
@@ -243,7 +246,10 @@ class BackwardSplitGenerator:
                 ),
             ]:
                 CodeTemplate.load(template_filepath).write(
-                    filename, is_forward=False, **kwargs
+                    filename,
+                    is_forward=False,
+                    schema_annotation=annotation_dict,
+                    **kwargs,
                 )
 
     @staticmethod
@@ -332,6 +338,26 @@ class BackwardSplitGenerator:
         )
 
     @staticmethod
+    def generate_backward_header(
+        aux_args: Dict[str, List[str]], aux_names: List[str], is_ssd: bool = False
+    ) -> None:
+        """
+        Generate a header file that contains enum of argument order from the dict
+
+        Parameters:
+            aux_args (Dict[str, List[str]]): a dict containing a list of arguments
+            aux_names (List[str]): names of the argument types (e.g. aux_tensor, aux_int, etc.)
+        Return:
+            None
+        """
+        # Generate backward header for PT2 Autograd
+        template = CodeTemplate.load("training/pt2/pt2_arg_utils_template.h")
+        name_suffix = "_ssd" if is_ssd else ""
+        template.write(
+            f"pt2_arg_utils{name_suffix}.h", aux_args=aux_args, aux_names=aux_names
+        )
+
+    @staticmethod
     def generate_python_sources(
         all_optimizers: List[str], ssd_optimizers: List[str]
     ) -> None:
@@ -375,6 +401,46 @@ class BackwardSplitGenerator:
             "actions_count",
         ]
 
+        aux_names = ["aux_tensor", "aux_int", "aux_float", "aux_bool"]
+        # This is a dict of auxilary arguments used in TBE PT2 interface where the aux
+        # arguments of a type are packed into a list for that type. This dict maintains the
+        # order of the arguments of each type.
+        aux_args: Dict[str, List[str]] = {
+            "aux_tensor": [
+                "B_offsets",  # 0
+                "vbe_output_offsets_feature_rank",  # 1
+                "vbe_B_offsets_rank_per_feature",  # 2
+                "lxu_cache_locations",  # 3
+                "uvm_cache_stats",  # 4
+                "prev_iter_dev",  # 5
+            ],
+            "aux_int": [
+                "iter",  # 0
+                "info_B_num_bits",  # 1
+                "info_B_mask",  # 2
+            ],
+            "aux_float": [
+                "gwd_lower_bound",  # 0
+                "max_gradient",  # 1
+            ],
+            "aux_bool": [
+                "is_experimental_tbe",  # 0
+                "use_uniq_cache_locations_bwd",  # 1
+                "use_homogeneous_placements",  # 2
+                "apply_global_weight_decay",  # 3
+                "gradient_clipping",  # 4
+                "stochastic_rounding",  # 5
+                "mixed_D",  # 6
+            ],
+        }
+        # ssd-specific argument
+        ssd_aux_bool = [
+            "enable_optimizer_offloading",  # 7
+        ]
+        assert (
+            list(aux_args.keys()) == aux_names
+        ), f"{aux_names} must match {aux_args.keys()}"
+
         all_optimizers = []
         ssd_optimizers = []
 
@@ -386,9 +452,8 @@ class BackwardSplitGenerator:
                 all_optimizers.append(optim)
                 if optimizer["has_ssd_support"]:
                     ssd_optimizers.append(optim)
-
             BackwardSplitGenerator.generate_backward_split(
-                ssd_tensors=ssd_tensors, **optimizer
+                ssd_tensors=ssd_tensors, aux_args=aux_args, **optimizer
             )
         BackwardSplitGenerator.generate_rocm_backward_split()
 
@@ -398,6 +463,13 @@ class BackwardSplitGenerator:
         # Generate forwards and specialized backwards
         BackwardSplitGenerator.generate_backward_grad()
         BackwardSplitGenerator.generate_backward_indices()
+
+        # Generate headers for backwards
+        BackwardSplitGenerator.generate_backward_header(aux_args, aux_names)
+        aux_args["aux_bool"].extend(ssd_aux_bool)
+        BackwardSplitGenerator.generate_backward_header(
+            aux_args, aux_names, is_ssd=True
+        )
 
         BackwardSplitGenerator.generate_python_sources(all_optimizers, ssd_optimizers)
 

@@ -13,7 +13,7 @@
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 #if FBGEMM_GPU_MEMCHECK
@@ -46,6 +46,17 @@ void adjust_offset_cpu(
   *offsets_acc_end = indices_end;
 }
 
+void check_weights_dim_matches_indices(
+    const std::optional<Tensor>& weights,
+    int64_t num_indices) {
+  if (weights.has_value() && weights->numel() != 0) {
+    TORCH_CHECK(
+        weights.value().size(0) == num_indices,
+        "weights size " + std::to_string(weights.value().size(0)) +
+            " is not equal to indices size " + std::to_string(num_indices));
+  }
+}
+
 ///@addtogroup embedding-cpu
 void bounds_check_indices_cpu(
     Tensor& rows_per_table,
@@ -59,7 +70,8 @@ void bounds_check_indices_cpu(
     const std::optional<Tensor>& /*b_t_map*/,
     const int64_t /*info_B_num_bits*/,
     const int64_t /*info_B_mask*/,
-    const int8_t /*bounds_check_version*/) {
+    const int8_t /*bounds_check_version*/,
+    const bool /*prefetch_pipeline*/) {
   if (offsets.scalar_type() != indices.scalar_type()) {
     offsets = offsets.toType(indices.scalar_type());
   }
@@ -96,12 +108,7 @@ void bounds_check_indices_cpu(
               " is not equal to B (" + std::to_string(B) + ") * T (" +
               std::to_string(T) + ") + 1");
     }
-    if (weights.has_value()) {
-      TORCH_CHECK(
-          weights.value().size(0) == num_indices,
-          "weights size " + std::to_string(weights.value().size(0)) +
-              " is not equal to indices size " + std::to_string(num_indices));
-    }
+    check_weights_dim_matches_indices(weights, num_indices);
 
     if (bounds_check_mode == BoundsCheckMode::FATAL) {
       TORCH_CHECK(num_indices == offsets_acc[total_B]);
@@ -214,7 +221,8 @@ TORCH_LIBRARY_FRAGMENT(fb, m) {
       "    Tensor? b_t_map=None, "
       "    int info_B_num_bits=-1, "
       "    int info_B_mask=-1, "
-      "    int bounds_check_version=1"
+      "    int bounds_check_version=1, "
+      "    bool prefetch_pipeline=False"
       ") -> ()",
       {PT2_COMPLIANT_TAG});
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);
@@ -239,7 +247,8 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "    Tensor? b_t_map=None, "
       "    int info_B_num_bits=-1, "
       "    int info_B_mask=-1, "
-      "    int bounds_check_version=1"
+      "    int bounds_check_version=1, "
+      "    bool prefetch_pipeline=False"
       ") -> ()",
       {PT2_COMPLIANT_TAG});
   DISPATCH_TO_CPU("bounds_check_indices", bounds_check_indices_cpu);

@@ -23,7 +23,7 @@
 
 #include "./BenchUtils.h"
 #include "fbgemm/Fbgemm.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 #include "test/QuantizationHelpers.h"
 
 using namespace std;
@@ -131,7 +131,7 @@ void performance_test(
         });
     ttot *= 1e9; // convert to ns
 
-    ((volatile char*)(llc.data()));
+    std::ignore = ((volatile char*)(llc.data()));
 
     cout << setw(6) << m << ", " << setw(6) << n << ", " << setw(6) << k << ", "
          << setw(16) << runType << ", ";

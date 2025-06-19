@@ -34,7 +34,7 @@
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/find_qparams.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/vec4.cuh"
 #include "fbgemm_gpu/utils/vec4acc.cuh"
@@ -65,7 +65,7 @@ enum cache_conflict_miss_rate {
 namespace nbit {
 // "Effective" number of elements in the row when we include the row-wise
 // quantization parameters.
-__device__ inline int32_t padded_D(
+__host__ __device__ inline int32_t padded_D(
     const int32_t dim,
     const fbgemm_gpu::SparseType weight_ty) {
   switch (weight_ty) {

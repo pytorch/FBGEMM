@@ -9,7 +9,7 @@
 // clang-format off
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 
 using namespace fbgemm_gpu;
@@ -119,7 +119,7 @@ DEVICE_INLINE void compute_grad_sum_{{ kdesc }}(
         }
 
         for (int32_t sl = sl_start; sl < sl_end; sl += kThreadGroupSize) {
-            int32_t sl_j = sl + threadIdx.x;
+            auto sl_j = sl + threadIdx.x;
             {%- if not nobag %}
             const auto b_t = sl_j < sl_end
                 ? reinterpret_cast<const uint32_t*>(

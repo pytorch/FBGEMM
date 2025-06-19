@@ -279,6 +279,203 @@ class BlockBucketizeTest(unittest.TestCase):
         use_cpu=st.booleans() if gpu_available else st.just(True),
         keep_orig_idx=st.booleans(),
         sequence=st.booleans(),
+        bucketize_pos=st.booleans(),
+    )
+    @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
+    def test_block_bucketize_sparse_features_keep_orig_idx_per_feature(
+        self,
+        long_indices: bool,
+        use_cpu: bool,
+        keep_orig_idx: bool,
+        sequence: bool,
+        bucketize_pos: bool,
+    ) -> None:
+        index_type = torch.long if long_indices else torch.int
+        # 3 GPUs
+        my_size = 3
+        block_sizes = torch.tensor([3, 4, 5], dtype=index_type)
+        keep_orig_idx_per_feature = None
+
+        if not long_indices:
+            # batch size 2, 3 features to 3 gpus
+            lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+            indices = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0], dtype=index_type)
+
+            new_lengths_ref = torch.tensor(
+                [
+                    0,
+                    2,
+                    0,
+                    0,
+                    0,
+                    1,  # GPU 0, F0 = [0-3), F1 = [0-4), F2 = [0-5)
+                    0,
+                    1,
+                    2,
+                    0,
+                    1,
+                    3,  # GPU 1, F0 = [3-6), F1 = [4-8), F2 = [5-10)
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,  # GPU 2, F0 = [6-9), F1 = [8-12), F2 = [10-15)
+                ],
+                dtype=index_type,
+            )
+            if keep_orig_idx:
+                # override keep_orig_idx settings: f0 to keep original indices, and f1, f2 to bucketized indices
+                keep_orig_idx_per_feature = torch.tensor(
+                    [True, False, False], dtype=torch.bool
+                )
+
+                new_indices_ref = torch.tensor(
+                    [
+                        1,  # R0 F0 B1 keep original indices
+                        2,  # R0 F0 B1 keep original indices
+                        0,
+                        3,  # R1 F0 B1 keep original indices
+                        0,
+                        1,
+                        1,
+                        2,
+                        3,
+                        4,
+                        0,
+                    ],
+                    dtype=index_type,
+                )
+            else:
+                # override keep_orig_idx settings: f1 to keep original indices, and f0, f2 to bucketized indices
+                keep_orig_idx_per_feature = torch.tensor(
+                    [False, True, False], dtype=torch.bool
+                )
+                new_indices_ref = torch.tensor(
+                    [
+                        1,
+                        2,
+                        0,
+                        0,
+                        4,  # R1 F1 B0 keep original indices
+                        5,  # R1 F1 B0 keep original indices
+                        1,
+                        2,
+                        3,
+                        4,
+                        0,
+                    ],
+                    dtype=index_type,
+                )
+
+        else:
+            lengths = torch.tensor([0, 3, 2, 0, 1, 5], dtype=index_type)
+            # Test long and negative indices: -8 will be casted to 18446644015555759292
+            indices = torch.tensor(
+                [1, 2, 3, 100061827127359, 5, 6, 7, -8, 100058153792324, 10, 0],
+                dtype=index_type,
+            )
+            new_lengths_ref = torch.tensor(
+                [
+                    0,
+                    2,
+                    0,
+                    0,
+                    0,
+                    1,  # GPU 0, F0 = [0-3), F1 = [0-4), F2 = [0-5) + relevant outliers
+                    0,
+                    1,
+                    2,
+                    0,
+                    1,
+                    1,  # GPU 1, F0 = [3-6), F1 = [4-8), F2 = [5-10) + relevant outliers
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    3,  # GPU 2, F0 = [6-9), F1 = [8-12), F2 = [10-15) + relevant outliers
+                ],
+                dtype=index_type,
+            )
+
+            if keep_orig_idx:
+                # override keep_orig_idx settings: f2 to keep original indices, and f0, f1 to bucketized indices
+                keep_orig_idx_per_feature = torch.tensor(
+                    [False, False, True], dtype=torch.bool
+                )
+                new_indices_ref = torch.tensor(
+                    [
+                        1,
+                        2,
+                        0,  # F2 original indices
+                        0,
+                        33353942375786,  # bucketized indices: 100061827127359/3 = 33353942375786
+                        1,
+                        6,  # F2 original indices
+                        7,  # F2 original indices
+                        -8,  # F2 original indices
+                        100058153792324,  # F2 original indices
+                        10,  # F2 original indices
+                    ],
+                    dtype=index_type,
+                )
+
+            else:
+                # override keep_orig_idx settings: f0, f2 to keep original indices, and f1 to bucketized indices
+                keep_orig_idx_per_feature = torch.tensor(
+                    [True, False, True], dtype=torch.bool
+                )
+                new_indices_ref = torch.tensor(
+                    [
+                        1,  # F0 original indices
+                        2,  # F0 original indices
+                        0,
+                        3,  # F0 original indices
+                        33353942375786,  # 100061827127359/3 = 33353942375786
+                        1,
+                        6,  # F2 original indices
+                        7,  # F2 original indices
+                        -8,  # F2 original indices
+                        100058153792324,  # F2 original indices
+                        10,  # F2 original indices
+                    ],
+                    dtype=index_type,
+                )
+        (
+            new_lengths,
+            new_indices,
+            _,
+            _,
+            _,
+        ) = torch.ops.fbgemm.block_bucketize_sparse_features(
+            lengths.cuda() if not use_cpu else lengths,
+            indices.cuda() if not use_cpu else indices,
+            bucketize_pos,
+            sequence,
+            block_sizes.cuda() if not use_cpu else block_sizes,
+            my_size,
+            None,
+            keep_orig_idx=keep_orig_idx,
+            keep_orig_idx_per_feature=(
+                keep_orig_idx_per_feature.cuda()
+                if not use_cpu
+                else keep_orig_idx_per_feature
+            ),
+        )
+        torch.testing.assert_close(new_lengths.cpu(), new_lengths_ref)
+        torch.testing.assert_close(
+            new_indices.cpu(),
+            new_indices_ref,
+            msg=f"{new_indices.cpu()=} != {new_indices_ref=}",
+        )
+
+    @skipIfRocm(ROCM_FAILURE_MESSAGE)
+    @given(
+        long_indices=st.booleans(),
+        use_cpu=st.booleans() if gpu_available else st.just(True),
+        keep_orig_idx=st.booleans(),
+        sequence=st.booleans(),
     )
     @settings(verbosity=Verbosity.verbose, max_examples=16, deadline=None)
     def test_block_bucketize_sparse_features_total_num_blocks_uneven_raw_ids(
@@ -525,6 +722,7 @@ class BlockBucketizeTest(unittest.TestCase):
         torch.testing.assert_close(
             new_indices.cpu(), new_indices_ref, msg=f"{new_indices=}"
         )
+        assert new_weights is None and new_pos is None
         if unbucketize_permute is not None:
             torch.testing.assert_close(
                 unbucketize_permute.cpu(),

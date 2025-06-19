@@ -7,7 +7,7 @@
 
 # pyre-strict
 
-from typing import NamedTuple, Optional, Dict
+from typing import NamedTuple, Optional, Dict, List
 
 import torch
 
@@ -49,14 +49,18 @@ class CommonArgs(NamedTuple):
     {%- if ssd %}
     ssd_tensors: Dict[str, torch.Tensor]
     {%- endif %}
+    learning_rate_tensor: torch.Tensor
+    info_B_num_bits: int
+    info_B_mask: int
 
 
+# Do not add a parameter of Type tensor here. It will cause JIT script error due to a bug in PyTorch.
+# See more detail in D71010630.
 class OptimizerArgs(NamedTuple):
     stochastic_rounding: bool
     gradient_clipping: bool
     max_gradient: float
     max_norm: float
-    learning_rate: float
     eps: float
     beta1: float
     beta2: float

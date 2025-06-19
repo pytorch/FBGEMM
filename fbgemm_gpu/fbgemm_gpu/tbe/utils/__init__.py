@@ -9,5 +9,5 @@
 
 from .common import get_device, round_up, to_device  # noqa: F401
 from .offsets import b_indices, get_table_batched_offsets_from_dense  # noqa: F401
-from .quantize import fake_quantize_embs, quantize_embs  # noqa: F401
+from .quantize import dequantize_embs, fake_quantize_embs, quantize_embs  # noqa: F401
 from .requests import generate_requests, TBERequest  # noqa: F401

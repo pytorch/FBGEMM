@@ -7,7 +7,7 @@
  */
 
 #pragma once
-#include <asmjit/asmjit.h>
+#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <cassert>
 #include <cstdint>
@@ -17,7 +17,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
-#include "./CodeCache.h"
+#include "./CodeCache.h" // @manual
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/SimdUtils.h"

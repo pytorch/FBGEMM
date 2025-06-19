@@ -351,8 +351,10 @@ class NBitFowardTestCommon(unittest.TestCase):
             f = torch.cat(fs, dim=0).view(-1, D)
 
         if fc2.dtype == torch.quint4x2:
-            fc2_float = torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfFrontToFloat(
-                fc2.cpu(), bit_rate=4
+            fc2_float = (
+                torch.ops.fbgemm.FusedNBitRowwiseQuantizedSBHalfFrontToFloatOrHalf(
+                    fc2.cpu(), bit_rate=4, output_dtype=0
+                )
             )
         else:
             fc2_float = fc2.float()

@@ -22,13 +22,13 @@ __launch_bounds__(kMaxThreads) void expand_into_jagged_permute_kernel(
     int32_t input_size,
     const index_t* __restrict__ permute,
     index_t* __restrict__ output_permute) {
-  const int32_t t_start = blockIdx.x * blockDim.y + threadIdx.y;
-  const int stride = gridDim.x * blockDim.y;
+  const auto t_start = blockIdx.x * blockDim.y + threadIdx.y;
+  const auto stride = gridDim.x * blockDim.y;
   for (int t = t_start; t < input_size; t += stride) {
     const offsets_t output_start = output_offsets[t];
     const offsets_t segment_length = output_offsets[t + 1] - output_offsets[t];
     const offsets_t input_start = input_offsets[permute[t]];
-    for (int32_t i = threadIdx.x; i < segment_length; i += blockDim.x) {
+    for (auto i = threadIdx.x; i < segment_length; i += blockDim.x) {
       output_permute[output_start + i] = input_start + i;
     }
   }

@@ -9,8 +9,9 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
 #include "fbgemm_gpu/utils/cuda_prelude.cuh"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh" // @manual
 #include "fbgemm_gpu/utils/ops_utils.h" // @manual
-#include "fbgemm_gpu/utils/tensor_accessor.h" // @manual
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h" // @manual
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 using Tensor = at::Tensor;
@@ -166,26 +167,22 @@ generate_vbe_metadata(
       "generate_vbe_metadata: Invalid grid_size.z ",
       grid_size.z);
 
-#ifdef FBGEMM_GPU_MEMCHECK
-  const auto func_name = "generate_vbe_metadata_foreach_sample_kernel";
-#endif
   // Over allocate total number of threads to avoid using binary search
-  generate_vbe_metadata_foreach_sample_kernel<<<
+  FBGEMM_LAUNCH_KERNEL(
+      generate_vbe_metadata_foreach_sample_kernel,
       grid_size,
       kMaxThreads,
       0,
-      at::cuda::getCurrentCUDAStream()>>>(
-      MAKE_PTA_WITH_NAME(func_name, row_output_offsets, int64_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, b_t_map, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, B_offsets, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, B_offsets_rank_per_feature, int32_t, 2, 32),
-      MAKE_PTA_WITH_NAME(
-          func_name, output_offsets_feature_rank, int64_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+      at::cuda::getCurrentCUDAStream(),
+      PTA_B(row_output_offsets, int64_t, 1, 32),
+      PTA_B(b_t_map, int32_t, 1, 32),
+      PTA_B(B_offsets, int32_t, 1, 32),
+      PTA_B(B_offsets_rank_per_feature, int32_t, 2, 32),
+      PTA_B(output_offsets_feature_rank, int64_t, 1, 32),
+      PTA_B(D_offsets, int32_t, 1, 32),
       D,
       nobag,
       info_B_num_bits);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return {row_output_offsets, b_t_map};
 }

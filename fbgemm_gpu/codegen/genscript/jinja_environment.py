@@ -331,8 +331,7 @@ def compute_global_weight_decay(is_global_weight_decay_kernel: bool) -> str:
     if is_global_weight_decay_kernel:
         return """
         const auto prev_iter = prev_iter_dev[linear_index];
-        CUDA_KERNEL_ASSERT(prev_iter < iter);
-        const auto global_weight_decay = prev_iter == 0 ? 1 : max(gwd_lower_bound, powf(weight_decay_base, iter - prev_iter - 1));
+        const auto global_weight_decay = prev_iter == 0 ? 1 : max(gwd_lower_bound, powf(weight_decay_base, max(iter - prev_iter - 1, 0.0f)));
         if (threadIdx.x == 0) {
             prev_iter_dev[linear_index] = iter;
         }
@@ -389,6 +388,30 @@ def make_pta_acc_format(pta_str_list: List[str], func_name: str) -> List[str]:
     return new_str_list
 
 
+def make_pta_acc_builder_format(pta_str_list: List[str]) -> List[str]:
+    new_str_list = []
+    for pta_str in pta_str_list:
+        if "packed_accessor" in pta_str:
+            match = re.search(
+                r"([a-zA-z0-9_]*)[.]packed_accessor([3|6][2|4])<(.*)>\(\)", pta_str
+            )
+            assert match is not None and len(match.groups()) == 3
+            tensor, acc_nbits, args = match.groups()
+            if "acc_type" in args:
+                match = re.search("at::acc_type<([a-zA-Z_0-9]*), true>", args)
+                assert match is not None and len(match.groups()) == 1
+                new_type = match.group(1)
+                args = re.sub("at::acc_type<[a-zA-Z_]*, true>", new_type, args)
+                macro_name = "PTA_ACC_B"
+            else:
+                macro_name = "PTA_B"
+            args = args.replace(", at::RestrictPtrTraits", "")
+            new_str_list.append(f"{macro_name}({tensor}, {args}, {acc_nbits})")
+        else:
+            new_str_list.append(pta_str)
+    return new_str_list
+
+
 def replace_pta_namespace(pta_str_list: List[str]) -> List[str]:
     return [
         pta_str.replace("at::PackedTensorAccessor", "pta::PackedTensorAccessor")
@@ -432,6 +455,7 @@ def to_upper_placeholder_types(arg_str_list: List[str]) -> List[str]:
 ################################################################################
 
 env.filters["make_pta_acc_format"] = make_pta_acc_format
+env.filters["make_pta_acc_builder_format"] = make_pta_acc_builder_format
 env.filters["replace_pta_namespace"] = replace_pta_namespace
 env.filters["replace_placeholder_types"] = replace_placeholder_types
 env.filters["to_upper_placeholder_types"] = to_upper_placeholder_types

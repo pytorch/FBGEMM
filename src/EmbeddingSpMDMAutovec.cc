@@ -9,9 +9,11 @@
 #ifdef __linux__
 
 #define FBGEMM_EXPORTS
-#include "./EmbeddingSpMDMAutovec.h"
-#include "./RefImplementations.h"
+#include "./EmbeddingSpMDMAutovec.h" // @manual
+#include "./EmbeddingStatsTracker.h"
+#include "./RefImplementations.h" // @manual
 #include "fbgemm/FbgemmBuild.h"
+#include "fbgemm/FloatConversion.h"
 
 #include <algorithm>
 #include <array>
@@ -65,6 +67,18 @@ static inline void fill_output(
     for (int j = 0; j < block_size; ++j) {
       out[j] = cpu_float2half(src[j]);
     }
+  }
+}
+
+template <typename OutType>
+static inline EmbeddingStatsTracker::DataType get_output_type(
+    const bool is_bf16_out) {
+  if (std::is_same<OutType, float>::value) {
+    return EmbeddingStatsTracker::DataType::FP32;
+  } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+    return EmbeddingStatsTracker::DataType::BF16;
+  } else {
+    return EmbeddingStatsTracker::DataType::FP16;
   }
 }
 
@@ -170,6 +184,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
       }
       out += output_stride;
     } // m
+    // Track every forward pass in the no_bag case
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        EmbeddingStatsTracker::DataType::INT8,
+        isOutput8bit ? EmbeddingStatsTracker::DataType::INT8
+                     : get_output_type<OutType>(is_bf16_out),
+        output_size,
+        1);
     return true;
   } // no_bag
 
@@ -183,6 +206,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     if (end > index_size) {
       return false;
     }
+
+    // Track every forward inference with the actual bag size (len)
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        EmbeddingStatsTracker::DataType::INT8,
+        get_output_type<OutType>(is_bf16_out),
+        output_size,
+        len);
 
     const float* weights_addr = weights != nullptr
         ? (is_weight_positional ? weights : weights + current)
@@ -201,6 +233,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
         if (!scale_bias_last && idx == -1) {
           // When scale_bias_last == false, assume this is for table batched
           // embedding (TBE) that can get -1 for pruned rows.
+          weights_addr++;
           continue;
         }
         return false;
@@ -314,6 +347,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
       WARN_ONCE("no_bag is only supported for int4 to int4");
       return false;
     }
+
     for (int64_t i = 0; i < output_size; ++i) {
       const auto idx = indices[i];
       if (idx < 0 || idx > data_size) {
@@ -323,6 +357,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
       memcpy(out, input_row, sizeof(uint8_t) * input_stride);
       out += input_stride;
     }
+
+    // Track every forward pass with the actual bag size (len)
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        EmbeddingStatsTracker::DataType::INT4,
+        EmbeddingStatsTracker::DataType::INT4,
+        output_size,
+        1);
     return true;
   }
 
@@ -346,6 +389,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     if (end > index_size) {
       return false;
     }
+
+    // Track every forward pass with the actual bag size (len)
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        input_bit_rate == 4 ? EmbeddingStatsTracker::DataType::INT4
+                            : EmbeddingStatsTracker::DataType::INT2,
+        get_output_type<OutType>(is_bf16_out),
+        output_size,
+        len);
     memset(buf, 0, sizeof(float) * rounded_block_size);
 
     const float* weights_addr = weights != nullptr
@@ -556,6 +609,16 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
       fill_output(out, buf, block_size, is_bf16_out);
       out += output_stride;
     } // m
+
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        is_bf16_in ? EmbeddingStatsTracker::DataType::BF16
+                   : EmbeddingStatsTracker::DataType::FP32,
+        get_output_type<OutType>(is_bf16_out),
+        output_size,
+        1);
+
     return true;
   } // no_bag
 
@@ -590,6 +653,15 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
     if (current + len > index_size) {
       return false;
     }
+    // Track every inference for actual bag size (len)
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        is_bf16_in ? EmbeddingStatsTracker::DataType::BF16
+                   : EmbeddingStatsTracker::DataType::FP32,
+        get_output_type<OutType>(is_bf16_out),
+        output_size,
+        len);
 
     for (int i = 0; i < len; ++i) {
       int64_t idx = indices[current];
@@ -681,6 +753,13 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
       if (end > index_size) {
         return false;
       }
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          uncompressed_data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::SPARSE_INT8,
+          EmbeddingStatsTracker::DataType::FP32,
+          output_size,
+          len);
       const float* weights_addr = weights != nullptr
           ? (is_weight_positional ? weights : weights + current)
           : nullptr;
@@ -692,6 +771,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
         if (idx == -1) {
+          weights_addr++;
           continue;
         }
         // if (idx < 0 || idx >= compressed_data_size) {
@@ -746,6 +826,14 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
         return false;
       }
 
+      EmbeddingStatsTracker::getInstance().recordPattern(
+          uncompressed_data_size,
+          block_size,
+          EmbeddingStatsTracker::DataType::SPARSE_FP32,
+          EmbeddingStatsTracker::DataType::FP32,
+          output_size,
+          len);
+
       const float* weights_addr = weights != nullptr
           ? (is_weight_positional ? weights : weights + current)
           : nullptr;
@@ -757,6 +845,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
         }
         IndexType idx = compressed_indices_table[uncompressed_idx];
         if (idx == -1) {
+          weights_addr++;
           continue;
         }
 
@@ -921,6 +1010,14 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
     if (end > index_size) {
       return false;
     }
+
+    EmbeddingStatsTracker::getInstance().recordPattern(
+        data_size,
+        block_size,
+        EmbeddingStatsTracker::DataType::FP8,
+        get_output_type<OutType>(is_bf16_out),
+        output_size,
+        len);
 
     // Adjust these as necessary to reflect actual batch size
     const int batch_size = block_size; // Assuming the entire block is
@@ -1164,118 +1261,209 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
     };                                                                    \
   }
 
-#define SPECIALIZE_BLOCK_SIZE(                                             \
-    HAS_WEIGHT,                                                            \
-    NORMALIZE_BY_LENGTHS,                                                  \
-    PREFETCH,                                                              \
-    IS_WEIGHT_POSITIONAL,                                                  \
-    USE_OFFSETS,                                                           \
-    NO_BAG,                                                                \
-    IS_BF16_OUT,                                                           \
-    IS_BF16_IN)                                                            \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{32}),                                   \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(32, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
-      IS_BF16_IN)                                                          \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{64}),                                   \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(64, false)),  \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
-      IS_BF16_IN)                                                          \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{124}),                                  \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(124, false)), \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
-      IS_BF16_IN)                                                          \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{128}),                                  \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(128, false)), \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
-      IS_BF16_IN)                                                          \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{252}),                                  \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(252, false)), \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
-      IS_BF16_IN)                                                          \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{256}),                                  \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(256, false)), \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
-      IS_BF16_IN)                                                          \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{508}),                                  \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(508, false)), \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
-      IS_BF16_IN)                                                          \
-  SPECIALIZE(                                                              \
-      /*BLOCK_SIZE*/ fixed(int64_t{512}),                                  \
-      HAS_WEIGHT,                                                          \
-      NORMALIZE_BY_LENGTHS,                                                \
-      PREFETCH,                                                            \
-      IS_WEIGHT_POSITIONAL,                                                \
-      USE_OFFSETS,                                                         \
-      /*OUTPUT_STRIDE*/ var,                                               \
-      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(512, false)), \
-      /*SCALE_BIAS_LAST*/ fixed(false),                                    \
-      NO_BAG,                                                              \
-      IS_BF16_OUT,                                                         \
+#define SPECIALIZE_BLOCK_SIZE(                                              \
+    HAS_WEIGHT,                                                             \
+    NORMALIZE_BY_LENGTHS,                                                   \
+    PREFETCH,                                                               \
+    IS_WEIGHT_POSITIONAL,                                                   \
+    USE_OFFSETS,                                                            \
+    NO_BAG,                                                                 \
+    IS_BF16_OUT,                                                            \
+    IS_BF16_IN)                                                             \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{4}),                                     \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(4, false)),    \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{24}),                                    \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(24, false)),   \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{32}),                                    \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(32, false)),   \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{64}),                                    \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(64, false)),   \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{96}),                                    \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(96, false)),   \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{124}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(124, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{128}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(128, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{252}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(252, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{256}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(256, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{320}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(320, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{384}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(384, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{508}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(508, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{512}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(512, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{768}),                                   \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(768, false)),  \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
+      IS_BF16_IN)                                                           \
+  SPECIALIZE(                                                               \
+      /*BLOCK_SIZE*/ fixed(int64_t{1024}),                                  \
+      HAS_WEIGHT,                                                           \
+      NORMALIZE_BY_LENGTHS,                                                 \
+      PREFETCH,                                                             \
+      IS_WEIGHT_POSITIONAL,                                                 \
+      USE_OFFSETS,                                                          \
+      /*OUTPUT_STRIDE*/ var,                                                \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMWithStrides<InType>(1024, false)), \
+      /*SCALE_BIAS_LAST*/ fixed(false),                                     \
+      NO_BAG,                                                               \
+      IS_BF16_OUT,                                                          \
       IS_BF16_IN)
 
 #ifdef FBGEMM_MORE_SPECIALIZATION
@@ -1474,6 +1662,19 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       OUTPUT_BIT_RATE)                                                         \
   SPECIALIZE(                                                                  \
       INPUT_BIT_RATE,                                                          \
+      /*BLOCK_SIZE*/ fixed(int64_t{96}),                                       \
+      HAS_WEIGHT,                                                              \
+      NORMALIZE_BY_LENGTHS,                                                    \
+      IS_WEIGHT_POSITIONAL,                                                    \
+      USE_OFFSETS,                                                             \
+      /*OUTPUT_STRIDE*/ var,                                                   \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMNBitWith(INPUT_BIT_RATE.value, 96)),  \
+      SCALE_BIAS_LAST,                                                         \
+      IS_BF16_OUT,                                                             \
+      NO_BAG,                                                                  \
+      OUTPUT_BIT_RATE)                                                         \
+  SPECIALIZE(                                                                  \
+      INPUT_BIT_RATE,                                                          \
       /*BLOCK_SIZE*/ fixed(int64_t{120}),                                      \
       HAS_WEIGHT,                                                              \
       NORMALIZE_BY_LENGTHS,                                                    \
@@ -1523,6 +1724,84 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       SCALE_BIAS_LAST,                                                         \
       IS_BF16_OUT,                                                             \
       NO_BAG,                                                                  \
+      OUTPUT_BIT_RATE)                                                         \
+  SPECIALIZE(                                                                  \
+      INPUT_BIT_RATE,                                                          \
+      /*BLOCK_SIZE*/ fixed(int64_t{320}),                                      \
+      HAS_WEIGHT,                                                              \
+      NORMALIZE_BY_LENGTHS,                                                    \
+      IS_WEIGHT_POSITIONAL,                                                    \
+      USE_OFFSETS,                                                             \
+      /*OUTPUT_STRIDE*/ var,                                                   \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMNBitWith(INPUT_BIT_RATE.value, 320)), \
+      SCALE_BIAS_LAST,                                                         \
+      IS_BF16_OUT,                                                             \
+      NO_BAG,                                                                  \
+      OUTPUT_BIT_RATE)                                                         \
+  SPECIALIZE(                                                                  \
+      INPUT_BIT_RATE,                                                          \
+      /*BLOCK_SIZE*/ fixed(int64_t{384}),                                      \
+      HAS_WEIGHT,                                                              \
+      NORMALIZE_BY_LENGTHS,                                                    \
+      IS_WEIGHT_POSITIONAL,                                                    \
+      USE_OFFSETS,                                                             \
+      /*OUTPUT_STRIDE*/ var,                                                   \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMNBitWith(INPUT_BIT_RATE.value, 384)), \
+      SCALE_BIAS_LAST,                                                         \
+      IS_BF16_OUT,                                                             \
+      NO_BAG,                                                                  \
+      OUTPUT_BIT_RATE)                                                         \
+  SPECIALIZE(                                                                  \
+      INPUT_BIT_RATE,                                                          \
+      /*BLOCK_SIZE*/ fixed(int64_t{512}),                                      \
+      HAS_WEIGHT,                                                              \
+      NORMALIZE_BY_LENGTHS,                                                    \
+      IS_WEIGHT_POSITIONAL,                                                    \
+      USE_OFFSETS,                                                             \
+      /*OUTPUT_STRIDE*/ var,                                                   \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMNBitWith(INPUT_BIT_RATE.value, 512)), \
+      SCALE_BIAS_LAST,                                                         \
+      IS_BF16_OUT,                                                             \
+      NO_BAG,                                                                  \
+      OUTPUT_BIT_RATE)                                                         \
+  SPECIALIZE(                                                                  \
+      INPUT_BIT_RATE,                                                          \
+      /*BLOCK_SIZE*/ fixed(int64_t{576}),                                      \
+      HAS_WEIGHT,                                                              \
+      NORMALIZE_BY_LENGTHS,                                                    \
+      IS_WEIGHT_POSITIONAL,                                                    \
+      USE_OFFSETS,                                                             \
+      /*OUTPUT_STRIDE*/ var,                                                   \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMNBitWith(INPUT_BIT_RATE.value, 576)), \
+      SCALE_BIAS_LAST,                                                         \
+      IS_BF16_OUT,                                                             \
+      NO_BAG,                                                                  \
+      OUTPUT_BIT_RATE)                                                         \
+  SPECIALIZE(                                                                  \
+      INPUT_BIT_RATE,                                                          \
+      /*BLOCK_SIZE*/ fixed(int64_t{768}),                                      \
+      HAS_WEIGHT,                                                              \
+      NORMALIZE_BY_LENGTHS,                                                    \
+      IS_WEIGHT_POSITIONAL,                                                    \
+      USE_OFFSETS,                                                             \
+      /*OUTPUT_STRIDE*/ var,                                                   \
+      /*INPUT_STRIDE*/ fixed(stride_SpMDMNBitWith(INPUT_BIT_RATE.value, 768)), \
+      SCALE_BIAS_LAST,                                                         \
+      IS_BF16_OUT,                                                             \
+      NO_BAG,                                                                  \
+      OUTPUT_BIT_RATE)                                                         \
+  SPECIALIZE(                                                                  \
+      INPUT_BIT_RATE,                                                          \
+      /*BLOCK_SIZE*/ fixed(int64_t{1024}),                                     \
+      HAS_WEIGHT,                                                              \
+      NORMALIZE_BY_LENGTHS,                                                    \
+      IS_WEIGHT_POSITIONAL,                                                    \
+      USE_OFFSETS,                                                             \
+      /*OUTPUT_STRIDE*/ var, /*INPUT_STRIDE*/                                  \
+      fixed(stride_SpMDMNBitWith(INPUT_BIT_RATE.value, 1024)),                 \
+      SCALE_BIAS_LAST,                                                         \
+      IS_BF16_OUT,                                                             \
+      NO_BAG,                                                                  \
       OUTPUT_BIT_RATE)
 
 #define SPECIALIZE_INPUT_RATE(     \
@@ -1559,6 +1838,14 @@ GenerateEmbeddingSpMDMNBitWithStrides_autovec(
       /*IS_WEIGHT_POSITIONAL*/ fixed(false),
       /*USE_OFFSETS*/ fixed(true),
       /*SCALE_BIAS_LAST*/ fixed(false),
+      /*IS_BF16_OUT*/ var,
+      /*NO_BAG*/ fixed(false))
+  SPECIALIZE_INPUT_RATE(
+      /*HAS_WEIGHT*/ fixed(false),
+      /*NORMALIZE_BY_LENGTHS*/ fixed(false),
+      /*IS_WEIGHT_POSITIONAL*/ fixed(false),
+      /*USE_OFFSETS*/ fixed(true),
+      /*SCALE_BIAS_LAST*/ fixed(true),
       /*IS_BF16_OUT*/ var,
       /*NO_BAG*/ fixed(false))
   WARN_ONCE(

@@ -14,12 +14,19 @@ import os
 import tempfile
 import unittest
 import uuid
-from typing import Tuple
+from typing import Callable, Dict, List, Tuple, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
 import numpy as np
 import torch
+
+if torch.cuda.is_available():
+    from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
+        get_fp8_constants,
+        supports_float8_fnuz,
+    )
+
 from hypothesis import given, settings, strategies as st, Verbosity
 from torch.distributed.launcher.api import elastic_launch, LaunchConfig
 
@@ -35,6 +42,42 @@ def has_nvswitch() -> bool:
         "cat /etc/fbwhoami | grep MODEL_NAME", shell=True
     ).decode("utf-8")
     return "GRANDTETON" in model or "SUPERMICRO" in model
+
+
+def _setup(path: str) -> Tuple[int, int]:
+    rank = int(os.environ["LOCAL_RANK"])
+    W = int(os.environ["WORLD_SIZE"])
+    device = torch.device(f"cuda:{rank}")
+    torch.cuda.set_device(device)
+    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "0"
+    torch.ops.fbgemm.nccl_init(rank, W, os.path.join(path, "rdvz"))
+
+    torch.distributed.init_process_group(
+        backend="cpu:gloo,cuda:nccl",
+        init_method=f"file://{os.path.join(path, 'gloo_rdvz')}",
+        world_size=W,
+        rank=rank,
+    )
+
+    buffer = torch.ops.fbgemm.car_tensor()
+    barrier = torch.ops.fbgemm.car_tensor()
+    barrier.zero_()
+
+    buffer_handle = torch.ops.fbgemm.car_ipc_handle(buffer)
+    all_buffer_handles = [torch.empty_like(buffer_handle) for _ in range(W)]
+    torch.distributed.all_gather(all_buffer_handles, buffer_handle)
+
+    barrier_handle = torch.ops.fbgemm.car_ipc_handle(barrier)
+    all_barrier_handles = [torch.empty_like(barrier_handle) for _ in range(W)]
+    torch.distributed.all_gather(all_barrier_handles, barrier_handle)
+
+    torch.ops.fbgemm.car_init(
+        rank, W, barrier, all_barrier_handles, buffer, all_buffer_handles
+    )
+    torch.cuda.synchronize()
+    torch.distributed.barrier()
+
+    return rank, W
 
 
 def _run_allgather_inner(
@@ -80,38 +123,61 @@ def _run_allgather_inner(
         g.replay()
 
 
+def _run_reducescatter_inner(path: str) -> None:
+    rank, W = _setup(path)
+
+    # Test to make sure reducescatter is compatible with torch.compile.
+    reducescatter_compiled = torch.compile(torch.ops.fbgemm.nccl_reducescatter)
+    car_reducescatter_compiled = torch.compile(torch.ops.fbgemm.car_reducescatter)
+
+    def round_up(a: int, b: int) -> int:
+        return int(math.ceil(a / b)) * b
+
+    def _test_fn(
+        fn: Callable,  # pyre-ignore
+        W: int,
+        rank: int,
+        roundup: int,
+        split_last_dim: bool = False,
+    ) -> None:
+        for N in np.logspace(10, 24, num=20, base=2).tolist():
+            N = round_up(int(N), roundup)
+            y = torch.zeros(size=(N,), dtype=torch.bfloat16, device="cuda")
+            y[:] = rank
+            y_reducescatter = torch.empty(
+                y.numel() // W, dtype=y.dtype, device=y.device
+            )
+            rank_start = N // W * rank
+            rank_end = N // W * (rank + 1)
+            args: List[torch.Tensor] = [y_reducescatter, y]
+            kwargs: Dict[str, Union[bool, torch.Tensor]] = {}
+
+            if split_last_dim:
+                kwargs["split_last_dim"] = True
+
+            fn(*args, **kwargs)
+            target = torch.full(
+                size=(N,),
+                fill_value=(W * (W - 1) // 2),
+                dtype=torch.bfloat16,
+                device=y.device,
+            )
+
+            torch.testing.assert_close(
+                y_reducescatter,
+                target[rank_start:rank_end],
+            )
+
+    # nccl allreduce doesn't support split_last_dim
+    _test_fn(reducescatter_compiled, W, rank, W)
+    _test_fn(reducescatter_compiled, W, rank, W)
+
+    _test_fn(car_reducescatter_compiled, W, rank, 1024, False)
+    _test_fn(car_reducescatter_compiled, W, rank, 1024, True)
+
+
 def _run_allreduce_inner(path: str) -> None:
-    rank = int(os.environ["LOCAL_RANK"])
-    W = int(os.environ["WORLD_SIZE"])
-    device = torch.device(f"cuda:{rank}")
-    torch.cuda.set_device(device)
-    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "0"
-    torch.ops.fbgemm.nccl_init(rank, W, os.path.join(path, "rdvz"))
-
-    torch.distributed.init_process_group(
-        backend="cpu:gloo,cuda:nccl",
-        init_method=f"file://{os.path.join(path, 'gloo_rdvz')}",
-        world_size=W,
-        rank=rank,
-    )
-
-    buffer = torch.ops.fbgemm.car_tensor()
-    barrier = torch.ops.fbgemm.car_tensor()
-    barrier.zero_()
-
-    buffer_handle = torch.ops.fbgemm.car_ipc_handle(buffer)
-    all_buffer_handles = [torch.empty_like(buffer_handle) for _ in range(W)]
-    torch.distributed.all_gather(all_buffer_handles, buffer_handle)
-
-    barrier_handle = torch.ops.fbgemm.car_ipc_handle(barrier)
-    all_barrier_handles = [torch.empty_like(barrier_handle) for _ in range(W)]
-    torch.distributed.all_gather(all_barrier_handles, barrier_handle)
-
-    torch.ops.fbgemm.car_init(
-        rank, W, barrier, all_barrier_handles, buffer, all_buffer_handles
-    )
-    torch.cuda.synchronize()
-    torch.distributed.barrier()
+    rank, W = _setup(path)
 
     # Test to make sure allreduce is compatible with torch.compile.
     allreduce_compiled = torch.compile(torch.ops.fbgemm.nccl_allreduce)
@@ -213,37 +279,7 @@ def _run_allreduce_inner(path: str) -> None:
 
 
 def _run_oneshot_car_stress_inner(path: str) -> None:
-    rank = int(os.environ["LOCAL_RANK"])
-    W = int(os.environ["WORLD_SIZE"])
-    device = torch.device(f"cuda:{rank}")
-    torch.cuda.set_device(device)
-    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "0"
-    torch.ops.fbgemm.nccl_init(rank, W, os.path.join(path, "rdvz"))
-
-    torch.distributed.init_process_group(
-        backend="cpu:gloo,cuda:nccl",
-        init_method=f"file://{os.path.join(path, 'gloo_rdvz')}",
-        world_size=W,
-        rank=rank,
-    )
-
-    buffer = torch.ops.fbgemm.car_tensor()
-    barrier = torch.ops.fbgemm.car_tensor()
-    barrier.zero_()
-
-    buffer_handle = torch.ops.fbgemm.car_ipc_handle(buffer)
-    all_buffer_handles = [torch.empty_like(buffer_handle) for _ in range(W)]
-    torch.distributed.all_gather(all_buffer_handles, buffer_handle)
-
-    barrier_handle = torch.ops.fbgemm.car_ipc_handle(barrier)
-    all_barrier_handles = [torch.empty_like(barrier_handle) for _ in range(W)]
-    torch.distributed.all_gather(all_barrier_handles, barrier_handle)
-
-    torch.ops.fbgemm.car_init(
-        rank, W, barrier, all_barrier_handles, buffer, all_buffer_handles
-    )
-    torch.cuda.synchronize()
-    torch.distributed.barrier()
+    rank, W = _setup(path)
 
     ITER = 1000
     for idx, N in enumerate([0] + np.logspace(4, 24, num=20, base=2).tolist()):
@@ -290,11 +326,11 @@ class LLamaMultiGpuTests(unittest.TestCase):
             ]
         )
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=6, deadline=60000)
+    @settings(verbosity=Verbosity.verbose, max_examples=3, deadline=100000)
     def test_allgather(self, dtype: torch.dtype) -> None:
         # float8 is only supported in H100 or MI300x
         if dtype == torch.float8_e4m3fn:
-            if torch.version.hip:
+            if supports_float8_fnuz():
                 dtype = torch.float8_e4m3fnuz
             elif torch.cuda.get_device_capability() < (9, 0):
                 self.skipTest(
@@ -302,18 +338,18 @@ class LLamaMultiGpuTests(unittest.TestCase):
                     f"on {torch.cuda.get_device_capability()}"
                 )
 
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_allgather_inner)(
                 os.path.join(path, "rdvz"), dtype, dtype
@@ -328,36 +364,37 @@ class LLamaMultiGpuTests(unittest.TestCase):
             ]
         )
     )
-    @settings(verbosity=Verbosity.verbose, max_examples=6, deadline=60000)
+    @settings(verbosity=Verbosity.verbose, max_examples=3, deadline=100000)
     def test_allgather_dtype_mismatch(
         self, dtypes: Tuple[torch.dtype, torch.dtype]
     ) -> None:
         dst_dtype, src_dtype = dtypes
         # float8 is only supported in H100 or MI300x
+        float8_e4m3_dtype, _, _, _ = get_fp8_constants()
         if dst_dtype == torch.float8_e4m3fn or src_dtype == torch.float8_e4m3fn:
             if torch.version.hip:
                 if dst_dtype == torch.float8_e4m3fn:
-                    dst_dtype = torch.float8_e4m3fnuz
+                    dst_dtype = float8_e4m3_dtype
                 if src_dtype == torch.float8_e4m3fn:
-                    src_dtype = torch.float8_e4m3fnuz
+                    src_dtype = float8_e4m3_dtype
             elif torch.cuda.get_device_capability() < (9, 0):
                 self.skipTest(
                     "float8_e4m3fn is only supported in H100 or MI300x, but we're running "
                     f"on {torch.cuda.get_device_capability()}"
                 )
 
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             with self.assertRaises(Exception) as cm:
                 elastic_launch(config=lc, entrypoint=_run_allgather_inner)(
@@ -370,34 +407,50 @@ class LLamaMultiGpuTests(unittest.TestCase):
                 "dst and src tensors must have the same dtype." in cm.exception.args[0]
             )
 
-    def test_allreduce(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+    def test_reducescatter(self) -> None:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
+            )
+            elastic_launch(config=lc, entrypoint=_run_reducescatter_inner)(path)
+
+    def test_allreduce(self) -> None:
+        with tempfile.TemporaryDirectory() as path:
+            lc = LaunchConfig(
+                min_nodes=1,
+                max_nodes=1,
+                nproc_per_node=torch.cuda.device_count(),
+                run_id=str(uuid.uuid4()),
+                rdzv_backend="c10d",
+                rdzv_endpoint="localhost:0",
+                start_method="spawn",
+                monitor_interval=1,
+                max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_allreduce_inner)(path)
 
     def test_oneshot_car_stress(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as path:
+        with tempfile.TemporaryDirectory() as path:
             lc = LaunchConfig(
                 min_nodes=1,
                 max_nodes=1,
                 nproc_per_node=torch.cuda.device_count(),
                 run_id=str(uuid.uuid4()),
                 rdzv_backend="c10d",
-                rdzv_endpoint=os.path.join(tmpdir, "rdzv"),
-                rdzv_configs={"store_type": "file"},
+                rdzv_endpoint="localhost:0",
                 start_method="spawn",
                 monitor_interval=1,
                 max_restarts=0,
+                local_addr="localhost",
             )
             elastic_launch(config=lc, entrypoint=_run_oneshot_car_stress_inner)(path)

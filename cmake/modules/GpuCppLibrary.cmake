@@ -4,8 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
-
 function(prepare_target_sources)
     # This function does the following:
     #
@@ -23,7 +21,7 @@ function(prepare_target_sources)
         GPU_SRCS
         CUDA_SPECIFIC_SRCS
         HIP_SPECIFIC_SRCS
-        GPU_FLAGS
+        NVCC_FLAGS
         INCLUDE_DIRS
     )
 
@@ -45,7 +43,7 @@ function(prepare_target_sources)
     set(${args_PREFIX}_sources_cpp ${cpu_sources_cpp})
 
     # For GPU mode, add the CXX sources from GPU_SRCS
-    if(NOT FBGEMM_CPU_ONLY)
+    if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
         LIST_FILTER(
             INPUT ${args_GPU_SRCS}
             OUTPUT gpu_sources_cpp
@@ -76,7 +74,7 @@ function(prepare_target_sources)
     # Collect, Annotate, and Append CU sources
     ############################################################################
 
-    if(NOT FBGEMM_CPU_ONLY)
+    if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CPU)
         # Filter GPU_SRCS for CU sources - these may be HIPified later if building in ROCm mode
         LIST_FILTER(
             INPUT ${args_GPU_SRCS}
@@ -85,14 +83,14 @@ function(prepare_target_sources)
         )
 
         # Append CUDA-specific sources, but ONLY when building in CUDA mode
-        if(NOT USE_ROCM)
+        if(NOT FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
             list(APPEND ${args_PREFIX}_sources_cu ${args_CUDA_SPECIFIC_SRCS})
         endif()
 
         # Set source properties
         set_source_files_properties(${${args_PREFIX}_sources_cu}
             PROPERTIES COMPILE_OPTIONS
-            "${args_GPU_FLAGS}")
+            "${args_NVCC_FLAGS}")
 
         set_source_files_properties(${${args_PREFIX}_sources_cu}
             PROPERTIES INCLUDE_DIRECTORIES
@@ -106,7 +104,7 @@ function(prepare_target_sources)
     # Collect, Annotate, and Append HIP sources
     ############################################################################
 
-    if(NOT FBGEMM_CPU_ONLY AND USE_ROCM)
+    if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
         # Filter GPU_SRCS for HIP sources
         LIST_FILTER(
             INPUT ${args_GPU_SRCS}
@@ -150,6 +148,7 @@ function(gpu_cpp_library)
         PREFIX          # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
         TYPE            # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
         DESTINATION     # The install destination directory to place the build target into
+        KEEP_PREFIX     # Whether to keep the prefix for the library target, e.g. libfoo.so vs foo.so
     )
     set(multiValueArgs
         CPU_SRCS            # Sources for CPU-only build
@@ -157,9 +156,12 @@ function(gpu_cpp_library)
         CUDA_SPECIFIC_SRCS  # Sources available only for CUDA build
         HIP_SPECIFIC_SRCS   # Sources available only for HIP build
         OTHER_SRCS          # Sources from third-party libraries
-        GPU_FLAGS           # Compile flags for GPU builds
+        CC_FLAGS            # General compilation flags applicable to all build variants
+        NVCC_FLAGS          # Compilation flags specific to NVCC
+        HIPCC_FLAGS         # Compilation flags specific to HIPCC
         INCLUDE_DIRS        # Include directories for compilation
         DEPS                # Target dependencies, i.e. built STATIC targets
+        TORCH_LIBS          # PyTorch libraries to link against. Note that we provide the TORCH_LIBS automatically - this is for PyTorch build.
     )
 
     cmake_parse_arguments(
@@ -179,7 +181,7 @@ function(gpu_cpp_library)
         GPU_SRCS ${args_GPU_SRCS}
         CUDA_SPECIFIC_SRCS ${args_CUDA_SPECIFIC_SRCS}
         HIP_SPECIFIC_SRCS ${args_HIP_SPECIFIC_SRCS}
-        GPU_FLAGS ${args_GPU_FLAGS}
+        NVCC_FLAGS ${args_NVCC_FLAGS}
         INCLUDE_DIRS ${args_INCLUDE_DIRS})
     set(lib_sources ${${args_PREFIX}_sources})
 
@@ -207,18 +209,19 @@ function(gpu_cpp_library)
     # Set the build target name
     set(lib_name ${args_PREFIX})
 
-    if(USE_ROCM)
+    if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
         if(lib_sources)
-            # Fetch the equivalent HIPified sources if available.
-            # This presumes that `hipify()` has already been run.
+            # Fetch the equivalent HIPified sources if available.  The mapping
+            # is provided by a table that is generated during transpilation
+            # process, so this presumes that `hipify()` has already been run.
             #
             # This code is placed under an if-guard so that it won't fail for
             # targets that have nothing to do with HIP, e.g. asmjit
             get_hipified_list("${lib_sources}" lib_sources_hipified)
 
             # Set properties for the HIPified sources
-            set_source_files_properties(${lib_sources_hipified}
-                                        PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
+            set_source_files_properties(${lib_sources_hipified} PROPERTIES
+                HIP_SOURCE_PROPERTY_FORMAT 1)
         endif()
 
         # Set the include directories for HIP
@@ -229,8 +232,7 @@ function(gpu_cpp_library)
             ${lib_sources_hipified}
             ${args_OTHER_SRCS}
             ${FBGEMM_HIP_HCC_LIBRARIES}
-            HIPCC_OPTIONS
-            ${HIP_HCC_FLAGS})
+            HIPCC_OPTIONS ${HIP_HCC_FLAGS} ${args_HIPCC_FLAGS})
 
         # Append ROCM includes
         target_include_directories(${lib_name} PUBLIC
@@ -256,19 +258,23 @@ function(gpu_cpp_library)
         ${NCCL_INCLUDE_DIRS})
 
     # Set additional target properties
-    set_target_properties(${lib_name} PROPERTIES
+    if(NOT args_KEEP_PREFIX)
         # Remove `lib` prefix from the output artifact name, e.g.
         # `libfoo.so` -> `foo.so`
-        PREFIX ""
+        set_target_properties(${lib_name} PROPERTIES PREFIX "")
+    endif()
+
+    set_target_properties(${lib_name} PROPERTIES
         # Enforce -fPIC for STATIC library option, since they are to be
         # integrated into other libraries down the line
         # https://stackoverflow.com/questions/3961446/why-does-gcc-not-implicitly-supply-the-fpic-flag-when-compiling-static-librarie
         POSITION_INDEPENDENT_CODE ON)
 
-    if (args_DEPS)
+    if (args_DEPS OR CMAKE_INSTALL_RPATH)
         # Only set this if the library has dependencies that we also build,
         # otherwise we will hit the following error:
         #   `No valid ELF RPATH or RUNPATH entry exists in the file`
+        # However, if CMAKE_INSTALL_RPATH is set, respect that logic. Such as when we build with PyTorch.
         set_target_properties(${lib_name} PROPERTIES
             BUILD_WITH_INSTALL_RPATH ON
             # Set the RPATH for the library to include $ORIGIN, so it can look
@@ -286,6 +292,7 @@ function(gpu_cpp_library)
     # Collect external libraries for linking
     set(library_dependencies
         ${TORCH_LIBRARIES}
+        ${args_TORCH_LIBS}
         ${NCCL_LIBRARIES}
         ${CUDA_DRIVER_LIBRARIES}
         ${args_DEPS})
@@ -298,16 +305,22 @@ function(gpu_cpp_library)
     # Link against the external libraries as needed
     target_link_libraries(${lib_name} PRIVATE ${library_dependencies})
 
-    # Silence compiler warnings (in asmjit)
+    ############################################################################
+    # Other Compilation Flags
+    ############################################################################
+
+    # Set the additional compilation flags
     target_compile_options(${lib_name} PRIVATE
-        -Wno-deprecated-anon-enum-enum-conversion
+        ${args_CC_FLAGS}
+        # Silence compiler warnings (in asmjit)
+        -Wno-deprecated-enum-enum-conversion
         -Wno-deprecated-declarations)
 
     ############################################################################
     # Post-Build Steps
     ############################################################################
 
-    if (args_DEPS)
+    if (args_DEPS OR CMAKE_INSTALL_RPATH)
         # Only set this if the library has dependencies that we also build,
         # otherwise we will hit the following error:
         #   `No valid ELF RPATH or RUNPATH entry exists in the file`
@@ -334,7 +347,10 @@ function(gpu_cpp_library)
     ############################################################################
 
     if(args_DESTINATION)
-        install(TARGETS ${args_PREFIX}
+        install(
+            TARGETS ${args_PREFIX}
+            # Allows args_PREFIX to be exported as a target, used for PyTorch build integration
+            EXPORT fbgemmGenAILibraryConfig
             DESTINATION ${args_DESTINATION})
     endif()
 
@@ -360,8 +376,14 @@ function(gpu_cpp_library)
         "OTHER_SRCS:"
         "${args_OTHER_SRCS}"
         " "
-        "GPU_FLAGS:"
-        "${args_GPU_FLAGS}"
+        "CC_FLAGS:"
+        "${args_CC_FLAGS}"
+        " "
+        "NVCC_FLAGS:"
+        "${args_NVCC_FLAGS}"
+        " "
+        "HIPCC_FLAGS:"
+        "${args_HIPCC_FLAGS}"
         " "
         "INCLUDE_DIRS:"
         "${args_INCLUDE_DIRS}"

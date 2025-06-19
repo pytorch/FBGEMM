@@ -5,20 +5,18 @@
 
 # This workflow is used for FBGEMM_GPU-GenAI CI, and is meant to be used for
 # copies of the FBGEMM repos hosted outside of the pytorch org.
-name: FBGEMM_GPU-GenAI CI (Generic Runner)
+name: FBGEMM_GPU GenAI CI (Generic Runner)
 
 on:
   # PR Trigger
   #
   pull_request:
-    branches:
-      - main
+    branches: []
 
   # Push Trigger (enable to catch errors coming out of multiple merges)
   #
   push:
-    branches:
-      - main
+    branches: []
 
   # Manual Trigger
   #
@@ -53,16 +51,17 @@ jobs:
       BUILD_ENV: build_binary
       BUILD_VARIANT: genai
       BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
+      BUILD_INCLUDE_FB_ONLY: 1
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "ubuntu-latest" },
+          { arch: x86, instance: "32-core-ubuntu" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
-        compiler: [ "gcc", "clang" ]
+        python-version: [ "3.13" ]
+        cuda-version: [ "12.9.1" ]
+        compiler: [ "gcc" ]
 
     steps:
     - name: Setup Build Container
@@ -112,13 +111,12 @@ jobs:
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU Wheel
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly genai
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly genai/cuda
 
     - name: Upload Built Wheel as GHA Artifact
-      # Cannot upgrade to actions/upload-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/upload-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
+        name: fbgemm_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
         path: fbgemm_gpu/dist/*.whl
         if-no-files-found: error
 
@@ -148,9 +146,9 @@ jobs:
         host-machine: [
           { arch: x86, instance: "ubuntu-latest" },
         ]
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
-        compiler: [ "gcc", "clang" ]
+        python-version: [ "3.13" ]
+        cuda-version: [ "12.9.1" ]
+        compiler: [ "gcc" ]
     needs: build_artifact
 
     steps:
@@ -169,7 +167,7 @@ jobs:
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/download-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
+        name: fbgemm_genai_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
 
     - name: Display System Info
       run: . $PRELUDE; print_system_info; print_ec2_info
@@ -207,5 +205,5 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 30
+      timeout-minutes: 60
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV

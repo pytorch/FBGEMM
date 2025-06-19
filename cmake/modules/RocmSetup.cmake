@@ -4,14 +4,11 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
-
-
 ################################################################################
 # ROCm and HIPify Setup
 ################################################################################
 
-if(USE_ROCM)
+if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_ROCM)
   # Load CMake modules
   list(APPEND CMAKE_MODULE_PATH
     "${PROJECT_SOURCE_DIR}/cmake"

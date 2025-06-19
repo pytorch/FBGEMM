@@ -6,28 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include "fbgemm_gpu/embedding_backward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
-
-#include <c10/cuda/CUDADeviceAssertion.h>
-#include <c10/cuda/CUDAException.h>
-
-using Tensor = at::Tensor;
-using namespace fbgemm_gpu;
-
-template <typename index_t>
-__device__ void adjust_offset_kernel(
-    index_t& indices_start,
-    index_t& indices_end,
-    const index_t num_indices,
-    index_t* const offset_acc_start,
-    index_t* const offset_acc_end) {
-  indices_start =
-      std::max(static_cast<index_t>(0), std::min(indices_start, num_indices));
-  indices_end = std::max(indices_start, std::min(indices_end, num_indices));
-  *offset_acc_start = indices_start;
-  *offset_acc_end = indices_end;
-}
+#include "fbgemm_gpu/utils/embedding_bounds_check_common.cuh"
 
 template <typename index_t, bool vbe>
 __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
@@ -37,12 +16,12 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits> offsets,
     const int32_t* const B_offsets, // Use a raw pointer to avoid creating a
                                     // dummy PackedTensorAccessor
-    const int64_t bounds_check_mode_,
+    BoundsCheckMode bounds_check_mode,
     pta::PackedTensorAccessor32<int64_t, 1, at::RestrictPtrTraits> warning,
     FixedDivisor fd,
     TORCH_DSA_KERNEL_ARGS) {
   int32_t T = rows_per_table.size(0);
-  int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+  auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
   int32_t b;
   int32_t t;
   int32_t B = 0;
@@ -71,8 +50,6 @@ __global__ __launch_bounds__(kMaxThreads) void bounds_check_indices_kernel_v1(
     B = total_B / T;
   }
 
-  const auto bounds_check_mode =
-      static_cast<BoundsCheckMode>(bounds_check_mode_);
   const auto num_rows = rows_per_table[t];
   auto indices_start = offsets[b_t];
   auto indices_end = offsets[b_t + 1];
@@ -183,55 +160,27 @@ void _bounds_check_indices_cuda_v1(
     Tensor& rows_per_table,
     Tensor& indices,
     Tensor& offsets,
-    int64_t bounds_check_mode_,
+    BoundsCheckMode bounds_check_mode,
     Tensor& warning,
     const std::optional<Tensor>& weights,
     const std::optional<Tensor>& B_offsets,
-    const int64_t max_B,
+    int64_t max_B,
     const std::optional<Tensor>& /*b_t_map*/,
-    const int32_t /*info_b_num_bits*/,
-    const uint32_t /*info_B_mask*/) {
-  TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(
-      rows_per_table, indices, offsets, warning, weights, B_offsets);
-  TENSOR_NDIM_EQUALS(rows_per_table, 1);
-  TENSOR_NDIM_EQUALS(indices, 1);
-  TENSOR_NDIM_EQUALS(offsets, 1);
-  TENSOR_NDIM_EQUALS(warning, 1);
-
-  const auto vbe = B_offsets.has_value();
-  if (vbe) {
-    TENSOR_NDIM_EQUALS(B_offsets.value(), 1);
-  }
+    int32_t /*info_b_num_bits*/,
+    uint32_t /*info_B_mask*/,
+    int64_t T,
+    int64_t B,
+    int64_t /*total_B*/,
+    bool vbe,
+    bool prefetch_pipeline) {
+  TORCH_CHECK(
+      !prefetch_pipeline,
+      "bounds_check_indices_v1 does not support prefetch_pipeline=true")
 
   CUDA_DEVICE_GUARD(rows_per_table);
 
-  const int32_t T = rows_per_table.size(0);
-  const int32_t total_B = offsets.size(0) - 1;
-  const int32_t B = (total_B) / T;
-  if (total_B == 0 || T == 0) {
-    return;
-  }
-  const auto bounds_check_mode =
-      static_cast<BoundsCheckMode>(bounds_check_mode_);
   if (bounds_check_mode == BoundsCheckMode::WARNING) {
     warning.zero_();
-  }
-  const int64_t num_indices = indices.size(0);
-
-  if (vbe) {
-    TORCH_CHECK(max_B >= 0);
-  } else {
-    TORCH_CHECK(
-        offsets.size(0) == B * T + 1,
-        "offsets size " + std::to_string(offsets.size(0)) +
-            " is not equal to B (" + std::to_string(B) + ") * T (" +
-            std::to_string(T) + ") + 1");
-  }
-  if (weights.has_value()) {
-    TORCH_CHECK(
-        weights.value().size(0) == num_indices,
-        "weights size " + std::to_string(weights.value().size(0)) +
-            " is not equal to indices size " + std::to_string(num_indices));
   }
 
   constexpr size_t kNumThreads = 256;
@@ -245,18 +194,18 @@ void _bounds_check_indices_cuda_v1(
         const auto bounds_check_kernel =
             (vbe ? bounds_check_indices_kernel_v1<index_t, true>
                  : bounds_check_indices_kernel_v1<index_t, false>);
-        TORCH_DSA_KERNEL_LAUNCH(
+        FBGEMM_LAUNCH_DSA_KERNEL(
             bounds_check_kernel,
             div_round_up(max_B_ * T, kNumThreads / fbgemm_gpu::kWarpSize),
             dim3(fbgemm_gpu::kWarpSize, kNumThreads / fbgemm_gpu::kWarpSize),
             0,
             at::cuda::getCurrentCUDAStream(),
-            MAKE_PTA_WITH_NAME(func_name, rows_per_table, int64_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
+            PTA_B(rows_per_table, int64_t, 1, 32),
+            PTA_B(indices, index_t, 1, 32),
+            PTA_B(offsets, index_t, 1, 32),
             vbe ? B_offsets.value().data_ptr<int32_t>() : nullptr,
-            bounds_check_mode_,
-            MAKE_PTA_WITH_NAME(func_name, warning, int64_t, 1, 32),
+            bounds_check_mode,
+            PTA_B(warning, int64_t, 1, 32),
             FixedDivisor(max_B_));
       });
 }

@@ -17,6 +17,27 @@
 # PyTorch Setup Functions
 ################################################################################
 
+__verify_pytorch_gpu_integration () {
+  echo "[CHECK] Verifying PyTorch device properties ..."
+  # shellcheck disable=SC2086,SC2155
+  local torch_cuda_available=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.is_available())")
+  # shellcheck disable=SC2086,SC2155
+  local torch_version_cuda=$(conda run ${env_prefix} python -c "import torch; print(torch.version.cuda)")
+  # shellcheck disable=SC2086,SC2155
+  local torch_version_hip=$(conda run ${env_prefix} python -c "import torch; print(torch.version.hip)")
+  # shellcheck disable=SC2086,SC2155
+  local torch_device_compatibility=$(conda run ${env_prefix} python -c "import torch; print(torch.cuda.get_device_capability())")
+
+  echo ""
+  echo "################################################################################"
+  echo "[CHECK] torch.cuda.is_available(): ${torch_cuda_available}"
+  echo "[CHECK] torch.cuda.get_device_capability(): ${torch_device_compatibility}"
+  echo "[CHECK] torch.version.cuda: ${torch_version_cuda}"
+  echo "[CHECK] torch.version.hip: ${torch_version_hip}"
+  echo "################################################################################"
+  echo ""
+}
+
 install_pytorch_conda () {
   local env_name="$1"
   local pytorch_version="$2"
@@ -126,7 +147,7 @@ install_pytorch_pip () {
   fi
 
   # shellcheck disable=SC2155
-  local env_prefix=$(env_name_or_prefix "${env_name}")
+  env_prefix=$(env_name_or_prefix "${env_name}")
 
   # Install the main dependencies
   #
@@ -149,6 +170,9 @@ install_pytorch_pip () {
   # shellcheck disable=SC2086,SC2155
   local installed_pytorch_version=$(conda run ${env_prefix} python -c "import torch; print(torch.__version__)")
   echo "[CHECK] NOTE: The installed version is: ${installed_pytorch_version}"
+
+  # Run check for GPU visibility from PyTorch
+  __verify_pytorch_gpu_integration
 
   echo "[CHECK] NOTE: Checking _GLIBCXX_USE_CXX11_ABI ..."
   # shellcheck disable=SC2086,SC2155

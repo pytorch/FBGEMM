@@ -11,7 +11,7 @@
 
 import enum
 from dataclasses import dataclass
-from typing import List, NamedTuple
+from typing import List, NamedTuple, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -32,6 +32,105 @@ class EmbeddingLocation(enum.IntEnum):
     MANAGED_CACHING = 2
     HOST = 3
     MTIA = 4
+
+    @classmethod
+    # pyre-ignore[3]
+    def str_values(cls):
+        return [
+            "device",
+            "managed",
+            "managed_caching",
+            "host",
+            "mtia",
+        ]
+
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "device": EmbeddingLocation.DEVICE,
+            "managed": EmbeddingLocation.MANAGED,
+            "managed_caching": EmbeddingLocation.MANAGED_CACHING,
+            "host": EmbeddingLocation.HOST,
+            "mtia": EmbeddingLocation.MTIA,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into EmbeddingLocation: {key}")
+
+
+class EvictionPolicy(NamedTuple):
+    eviction_trigger_mode: int = (
+        0  # disabled, 0: disabled, 1: iteration, 2: mem_util, 3: manual
+    )
+    eviction_strategy: int = (
+        0  # 0: timestamp, 1: counter (feature score), 2: counter (feature score) + timestamp, 3: feature l2 norm
+    )
+    eviction_step_intervals: Optional[int] = (
+        None  # trigger_step_interval if trigger mode is iteration
+    )
+    eviction_mem_threshold_gb: Optional[int] = (
+        None  # eviction trigger condition if trigger mode is mem_util
+    )
+    counter_thresholds: Optional[List[int]] = (
+        None  # count_thresholds for each table if eviction strategy is feature score
+    )
+    ttls_in_mins: Optional[List[int]] = (
+        None  # ttls_in_mins for each table if eviction strategy is timestamp
+    )
+    counter_decay_rates: Optional[List[float]] = (
+        None  # count_decay_rates for each table if eviction strategy is feature score
+    )
+    l2_weight_thresholds: Optional[List[float]] = (
+        None  # l2_weight_thresholds for each table if eviction strategy is feature l2 norm
+    )
+    interval_for_insufficient_eviction_s: int = (
+        # wait at least # seconds before trigger next round of eviction, if last finished eviction is insufficient
+        # insufficient means we didn't evict enough rows, so we want to wait longer time to
+        # avoid another insufficient eviction
+        600
+    )
+    interval_for_sufficient_eviction_s: int = (
+        # wait at least # seconds before trigger next round of eviction, if last finished eviction is sufficient
+        60
+    )
+
+
+class KVZCHParams(NamedTuple):
+    # global bucket id start and global bucket id end offsets for each logical table,
+    # where start offset is inclusive and end offset is exclusive
+    bucket_offsets: List[Tuple[int, int]] = []
+    # bucket size for each logical table
+    # the value indicates corresponding input space for each bucket id, e.g. 2^50 / total_num_buckets
+    bucket_sizes: List[int] = []
+    # enable optimizer offloading or not
+    enable_optimizer_offloading: bool = False
+    eviction_policy: Optional[EvictionPolicy] = None
+
+    def validate(self) -> None:
+        assert len(self.bucket_offsets) == len(self.bucket_sizes), (
+            "bucket_offsets and bucket_sizes must have the same length, "
+            f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
+        )
+
+
+class BackendType(enum.IntEnum):
+    SSD = 0
+    DRAM = 1
+    PS = 2
+
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "ssd": BackendType.SSD,
+            "dram": BackendType.DRAM,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into BackendType: {key}")
 
 
 class CacheAlgorithm(enum.Enum):
@@ -57,6 +156,22 @@ class PoolingMode(enum.IntEnum):
     MEAN = 1
     NONE = 2
 
+    def do_pooling(self) -> bool:
+        return self is not PoolingMode.NONE
+
+    @classmethod
+    # pyre-ignore[3]
+    def from_str(cls, key: str):
+        lookup = {
+            "sum": PoolingMode.SUM,
+            "mean": PoolingMode.MEAN,
+            "none": PoolingMode.NONE,
+        }
+        if key in lookup:
+            return lookup[key]
+        else:
+            raise ValueError(f"Cannot parse value into PoolingMode: {key}")
+
 
 class BoundsCheckMode(enum.IntEnum):
     # Raise an exception (CPU) or device-side assert (CUDA)
@@ -73,6 +188,12 @@ class BoundsCheckMode(enum.IntEnum):
     V2_WARNING = 5
     # FATAL with V2 enabled
     V2_FATAL = 6
+
+
+class ComputeDevice(enum.IntEnum):
+    CPU = 0
+    CUDA = 1
+    MTIA = 2
 
 
 class EmbeddingSpecInfo(enum.IntEnum):
@@ -184,3 +305,13 @@ def get_new_embedding_location(
     # UVM caching
     else:
         return EmbeddingLocation.MANAGED_CACHING
+
+
+def get_bounds_check_version_for_platform() -> int:
+    # NOTE: Use bounds_check_indices v2 on ROCm because ROCm has a
+    # constraint that the gridDim * blockDim has to be smaller than
+    # 2^32. The v1 kernel can be launched with gridDim * blockDim >
+    # 2^32 while the v2 kernel limits the gridDim size to 64 * # of
+    # SMs.  Thus, its gridDim * blockDim is guaranteed to be smaller
+    # than 2^32
+    return 2 if (torch.cuda.is_available() and torch.version.hip) else 1

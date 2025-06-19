@@ -13,7 +13,7 @@
 
 #include "fbgemm_gpu/embedding_common.h"
 #include "fbgemm_gpu/embedding_forward_split_cpu.h"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "torch/types.h" // @manual=//caffe2:torch-cpp-cpu
 
 #if FBGEMM_GPU_MEMCHECK
@@ -22,8 +22,10 @@
 #define FBGEMM_MEM_CHECK_ONLY maybe_unused
 #endif
 
-template <c10::ScalarType DType, typename T>
+template <typename T>
 void test_csr2csc() {
+  constexpr auto DType = c10::CppTypeToScalarType<T>::value;
+
   internal::HyperCompressedSparseColumn csc;
   int B = 2;
   at::Tensor offsets =
@@ -105,11 +107,11 @@ void test_csr2csc() {
 }
 
 TEST(CpuKernelTest, csr2csc_test_int32) {
-  test_csr2csc<torch::kInt32, int32_t>();
+  test_csr2csc<int32_t>();
 }
 
 TEST(CpuKernelTest, csr2csc_test_int64) {
-  test_csr2csc<torch::kInt64, int64_t>();
+  test_csr2csc<int64_t>();
 }
 
 #undef FBGEMM_MEM_CHECK_ONLY

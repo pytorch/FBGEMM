@@ -9,8 +9,17 @@
 #pragma once
 
 #include <ATen/ATen.h>
+
 #include <cuda.h>
+
+#ifdef __HIP_PLATFORM_AMD__
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAGeneratorImpl.h>
+#include <c10/cuda/CUDAGuard.h>
+#include <ATen/cuda/PhiloxUtils.cuh>
+#else
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
+#endif
 #include <cassert>
 
 namespace {
@@ -66,11 +75,10 @@ static constexpr uint32_t kFullWarpMask = 0xff'ff'ff'ff;
 
 static constexpr float kQParamEps = 1e-8f;
 
-/* For rowwise int8 quantization, two quantization parameters (qparams)
-will be stored at the end of each row in FP32 formats, appending a total of
-8 bytes to each row.
-*/
-static constexpr float kINT8QparamsBytes = 8;
+// For rowwise int8 quantization, two quantization parameters (qparams) will be
+// stored at the end of each row in FP32 formats, appending a total of 8 bytes
+// to each row.
+static constexpr int32_t kINT8QparamsBytes = 8;
 
 template <typename T>
 DEVICE_INLINE T shfl_xor(

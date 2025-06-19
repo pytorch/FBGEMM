@@ -10,7 +10,7 @@
 
 # A minimum CMake version of 3.21+ is needed to support the required C and C++
 # standard versions
-cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
@@ -105,6 +105,7 @@ option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
+option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
@@ -131,9 +132,16 @@ if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
 endif()
 
+# Check if compiler supports __gnu_f2h_ieee
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
+
 # We should default to a Release build
 if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+endif()
+
+if(DISABLE_FBGEMM_AUTOVEC)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DISABLE_FBGEMM_AUTOVEC")
 endif()
 
 # Check if compiler supports OpenMP
@@ -204,6 +212,9 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
   string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
+  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+    string(APPEND CMAKE_CXX_FLAGS " -Wno-vla-cxx-extension")
+  endif()
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
@@ -418,4 +429,8 @@ endif()
 
 if(FBGEMM_BUILD_FBGEMM_GPU)
   add_subdirectory(fbgemm_gpu)
+endif()
+
+if(NOT HAVE_GNU_F2H_IEEE)
+  add_definitions(-DMISSING_GNU_F2H_IEEE)
 endif()

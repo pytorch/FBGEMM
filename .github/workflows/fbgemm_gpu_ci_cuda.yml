@@ -3,9 +3,9 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-# This workflow is used for FBGEMM_GPU-CUDA CI as well as nightly builds of
-# FBGEMM_GPU-CUDA against PyTorch-CUDA Nightly.
-name: FBGEMM_GPU-CUDA CI
+# This workflow is used for FBGEMM GPU/GenAI/HSTU CUDA CI as well as nightly
+# builds of FBGEMM GPU/GenAI/HSTU CUDA against PyTorch-CUDA Nightly.
+name: FBGEMM GPU/GenAI/HSTU CUDA CI
 
 on:
   # PR Trigger (enabled for regression checks and debugging)
@@ -62,18 +62,28 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+      BUILD_TARGET: ${{ matrix.host-machine.build-target }}
       BUILD_VARIANT: cuda
-      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
+      BUILD_CUDA_VERSION: ${{ matrix.host-machine.cuda-version }}
     continue-on-error: true
     strategy:
       # Don't fast-fail all the other builds if one of the them fails
       fail-fast: false
       matrix:
         host-machine: [
-          { arch: x86, instance: "linux.24xlarge" },
+          { arch: x86, instance: "linux.24xlarge", build-target: "default", cuda-version: "12.6.3" },
+          { arch: x86, instance: "linux.24xlarge", build-target: "default", cuda-version: "12.8.1" },
+          { arch: x86, instance: "linux.24xlarge", build-target: "default", cuda-version: "12.9.1" },
+
+          # GenAI is unable to support 11.8.0 anymore as of https://github.com/pytorch/FBGEMM/pull/4138
+          { arch: x86, instance: "linux.12xlarge.memory", build-target: "genai", cuda-version: "12.6.3" },
+          { arch: x86, instance: "linux.12xlarge.memory", build-target: "genai", cuda-version: "12.8.1" },
+          { arch: x86, instance: "linux.12xlarge.memory", build-target: "genai", cuda-version: "12.9.1" },
+
+          # Since FBGEMM HSTU is released yet, we reduce to one CUDA version to conserve CI resources
+          { arch: x86, instance: "linux.24xlarge.memory", build-target: "hstu", cuda-version: "12.9.1" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         compiler: [ "gcc", "clang" ]
 
     steps:
@@ -104,30 +114,29 @@ jobs:
       run: . $PRELUDE; install_build_tools $BUILD_ENV
 
     - name: Install CUDA
-      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.host-machine.cuda-version }}
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.host-machine.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
       run: if . $PRELUDE && which conda; then collect_pytorch_env_info $BUILD_ENV; fi
 
     - name: Install cuDNN
-      run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_cudnn $BUILD_ENV "$(pwd)/build_only/cudnn" ${{ matrix.host-machine.cuda-version }}
 
     - name: Prepare FBGEMM_GPU Build
       run: . $PRELUDE; cd fbgemm_gpu; prepare_fbgemm_gpu_build $BUILD_ENV
 
     - name: Build FBGEMM_GPU Wheel
-      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly cuda
+      run: . $PRELUDE; cd fbgemm_gpu; build_fbgemm_gpu_package $BUILD_ENV nightly ${{ matrix.host-machine.build-target }}/cuda
 
     - name: Upload Built Wheel as GHA Artifact
-      # Cannot upgrade to actions/upload-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/upload-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
+        name: fbgemm_${{ matrix.host-machine.build-target }}_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.host-machine.cuda-version }}.whl
         path: fbgemm_gpu/dist/*.whl
         if-no-files-found: error
 
@@ -144,8 +153,9 @@ jobs:
     env:
       PRELUDE: .github/scripts/setup_env.bash
       BUILD_ENV: build_binary
+      BUILD_TARGET: ${{ matrix.build-target }}
       BUILD_VARIANT: cuda
-      BUILD_CUDA_VERSION: ${{ matrix.cuda-version }}
+      BUILD_CUDA_VERSION: ${{ matrix.build.cuda-version }}
       ENFORCE_CUDA_DEVICE: 1
     strategy:
       fail-fast: false
@@ -156,10 +166,20 @@ jobs:
           # https://hud.pytorch.org/metrics
           # { arch: x86, instance: "linux.gcp.a100" },
         ]
+        build: [
+          { build-target: "default", cuda-version: "12.6.3" },
+          { build-target: "default", cuda-version: "12.8.1" },
+          { build-target: "default", cuda-version: "12.9.1" },
+          { build-target: "genai", cuda-version: "12.6.3" },
+          { build-target: "genai", cuda-version: "12.8.1" },
+          { build-target: "genai", cuda-version: "12.9.1" },
+          { build-target: "hstu", cuda-version: "12.6.3" },
+          { build-target: "hstu", cuda-version: "12.8.1" },
+          { build-target: "hstu", cuda-version: "12.9.1" },
+        ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        cuda-version: [ "11.8.0", "12.4.1", "12.6.3" ]
         # Specify exactly ONE CUDA version for artifact publish
-        cuda-version-publish: [ "12.4.1" ]
+        cuda-version-publish: [ "12.6.3" ]
         compiler: [ "gcc", "clang" ]
     needs: build_artifact
 
@@ -174,7 +194,7 @@ jobs:
       # Cannot upgrade to actions/download-artifact@v4 yet because GLIBC on the instance is too old
       uses: actions/download-artifact@v4
       with:
-        name: fbgemm_gpu_nightly_cuda_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.cuda-version }}.whl
+        name: fbgemm_${{ matrix.build.build-target }}_${{ matrix.host-machine.arch }}_${{ matrix.compiler }}_py${{ matrix.python-version }}_cu${{ matrix.build.cuda-version }}.whl
 
     # Use PyTorch test infrastructure action - https://github.com/pytorch/test-infra/blob/main/.github/actions/setup-nvidia/action.yml
     - name: Install NVIDIA Drivers and NVIDIA-Docker Runtime
@@ -200,11 +220,11 @@ jobs:
       run: . $PRELUDE; install_cxx_compiler $BUILD_ENV gcc
 
     - name: Install CUDA
-      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_cuda $BUILD_ENV ${{ matrix.build.cuda-version }}
 
     # Install via PIP to avoid defaulting to the CPU variant if the GPU variant of the day is not ready
     - name: Install PyTorch Nightly
-      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.cuda-version }}
+      run: . $PRELUDE; install_pytorch_pip $BUILD_ENV ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pytorch_channel_version) || 'nightly' }} cuda/${{ matrix.build.cuda-version }}
 
     - name: Collect PyTorch Environment Info
       if: ${{ success() || failure() }}
@@ -217,11 +237,11 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_wheel $BUILD_ENV *.whl
 
     - name: Test with PyTest
-      timeout-minutes: 40
+      timeout-minutes: 60
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
     - name: Push Wheel to PyPI
-      if: ${{ (github.event_name == 'schedule' && matrix.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.cuda-version == matrix.cuda-version-publish) }}
+      if: ${{ (github.event_name == 'schedule' && matrix.build.cuda-version == matrix.cuda-version-publish) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true' && matrix.build.cuda-version == matrix.cuda-version-publish) }}
       env:
         PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
       run: . $PRELUDE; publish_to_pypi $BUILD_ENV "$PYPI_TOKEN" *.whl

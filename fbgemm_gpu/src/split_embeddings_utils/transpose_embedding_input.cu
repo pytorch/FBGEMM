@@ -8,8 +8,9 @@
 
 #include "fbgemm_gpu/embedding_backward_template_helpers.cuh" // @manual
 #include "fbgemm_gpu/split_embeddings_utils.cuh" // @manual
+#include "fbgemm_gpu/utils/kernel_launcher.cuh" // @manual
 #include "fbgemm_gpu/utils/ops_utils.h" // @manual
-#include "fbgemm_gpu/utils/tensor_accessor.h" // @manual
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h" // @manual
 #ifdef USE_ROCM
 #include <rocprim/device/device_radix_sort.hpp>
 #endif
@@ -99,7 +100,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
   const index_t hash_offset = valid ? hash_size_cumsum[t] : -1;
   const auto indices_start = valid ? offsets[b_t] : -1;
   const auto L = valid ? offsets[b_t + 1] - indices_start : 0;
-  const int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   // Compile-time conditional
   if (nobag) {
@@ -108,7 +109,7 @@ __global__ __launch_bounds__(kMaxThreads) void linearize_index_kernel(
       const auto t_warp = fbgemm_gpu::shfl_sync(t, j);
       const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
       const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-      for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+      for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
         const index_t idx = __ldg(&indices[indices_start_warp + i]);
         const auto l_t = (indices_start_warp + i) * T + t_warp;
         infos[indices_start_warp + i] = l_t;
@@ -158,7 +159,7 @@ __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
 
   fd.DivMod(b_t, &t, &b);
 
-  const int32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
+  const uint32_t lane_id = threadIdx.x % fbgemm_gpu::kWarpSize;
 
   index_t hash_offset = -1;
   index_t indices_start = -1;
@@ -183,7 +184,7 @@ __launch_bounds__(kMaxThreads) void linearize_index_index_select_kernel(
     const auto L_warp = fbgemm_gpu::shfl_sync(L, j);
     const auto L_start_warp = fbgemm_gpu::shfl_sync(L_start, j);
     const index_t hash_offset_warp = fbgemm_gpu::shfl_sync(hash_offset, j);
-    for (int32_t i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
+    for (auto i = lane_id; i < L_warp; i += fbgemm_gpu::kWarpSize) {
       const index_t idx = __ldg(&indices[indices_start_warp + i]);
       // l is the relative l in the feature (i.e., the first l in the feature
       // is 0)
@@ -250,17 +251,17 @@ transpose_embedding_input(
     const auto linearize_index_kernel_ =                                   \
         (vbe ? linearize_index_kernel<index_t, INFO_ACC_T, NOBAG, true>    \
              : linearize_index_kernel<index_t, INFO_ACC_T, NOBAG, false>); \
-    [[maybe_unused]] const auto func_name = "linearize_index_kernel_";     \
-    linearize_index_kernel_<<<                                             \
+    FBGEMM_LAUNCH_KERNEL(                                                  \
+        linearize_index_kernel_,                                           \
         div_round_up(total_B, kMaxThreads),                                \
         kMaxThreads,                                                       \
         0,                                                                 \
-        at::cuda::getCurrentCUDAStream()>>>(                               \
-        MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, int64_t, 1, 32),   \
-        MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),            \
-        MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),            \
-        MAKE_PTA_WITH_NAME(func_name, infos, INFO_ACC_T, 1, 32),           \
-        MAKE_PTA_WITH_NAME(func_name, linear_indices, index_t, 1, 32),     \
+        at::cuda::getCurrentCUDAStream(),                                  \
+        PTA_B(hash_size_cumsum, int64_t, 1, 32),                           \
+        PTA_B(indices, index_t, 1, 32),                                    \
+        PTA_B(offsets, index_t, 1, 32),                                    \
+        PTA_B(infos, INFO_ACC_T, 1, 32),                                   \
+        PTA_B(linear_indices, index_t, 1, 32),                             \
         info_B_num_bits,                                                   \
         info_B_mask,                                                       \
         (1u << (DEFAULT_INFO_NUM_BITS - info_B_num_bits)) - 1,             \
@@ -268,7 +269,6 @@ transpose_embedding_input(
         vbe ? reinterpret_cast<uint32_t*>(vbe_b_t_map.value().data_ptr())  \
             : nullptr,                                                     \
         FixedDivisor(total_B / T));                                        \
-    C10_CUDA_KERNEL_LAUNCH_CHECK();                                        \
   }
 
   AT_DISPATCH_INDEX_TYPES(
@@ -283,27 +283,21 @@ transpose_embedding_input(
                   INVOKE_LINEARIZE_INDEX_KERNEL(int64_t, true);
                 }
               } else {
-        // index_select is a special case of TBE (dense, nobag, with
-        // fixed_L_per_warp)
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name = "linearize_index_index_select_kernel";
-#endif
-                linearize_index_index_select_kernel<<<
+                // index_select is a special case of TBE (dense, nobag, with
+                // fixed_L_per_warp)
+                FBGEMM_LAUNCH_KERNEL(
+                    (linearize_index_index_select_kernel<index_t, int64_t>),
                     div_round_up(total_B, kMaxThreads),
                     kMaxThreads,
                     0,
-                    at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA_WITH_NAME(
-                        func_name, hash_size_cumsum, int64_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(
-                        func_name, total_L_offsets.value(), index_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, infos, int64_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(
-                        func_name, linear_indices, index_t, 1, 32),
+                    at::cuda::getCurrentCUDAStream(),
+                    PTA_B(hash_size_cumsum, int64_t, 1, 32),
+                    PTA_B(indices, index_t, 1, 32),
+                    PTA_B(total_L_offsets.value(), index_t, 1, 32),
+                    PTA_B(infos, int64_t, 1, 32),
+                    PTA_B(linear_indices, index_t, 1, 32),
                     FixedDivisor(total_B / T),
                     fixed_L_per_warp);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
               }
               {
                 size_t temp_storage_bytes = 0;

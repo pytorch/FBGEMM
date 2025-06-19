@@ -9,6 +9,7 @@
 
 # pyre-ignore-all-errors[56]
 
+import math
 import random
 import unittest
 
@@ -37,7 +38,9 @@ from hypothesis import assume, given, HealthCheck, settings, Verbosity
 from .. import common  # noqa E402
 from ..common import (
     format_ref_tensors_in_mixed_B_layout,
+    FORWARD_MAX_THREADS,
     gen_mixed_B_batch_sizes,
+    get_max_thread_blocks,
     MAX_EXAMPLES_LONG_RUNNING,
     open_source,
 )
@@ -76,17 +79,10 @@ additional_decorators.update(
         "test_faketensor__test_forward_gpu_uvm_cache_int8": [
             unittest.skip("Operator not implemented for Meta tensors"),
         ],
+        "test_faketensor__test_forward_cpu_fp32": [
+            unittest.skip("Operator not implemented for Meta tensors"),
+        ],
         # TODO: Make it compatible with opcheck tests
-        "test_faketensor__test_forward_gpu_uvm_cache_fp16": [
-            unittest.skip(
-                "Failed for fbgemm::linearize_cache_indices. Operator not implemented for Meta tensors."
-            ),
-        ],
-        "test_faketensor__test_forward_gpu_uvm_cache_fp32": [
-            unittest.skip(
-                "Failed for fbgemm::linearize_cache_indices. Operator not implemented for Meta tensors."
-            ),
-        ],
         "test_schema__test_forward_gpu_uvm_cache_fp16": [
             unittest.skip(
                 "Failed with Argument lxu_cache_locations_output is not defined to alias output but was aliasing"
@@ -137,9 +133,16 @@ class ForwardTest(unittest.TestCase):
 
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
-        # NOTE: No bag ops only work on GPUs, no mixed
-        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+        # NOTE: No bag ops, no mixed
         assume(not mixed or pooling_mode != PoolingMode.NONE)
+        # NOTE: No bag CPU doesn't supprot INT8
+        assume(
+            not (
+                use_cpu
+                and weights_precision == SparseType.INT8
+                and pooling_mode == PoolingMode.NONE
+            )
+        )
         # TODO: Support these cases
         assume(
             not mixed_B
@@ -293,6 +296,9 @@ class ForwardTest(unittest.TestCase):
             output_dtype=output_dtype,
             use_experimental_tbe=use_experimental_tbe,
         )
+        # Test torch JIT script compatibility
+        if not use_cpu:
+            cc = torch.jit.script(cc)
 
         for t in range(T):
             cc.split_embedding_weights()[t].data.copy_(
@@ -426,6 +432,43 @@ class ForwardTest(unittest.TestCase):
             False,  # use_experimental_tbe
         )
 
+    def test_forward_cpu_fp32_nobag(
+        self,
+    ) -> None:
+        weights_precision = SparseType.FP32
+        use_cpu = True
+        T = random.randint(1, 10)
+        D = random.randint(2, min(256, int(2048 / T)))
+        B = random.randint(1, min(128, int(2048 / T / D)))
+        L = random.randint(0, min(20, int(2048 / T / D / B)))
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = CacheAlgorithm.LRU
+
+        pooling_mode = PoolingMode.NONE
+        mixed = False
+        mixed_B = False
+        weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            SparseType.FP32,
+            False,  # use_experimental_tbe
+        )
+
     @unittest.skipIf(True, "INT8 support is disabled")
     def test_forward_gpu_no_cache_int8(
         self,
@@ -476,26 +519,16 @@ class ForwardTest(unittest.TestCase):
             False,  # use_experimental_tbe
         )
 
-    @unittest.skipIf(*gpu_unavailable)
-    @given(
-        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
-    )
-    @settings(
-        verbosity=VERBOSITY,
-        max_examples=MAX_EXAMPLES_LONG_RUNNING,
-        deadline=None,
-        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
-    )
-    def test_forward_gpu_no_cache_fp16(
+    def _test_forward_gpu_no_cache_fp16_impl(
         self,
+        T: int,
+        B: int,
+        L: int,
         use_experimental_tbe: bool,
     ) -> None:
         weights_precision = SparseType.FP16
         use_cpu = False
-        T = random.randint(1, 10)
         D = random.randint(2, 256)
-        B = random.randint(1, 128)
-        L = random.randint(0, 20)
         log_E = random.randint(3, 5)
 
         use_cache = False
@@ -536,6 +569,67 @@ class ForwardTest(unittest.TestCase):
             pooling_mode,
             use_cpu,
             SparseType.FP32,
+            use_experimental_tbe,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_gpu_no_cache_fp16(
+        self,
+        use_experimental_tbe: bool,
+    ) -> None:
+        return self._test_forward_gpu_no_cache_fp16_impl(
+            random.randint(1, 10),
+            random.randint(1, 128),
+            random.randint(0, 20),
+            use_experimental_tbe,
+        )
+
+    @unittest.skipIf(*gpu_unavailable)
+    @given(
+        use_experimental_tbe=st.booleans() if not TEST_WITH_ROCM else st.just(False),
+    )
+    @settings(
+        verbosity=VERBOSITY,
+        max_examples=MAX_EXAMPLES_LONG_RUNNING,
+        deadline=None,
+        suppress_health_check=[HealthCheck.filter_too_much, HealthCheck.data_too_large],
+    )
+    def test_forward_gpu_no_cache_fp16_large(
+        self,
+        use_experimental_tbe: bool,
+    ) -> None:
+        torch.cuda.empty_cache()
+
+        max_num_threads = FORWARD_MAX_THREADS * get_max_thread_blocks(
+            torch.cuda.current_stream()
+        )
+        # NOTE: L is arbitrarily chosen here
+        L = 10
+        # NOTE: Fix to the smallest value B such that (B x L) = (number of
+        # indices) > (allowed grid size x block size)
+        # Add 256 to B just in case B * L == max_num_threads
+        B = 2 ** (math.ceil(math.log2(max_num_threads / L))) + 256
+        # NOTE: T is chosen to be small enough to avoid OOM errors given that
+        # B x L must be large enough
+        T = 3
+
+        assert (
+            B * L > max_num_threads
+        ), "Should be testing the case where B * L is larger than max_num_threads"
+
+        return self._test_forward_gpu_no_cache_fp16_impl(
+            T,
+            B,
+            L,
             use_experimental_tbe,
         )
 

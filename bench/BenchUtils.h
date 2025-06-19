@@ -20,9 +20,9 @@
 #if __APPLE__
 // not sure whether need to differentiate TARGET_OS_MAC or TARGET_OS_IPHONE,
 // etc.
-#include <Accelerate/Accelerate.h>
+#include <Accelerate/Accelerate.h> // @manual
 #else
-#include <cblas.h>
+#include <cblas.h> // @manual
 #endif
 #endif
 
@@ -34,10 +34,10 @@
 #include <mkl.h>
 #endif
 
-#include "./AlignedVec.h"
+#include "./AlignedVec.h" // @manual
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FbgemmPackMatrixB.h"
-#include "src/RefImplementations.h"
+#include "src/RefImplementations.h" // @manual
 
 namespace fbgemm {
 
@@ -237,7 +237,7 @@ void performance_test(
 
 #elif dataset == 2
   const int NITER = (flush) ? 10 : 100;
-#include "shapes_dataset.h"
+#include "shapes_dataset.h" // @manual
 
 #else
   flush = false;

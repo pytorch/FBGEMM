@@ -15,7 +15,11 @@ struct fused_moe_args {
   const void* d_scale_ptr; // [e, 1, k], down scale
   const void*
       y_smooth_scale_ptr; // [e, 1, n], smooth-quant-scale for 2nd gemm input
+  const void* local_expert_mask_ptr; // [e], local_expert_mask_ptr for EP
   void* o_ptr; // [m, k], output token (no need to do zeroing)
+  void* ws_ptr; // size is moe_sorting_get_workspace_size()
+                // if return zero, then could be nullptr
+                // must be cleard before use
 
   const void* topk_ids_ptr; // [tokens, topk]
   const void* topk_weight_ptr; // [tokens, topk]
@@ -28,7 +32,7 @@ struct fused_moe_args {
   ck_tile::index_t block_m; // block_m, used to devide the input
   ck_tile::index_t hidden_size; // k
   ck_tile::index_t
-      intermediate_size; // n / TP, for Gate. if Gate+Up, Down need divide by 2
+      intermediate_size; // n / TP, for Gate. and Up, Down is also this value
   ck_tile::index_t num_tokens; // input number of tokens for current iteration
   ck_tile::index_t num_experts; // number of groups
   ck_tile::index_t topk; // need this?
@@ -47,8 +51,11 @@ struct fused_moe_traits {
   std::string prec_sq; // smooth quant scale
   std::string prec_kw; // topk-weight data type
   int block_m;
-  int gate_only;
+  int activation; // 0:gelu, 1:silu
+  int gate_only; // 0:g1u0, 1:g1u1
   int fused_quant; // 0:no-sweep, 1:smooth-dynamic-quant, 2:dynamic-quant
+
+  bool local_expert_masking; // if mask experts as local expert
 };
 
 float fused_moe(

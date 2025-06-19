@@ -224,6 +224,32 @@ void nccl_allreduce(
     default:
       TORCH_CHECK(false, "unsupported type: ", src.scalar_type());
   }
+#if defined(USE_ROCM)
+  if (bias) {
+    C10D_NCCL_CHECK(
+        ncclAllReduceWithBias(
+            src.data_ptr(),
+            dst.data_ptr(),
+            src.numel(),
+            type,
+            ncclSum,
+            *get_nccl_comm(comm_idx),
+            at::cuda::getCurrentCUDAStream(),
+            (*bias).data_ptr()),
+        "ncclAllReduceWithBias");
+  } else {
+    C10D_NCCL_CHECK(
+        ncclAllReduce(
+            src.data_ptr(),
+            dst.data_ptr(),
+            src.numel(),
+            type,
+            ncclSum,
+            *get_nccl_comm(comm_idx),
+            at::cuda::getCurrentCUDAStream()),
+        "ncclAllReduce");
+  }
+#else
   C10D_NCCL_CHECK(
       ncclAllReduce(
           src.data_ptr(),
@@ -237,6 +263,7 @@ void nccl_allreduce(
   if (bias) {
     dst.add_(*bias);
   }
+#endif
 }
 
 } // namespace
@@ -253,11 +280,18 @@ void one_shot_car_allreduce(
     at::Tensor dst,
     at::Tensor src,
     std::optional<at::Tensor> bias,
-    int64_t comm_idx);
+    int64_t comm_idx,
+    bool enable_pipelining);
 void two_shot_car_allreduce(
     at::Tensor dst,
     at::Tensor src,
     std::optional<at::Tensor> bias,
+    int64_t comm_idx,
+    bool enable_pipelining);
+void car_reducescatter(
+    at::Tensor dst,
+    at::Tensor src,
+    bool split_last_dim,
     int64_t comm_idx);
 
 at::Tensor car_tensor();
@@ -298,10 +332,13 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   m.impl("car_init", car_init);
 
   m.def(
-      "one_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+      "one_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0, bool enable_pipelining=False) -> ()");
 
   m.def(
-      "two_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0) -> ()");
+      "two_shot_car_allreduce(Tensor(a!) dst, Tensor src, Tensor? bias=None, int comm_idx=0, bool enable_pipelining=False) -> ()");
+
+  m.def(
+      "car_reducescatter(Tensor(a!) dst, Tensor src, bool split_last_dim=False, int comm_idx=0) -> ()");
 }
 
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
@@ -312,6 +349,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
+  m.impl("car_reducescatter", car_reducescatter);
 }
 
 // Though it shouldnt be used, it is useful to define these functions for CPU to
@@ -324,6 +362,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("nccl_reducescatter", nccl_reducescatter);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce);
+  m.impl("car_reducescatter", car_reducescatter);
 }
 
 // Shape registration functions for car operators.
@@ -368,7 +407,8 @@ void one_shot_car_allreduce_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
     std::optional<at::Tensor> /* bias */,
-    int64_t /* comm_idx */) {
+    int64_t /* comm_idx */,
+    bool /* enable_pipelining */) {
   return;
 }
 
@@ -376,6 +416,15 @@ void two_shot_car_allreduce_meta(
     at::Tensor /* dst */,
     at::Tensor /* src */,
     std::optional<at::Tensor> /* bias */,
+    int64_t /* comm_idx */,
+    bool /* enable_pipelining */) {
+  return;
+}
+
+void car_reducescatter_meta(
+    at::Tensor /* dst */,
+    at::Tensor /* src */,
+    bool /* split_last_dim */,
     int64_t /* comm_idx */) {
   return;
 }
@@ -388,6 +437,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("nccl_reducescatter", nccl_reducescatter_meta);
   m.impl("one_shot_car_allreduce", one_shot_car_allreduce_meta);
   m.impl("two_shot_car_allreduce", two_shot_car_allreduce_meta);
+  m.impl("car_reducescatter", car_reducescatter_meta);
 }
 
 } // namespace fbgemm_gpu

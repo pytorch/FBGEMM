@@ -26,6 +26,7 @@
 #include <torch/script.h>
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/utils/torch_library.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -93,6 +94,10 @@ Tensor {{ fwd_mdesc }}_embedding{{ ndesc }}_codegen_forward_{{ desc_suffix }}_pt
     const c10::SymInt vbe_output_size,
     const int64_t info_B_num_bits,
     const int64_t info_B_mask_int64,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const Tensor& vbe_output_offsets_feature_rank,
+    const c10::SymInt max_B,
+    const Tensor& B_offsets,
     {%- endif %}
     {%- if is_gwd %}
     const Tensor& prev_iter_dev,
@@ -215,6 +220,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     {%- else %}
     const Tensor& D_offsets,
     const c10::SymInt max_D,
+    const bool mixed_D,
     {%- endif %}
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
@@ -240,9 +246,14 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
     const Tensor& B_offsets,
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const c10::SymInt max_B,
     {%- endif %}
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}    
     {%- if is_gwd %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
     const Tensor& prev_iter_dev,
@@ -275,6 +286,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
                         {%- else %}
                         const Tensor& /*D_offsets*/,
                         const c10::SymInt /*max_D*/,
+                        const bool /*mixed_D*/,
                         {%- endif %}
                         const Tensor& /*hash_size_cumsum*/,
                         const int64_t /*total_hash_size_bits*/,
@@ -301,6 +313,9 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
                         {%- endif %}
                         const bool /*use_uniq_cache_locations*/,
                         const bool /*use_homogeneous_placements*/,
+                        {%- if ssd %}
+                        const bool /*enable_optimizer_offloading*/,
+                        {%- endif %}
                         {%- if is_gwd %}
                         {%- if "prev_iter_dev" not in args.split_function_arg_names %}
                         const Tensor& /*prev_iter_dev*/,
@@ -327,6 +342,7 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
             {%- else %}
             D_offsets,
             max_D,
+            mixed_D,
             {%- endif %}
             hash_size_cumsum,
             total_hash_size_bits,
@@ -357,6 +373,9 @@ Tensor {{ bwd_mdesc }}_embedding{{ ndesc }}_backward_codegen_{{ optimizer }}_{{ 
             {%- endif %}
             use_uniq_cache_locations,
             use_homogeneous_placements,
+            {%- if ssd %}
+            enable_optimizer_offloading,
+            {%- endif %}            
             {%- if is_gwd %}
             {%- if "prev_iter_dev" not in args.split_function_arg_names %}
             prev_iter_dev,
@@ -400,7 +419,9 @@ Tensor {{ fwd_mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_pt2_{{ d
     const Tensor& vbe_row_output_offsets,
     const Tensor& vbe_b_t_map,
     const int64_t info_B_num_bits,
-    const int64_t info_B_mask_int64
+    const int64_t info_B_mask_int64,
+    const Tensor& vbe_B_offsets_rank_per_feature,
+    const c10::SymInt max_B
     {%- else %}
     const Tensor& feature_requires_grad
     {%- endif %}
@@ -491,8 +512,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       fwd_mdesc, ndesc, desc_suffix
       )
     %}
-    {%- if ssd or is_gwd or nobag %}
-    /* Register scehema for wrappers with GPU-only support */
+    {%- if ssd or is_gwd %}
+    /* Register scehema for wrappers with GPU-only support */    
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_forward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
         "    Tensor host_weights, "
         "    Tensor dev_weights, "
@@ -519,16 +541,20 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- else %}
         "    Tensor lxu_cache_locations, "
         {%- endif %}
-        "    Tensor uvm_cache_stats, "
+        "    Tensor{{ schema_annotation['uvm_cache_stats'] }} uvm_cache_stats, "
         {%- if vbe %}
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
         "    SymInt vbe_output_size, "
         "    int info_B_num_bits, "
         "    int info_B_mask_int64, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    Tensor vbe_output_offsets_feature_rank, "
+        "    SymInt max_B, "
+        "    Tensor B_offsets, "
         {%- endif %}
         {%- if is_gwd %}
-        "    Tensor prev_iter_dev, "
+        "    Tensor{{ schema_annotation['prev_iter_dev'] }} prev_iter_dev, "
         "    Tensor learning_rate_tensor, "
         "    float weight_decay, "
         "    int iter, "
@@ -543,6 +569,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         , {PT2_COMPLIANT_TAG}
         {%- endif %}
         );
+    }
     {%- endif %}
     DISPATCH_TO_CUDA(
       "{{ embedding_codegen_forward_op }}_wrapper",
@@ -555,14 +582,15 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         bwd_mdesc, ndesc, optimizer, desc_suffix
         )
     %}
-    {%- if ssd or is_gwd or nobag or not has_cpu_support %}
+    {%- if ssd or is_gwd or not has_cpu_support %}
     /* Register scehema for wrappers with GPU-only support */
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_backward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
-        "    Tensor(a!) host_weights, "
-        "    Tensor(b!) dev_weights, "
-        "    Tensor(c!) uvm_weights, "
-        "    Tensor lxu_cache_weights, "
+        "    Tensor{{ schema_annotation['weights_host'] }} host_weights, "
+        "    Tensor{{ schema_annotation['weights_dev'] }} dev_weights, "
+        "    Tensor{{ schema_annotation['weights_uvm'] }} uvm_weights, "
+        "    Tensor{{ schema_annotation['weights_lxu_cache'] }} lxu_cache_weights, "
         "    Tensor weights_placements, "
         "    Tensor weights_offsets, "
         {%- if nobag %}
@@ -570,6 +598,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         {%- else %}
         "    Tensor D_offsets, "
         "    SymInt max_D, "
+        "    bool mixed_D, "
         {%- endif %}
         "    Tensor hash_size_cumsum, "
         "    int total_hash_size_bits, "
@@ -595,12 +624,17 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor B_offsets, "
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    SymInt max_B, "
         {%- endif %}
         "    bool use_uniq_cache_locations, "
         "    bool use_homogeneous_placements,"
+        {%- if ssd %}
+        "    bool enable_optimizer_offloading,"
+        {%- endif %}        
         {%- if is_gwd %}
         {%- if "prev_iter_dev" not in args.split_function_arg_names %}
-        "    Tensor prev_iter_dev, "
+        "    Tensor{{ schema_annotation['prev_iter_dev'] }} prev_iter_dev, "
         {%- endif %}
         {%- if "iter" not in args.split_function_arg_names %}
         "    int iter, "
@@ -612,6 +646,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    , int output_dtype=0 "
         {%- endif %}
         ") -> Tensor");
+    }
     {%- endif %}
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_backward_op }}_wrapper",
@@ -652,7 +687,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    Tensor vbe_row_output_offsets, "
         "    Tensor vbe_b_t_map, "
         "    int info_B_num_bits, "
-        "    int info_B_mask_int64"
+        "    int info_B_mask_int64, "
+        "    Tensor vbe_B_offsets_rank_per_feature, "
+        "    SymInt max_B "
         {%- else %}
         "    Tensor feature_requires_grad"
         {%- endif %}

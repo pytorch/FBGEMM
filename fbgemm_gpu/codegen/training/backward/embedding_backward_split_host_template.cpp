@@ -171,10 +171,10 @@ enum SSDTensor {
           {%- endif %}
           BT_block_size,
           max_segment_length_per_warp,
-          {%- if optimizer != "none" and not dense %}
+          {%- if not dense %}
+          {%- if optimizer != "none" %}
           stochastic_rounding,
           {%- endif %}
-          {%- if not dense %}
           info_B_num_bits,
           info_B_mask_int64,
           {%- endif %}
@@ -186,6 +186,9 @@ enum SSDTensor {
           {%- if not dense %}
           use_uniq_cache_locations_bwd,
           use_homogeneous_placements,
+          {%- endif %}
+          {%- if ssd %}
+          enable_optimizer_offloading,
           {%- endif %}
           {%- if is_gwd %}
           {%- if "prev_iter_dev" not in args.split_function_arg_names %}
@@ -311,46 +314,48 @@ enum SSDTensor {
           hash_size_cumsum,
           total_hash_size_bits,
           indices,
-          {%- if not nobag and dense and not vbe %}
-          offsets,
-          pooling_mode,
-          indice_weights,
-          feature_requires_grad
-          {%- elif not nobag %}
-          offsets,
-          pooling_mode,
-          indice_weights,
-          feature_requires_grad,
-          {%- elif nobag and dense and not vbe %}
+          {%- if dense and nobag %}
           offsets
           {%- else %}
           offsets,
           {%- endif %}
+          {%- if not nobag %}
+          pooling_mode,
+          indice_weights,
+          {%- if dense and not vbe %}
+          feature_requires_grad
+          {%- else %}
+          feature_requires_grad,
+          {%- endif %}
+          {%- endif %} {# /* if not nobag */ #}
           {%- if not dense %}
           lxu_cache_locations,
           uvm_cache_stats,
-          {%- endif %}
-          {%- if optimizer != "none" and not dense %}
+          {%- if optimizer != "none" %}
           gradient_clipping,
           max_gradient,
           stochastic_rounding,
           {%- endif %}
+          {%- endif %} {# /* if not dense */ #}
           {%- if vbe %}
           B_offsets,
           vbe_output_offsets_feature_rank,
           vbe_B_offsets_rank_per_feature,
           max_B,
           max_B_feature_rank,
-          {%- endif %}
-          {%- if vbe and not dense %}
-          vbe_output_size,
-          {%- elif vbe and dense %}
+          {%- if dense %}
           vbe_output_size
-          {%- endif %}
+          {%- else %}
+          vbe_output_size,
+          {%- endif %} {# /* if dense */ #}
+          {%- endif %} {# /* if vbe */ #}
           {%- if not dense %}
           is_experimental,
           use_uniq_cache_locations_bwd,
           use_homogeneous_placements,
+          {%- if ssd %}
+          enable_optimizer_offloading,
+          {%- endif %}      
           {%- if is_gwd %}
           {%- if "prev_iter_dev" not in args.split_function_arg_names %}
           prev_iter_dev,
@@ -359,12 +364,12 @@ enum SSDTensor {
           iter,
           {%- endif %}
           gwd_lower_bound,
-          {%- endif %}
+          {%- endif %} {# /* if is_gwd */ #}
           {%- if ssd %}
           ssd_tensors.value(),
           {%- endif  %}
           {{ args.split_function_arg_names_autograd | join(", ") }}
-          {%- endif %}
+          {%- endif %} {# /* if not dense */ #}
           )[0];
 {%- endmacro %}
 
@@ -521,6 +526,9 @@ Tensor
     {%- if not dense %}
     const bool use_uniq_cache_locations,
     const bool use_homogeneous_placements,
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}
     {%- endif %}
     {%- if is_gwd %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
@@ -577,20 +585,19 @@ class {{ autograd_func }} :
     const Tensor& hash_size_cumsum,
     const int64_t total_hash_size_bits,
     const Tensor& indices,
-    {%- if not nobag and dense and not vbe %}
-    const Tensor& offsets,
-    const int64_t pooling_mode,
-    const std::optional<Tensor>& indice_weights,
-    const std::optional<Tensor>& feature_requires_grad
-    {%- elif not nobag %}
-    const Tensor& offsets,
-    const int64_t pooling_mode,
-    const std::optional<Tensor>& indice_weights,
-    const std::optional<Tensor>& feature_requires_grad,
-    {%- elif nobag and dense and not vbe %}
+    {%- if dense and nobag %}
     const Tensor& offsets
     {%- else %}
     const Tensor& offsets,
+    {%- endif %}
+    {%- if not nobag %}
+    const int64_t pooling_mode,
+    const std::optional<Tensor>& indice_weights,
+    {%- if dense and not vbe %}
+    const std::optional<Tensor>& feature_requires_grad
+    {%- else %}
+    const std::optional<Tensor>& feature_requires_grad,
+    {%- endif %}
     {%- endif %}
     {%- if not dense %}
     const Tensor& lxu_cache_locations,
@@ -611,6 +618,9 @@ class {{ autograd_func }} :
     const bool is_experimental,
     const bool use_uniq_cache_locations_bwd,
     const bool use_homogeneous_placements,
+    {%- if ssd %}
+    const bool enable_optimizer_offloading,
+    {%- endif %}
     {%- if is_gwd %}
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
     const std::optional<Tensor>& prev_iter_dev,
@@ -619,7 +629,7 @@ class {{ autograd_func }} :
     const int64_t iter,
     {%- endif %}
     const double gwd_lower_bound,
-    {%- endif %}
+    {%- endif %} {#-/* if is_gwd */#}
     {%- if ssd %}
     const at::TensorList& ssd_tensors,
     {%- endif %}
@@ -633,14 +643,13 @@ class {{ autograd_func }} :
     const c10::SymInt max_B_feature_rank,
     const c10::SymInt vbe_output_size
     {%- endif %}
-    {%- endif %}) {
+    {%- endif %} {# /* if not dense */ #}) {
 
     const auto T = weights_offsets.sym_numel();
     {%- if vbe %}
     const auto B_offsets_ = B_offsets.value_or(Tensor());
     const auto vbe_output_offsets_feature_rank_ = vbe_output_offsets_feature_rank.value_or(Tensor());
     const auto vbe_B_offsets_rank_per_feature_ = vbe_B_offsets_rank_per_feature.value_or(Tensor());
-
     const c10::SymInt max_B_ = max_B;
     {%- else %}
     const auto max_B_ = offsets.sym_size(0) / T;
@@ -662,8 +671,8 @@ class {{ autograd_func }} :
         << "T=" << T << ","
         << "avg_D=" << ({{ "total_D / T" if not nobag else "D" }}) << ","
         << "max_D=" << {{ "max_D" if not nobag else "D" }} << ","
-        << "num_indices=" << indices.numel() << ","
-        << "avg_pooling_fac=" << (static_cast<float>(indices.numel()) / T / max_B_)
+        << "num_indices=" << indices.sym_numel() << ","
+        << "avg_pooling_fac=" << (static_cast<c10::SymFloat>(indices.sym_numel()) / T / max_B_)
         << "]";
       op_annotation = ss.str();
       record_trace = profiler::record_function_enter_new(
@@ -786,6 +795,11 @@ class {{ autograd_func }} :
     ctx->saved_data["use_uniq_cache_locations_bwd"] = use_uniq_cache_locations_bwd;
     ctx->saved_data["use_homogeneous_placements"] = use_homogeneous_placements;
     {%- endif %}
+
+    {%- if ssd %}
+    ctx->saved_data["enable_optimizer_offloading"] = enable_optimizer_offloading;
+    {%- endif %}
+
     {%- if is_gwd %}
     {%- if "iter" not in args.split_function_arg_names %}
     ctx->saved_data["iter"] = iter;
@@ -902,6 +916,11 @@ class {{ autograd_func }} :
       ctx->saved_data["use_uniq_cache_locations_bwd"].toBool();
     const auto use_homogeneous_placements =
       ctx->saved_data["use_homogeneous_placements"].toBool();
+    {%- endif %}
+    
+    {%- if ssd %}
+    const auto enable_optimizer_offloading = 
+      ctx->saved_data["enable_optimizer_offloading"].toBool();
     {%- endif %}
 
     {%- if is_gwd %}
@@ -1068,6 +1087,9 @@ Tensor {{ bwd_mdesc }}_embedding_codegen_lookup_{{ optimizer }}_function(
     const bool is_experimental_tbe = false, // formerly named is_experimental
     const bool use_uniq_cache_locations_bwd = false,
     const bool use_homogeneous_placements = false,
+    {%- if ssd %}
+    const bool enable_optimizer_offloading = false,
+    {%- endif %}
     const std::optional<Tensor>& uvm_cache_stats = std::nullopt,
     {%- if "prev_iter_dev" not in args.split_function_arg_names %}
     const std::optional<Tensor>& prev_iter_dev = std::nullopt,
@@ -1188,6 +1210,9 @@ TORCH_LIBRARY_FRAGMENT({{ lib_name }}, m) {
           "    bool is_experimental=False, "
           "    bool use_uniq_cache_locations_bwd=False, "
           "    bool use_homogeneous_placements=False, "
+          {%- if ssd %}
+          "    bool enable_optimizer_offloading=False, "
+          {%- endif %}
           "    Tensor? uvm_cache_stats=None, "
           {%- if "prev_iter_dev" not in args.split_function_arg_names %}
           "    Tensor? prev_iter_dev=None, "

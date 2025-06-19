@@ -37,6 +37,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/utils/ops_utils.h"
 {%- endif %}
+#include "fbgemm_gpu/utils/device_properties.cuh"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
 
@@ -525,10 +527,6 @@ batch_index_select_dim0_codegen_forward_cuda(
     SparseType o_dtype = static_cast<SparseType>(output_dtype);
     TORCH_CHECK(o_dtype == SparseType::FP32 || o_dtype == SparseType::FP16 ||
                 o_dtype == SparseType::BF16 || o_dtype == SparseType::INT8);
-    int64_t total_adjusted_D = total_D;
-    if (o_dtype == SparseType::INT8) {
-        total_adjusted_D += T * kINT8QparamsBytes;
-    }
 
     {%- if vbe %}
     // Use a 2D tensor to make it compatible with 2D PackedTensorsAccessor of other output
@@ -537,6 +535,11 @@ batch_index_select_dim0_codegen_forward_cuda(
         dev_weights.options().dtype(getScalarType(o_dtype))
     );
     {%- else %}
+    int64_t total_adjusted_D = total_D;
+    if (o_dtype == SparseType::INT8) {
+        total_adjusted_D += T * kINT8QparamsBytes;
+    }
+
     output = at::empty(
         {B, total_adjusted_D},
         dev_weights.options().dtype(getScalarType(o_dtype))
@@ -587,52 +590,47 @@ batch_index_select_dim0_codegen_forward_cuda(
               if is_index_select else
               "{}_embedding_nobag_codegen_forward_unweighted_small_kernel".format(mdesc)
           %}
-#ifdef FBGEMM_GPU_MEMCHECK
-          const auto func_name = "{{ nobag_small_kernel }}";
-#endif
-          {{ nobag_small_kernel }}<
-            emb_t,
-            cache_t,
-            output_t,
-            index_t,
-            kEmbeddingSize / 4>
-            <<<
-              div_round_up(total_B, kForwardMaxThreads / kWarpSize),
-              dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-              0,
-              at::cuda::getCurrentCUDAStream()
-            >>>(
-              MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
-              {%- if not dense %}
-              MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
-              MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
-              MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
-              {%- endif %}
-              MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-              {%- if is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-              {%- else %}
-              D,
-              {%- endif %}
-              FixedDivisor(B),
-              MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-              {%- if not is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-              {%- endif %}
-              {%- if not dense %}
-              MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
-              {%- endif %}
-              {%- if is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, output_offsets, int64_t, 1, 32),
-              MAKE_PTA_WITH_NAME(func_name, total_L_offsets, int64_t, 1, 32),
-              fixed_L_per_warp,
-              permute_output_dim_0_1,
-              {%- endif %}
-              MAKE_PTA_WITH_NAME(func_name, output, output_t, {{ "1" if is_index_select else "2" }}, 64)
-            );
 
+          FBGEMM_LAUNCH_KERNEL(
+            ({{ nobag_small_kernel }}<
+              emb_t,
+              cache_t,
+              output_t,
+              index_t,
+              kEmbeddingSize / 4>),
+            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(dev_weights, emb_t, 1, 64),
+            {%- if not dense %}
+            PTA_B(uvm_weights, emb_t, 1, 64),
+            PTA_B(lxu_cache_weights, cache_t, 2, 64),
+            PTA_B(weights_placements, int32_t, 1, 32),
+            {%- endif %}
+            PTA_B(weights_offsets, int64_t, 1, 32),
+            {%- if is_index_select %}
+            PTA_B(D_offsets, int32_t, 1, 32),
+            {%- else %}
+            D,
+            {%- endif %}
+            FixedDivisor(B),
+            PTA_B(indices, index_t, 1, 32),
+            {%- if not is_index_select %}
+            PTA_B(offsets, index_t, 1, 32),
+            {%- endif %}
+            {%- if not dense %}
+            PTA_B({{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
+            {%- endif %}
+            {%- if is_index_select %}
+            PTA_B(output_offsets, int64_t, 1, 32),
+            PTA_B(total_L_offsets, int64_t, 1, 32),
+            fixed_L_per_warp,
+            permute_output_dim_0_1,
+            {%- endif %}
+            PTA_B(output, output_t, {{ "1" if is_index_select else "2" }}, 64)
+          );
 
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
           return;
         });
 
@@ -642,55 +640,50 @@ batch_index_select_dim0_codegen_forward_cuda(
               if is_index_select else
               "{}_embedding_nobag_codegen_forward_unweighted_kernel".format(mdesc)
           %}
-#ifdef FBGEMM_GPU_MEMCHECK
-          const auto func_name = "{{ nobag_kernel }}";
-#endif
-
-          {{ nobag_kernel }}
-            {%- if dense or is_index_select %}
-            <emb_t, cache_t, output_t, index_t>
-            {%- else %}
-            <emb_t, cache_t, output_t, use_cache_t, index_t>
-            {%- endif %}
-            <<<
-              div_round_up(total_B, kForwardMaxThreads / kWarpSize),
-              dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
-              0,
-              at::cuda::getCurrentCUDAStream()
-            >>>(
-              MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
-              {%- if not dense %}
-              MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
-              MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
-              MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
-              {%- endif %}
-              MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-              {%- if is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
+          FBGEMM_LAUNCH_KERNEL(
+            ({{ nobag_kernel }}
+              {%- if dense or is_index_select %}
+              <emb_t, cache_t, output_t, index_t>
               {%- else %}
-              D,
+              <emb_t, cache_t, output_t, use_cache_t, index_t>
               {%- endif %}
-              FixedDivisor(B),
-              MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-              {%- if not is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-              {%- endif %}
-              {%- if not dense %}
-              MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
-              uvm_cache_stats.size(0) == 0
-                  ? nullptr
-                  : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
-              {%- endif %}
-              {%- if is_index_select %}
-              MAKE_PTA_WITH_NAME(func_name, output_offsets, int64_t, 1, 32),
-              MAKE_PTA_WITH_NAME(func_name, total_L_offsets, int64_t, 1, 32),
-              fixed_L_per_warp,
-              permute_output_dim_0_1,
-              {%- endif %}
-              MAKE_PTA_WITH_NAME(func_name, output, output_t, {{ "1" if is_index_select else "2" }}, 64)
-            );
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-            return;
+            ),
+            div_round_up(total_B, kForwardMaxThreads / kWarpSize),
+            dim3(kWarpSize, kForwardMaxThreads / kWarpSize),
+            0,
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(dev_weights, emb_t, 1, 64),
+            {%- if not dense %}
+            PTA_B(uvm_weights, emb_t, 1, 64),
+            PTA_B(lxu_cache_weights, cache_t, 2, 64),
+            PTA_B(weights_placements, int32_t, 1, 32),
+            {%- endif %}
+            PTA_B(weights_offsets, int64_t, 1, 32),
+            {%- if is_index_select %}
+            PTA_B(D_offsets, int32_t, 1, 32),
+            {%- else %}
+            D,
+            {%- endif %}
+            FixedDivisor(B),
+            PTA_B(indices, index_t, 1, 32),
+            {%- if not is_index_select %}
+            PTA_B(offsets, index_t, 1, 32),
+            {%- endif %}
+            {%- if not dense %}
+            PTA_B({{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
+            uvm_cache_stats.size(0) == 0
+                ? nullptr
+                : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
+            {%- endif %}
+            {%- if is_index_select %}
+            PTA_B(output_offsets, int64_t, 1, 32),
+            PTA_B(total_L_offsets, int64_t, 1, 32),
+            fixed_L_per_warp,
+            permute_output_dim_0_1,
+            {%- endif %}
+            PTA_B(output, output_t, {{ "1" if is_index_select else "2" }}, 64)
+          );
+          return;
         });
 
 
@@ -704,10 +697,6 @@ batch_index_select_dim0_codegen_forward_cuda(
                 else "DISPATCH_OPTIMAL_FORWARD_KERNEL"
           %}
           {{ dispatcher }}(max_D, [&] {
-
-#ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name = "{{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel";
-#endif
             // Other components in TBE (backward, backward_indice_weights) use
             // kFixedMaxVecsPerThread. Thus, the codegen generates
             // kFixedMaxVecsPerThread instead of kMaxVecsPerThread. But
@@ -719,7 +708,13 @@ batch_index_select_dim0_codegen_forward_cuda(
             {%- else %}
             constexpr auto kMaxVecsPerThread = kFixedMaxVecsPerThread;
             {%- endif %}
-            {{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
+
+            const auto grid = min(
+              div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
+              utils::cuda::get_max_thread_blocks(at::cuda::getCurrentCUDAStream()));
+
+            FBGEMM_LAUNCH_KERNEL(
+              ({{ mdesc }}_embedding_codegen_forward_{{ desc_suffix }}_kernel
                 <emb_t,
                 cache_t,
                 output_t,
@@ -728,52 +723,50 @@ batch_index_select_dim0_codegen_forward_cuda(
                 {%- endif %}
                 index_t,
                 kMaxVecsPerThread,
-                kThreadGroupSize>
-              <<<
-                div_round_up(total_B, kForwardMaxThreads / kThreadGroupSize),
-                dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
-                0,
-                at::cuda::getCurrentCUDAStream()
-              >>>(
-                MAKE_PTA_WITH_NAME(func_name, dev_weights, emb_t, 1, 64),
-                {%- if not dense %}
-                MAKE_PTA_WITH_NAME(func_name, uvm_weights, emb_t, 1, 64),
-                MAKE_PTA_WITH_NAME(func_name, lxu_cache_weights, cache_t, 2, 64),
-                MAKE_PTA_WITH_NAME(func_name, weights_placements, int32_t, 1, 32),
-                {%- endif %}
-                MAKE_PTA_WITH_NAME(func_name, weights_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, D_offsets, int32_t, 1, 32),
-                {%- if vbe %}
-                MAKE_PTA_WITH_NAME(func_name, vbe_row_output_offsets, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, vbe_b_t_map, int32_t, 1, 32),
-                info_B_num_bits,
-                info_B_mask,
-                {%- else %}
-                FixedDivisor(B),
-                {%- endif %}
-                MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-                pooling_mode,
-                {%- if weighted %}
-                MAKE_PTA_ACC_WITH_NAME(func_name, indice_weights, cache_t, 1, 32),
-                {%- endif %}
-                {%- if not dense %}
-                MAKE_PTA_WITH_NAME(func_name, {{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
-                uvm_cache_stats.size(0) == 0
-                    ? nullptr
-                    : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
-                {%- endif %} // if not dense
-                {%- if is_gwd_kernel %}
-                MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, int64_t, 1, 32),
-                MAKE_PTA_WITH_NAME(func_name, prev_iter_dev, float, 1, 64),
-                learning_rate,
-                weight_decay,
-                iter,
-                gwd_lower_bound,
-                {%- endif %} // if not dense
-                MAKE_PTA_WITH_NAME(func_name, output, output_t, 2, 64)
-              );
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
+                kThreadGroupSize>),
+              grid,
+              dim3(kThreadGroupSize, kForwardMaxThreads / kThreadGroupSize),
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              PTA_B(dev_weights, emb_t, 1, 64),
+              {%- if not dense %}
+              PTA_B(uvm_weights, emb_t, 1, 64),
+              PTA_B(lxu_cache_weights, cache_t, 2, 64),
+              PTA_B(weights_placements, int32_t, 1, 32),
+              {%- endif %}
+              PTA_B(weights_offsets, int64_t, 1, 32),
+              PTA_B(D_offsets, int32_t, 1, 32),
+              {%- if vbe %}
+              PTA_B(vbe_row_output_offsets, int64_t, 1, 32),
+              PTA_B(vbe_b_t_map, int32_t, 1, 32),
+              info_B_num_bits,
+              info_B_mask,
+              {%- else %}
+              FixedDivisor(B),
+              {%- endif %}
+              PTA_B(indices, index_t, 1, 32),
+              PTA_B(offsets, index_t, 1, 32),
+              pooling_mode,
+              {%- if weighted %}
+              PTA_ACC_B(indice_weights, cache_t, 1, 32),
+              {%- endif %}
+              {%- if not dense %}
+              PTA_B({{ locs_or_addrs_tensor }}, {{ locs_or_addrs_type }}, 1, 32),
+              uvm_cache_stats.size(0) == 0
+                  ? nullptr
+                  : (uvm_cache_stats.data_ptr<int32_t>() + uvm_cache_stats_index::num_conflict_unique_misses),
+              {%- endif %} // if not dense
+              {%- if is_gwd_kernel %}
+              PTA_B(hash_size_cumsum, int64_t, 1, 32),
+              PTA_B(prev_iter_dev, float, 1, 64),
+              learning_rate,
+              weight_decay,
+              iter,
+              gwd_lower_bound,
+              {%- endif %} // if not dense
+              PTA_B(output, output_t, 2, 64)
+            );
+
             {%- if vbe %}
             output = output.reshape({-1});
             {%- endif %}
@@ -797,34 +790,32 @@ batch_index_select_dim0_codegen_forward_cuda(
                               : split_embedding_codegen_forward_{{ wdesc }}_v2_kernel<
                                   emb_t, cache_t, output_t, index_t, false>);
 
-            kernel_func
-              <<<
-                div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
-                dim3(kWarpSize, num_warps_per_threadblock),
-                0,
-                at::cuda::getCurrentCUDAStream()
-              >>>(
-                dev_weights.data_ptr<emb_t>(),
-                uvm_weights.data_ptr<emb_t>(),
-                lxu_cache_weights.data_ptr<cache_t>(),
-                weights_placements.data_ptr<int32_t>(),
-                B,
-                T,
-                static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
-                use_lxu_cache ? lxu_cache_weights.size(1) : 0,
-                FixedDivisor(num_warps_per_table),
-                indices.data_ptr<index_t>(),
-                {%- if weighted %}
-                // TODO: update indice_weights type
-                indice_weights.data_ptr<float>(),
-                {%- endif %}
-                offsets.data_ptr<index_t>(),
-                reinterpret_cast<uint32_t*>(D_offsets.data_ptr<int32_t>()),
-                weights_offsets.data_ptr<int64_t>(),
-                lxu_cache_locations.data_ptr<int32_t>(),
-                output.data_ptr<output_t>()
-              );
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
+            FBGEMM_LAUNCH_KERNEL(
+              kernel_func,
+              div_round_up(T * num_warps_per_table, num_warps_per_threadblock),
+              dim3(kWarpSize, num_warps_per_threadblock),
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              dev_weights.data_ptr<emb_t>(),
+              uvm_weights.data_ptr<emb_t>(),
+              lxu_cache_weights.data_ptr<cache_t>(),
+              weights_placements.data_ptr<int32_t>(),
+              B,
+              T,
+              static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN,
+              use_lxu_cache ? lxu_cache_weights.size(1) : 0,
+              FixedDivisor(num_warps_per_table),
+              indices.data_ptr<index_t>(),
+              {%- if weighted %}
+              // TODO: update indice_weights type
+              indice_weights.data_ptr<float>(),
+              {%- endif %}
+              offsets.data_ptr<index_t>(),
+              reinterpret_cast<uint32_t*>(D_offsets.data_ptr<int32_t>()),
+              weights_offsets.data_ptr<int64_t>(),
+              lxu_cache_locations.data_ptr<int32_t>(),
+              output.data_ptr<output_t>()
+            );
         }
         {%- endif %} // if has_experimental
         });

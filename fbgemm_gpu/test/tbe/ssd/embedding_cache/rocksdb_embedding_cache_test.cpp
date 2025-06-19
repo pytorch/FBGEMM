@@ -10,7 +10,7 @@
 #include <folly/logging/xlog.h>
 #include <gtest/gtest.h>
 #include <filesystem>
-#include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/ssd_table_batched_embeddings.h"
+#include "deeplearning/fbgemm/fbgemm_gpu/src/ssd_split_embeddings_cache/ssd_table_batched_embeddings.h" // @manual
 
 namespace embedding_cache {
 
@@ -38,7 +38,8 @@ TEST(RocksDbEmbeddingCacheTest, TestPutAndGet) {
       -0.01, // uniform_init_lower,
       0.01, // uniform_init_upper,
       32, // row_storage_bitwidth = 32,
-      0 // cache_size = 0
+      0, // cache_size = 0
+      true // use_passed_in_path
   );
 
   auto write_indices =

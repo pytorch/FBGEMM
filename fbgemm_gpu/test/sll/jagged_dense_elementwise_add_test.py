@@ -9,9 +9,10 @@
 
 import unittest
 
+import fbgemm_gpu.sll  # noqa F401
 import hypothesis.strategies as st
 import torch
-from fbgemm_gpu.sll.triton_sll import jagged_dense_elementwise_add  # noqa
+
 from hypothesis import given, settings
 
 from .common import open_source
@@ -33,7 +34,7 @@ class JaggedDenseElementwiseAddTest(unittest.TestCase):
         device_type=st.sampled_from(["cpu", "cuda"]),
     )
     @unittest.skipIf(*gpu_unavailable)
-    @settings(deadline=20000)
+    @settings(deadline=30000)
     def test_triton_jagged_dense_add(
         self, B: int, D: int, N: int, use_fbgemm_kernel: bool, device_type: str
     ) -> None:

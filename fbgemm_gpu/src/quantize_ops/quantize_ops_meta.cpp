@@ -72,7 +72,8 @@ Tensor FloatToFP8RowwiseQuantized_meta(const Tensor& input, bool forward) {
 Tensor fusednbitrowwise_to_float_or_half_meta(
     const Tensor& input,
     const int64_t bit_rate,
-    const int64_t output_dtype) {
+    const int64_t output_dtype,
+    [[maybe_unused]] const bool scale_bias_last) {
   const at::SymIntArrayRef input_sizes = input.sym_sizes();
   const at::SymInt nrows = input_sizes[0];
   // Here we want the number of bytes in a row

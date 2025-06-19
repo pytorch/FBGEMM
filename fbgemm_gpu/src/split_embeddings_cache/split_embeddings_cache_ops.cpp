@@ -68,6 +68,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
   DISPATCH_TO_CPU("lxu_cache_lookup", lxu_cache_lookup_cpu);
   DISPATCH_TO_CPU(
       "direct_mapped_lxu_cache_lookup", direct_mapped_lxu_cache_lookup_cpu);
+
+  DISPATCH_TO_META("linearize_cache_indices", linearize_cache_indices_meta);
+  DISPATCH_TO_META("lxu_cache_lookup", lxu_cache_lookup_meta);
 }
 
 } // namespace

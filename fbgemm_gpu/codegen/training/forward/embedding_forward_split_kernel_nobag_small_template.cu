@@ -68,7 +68,7 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     pta::PackedTensorAccessor64<output_t, {{ "1" if is_index_select else "2" }}, at::RestrictPtrTraits> output
     ) {
     int32_t T = weights_offsets.size(0);
-    int32_t b_t = blockIdx.x * blockDim.y + threadIdx.y;
+    auto b_t = blockIdx.x * blockDim.y + threadIdx.y;
     {%- if not is_index_select %}
     if (b_t >= offsets.size(0) - 1) {
         return;
@@ -124,16 +124,16 @@ batch_index_select_dim0_codegen_forward_small_kernel(
     {%- endif %}
 
     int32_t D_emb = D;
-    if (std::is_same<emb_t, uint8_t>::value) {
+    if constexpr (std::is_same_v<emb_t, uint8_t>) {
         D_emb += kINT8QparamsBytes;
     }
 
-    const int32_t group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
+    const auto group_start = threadIdx.x / kThreadGroupSize * kThreadGroupSize;
     const int32_t group_end = group_start + kThreadGroupSize;
-    const int32_t d = threadIdx.x % kThreadGroupSize * 4;
+    const auto d = threadIdx.x % kThreadGroupSize * 4;
 
     for (int32_t l_start = 0; l_start < L; l_start += kWarpSize) {
-        int32_t l = l_start + threadIdx.x;
+        auto l = l_start + threadIdx.x;
         int64_t idx = l < L ? indices[indices_start + l] : 0;
         {%- if not dense %}
         const {{ locs_or_addrs_type }} {{ locs_or_addrs_idx }} =
@@ -152,23 +152,10 @@ batch_index_select_dim0_codegen_forward_small_kernel(
               shfl_sync({{ locs_or_addrs_idx }}, j);
             {%- endif %}
 
-            {%- if not dense %}
-
-            // assume cache is fp16/fp32 which doesn't require qparams
-            float2 qparams_cache = make_float2(0.0f, 0.0f);
-
-            {%- endif %}
-            auto weight_row_emb = WeightRowAccessor<
-                emb_t, cache_t, cache_t, false
-            >(
+            auto weight_row_emb = WeightRowAccessor<emb_t, cache_t>(
                 &weights[idx_j * D_emb],
-                nullptr,
                 D
             );
-            [[maybe_unused]] float2 qparams_emb;
-            if (std::is_same<emb_t, uint8_t>::value) {
-                qparams_emb = weight_row_emb.load_qparams();
-            }
 
             if (d < D) {
                 {%- if not dense %}
@@ -183,21 +170,15 @@ batch_index_select_dim0_codegen_forward_small_kernel(
                         &lxu_cache_weights[{{ locs_or_addrs_idx }}_j][0]);
                     {%- endif  %}
 
-                    auto weight_row_cache = WeightRowAccessor<
-                        emb_t, cache_t, cache_t, true
-                    >(
-                        &weights[idx_j * D_emb],
-                        cache_weights,
-                        D
-                    );
-                    Vec4T<cache_t> weight = weight_row_cache.load(d, qparams_cache);
+                    auto weight_row_cache = WeightRowAccessor<cache_t, cache_t>(cache_weights, D);
+                    Vec4T<cache_t> weight = weight_row_cache.load(d);
                     weight.store(&output[output_j][d]);
                 } else {
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
+                    Vec4T<cache_t> weight = weight_row_emb.load(d);
                     weight.store(&output[output_j][d]);
                 }
                 {%- else %}
-                    Vec4T<cache_t> weight = weight_row_emb.load(d, qparams_emb);
+                    Vec4T<cache_t> weight = weight_row_emb.load(d);
                     {%- if is_index_select %}
                     // output is 1D (because the stride can be irregular)
                     weight.store(&output[output_offset + output_j * output_stride + d]);

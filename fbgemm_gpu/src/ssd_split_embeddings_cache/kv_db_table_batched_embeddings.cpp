@@ -13,6 +13,14 @@
 #include "common/time/Time.h"
 #include "kv_db_cuda_utils.h"
 #include "torch/csrc/autograd/record_function_ops.h"
+#ifdef FBGEMM_FBCODE
+#include <folly/stop_watch.h>
+#include "aiplatform/gmpp/experimental/training_ps/gen-cpp2/TrainingParameterServerService.h"
+#include "caffe2/torch/fb/distributed/wireSerializer/WireSerializer.h"
+#include "servicerouter/client/cpp2/ClientParams.h"
+#include "servicerouter/client/cpp2/ServiceRouter.h"
+#include "torch/types.h"
+#endif
 
 namespace kv_db {
 
@@ -26,6 +34,27 @@ inline int64_t get_maybe_uvm_scalar(const at::Tensor& tensor) {
       ? *(tensor.data_ptr<int64_t>())
       : *(tensor.data_ptr<int32_t>());
 }
+
+#ifdef FBGEMM_FBCODE
+/*
+ * Get the thrift client to the training parameter server service
+ * There is a destruction double free issue when wrapping the member
+ * variable under ifdef, and creating client is relatively cheap, so create this
+ * helper function to get the client just before sending requests.
+ */
+std::unique_ptr<
+    apache::thrift::Client<aiplatform::gmpp::experimental::training_ps::
+                               TrainingParameterServerService>>
+get_res_client(int64_t res_server_port) {
+  auto& factory = facebook::servicerouter::cpp2::getClientFactory();
+  auto& params = facebook::servicerouter::ClientParams().setSingleHost(
+      "::", res_server_port);
+  return factory.getSRClientUnique<
+      apache::thrift::Client<aiplatform::gmpp::experimental::training_ps::
+                                 TrainingParameterServerService>>(
+      "realtime.delta.publish.esr", params);
+}
+#endif
 
 }; // namespace
 
@@ -73,12 +102,26 @@ EmbeddingKVDB::EmbeddingKVDB(
     int64_t cache_size_gb,
     int64_t unique_id,
     int64_t ele_size_bytes,
-    bool enable_async_update)
-    : unique_id_(unique_id),
+    bool enable_async_update,
+    bool enable_raw_embedding_streaming,
+    int64_t res_store_shards,
+    int64_t res_server_port,
+    std::vector<std::string> table_names,
+    std::vector<int64_t> table_offsets,
+    const std::vector<int64_t>& table_sizes,
+    int64_t flushing_block_size)
+    : flushing_block_size_(flushing_block_size),
+      unique_id_(unique_id),
       num_shards_(num_shards),
       max_D_(max_D),
       executor_tp_(std::make_unique<folly::CPUThreadPoolExecutor>(num_shards)),
-      enable_async_update_(enable_async_update) {
+      enable_async_update_(enable_async_update),
+      enable_raw_embedding_streaming_(enable_raw_embedding_streaming),
+      res_store_shards_(res_store_shards),
+      res_server_port_(res_server_port),
+      table_names_(std::move(table_names)),
+      table_offsets_(std::move(table_offsets)),
+      table_sizes_(at::tensor(table_sizes)) {
   CHECK(num_shards > 0);
   if (cache_size_gb > 0) {
     l2_cache::CacheLibCache::CacheConfig cache_config;
@@ -93,7 +136,9 @@ EmbeddingKVDB::EmbeddingKVDB(
   }
   XLOG(INFO) << "[TBE_ID" << unique_id_ << "] L2 created with " << num_shards_
              << " shards, dimension:" << max_D_
-             << ", enable_async_update_:" << enable_async_update_;
+             << ", enable_async_update_:" << enable_async_update_
+             << ", enable_raw_embedding_streaming_:"
+             << enable_raw_embedding_streaming_;
 
   if (enable_async_update_) {
     cache_filling_thread_ = std::make_unique<std::thread>([=] {
@@ -119,6 +164,38 @@ EmbeddingKVDB::EmbeddingKVDB(
       }
     });
   }
+#ifdef FBGEMM_FBCODE
+  if (enable_raw_embedding_streaming_) {
+    XLOG(INFO) << "[TBE_ID" << unique_id_
+               << "] Raw embedding streaming enabled with res_server_port at"
+               << res_server_port;
+    // The first call to get the client is expensive, so eagerly get it here
+    auto _eager_client = get_res_client(res_server_port_);
+
+    weights_stream_thread_ = std::make_unique<std::thread>([=, this] {
+      while (!stop_) {
+        auto stream_item_ptr = weights_to_stream_queue_.try_peek();
+        if (!stream_item_ptr) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          continue;
+        }
+        if (stop_) {
+          return;
+        }
+        auto& indices = stream_item_ptr->indices;
+        auto& weights = stream_item_ptr->weights;
+        folly::stop_watch<std::chrono::milliseconds> stop_watch;
+        folly::coro::blockingWait(tensor_stream(indices, weights));
+
+        weights_to_stream_queue_.dequeue();
+        XLOG_EVERY_MS(INFO, 60000)
+            << "[TBE_ID" << unique_id_
+            << "] end stream queue size: " << weights_to_stream_queue_.size()
+            << " stream takes " << stop_watch.elapsed().count() << "ms";
+      }
+    });
+  }
+#endif
 }
 
 EmbeddingKVDB::~EmbeddingKVDB() {
@@ -126,7 +203,140 @@ EmbeddingKVDB::~EmbeddingKVDB() {
   if (enable_async_update_) {
     cache_filling_thread_->join();
   }
+#ifdef FBGEMM_FBCODE
+  if (enable_raw_embedding_streaming_) {
+    join_stream_tensor_copy_thread();
+    join_weights_stream_thread();
+  }
+#endif
 }
+
+#ifdef FBGEMM_FBCODE
+folly::coro::Task<void> EmbeddingKVDB::tensor_stream(
+    const at::Tensor& indices,
+    const at::Tensor& weights) {
+  using namespace ::aiplatform::gmpp::experimental::training_ps;
+  if (indices.size(0) != weights.size(0)) {
+    XLOG(ERR) << "[TBE_ID" << unique_id_
+              << "] Indices and weights size mismatched " << indices.size(0)
+              << " " << weights.size(0);
+    co_return;
+  }
+  folly::stop_watch<std::chrono::milliseconds> stop_watch;
+  XLOG_EVERY_MS(INFO, 60000)
+      << "[TBE_ID" << unique_id_
+      << "] send streaming request: indices = " << indices.size(0)
+      << ", weights = " << weights.size(0);
+
+  auto biggest_idx = table_sizes_.index({table_sizes_.size(0) - 1});
+  auto mask =
+      at::logical_and(indices >= 0, indices < biggest_idx).nonzero().squeeze();
+  auto filtered_indices = indices.index_select(0, mask);
+  auto filtered_weights = weights.index_select(0, mask);
+  auto num_invalid_indices = indices.size(0) - filtered_indices.size(0);
+  if (num_invalid_indices > 0) {
+    XLOG(INFO) << "[TBE_ID" << unique_id_
+               << "] number of invalid indices: " << num_invalid_indices;
+  }
+  // 1. Transform local row indices to embedding table global row indices
+  at::Tensor table_indices =
+      (at::searchsorted(table_sizes_, filtered_indices, false, true) - 1)
+          .to(torch::kInt8);
+  auto tb_ac = table_indices.accessor<int8_t, 1>();
+  auto indices_ac = filtered_indices.accessor<int64_t, 1>();
+  auto tb_sizes_ac = table_sizes_.accessor<int64_t, 1>();
+  std::vector<int64_t> global_indices(tb_ac.size(0), 0);
+  std::vector<int16_t> shard_indices(tb_ac.size(0), 0);
+
+  for (int i = 0; i < tb_ac.size(0); ++i) {
+    int tb_idx = tb_ac[i];
+    global_indices[i] =
+        indices_ac[i] - tb_sizes_ac[tb_idx] + table_offsets_[tb_idx];
+    // hash to shard
+    // if we do row range sharding, also shard here.
+    auto fqn = table_names_[tb_idx];
+    auto hash_key = folly::to<std::string>(fqn, global_indices[i]);
+    auto shard_id =
+        furcHash(hash_key.data(), hash_key.size(), res_store_shards_);
+    shard_indices[i] = shard_id;
+  }
+  auto global_indices_tensor = at::tensor(global_indices);
+  auto shard_indices_tensor = at::tensor(shard_indices);
+  auto total_rows = global_indices_tensor.size(0);
+  XLOG_EVERY_MS(INFO, 60000)
+      << "[TBE_ID" << unique_id_ << "] hash and gloablize rows " << total_rows
+      << " in: " << stop_watch.elapsed().count() << "ms";
+  stop_watch.reset();
+
+  auto res_client = get_res_client(res_server_port_);
+  // 2. Split by shards
+  for (int i = 0; i < res_store_shards_; ++i) {
+    auto shrad_mask = shard_indices_tensor.eq(i).nonzero().squeeze();
+    auto table_indices_masked = table_indices.index_select(0, shrad_mask);
+    auto rows_in_shard = table_indices_masked.numel();
+    if (rows_in_shard == 0) {
+      continue;
+    }
+    auto global_indices_masked =
+        global_indices_tensor.index_select(0, shrad_mask);
+    auto weights_masked = filtered_weights.index_select(0, shrad_mask);
+
+    if (weights_masked.size(0) != rows_in_shard ||
+        global_indices_masked.numel() != rows_in_shard) {
+      XLOG(ERR)
+          << "[TBE_ID" << unique_id_
+          << "] don't send the request for size mismatched tensors table: "
+          << rows_in_shard << " weights: " << weights_masked.size(0)
+          << " global_indices: " << global_indices_masked.numel();
+      continue;
+    }
+    SetEmbeddingsRequest req;
+    req.shardId() = i;
+    req.fqns() = table_names_;
+
+    req.tableIndices() =
+        torch::distributed::wireDumpTensor(table_indices_masked);
+    req.rowIndices() =
+        torch::distributed::wireDumpTensor(global_indices_masked);
+    req.weights() = torch::distributed::wireDumpTensor(weights_masked);
+    co_await res_client->co_setEmbeddings(req);
+  }
+  co_return;
+}
+
+void EmbeddingKVDB::copy_and_enqueue_stream_tensors(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count) {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::copy_and_enqueue_stream_tensors ##");
+  auto stream_item =
+      tensor_copy(indices, weights, count, kv_db::RocksdbWriteMode::STREAM);
+  weights_to_stream_queue_.enqueue(stream_item);
+  rec->record.end();
+}
+
+void EmbeddingKVDB::join_stream_tensor_copy_thread() {
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::join_stream_tensor_copy_thread ##");
+  if (stream_tensor_copy_thread_ != nullptr &&
+      stream_tensor_copy_thread_->joinable()) {
+    stream_tensor_copy_thread_->join();
+  }
+  rec->record.end();
+}
+
+void EmbeddingKVDB::join_weights_stream_thread() {
+  if (weights_stream_thread_ != nullptr && weights_stream_thread_->joinable()) {
+    stop_ = true;
+    weights_stream_thread_->join();
+  }
+}
+
+uint64_t EmbeddingKVDB::get_weights_to_stream_queue_size() {
+  return weights_to_stream_queue_.size();
+}
+#endif
 
 void EmbeddingKVDB::update_cache_and_storage(
     const at::Tensor& indices,
@@ -150,26 +360,50 @@ void EmbeddingKVDB::update_cache_and_storage(
 
       set_kv_db_async(evicted_indices, evicted_weights, evicted_count, mode)
           .wait();
+      // no need to resume eviction given it is only applicable to dram kv
+      // solution
     }
   } else {
     set_kv_db_async(indices, weights, count, mode).wait();
+    // only resume eviction on the set instead of get
+    // because here is the calling order in training, there isn't too much room
+    // between get and set to conduct eviction, so just don't result on get
+    // forward:
+    //  prefetch: get() -> set()
+    //  forward:
+    // backward: set()
+    resume_ongoing_eviction();
   }
 }
 
 void EmbeddingKVDB::flush() {
   wait_util_filling_work_done();
   if (l2_cache_) {
-    auto tensor_tuple_opt = l2_cache_->get_all_items();
-    if (!tensor_tuple_opt.has_value()) {
-      XLOG(INFO) << "[TBE_ID" << unique_id_
-                 << "]no items exist in L2 cache, flush nothing";
-      return;
+    int block_size = std::max(
+        (int)(flushing_block_size_ / l2_cache_->get_cache_item_size()), 1);
+    folly::Optional<l2_cache::CacheLibCache::Cache::AccessIterator> start_itr =
+        folly::none;
+    folly::Optional<at::Tensor> count = folly::none;
+    auto itr = l2_cache_->begin();
+    while (count == folly::none || count->item<int64_t>() > 0) {
+      auto res_tuple_opt = l2_cache_->get_n_items(block_size, itr);
+      if (!res_tuple_opt.has_value()) {
+        XLOG(INFO) << "[TBE_ID" << unique_id_
+                   << "]no items exist in L2 cache, flush nothing";
+        return;
+      }
+      auto& indices = std::get<0>(res_tuple_opt.value());
+      auto& weights = std::get<1>(res_tuple_opt.value());
+      count = std::get<2>(res_tuple_opt.value());
+
+      if (count->item<int64_t>() > 0) {
+        set_kv_db_async(
+            indices, weights, count.value(), kv_db::RocksdbWriteMode::FLUSH)
+            .wait();
+        // no need to resume eviction given it is only applicable to dram kv
+        // solution
+      }
     }
-    auto& indices = std::get<0>(tensor_tuple_opt.value());
-    auto& weights = std::get<1>(tensor_tuple_opt.value());
-    auto& count = std::get<2>(tensor_tuple_opt.value());
-    set_kv_db_async(indices, weights, count, kv_db::RocksdbWriteMode::FLUSH)
-        .wait();
   }
 }
 
@@ -213,6 +447,45 @@ void EmbeddingKVDB::set_cuda(
       functor,
       0));
   rec->record.end();
+}
+
+void EmbeddingKVDB::stream_cuda(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    bool blocking_tensor_copy) {
+#ifdef FBGEMM_FBCODE
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::stream_cuda ##");
+  check_tensor_type_consistency(indices, weights);
+  // take reference to self to avoid lifetime issues.
+  auto self = shared_from_this();
+  std::function<void()>* functor = new std::function<void()>(
+      [=]() { self->stream(indices, weights, count, blocking_tensor_copy); });
+  AT_CUDA_CHECK(cudaStreamAddCallback(
+      at::cuda::getCurrentCUDAStream(),
+      kv_db_utils::cuda_callback_func,
+      functor,
+      0));
+  rec->record.end();
+#endif
+}
+
+void EmbeddingKVDB::stream_sync_cuda() {
+#ifdef FBGEMM_FBCODE
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::stream_sync_cuda ##");
+  // take reference to self to avoid lifetime issues.
+  auto self = shared_from_this();
+  std::function<void()>* functor = new std::function<void()>(
+      [=]() { self->join_stream_tensor_copy_thread(); });
+  AT_CUDA_CHECK(cudaStreamAddCallback(
+      at::cuda::getCurrentCUDAStream(),
+      kv_db_utils::cuda_callback_func,
+      functor,
+      0));
+  rec->record.end();
+#endif
 }
 
 std::vector<double> EmbeddingKVDB::get_l2cache_perf(
@@ -283,10 +556,13 @@ void EmbeddingKVDB::set(
         << "]skip set_cuda since number evictions is " << num_evictions;
     return;
   }
+  CHECK_EQ(max_D_, weights.size(1));
 
-  // defer the L2 cache/rocksdb update to the background thread as it could be
-  // parallelized with other cuda kernels, as long as all updates are finished
-  // before the next L2 cache lookup
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::set_callback ##");
+  // defer the L2 cache/rocksdb update to the background thread as it could
+  // be parallelized with other cuda kernels, as long as all updates are
+  // finished before the next L2 cache lookup
   kv_db::RocksdbWriteMode write_mode = is_bwd
       ? kv_db::RocksdbWriteMode::BWD_L1_CNFLCT_MISS_WRITE_BACK
       : kv_db::RocksdbWriteMode::FWD_L1_EVICTION;
@@ -299,6 +575,7 @@ void EmbeddingKVDB::set(
   } else {
     update_cache_and_storage(indices, weights, count, write_mode);
   }
+  rec->record.end();
 }
 
 void EmbeddingKVDB::get(
@@ -306,46 +583,44 @@ void EmbeddingKVDB::get(
     const at::Tensor& weights,
     const at::Tensor& count,
     int64_t sleep_ms) {
+  // trigger evict by trigger_step_interval or mem_util_threshold_GB
+  maybe_evict();
   if (auto num_lookups = get_maybe_uvm_scalar(count); num_lookups <= 0) {
     XLOG_EVERY_MS(INFO, 60000)
         << "[TBE_ID" << unique_id_ << "]skip get_cuda since number lookups is "
         << num_lookups;
     return;
   }
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::get_callback ##");
   CHECK_GE(max_D_, weights.size(1));
   auto start_ts = facebook::WallClockUtil::NowInUsecFast();
   wait_util_filling_work_done();
-
   std::unique_lock<std::mutex> lock(l2_cache_mtx_);
   get_cache_lock_wait_duration_ +=
       facebook::WallClockUtil::NowInUsecFast() - start_ts;
 
-  // this is for unittest to repro synchronization situation deterministically
+  // this is for unittest to repro synchronization situation
+  // deterministically
   if (sleep_ms > 0) {
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     XLOG(INFO) << "get sleep end";
   }
-
   auto cache_context = get_cache(indices, count);
   if (cache_context != nullptr) {
     if (cache_context->num_misses > 0) {
-      // std::vector<folly::coro::Task<void>> tasks;
-
       auto weight_fillup_start_ts = facebook::WallClockUtil::NowInUsecFast();
-      // tasks.emplace_back(get_kv_db_async(indices, weights, count));
-      // tasks.emplace_back(
-      //     cache_memcpy(weights, cache_context->cached_addr_list));
       auto rocksdb_fut_vec = get_kv_db_async(indices, weights, count);
+      // no need to resume eviction as it is only applicable to dram kv solution
       auto l2_fut_vec = cache_memcpy(weights, cache_context->cached_addr_list);
       rocksdb_fut_vec.wait();
       l2_fut_vec.wait();
-      // folly::coro::blockingWait(folly::coro::collectAllRange(std::move(tasks)));
       get_weights_fillup_total_duration_ +=
           facebook::WallClockUtil::NowInUsecFast() - weight_fillup_start_ts;
 
-      // defer the L2 cache/rocksdb update to the background thread as it could
-      // be parallelized with other cuda kernels, as long as all updates are
-      // finished before the next L2 cache lookup
+      // defer the L2 cache/rocksdb update to the background thread as it
+      // could be parallelized with other cuda kernels, as long as all
+      // updates are finished before the next L2 cache lookup
       if (enable_async_update_) {
         auto tensor_copy_start_ts = facebook::WallClockUtil::NowInUsecFast();
         auto new_item = tensor_copy(
@@ -369,8 +644,42 @@ void EmbeddingKVDB::get(
     }
   } else { // no l2 cache
     get_kv_db_async(indices, weights, count).wait();
+    // only resume eviction on the set instead of get
+    // because here is the calling order in training, there isn't too much room
+    // between get and set to conduct eviction, so just don't result on get
+    // forward:
+    //  prefetch: get() -> set()
+    //  forward:
+    // backward: set()
   }
   get_total_duration_ += facebook::WallClockUtil::NowInUsecFast() - start_ts;
+  rec->record.end();
+}
+
+void EmbeddingKVDB::stream(
+    const at::Tensor& indices,
+    const at::Tensor& weights,
+    const at::Tensor& count,
+    bool blocking_tensor_copy) {
+  if (!enable_raw_embedding_streaming_) {
+    return;
+  }
+  auto rec = torch::autograd::profiler::record_function_enter_new(
+      "## EmbeddingKVDB::stream_callback ##");
+  if (blocking_tensor_copy) {
+    copy_and_enqueue_stream_tensors(indices, weights, count);
+    return;
+  }
+  // Make sure the previous thread is done before starting a new one
+  join_stream_tensor_copy_thread();
+  // Cuda dispatches the host callbacks all in the same CPU thread. But the
+  // callbacks don't need to be serialized.
+  // So, We need to spin up a new thread to unblock the CUDA stream, so the CUDA
+  // can continue executing other host callbacks, eg. get/evict.
+  stream_tensor_copy_thread_ = std::make_unique<std::thread>([=, this]() {
+    copy_and_enqueue_stream_tensors(indices, weights, count);
+  });
+  rec->record.end();
 }
 
 std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
@@ -421,8 +730,8 @@ std::shared_ptr<CacheContext> EmbeddingKVDB::get_cache(
     folly::collect(futures).wait();
 
     // the following metrics added here as the current assumption is
-    // get_cache will only be called in get_cuda path, if assumption no longer
-    // true, we should wrap this up on the caller side
+    // get_cache will only be called in get_cuda path, if assumption no
+    // longer true, we should wrap this up on the caller side
     auto dur = facebook::WallClockUtil::NowInUsecFast() - start_ts;
     get_cache_lookup_total_duration_ += dur;
     auto cache_misses = cache_context->num_misses.load();
@@ -467,9 +776,10 @@ EmbeddingKVDB::set_cache(
   if (l2_cache_ == nullptr) {
     return folly::none;
   }
-  // TODO: consider whether need to reconstruct indices/weights/count and free
-  //       the original tensor since most of the tensor elem will be invalid,
-  //       this will trade some perf for peak DRAM util saving
+  // TODO: consider whether need to reconstruct indices/weights/count and
+  // free
+  //       the original tensor since most of the tensor elem will be
+  //       invalid, this will trade some perf for peak DRAM util saving
 
   auto cache_update_start_ts = facebook::WallClockUtil::NowInUsecFast();
 
