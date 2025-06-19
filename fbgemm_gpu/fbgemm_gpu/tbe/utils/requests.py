@@ -14,6 +14,9 @@ import numpy as np
 import numpy.typing as npt
 import torch
 
+# pyre-fixme[21]: Could not find name `default_rng` in `numpy.random` (stubbed).
+from numpy.random import default_rng
+
 from .common import get_device
 from .offsets import get_table_batched_offsets_from_dense
 
@@ -306,9 +309,11 @@ def generate_indices_zipf(
             indices, torch.tensor([0, L], dtype=torch.long), True
         )
     if deterministic_output:
-        np.random.seed(12345)
+        rng = default_rng(12345)
+    else:
+        rng = default_rng()
     permutation = torch.as_tensor(
-        np.random.choice(E, size=indices.max().item() + 1, replace=False)
+        rng.choice(E, size=indices.max().item() + 1, replace=False)
     )
     indices = permutation.gather(0, indices.flatten())
     indices = indices.to(get_device()).int()
