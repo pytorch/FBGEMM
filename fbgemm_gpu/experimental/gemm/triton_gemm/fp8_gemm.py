@@ -276,6 +276,7 @@ def _kernel_matmul_fp8_row(
     dot_out_dtype: tl.constexpr,
     allow_tf32: tl.constexpr,
     fp8_fast_accum: tl.constexpr,
+    skip_scaling_a: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
@@ -376,11 +377,15 @@ def _kernel_matmul_fp8_row(
             rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
 
             # Invert scaling.
-            a_scale = tl.load(A_scale + rm, mask=rm < M)
             b_scale = tl.load(B_scale + rn, mask=rn < N)
-            # pyre-ignore[16]: Undefined attribute [16]: `float` has no attribute `__getitem__`.
-            scale = a_scale[:, None] * b_scale[None, :]
-            acc *= scale
+            if skip_scaling_a:
+                acc *= b_scale[None, :]
+            else:
+                a_scale = tl.load(A_scale + rm, mask=rm < M)
+                # pyre-ignore[16]: Undefined attribute [16]: `float`
+                # has no attribute `__getitem__`.
+                scale = a_scale[:, None] * b_scale[None, :]
+                acc *= scale
 
             # Load and add bias if specified.
             if USE_BIAS:
@@ -1141,11 +1146,31 @@ def _kernel_matmul_fp8_row_tma_persistent_ws_cooperative(
             tl._experimental_descriptor_store(C_ptr, acc, [offs_am, offs_bn])
 
 
+def _is_eligible_for_skip_scaling(
+    is_rowwise: bool,
+    fp8_fast_accum: bool,
+    imprecise_acc: bool,
+    tma_persistent: bool,
+    no_use_persistent: Optional[bool],
+    use_warp_specialization: bool,
+) -> bool:
+    if not is_rowwise:
+        return False
+
+    return (
+        fp8_fast_accum
+        and not imprecise_acc
+        and not tma_persistent
+        and not no_use_persistent
+        and not use_warp_specialization
+    )
+
+
 @torch._library.triton_op("triton::matmul_fp8_row", mutates_args=())
 def matmul_fp8_row(
     a: torch.Tensor,
     b: torch.Tensor,
-    a_scale: torch.Tensor,
+    a_scale: Optional[torch.Tensor],
     b_scale: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
     dot_out_dtype: Optional[torch.dtype] = None,
@@ -1162,7 +1187,8 @@ def matmul_fp8_row(
     Args:
         a (torch.Tensor): [M, K] input tensor.
         b (torch.Tensor): [N, K] input tensor.
-        a_scale (torch.Tensor): [M] reciprocal scale tensor per row. A * a_scale = original A
+        a_scale (Optiona;[torch.Tensor]): [M] reciprocal scale tensor per row.
+            A * a_scale = original A. Scaling will be skiped if a_scale is None.
         b_scale (torch.Tensor): [N] reciprocal scale tensor per row. B * b_scale = original B
         bias (torch.Tensor): [N] optional bias tensor to add to output if provided.
         dot_out_dtype (torch.dtype): Output type of tensor core.
@@ -1194,6 +1220,16 @@ def matmul_fp8_row(
         prep_matmul(a, b, dot_out_dtype)
     )
 
+    # Skip scaling (a_scale is None) can only be applied in certain cases.
+    assert a_scale is not None or _is_eligible_for_skip_scaling(
+        is_rowwise=True,
+        fp8_fast_accum=fp8_fast_accum,
+        imprecise_acc=imprecise_acc,
+        tma_persistent=tma_persistent,
+        no_use_persistent=no_use_persistent,
+        use_warp_specialization=use_warp_specialization,
+    )
+
     output_shape = a_shape[:-1] + (N,)
     # Handle tensor with empty inputs.
     if (M == 0) or (N == 0) or (K == 0):
@@ -1203,9 +1239,11 @@ def matmul_fp8_row(
         logger.info(
             "FP8 Row-wise Triton kernel not supported on cpu, fallback to torch"
         )
-        output = torch.matmul(a.to(torch.bfloat16), b.to(torch.bfloat16).T) * (
-            a_scale[:, None] * b_scale[None, :]
-        )
+        if a_scale is None:
+            scale = b_scale[None, :]
+        else:
+            scale = a_scale[:, None] * b_scale[None, :]
+        output = torch.matmul(a.to(torch.bfloat16), b.to(torch.bfloat16).T) * scale
         if bias is not None:
             output += bias[None, :]
         return output.to(c.dtype)
@@ -1508,6 +1546,7 @@ def matmul_fp8_row(
             AB_DTYPE=False,
         )
     elif fp8_fast_accum:
+        skip_scaling_a = a_scale is None
         torch._library.capture_triton(_kernel_matmul_fp8_row)[persistent_grid](
             a,
             b,
@@ -1530,6 +1569,7 @@ def matmul_fp8_row(
             dot_out_dtype=dot_out_dtype_triton,
             allow_tf32=allow_tf32,
             fp8_fast_accum=fp8_fast_accum,
+            skip_scaling_a=skip_scaling_a,
             GROUP_M=8,
             USE_BIAS=bias is not None,
             AB_DTYPE=False,
@@ -1572,7 +1612,7 @@ def matmul_fp8_row(
 def matmul_fp8_row_meta(
     a: torch.Tensor,
     b: torch.Tensor,
-    a_scale: torch.Tensor,
+    a_scale: Optional[torch.Tensor],
     b_scale: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
     dot_out_dtype: Optional[torch.dtype] = None,

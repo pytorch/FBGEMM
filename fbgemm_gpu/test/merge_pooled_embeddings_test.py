@@ -266,6 +266,34 @@ class MergePooledEmbeddingsTest(unittest.TestCase):
 
         assert output_meta.shape == output_cpu.shape
 
+    def test_merge_pooled_embeddings_empty_input_tensors(self) -> None:
+        uncat_size = 2
+        pooled_embeddings = [
+            torch.ones(uncat_size, 0, dtype=torch.int32),
+            torch.ones(uncat_size, 0, dtype=torch.int32),
+        ]
+        output = torch.ops.fbgemm.merge_pooled_embeddings(
+            pooled_embeddings,
+            uncat_size,
+            torch.device("cpu"),
+            1,
+        )
+        self.assertEqual(output.numel(), 0)
+        self.assertEqual(output.dtype, torch.int32)
+
+        pooled_embeddings = [
+            torch.ones(uncat_size, 0, dtype=torch.int32).cuda(),
+            torch.ones(uncat_size, 0, dtype=torch.int32).cuda(),
+        ]
+        output = torch.ops.fbgemm.merge_pooled_embeddings(
+            pooled_embeddings,
+            uncat_size,
+            torch.device("cuda"),
+            1,
+        )
+        self.assertEqual(output.numel(), 0)
+        self.assertEqual(output.dtype, torch.int32)
+
 
 if __name__ == "__main__":
     unittest.main()
