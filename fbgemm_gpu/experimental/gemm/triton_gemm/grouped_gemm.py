@@ -266,7 +266,7 @@ def _fbgemm_grouped_gemm(
         c_desc_ptr = None
 
     M_end_offset = 0
-    M_end_offset = M_end_offset.to(tl.int64)
+    M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
@@ -433,7 +433,7 @@ def _fbgemm_grouped_gemm_ws(
         c_desc_ptr = None
 
     M_end_offset = 0
-    M_end_offset = M_end_offset.to(tl.int64)
+    M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
@@ -605,7 +605,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise(
         c_desc_ptr = None
 
     M_end_offset = 0
-    M_end_offset = M_end_offset.to(tl.int64)
+    M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
@@ -786,7 +786,7 @@ def _fbgemm_grouped_gemm_fp8_rowwise_ws(
         c_desc_ptr = None
 
     M_end_offset = 0
-    M_end_offset = M_end_offset.to(tl.int64)
+    M_end_offset = M_end_offset.to(tl.int64)  # pyre-ignore
     iterated_tiles = 0
     for g in tl.range(G):
         # Move across groups
