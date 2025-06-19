@@ -376,8 +376,7 @@ target_link_libraries(fbgemm PUBLIC
   $<BUILD_INTERFACE:cpuinfo>)
 
 if(OpenMP_FOUND)
-  target_link_libraries(fbgemm PRIVATE OpenMP::OpenMP_CXX)
-  target_link_libraries(fbgemm_generic PRIVATE OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 install(
