@@ -377,6 +377,7 @@ target_link_libraries(fbgemm PUBLIC
 
 if(OpenMP_FOUND)
   target_link_libraries(fbgemm PUBLIC OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm_generic PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 install(
