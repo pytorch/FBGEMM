@@ -478,7 +478,6 @@ void KVTensorWrapper::set_dram_db_wrapper(
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-  CHECK_EQ(width_offset_, 0);
   if (db_) {
     CHECK_TRUE(db_ != nullptr);
     CHECK_GE(db_->get_max_D(), shape_[1]);
