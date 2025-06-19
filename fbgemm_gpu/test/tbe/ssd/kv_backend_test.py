@@ -34,7 +34,7 @@ from .. import common  # noqa E402
 from ..common import gpu_unavailable, open_source, running_in_oss
 
 if not open_source:
-    from aiplatform.modelstore.checkpointing.utils.kv_tensor_metadata import (
+    from aiplatform.modelstore.checkpointing.utils.kv_tensor_metadata import (  # noqa F401
         generate_kvtensor_metadata,
     )
 
