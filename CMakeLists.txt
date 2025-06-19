@@ -329,23 +329,18 @@ target_include_directories(fbgemm_autovec BEFORE
       PRIVATE "${ASMJIT_SRC_DIR}/src"
       PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
-if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
-  add_library(fbgemm
-    $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>
-    $<TARGET_OBJECTS:fbgemm_autovec>)
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+if((FBGEMM_LIBRARY_TYPE STREQUAL "default" AND BUILD_SHARED_LIB) OR FBGEMM_LIBRARY_TYPE STREQUAL "shared")
   add_library(fbgemm SHARED
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>
     $<TARGET_OBJECTS:fbgemm_autovec>)
+  set_property(TARGET fbgemm PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
+elseif((FBGEMM_LIBRARY_TYPE STREQUAL "default" AND NOT BUILD_SHARED_LIB) OR FBGEMM_LIBRARY_TYPE STREQUAL "static")
   add_library(fbgemm STATIC
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
