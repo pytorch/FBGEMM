@@ -11,6 +11,7 @@
 import io
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Union
@@ -75,12 +76,7 @@ class FileStore:
             elif isinstance(raw_input, Path):
                 if not os.path.exists(raw_input):
                     raise FileNotFoundError(f"File {raw_input} does not exist")
-                # Open the source file and destination file, and copy the contents
-                with open(raw_input, "rb") as src_file, open(
-                    filepath, "wb"
-                ) as dst_file:
-                    while chunk := src_file.read(4096):  # Read 4 KB at a time
-                        dst_file.write(chunk)
+                shutil.copyfile(raw_input, filepath)
 
             elif isinstance(raw_input, io.BytesIO) or isinstance(raw_input, BinaryIO):
                 with open(filepath, "wb") as file:
