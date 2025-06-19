@@ -430,6 +430,93 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_row((3, 4, 5), torch.device("cpu"), False)
         _test_matmul_fp8_row((3, 4, 5), torch.device("cpu"), False, True)
 
+    def test_matmul_fp8_row_skip_scaling(self) -> None:
+        def _fp8_clamp(x: torch.Tensor) -> torch.Tensor:
+            fp8_dtype = torch.float8_e4m3fn
+            fp8_max = torch.finfo(fp8_dtype).max
+            xq = torch.clamp(x, min=-1 * fp8_max, max=fp8_max).to(fp8_dtype)
+            return xq
+
+        def _test_matmul_fp8_row_skip_scaling(
+            shape: Tuple[int, int, int],
+            device: torch.device,
+            use_bias: bool = True,
+            transpose_input: bool = False,
+            compile: bool = False,
+        ) -> None:
+            M, N, K = shape
+            a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
+            # Make a non-contiguous tensor and check that we still get proper results.
+            if transpose_input:
+                a = a.t()
+            b = torch.randn(N, K, dtype=torch.bfloat16, device=device)
+            bias = (
+                torch.randn(N, dtype=torch.float32, device=device) if use_bias else None
+            )
+
+            # Test that we can compile the full fp8 matmul operation.
+            if compile:
+
+                @torch.compile(fullgraph=True)
+                def _quantize_matmul_fp8(
+                    a: torch.Tensor,
+                    b: torch.Tensor,
+                    bias: Optional[torch.Tensor],
+                ) -> torch.Tensor:
+                    a_fp8, a_scale = _fp8_clamp(a), None
+                    b_fp8, b_scale = quantize_fp8_row(b)
+                    return matmul_fp8_row(
+                        a_fp8,
+                        b_fp8,
+                        a_scale,
+                        b_scale,
+                        bias=bias,
+                        fp8_fast_accum=True,
+                        imprecise_acc=False,
+                        tma_persistent=False,
+                        no_use_persistent=False,
+                        use_warp_specialization=False,
+                    )
+
+                result = _quantize_matmul_fp8(a, b, bias)
+            # Otherwise run normally.
+            else:
+                # Quantize inputs.
+                a_fp8, a_scale = _fp8_clamp(a), None
+                b_fp8, b_scale = quantize_fp8_row(b)
+
+                result = matmul_fp8_row(
+                    a_fp8,
+                    b_fp8,
+                    a_scale,
+                    b_scale,
+                    bias=bias,
+                    fp8_fast_accum=True,
+                    imprecise_acc=False,
+                    tma_persistent=False,
+                    no_use_persistent=False,
+                    use_warp_specialization=False,
+                )
+            self.assertTrue(result.shape == (M, N))
+
+            expected_result = a @ b.T
+            if use_bias:
+                # pyre-fixme[6]: For 1st argument expected `Union[bool, complex,
+                #  float, int, Tensor]` but got `Optional[Tensor]`.
+                expected_result += bias
+            self.assertTrue(
+                torch.allclose(result, expected_result, atol=2e-1, rtol=5e-2)
+            )
+
+        _test_matmul_fp8_row_skip_scaling((3, 4, 5), torch.device("cuda"))
+        _test_matmul_fp8_row_skip_scaling((3, 4, 5), torch.device("cuda"), compile=True)
+        _test_matmul_fp8_row_skip_scaling(
+            (5, 4, 5), torch.device("cuda"), transpose_input=True
+        )
+        _test_matmul_fp8_row_skip_scaling(
+            (3, 4, 5), torch.device("cuda"), use_bias=False
+        )
+
     def test_quantize_fp8_block(self) -> None:
         def _test_quantize_fp8_block(
             shape: Tuple[int, int],
