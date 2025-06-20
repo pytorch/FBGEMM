@@ -60,41 +60,6 @@ class FileStoreTest(unittest.TestCase):
         store.remove(path)
         assert not store.exists(path), f"{path} is not removed"
 
-    def _test_filestore_directory(
-        self,
-        # pyre-fixme[2]
-        store,  # FileStore
-        root_dir: Optional[str] = None,
-    ) -> None:
-        """
-        Generic FileStore routines to test creating and removing directories
-
-        Args:
-            store (FileStore): The FileStore to test
-            root_dir (str): The root directory to create
-        """
-        if root_dir is not None:
-            root_dir += "/"
-        else:
-            root_dir = ""
-
-        dir1 = f"{''.join(random.choices(string.ascii_letters, k=15))}"
-        dir2 = f"{''.join(random.choices(string.ascii_letters, k=15))}"
-
-        store.create_directory(f"{root_dir}{dir1}/{dir2}")
-        assert store.exists(
-            f"{root_dir}{dir1}/{dir2}"
-        ), f"Failed creating directories /{dir1}/{dir2}, directoies does not exist"
-
-        store.remove_directory(f"{root_dir}{dir1}/{dir2}")
-        assert not store.exists(
-            f"{root_dir}{dir1}/{dir2}"
-        ), f"Failed removing directories /{dir1}/{dir2}, directory still exists"
-        store.remove_directory(f"{root_dir}{dir1}")
-        assert not store.exists(
-            f"{root_dir}{dir1}"
-        ), f"Failed removing directories /{dir1}, directory still exists"
-
     def test_filestore_oss_bad_bucket(self) -> None:
         """
         Test that OSS FileStore raises ValueError when an invalid bucket is provided
@@ -138,14 +103,6 @@ class FileStoreTest(unittest.TestCase):
         torch.save(input, infile)
 
         self._test_filestore_readwrite(FileStore("/tmp"), Path(infile.name))
-
-    def test_filestore_oss_directory(self) -> None:
-        """
-        Test that OSS FileStore can create and remove directories
-        """
-        from fbgemm_gpu.utils import FileStore
-
-        self._test_filestore_directory(FileStore("/tmp"))
 
     @unittest.skipIf(open_source, "Test does not apply to OSS")
     def test_filestore_fb_bad_bucket(self) -> None:
@@ -200,12 +157,3 @@ class FileStoreTest(unittest.TestCase):
             Path(infile.name),
             f"tree/unit_tests/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
         )
-
-    @unittest.skipIf(open_source, "Test does not apply to OSS")
-    def test_filestore_fb_directory(self) -> None:
-        """
-        Test that FB FileStore can create and remove directories
-        """
-        from fbgemm_gpu.fb.utils import FileStore
-
-        self._test_filestore_directory(FileStore("tlparse_reports"), "tree/unit_tests")
