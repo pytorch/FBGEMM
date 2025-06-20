@@ -74,8 +74,8 @@ macro(add_gtest TESTNAME)
 
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
 
-  if(${OpenMP_FOUND})
-    target_link_libraries(${TESTNAME} ${OpenMP_CXX_LIBRARIES})
+  if(OpenMP_FOUND)
+    target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)
   endif()
 
   add_dependencies(${TESTNAME} gtest fbgemm)
