@@ -125,7 +125,7 @@ class FileStoreTest(unittest.TestCase):
         self._test_filestore_readwrite(
             FileStore("tlparse_reports"),
             io.BytesIO("".join(random.choices(string.ascii_letters, k=128)).encode()),
-            f"tree/unit_tests/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
+            f"tree/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
         )
 
     @unittest.skipIf(open_source, "Test does not apply to OSS")
@@ -138,7 +138,7 @@ class FileStoreTest(unittest.TestCase):
         self._test_filestore_readwrite(
             FileStore("tlparse_reports"),
             torch.rand((random.randint(100, 1000), random.randint(100, 1000))),
-            f"tree/unit_tests/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
+            f"tree/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
         )
 
     @unittest.skipIf(open_source, "Test does not apply to OSS")
@@ -155,5 +155,5 @@ class FileStoreTest(unittest.TestCase):
         self._test_filestore_readwrite(
             FileStore("tlparse_reports"),
             Path(infile.name),
-            f"tree/unit_tests/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
+            f"tree/{''.join(random.choices(string.ascii_letters, k=15))}.unittest",
         )
