@@ -153,7 +153,7 @@ _SILU_MUL_OP_QUANT_NAME = "fbgemm::silu_mul_quant"
 
 torch.library.define(
     "fbgemm::silu_mul_quant",
-    "(Tensor x0, Tensor x1, Tensor? scale_ub=None, Tensor? valid_token_count=None) -> Tensor",
+    "(Tensor x0, Tensor x1, Tensor? scale_ub=None, Tensor? valid_token_count=None) -> (Tensor, Tensor)",
 )
 
 
