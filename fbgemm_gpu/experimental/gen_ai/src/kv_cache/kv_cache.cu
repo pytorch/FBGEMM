@@ -1204,6 +1204,7 @@ at::Tensor nope_qkv_varseq_prefill(
     at::Tensor varseq_seqpos,
     std::optional<at::Tensor> block_tables,
     int64_t page_size,
+    std::optional<at::Tensor> actual_batch_size,
     std::optional<at::Tensor> varseq_cache_seqpos,
     int64_t cache_logical_dtype_int,
     std::optional<int64_t> num_groups,
@@ -1252,6 +1253,11 @@ at::Tensor nope_qkv_varseq_prefill(
     block_tables_ptr = static_cast<int32_t*>(block_tables.value().data_ptr());
     block_tables_b_stride = block_tables.value().stride(0);
   }
+  int64_t* actual_batch_size_ptr = nullptr;
+  if (actual_batch_size.has_value()) {
+    actual_batch_size_ptr =
+        static_cast<int64_t*>(actual_batch_size.value().data_ptr());
+  }
   CacheLogicalDtype cache_logical_dtype =
       static_cast<CacheLogicalDtype>(cache_logical_dtype_int);
   if (cache_K.dtype() == at::kBFloat16) {
@@ -1273,7 +1279,7 @@ at::Tensor nope_qkv_varseq_prefill(
         block_tables_b_stride,
         varseq_cache_seqpos_
             .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-        nullptr,
+        actual_batch_size_ptr,
         update_kv);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
@@ -1356,7 +1362,7 @@ at::Tensor nope_qkv_varseq_prefill(
             block_tables_b_stride,
             (varseq_cache_seqpos_
                  .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-            nullptr,
+            actual_batch_size_ptr,
             false,
             0,
             0,
@@ -1386,7 +1392,7 @@ at::Tensor nope_qkv_varseq_prefill(
           block_tables_b_stride,
           (varseq_cache_seqpos_
                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          nullptr,
+          actual_batch_size_ptr,
           false,
           0,
           0,
@@ -1614,6 +1620,7 @@ at::Tensor rope_qkv_varseq_prefill(
     std::optional<int64_t> num_groups,
     std::optional<at::Tensor> block_tables,
     int64_t page_size,
+    std::optional<at::Tensor> actual_batch_size,
     std::optional<at::Tensor> varseq_cache_seqpos,
     int64_t cache_logical_dtype_int,
     bool rope_scaling = false,
@@ -1669,6 +1676,11 @@ at::Tensor rope_qkv_varseq_prefill(
     block_tables_ptr = static_cast<int32_t*>(block_tables.value().data_ptr());
     block_tables_b_stride = block_tables.value().stride(0);
   }
+  int64_t* actual_batch_size_ptr = nullptr;
+  if (actual_batch_size.has_value()) {
+    actual_batch_size_ptr =
+        static_cast<int64_t*>(actual_batch_size.value().data_ptr());
+  }
   if (cache_K.dtype() == at::kBFloat16) {
     rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::ROPE>
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -1690,7 +1702,7 @@ at::Tensor rope_qkv_varseq_prefill(
             block_tables_b_stride,
             varseq_cache_seqpos_
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            nullptr,
+            actual_batch_size_ptr,
             rope_scaling,
             old_context_len,
             scaling_factor,
@@ -1780,7 +1792,7 @@ at::Tensor rope_qkv_varseq_prefill(
             block_tables_b_stride,
             (varseq_cache_seqpos_
                  .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-            nullptr,
+            actual_batch_size_ptr,
             rope_scaling,
             old_context_len,
             scaling_factor,
@@ -1810,7 +1822,7 @@ at::Tensor rope_qkv_varseq_prefill(
           block_tables_b_stride,
           (varseq_cache_seqpos_
                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          nullptr,
+          actual_batch_size_ptr,
           rope_scaling,
           old_context_len,
           scaling_factor,
@@ -1840,6 +1852,7 @@ at::Tensor xpos_qkv_varseq_prefill(
     std::optional<int64_t> num_groups,
     std::optional<at::Tensor> block_tables,
     int64_t page_size,
+    std::optional<at::Tensor> actual_batch_size,
     std::optional<at::Tensor> varseq_cache_seqpos,
     int64_t cache_logical_dtype_int,
     bool rope_scaling = false,
@@ -1876,6 +1889,11 @@ at::Tensor xpos_qkv_varseq_prefill(
     block_tables_b_stride = block_tables.value().stride(0);
   }
 
+  int64_t* actual_batch_size_ptr = nullptr;
+  if (actual_batch_size.has_value()) {
+    actual_batch_size_ptr =
+        static_cast<int64_t*>(actual_batch_size.value().data_ptr());
+  }
   if (cache_K.dtype() == at::kBFloat16) {
     rope_xpos_qkv_varseq_prefill_kernel<PositionEmbeddingMode::XPOS>
         <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
@@ -1897,7 +1915,7 @@ at::Tensor xpos_qkv_varseq_prefill(
             block_tables_b_stride,
             varseq_cache_seqpos_
                 .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>(),
-            nullptr,
+            actual_batch_size_ptr,
             rope_scaling,
             old_context_len,
             scaling_factor,
@@ -1934,7 +1952,7 @@ at::Tensor xpos_qkv_varseq_prefill(
           block_tables_b_stride,
           (varseq_cache_seqpos_
                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          nullptr,
+          actual_batch_size_ptr,
           rope_scaling,
           old_context_len,
           scaling_factor,
@@ -1964,7 +1982,7 @@ at::Tensor xpos_qkv_varseq_prefill(
           block_tables_b_stride,
           (varseq_cache_seqpos_
                .packed_accessor32<int32_t, 1, at::RestrictPtrTraits>()),
-          nullptr,
+          actual_batch_size_ptr,
           rope_scaling,
           old_context_len,
           scaling_factor,
