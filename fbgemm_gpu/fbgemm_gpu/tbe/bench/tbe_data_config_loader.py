@@ -11,12 +11,8 @@ import click
 import torch
 import yaml
 
-from fbgemm_gpu.tbe.bench.tbe_data_config import (
-    BatchParams,
-    IndicesParams,
-    PoolingParams,
-    TBEDataConfig,
-)
+from .tbe_data_config import TBEDataConfig
+from .tbe_data_config_param_models import BatchParams, IndicesParams, PoolingParams
 
 
 class TBEDataConfigLoader:
@@ -115,7 +111,7 @@ class TBEDataConfigLoader:
                 "--tbe-offsets-dtype",
                 type=click.Choice(["32", "64"]),
                 default="64",
-                help="The dtype of the table indices offsets",
+                help="The dtype of the table offsets",
             ),
             ####################################################################
             # Pooling Parameters
