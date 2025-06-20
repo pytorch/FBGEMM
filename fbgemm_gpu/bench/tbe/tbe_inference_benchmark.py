@@ -189,6 +189,7 @@ def nbit_cpu(  # noqa C901
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision, EmbeddingLocation.HOST) for d in Ds],
         device="cpu",
+        Ls=L,
         index_remapping=[torch.arange(E) for _ in Ds] if index_remapping else None,
         output_dtype=output_dtype,
         pooling_mode=pooling_mode,
@@ -403,6 +404,7 @@ def nbit_device(  # noqa C901
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", E, d, weights_precision, managed_option) for d in Ds],
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
+        Ls=L,
         index_remapping=index_remapping,
         pruning_hash_load_factor=pruning_hash_load_factor,
         use_array_for_index_remapping=use_array_for_index_remapping,
@@ -791,6 +793,7 @@ def nbit_device_with_spec(  # noqa C901
     emb = IntNBitTableBatchedEmbeddingBagsCodegen(
         [("", e, d, weights_precision, managed_option) for d, e in zip(Ds, Es)],
         device="cpu" if use_cpu else None,
+        Ls=Ls,
         bounds_check_mode=BoundsCheckMode(bounds_check_mode),
         index_remapping=index_remapping,
         pruning_hash_load_factor=pruning_hash_load_factor,
@@ -856,7 +859,7 @@ def nbit_device_with_spec(  # noqa C901
                 # don't use zipf if e isn't large enough compared to bag_size.
                 alpha=alpha if (e / bag_size) > 2.0 else 1.0,
                 # need many more samples for zipf if bag_size is very small.
-                zipf_oversample_ratio=3 if bag_size > 5 else 10,
+                zipf_oversample_ratio=10 if bag_size > 5 else 20,
                 weighted=weighted,
                 use_cpu=use_cpu,
             )
@@ -919,14 +922,12 @@ def nbit_device_with_spec(  # noqa C901
 
         # free up memory
         del requests
-        result_msg = (
-            f"Iteration {i}: "
-            f"{weights_precision} Forward, B: {B}, "
-            f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
-            f"BW: {cpu_copies * float(read_write_bytes) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
-            f"Time: {time_per_iter * 1.0e6:.0f}us, "
-            f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
-        )
+        result_msg = f"Iteration {i}: "
+        f"{weights_precision} Forward, B: {B}, "
+        f"E: {E}, T: {T}, D: {D}, L: {L}, W: {weighted}, "
+        f"BW: {cpu_copies * float(read_write_bytes) / time_per_iter / 1.0e9: .2f} GB/s, "  # noqa: B950
+        f"Time: {time_per_iter * 1.0e6:.0f}us, "
+        f"Memory Usage For Pruning: {mem_for_pruning / 1.0e9:.0f} GB"
 
         if use_cpu and cpu_copies > 1:
             result_msg += f", Parallel Copies: {cpu_copies}"
@@ -1111,6 +1112,7 @@ def nbit_uvm(
             )
             for d in Ds[:T_uvm]
         ],
+        Ls=L,
         output_dtype=output_dtype,
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
@@ -1133,6 +1135,7 @@ def nbit_uvm(
                 )
                 for d in Ds[T_uvm:]
             ],
+            Ls=L,
             output_dtype=output_dtype,
             fp8_exponent_bits=fp8_exponent_bits,
             fp8_exponent_bias=fp8_exponent_bias,
@@ -1155,6 +1158,7 @@ def nbit_uvm(
                     [managed_type] * T_uvm + [EmbeddingLocation.DEVICE] * T_gpu,
                 )
             ],
+            Ls=L,
             output_dtype=output_dtype,
             cache_load_factor=cache_load_factor,
             cache_algorithm=cache_alg,
@@ -1456,6 +1460,7 @@ def nbit_uvm_compare_direct_mapped(
                 )
                 for d in Ds[:T]
             ],
+            Ls=L,
             output_dtype=output_dtype,
             cache_load_factor=cache_load_factor,
             cache_algorithm=cache_alg,
@@ -1637,6 +1642,7 @@ def nbit_cache(  # noqa C901
             )
             for d in Ds
         ],
+        Ls=L,
         output_dtype=output_dtype,
         enforce_hbm=enforce_hbm,
         fp8_exponent_bits=fp8_exponent_bits,
@@ -1661,6 +1667,7 @@ def nbit_cache(  # noqa C901
         record_cache_metrics=RecordCacheMetrics(
             record_cache_miss_counter, record_tablewise_cache_miss
         ),
+        Ls=L,
         gather_uvm_cache_stats=gather_uvm_cache_stats,
         cache_load_factor=cache_load_factor,
         cache_algorithm=cache_alg,
