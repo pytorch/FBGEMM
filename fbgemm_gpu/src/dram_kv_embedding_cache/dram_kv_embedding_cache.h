@@ -22,6 +22,7 @@
 #include <thrift/lib/cpp2/protocol/CompactProtocol.h>
 #include <thrift/lib/cpp2/protocol/Serializer.h>
 #include <torch/script.h>
+#include "common/time/Time.h"
 
 #include "../ssd_split_embeddings_cache/initializer.h"
 #include "../ssd_split_embeddings_cache/kv_db_table_batched_embeddings.h"
@@ -241,22 +242,43 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       const at::Tensor& count,
       const kv_db::RocksdbWriteMode w_mode =
           kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ /*unused*/) override {
+    auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     pause_ongoing_eviction();
-    std::vector<folly::Future<folly::Unit>> futures;
+    std::vector<
+        folly::Future<std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>>
+        futures;
+    auto before_shard_ts = facebook::WallClockUtil::NowInUsecFast();
     auto shardid_to_indexes = shard_input(indices, count);
+    write_sharding_total_duration_ +=
+        facebook::WallClockUtil::NowInUsecFast() - before_shard_ts;
+
     for (auto iter = shardid_to_indexes.begin();
          iter != shardid_to_indexes.end();
          iter++) {
       const auto shard_id = iter->first;
       const auto indexes = iter->second;
-      auto f =
+      futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this, shard_id, indexes, &indices, &weights](
                              folly::Unit) {
+                int64_t local_write_allocate_total_duration = 0;
+                int64_t local_write_cache_copy_total_duration = 0;
+                int64_t local_write_lookup_cache_total_duration = 0;
+                int64_t local_write_acquire_lock_duration = 0;
+                int64_t local_write_missing_load = 0;
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kv_set",
-                    [this, shard_id, indexes, &indices, &weights] {
+                    [this,
+                     shard_id,
+                     indexes,
+                     &indices,
+                     &weights,
+                     &local_write_allocate_total_duration,
+                     &local_write_cache_copy_total_duration,
+                     &local_write_lookup_cache_total_duration,
+                     &local_write_acquire_lock_duration,
+                     &local_write_missing_load] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -265,7 +287,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       auto indices_data_ptr = indices.data_ptr<index_t>();
                       auto weights_data_ptr = weights.data_ptr<weight_type>();
                       {
+                        auto before_write_lock_ts =
+                            facebook::WallClockUtil::NowInUsecFast();
                         auto wlmap = kv_store_.by(shard_id).wlock();
+                        local_write_acquire_lock_duration =
+                            facebook::WallClockUtil::NowInUsecFast() -
+                            before_write_lock_ts;
                         auto* pool = kv_store_.pool_by(shard_id);
                         for (auto index_iter = indexes.begin();
                              index_iter != indexes.end();
@@ -275,14 +302,25 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           // use mempool
                           weight_type* block = nullptr;
                           // First check if the key already exists
+                          auto before_lookup_cache_ts =
+                              facebook::WallClockUtil::NowInUsecFast();
                           auto it = wlmap->find(id);
+                          local_write_lookup_cache_total_duration +=
+                              facebook::WallClockUtil::NowInUsecFast() -
+                              before_lookup_cache_ts;
                           if (it != wlmap->end()) {
                             block = it->second;
                           } else {
                             // Key doesn't exist, allocate new block and insert.
+                            local_write_missing_load++;
+                            auto before_alloc_ts =
+                                facebook::WallClockUtil::NowInUsecFast();
                             block = pool->template allocate_t<weight_type>();
                             FixedBlockPool::set_key(block, id);
                             wlmap->insert({id, block});
+                            local_write_allocate_total_duration +=
+                                facebook::WallClockUtil::NowInUsecFast() -
+                                before_alloc_ts;
                           }
                           if (feature_evict_config_.has_value() &&
                               feature_evict_config_.value()->trigger_mode_ !=
@@ -290,19 +328,85 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                               feature_evict_) {
                             feature_evict_->update_feature_statistics(block);
                           }
+                          auto before_copy_ts =
+                              facebook::WallClockUtil::NowInUsecFast();
                           auto* data_ptr =
                               FixedBlockPool::data_ptr<weight_type>(block);
                           std::copy(
                               weights_data_ptr + id_index * stride,
                               weights_data_ptr + (id_index + 1) * stride,
                               data_ptr);
+                          local_write_cache_copy_total_duration +=
+                              facebook::WallClockUtil::NowInUsecFast() -
+                              before_copy_ts;
                         }
                       }
                     });
-              });
-      futures.push_back(std::move(f));
+                return std::make_tuple(
+                    local_write_allocate_total_duration,
+                    local_write_cache_copy_total_duration,
+                    local_write_lookup_cache_total_duration,
+                    local_write_acquire_lock_duration,
+                    local_write_missing_load);
+              }));
     }
-    return folly::collect(futures);
+    return folly::collect(std::move(futures))
+        .via(executor_.get())
+        .thenValue(
+            [this, start_ts, w_mode](
+                const std::vector<
+                    std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
+                    results) {
+              int64_t write_allocate_total_duration = 0;
+              int64_t write_cache_copy_total_duration = 0;
+              int64_t write_lookup_cache_total_duration = 0;
+              int64_t write_acquire_lock_total_duration = 0;
+              int64_t write_missing_load = 0;
+              for (const auto& tup : results) {
+                write_allocate_total_duration += std::get<0>(tup);
+                write_cache_copy_total_duration += std::get<1>(tup);
+                write_lookup_cache_total_duration += std::get<2>(tup);
+                write_acquire_lock_total_duration += std::get<3>(tup);
+                write_missing_load += std::get<4>(tup);
+              }
+              auto duration =
+                  facebook::WallClockUtil::NowInUsecFast() - start_ts;
+              switch (w_mode) {
+                case kv_db::RocksdbWriteMode::BWD_L1_CNFLCT_MISS_WRITE_BACK:
+                  bwd_l1_cnflct_miss_write_total_duration_ += duration;
+                  bwd_l1_cnflct_miss_write_allocate_avg_duration_ +=
+                      write_allocate_total_duration / num_shards_;
+                  bwd_l1_cnflct_miss_write_cache_copy_avg_duration_ +=
+                      write_cache_copy_total_duration / num_shards_;
+                  bwd_l1_cnflct_miss_write_lookup_cache_avg_duration_ +=
+                      write_lookup_cache_total_duration / num_shards_;
+                  bwd_l1_cnflct_miss_write_acquire_lock_avg_duration_ +=
+                      write_acquire_lock_total_duration / num_shards_;
+                  bwd_l1_cnflct_miss_write_missing_load_avg_ +=
+                      write_missing_load / num_shards_;
+                  break;
+                case kv_db::RocksdbWriteMode::FWD_L1_EVICTION:
+                  fwd_l1_eviction_write_total_duration_ += duration;
+                  fwd_l1_eviction_write_allocate_avg_duration_ +=
+                      write_allocate_total_duration / num_shards_;
+                  fwd_l1_eviction_write_cache_copy_avg_duration_ +=
+                      write_cache_copy_total_duration / num_shards_;
+                  fwd_l1_eviction_write_lookup_cache_avg_duration_ +=
+                      write_lookup_cache_total_duration / num_shards_;
+                  fwd_l1_eviction_write_acquire_lock_avg_duration_ +=
+                      write_acquire_lock_total_duration / num_shards_;
+                  fwd_l1_eviction_write_missing_load_avg_ +=
+                      write_missing_load / num_shards_;
+                  break;
+                case kv_db::RocksdbWriteMode::FWD_ROCKSDB_READ:
+                  break;
+                case kv_db::RocksdbWriteMode::FLUSH:
+                  break;
+                case kv_db::RocksdbWriteMode::STREAM:
+                  break;
+              }
+              return std::vector<folly::Unit>(results.size());
+            });
   }
 
   /// Get embeddings from kvstore.
@@ -324,20 +428,26 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       std::optional<int64_t> width_length = std::nullopt) {
     // assuming get is called once each iteration and only by train
     // iteration(excluding state_dict)
+    auto start_ts = facebook::WallClockUtil::NowInUsecFast();
     pause_ongoing_eviction(); // noop calls, no impact if called multiple times
-    std::vector<folly::Future<folly::Unit>> futures;
+    std::vector<
+        folly::Future<std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>>
+        futures;
     auto row_width = weights.size(1);
     auto copy_width = width_length.value_or(row_width);
     CHECK_LE(row_width, max_D_);
     CHECK_EQ(copy_width, row_width);
+    auto before_shard_ts = facebook::WallClockUtil::NowInUsecFast();
     auto shardid_to_indexes = shard_input(indices, count);
+    read_sharding_total_duration_ +=
+        facebook::WallClockUtil::NowInUsecFast() - before_shard_ts;
 
     for (auto iter = shardid_to_indexes.begin();
          iter != shardid_to_indexes.end();
          iter++) {
       const auto shard_id = iter->first;
       const auto indexes = iter->second;
-      auto f =
+      futures.emplace_back(
           folly::via(executor_.get())
               .thenValue([this,
                           shard_id,
@@ -346,6 +456,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           &weights,
                           width_offset,
                           row_width](folly::Unit) {
+                int64_t local_read_cache_hit_copy_total_duration = 0;
+                int64_t local_read_fill_row_storage_total_duration = 0;
+                int64_t local_read_lookup_cache_total_duration = 0;
+                int64_t local_read_aquire_lock_duration = 0;
+                int64_t local_read_missing_load = 0;
                 FBGEMM_DISPATCH_INTEGRAL_TYPES(
                     indices.scalar_type(),
                     "dram_kvstore_set",
@@ -355,7 +470,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                      &indices,
                      &weights,
                      width_offset,
-                     row_width] {
+                     row_width,
+                     &local_read_cache_hit_copy_total_duration,
+                     &local_read_fill_row_storage_total_duration,
+                     &local_read_lookup_cache_total_duration,
+                     &local_read_aquire_lock_duration,
+                     &local_read_missing_load] {
                       using index_t = scalar_t;
                       CHECK(indices.is_contiguous());
                       CHECK(weights.is_contiguous());
@@ -372,7 +492,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           ") types mismatch");
                       auto row_storage_data_ptr =
                           init_storage.template data_ptr<weight_type>();
+                      auto before_read_lock_ts =
+                          facebook::WallClockUtil::NowInUsecFast();
                       auto wlmap = kv_store_.by(shard_id).wlock();
+                      local_read_aquire_lock_duration =
+                          facebook::WallClockUtil::NowInUsecFast() -
+                          before_read_lock_ts;
                       auto indices_data_ptr = indices.data_ptr<index_t>();
                       {
                         for (auto index_iter = indexes.begin();
@@ -383,10 +508,18 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                           const auto weights_row_index = *index_iter;
                           auto weight_idx =
                               int64_t(indices_data_ptr[weights_row_index]);
+                          auto before_lookup_cache_ts =
+                              facebook::WallClockUtil::NowInUsecFast();
                           const auto cached_iter = wlmap->find(weight_idx);
+                          local_read_lookup_cache_total_duration +=
+                              facebook::WallClockUtil::NowInUsecFast() -
+                              before_lookup_cache_ts;
                           if (cached_iter == wlmap->end()) {
+                            local_read_missing_load++;
                             auto weight_width = get_width_for_weights(
                                 weight_idx, width_offset, row_width);
+                            auto before_fill_from_row_storage_ts =
+                                facebook::WallClockUtil::NowInUsecFast();
                             fill_from_row_storage(
                                 shard_id,
                                 reinterpret_cast<unsigned char*>(
@@ -397,25 +530,71 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                                 width_offset,
                                 row_width,
                                 weight_width);
+                            local_read_fill_row_storage_total_duration +=
+                                facebook::WallClockUtil::NowInUsecFast() -
+                                before_fill_from_row_storage_ts;
                             continue;
                           }
                           // use mempool
                           const auto* data_ptr =
                               FixedBlockPool::data_ptr<weight_type>(
                                   cached_iter->second);
+                          auto before_cache_hit_copy_ts =
+                              facebook::WallClockUtil::NowInUsecFast();
                           std::copy(
                               data_ptr + width_offset,
                               data_ptr + width_offset + row_width,
                               &(weights_data_ptr
                                     [weights_row_index *
                                      row_width])); // dst_start
+                          local_read_cache_hit_copy_total_duration +=
+                              facebook::WallClockUtil::NowInUsecFast() -
+                              before_cache_hit_copy_ts;
                         }
                       }
                     });
-              });
-      futures.push_back(std::move(f));
+                return std::make_tuple(
+                    local_read_lookup_cache_total_duration,
+                    local_read_fill_row_storage_total_duration,
+                    local_read_cache_hit_copy_total_duration,
+                    local_read_aquire_lock_duration,
+                    local_read_missing_load);
+              }));
     }
-    return folly::collect(futures);
+
+    return folly::collect(std::move(futures))
+        .via(executor_.get())
+        .thenValue(
+            [this,
+             start_ts](const std::vector<
+                       std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t>>&
+                           results) {
+              int64_t read_lookup_cache_total_duration = 0;
+              int64_t read_fill_row_storage_total_duration = 0;
+              int64_t read_cache_hit_copy_total_duration = 0;
+              int64_t read_acquire_lock_total_duration = 0;
+              int64_t read_missing_load = 0;
+              for (const auto& tup : results) {
+                read_lookup_cache_total_duration += std::get<0>(tup);
+                read_fill_row_storage_total_duration += std::get<1>(tup);
+                read_cache_hit_copy_total_duration += std::get<2>(tup);
+                read_acquire_lock_total_duration += std::get<3>(tup);
+                read_missing_load += std::get<4>(tup);
+              }
+              auto duration =
+                  facebook::WallClockUtil::NowInUsecFast() - start_ts;
+              read_total_duration_ += duration;
+              read_cache_hit_copy_avg_duration_ +=
+                  read_cache_hit_copy_total_duration / num_shards_;
+              read_fill_row_storage_avg_duration_ +=
+                  read_fill_row_storage_total_duration / num_shards_;
+              read_lookup_cache_total_avg_duration_ +=
+                  read_lookup_cache_total_duration / num_shards_;
+              read_acquire_lock_avg_duration_ +=
+                  read_acquire_lock_total_duration / num_shards_;
+              read_missing_load_avg_ += read_missing_load / num_shards_;
+              return std::vector<folly::Unit>(results.size());
+            });
   };
 
   folly::SemiFuture<std::vector<folly::Unit>> get_kv_db_async(
@@ -496,7 +675,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         break;
       }
       case EvictTriggerMode::MEM_UTIL: {
-        auto mem_util = get_map_used_memsize() / (1024 * 1024 * 1024);
+        auto mem_util = get_map_used_memsize_in_bytes() / (1024 * 1024 * 1024);
         if (mem_util >
             feature_evict_config_.value()->mem_util_threshold_in_GB_.value()) {
           trigger_feature_evict();
@@ -515,8 +694,12 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
   }
 
-  size_t get_map_used_memsize() const override {
-    return kv_store_.getUsedMemSize();
+  size_t get_map_used_memsize_in_bytes() const override {
+    return kv_store_.getUsedMemSizeInBytes();
+  }
+
+  size_t get_map_actual_used_chunk_in_bytes() const {
+    return kv_store_.getActualUsedChunkInBytes();
   }
 
   std::optional<FeatureEvictMetricTensors> get_feature_evict_metric()
@@ -661,6 +844,92 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     }
   }
 
+  std::vector<double> get_dram_kv_perf(
+      const int64_t step,
+      const int64_t interval) {
+    std::vector<double> ret(22, 0); // num metrics
+
+    allocated_memory_ = get_map_used_memsize_in_bytes();
+    actual_used_chunk_memory_ = get_map_actual_used_chunk_in_bytes();
+    if (step > 0 && step % interval == 0) {
+      int reset_val = 0;
+
+      auto dram_read_total_duration = read_total_duration_.exchange(reset_val);
+      auto dram_read_sharding_total_duration =
+          read_sharding_total_duration_.exchange(reset_val);
+      auto dram_read_cache_hit_copy_duration =
+          read_cache_hit_copy_avg_duration_.exchange(reset_val);
+      auto dram_read_fill_row_storage_duration =
+          read_fill_row_storage_avg_duration_.exchange(reset_val);
+      auto dram_read_lookup_cache_duration =
+          read_lookup_cache_total_avg_duration_.exchange(reset_val);
+      auto dram_read_acquire_lock_duration =
+          read_acquire_lock_avg_duration_.exchange(reset_val);
+      auto dram_read_missing_load = read_missing_load_avg_.exchange(reset_val);
+      auto dram_write_sharding_total_duration =
+          write_sharding_total_duration_.exchange(reset_val);
+
+      auto dram_fwd_l1_eviction_write_total_duration =
+          fwd_l1_eviction_write_total_duration_.exchange(reset_val);
+      auto dram_fwd_l1_eviction_write_allocate_duration =
+          fwd_l1_eviction_write_allocate_avg_duration_.exchange(reset_val);
+      auto dram_fwd_l1_eviction_write_cache_copy_duration =
+          fwd_l1_eviction_write_cache_copy_avg_duration_.exchange(reset_val);
+      auto dram_fwd_l1_eviction_write_lookup_cache_duration =
+          fwd_l1_eviction_write_lookup_cache_avg_duration_.exchange(reset_val);
+      auto dram_fwd_l1_eviction_write_acquire_lock_duration_ =
+          fwd_l1_eviction_write_acquire_lock_avg_duration_.exchange(reset_val);
+      auto dram_fwd_l1_eviction_write_missing_load_ =
+          fwd_l1_eviction_write_missing_load_avg_.exchange(reset_val);
+
+      auto dram_bwd_l1_cnflct_miss_write_total_duration =
+          bwd_l1_cnflct_miss_write_total_duration_.exchange(reset_val);
+      auto dram_bwd_l1_cnflct_miss_write_allocate_duration =
+          bwd_l1_cnflct_miss_write_allocate_avg_duration_.exchange(reset_val);
+      auto dram_bwd_l1_cnflct_miss_write_cache_copy_duration =
+          bwd_l1_cnflct_miss_write_cache_copy_avg_duration_.exchange(reset_val);
+      auto dram_bwd_l1_cnflct_miss_write_lookup_cache_duration =
+          bwd_l1_cnflct_miss_write_lookup_cache_avg_duration_.exchange(
+              reset_val);
+      auto dram_bwd_l1_cnflct_miss_write_acquire_lock_duration_ =
+          bwd_l1_cnflct_miss_write_acquire_lock_avg_duration_.exchange(
+              reset_val);
+      auto dram_bwd_l1_cnflct_miss_write_missing_load_ =
+          bwd_l1_cnflct_miss_write_missing_load_avg_.exchange(reset_val);
+
+      auto dram_allocated_memory = allocated_memory_.exchange(reset_val);
+      auto dram_actual_used_chunk_memory =
+          actual_used_chunk_memory_.exchange(reset_val);
+
+      ret[0] = dram_read_total_duration / interval;
+      ret[1] = dram_read_sharding_total_duration / interval;
+      ret[2] = dram_read_cache_hit_copy_duration / interval;
+      ret[3] = dram_read_fill_row_storage_duration / interval;
+      ret[4] = dram_read_lookup_cache_duration / interval;
+      ret[5] = dram_read_acquire_lock_duration / interval;
+      ret[6] = dram_read_missing_load / interval;
+      ret[7] = dram_write_sharding_total_duration / interval;
+
+      ret[8] = dram_fwd_l1_eviction_write_total_duration / interval;
+      ret[9] = dram_fwd_l1_eviction_write_allocate_duration / interval;
+      ret[10] = dram_fwd_l1_eviction_write_cache_copy_duration / interval;
+      ret[11] = dram_fwd_l1_eviction_write_lookup_cache_duration / interval;
+      ret[12] = dram_fwd_l1_eviction_write_acquire_lock_duration_ / interval;
+      ret[13] = dram_fwd_l1_eviction_write_missing_load_ / interval;
+
+      ret[14] = dram_bwd_l1_cnflct_miss_write_total_duration / interval;
+      ret[15] = dram_bwd_l1_cnflct_miss_write_allocate_duration / interval;
+      ret[16] = dram_bwd_l1_cnflct_miss_write_cache_copy_duration / interval;
+      ret[17] = dram_bwd_l1_cnflct_miss_write_lookup_cache_duration / interval;
+      ret[18] = dram_bwd_l1_cnflct_miss_write_acquire_lock_duration_ / interval;
+      ret[19] = dram_bwd_l1_cnflct_miss_write_missing_load_ / interval;
+
+      ret[20] = dram_allocated_memory / interval;
+      ret[21] = dram_actual_used_chunk_memory / interval;
+    }
+    return ret;
+  }
+
   std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
   // background thread
   folly::FunctionScheduler scheduler_;
@@ -678,6 +947,33 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
   int current_iter_ = 0;
+
+  // perf stats
+  std::atomic<int64_t> read_total_duration_{0};
+  std::atomic<int64_t> read_sharding_total_duration_{0};
+  std::atomic<int64_t> read_cache_hit_copy_avg_duration_{0};
+  std::atomic<int64_t> read_fill_row_storage_avg_duration_{0};
+  std::atomic<int64_t> read_lookup_cache_total_avg_duration_{0};
+  std::atomic<int64_t> read_acquire_lock_avg_duration_{0};
+  std::atomic<int64_t> read_missing_load_avg_{0};
+  std::atomic<int64_t> write_sharding_total_duration_{0};
+
+  std::atomic<int64_t> bwd_l1_cnflct_miss_write_total_duration_{0};
+  std::atomic<int64_t> bwd_l1_cnflct_miss_write_allocate_avg_duration_{0};
+  std::atomic<int64_t> bwd_l1_cnflct_miss_write_cache_copy_avg_duration_{0};
+  std::atomic<int64_t> bwd_l1_cnflct_miss_write_lookup_cache_avg_duration_{0};
+  std::atomic<int64_t> bwd_l1_cnflct_miss_write_acquire_lock_avg_duration_{0};
+  std::atomic<int64_t> bwd_l1_cnflct_miss_write_missing_load_avg_{0};
+
+  std::atomic<int64_t> fwd_l1_eviction_write_total_duration_{0};
+  std::atomic<int64_t> fwd_l1_eviction_write_allocate_avg_duration_{0};
+  std::atomic<int64_t> fwd_l1_eviction_write_cache_copy_avg_duration_{0};
+  std::atomic<int64_t> fwd_l1_eviction_write_lookup_cache_avg_duration_{0};
+  std::atomic<int64_t> fwd_l1_eviction_write_acquire_lock_avg_duration_{0};
+  std::atomic<int64_t> fwd_l1_eviction_write_missing_load_avg_{0};
+
+  std::atomic<int64_t> allocated_memory_{0};
+  std::atomic<int64_t> actual_used_chunk_memory_{0};
 }; // class DramKVEmbeddingCache
 
 } // namespace kv_mem
