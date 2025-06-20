@@ -11,7 +11,9 @@
 #include <folly/coro/Collect.h>
 #include <algorithm>
 #include "common/time/Time.h"
+#ifdef FBGEMM_USE_GPU
 #include "kv_db_cuda_utils.h"
+#endif
 #include "torch/csrc/autograd/record_function_ops.h"
 #ifdef FBGEMM_FBCODE
 #include <folly/stop_watch.h>
@@ -411,6 +413,7 @@ void EmbeddingKVDB::get_cuda(
     const at::Tensor& indices,
     const at::Tensor& weights,
     const at::Tensor& count) {
+#ifdef FBGEMM_USE_GPU
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::get_cuda ##");
   check_tensor_type_consistency(indices, weights);
@@ -424,6 +427,7 @@ void EmbeddingKVDB::get_cuda(
       functor,
       0));
   rec->record.end();
+#endif
 }
 
 void EmbeddingKVDB::set_cuda(
@@ -432,6 +436,7 @@ void EmbeddingKVDB::set_cuda(
     const at::Tensor& count,
     const int64_t timestep,
     const bool is_bwd) {
+#ifdef FBGEMM_USE_GPU
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::set_cuda ##");
   check_tensor_type_consistency(indices, weights);
@@ -447,6 +452,7 @@ void EmbeddingKVDB::set_cuda(
       functor,
       0));
   rec->record.end();
+#endif
 }
 
 void EmbeddingKVDB::stream_cuda(
@@ -454,7 +460,7 @@ void EmbeddingKVDB::stream_cuda(
     const at::Tensor& weights,
     const at::Tensor& count,
     bool blocking_tensor_copy) {
-#ifdef FBGEMM_FBCODE
+#ifdef FBGEMM_USE_GPU
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::stream_cuda ##");
   check_tensor_type_consistency(indices, weights);
@@ -472,7 +478,7 @@ void EmbeddingKVDB::stream_cuda(
 }
 
 void EmbeddingKVDB::stream_sync_cuda() {
-#ifdef FBGEMM_FBCODE
+#ifdef FBGEMM_USE_GPU
   auto rec = torch::autograd::profiler::record_function_enter_new(
       "## EmbeddingKVDB::stream_sync_cuda ##");
   // take reference to self to avoid lifetime issues.
