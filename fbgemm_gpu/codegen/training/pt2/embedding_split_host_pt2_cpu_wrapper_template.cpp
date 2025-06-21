@@ -198,7 +198,7 @@ Tensor split_embedding{{ ndesc }}_codegen_forward_{{ wdesc }}{{ vdesc }}_pt2_cpu
         .device(host_weights.options().device());
     const int64_t vbe_output_size_ = vbe_output_size.guard_int(__FILE__, __LINE__);
     Tensor output_new = at::empty({vbe_output_size_}, options);
-    const int32_t T = D_offsets.numel() - 1;
+    const auto T = D_offsets.numel() - 1;
     const int32_t R = vbe_B_offsets_rank_per_feature.size(1) - 1;
 
     for (int32_t r = 0; r < R; r++){
