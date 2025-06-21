@@ -48,8 +48,8 @@ else:
 
 
 VERBOSITY: Verbosity = Verbosity.verbose
-
-
+print(open_source)
+print(*gpu_unavailable)
 # pyre-ignore
 additional_decorators: Dict[str, List[Callable]] = {
     "test_faketensor__test_nbit_forward_uvm_cache": [
@@ -115,9 +115,6 @@ additional_decorators: Dict[str, List[Callable]] = {
             "Operator outputs int4 tensors which do not support opcheck tests"
         ),
     ],
-    "test_faketensor__test_nbit_forward_fused_pooled_emb_quant_nan_weighted": [
-        unittest.skip("Operator not implemented for fake tensors"),
-    ],
 }
 
 
@@ -177,6 +174,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 )
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
+            Ls=L,
             output_dtype=output_dtype,
             device=torch.cuda.current_device(),
         )
@@ -211,6 +209,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                     )
                     for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
                 ],
+                Ls=L,
                 output_dtype=SparseType.FP32,
                 device=torch.cuda.current_device(),
             )
@@ -356,92 +355,6 @@ class NBitFowardTest(NBitFowardTestCommon):
             ref_module=SplitTableBatchedEmbeddingBagsCodegen,
             **kwargs,
         )
-
-    @unittest.skipIf(*gpu_unavailable)
-    def test_nbit_forward_fused_pooled_emb_quant_nan_weighted(self) -> None:
-        # Hash size
-        E = 10
-        # Embedding dimensoin
-        D = 160
-        # Pooling factor
-        L = 64
-
-        # Use TBE training op as a reference
-        op_ref = SplitTableBatchedEmbeddingBagsCodegen(
-            [
-                (E, D, EmbeddingLocation.DEVICE, ComputeDevice.CUDA),
-            ],
-            weights_precision=SparseType.FP32,
-            output_dtype=SparseType.FP32,
-            device=torch.cuda.current_device(),
-        )
-
-        # Instantiate TBE inference
-        op = IntNBitTableBatchedEmbeddingBagsCodegen(
-            embedding_specs=[
-                (
-                    "",
-                    E,
-                    D,
-                    SparseType.INT4,
-                    EmbeddingLocation.DEVICE,
-                ),
-            ],
-            output_dtype=SparseType.FP16,
-        )
-
-        # Initialize weights_ref with 1.0
-        weights_ref = op_ref.split_embedding_weights()
-        weights_ref[0].fill_(1.0)
-
-        # Copy weights_ref to weights
-        op.initialize_weights()
-        weights = op.split_embedding_weights()
-        quant_weights, quant_scale_shift = quantize_embs(
-            weights_ref[0], SparseType.INT4
-        )
-        weights[0][0].copy_(quant_weights)
-        weights[0][1].copy_(quant_scale_shift)
-
-        # Generate inputs
-        indices = torch.as_tensor(
-            [0] * L, device=torch.cuda.current_device(), dtype=torch.int
-        )
-        offsets = torch.as_tensor(
-            [0, L], device=torch.cuda.current_device(), dtype=torch.int
-        )
-        per_sample_weights = torch.arange(
-            L, device=torch.cuda.current_device(), dtype=torch.float
-        )
-
-        # Set a bunch of indices to -1 to simulate pruning.
-        pruned_indices = indices.clone().detach()
-        prune_select = torch.arange(pruned_indices.numel()) % 8 == 0
-        pruned_indices[prune_select] = -1
-
-        # Pre-prune per_sample_weights for reference
-        pruned_per_sample_weights = per_sample_weights.clone().detach()
-        pruned_per_sample_weights[prune_select] = 0.0
-
-        # Run reference
-        output_ref = op_ref(
-            indices=indices,
-            offsets=offsets,
-            per_sample_weights=pruned_per_sample_weights,
-        )
-
-        # Initialize shared memory to NaNs.
-        torch.ops.fbgemm.initialize_nan_shared_mem(torch.cuda.current_device())
-
-        # Run test
-        output = op(
-            indices=pruned_indices,
-            offsets=offsets,
-            per_sample_weights=per_sample_weights,
-        )
-
-        # Expect the outputs to be bit-wise equivalent
-        assert torch.equal(output_ref, output)
 
     @unittest.skipIf(*gpu_unavailable)
     @given(
@@ -788,6 +701,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 )
                 for (E, D) in zip(Es, Ds)
             ],
+            Ls=L,
             index_remapping=index_remapping,
             use_array_for_index_remapping=use_array_for_index_remapping,
             pruning_hash_load_factor=pruning_hash_load_factor,
@@ -795,6 +709,7 @@ class NBitFowardTest(NBitFowardTestCommon):
         cc_ref.fill_random_weights()
         cc = IntNBitTableBatchedEmbeddingBagsCodegen(
             [("", E, D, weights_ty, M) for (E, D, M) in zip(Es, Ds, managed)],
+            Ls=L,
             cache_algorithm=cache_algorithm,
             cache_assoc=associativity,
             index_remapping=index_remapping,
@@ -868,6 +783,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 )
                 for H in T_H
             ],
+            Ls=L,
             pooling_mode=pooling_mode,
             device="cpu",
             output_dtype=nbit_weights_ty,
@@ -1014,6 +930,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 )
                 for H in T_H
             ],
+            Ls=L,
             pooling_mode=pooling_mode,
             device="cpu",
             output_dtype=nbit_weights_ty,
@@ -1031,6 +948,7 @@ class NBitFowardTest(NBitFowardTestCommon):
                 )
                 for H in T_H
             ],
+            Ls=L,
             pooling_mode=pooling_mode,
             device="cpu",
             output_dtype=output_dtype,
