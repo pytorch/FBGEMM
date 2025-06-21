@@ -911,7 +911,10 @@ static auto dram_kv_embedding_cache_wrapper =
             &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot)
         .def(
             "get_feature_evict_metric",
-            &DramKVEmbeddingCacheWrapper::get_feature_evict_metric);
+            &DramKVEmbeddingCacheWrapper::get_feature_evict_metric)
+        .def(
+            "get_dram_kv_perf",
+            &DramKVEmbeddingCacheWrapper::get_dram_kv_perf);
 static auto embedding_rocks_db_read_only_wrapper =
     torch::class_<ReadOnlyEmbeddingKVDB>("fbgemm", "ReadOnlyEmbeddingKVDB")
         .def(

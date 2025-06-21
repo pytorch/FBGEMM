@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstddef>
 #include <memory_resource>
+#include <mutex>
 #include <numeric>
 #include <stdexcept>
 #include <vector>
@@ -161,6 +162,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   // Release all allocated memory during destruction
   ~FixedBlockPool() override {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
     for (auto&& chunk : chunks_) {
       upstream_->deallocate(chunk.ptr, chunk.size, chunk.alignment);
     }
@@ -181,6 +183,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   template <typename scalar_t>
   scalar_t* get_block(size_t index) {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
     char* current_chunk =
         static_cast<char*>(chunks_[index / blocks_per_chunk_].ptr);
     char* block = current_chunk + block_size_ * (index % blocks_per_chunk_);
@@ -206,6 +209,11 @@ class FixedBlockPool : public std::pmr::memory_resource {
   [[nodiscard]] std::size_t get_aligned_block_size() const noexcept {
     return (block_size_ + block_alignment_ - 1) / block_alignment_ *
         block_alignment_;
+  }
+
+  [[nodiscard]] std::size_t get_allocated_chunk_bytes() const noexcept {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
+    return chunks_.empty() ? 0 : chunks_.size() * chunks_[0].size;
   }
 
  protected:
@@ -254,7 +262,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
     void* chunk_ptr = upstream_->allocate(chunk_size, block_alignment_);
 
     // Record chunk information for later release
-    chunks_.push_back({chunk_ptr, chunk_size, block_alignment_});
+    {
+      std::lock_guard<std::mutex> guard(chunks_mutex_);
+      chunks_.push_back({chunk_ptr, chunk_size, block_alignment_});
+    }
 
     // Initialize free list: link blocks in reverse order from chunk end to
     // beginning (improves locality)
@@ -274,5 +285,6 @@ class FixedBlockPool : public std::pmr::memory_resource {
   std::pmr::memory_resource* upstream_; // Upstream memory resource
   std::pmr::vector<ChunkInfo> chunks_; // Records of all allocated chunks
   void* free_list_ = nullptr; // Free block list head pointer
+  mutable std::mutex chunks_mutex_; // Mutex for chunks_
 };
 } // namespace kv_mem
