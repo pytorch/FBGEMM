@@ -10,7 +10,7 @@
 import os
 import unittest
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -41,7 +41,9 @@ except ImportError:
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
-if torch.version.hip and supports_float8_fnuz():
+if torch.cuda.is_available() and supports_float8_fnuz(
+    throw_on_hip_incompatibility=(not running_on_github)
+):
     # Supported FP8 format is different on NV and AMD.
     fp8_e4m3: torch.dtype = torch.float8_e4m3fnuz
     fp8_e5m2: torch.dtype = torch.float8_e5m2fnuz
@@ -178,6 +180,10 @@ class FP8TorchExportTests(unittest.TestCase):
     "Skip when MI300 or H100 is not available",
 )
 class FP8Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.device = torch.accelerator.current_accelerator()
+
     def test_fp8_python(self) -> None:
         src_float = torch.randn(1000, 1000).cuda()
         src_float[0, 0] = 1e6
@@ -197,8 +203,22 @@ class FP8Tests(unittest.TestCase):
         N = 128
         K = 256
         fp8_max = E4M3_MAX_POS
-        x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.randn(
+                size=(M, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(N, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
 
         x_max = x.abs().max()
         w_max = w.abs().max()
@@ -266,12 +286,37 @@ class FP8Tests(unittest.TestCase):
             UseFastAccum = True
         # Setup input shapes.
         if InputMultiDim and not torch.version.hip:
-            x = torch.randn(size=(3, B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
+            x = (
+                torch.randn(
+                    size=(3, B_T, D),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.1
+            )
         else:
-            x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
+            x = (
+                torch.randn(
+                    size=(B_T, D),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.1
+            )
+        w = (
+            torch.randn(
+                size=(HD_L, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
         bias = (
-            torch.randn(size=(HD_L,), dtype=torch.bfloat16, device="cuda")
+            torch.randn(
+                size=(HD_L,),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
             if Bias
             else None
         )
@@ -377,7 +422,7 @@ class FP8Tests(unittest.TestCase):
                         zq += bias
         elif Mode == "blockwise":
             block_m = block_n = block_k = 128
-            output_device = torch.device("cuda")
+            output_device = torch.device(self.device)
             if CudaGraph:
                 #  Need a warmup to compile the Triton kernel before cuda graph
 
@@ -485,14 +530,28 @@ class FP8Tests(unittest.TestCase):
         QType: torch.dtype,
         CudaGraph: bool,
     ) -> None:
-        x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.randn(
+                size=(B_T, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(HD_L, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
 
         # Standard i4 weight format.
         wq, w_scale, w_zp = int4_row_quantize(w, 128)
-        wq = pack_int4(wq).contiguous().to(device="cuda")
-        w_scale = w_scale.contiguous().to(device="cuda")
-        w_zp = w_zp.contiguous().to(device="cuda")
+        wq = pack_int4(wq).contiguous().to(device=self.device)
+        w_scale = w_scale.contiguous().to(device=self.device)
+        w_zp = w_zp.contiguous().to(device=self.device)
 
         # Preshuffled i4 weight format.
         wq_shuffled, (w_scale_group, w_scale_row) = quantize_int4_preshuffle(w, 128)
@@ -536,16 +595,30 @@ class FP8Tests(unittest.TestCase):
         CudaGraph: bool,
         Preshuffle: bool,
     ) -> None:
-        x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.randn(
+                size=(B_T, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(HD_L, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
 
         if Preshuffle:
             wq, (w_scale, w_zp) = quantize_int4_preshuffle(w, dtype="bf16")
         else:
             wq, w_scale, w_zp = int4_row_quantize(w, 128)
-            wq = pack_int4(wq).contiguous().to(device="cuda")
-            w_scale = w_scale.contiguous().to(device="cuda")
-            w_zp = w_zp.contiguous().to(device="cuda")
+            wq = pack_int4(wq).contiguous().to(device=self.device)
+            w_scale = w_scale.contiguous().to(device=self.device)
+            w_zp = w_zp.contiguous().to(device=self.device)
 
         bf16i4_op = (
             torch.ops.fbgemm.bf16i4bf16_shuffled
@@ -564,6 +637,7 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-1, rtol=8.0e-2)
 
+    @unittest.skipIf(running_on_github, "Test is currently unreliable on GitHub OSS CI")
     @unittest.skipIf(
         not torch.version.cuda and torch.version.hip < "6.2",
         "Skip on AMD with < RoCM 6.2",
@@ -579,7 +653,14 @@ class FP8Tests(unittest.TestCase):
         self, B_T: int, D: int, Mode: str, stochastic_rounding: bool
     ) -> None:
         dtype = torch.bfloat16
-        x = torch.randn(size=(B_T, D), dtype=dtype, device="cuda") * 0.1
+        x = (
+            torch.randn(
+                size=(B_T, D),
+                dtype=dtype,
+                device=self.device,
+            )
+            * 0.1
+        )
         fp8_max = torch.finfo(fp8_e4m3).max
 
         if Mode == "tensorwise":
@@ -628,7 +709,12 @@ class FP8Tests(unittest.TestCase):
         import random
 
         rand_val = random.random()  # [0,1) random values
-        x = torch.full((B_T, D), rand_val, dtype=torch.bfloat16, device="cuda")
+        x = torch.full(
+            (B_T, D),
+            rand_val,
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
         x[0, 0] = 1.0  # first element = 1 to set up the x_scale
         xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(
             x,
@@ -660,15 +746,33 @@ class FP8Tests(unittest.TestCase):
         HD_L=st.sampled_from([256, 512]),
     )
     def test_tensor_with_nan(self, G_B: int, D: int, HD_L: int) -> None:
-        x = torch.randn(size=(G_B, D), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.randn(
+                size=(G_B, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(HD_L, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
 
         # batch size (B) which is <= graph batch size (G_B)
         B = int(G_B / 2)
-        B_t = torch.tensor(B, dtype=torch.int64, device="cuda")
+        B_t = torch.tensor(B, dtype=torch.int64, device=self.device)
 
         x[B:, :] = float("nan")
-        x_ref = torch.randn(size=(B, D), dtype=torch.bfloat16, device="cuda")
+        x_ref = torch.randn(
+            size=(B, D),
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
         x_ref[:B, :] = x[:B, :]
 
         wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
@@ -696,10 +800,24 @@ class FP8Tests(unittest.TestCase):
     def test_quantize_fp8_per_tensor_with_ub(
         self, B_T: int, D: int, HD_L: int, UB: int, Mode: str
     ) -> None:
-        x = torch.randn(size=(B_T, D), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(HD_L, D), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.randn(
+                size=(B_T, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(HD_L, D),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
 
-        UB_t = torch.tensor(UB, dtype=torch.int64, device="cuda")
+        UB_t = torch.tensor(UB, dtype=torch.int64, device=self.device)
 
         if Mode == "tensorwise":
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x, None, UB_t)
@@ -740,8 +858,22 @@ class FP8Tests(unittest.TestCase):
         K: int,
         use_loopover: bool,
     ) -> None:
-        x = torch.rand(size=(B, M, K), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.rand(size=(B, N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.rand(
+                size=(B, M, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.rand(
+                size=(B, N, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
 
         xq, x_scale = quantize_fp8_row(x)
         x_scale = x_scale.view(B, -1)
@@ -831,11 +963,19 @@ class FP8Tests(unittest.TestCase):
 
         # If padding, mark where zeros start for each input.
         if mode == "padded":
-            zero_start_index_M = torch.tensor(ms, dtype=torch.long, device="cuda")
+            zero_start_index_M = torch.tensor(ms, dtype=torch.long, device=self.device)
 
         for _, (m, n, k) in enumerate(zip(ms, ns, ks)):
-            x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
-            w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
+            x = torch.rand(
+                size=(m, k),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            w = torch.rand(
+                size=(n, k),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
 
             if mode == "padded":
                 # When padding, all x values are made to have the same M.
@@ -880,7 +1020,7 @@ class FP8Tests(unittest.TestCase):
             bf16_args = [x_group, w_group, zero_start_index_M]
         elif mode == "stacked":
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
-            M_sizes = ms.to(device="cuda", dtype=torch.int64)
+            M_sizes = ms.to(device=self.device, dtype=torch.int64)
             fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_sizes]
             bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked
             bf16_args = [x_group, w_group, M_sizes]
@@ -981,7 +1121,7 @@ class FP8Tests(unittest.TestCase):
         else:
             ms = torch.zeros((G,), dtype=torch.int)
 
-        M_sizes = ms.to(device="cuda", dtype=torch.int32)
+        M_sizes = ms.to(device=self.device, dtype=torch.int32)
         ns = [N] * G
         ks = [K] * G
 
@@ -997,8 +1137,16 @@ class FP8Tests(unittest.TestCase):
         bf16_group_zeros = []
 
         for _, (m, n, k) in enumerate(zip(ms, ns, ks)):
-            x = torch.rand(size=(m, k), dtype=torch.bfloat16, device="cuda")
-            w = torch.rand(size=(n, k), dtype=torch.bfloat16, device="cuda")
+            x = torch.rand(
+                size=(m, k),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            w = torch.rand(
+                size=(n, k),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
 
             xq, x_scale = quantize_fp8_row(x)
             w_fp8, (fp8_group_scale, fp8_row_scale) = quantize_int4_preshuffle(w)
@@ -1113,8 +1261,22 @@ class FP8Tests(unittest.TestCase):
     ) -> None:
         if not MARLIN_ENABLED:
             return
-        x = torch.rand(size=(B, M, K), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.rand(size=(B, N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.rand(
+                size=(B, M, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.rand(
+                size=(B, N, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
 
         wq = []
         w_scale = []
@@ -1149,9 +1311,9 @@ class FP8Tests(unittest.TestCase):
             for i in range(B):
                 wq_, w_scale_, w_zp_ = int4_row_quantize(w[i], group_size)
 
-                wq_ = pack_int4(wq_).contiguous().to(device="cuda")
-                w_scale_ = w_scale_.contiguous().to(device="cuda")
-                w_zp_ = w_zp_.contiguous().to(device="cuda")
+                wq_ = pack_int4(wq_).contiguous().to(device=self.device)
+                w_scale_ = w_scale_.contiguous().to(device=self.device)
+                w_zp_ = w_zp_.contiguous().to(device=self.device)
                 wq.append(wq_)
                 w_scale.append(w_scale_)
                 w_zp.append(w_zp_)
@@ -1178,14 +1340,14 @@ class FP8Tests(unittest.TestCase):
             fp8_dtype = torch.float8_e4m3fn
         # Initialize tensors for testing.
         M, N, K = 256, 256, 256
-        X = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
-        XQ = torch.randn(M, K, device="cuda").to(fp8_dtype)
-        WQ = torch.randn(N, K, device="cuda").to(fp8_dtype)
-        output = torch.empty(M, N, device="cuda", dtype=torch.bfloat16)
-        row_scale = torch.randn(M, device="cuda")
-        col_scale = torch.randn(N, device="cuda")
-        block_scale = torch.randn(M // 128, K // 128, device="cuda")
-        tensor_scale = torch.tensor(1.0, device="cuda")
+        X = torch.randn(M, K, device=self.device, dtype=torch.bfloat16)
+        XQ = torch.randn(M, K, device=self.device).to(fp8_dtype)
+        WQ = torch.randn(N, K, device=self.device).to(fp8_dtype)
+        output = torch.empty(M, N, device=self.device, dtype=torch.bfloat16)
+        row_scale = torch.randn(M, device=self.device)
+        col_scale = torch.randn(N, device=self.device)
+        block_scale = torch.randn(M // 128, K // 128, device=self.device)
+        tensor_scale = torch.tensor(1.0, device=self.device)
 
         # Run various compiled quantize ops.
         # Quantize ops.
@@ -1199,7 +1361,6 @@ class FP8Tests(unittest.TestCase):
         )
         torch.compile(torch.ops.fbgemm.f8f8bf16_tensorwise)(XQ, WQ, 1.0)
         torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise)(XQ, WQ, row_scale, col_scale)
-        torch.compile(torch.ops.fbgemm.f8f8f16_rowwise)(XQ, WQ, row_scale, col_scale)
 
         # Check that preallocated output writing is correct.
         torch.compile(torch.ops.fbgemm.f8f8bf16_rowwise_out)(
@@ -1208,6 +1369,11 @@ class FP8Tests(unittest.TestCase):
         torch.testing.assert_close(
             output, torch.ops.fbgemm.f8f8bf16_rowwise(XQ, WQ, row_scale, col_scale)
         )
+        # These ops are only supported on hip for now.
+        if torch.version.hip:
+            torch.compile(torch.ops.fbgemm.f8f8f16_rowwise)(
+                XQ, WQ, row_scale, col_scale
+            )
 
         # These ops are only supported on cuda for now.
         if torch.version.cuda:
@@ -1242,7 +1408,12 @@ class FP8Tests(unittest.TestCase):
                 block_scale[0].repeat(N).view(1, -1, N),
             )
             # test bf16_fast_gemv is torch compileable
-            W_bf16 = torch.randn(N, K, device="cuda", dtype=torch.bfloat16)
+            W_bf16 = torch.randn(
+                N,
+                K,
+                device=self.device,
+                dtype=torch.bfloat16,
+            )
             torch.compile(torch.ops.fbgemm.bf16_fast_gemv)(X, W_bf16)
 
     @unittest.skipIf(
@@ -1252,8 +1423,22 @@ class FP8Tests(unittest.TestCase):
         self, test_cases, gemv_op, atol, rtol, quantize_w=False, quantize_x=False
     ):
         for M, N, K in test_cases:
-            x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
-            w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+            x = (
+                torch.randn(
+                    size=(M, K),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.1
+            )
+            w = (
+                torch.randn(
+                    size=(N, K),
+                    dtype=torch.bfloat16,
+                    device=self.device,
+                )
+                * 0.01
+            )
             if quantize_w and not quantize_x:
                 wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
                 z = gemv_op(x, wq, w_scale)
@@ -1264,7 +1449,7 @@ class FP8Tests(unittest.TestCase):
                 z = gemv_op(xq, wq, x_scale, w_scale)
             else:
                 z = gemv_op(x, w)
-            z_ref = (x @ w.T).to(torch.bfloat16).to("cuda")
+            z_ref = (x @ w.T).to(torch.bfloat16).to(self.device)
             torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
 
     @unittest.skipIf(
@@ -1276,7 +1461,7 @@ class FP8Tests(unittest.TestCase):
                 torch.randn(
                     size=(B, M, K),
                     dtype=torch.bfloat16,
-                    device=torch.accelerator.current_accelerator(),
+                    device=self.device,
                 )
                 * 0.1
             )
@@ -1284,7 +1469,7 @@ class FP8Tests(unittest.TestCase):
                 torch.randn(
                     size=(B, N, K),
                     dtype=torch.bfloat16,
-                    device=torch.accelerator.current_accelerator(),
+                    device=self.device,
                 )
                 * 0.01
             )
@@ -1295,11 +1480,7 @@ class FP8Tests(unittest.TestCase):
             w_scale = w_scale.view(B, -1)
             assert w_scale.shape == (B, N)
             z = gemv_op(xq, wq, x_scale, w_scale, is_batched=True)
-            z_ref = (
-                torch.bmm(x, w.transpose(1, 2))
-                .to(torch.bfloat16)
-                .to(torch.accelerator.current_accelerator())
-            )
+            z_ref = torch.bmm(x, w.transpose(1, 2)).to(torch.bfloat16).to(self.device)
             torch.testing.assert_close(z, z_ref, atol=atol, rtol=rtol)
 
     @unittest.skipIf(
@@ -1428,8 +1609,16 @@ class FP8Tests(unittest.TestCase):
         K=st.sampled_from([0, 128]),
     )
     def test_quantize_zero_input(self, K) -> None:
-        w = torch.randn(size=(0, K), dtype=torch.bfloat16, device="cuda")
-        w_scale_ref = torch.empty(size=(0,), dtype=torch.float32, device="cuda")
+        w = torch.randn(
+            size=(0, K),
+            dtype=torch.bfloat16,
+            device=self.device,
+        )
+        w_scale_ref = torch.empty(
+            size=(0,),
+            dtype=torch.float32,
+            device=self.device,
+        )
         wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
         torch.testing.assert_close(w.shape, wq.shape)
         torch.testing.assert_close(w_scale.shape, w_scale_ref.shape)
@@ -1443,8 +1632,22 @@ class FP8Tests(unittest.TestCase):
         CudaGraph=st.sampled_from([True, False]),
     )
     def test_fp8_lite_matmul(self, M: int, N: int, K: int, CudaGraph: bool) -> None:
-        x = torch.randn(size=(M, K), dtype=torch.bfloat16, device="cuda") * 0.1
-        w = torch.randn(size=(N, K), dtype=torch.bfloat16, device="cuda") * 0.01
+        x = (
+            torch.randn(
+                size=(M, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(N, K),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            * 0.01
+        )
         xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
         wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
         if CudaGraph:
@@ -1457,6 +1660,81 @@ class FP8Tests(unittest.TestCase):
             zq = torch.ops.fbgemm.f8f8bf16_lite(xq, wq, x_scale * w_scale)
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=9.0e-2, rtol=9.0e-2)
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available() or torch.version.hip,
+    "Skip when cuda is not available or HIP is enabled",
+)
+class NVFP4Tests(unittest.TestCase):
+    @unittest.skipIf(
+        (not torch.version.cuda)
+        or torch.version.hip is not None
+        or str(torch.version.cuda) <= "12.8",
+        "Skip if no cuda is present or HIP is enabled",
+    )
+    @settings(deadline=None)
+    @given(
+        B_T=st.sampled_from([2048, 4096]),
+        D=st.sampled_from([128, 256]),
+        HD_L=st.sampled_from([256, 512]),
+        static_scale=st.sampled_from(
+            [
+                None,
+                torch.tensor(
+                    [1.0],
+                    dtype=torch.float,
+                    device=torch.accelerator.current_accelerator(),
+                ),
+            ]
+        ),
+        scale_ub=st.sampled_from(
+            [
+                None,
+                torch.tensor(
+                    [1.0],
+                    dtype=torch.float,
+                    device=torch.accelerator.current_accelerator(),
+                ),
+            ]
+        ),
+    )
+    def test_fake_quantize_nvfp4_per_tensor(
+        self,
+        B_T: int,
+        D: int,
+        HD_L: int,
+        static_scale: Optional[torch.Tensor],
+        scale_ub: Optional[torch.Tensor],
+    ) -> None:
+        x = (
+            torch.randn(
+                size=(B_T, D),
+                dtype=torch.bfloat16,
+                device=torch.accelerator.current_accelerator(),
+            )
+            * 0.1
+        )
+        w = (
+            torch.randn(
+                size=(HD_L, D),
+                dtype=torch.bfloat16,
+                device=torch.accelerator.current_accelerator(),
+            )
+            * 0.01
+        )
+
+        xq, _ = torch.ops.fbgemm.fake_quantize_nvfp4_per_tensor(
+            x, static_scales=static_scale, scale_ub=scale_ub
+        )
+        wq, _ = torch.ops.fbgemm.fake_quantize_nvfp4_per_tensor(
+            w, static_scales=static_scale, scale_ub=scale_ub
+        )
+        fake_quant_y = xq @ wq.T
+        fake_quant_y = fake_quant_y.to(torch.bfloat16)
+
+        y_ref = (x @ w.T).to(torch.bfloat16)
+        torch.testing.assert_close(fake_quant_y, y_ref, atol=0.1, rtol=0.1)
 
 
 if __name__ == "__main__":

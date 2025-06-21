@@ -478,7 +478,6 @@ void KVTensorWrapper::set_dram_db_wrapper(
 
 at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
-  CHECK_EQ(width_offset_, 0);
   if (db_) {
     CHECK_TRUE(db_ != nullptr);
     CHECK_GE(db_->get_max_D(), shape_[1]);
@@ -667,6 +666,36 @@ std::string KVTensorWrapper::layout_str() {
 
 namespace {
 
+static auto feature_evict_config =
+    torch::class_<kv_mem::FeatureEvictConfig>("fbgemm", "FeatureEvictConfig")
+        .def(
+            torch::init<
+                int64_t,
+                int64_t,
+                std::optional<int64_t>,
+                std::optional<int64_t>,
+                std::optional<std::vector<int64_t>>,
+                std::optional<std::vector<int64_t>>,
+                std::optional<std::vector<double>>,
+                std::optional<std::vector<double>>,
+                std::optional<std::vector<int64_t>>,
+                int64_t,
+                int64_t>(),
+            "",
+            {
+                torch::arg("trigger_mode"),
+                torch::arg("trigger_strategy"),
+                torch::arg("trigger_step_interval") = std::nullopt,
+                torch::arg("mem_util_threshold_in_GB") = std::nullopt,
+                torch::arg("ttls_in_mins") = std::nullopt,
+                torch::arg("counter_thresholds") = std::nullopt,
+                torch::arg("counter_decay_rates") = std::nullopt,
+                torch::arg("l2_weight_thresholds") = std::nullopt,
+                torch::arg("embedding_dims") = std::nullopt,
+                torch::arg("interval_for_insufficient_eviction_s") = 600,
+                torch::arg("interval_for_sufficient_eviction_s") = 60,
+            });
+
 static auto embedding_snapshot_handle_wrapper =
     torch::class_<EmbeddingSnapshotHandleWrapper>(
         "fbgemm",
@@ -816,14 +845,7 @@ static auto dram_kv_embedding_cache_wrapper =
                 int64_t,
                 double,
                 double,
-                int64_t,
-                int64_t,
-                int64_t,
-                int64_t,
-                std::optional<at::Tensor>,
-                std::optional<at::Tensor>,
-                std::optional<at::Tensor>,
-                std::optional<at::Tensor>,
+                std::optional<c10::intrusive_ptr<kv_mem::FeatureEvictConfig>>,
                 int64_t,
                 int64_t,
                 int64_t,
@@ -835,14 +857,7 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("max_D"),
                 torch::arg("uniform_init_lower"),
                 torch::arg("uniform_init_upper"),
-                torch::arg("evict_trigger_mode") = 0,
-                torch::arg("trigger_step_interval") = 0,
-                torch::arg("mem_util_threshold_in_GB") = 0,
-                torch::arg("evict_trigger_strategy") = 0,
-                torch::arg("counter_thresholds") = std::nullopt,
-                torch::arg("ttls_in_mins") = std::nullopt,
-                torch::arg("counter_decay_rates") = std::nullopt,
-                torch::arg("l2_weight_thresholds") = std::nullopt,
+                torch::arg("feature_evict_config") = std::nullopt,
                 torch::arg("num_shards") = 8,
                 torch::arg("num_threads") = 32,
                 torch::arg("row_storage_bitwidth") = 32,
@@ -879,6 +894,9 @@ static auto dram_kv_embedding_cache_wrapper =
         .def(
             "wait_util_filling_work_done",
             &DramKVEmbeddingCacheWrapper::wait_util_filling_work_done)
+        .def(
+            "wait_until_eviction_done",
+            &DramKVEmbeddingCacheWrapper::wait_until_eviction_done)
         .def(
             "get_keys_in_range",
             &DramKVEmbeddingCacheWrapper::get_keys_in_range,

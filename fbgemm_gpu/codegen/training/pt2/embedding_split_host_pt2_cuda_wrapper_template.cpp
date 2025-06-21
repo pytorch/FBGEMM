@@ -26,6 +26,7 @@
 #include <torch/script.h>
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/embedding_common.h"
+#include "fbgemm_gpu/utils/torch_library.h"
 
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
@@ -511,8 +512,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       fwd_mdesc, ndesc, desc_suffix
       )
     %}
-    {%- if ssd or is_gwd or nobag %}
-    /* Register scehema for wrappers with GPU-only support */
+    {%- if ssd or is_gwd %}
+    /* Register scehema for wrappers with GPU-only support */    
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_forward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_forward_op }}_wrapper("
         "    Tensor host_weights, "
         "    Tensor dev_weights, "
@@ -567,6 +569,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         , {PT2_COMPLIANT_TAG}
         {%- endif %}
         );
+    }
     {%- endif %}
     DISPATCH_TO_CUDA(
       "{{ embedding_codegen_forward_op }}_wrapper",
@@ -579,8 +582,9 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         bwd_mdesc, ndesc, optimizer, desc_suffix
         )
     %}
-    {%- if ssd or is_gwd or nobag or not has_cpu_support %}
+    {%- if ssd or is_gwd or not has_cpu_support %}
     /* Register scehema for wrappers with GPU-only support */
+    if (!utils::torch::schemaExists("fbgemm::{{ embedding_codegen_backward_op }}_wrapper")) {
     m.def("{{ embedding_codegen_backward_op }}_wrapper("
         "    Tensor grad_output, "
         "    Tensor{{ schema_annotation['weights_host'] }} host_weights, "
@@ -642,6 +646,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
         "    , int output_dtype=0 "
         {%- endif %}
         ") -> Tensor");
+    }
     {%- endif %}
     DISPATCH_TO_CUDA(
         "{{ embedding_codegen_backward_op }}_wrapper",

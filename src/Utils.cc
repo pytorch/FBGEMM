@@ -894,4 +894,16 @@ bool is_asmjit_disabled() {
   return res;
 }
 
+bool is_stats_enabled() {
+  static bool res;
+  static bool called_once = false;
+  if (called_once) {
+    return res;
+  }
+  called_once = true;
+  char* env_val = std::getenv("FBGEMM_STATS_ENABLE");
+  res = (env_val != nullptr);
+  return res;
+}
+
 } // namespace fbgemm

@@ -262,6 +262,12 @@ void scaled_fp4_quant(
     at::Tensor const& output_sf,
     at::Tensor const& input_sf);
 
+std::vector<at::Tensor> fake_quantize_nvfp4_per_tensor(
+    at::Tensor input,
+    std::optional<at::Tensor> static_scales,
+    std::optional<at::Tensor> bs, // batch size
+    std::optional<at::Tensor> scale_ub); // scale upperbound
+
 TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8f8bf16_blockwise", f8f8bf16_blockwise);
   m.impl("f8f8bf16_tensorwise", f8f8bf16_tensorwise);
@@ -308,6 +314,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
   m.impl("scaled_fp4_quant", scaled_fp4_quant);
   m.impl("i8i8bf16_dynamic", i8i8bf16_dynamic);
+  m.impl("fake_quantize_nvfp4_per_tensor", fake_quantize_nvfp4_per_tensor);
 #endif
 
 #ifdef USE_ROCM
@@ -357,6 +364,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
   m.impl("scaled_fp4_quant", scaled_fp4_quant);
+  m.impl("fake_quantize_nvfp4_per_tensor", fake_quantize_nvfp4_per_tensor);
 #endif
 }
 

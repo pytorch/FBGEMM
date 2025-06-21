@@ -128,6 +128,22 @@ class BackwardAdagradTest(unittest.TestCase):
         )
 
     @given(
+        compile=st.booleans(),
+        **test_st_cpu,
+    )
+    @settings(**common_settings)
+    def test_backward_adagrad_fp32_pmNONE_cpu(  # noqa C901
+        self,
+        **kwargs: Any,
+    ) -> None:
+        execute_backward_adagrad(
+            weights_precision=SparseType.FP32,
+            mixed_B=False,
+            pooling_mode=PoolingMode.NONE,
+            **kwargs,
+        )
+
+    @given(
         mixed_B=st.booleans(),
         compile=st.booleans(),
         **test_st,

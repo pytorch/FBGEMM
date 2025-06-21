@@ -34,11 +34,13 @@
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/table.h>
 #include <rocksdb/table_properties.h>
-
+#ifdef FBGEMM_USE_GPU
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
+#endif
 
 #include <folly/coro/Task.h>
+#include "../dram_kv_embedding_cache/feature_evict.h"
 #include "fbgemm_gpu/split_embeddings_cache/cachelib_cache.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 
@@ -272,6 +274,49 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       bool blocking_tensor_copy = true);
 
   void stream_sync_cuda();
+
+  /**
+   * @brief Potentially evict features based on configured strategy.
+   *
+   * This method is called in between get and set to check if feature eviction
+   * should be triggered based on the configured eviction strategy.
+   */
+  virtual void maybe_evict() {
+    FBEXCEPTION("Not implemented");
+  }
+
+  /**
+   * @brief Get the memory usage of the map.
+   *
+   * @return Size of memory used by the map in bytes.
+   */
+  virtual size_t get_map_used_memsize() const {
+    FBEXCEPTION("Not implemented");
+  };
+
+  /**
+   * @brief pause any ongoing eviction, usually called before backend IO
+   */
+  virtual void pause_ongoing_eviction() {
+    FBEXCEPTION("Not implemented");
+  }
+
+  /**
+   * @brief resume ongoing eviction, if any, usually called when there won't be
+   * backend IO for a while
+   */
+  virtual void resume_ongoing_eviction() {
+    FBEXCEPTION("Not implemented");
+  }
+
+  virtual std::optional<kv_mem::FeatureEvictMetricTensors>
+  get_feature_evict_metric() const {
+    FBEXCEPTION("Not implemented");
+  }
+
+  virtual void wait_until_eviction_done() {
+    FBEXCEPTION("Not implemented");
+  }
 
   /// export internally collected L2 performance metrics out
   ///

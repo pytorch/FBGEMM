@@ -64,10 +64,6 @@ struct IndicesDistributionParameters {
   // Number of indices to generate
   int64_t numIndices;
 
-  // NOTE: Compiler-generated aggregate initialization constructors (P0960R3,
-  // P1975R0) did not exist prior to C++20, but FBGEMM_GPU OSS still uses C++17,
-  // namely when building against CUDA 11.8.  Remove this constructor once CUDA
-  // 11.8 is deprecated from FBGEMM_GPU support.
   IndicesDistributionParameters(
       const std::vector<double>& _1,
       const ZipfParameters& _2,

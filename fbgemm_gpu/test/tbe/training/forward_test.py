@@ -133,9 +133,16 @@ class ForwardTest(unittest.TestCase):
 
         # NOTE: weighted operation can be done only for SUM.
         assume(pooling_mode == PoolingMode.SUM or not weighted)
-        # NOTE: No bag ops only work on GPUs, no mixed
-        assume(not use_cpu or pooling_mode != PoolingMode.NONE)
+        # NOTE: No bag ops, no mixed
         assume(not mixed or pooling_mode != PoolingMode.NONE)
+        # NOTE: No bag CPU doesn't supprot INT8
+        assume(
+            not (
+                use_cpu
+                and weights_precision == SparseType.INT8
+                and pooling_mode == PoolingMode.NONE
+            )
+        )
         # TODO: Support these cases
         assume(
             not mixed_B
@@ -407,6 +414,43 @@ class ForwardTest(unittest.TestCase):
             weighted = random.choice([True, False])
         else:
             weighted = False
+        self.execute_forward_(
+            T,
+            D,
+            B,
+            log_E,
+            L,
+            weights_precision,
+            weighted,
+            mixed,
+            mixed_B,
+            use_cache,
+            cache_algorithm,
+            pooling_mode,
+            use_cpu,
+            SparseType.FP32,
+            False,  # use_experimental_tbe
+        )
+
+    def test_forward_cpu_fp32_nobag(
+        self,
+    ) -> None:
+        weights_precision = SparseType.FP32
+        use_cpu = True
+        T = random.randint(1, 10)
+        D = random.randint(2, min(256, int(2048 / T)))
+        B = random.randint(1, min(128, int(2048 / T / D)))
+        L = random.randint(0, min(20, int(2048 / T / D / B)))
+        log_E = random.randint(3, 5)
+
+        use_cache = False
+        # cache_algorithm is don't care as we don't use cache.
+        cache_algorithm = CacheAlgorithm.LRU
+
+        pooling_mode = PoolingMode.NONE
+        mixed = False
+        mixed_B = False
+        weighted = False
         self.execute_forward_(
             T,
             D,

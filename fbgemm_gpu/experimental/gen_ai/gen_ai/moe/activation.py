@@ -135,37 +135,37 @@ _SILU_MUL_OP_NAME = "fbgemm::silu_mul"
 
 torch.library.define(
     "fbgemm::silu_mul",
-    "(Tensor x0, Tensor x1) -> Tensor",
+    "(Tensor x0, Tensor x1, Tensor? valid_token_count=None) -> Tensor",
 )
 
 
 @torch.library.impl(_SILU_MUL_OP_NAME, "Meta")
-def silu_mul_meta(x0, x1):
+def silu_mul_meta(x0, x1, valid_token_count):
     return x0.new_empty(x0.shape)
 
 
 @torch.library.impl(_SILU_MUL_OP_NAME, "CUDA")
-def silu_mul_cuda(x0, x1):
-    return silu_mul(x0, x1)
+def silu_mul_cuda(x0, x1, valid_token_count):
+    return silu_mul(x0, x1, valid_token_count)
 
 
 _SILU_MUL_OP_QUANT_NAME = "fbgemm::silu_mul_quant"
 
 torch.library.define(
     "fbgemm::silu_mul_quant",
-    "(Tensor x0, Tensor x1, Tensor? scale_ub) -> Tensor",
+    "(Tensor x0, Tensor x1, Tensor? scale_ub=None, Tensor? valid_token_count=None) -> (Tensor, Tensor)",
 )
 
 
 @torch.library.impl(_SILU_MUL_OP_QUANT_NAME, "Meta")
-def silu_mul_quant_meta(x0, x1, scale_ub):
+def silu_mul_quant_meta(x0, x1, scale_ub, valid_token_count):
     pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     return torch.empty(x0.shape, device=x0.device, dtype=pt_dtype)
 
 
 @torch.library.impl(_SILU_MUL_OP_QUANT_NAME, "CUDA")
-def silu_mul_quant_cuda(x0, x1, scale_ub=None):
-    return silu_mul_quant(x0, x1, scale_ub)
+def silu_mul_quant_cuda(x0, x1, scale_ub=None, valid_token_count=None):
+    return silu_mul_quant(x0, x1, scale_ub, valid_token_count)
 
 
 # Kernel Implementations

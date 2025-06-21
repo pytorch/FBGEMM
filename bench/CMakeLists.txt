@@ -60,8 +60,8 @@ macro(add_benchmark BENCHNAME)
     target_link_options(${BENCHNAME} PRIVATE "-fsanitize=${USE_SANITIZER}")
   endif()
 
-  if(${OpenMP_FOUND})
-    target_link_libraries(${BENCHNAME} "${OpenMP_CXX_LIBRARIES}")
+  if(OpenMP_FOUND)
+    target_link_libraries(${BENCHNAME} OpenMP::OpenMP_CXX)
   endif()
 
   if(${MKL_FOUND})

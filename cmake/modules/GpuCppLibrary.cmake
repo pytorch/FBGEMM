@@ -4,8 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules/Utilities.cmake)
-
 function(prepare_target_sources)
     # This function does the following:
     #
@@ -150,6 +148,7 @@ function(gpu_cpp_library)
         PREFIX          # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
         TYPE            # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
         DESTINATION     # The install destination directory to place the build target into
+        KEEP_PREFIX     # Whether to keep the prefix for the library target, e.g. libfoo.so vs foo.so
     )
     set(multiValueArgs
         CPU_SRCS            # Sources for CPU-only build
@@ -162,6 +161,7 @@ function(gpu_cpp_library)
         HIPCC_FLAGS         # Compilation flags specific to HIPCC
         INCLUDE_DIRS        # Include directories for compilation
         DEPS                # Target dependencies, i.e. built STATIC targets
+        TORCH_LIBS          # PyTorch libraries to link against. Note that we provide the TORCH_LIBS automatically - this is for PyTorch build.
     )
 
     cmake_parse_arguments(
@@ -258,19 +258,23 @@ function(gpu_cpp_library)
         ${NCCL_INCLUDE_DIRS})
 
     # Set additional target properties
-    set_target_properties(${lib_name} PROPERTIES
+    if(NOT args_KEEP_PREFIX)
         # Remove `lib` prefix from the output artifact name, e.g.
         # `libfoo.so` -> `foo.so`
-        PREFIX ""
+        set_target_properties(${lib_name} PROPERTIES PREFIX "")
+    endif()
+
+    set_target_properties(${lib_name} PROPERTIES
         # Enforce -fPIC for STATIC library option, since they are to be
         # integrated into other libraries down the line
         # https://stackoverflow.com/questions/3961446/why-does-gcc-not-implicitly-supply-the-fpic-flag-when-compiling-static-librarie
         POSITION_INDEPENDENT_CODE ON)
 
-    if (args_DEPS)
+    if (args_DEPS OR CMAKE_INSTALL_RPATH)
         # Only set this if the library has dependencies that we also build,
         # otherwise we will hit the following error:
         #   `No valid ELF RPATH or RUNPATH entry exists in the file`
+        # However, if CMAKE_INSTALL_RPATH is set, respect that logic. Such as when we build with PyTorch.
         set_target_properties(${lib_name} PROPERTIES
             BUILD_WITH_INSTALL_RPATH ON
             # Set the RPATH for the library to include $ORIGIN, so it can look
@@ -288,6 +292,7 @@ function(gpu_cpp_library)
     # Collect external libraries for linking
     set(library_dependencies
         ${TORCH_LIBRARIES}
+        ${args_TORCH_LIBS}
         ${NCCL_LIBRARIES}
         ${CUDA_DRIVER_LIBRARIES}
         ${args_DEPS})
@@ -308,14 +313,14 @@ function(gpu_cpp_library)
     target_compile_options(${lib_name} PRIVATE
         ${args_CC_FLAGS}
         # Silence compiler warnings (in asmjit)
-        -Wno-deprecated-anon-enum-enum-conversion
+        -Wno-deprecated-enum-enum-conversion
         -Wno-deprecated-declarations)
 
     ############################################################################
     # Post-Build Steps
     ############################################################################
 
-    if (args_DEPS)
+    if (args_DEPS OR CMAKE_INSTALL_RPATH)
         # Only set this if the library has dependencies that we also build,
         # otherwise we will hit the following error:
         #   `No valid ELF RPATH or RUNPATH entry exists in the file`
@@ -342,7 +347,10 @@ function(gpu_cpp_library)
     ############################################################################
 
     if(args_DESTINATION)
-        install(TARGETS ${args_PREFIX}
+        install(
+            TARGETS ${args_PREFIX}
+            # Allows args_PREFIX to be exported as a target, used for PyTorch build integration
+            EXPORT fbgemmGenAILibraryConfig
             DESTINATION ${args_DESTINATION})
     endif()
 

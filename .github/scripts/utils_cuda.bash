@@ -19,7 +19,8 @@ __set_cuda_symlinks_envvars () {
   local new_cuda_home="${conda_prefix}/targets/${MACHINE_NAME_LC}-linux"
 
   if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
     # CUDA 12.6 installation has a very different package layout than previous
     # CUDA versions - notably, NVTX has been moved elsewhere, which causes
     # PyTorch CMake scripts to complain.
@@ -91,7 +92,8 @@ __set_nvcc_prepend_flags () {
   # unwanted hook
   print_exec ls -la "${conda_prefix}/etc/conda/activate.d"
   if  [[ "$BUILD_CUDA_VERSION" =~ ^12.6.*$ ]] ||
-      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]]; then
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.8.*$ ]] ||
+      [[ "$BUILD_CUDA_VERSION" =~ ^12.9.*$ ]]; then
     echo "[INSTALL] Removing the -ccbin=CXX hook from NVCC activation scripts ..."
     print_exec sed -i '/-ccbin=/d' "${conda_prefix}/etc/conda/activate.d/*cuda-nvcc_activate.sh"
   fi
@@ -195,7 +197,8 @@ install_cuda () {
   # (except for versions 11.8 and below, which are only available through
   # nvidia/label/cuda-*)
   if  [[ "$cuda_version" =~ ^12.6.*$ ]] ||
-      [[ "$cuda_version" =~ ^12.8.*$ ]]; then
+      [[ "$cuda_version" =~ ^12.8.*$ ]] ||
+      [[ "$cuda_version" =~ ^12.9.*$ ]]; then
     # shellcheck disable=SC2086
     (exec_with_retries 3 conda install --force-reinstall ${env_prefix} -c conda-forge --override-channels -y \
       cuda=${cuda_version}) || return 1
@@ -238,7 +241,9 @@ install_cudnn () {
   test_network_connection || return 1
 
   # Install cuDNN manually
-  # Based on install script in https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+  # Based on install script in:
+  #   https://github.com/pytorch/builder/blob/main/common/install_cuda.sh
+  #   https://github.com/pytorch/pytorch/blob/main/.ci/docker/common/install_cudnn.sh
   declare -A cudnn_packages=(
     ["115"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
     ["116"]="https://developer.download.nvidia.com/compute/redist/cudnn/v8.3.2/local_installers/11.5/cudnn-${PLATFORM_NAME_LC}-8.3.2.44_cuda11.5-archive.tar.xz"
@@ -247,6 +252,8 @@ install_cudnn () {
     ["121"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-8.9.2.26_cuda12-archive.tar.xz"
     ["124"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-8.9.2.26_cuda12-archive.tar.xz"
     ["126"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-9.5.1.17_cuda12-archive.tar.xz"
+    ["128"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-9.10.2.21_cuda12-archive.tar.xz"
+    ["129"]="https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/${PLATFORM_NAME_LC}/cudnn-${PLATFORM_NAME_LC}-9.10.2.21_cuda12-archive.tar.xz"
   )
 
   # Split version string by dot into array, i.e. 11.7.1 => [11, 7, 1]
