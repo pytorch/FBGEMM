@@ -34,9 +34,10 @@
 #include <rocksdb/slice_transform.h>
 #include <rocksdb/table.h>
 #include <rocksdb/table_properties.h>
-
+#ifdef FBGEMM_USE_GPU
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
+#endif
 
 #include <folly/coro/Task.h>
 #include "../dram_kv_embedding_cache/feature_evict.h"
@@ -289,7 +290,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
    *
    * @return Size of memory used by the map in bytes.
    */
-  virtual size_t get_map_used_memsize() const {
+  virtual size_t get_map_used_memsize_in_bytes() const {
     FBEXCEPTION("Not implemented");
   };
 
@@ -344,7 +345,15 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     FBEXCEPTION("Not implemented");
   }
 
-  void set_range_to_storage(
+  virtual std::vector<double> get_dram_kv_perf(
+      const int64_t step,
+      const int64_t interval) {
+    (void)step;
+    (void)interval;
+    FBEXCEPTION("Not implemented");
+  }
+
+  virtual void set_range_to_storage(
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) {
@@ -372,7 +381,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
     const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
-    folly::coro::blockingWait(set_kv_db_async(ids, weights, count));
+    set_kv_db_async(ids, weights, count).wait();
   }
 
   virtual void get_kv_from_storage_by_snapshot(

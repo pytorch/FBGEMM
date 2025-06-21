@@ -120,6 +120,21 @@ def pack_int4(x: torch.Tensor) -> torch.Tensor:
     return torch.bitwise_or(low_x, high_x).contiguous()
 
 
+def sample_scales() -> st.SearchStrategy[Optional[torch.Tensor]]:
+    return st.sampled_from(
+        [
+            None,
+            torch.tensor(
+                [1.0],
+                dtype=torch.float,
+                device=torch.accelerator.current_accelerator(),
+            ),
+        ]
+        if torch.cuda.is_available()
+        else [None]
+    )
+
+
 @unittest.skipIf(
     not torch.cuda.is_available(),
     "Skip when no GPU is available. This test is only for GPU.",
@@ -1678,26 +1693,8 @@ class NVFP4Tests(unittest.TestCase):
         B_T=st.sampled_from([2048, 4096]),
         D=st.sampled_from([128, 256]),
         HD_L=st.sampled_from([256, 512]),
-        static_scale=st.sampled_from(
-            [
-                None,
-                torch.tensor(
-                    [1.0],
-                    dtype=torch.float,
-                    device=torch.accelerator.current_accelerator(),
-                ),
-            ]
-        ),
-        scale_ub=st.sampled_from(
-            [
-                None,
-                torch.tensor(
-                    [1.0],
-                    dtype=torch.float,
-                    device=torch.accelerator.current_accelerator(),
-                ),
-            ]
-        ),
+        static_scale=sample_scales(),
+        scale_ub=sample_scales(),
     )
     def test_fake_quantize_nvfp4_per_tensor(
         self,

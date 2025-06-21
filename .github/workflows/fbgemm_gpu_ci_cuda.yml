@@ -173,8 +173,6 @@ jobs:
           { build-target: "genai", cuda-version: "12.6.3" },
           { build-target: "genai", cuda-version: "12.8.1" },
           { build-target: "genai", cuda-version: "12.9.1" },
-          { build-target: "hstu", cuda-version: "12.6.3" },
-          { build-target: "hstu", cuda-version: "12.8.1" },
           { build-target: "hstu", cuda-version: "12.9.1" },
         ]
         python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]

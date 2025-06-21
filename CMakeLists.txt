@@ -17,14 +17,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
   execute_process(
-    COMMAND "${PYTHON_EXECUTABLE}" -c
+    COMMAND "${Python_EXECUTABLE}" -c
             "exec(open('defs.bzl').read());print(';'.join(${name}))"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     OUTPUT_VARIABLE _tempvar
     RESULT_VARIABLE _resvar
     ERROR_VARIABLE _errvar)
-  if (NOT "${_resvar}" EQUAL "0")
-    message(WARNING "Failed to execute Python (${PYTHON_EXECUTABLE})\n"
+  if(NOT "${_resvar}" EQUAL "0")
+    message(WARNING "Failed to execute Python (${Python_EXECUTABLE})\n"
       "Result: ${_resvar}\n"
       "Error: ${_errvar}\n")
   endif()
@@ -94,7 +94,7 @@ project(fbgemm VERSION 0.1 LANGUAGES CXX C)
 include(GNUInstallDirs)
 
 # Load Python
-find_package(PythonInterp)
+find_package(Python)
 
 set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
@@ -136,7 +136,7 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
 
 # We should default to a Release build
-if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 
@@ -146,12 +146,8 @@ endif()
 
 # Check if compiler supports OpenMP
 find_package(OpenMP)
-if (OpenMP_FOUND)
+if(OpenMP_FOUND)
   message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
-  include_directories(${OpenMP_C_INCLUDE_DIRS})
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 else()
   message(WARNING "OpenMP is not supported by the compiler")
 endif()
@@ -267,7 +263,7 @@ if(NOT TARGET asmjit)
 
   # Build asmjit
   # For MSVC shared build, asmjit needs to be shared also.
-  if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+  if(MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
     set(ASMJIT_STATIC OFF)
   else()
     set(ASMJIT_STATIC ON)
@@ -333,23 +329,18 @@ target_include_directories(fbgemm_autovec BEFORE
       PRIVATE "${ASMJIT_SRC_DIR}/src"
       PRIVATE "${CPUINFO_SOURCE_DIR}/include")
 
-if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
-  add_library(fbgemm
-    $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>
-    $<TARGET_OBJECTS:fbgemm_autovec>)
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+if((FBGEMM_LIBRARY_TYPE STREQUAL "default" AND BUILD_SHARED_LIB) OR FBGEMM_LIBRARY_TYPE STREQUAL "shared")
   add_library(fbgemm SHARED
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
     $<TARGET_OBJECTS:fbgemm_avx512>
     $<TARGET_OBJECTS:fbgemm_autovec>)
+  set_property(TARGET fbgemm PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
   set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
+elseif((FBGEMM_LIBRARY_TYPE STREQUAL "default" AND NOT BUILD_SHARED_LIB) OR FBGEMM_LIBRARY_TYPE STREQUAL "static")
   add_library(fbgemm STATIC
     $<TARGET_OBJECTS:fbgemm_generic>
     $<TARGET_OBJECTS:fbgemm_avx2>
@@ -375,15 +366,13 @@ target_include_directories(fbgemm BEFORE
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
     PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
 
-target_link_libraries(fbgemm
+target_link_libraries(fbgemm PUBLIC
   $<BUILD_INTERFACE:asmjit>
   $<BUILD_INTERFACE:cpuinfo>)
-add_dependencies(fbgemm
-  asmjit
-  cpuinfo)
 
 if(OpenMP_FOUND)
-  target_link_libraries(fbgemm OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm PUBLIC OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm_generic PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 install(
