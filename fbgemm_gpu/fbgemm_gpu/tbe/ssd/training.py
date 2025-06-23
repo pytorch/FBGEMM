@@ -2142,6 +2142,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 "post_bwd_evicted_indices": post_bwd_evicted_indices_cpu,
                 "actions_count": actions_count_cpu,
             },
+            enable_optimizer_offloading=self.enable_optimizer_offloading,
             # pyre-fixme[6]: Expected `lookup_args_ssd.VBEMetadata` but got `lookup_args.VBEMetadata`
             vbe_metadata=vbe_metadata,
             learning_rate_tensor=self.learning_rate_tensor,
