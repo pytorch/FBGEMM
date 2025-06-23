@@ -1178,7 +1178,7 @@ Tensor {{ embedding_cuda_op }}(
                     int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
                     int32_t warp_per_row_smem_bytes = 0;
 
-                    if (kUseVecBlocking) {
+                    if constexpr (kUseVecBlocking) {
                       warp_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                           &num_warp_per_row_groups,
                           // Use max_D to compute shmem_bytes (for smem_grad_sum)
