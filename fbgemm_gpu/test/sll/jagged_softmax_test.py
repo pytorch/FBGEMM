@@ -66,7 +66,9 @@ class JaggedSoftmaxTest(unittest.TestCase):
             padded_x1 - (1.0 - presences.unsqueeze(2).to(padded_x1.dtype)) * 5e7
         )
         padded_ref = torch.nn.functional.softmax(
-            softmax_input.transpose(1, 2), dim=-1
+            # pyre-fixme[16]: `float` has no attribute `transpose`.
+            softmax_input.transpose(1, 2),
+            dim=-1,
         )  # [B, H, N]
         ref = torch.ops.fbgemm.dense_to_jagged(padded_ref.permute(0, 2, 1), [offsets])[
             0
