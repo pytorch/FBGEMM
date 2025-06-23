@@ -91,12 +91,12 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
                     continue;
                 }
                 const auto capacity = table_end - table_start;
-                
+
                 for (const auto b : c10::irange(B)) {
                     const auto indices_start = offsets_acc[t * B + b];
                     const auto indices_end = offsets_acc[t * B + b + 1];
                     const auto L = indices_end - indices_start;
-                    
+
                     for (const auto l : c10::irange(L)) {
                         const auto idx = indices_acc[indices_start + l];
                         const auto dense_idx = dense_indices_acc[indices_start + l];
@@ -109,20 +109,20 @@ void pruned_hashmap_insert_{{ wdesc }}_cpu(
                         while (true) {
                             const auto ht_idx = table_start + static_cast<int64_t>(slot);
                             const auto slot_sparse_idx = hash_table_acc[ht_idx][0];
-                            
+
                             // Empty slot
                             if (slot_sparse_idx == -1) {
                                 hash_table_acc[ht_idx][0] = static_cast<hash_t>(idx);
                                 hash_table_acc[ht_idx][1] = static_cast<hash_t>(dense_idx);
                                 break;
                             }
-                            
+
                             // Already exists (shouldn't happen in practice)
                             if (slot_sparse_idx == idx) {
                                 hash_table_acc[ht_idx][1] = static_cast<hash_t>(dense_idx);
                                 break;
                             }
-                            
+
                             // Linear probe
                             slot = (slot + 1) % capacity;
                         }
@@ -158,7 +158,8 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     {% endif %}
     int64_t output_dtype,
     int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias
+    int64_t fp8_exponent_bias,
+    bool scale_bias_last
 ) {
     TENSOR_ON_CPU(dev_weights);
     TENSOR_ON_CPU(uvm_weights);
@@ -273,8 +274,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                 if (output_is_int8) {
                     TORCH_CHECK(weight_ty == SparseType::INT8, "int8 output are only supported for int8 weights");
                 }
+                const int32_t scale_bias_size = (weight_ty == SparseType::INT8 && scale_bias_last) ? 8 : 4;
                 // default to 1 byte alignment for CPU TBE
-                const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
+                const int32_t D_bytes = nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment, scale_bias_size);
 
                 int tt;
                 for (tt = t + 1; tt < T && weights_offsets_acc[tt] == weights_offsets_acc[t]; ++tt);
@@ -352,7 +354,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
                     /*exponent_bias=*/fp8_exponent_bias,
                     {% endif %}
                     {% if has_asmjit %}
-                    /*scale_bias_last=*/false,
+                    /*scale_bias_last=*/scale_bias_last,
                     {% endif %}
                     {% if use_base %}
                     /*no_bag=*/nobag_op,
@@ -466,12 +468,12 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
                         for (const auto l : c10::irange(L)) {
                             dense_indices_acc[indices_start + l] = indices_acc[indices_start + l];
                         }
-                    
+
                     } else {
                         for (const auto l : c10::irange(L)) {
                             const auto idx = indices_acc[indices_start + l];
                             auto slot = pruned_hash_function(static_cast<utdx_t>(idx)) % capacity;
-                            
+
                             while (true) {
                                 const auto ht_idx = table_start + static_cast<int64_t>(slot);
                                 const auto slot_sparse_idx = hash_table_acc[ht_idx][0];
@@ -486,7 +488,7 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
                                     dense_indices_acc[indices_start + l] = static_cast<index_t>(hash_table_acc[ht_idx][1]);
                                     break;
                                 }
-                                
+
                                 // Linear probe
                                 slot = (slot + 1) % capacity;
                             }
@@ -496,7 +498,7 @@ Tensor pruned_hashmap_lookup_{{ wdesc }}_cpu(
             }
         });
     });
-    
+
     return dense_indices;
 }
 
