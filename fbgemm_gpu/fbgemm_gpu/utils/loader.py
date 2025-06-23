@@ -14,10 +14,7 @@ import torch
 
 
 def load_torch_module(
-    unified_path: str,
-    cuda_path: Optional[str] = None,
-    hip_path: Optional[str] = None,
-    mtia_path: Optional[str] = None,
+    unified_path: str, cuda_path: Optional[str] = None, hip_path: Optional[str] = None
 ) -> None:
     try:
         torch.ops.load_library(unified_path)
@@ -27,16 +24,9 @@ def load_torch_module(
                 hip_path = f"{unified_path}_hip"
             torch.ops.load_library(hip_path)
         else:
-            try:
-                # pyre-ignore-next-line[21]
-                import mtia.host_runtime.torch_mtia.dynamic_library  # noqa
-
-                if mtia_path is not None:
-                    torch.ops.load_library(mtia_path)
-            except OSError:
-                if not cuda_path:
-                    cuda_path = f"{unified_path}_cuda"
-                torch.ops.load_library(cuda_path)
+            if not cuda_path:
+                cuda_path = f"{unified_path}_cuda"
+            torch.ops.load_library(cuda_path)
 
 
 def load_torch_module_bc(new_path: str, old_path: str) -> None:
