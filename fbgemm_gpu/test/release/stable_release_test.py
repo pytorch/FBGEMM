@@ -144,7 +144,11 @@ class StableRelease(TestSuite):  # pyre-ignore[11]
                     op_name = full_op_name.split(".")[3]
 
                     check_schema_compatibility_from_op_name(
-                        torch.ops.fbgemm, op_name, ref_schema_str
+                        # pyre-fixme[6]: For 1st argument expected `(...) -> Any`
+                        #  but got `_OpNamespace`.
+                        torch.ops.fbgemm,
+                        op_name,
+                        ref_schema_str,
                     )
 
     def test_backwards_compatibility(self) -> None:

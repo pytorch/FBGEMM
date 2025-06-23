@@ -21,6 +21,8 @@ except Exception:
     torch.ops.load_library("//deeplearning/fbgemm/fbgemm_gpu:cumem_utils")
 
 # Import all uvm enums from c++ library
+# pyre-fixme[6]: For 2nd argument expected `() -> List[Tuple[str, List[Tuple[str,
+#  int]]]]` but got `OpOverloadPacket`.
 create_enums(globals(), torch.ops.fbgemm.fbgemm_gpu_uvm_enum_query)
 
 
