@@ -20,6 +20,7 @@
 #include <c10/cuda/CUDADeviceAssertionHost.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/library.h>
+#include <type_traits>
 
 // clang-format off
 #include "fbgemm_gpu/utils/cub_namespace_prefix.cuh"
