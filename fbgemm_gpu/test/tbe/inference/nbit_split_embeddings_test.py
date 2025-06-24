@@ -27,12 +27,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 from fbgemm_gpu.tbe.utils import generate_requests, round_up
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
-from .. import common  # noqa E402
-from ..common import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
+import common_prev  # noqa E402
+from common_prev import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils_ import gpu_unavailable, optests, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
 
@@ -196,6 +196,7 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         indices_dtype=st.sampled_from([torch.int, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
+    
     def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         self,
         weights_ty: SparseType,
@@ -288,6 +289,12 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 max_int8_D=cc_ref.max_int8_D,
                 max_float16_D=cc_ref.max_float16_D,
                 max_float32_D=cc_ref.max_float32_D,
+                INT2_max_ls=cc_ref.INT2_max_ls,
+                INT4_max_ls=cc_ref.INT4_max_ls,
+                INT8_max_ls=cc_ref.INT8_max_ls,
+                FP8_max_ls=cc_ref.FP8_max_ls,
+                FP16_max_ls=cc_ref.FP16_max_ls,
+                FP32_max_ls=cc_ref.FP32_max_ls,
                 indices=indices,
                 offsets=offsets,
                 pooling_mode=int(cc_ref.pooling_mode),
@@ -362,6 +369,12 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
                 max_int8_D=cc_ref.max_int8_D,
                 max_float16_D=cc_ref.max_float16_D,
                 max_float32_D=cc_ref.max_float32_D,
+                INT2_max_ls=cc_ref.INT2_max_ls,
+                INT4_max_ls=cc_ref.INT4_max_ls,
+                INT8_max_ls=cc_ref.INT8_max_ls,
+                FP8_max_ls=cc_ref.FP8_max_ls,
+                FP16_max_ls=cc_ref.FP16_max_ls,
+                FP32_max_ls=cc_ref.FP32_max_ls,
                 indices=indices,
                 offsets=offsets,
                 pooling_mode=int(cc_ref.pooling_mode),
