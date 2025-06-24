@@ -36,7 +36,7 @@ class ActivationTests(unittest.TestCase):
     """Test activation kernels."""
 
     @given(
-        T=st.sampled_from([1, 128, 2048, 4096, 16384]),
+        T=st.sampled_from([0, 1, 128, 2048, 4096, 16384]),
         D=st.sampled_from([5120, 7168]),
         contiguous=st.sampled_from([True, False]),
         partial=st.sampled_from([True, False]),
@@ -94,7 +94,7 @@ class ActivationTests(unittest.TestCase):
         "Skip when H100 is not available",
     )
     @given(
-        T=st.sampled_from([1, 128, 2048, 4096, 16384]),
+        T=st.sampled_from([0, 1, 128, 2048, 4096, 16384]),
         D=st.sampled_from([5120, 7168]),
         scale_ub=st.sampled_from([None, 1200.00]),
         contiguous=st.sampled_from([True, False]),

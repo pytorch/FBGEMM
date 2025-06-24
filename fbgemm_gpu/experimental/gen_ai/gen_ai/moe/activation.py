@@ -104,9 +104,12 @@ def silu_mul_quant(
 
     out = torch.empty((T, D), device="cuda", dtype=pt_dtype)
     out_inv_scale = torch.empty((T,), device="cuda", dtype=torch.float32)
+    if T == 0:
+        return out, out_inv_scale
 
     NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
     BLOCK_T = triton.cdiv(T, NUM_SMS)
+
     NUM_CTAS = triton.cdiv(T, BLOCK_T)
 
     grid = (NUM_CTAS,)
