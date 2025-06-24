@@ -185,8 +185,11 @@ at::Tensor _bf16i4bf16(
   }
 
   using StrideS = typename CollectiveMainloopShuffled::StrideScale;
+  // Note we can support non contiguous strides by actually using the
+  // strides of the scales here. This applies to both scale and zeros.
+  int32_t scale_stride = w_scale_group.stride(0);
   StrideS stride_S = cutlass::make_cute_packed_stride(
-      StrideS{}, cute::make_shape(N, num_groups, 1));
+      StrideS{}, cute::make_shape(scale_stride, num_groups, 1));
 
   // Define Gemm arguments.
   typename GemmShuffled::Arguments arguments{

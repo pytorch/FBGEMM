@@ -191,8 +191,11 @@ at::Tensor _f8i4bf16_shuffled(
   LayoutB_Reordered layout_B_reordered =
       cute::tile_to_shape(LayoutAtomQuant{}, shape_B);
   using StrideS = typename CollectiveMainloopShuffled::StrideScale;
+  // Note we can support non contiguous strides by actually using the
+  // strides of the scales here.
+  int32_t scale_stride = w_scale_group.stride(0);
   StrideS stride_S = cutlass::make_cute_packed_stride(
-      StrideS{}, cute::make_shape(N, num_groups, 1));
+      StrideS{}, cute::make_shape(scale_stride, num_groups, 1));
 
   // Define Gemm arguments.
   typename GemmShuffled::Arguments arguments{
