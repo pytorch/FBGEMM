@@ -94,3 +94,50 @@ struct SourceContext {
 };
 
 } // namespace fbgemm_gpu::utils
+
+////////////////////////////////////////////////////////////////////////////////
+// Macro create a compile-time concatenation of __TEMPLATE_SOURCE_FILE__ and
+// __FILE__
+//
+// This is used for reporting the template filename into to Torch DSA.  Runtime
+// strings cannot be used here because the Torch DSA error reporting mechanism
+// is located higher in the stack than where the DSA launch_registry.insert() is
+// called, and requires a compile-timme defined char * for the reporting to work
+// correctly.
+////////////////////////////////////////////////////////////////////////////////
+
+#ifdef __TEMPLATE_SOURCE_FILE__
+#define _FBGEMM_DSA_FILESRC_ "[" __TEMPLATE_SOURCE_FILE__ "] " __FILE__
+#else
+#define _FBGEMM_DSA_FILESRC_ __FILE__
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+// Macro to define _FKL_TFILE_ to be __TEMPLATE_SOURCE_FILE__ if it is defined,
+// else empty string
+////////////////////////////////////////////////////////////////////////////////
+
+#ifdef __TEMPLATE_SOURCE_FILE__
+#define _FBGEMM_TFILE_ __TEMPLATE_SOURCE_FILE__
+#else
+#define _FBGEMM_TFILE_ ""
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+// SourceContext Builder Macro
+//
+// This macro is used to build a SourceContext object for the kernel launcher,
+// can be used elsewhere as well.
+//
+// NOTE: The builder is defined as a macro in specifically in this header file ,
+// instead of static class method in source_context.h, so that __FILE__ and
+// __TEMPLATE_SOURCE_FILE__ can be correctly expanded to point to actual call
+// site.
+////////////////////////////////////////////////////////////////////////////////
+
+#define SOURCE_CONTEXT_CURRENT(LABEL)                \
+  fbgemm_gpu::utils::SourceContext(                  \
+      fbgemm_gpu::utils::source_location::current(), \
+      #LABEL,                                        \
+      _FBGEMM_TFILE_,                                \
+      _FBGEMM_DSA_FILESRC_);

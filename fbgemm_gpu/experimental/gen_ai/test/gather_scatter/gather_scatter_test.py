@@ -19,13 +19,15 @@ logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-@unittest.skipIf(
-    not torch.cuda.is_available() or torch.cuda.get_device_capability() < (9, 0),
-    "Skip when no Hopper GPU is available. This test is only for Hopper GPU.",
-)
 class GatherScatterTests(unittest.TestCase):
     """Test Gathers."""
 
+    @unittest.skipIf(
+        torch.version.hip
+        or not torch.cuda.is_available()
+        or torch.cuda.get_device_capability() < (9, 0),
+        "Skip when no Hopper GPU is available. This test is only for Hopper GPU.",
+    )
     def test_gather_along_first_dim(self) -> None:
         def _test_gather_along_first_dim(
             M: int, N: int, K: int, compile: bool = False
@@ -67,6 +69,12 @@ class GatherScatterTests(unittest.TestCase):
         _test_gather_along_first_dim(8192, 8192, 5120)
         _test_gather_along_first_dim(16384, 16384, 5120)
 
+    @unittest.skipIf(
+        torch.version.hip
+        or not torch.cuda.is_available()
+        or torch.cuda.get_device_capability() < (9, 0),
+        "Skip when no Hopper GPU is available. This test is only for Hopper GPU.",
+    )
     def test_scatter_add_along_first_dim(self) -> None:
         def _test_scatter_add_along_first_dim(
             M: int, N: int, K: int, compile: bool = False

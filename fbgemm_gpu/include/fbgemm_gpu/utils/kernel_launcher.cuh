@@ -395,28 +395,41 @@ struct KernelLauncher {
 } // namespace fbgemm_gpu::utils
 
 ////////////////////////////////////////////////////////////////////////////////
-// Macro create a compile-time concatenation of __TEMPLATE_SOURCE_FILE__ and
-// __FILE__
+// Enable Kernel Barrier Isolation
 //
-// This is used for reporting the template filename into to Torch DSA.  Runtime
-// strings cannot be used here because the Torch DSA error reporting mechanism
-// is located higher in the stack than where the DSA launch_registry.insert() is
-// called, and requires a compile-timme defined char * for the reporting to work
-// correctly.
+// When this flag is defined, kernel's execution is isolated from other GPU
+// processes that might otherwise have been running concurrently.  This acts as
+// a performance profiling tool used in conjunction with trace inspection to
+// determine whether a kernel's regression might be due to other GPU processes
+// competing for memory bandwidth that is causing the kernel slowdown, which can
+// be especially relevant when data accessed by the kernel is in UVM.
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifdef __TEMPLATE_SOURCE_FILE__
-#define DSA_FILESRC_IMPL "[" __TEMPLATE_SOURCE_FILE__ "] " __FILE__
+#ifdef FBGEMM_GPU_ISOLATE_KERNEL_LAUNCH
+#define _FKL_BLOCKING_ true
 #else
-#define DSA_FILESRC_IMPL __FILE__
+#define _FKL_BLOCKING_ false
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
-// General Kernel Launch Macros for FBGEMM GPU Kernels
+// Enable Tensor Value Checks
 //
-// This macro is used to launch GPU kernels in FBGEMM GPU codebase. It runs a
-// set of constraint checks on kernel parameters and and tensor arguments, and
-// throws descriptive errors on constraint failures.
+// When defined, tensors that are passed into the kernel launcher via TA_B() or
+// PTA_B() will be checked for NaN and Inf values.  This is an expensive check
+// and is meant to be used for debugging.
+////////////////////////////////////////////////////////////////////////////////
+
+#ifdef FBGEMM_GPU_TENSORCHECK
+#define _FKL_TENSORCHECK_ true
+#else
+#define _FKL_TENSORCHECK_ false
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+// Kernel Launcher Macros for FBGEMM GPU Kernels
+//
+// This macro simplifies the construction and execution of KernelLauncher
+// instances by wrapping the kernel launches into simple-to-use macros.
 //
 // NOTES:
 //
@@ -431,50 +444,6 @@ struct KernelLauncher {
 //  - The macro expression is wrapped inside a parenthesis to avoid commas from
 //  interfering with preoprocessing when this macro is invoked inside another
 //  macro.
-////////////////////////////////////////////////////////////////////////////////
-
-#ifdef __TEMPLATE_SOURCE_FILE__
-#define _FKL_TFILE_ __TEMPLATE_SOURCE_FILE__
-#else
-#define _FKL_TFILE_ ""
-#endif
-
-#ifdef FBGEMM_GPU_ISOLATE_KERNEL_LAUNCH
-#define _FKL_BLOCKING_ true
-#else
-#define _FKL_BLOCKING_ false
-#endif
-
-#ifdef FBGEMM_GPU_TENSORCHECK
-#define _FKL_TENSORCHECK_ true
-#else
-#define _FKL_TENSORCHECK_ false
-#endif
-
-////////////////////////////////////////////////////////////////////////////////
-// SourceContext Builder Macro
-//
-// This macro is used to build a SourceContext object for the kernel launcher,
-// can be used elsewhere as well.
-//
-// NOTE: The builder is defined as a macro in specifically in this header file ,
-// instead of static class method in source_context.h, so that __FILE__ and
-// __TEMPLATE_SOURCE_FILE__ can be correctly expanded to point to actual call
-// site.
-////////////////////////////////////////////////////////////////////////////////
-
-#define SOURCE_CONTEXT_CURRENT(KERNEL)               \
-  fbgemm_gpu::utils::SourceContext(                  \
-      fbgemm_gpu::utils::source_location::current(), \
-      #KERNEL,                                       \
-      _FKL_TFILE_,                                   \
-      DSA_FILESRC_IMPL);
-
-////////////////////////////////////////////////////////////////////////////////
-// Kernel Launcher Macros for FBGEMM GPU Kernels
-//
-// This macro simplifies the kernel launch process by wrapping the kernel
-// launches into simple-to-use macros.
 ////////////////////////////////////////////////////////////////////////////////
 
 #define FBGEMM_LAUNCH_KERNEL(KERNEL, GRID, BLOCK, SMEM, STREAM, ...)        \

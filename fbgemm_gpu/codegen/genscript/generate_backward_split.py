@@ -10,6 +10,7 @@
 
 import itertools
 import sys
+from copy import deepcopy
 from typing import List
 
 try:
@@ -164,6 +165,10 @@ class BackwardSplitGenerator:
         if not kwargs.get("dense"):
             # Generate CUDA autograd
 
+            # Extract the aux_args and ssd_aux_args for later use
+            aux_args = kwargs["aux_args"]
+            ssd_aux_args = kwargs["ssd_aux_args"]
+
             for ssd in [True, False] if kwargs.get("has_ssd_support") else [False]:
                 template_filepath = (
                     "training/backward/embedding_backward_split_host_template.cpp"
@@ -195,6 +200,10 @@ class BackwardSplitGenerator:
                     )
 
                 if kwargs.get("has_cpu_support") or kwargs.get("has_gpu_support"):
+                    # Since the template file only uses aux_args, reset the key
+                    # based on whether we are generated for SSD variant or not
+                    kwargs["aux_args"] = ssd_aux_args if ssd else aux_args
+
                     # Generates Python invoker for CUDA + CPU, and PT2
                     template = CodeTemplate.load(
                         "training/python/split_embedding_codegen_lookup_invoker.template"
@@ -433,28 +442,44 @@ class BackwardSplitGenerator:
                 "mixed_D",  # 6
             ],
         }
-        # ssd-specific argument
+
+        # SSD-specific arguments
         ssd_aux_bool = [
+            # When set to true, the per-row optimizer state will offloaded to
+            # the end of each row in the SSD cache.
             "enable_optimizer_offloading",  # 7
         ]
+
         assert (
             list(aux_args.keys()) == aux_names
         ), f"{aux_names} must match {aux_args.keys()}"
+
+        ssd_aux_args = deepcopy(aux_args)
+        ssd_aux_args["aux_bool"].extend(ssd_aux_bool)
 
         all_optimizers = []
         ssd_optimizers = []
 
         for optimizer in optimizers:
             optim = optimizer["optimizer"]
+
             if (
                 optimizer["has_cpu_support"] or optimizer["has_gpu_support"]
             ) and optim != "dense":
                 all_optimizers.append(optim)
                 if optimizer["has_ssd_support"]:
                     ssd_optimizers.append(optim)
+
             BackwardSplitGenerator.generate_backward_split(
-                ssd_tensors=ssd_tensors, aux_args=aux_args, **optimizer
+                ssd_tensors=ssd_tensors,
+                # Both aux_args and ssd_aux_args will be passed in, since
+                # generate_backward_split will generate both SSD and non-SSD
+                # variants
+                aux_args=aux_args,
+                ssd_aux_args=ssd_aux_args,
+                **optimizer,
             )
+
         BackwardSplitGenerator.generate_rocm_backward_split()
 
         # Generate common device kernels for backwards
@@ -465,11 +490,10 @@ class BackwardSplitGenerator:
         BackwardSplitGenerator.generate_backward_indices()
 
         # Generate headers for backwards
-        BackwardSplitGenerator.generate_backward_header(aux_args, aux_names)
-        aux_args["aux_bool"].extend(ssd_aux_bool)
-        BackwardSplitGenerator.generate_backward_header(
-            aux_args, aux_names, is_ssd=True
-        )
+        for is_ssd in [True, False]:
+            BackwardSplitGenerator.generate_backward_header(
+                (ssd_aux_args if is_ssd else aux_args), aux_names, is_ssd=is_ssd
+            )
 
         BackwardSplitGenerator.generate_python_sources(all_optimizers, ssd_optimizers)
 

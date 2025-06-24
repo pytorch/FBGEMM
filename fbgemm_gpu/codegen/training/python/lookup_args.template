@@ -48,6 +48,7 @@ class CommonArgs(NamedTuple):
     use_homogeneous_placements: bool
     {%- if ssd %}
     ssd_tensors: Dict[str, torch.Tensor]
+    enable_optimizer_offloading: bool
     {%- endif %}
     learning_rate_tensor: torch.Tensor
     info_B_num_bits: int
