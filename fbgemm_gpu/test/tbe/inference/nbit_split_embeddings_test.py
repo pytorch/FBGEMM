@@ -14,6 +14,7 @@ import unittest
 from typing import Callable, Dict, List
 
 import hypothesis.strategies as st
+import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 import numpy as np
 import torch
 from fbgemm_gpu.split_embedding_configs import SparseType
@@ -28,7 +29,6 @@ from fbgemm_gpu.tbe.utils import generate_requests, round_up
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
 from .. import common  # noqa E402
-from ..common import open_source import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 
 if open_source:
     # pyre-ignore[21]
