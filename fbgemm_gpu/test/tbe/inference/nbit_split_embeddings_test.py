@@ -196,7 +196,6 @@ class NBitSplitEmbeddingsTest(unittest.TestCase):
         indices_dtype=st.sampled_from([torch.int, torch.int64]),
     )
     @settings(verbosity=VERBOSITY, max_examples=MAX_EXAMPLES, deadline=None)
-    
     def test_int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
         self,
         weights_ty: SparseType,
