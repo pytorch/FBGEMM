@@ -363,7 +363,7 @@ class KVCacheTests(unittest.TestCase):
         N_KVH_L=st.sampled_from([1, 2]),
     )
     @unittest.skipIf(
-        not torch.version.hip or not HAS_XFORMERS,
+        not torch.cuda.is_available() or not HAS_XFORMERS or not torch.version.hip,
         "Skip when no AMD GPU or xformers is not available",
     )
     def test_fp8_kv_e4m3fn_convert_to_e4m3fnuz(self, MAX_T: int, N_KVH_L: int) -> None:
