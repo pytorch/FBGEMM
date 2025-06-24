@@ -489,6 +489,9 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     if not any(t.value == ty.value for t in weights_tys)
                     else int(max(Ls))
                 )
+            elif Ls == None:
+                return 0
+    
             else:
                 return (
                     0 if not any(t.value == ty.value for t in weights_tys) else int(Ls)

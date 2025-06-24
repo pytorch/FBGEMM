@@ -259,16 +259,18 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         const int32_t num_uint4_loads_per_row = nbit::div_round_up(nbit::padded_row_size_in_bytes(max_D, sparse_type, row_alignment), sizeof(uint4)); \
         constexpr int32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4); \
         constexpr int32_t max_indices_per_warp = kWarpSize / NumUint4LoadsPerRow; \
-        num_packed_bags_L = max_indices_per_warp > max_L && !std::is_same_v<output_t, uint8_t> && sparse_type != SparseType::FP32?  max_indices_per_warp / max_L : 1; \
+        num_packed_bags_L = max_L > 0 && max_indices_per_warp > max_L && !std::is_same_v<output_t, uint8_t> && sparse_type != SparseType::FP32?  max_indices_per_warp / max_L : 1; \
         num_packed_bags_D = NumUint4LoadsPerRow > num_uint4_loads_per_row && !std::is_same_v<output_t, uint8_t> && sparse_type != SparseType::FP32 ? NumUint4LoadsPerRow / num_uint4_loads_per_row : 1; \
         /* Number of bags that might be fitted to shared memory. */                   \
-        num_packed_bags = max_L>1 ? num_packed_bags_D : num_packed_bags_L * num_packed_bags_D; \
+        num_packed_bags = max_L==1 ?  num_packed_bags_L * num_packed_bags_D : num_packed_bags_D; \
       } \
       {%- endif %}
-      if (num_packed_bags > 1 && max_L>1) {              \
-        X(dev_only, true, false, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows)        \
-      } else if (num_packed_bags > 1 && max_L<=1) {              \
-        X(dev_only, true, true, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows)        \
+      if (num_packed_bags > 1) {              \
+        if (max_L==1){  \ 
+          X(dev_only, true, true, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows)        \
+        } else{ \
+          X(dev_only, true, false, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows)        \
+        } \
       } else {                                \
         X(dev_only, false, false, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows)       \
       };
