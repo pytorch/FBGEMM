@@ -1053,18 +1053,12 @@ def adam() -> Dict[str, Any]:
 
     split_weight_update = """
       Vec4T<cache_t> m_t(&momentum1[idx * D + d]);
-      m_t.acc.x *= beta1;
-      m_t.acc.y *= beta1;
-      m_t.acc.z *= beta1;
-      m_t.acc.w *= beta1;
+      m_t.mul_(beta1);
       m_t.fma_(grad, 1.0 - beta1);
       m_t.store(&momentum1[idx * D + d]);
 
       Vec4T<cache_t> v_t(&momentum2[idx * D + d]);
-      v_t.acc.x *= beta2;
-      v_t.acc.y *= beta2;
-      v_t.acc.z *= beta2;
-      v_t.acc.w *= beta2;
+      v_t.mul_(beta2);
 
       grad.acc.x *= grad.acc.x;
       grad.acc.y *= grad.acc.y;
@@ -1141,10 +1135,7 @@ def partial_rowwise_adam() -> Dict[str, Any]:
 
     split_weight_update = """
       Vec4T<momentum1_ph_t> m_t(&momentum1[idx * D + d]);
-      m_t.acc.x *= beta1;
-      m_t.acc.y *= beta1;
-      m_t.acc.z *= beta1;
-      m_t.acc.w *= beta1;
+      m_t.mul_(beta1);
       m_t.fma_(grad, 1.0 - beta1);
       m_t.store(&momentum1[idx * D + d]);
 

@@ -69,7 +69,7 @@ DEVICE_INLINE void {{ mdesc }}_{{ optimizer }}_table_update_kernel(
     emb_t* __restrict__ weights {nullptr};
     cache_t* __restrict__ cache_weights {nullptr};
     int32_t D_emb = D;
-    if (kIsInt8) {
+    if constexpr (kIsInt8) {
         D_emb += kINT8QparamsBytes;
     }
     const auto weights_placement = static_cast<PlacementType>(weights_placements[t]);
