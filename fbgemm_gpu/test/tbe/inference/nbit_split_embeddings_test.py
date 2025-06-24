@@ -27,12 +27,12 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_inference import (
 from fbgemm_gpu.tbe.utils import generate_requests, round_up
 from hypothesis import assume, given, HealthCheck, settings, Verbosity
 
-import common_prev  # noqa E402
-from common_prev import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
+from .. import common  # noqa E402
+from ..common import open_source import MAX_EXAMPLES, MAX_EXAMPLES_LONG_RUNNING, open_source
 
 if open_source:
     # pyre-ignore[21]
-    from test_utils_ import gpu_unavailable, optests, TEST_WITH_ROCM
+    from test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
 else:
     from fbgemm_gpu.test.test_utils import gpu_unavailable, optests, TEST_WITH_ROCM
 
