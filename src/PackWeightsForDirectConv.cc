@@ -11,7 +11,6 @@
 
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
-#include <immintrin.h>
 #endif
 #include <cassert>
 
@@ -27,7 +26,6 @@
 #include "./OptimizedKernelsAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "./TransposeUtils.h" // @manual
-#include "fbgemm/QuantUtilsAvx512.h"
 namespace fbgemm {
 
 PackedDirectConvMatrix::PackedDirectConvMatrix(
