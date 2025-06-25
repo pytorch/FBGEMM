@@ -940,7 +940,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             )
             # pyre-ignore
             self.stats_reporter.register_stats(self.l2_num_cache_misses_stats_name)
-            # pyre-ignore
             self.stats_reporter.register_stats(self.l2_num_cache_lookups_stats_name)
             self.stats_reporter.register_stats(self.l2_num_cache_evictions_stats_name)
             self.stats_reporter.register_stats(self.l2_cache_free_mem_stats_name)
@@ -1083,7 +1082,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         recorded_itr, stream_cnt, report_val = self.prefetch_duration_us
         duration = dur_ms
-        if time_unit == "us":  # pyre-ignore
+        if time_unit == "us":
             duration = dur_ms * 1000
         if it_step == recorded_itr:
             report_val = max(report_val, duration)
@@ -1124,7 +1123,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             def func(
                 name: str,
-                # pyre-ignore[2]
                 fn: Callable[..., Any],
                 *args: Any,
                 **kwargs: Any,
@@ -2168,63 +2166,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
-            # pyre-fixme[7]: Expected `Tensor` but got implicit return value of `None`.
             return invokers.lookup_rowwise_adagrad_ssd.invoke(
                 common_args, self.optimizer_args, momentum1
             )
-
-    @torch.jit.ignore
-    def debug_split_optimizer_states(self) -> List[Tuple[torch.Tensor, int, int]]:
-        """
-        Returns a list of optimizer states, table_input_id_start, table_input_id_end, split by table
-        Testing only
-        """
-        (rows, _) = zip(*self.embedding_specs)
-
-        rows_cumsum = [0] + list(itertools.accumulate(rows))
-        if self.kv_zch_params:
-            opt_list = []
-            table_offset = 0
-            for t, row in enumerate(rows):
-                # pyre-ignore
-                bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[t]
-                # pyre-ignore
-                bucket_size = self.kv_zch_params.bucket_sizes[t]
-                table_input_id_start = (
-                    min(bucket_id_start * bucket_size, row) + table_offset
-                )
-                table_input_id_end = (
-                    min(bucket_id_end * bucket_size, row) + table_offset
-                )
-
-                # TODO: this is a hack for preallocated optimizer, update this part once we have optimizer offloading
-                unlinearized_id_tensor = self._ssd_db.get_keys_in_range_by_snapshot(
-                    table_input_id_start,
-                    table_input_id_end,
-                    0,  # no need for table offest, as optimizer is preallocated using table offset
-                    None,
-                )
-                sorted_offsets, _ = torch.sort(unlinearized_id_tensor.view(-1))
-                opt_list.append(
-                    (
-                        self.momentum1_dev.detach()[sorted_offsets],
-                        table_input_id_start - table_offset,
-                        table_input_id_end - table_offset,
-                    )
-                )
-                table_offset += row
-            return opt_list
-        else:
-            return [
-                (
-                    self.momentum1_dev.detach()[
-                        rows_cumsum[t] : rows_cumsum[t + 1]
-                    ].view(row),
-                    -1,
-                    -1,
-                )
-                for t, row in enumerate(rows)
-            ]
 
     @torch.jit.ignore
     def _split_optimizer_states_non_kv_zch(
@@ -2344,6 +2288,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             table_offset += emb_height
         logging.info(
             f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
+            # pyre-ignore [16]
             f"num ids list: {[ids.numel() for ids in sorted_id_tensor]}"
         )
         return opt_list
@@ -2623,6 +2568,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
         if self.kv_zch_params is not None:
             logging.info(
+                # pyre-ignore [16]
                 f"num ids list: {[ids.numel() for ids in bucket_sorted_id_splits]}"
             )
 
@@ -2946,7 +2892,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     / passed_steps
                 ),
             )
-            # pyre-ignore
+
             self.stats_reporter.report_data_amount(
                 iteration_step=self.step,
                 event_name=f"ssd_tbe.prefetch.cache_stats.{stat_index.name.lower()}",
@@ -2973,35 +2919,35 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         bwd_l1_cnflct_miss_write_back_dur = ssd_io_duration[3]
         flush_write_dur = ssd_io_duration[4]
 
-        # pyre-ignore
+        # pyre-ignore [16]
         self.stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="ssd.io_duration.read_us",
             duration_ms=ssd_read_dur_us,
             time_unit="us",
         )
-        # pyre-ignore
+
         self.stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="ssd.io_duration.write.fwd_rocksdb_read_us",
             duration_ms=fwd_rocksdb_read_dur,
             time_unit="us",
         )
-        # pyre-ignore
+
         self.stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="ssd.io_duration.write.fwd_l1_eviction_us",
             duration_ms=fwd_l1_eviction_dur,
             time_unit="us",
         )
-        # pyre-ignore
+
         self.stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="ssd.io_duration.write.bwd_l1_cnflct_miss_write_back_us",
             duration_ms=bwd_l1_cnflct_miss_write_back_dur,
             time_unit="us",
         )
-        # pyre-ignore
+
         self.stats_reporter.report_duration(
             iteration_step=self.step,
             event_name="ssd.io_duration.write.flush_write_us",
@@ -3023,25 +2969,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         memtable_usage = mem_usage_list[2]
         block_cache_pinned_usage = mem_usage_list[3]
 
-        # pyre-ignore
+        # pyre-ignore [16]
         self.stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="ssd.mem_usage.block_cache",
             data_bytes=block_cache_usage,
         )
-        # pyre-ignore
+
         self.stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="ssd.mem_usage.estimate_table_reader",
             data_bytes=estimate_table_reader_usage,
         )
-        # pyre-ignore
+
         self.stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="ssd.mem_usage.memtable",
             data_bytes=memtable_usage,
         )
-        # pyre-ignore
+
         self.stats_reporter.report_data_amount(
             iteration_step=self.step,
             event_name="ssd.mem_usage.block_cache_pinned",

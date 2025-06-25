@@ -526,8 +526,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         if share_table:
             # autograd with shared embedding only works for exact
             table_to_replicate = T // 2
-            # pyre-fixme[6]: For 2nd param expected `Embedding` but got
-            #  `Union[Embedding, EmbeddingBag]`.
             feature_table_map.insert(table_to_replicate, table_to_replicate)
             emb_ref.insert(table_to_replicate, emb_ref[table_to_replicate])
 
@@ -746,6 +744,17 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         return output_ref_list, output
 
+    def split_optimizer_states_(
+        self, emb: SSDTableBatchedEmbeddingBags
+    ) -> List[torch.Tensor]:
+        _, bucket_asc_ids_list, _ = emb.split_embedding_weights(
+            no_snapshot=False, should_flush=True
+        )
+
+        return emb.split_optimizer_states(
+            bucket_asc_ids_list, no_snapshot=False, should_flush=True
+        )
+
     @given(
         **default_st, backend_type=st.sampled_from([BackendType.SSD, BackendType.DRAM])
     )
@@ -937,7 +946,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         # Compare optimizer states
-        split_optimizer_states = [s for (s, _, _) in emb.debug_split_optimizer_states()]
+        split_optimizer_states = self.split_optimizer_states_(emb)
         for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
             # pyre-fixme[16]: Optional type has no attribute `float`.
             ref_optimizer_state = emb_ref[f].weight.grad.float().to_dense().pow(2)
@@ -1079,7 +1088,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             else 1.0e-2
         )
 
-        split_optimizer_states = [s for (s, _, _) in emb.debug_split_optimizer_states()]
+        split_optimizer_states = self.split_optimizer_states_(emb)
         emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
@@ -1168,7 +1177,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         optimizer_states_ref = [
-            s.clone().float() for (s, _, _) in emb.debug_split_optimizer_states()
+            s.clone().float() for s in self.split_optimizer_states_(emb)
         ]
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
@@ -1312,15 +1321,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 emb.flush()
 
             # Compare optimizer states
-            split_optimizer_states = [
-                s for (s, _, _) in emb.debug_split_optimizer_states()
-            ]
+            split_optimizer_states = self.split_optimizer_states_(emb)
             for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
                 optim_state_r = optimizer_states_ref[t]
                 optim_state_t = split_optimizer_states[t]
                 emb_r = emb_ref[f]
 
-                # pyre-fixme[16]: Optional type has no attribute `float`.
                 optim_state_r.add_(
                     # pyre-fixme[16]: `Optional` has no attribute `float`.
                     emb_r.weight.grad.float()
@@ -2252,7 +2258,9 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             )
 
             torch.testing.assert_close(
+                # pyre-ignore [16]
                 emb_state_dict_list[t].full_tensor()[sorted_ids.indices],
+                # pyre-ignore [16]
                 emb_state_dict_list2[t].full_tensor()[sorted_ids2.indices],
                 atol=tolerance,
                 rtol=tolerance,
