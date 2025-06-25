@@ -260,8 +260,13 @@ at::Tensor bf16i4bf16_dispatch(
       "and be contiguous on GPU.");
   // Make sure group scales and zeros are in proper format.
   TORCH_CHECK(
-      w_scale_group.dim() == 2 && w_scale_group.size(1) == N,
-      "Group scales are expected to have shape [num_groups, N].");
+      w_scale_group.dim() == 2 && w_scale_group.size(1) == N &&
+          w_scale_group.is_cuda() && w_scale_group.is_contiguous(),
+      "Group scales are expected to have shape [num_groups, N] and be contiguous on GPU.");
+  TORCH_CHECK(
+      w_zero_group.dim() == 2 && w_zero_group.size(1) == N &&
+          w_zero_group.is_cuda() && w_zero_group.is_contiguous(),
+      "Group zeros are expected to have shape [num_groups, N] and be contiguous on GPU.");
 
   // Allocate output or return an empty tensor if input is empty.
   if (M == 0 || N == 0 || K == 0) {

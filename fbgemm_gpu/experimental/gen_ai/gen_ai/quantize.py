@@ -181,6 +181,51 @@ def quantize_int4_preshuffle(
     return wq, scales
 
 
+def shuffle_slice(
+    x: torch.Tensor, dim: int, start: int, length: int, dtype: str = "fp8"
+) -> torch.Tensor:
+    """
+    Helper function to slice a preshuffled int4 tensor. This is needed since the shuffling
+    reorders rows based on the size of the input. Slicing a tensor shuffled for a larger input
+    is no longer valid. We must reorder the tensor to the appropriate size then slice.
+    Args:
+        x (Tensor): [N, K // 2] Preshuffled int4 tensor.
+        dim (int): Dimension to slice.
+        start (int): Start of slice.
+        length (int): Number of elements to slice in the original [N, K] dimension.
+        dtype (str): Type of corresponding activations. Must be fp8 or bf16.
+    Returns:
+        sliced (Tensor): [stop-start, K // 2] Sliced tensor.
+    """
+    # Get the size of the input tensor.
+    assert dim in [x.ndim - 2, x.ndim - 1], "Only slicing along N or K is supported."
+    assert length % 16 == 0, "Slicing must be a multiple of 16."
+    orig_shape = x.shape
+    N = x.shape[-2]
+    K = x.shape[-1]
+    # Tile shape is based on the activation dtype.
+    assert dtype in ("fp8", "bf16"), "Only fp8 and bf16 activations supported."
+    # Handle slice along M
+    if dim == x.ndim - 2:
+        tile_shape = 8 if dtype == "fp8" else 16
+        block_size = N // length
+        # View the shape in terms of shuffled tiles then permute to allow slicing.
+        x_s = x.view(-1, tile_shape, block_size, length // tile_shape, K)
+        x_s = x_s.permute(0, 2, 1, 3, 4).contiguous().view(-1, N, K)
+        out_slice = x_s.narrow(1, start, length)
+        # Reshape back to original shape.
+        return out_slice.view(*orig_shape[:-2], length, K)
+    # Handle slice along K
+    else:
+        outer_dim = x.view(-1, N, K).shape[0]
+        x_s = x.view(outer_dim, -1, length // 2)
+        row_factor = x_s.shape[1] * (length // 2) // K
+        # Take slices of rows corresponding to column slice.
+        return x_s.narrow(1, start * 2 * K // length, row_factor).view(
+            *orig_shape[:-2], N, length // 2
+        )
+
+
 def scale_nvfp4_quant(
     input: torch.Tensor, input_global_scale: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:

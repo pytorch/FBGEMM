@@ -278,17 +278,18 @@ at::Tensor f8i4bf16_shuffled(
       "and be contiguous on GPU.");
   TORCH_CHECK(
       x_scale.numel() == M && x_scale.dtype() == at::kFloat &&
-          x_scale.is_cuda(),
-      "x_scale must be fp32 and have M total elements.");
+          x_scale.is_cuda() && x_scale.is_contiguous(),
+      "x_scale must be fp32 and have M total elements and be contiguous.");
   TORCH_CHECK(
       w_scale.numel() == N && w_scale.dtype() == at::kFloat &&
-          w_scale.is_cuda(),
-      "Weight row scale should have N elements and be on GPU.");
+          w_scale.is_cuda() && w_scale.is_contiguous(),
+      "Weight row scale should have N elements and be contiguous on GPU.");
   // Make sure w_scale_group is in proper format.
   TORCH_CHECK(
       w_scale_group.dtype() == at::kFloat8_e4m3fn && w_scale_group.dim() == 3 &&
-          w_scale_group.size(1) == 8 && w_scale_group.size(2) == N,
-      "Weights and group scales must be prepacked with preshuffle_i4. "
+          w_scale_group.size(1) == 8 && w_scale_group.size(2) == N &&
+          w_scale_group.is_contiguous(),
+      "Weights and group scales must be contiguous and prepacked with preshuffle_i4. "
       "Group scales are expected to be FP8 and have shape [num_groups, 8, N].");
 
   // Allocate output or return an empty tensor if input is empty.
