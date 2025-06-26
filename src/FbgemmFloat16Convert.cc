@@ -27,7 +27,6 @@
 
 #include <cpuinfo.h>
 #include <memory>
-#include <utility>
 #include <vector>
 
 namespace fbgemm {

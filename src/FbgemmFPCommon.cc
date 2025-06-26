@@ -11,7 +11,6 @@
 
 #include <array>
 #include <cmath>
-#include <utility>
 
 namespace fbgemm {
 

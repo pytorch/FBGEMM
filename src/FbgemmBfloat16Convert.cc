@@ -26,9 +26,6 @@
 #endif
 
 #include <cpuinfo.h>
-#include <memory>
-#include <utility>
-#include <vector>
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double naive_malloc_time = 0.0;
