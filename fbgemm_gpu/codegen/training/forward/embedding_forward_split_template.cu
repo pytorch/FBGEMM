@@ -37,7 +37,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 #include "fbgemm_gpu/utils/ops_utils.h"
 {%- endif %}
-#include "fbgemm_gpu/utils/device_properties.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
 #include "fbgemm_gpu/split_embeddings_cache_cuda.cuh"
