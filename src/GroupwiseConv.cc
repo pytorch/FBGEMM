@@ -12,7 +12,6 @@
 #include <cpuinfo.h>
 #include <array>
 #include <iostream>
-#include <map>
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>

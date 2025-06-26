@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <sstream>

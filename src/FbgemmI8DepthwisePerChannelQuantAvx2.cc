@@ -9,9 +9,6 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
 
-#include <stdexcept> // for logic_error
-#include <string>
-
 #include "./FbgemmI8Depthwise2DAvx2-inl.h" // @manual
 
 namespace fbgemm {
