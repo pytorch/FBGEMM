@@ -9,7 +9,6 @@
 #define FBGEMM_EXPORTS
 #include <cpuinfo.h>
 #include <cassert>
-#include <iomanip>
 #include <numeric>
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/Fbgemm.h"

@@ -24,7 +24,6 @@
 #include "./MaskAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/SimdUtils.h"
-#include "fbgemm/Types.h"
 
 using namespace std;
 

@@ -13,7 +13,6 @@
 
 #include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
-#include <cassert>
 #include <cmath>
 #include <iostream>
 #include <map>
