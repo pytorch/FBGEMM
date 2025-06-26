@@ -19,7 +19,6 @@
 #include <ATen/ATen.h>
 #include <ATen/hip/HIPContext.h>
 #include <c10/hip/HIPStream.h>
-#include <torch/torch.h>
 
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
