@@ -71,14 +71,6 @@ void adjust_block_bucketize_sparse_features_kernel_launch_configs_based_on_smem(
   grid_dims->x = cuda_calc_xblock_count(lengths_size, block_dims->y);
 }
 
-template <typename func_t>
-void increase_gpu_max_dynamic_shared_memory(func_t kernel, const int max_smem) {
-  TORCH_CHECK(max_smem > 0);
-  C10_CUDA_CHECK(cudaFuncSetAttribute(
-      (void*)kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, max_smem));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-}
-
 // Kernel for bucketize lengths, with the Block distribution (vs. cyclic,
 // block-cyclic distribution). Used for bucketize sparse feature, especially for
 // checkpointing with row-wise partition (sparse_feature is partitioned
@@ -562,7 +554,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                             index_t,                                             \
                             scalar_t>;                                           \
                     if (smem_size > smem_adjust_threshold) {                     \
-                      increase_gpu_max_dynamic_shared_memory(                    \
+                      utils::cuda::set_max_dynamic_smem(                         \
                           block_bucketize_kernel, max_smem);                     \
                     }                                                            \
                     block_bucketize_kernel<<<                                    \
@@ -625,7 +617,7 @@ __launch_bounds__(kMaxThreads) void _populate_bucketized_permute_cuda_kernel(
                       index_t,                                                      \
                       std::nullptr_t>;                                              \
               if (smem_size > smem_adjust_threshold) {                              \
-                increase_gpu_max_dynamic_shared_memory(                             \
+                utils::cuda::set_max_dynamic_smem(                                  \
                     block_bucketize_kernel, max_smem);                              \
               }                                                                     \
               block_bucketize_kernel<<<                                             \
