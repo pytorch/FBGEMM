@@ -218,6 +218,11 @@ at::Tensor bf16i4bf16_rowwise(
     at::Tensor W,
     at::Tensor w_scale_group,
     at::Tensor w_zero_group);
+at::Tensor bf16i4bf16_shuffled_batched(
+    at::Tensor X,
+    at::Tensor WQ,
+    at::Tensor w_scale,
+    at::Tensor w_zp);
 at::Tensor bf16i4bf16_rowwise_batched(
     at::Tensor X,
     at::Tensor WQ,
@@ -310,6 +315,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
   m.impl("f8i4bf16_shuffled_grouped", f8i4bf16_shuffled_grouped);
   m.impl("bf16i4bf16_shuffled_grouped", bf16i4bf16_shuffled_grouped);
   m.impl("preshuffle_i4", preshuffle_i4);
+  m.impl("bf16i4bf16_shuffled_batched", bf16i4bf16_shuffled_batched);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
   m.impl("scaled_fp4_quant", scaled_fp4_quant);
@@ -361,6 +367,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("f8i4bf16_shuffled_grouped", f8i4bf16_shuffled_grouped);
   m.impl("bf16i4bf16_shuffled_grouped", bf16i4bf16_shuffled_grouped);
   m.impl("preshuffle_i4", preshuffle_i4);
+  m.impl("bf16i4bf16_shuffled_batched", bf16i4bf16_shuffled_batched);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise);
   m.impl("scaled_fp4_quant", scaled_fp4_quant);
@@ -593,6 +600,19 @@ at::Tensor bf16i4bf16_rowwise_meta(
   return Y;
 }
 
+at::Tensor bf16i4bf16_shuffled_batched_meta(
+    at::Tensor X, // BF16
+    at::Tensor W, // INT4
+    at::Tensor /* w_scale_group */,
+    at::Tensor /* w_zero_group */
+) {
+  const at::SymInt B = X.sym_size(0);
+  const at::SymInt M = X.sym_size(1);
+  const at::SymInt N = W.sym_size(1);
+  auto Y = at::empty_symint({B, M, N}, X.options().dtype(at::kBFloat16));
+  return Y;
+}
+
 at::Tensor bf16i4bf16_rowwise_batched_meta(
     at::Tensor X, // BF16
     at::Tensor W, // INT4
@@ -699,6 +719,7 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("f8f8bf16_rowwise_batched", f8f8bf16_rowwise_batched_meta);
   m.impl("f8i4bf16_rowwise", f8i4bf16_rowwise_meta);
   m.impl("bf16i4bf16_rowwise", bf16i4bf16_rowwise_meta);
+  m.impl("bf16i4bf16_shuffled_batched", bf16i4bf16_shuffled_batched_meta);
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
   m.impl("f8f8bf16_lite", f8f8bf16_lite_meta);
   m.impl("scaled_fp4_quant", scaled_fp4_quant_meta);

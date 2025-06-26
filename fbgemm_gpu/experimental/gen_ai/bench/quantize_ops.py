@@ -1742,6 +1742,44 @@ class BF16I4ShuffledGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class BF16I4ShuffledBatchedGemm(QuantizeOpBase):
+    """
+    BF16 x INT4 mixed dtype batched gemm with preshuffling.
+    """
+
+    def preprocess(self, x, w):
+        # Prequantize and pack weights.
+        wq, (group_scale, group_zero) = quantize_int4_preshuffle(w, dtype="bf16")
+        return x, wq, group_scale, group_zero
+
+    def quantize(self, x, wq, group_scale, group_zero):
+        # No extra action required.
+        return x, wq, group_scale, group_zero
+
+    def compute(self, x, wq, group_scale, group_zero):
+        return torch.ops.fbgemm.bf16i4bf16_shuffled_batched(
+            x, wq, group_scale, group_zero
+        )
+
+    def quantize_and_compute(self, x, wq, group_scale, group_zero):
+        x, wq, group_scale, group_zero = self.quantize(x, wq, group_scale, group_zero)
+        return self.compute(x, wq, group_scale, group_zero)
+
+    @property
+    def name(self) -> str:
+        return "cutlass_bf16i4_preshuffle_batched"
+
+    @property
+    def hip(self) -> bool:
+        # Not yet supported on AMD.
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class F8I4ShuffledGroupedGemm(QuantizeOpBase):
     """
     FP8 x Int4 mixed dtype grouped gemm with preshuffling.
