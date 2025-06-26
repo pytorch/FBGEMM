@@ -20,7 +20,6 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
-#include <new>
 #include <numeric>
 #include <thread>
 

@@ -8,7 +8,6 @@
 
 #include "./ExecuteKernelU8S8.h" // @manual
 #include <cpuinfo.h>
-#include <chrono>
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double kernel_time = 0.0;

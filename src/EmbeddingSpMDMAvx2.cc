@@ -11,8 +11,6 @@
 #include "RefImplementations.h"
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include "fbgemm/Types.h"
-
 namespace fbgemm {
 namespace internal {
 
