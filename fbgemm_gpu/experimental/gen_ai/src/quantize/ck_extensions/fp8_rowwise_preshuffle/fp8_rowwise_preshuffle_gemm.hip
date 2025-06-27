@@ -16,7 +16,6 @@
 
 #include <ATen/ATen.h>
 #include <c10/hip/HIPStream.h>
-#include <torch/torch.h>
 
 #include "kernels/fp8_rowwise_preshuffle_kernel_manifest.h"
 
