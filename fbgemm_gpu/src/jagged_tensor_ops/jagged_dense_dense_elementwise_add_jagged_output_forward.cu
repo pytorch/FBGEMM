@@ -124,18 +124,16 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
             int used_shared_kb = shared_kb;
 #endif
             int used_shared_bytes = used_shared_kb << 10;
-#ifndef USE_ROCM
-            C10_CUDA_CHECK(cudaFuncSetAttribute(
+            TORCH_CHECK_LE(dynamic_smem_size, used_shared_bytes);
+
+            utils::cuda::set_max_dynamic_smem(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                     index_t>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes)); // V100: 64 KB; A100: 96 KB.
-#endif
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-            TORCH_CHECK_LE(dynamic_smem_size, used_shared_bytes);
+                used_shared_bytes);
           }
-          dim3 threads_bs = dim3(1024, 1, 1);
-          dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
+
+          const auto threads_bs = dim3(1024, 1, 1);
+          const auto blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
 
 #ifdef FBGEMM_GPU_MEMCHECK
           const auto func_name1 =

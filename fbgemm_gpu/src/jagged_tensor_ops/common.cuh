@@ -28,6 +28,7 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/fixed_divisor.cuh"
 #include "fbgemm_gpu/utils/inclusive_sum_scan.cuh"
@@ -834,14 +835,12 @@ void jagged_dense_elementwise_jagged_output_opt_(
             int used_shared_kb = shared_kb;
 #endif
             int used_shared_bytes = used_shared_kb << 10;
-#ifndef USE_ROCM
-            C10_CUDA_CHECK(cudaFuncSetAttribute(
+
+            utils::cuda::set_max_dynamic_smem(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                     index_t>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes)); // V100: 64 KB; A100: 96 KB; H100: 144 KB
-#endif
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
+                used_shared_bytes);
+
             TORCH_CHECK(dynamic_smem_size <= used_shared_bytes);
           }
 

@@ -12,7 +12,6 @@
 #else
 #include <c10/cuda/CUDAStream.h>
 #endif
-#include <torch/torch.h>
 
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
