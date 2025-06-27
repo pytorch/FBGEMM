@@ -133,21 +133,19 @@ Tensor jagged_softmax_forward_cuda(
         offsets.scalar_type(), "jagged_softmax_kernel_1", [&] {
           FBGEMM_DISPATCH_FLOATING_TYPES(
               values.scalar_type(), "jagged_softmax_kernel_2", [&] {
-
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name1 = "jagged_softmax_kernel";
-#endif
-
-                jagged_softmax_kernel<THREADS_PER_BLOCK, index_t, scalar_t>
-                    <<<grid,
-                       THREADS_PER_BLOCK,
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        MAKE_PTA_WITH_NAME(func_name1, values, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, output, scalar_t, 2, 32),
-                        (int)max_L);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                FBGEMM_LAUNCH_KERNEL(
+                    (jagged_softmax_kernel<
+                        THREADS_PER_BLOCK,
+                        index_t,
+                        scalar_t>),
+                    grid,
+                    THREADS_PER_BLOCK,
+                    0,
+                    at::cuda::getCurrentCUDAStream(),
+                    PTA_B(values, scalar_t, 2, 32),
+                    PTA_B(offsets, index_t, 1, 32),
+                    PTA_B(output, scalar_t, 2, 32),
+                    (int)max_L);
               });
         });
   }
