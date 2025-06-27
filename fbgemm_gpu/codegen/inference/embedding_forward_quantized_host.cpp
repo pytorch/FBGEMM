@@ -1,10 +1,10 @@
 /*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree.
- */
+* Copyright (c) Meta Platforms, Inc. and affiliates.
+* All rights reserved.
+*
+* This source code is licensed under the BSD-style license found in the
+* LICENSE file in the root directory of this source tree.
+*/
 
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
@@ -200,6 +200,12 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -224,6 +230,12 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -248,6 +260,12 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     int64_t row_alignment,
@@ -272,6 +290,12 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -308,6 +332,12 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_int8_D,
         max_float16_D,
         max_float32_D,
+        INT2_max_ls,
+        INT4_max_ls,
+        INT8_max_ls,
+        FP8_max_ls,
+        FP16_max_ls,
+        FP32_max_ls,
         indices.to(at::kInt),
         offsets.to(at::kInt),
         row_alignment ? *row_alignment : 16,
@@ -316,7 +346,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
         max_float8_D ? *max_float8_D : 0,
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
-        fp8_exponent_bias ? *fp8_exponent_bias : -1);
+        fp8_exponent_bias ? *fp8_exponent_bias : -1
+        );
   }
   if (!indice_weights || indice_weights->numel() == 0) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cuda(
@@ -332,6 +363,12 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         max_int8_D,
         max_float16_D,
         max_float32_D,
+        INT2_max_ls,
+        INT4_max_ls,
+        INT8_max_ls,
+        FP8_max_ls,
+        FP16_max_ls,
+        FP32_max_ls,
         indices,
         offsets,
         pooling_mode,
@@ -341,7 +378,8 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
         max_float8_D ? *max_float8_D : 0,
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
-        fp8_exponent_bias ? *fp8_exponent_bias : -1);
+        fp8_exponent_bias ? *fp8_exponent_bias : -1
+        );
   }
   // Force casting indice_weights to float (doing this in the backend to avoid
   // JIT issue)
@@ -359,6 +397,12 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       max_int8_D,
       max_float16_D,
       max_float32_D,
+      INT2_max_ls,
+      INT4_max_ls,
+      INT8_max_ls,
+      FP8_max_ls,
+      FP16_max_ls,
+      FP32_max_ls,
       indices,
       offsets,
       pooling_mode,
@@ -369,15 +413,15 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
       max_float8_D ? *max_float8_D : 0,
       fp8_exponent_bits ? *fp8_exponent_bits : -1,
-      fp8_exponent_bias ? *fp8_exponent_bias : -1);
+      fp8_exponent_bias ? *fp8_exponent_bias : -1
+      );
 }
 
 ///@ingroup embedding-cuda
-/// Simlar to int_nbit_split_embedding_codegen_lookup_function, but it does
 /// UVM_CACHING lookup.
 Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     // First args should be the same to those of
-    // int_nbit_split_embedding_codegen_lookup_function.
+
     Tensor dev_weights,
     Tensor uvm_weights,
     Tensor weights_placements,
@@ -390,6 +434,12 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -547,6 +597,12 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
       max_int8_D,
       max_float16_D,
       max_float32_D,
+      INT2_max_ls,
+      INT4_max_ls,
+      INT8_max_ls,
+      FP8_max_ls,
+      FP16_max_ls,
+      FP32_max_ls,
       indices,
       offsets,
       pooling_mode,
@@ -557,7 +613,8 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
       row_alignment,
       max_float8_D,
       fp8_exponent_bits,
-      fp8_exponent_bias);
+      fp8_exponent_bias
+      );
 }
 
 ///@ingroup embedding-cuda
