@@ -155,4 +155,53 @@ class FileStore:
             True if file exists, False otherwise.
         """
         filepath = f"{self.bucket}/{path}"
-        return os.path.isfile(filepath)
+        return os.path.exists(filepath)
+
+    def create_directory(self, path: str) -> "FileStore":
+        """
+        Creates a directory in the file store.
+
+        Args:
+            path (str): The path of the node or symlink to a directory (relative
+            to `self.bucket`) to be created.
+
+        Returns:
+            self.  This allows for method-chaining.
+        """
+        filepath = f"{self.bucket}/{path}"
+        event = f"creating directory {filepath}"
+        logger.info(f"FileStore: {event}")
+
+        try:
+            if not os.path.exists(filepath):
+                os.makedirs(filepath, exist_ok=True)
+        except Exception as e:
+            logger.error(f"FileStore: exception occurred when {event}: {e}")
+            raise e
+
+        return self
+
+    def remove_directory(self, path: str) -> "FileStore":
+        """
+        Removes a directory from the file store.
+
+        Args:
+            path (str): The path of the node or symlink to a directory (relative
+            to `self.bucket`) to be removed.
+
+        Returns:
+            self.  This allows for method-chaining.
+        """
+        filepath = f"{self.bucket}/{path}"
+        event = f"deleting {filepath}"
+        logger.info(f"FileStore: {event}")
+
+        try:
+            if os.path.isdir(filepath):
+                os.rmdir(filepath)
+
+        except Exception as e:
+            logger.error(f"Manifold: exception occurred when {event}: {e}")
+            raise e
+
+        return self
