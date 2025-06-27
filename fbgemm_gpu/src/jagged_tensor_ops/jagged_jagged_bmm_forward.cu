@@ -209,33 +209,24 @@ Tensor jagged_jagged_bmm_forward_cuda(
           offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
             FBGEMM_DISPATCH_FLOATING_TYPES(
                 x_values.scalar_type(), "jagged_jagged_bmm_kernel_2", [&] {
-
-#ifdef FBGEMM_GPU_MEMCHECK
-                  const auto func_name1 = "jagged_jagged_bmm_kernel.1";
-#endif
-
-                  jagged_jagged_bmm_kernel<
-                      BLOCK_TILE_M,
-                      BLOCK_TILE_N,
-                      BLOCK_TILE_K,
-                      THREAD_TILE_M,
-                      THREAD_TILE_N,
-                      index_t,
-                      scalar_t>
-                      <<<grid,
-                         THREADS_PER_BLOCK,
-                         0,
-                         at::cuda::getCurrentCUDAStream()>>>(
-                          MAKE_PTA_WITH_NAME(
-                              func_name1, x_values, scalar_t, 2, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name1, y_values, scalar_t, 2, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name1, offsets, index_t, 1, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name1, output, scalar_t, 3, 32),
-                          (int)max_L);
-                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                  FBGEMM_LAUNCH_KERNEL(
+                      (jagged_jagged_bmm_kernel<
+                          BLOCK_TILE_M,
+                          BLOCK_TILE_N,
+                          BLOCK_TILE_K,
+                          THREAD_TILE_M,
+                          THREAD_TILE_N,
+                          index_t,
+                          scalar_t>),
+                      grid,
+                      THREADS_PER_BLOCK,
+                      0,
+                      at::cuda::getCurrentCUDAStream(),
+                      PTA_B(x_values, scalar_t, 2, 32),
+                      PTA_B(y_values, scalar_t, 2, 32),
+                      PTA_B(offsets, index_t, 1, 32),
+                      PTA_B(output, scalar_t, 3, 32),
+                      (int)max_L);
                 });
           });
     } else {
@@ -265,33 +256,24 @@ Tensor jagged_jagged_bmm_forward_cuda(
           offsets.scalar_type(), "jagged_jagged_bmm_kernel_1", [&] {
             FBGEMM_DISPATCH_FLOATING_TYPES(
                 x_values.scalar_type(), "jagged_jagged_bmm_kernel_2", [&] {
-
-#ifdef FBGEMM_GPU_MEMCHECK
-                  const auto func_name2 = "jagged_jagged_bmm_kernel.2";
-#endif
-
-                  jagged_jagged_bmm_kernel<
-                      BLOCK_TILE_M,
-                      BLOCK_TILE_N,
-                      BLOCK_TILE_K,
-                      THREAD_TILE_M,
-                      THREAD_TILE_N,
-                      index_t,
-                      scalar_t>
-                      <<<grid,
-                         THREADS_PER_BLOCK,
-                         0,
-                         at::cuda::getCurrentCUDAStream()>>>(
-                          MAKE_PTA_WITH_NAME(
-                              func_name2, x_values, scalar_t, 2, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name2, y_values, scalar_t, 2, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name2, offsets, index_t, 1, 32),
-                          MAKE_PTA_WITH_NAME(
-                              func_name2, output, scalar_t, 3, 32),
-                          (int)max_L);
-                  C10_CUDA_KERNEL_LAUNCH_CHECK();
+                  FBGEMM_LAUNCH_KERNEL(
+                      (jagged_jagged_bmm_kernel<
+                          BLOCK_TILE_M,
+                          BLOCK_TILE_N,
+                          BLOCK_TILE_K,
+                          THREAD_TILE_M,
+                          THREAD_TILE_N,
+                          index_t,
+                          scalar_t>),
+                      grid,
+                      THREADS_PER_BLOCK,
+                      0,
+                      at::cuda::getCurrentCUDAStream(),
+                      PTA_B(x_values, scalar_t, 2, 32),
+                      PTA_B(y_values, scalar_t, 2, 32),
+                      PTA_B(offsets, index_t, 1, 32),
+                      PTA_B(output, scalar_t, 3, 32),
+                      (int)max_L);
                 });
           });
     }
