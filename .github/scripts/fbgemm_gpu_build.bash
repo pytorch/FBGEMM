@@ -167,42 +167,31 @@ __configure_fbgemm_gpu_build_docs () {
 __configure_fbgemm_gpu_build_rocm () {
   local fbgemm_variant_targets="$1"
 
-  # Fetch available ROCm architectures on the machine
+  # By default, we build for a limited number of target architectures to save on
+  # build time.  This list needs to be updated if the CI ROCm machines have
+  # different hardware.
+  #
+  # Target architecture mapping and ROCm compatibility table can be found at:
+  #   https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html
+  #   https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html
+
   if [ "$fbgemm_variant_targets" != "" ]; then
-    echo "[BUILD] ROCm targets have been manually provided: ${fbgemm_variant_targets}"
+    # If targets are manually supplied, override
+    echo "[BUILD] Using the user-supplied ROCm targets ..."
     local arch_list="${fbgemm_variant_targets}"
 
+  elif [ -n "${BUILD_FROM_NOVA+x}" ]; then
+    # If BUILD_FROM_NOVA is set (regardless of 0 or 1 - some steps in Nova have
+    # the value set to 0), we are building in Nova.  Nova machines take much
+    # longer time to build FBGEMM_GPU for ROCm, so we have to limit to just the
+    # latest model.
+    echo "[BUILD] Building in Nova environment, ignoring the provided PYTORCH_ROCM_ARCH list and limiting ROCm targets ..."
+    local arch_list="gfx942"
+
   else
-    if which rocminfo; then
-      # shellcheck disable=SC2155
-      local arch_list=$(rocminfo | grep -o -m 1 'gfx.*')
-      echo "[BUILD] Architectures list from rocminfo: ${arch_list}"
-
-      if [ "$arch_list" == "" ]; then
-        # It is possible to build FBGEMM_GPU-ROCm on a machine without AMD
-        # cards, in which case the arch_list will be empty.
-        echo "[BUILD] rocminfo did not return anything valid!"
-
-        # By default, we build for a limited number of architectures to save on
-        # build time.  This list needs to be updated if the CI ROCm machines
-        # have different hardware.
-        #
-        # Architecture mapping can be found at:
-        #   https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html
-        if [ -z "${BUILD_FROM_NOVA+x}" ]; then
-          # If BUILD_FROM_NOVA is unset, then we are building from AMD host with
-          # sufficient resources, so we can build for more architectures.
-          local arch_list="gfx908,gfx90a,gfx942"
-        else
-          # If BUILD_FROM_NOVA is set (regardless of 0 or 1), we are building in
-          # Nova.  Nova machines take a longer time to build FBGEMM_GPU for
-          # ROCm, so we limit to one architecture.
-          local arch_list="gfx942"
-        fi
-      fi
-    else
-      echo "[BUILD] rocminfo not found in PATH!"
-    fi
+    # If BUILD_FROM_NOVA is unset, then we are building from a compute host with
+    # sufficient resources, so we can build for more AMD Instinct architectures.
+    local arch_list="gfx908,gfx90a,gfx942"
   fi
 
   echo "[BUILD] Setting the following ROCm targets: ${arch_list}"
@@ -286,8 +275,8 @@ __configure_fbgemm_gpu_build_cuda () {
       echo "[BUILD] Unknown NVCC version $cuda_version_nvcc - setting TORCH_CUDA_ARCH_LIST to: ${arch_list}"
     fi
   fi
-  echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
 
+  echo "[BUILD] Setting the following CUDA targets: ${arch_list}"
   # Unset the environment-supplied TORCH_CUDA_ARCH_LIST because it will take
   # precedence over cmake -DTORCH_CUDA_ARCH_LIST
   unset TORCH_CUDA_ARCH_LIST
