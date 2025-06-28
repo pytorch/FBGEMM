@@ -86,7 +86,7 @@ template <
     bool THREAD_LOCAL = false>
 class GenEmbeddingSpMDMNBitLookup {
  public:
-  GenEmbeddingSpMDMNBitLookup() {}
+  GenEmbeddingSpMDMNBitLookup() = default;
   typename ReturnFunctionSignature<
       indxType,
       offsetType,
@@ -221,7 +221,7 @@ GenEmbeddingSpMDMNBitLookup<
                 ROWWISE_SPARSE>::jit_embedding_kernel {
         // TODO: Make this tunable
         int pref_dist = prefetch;
-        bool areIndices64b = is_same<indxType, int64_t>::value;
+        bool areIndices64b = is_same_v<indxType, int64_t>;
 
         asmjit::CodeHolder code;
         code.init(runtime().environment());
@@ -374,7 +374,7 @@ GenEmbeddingSpMDMNBitLookup<
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
 
-        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
 
         int num_vec_regs_per_block = ceil_div(block_size, vlen);
         const int remainder = block_size % vlen;
@@ -448,7 +448,7 @@ GenEmbeddingSpMDMNBitLookup<
           // AVX512 doesn't need to use vector register for masking
           --unroll_factor;
           mask_vreg = x86::ymm(unroll_factor);
-          if (remainder > 1 && std::is_same<outType, uint16_t>::value) {
+          if (remainder > 1 && std::is_same_v<outType, uint16_t>) {
             --unroll_factor;
             mask_fp16_vreg = x86::xmm(unroll_factor);
           }
@@ -475,7 +475,7 @@ GenEmbeddingSpMDMNBitLookup<
                 mask_vreg,
                 x86::ymmword_ptr(
                     scratchReg1_, (vlen - remainder) % vlen * sizeof(int32_t)));
-            if (std::is_same<outType, uint16_t>::value) {
+            if (std::is_same_v<outType, uint16_t>) {
               if (remainder > 1) {
                 a->vmovups(
                     mask_fp16_vreg,
@@ -866,7 +866,7 @@ GenEmbeddingSpMDMNBitLookup<
               a->vmulps(out_vreg, out_vreg, vlen_inv_vreg);
             }
 
-            if (std::is_same<outType, float>::value) {
+            if (std::is_same_v<outType, float>) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                 if (instSet == inst_set_t::avx512) {
                   a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
@@ -981,7 +981,7 @@ GenEmbeddingSpMDMNBitLookup<
         a->bind(exit);
 
         if (remainder && instSet == inst_set_t::avx2 &&
-            std::is_same<outType, uint16_t>::value) {
+            std::is_same_v<outType, uint16_t>) {
           a->lea(x86::rsp, x86::ymmword_ptr(x86::rsp, vlen * sizeof(int32_t)));
         }
 
@@ -1040,7 +1040,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
       "input_bit_rate must be 2 or 4");
-  if (std::is_same<outType, uint8_t>::value) {
+  if (std::is_same_v<outType, uint8_t>) {
     assert(
         (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
         "we currently only support int4 to int4 when using sequential TBE");

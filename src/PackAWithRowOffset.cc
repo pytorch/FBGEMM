@@ -149,7 +149,7 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
   } else {
     // reduceAvx2 only written for T == uint8_t
     static_assert(
-        std::is_same<T, uint8_t>::value,
+        std::is_same_v<T, uint8_t>,
         "PackAWithRowOffset<T, accT>::pack only works for T == uint8_t");
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       int buf_idx = i - block.row_start;
@@ -196,7 +196,7 @@ void PackAWithRowOffset<T, accT>::printPackedMatrix(std::string name) {
   for (auto r = 0; r < BaseType::numPackedRows(); ++r) {
     for (auto c = 0; c < BaseType::numPackedCols(); ++c) {
       T val = out[addr(r, c)];
-      if (std::is_integral<T>::value) {
+      if (std::is_integral_v<T>) {
         // cast to int64 because cout doesn't print int8_t type directly
         std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
       } else {
