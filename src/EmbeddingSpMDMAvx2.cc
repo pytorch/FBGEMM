@@ -11,8 +11,7 @@
 #include "RefImplementations.h"
 #include "fbgemm/FbgemmEmbedding.h"
 
-namespace fbgemm {
-namespace internal {
+namespace fbgemm::internal {
 
 template <typename InType, typename IndexType, typename OffsetType>
 bool EmbeddingSpMDMBlockSize1_(
@@ -158,5 +157,4 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_BASE
 
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal

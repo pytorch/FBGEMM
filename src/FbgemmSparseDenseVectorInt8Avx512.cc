@@ -17,9 +17,7 @@
 #endif
 #include <cassert>
 
-namespace fbgemm {
-
-namespace internal {
+namespace fbgemm::internal {
 
 static inline int32_t horizontal_add(__m256i a) {
   __m256i t1 = _mm256_hadd_epi32(a, a);
@@ -257,5 +255,4 @@ CREATE_INSTANCE(false, QuantizationGranularity::TENSOR)
 CREATE_INSTANCE(false, QuantizationGranularity::OUT_CHANNEL)
 #undef CREATE_INSTANCE
 
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal
