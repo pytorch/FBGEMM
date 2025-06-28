@@ -91,7 +91,7 @@ template <
     bool THREAD_LOCAL = false>
 class GenEmbeddingSpMDMLookup {
  public:
-  GenEmbeddingSpMDMLookup() {}
+  GenEmbeddingSpMDMLookup() = default;
   typename ReturnFunctionSignature<
       inType,
       indxType,
@@ -235,15 +235,15 @@ GenEmbeddingSpMDMLookup<
                 offsetType,
                 outType,
                 ROWWISE_SPARSE>::jit_embedding_kernel {
-        bool is_8bit_in = std::is_same<inType, uint8_t>::value;
-        bool is_16bit_in = std::is_same<inType, uint16_t>::value;
-        bool is_16bit_out = std::is_same<outType, uint16_t>::value;
+        bool is_8bit_in = std::is_same_v<inType, uint8_t>;
+        bool is_16bit_in = std::is_same_v<inType, uint16_t>;
+        bool is_16bit_out = std::is_same_v<outType, uint16_t>;
         bool is_fp16_in = is_16bit_in && !is_bf16_in;
         bool is_fp16_out = is_16bit_out && !is_bf16_out;
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
-        bool areIndices64b = std::is_same<indxType, int64_t>::value;
+        bool areIndices64b = std::is_same_v<indxType, int64_t>;
 
         asmjit::CodeHolder code;
         code.init(runtime().environment());
@@ -410,7 +410,7 @@ GenEmbeddingSpMDMLookup<
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
 
-        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
 
         int num_vec_regs_per_block = (block_size + vlen - 1) / vlen;
         int remainder = block_size % vlen;
@@ -862,7 +862,7 @@ GenEmbeddingSpMDMLookup<
               a->vmulps(out_vreg, out_vreg, vlen_inv_vreg);
             }
 
-            if (std::is_same<outType, float>::value) {
+            if (std::is_same_v<outType, float>) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                 if (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(dst_addr, mask_vreg, out_vreg.ymm());
@@ -1042,7 +1042,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     output_stride = block_size;
   }
   if (input_stride == -1) {
-    if (std::is_same<inType, uint8_t>::value) {
+    if (std::is_same_v<inType, uint8_t>) {
       const auto scale_bias_offset =
           2 * (scale_bias_last ? sizeof(float) : sizeof(uint16_t));
       input_stride = block_size + scale_bias_offset;
@@ -1057,10 +1057,10 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
     const inst_set_t isa = fbgemmInstructionSet();
-    if ((std::is_same<inType, float>::value ||
-         std::is_same<inType, uint16_t>::value) &&
+    if ((std::is_same_v<inType, float> ||
+         std::is_same_v<inType, uint16_t>) &&
         block_size == 1 && isYmm(isa) && output_stride == block_size &&
-        input_stride == block_size && std::is_same<outType, float>::value &&
+        input_stride == block_size && std::is_same_v<outType, float> &&
         !is_asmjit_disabled()) {
       return [=](int64_t output_size,
                  int64_t index_size,
@@ -1352,7 +1352,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     bool use_offsets) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   int64_t input_stride = block_size;
-  if (std::is_same<inType, uint8_t>::value) {
+  if (std::is_same_v<inType, uint8_t>) {
     const auto scale_bias_offset = 2 * sizeof(float);
     input_stride = block_size + scale_bias_offset;
   }

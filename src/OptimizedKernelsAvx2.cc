@@ -34,8 +34,8 @@ int32_t reduceAvx2(const uint8_t* A, int len) {
 
   alignas(64) int32_t temp[8];
   _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
-  for (int k = 0; k < 8; ++k) {
-    row_sum += temp[k];
+  for (int k : temp) {
+    row_sum += k;
   }
 
   // scalar

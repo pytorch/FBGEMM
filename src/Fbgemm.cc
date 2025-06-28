@@ -43,9 +43,9 @@ void fbgemmPacked(
     int num_threads,
     const BlockingFactors* blocking_params) {
   static_assert(
-      std::is_same<
+      std::is_same_v<
           typename packingAMatrix::accType,
-          typename packingBMatrix::accType>::value,
+          typename packingBMatrix::accType>,
       "Accumulation type of both matrices should be the same");
 
   // Run time CPU detection
