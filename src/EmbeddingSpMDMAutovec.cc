@@ -54,11 +54,11 @@ static inline void fill_output(
     const float* src,
     const int64_t block_size,
     const bool is_bf16_out) {
-  if (std::is_same<OutType, float>::value) {
+  if (std::is_same_v<OutType, float>) {
     for (int j = 0; j < block_size; ++j) {
       out[j] = src[j];
     }
-  } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
     for (int j = 0; j < block_size; ++j) {
       out[j] = cpu_float2bfloat16(src[j]);
     }
@@ -72,9 +72,9 @@ static inline void fill_output(
 template <typename OutType>
 static inline EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
-  if (std::is_same<OutType, float>::value) {
+  if (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-  } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
     return EmbeddingStatsTracker::DataType::BF16;
   } else {
     return EmbeddingStatsTracker::DataType::FP16;
@@ -100,7 +100,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     const bool scale_bias_last,
     const bool no_bag,
     const bool is_bf16_out) {
-  constexpr bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
+  constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
   }
@@ -736,7 +736,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
     float* out,
     const bool is_weight_positional,
     const bool use_offsets) {
-  bool is8bit = std::is_same<InType, uint8_t>::value;
+  bool is8bit = std::is_same_v<InType, uint8_t>;
 
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
@@ -860,7 +860,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           const InType* inptr = input_row++;
           out[j] = std::fma(
               weight,
-              std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
+              std::is_same_v<InType, float16> ? cpu_half2float(*inptr)
                                                    : *inptr,
               out[j]);
         }
@@ -869,7 +869,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           const InType* inptr = input_row++;
           out[j] = std::fma(
               weight,
-              std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
+              std::is_same_v<InType, float16> ? cpu_half2float(*inptr)
                                                    : *inptr,
               out[j]);
         }
@@ -1141,7 +1141,7 @@ template <typename InType>
 static int64_t stride_SpMDMWithStrides(
     int64_t block_size,
     bool scale_bias_last) {
-  if (std::is_same<InType, uint8_t>::value) {
+  if (std::is_same_v<InType, uint8_t>) {
     const size_t scale_bias_offset =
         2 * (scale_bias_last ? sizeof(float) : sizeof(uint16_t));
     return block_size + scale_bias_offset;

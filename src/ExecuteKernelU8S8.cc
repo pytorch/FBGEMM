@@ -143,7 +143,7 @@ void ExecuteKernel<
   const inst_set_t isa = fbgemmInstructionSet();
   switch (isa) {
     case inst_set_t::avx512_vnni:
-      if (std::is_same<typename packingAMatrix::accType, std::int16_t>::value) {
+      if (std::is_same_v<typename packingAMatrix::accType, std::int16_t>) {
         // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
         CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
         fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
@@ -161,7 +161,7 @@ void ExecuteKernel<
       break;
 
     case inst_set_t::avx512_vnni_ymm:
-      if (std::is_same<typename packingAMatrix::accType, std::int16_t>::value) {
+      if (std::is_same_v<typename packingAMatrix::accType, std::int16_t>) {
         // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
         CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
         fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(
@@ -220,8 +220,7 @@ void ExecuteKernel<
       if (nc != nbSize_) {
         switch (isa) {
           case inst_set_t::avx512_vnni:
-            if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
-                    value) {
+            if (std::is_same_v<typename packingAMatrix::accType, std::int16_t>) {
               // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
               CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
               fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
@@ -233,8 +232,7 @@ void ExecuteKernel<
             break;
 
           case inst_set_t::avx512_vnni_ymm:
-            if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
-                    value) {
+            if (std::is_same_v<typename packingAMatrix::accType, std::int16_t>) {
               // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
               CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
               fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(

@@ -14,8 +14,8 @@
 #include <immintrin.h>
 #endif
 
-namespace fbgemm {
-namespace internal {
+
+namespace fbgemm::internal {
 
 void SparseDenseMMAvx512(
     int M,
@@ -151,5 +151,5 @@ void SparseDenseMMAvx512(
     }
   }
 }
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal
+

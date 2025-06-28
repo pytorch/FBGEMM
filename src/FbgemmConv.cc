@@ -22,7 +22,7 @@ bool takeDepthWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   // common case.
   // 3x3 or 5x5 2D
   // (3 or 5)x(3x3 or 5x5) 3D
-  bool ret = std::is_same<ACC_T, std::int32_t>::value &&
+  bool ret = std::is_same_v<ACC_T, std::int32_t> &&
       conv_p.G == conv_p.IC &&
       (conv_p.G == conv_p.OC || conv_p.G * 2 == conv_p.OC) &&
       conv_p.G % 8 == 0 &&
@@ -76,7 +76,7 @@ bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   // in_channel % 8 == 0, out_channel % 8 == 0
   // stride = 1 or 2
   // padding = 0 ( non-zero padding will be supported soon)
-  bool ret = std::is_same<ACC_T, std::int32_t>::value && conv_p.transposed &&
+  bool ret = std::is_same_v<ACC_T, std::int32_t> && conv_p.transposed &&
       conv_p.G == 1 && conv_p.IC % 8 == 0 && conv_p.OC % 8 == 0 &&
       std::all_of(
                  conv_p.stride.begin(),
@@ -146,8 +146,7 @@ int fbgemmConv(
       const float* act_times_w_scale = outProcess.getActWScale();
       if (SPATIAL_DIM == 3) {
         static_assert(
-            std::is_same<typename processOutputType::outType, std::uint8_t>::
-                value,
+            std::is_same_v<typename processOutputType::outType, std::uint8_t>,
             "For depthwise, only requantized output is supported");
 
         if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {

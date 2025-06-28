@@ -417,7 +417,7 @@ void PackBMatrix<T, accT>::printPackedMatrix(
                         BaseType::blockColSize() +
                     nc * BaseType::blockRowSize() * BaseType::blockColSize() +
                     r * BaseType::blockColSize() * row_interleave_ + c];
-            if (std::is_integral<T>::value) {
+            if (std::is_integral_v<T>) {
               // cast to int64 because cout doesn't print int8_t type directly
               std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
             } else {

@@ -15,8 +15,8 @@
 #endif
 #include <type_traits>
 
-namespace fbgemm {
-namespace internal {
+
+namespace fbgemm::internal {
 
 template <typename T>
 struct reg_t;
@@ -35,49 +35,49 @@ struct reg_t<int64_t> {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static constexpr int get_vlen() {
   return 16;
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static constexpr int get_vlen() {
   return 8;
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512i load(void const* addr) {
   return _mm512_loadu_si512(addr);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m512i load(void const* addr) {
   return _mm512_loadu_si512(addr);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512 load_weights(void const* addr) {
   return _mm512_loadu_ps(addr);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m256 load_weights(float const* addr) {
   return _mm256_loadu_ps(addr);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512
 mask_load_weights(__m512i src, __mmask16 mask_rem_v, void const* addr) {
   return _mm512_mask_loadu_ps(_mm512_castsi512_ps(src), mask_rem_v, addr);
@@ -85,7 +85,7 @@ mask_load_weights(__m512i src, __mmask16 mask_rem_v, void const* addr) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m256
 mask_load_weights(__m512i src, __mmask8 mask_rem_v, void const* addr) {
   return _mm256_mask_loadu_ps(
@@ -94,7 +94,7 @@ mask_load_weights(__m512i src, __mmask8 mask_rem_v, void const* addr) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline void mask_compress_and_store_weights(
     void* addr,
     __m512i zero_v,
@@ -108,7 +108,7 @@ static inline void mask_compress_and_store_weights(
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline void mask_compress_and_store_weights(
     void* addr,
     __m512i zero_v,
@@ -124,7 +124,7 @@ static inline void mask_compress_and_store_weights(
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __mmask16 mask_from_rem(int rem) {
   __mmask16 mask_rem_v = (1ULL << rem) - 1;
   return mask_rem_v;
@@ -132,7 +132,7 @@ static inline __mmask16 mask_from_rem(int rem) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __mmask8 mask_from_rem(int rem) {
   __mmask8 mask_rem_v = (1ULL << rem) - 1;
   return mask_rem_v;
@@ -140,7 +140,7 @@ static inline __mmask8 mask_from_rem(int rem) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512i
 mask_load(__m512i zero_v, __mmask16 mask_rem_v, void const* addr) {
   return _mm512_mask_loadu_epi32(zero_v, mask_rem_v, addr);
@@ -148,7 +148,7 @@ mask_load(__m512i zero_v, __mmask16 mask_rem_v, void const* addr) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m512i
 mask_load(__m512i zero_v, __mmask8 mask_rem_v, void const* addr) {
   return _mm512_mask_loadu_epi64(zero_v, mask_rem_v, addr);
@@ -156,42 +156,42 @@ mask_load(__m512i zero_v, __mmask8 mask_rem_v, void const* addr) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512i maskz_load(__mmask16 mask_rem_v, void const* addr) {
   return _mm512_maskz_loadu_epi32(mask_rem_v, addr);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m512i maskz_load(__mmask8 mask_rem_v, void const* addr) {
   return _mm512_maskz_loadu_epi64(mask_rem_v, addr);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512i mask_mov(__m512i src, __mmask16 mask_rem_v, __m512i a) {
   return _mm512_mask_mov_epi32(src, mask_rem_v, a);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m512i mask_mov(__m512i src, __mmask8 mask_rem_v, __m512i a) {
   return _mm512_mask_mov_epi64(src, mask_rem_v, a);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512i gather(__m512i indices, const int32_t* addr) {
   return _mm512_i32gather_epi32(indices, addr, 4);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m512i gather(__m512i indices, const int32_t* addr) {
   // ToDo: Change this _mm512_i64gather_epi64 once mapping table is 64-bit
   __m256i res_32 = _mm512_i64gather_epi32(indices, addr, 4);
@@ -200,7 +200,7 @@ static inline __m512i gather(__m512i indices, const int32_t* addr) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512i mask_gather(
     __m512i src,
     __mmask16 mask_rem_v,
@@ -211,7 +211,7 @@ static inline __m512i mask_gather(
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m512i mask_gather(
     __m512i src,
     __mmask8 mask_rem_v,
@@ -225,35 +225,35 @@ static inline __m512i mask_gather(
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __mmask16 gen_mask(__m512i indices, __m512i zero_v) {
   return _mm512_cmpge_epi32_mask(indices, zero_v);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __mmask8 gen_mask(__m512i indices, __m512i zero_v) {
   return _mm512_cmpge_epi64_mask(indices, zero_v);
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline void compress_store(void* addr, __mmask16 mask, __m512i src_v) {
   _mm512_mask_compressstoreu_ps(addr, mask, _mm512_castsi512_ps(src_v));
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline void compress_store(void* addr, __mmask8 mask, __m512i src_v) {
   _mm512_mask_compressstoreu_pd(addr, mask, _mm512_castsi512_pd(src_v));
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline void
 compress_store_weights(void* addr, __mmask16 mask, __m512 src_v) {
   _mm512_mask_compressstoreu_ps(addr, mask, src_v);
@@ -261,7 +261,7 @@ compress_store_weights(void* addr, __mmask16 mask, __m512 src_v) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline void
 compress_store_weights(void* addr, __mmask8 mask, __m256 src_v) {
   _mm256_mask_compressstoreu_ps(addr, mask, src_v);
@@ -269,7 +269,7 @@ compress_store_weights(void* addr, __mmask8 mask, __m256 src_v) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline __m512 compress(__m512i zero_v, __mmask16 mask, __m512i src_v) {
   return _mm512_mask_compress_ps(
       _mm512_castsi512_ps(zero_v), mask, _mm512_castsi512_ps(src_v));
@@ -277,7 +277,7 @@ static inline __m512 compress(__m512i zero_v, __mmask16 mask, __m512i src_v) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline __m512d compress(__m512i zero_v, __mmask8 mask, __m512i src_v) {
   return _mm512_mask_compress_pd(
       _mm512_castsi512_pd(zero_v), mask, _mm512_castsi512_pd(src_v));
@@ -285,14 +285,14 @@ static inline __m512d compress(__m512i zero_v, __mmask8 mask, __m512i src_v) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int32_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int32_t>, int> = 0>
 static inline void mask_store(void* addr, __mmask16 mask, __m512 src_v) {
   _mm512_mask_storeu_epi32(addr, mask, _mm512_castps_si512(src_v));
 }
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, int64_t>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, int64_t>, int> = 0>
 static inline void mask_store(void* addr, __mmask8 mask, __m512d src_v) {
   _mm512_mask_storeu_epi64(addr, mask, _mm512_castpd_si512(src_v));
 }
@@ -604,5 +604,5 @@ INSTANTIATE_REMAP_BASE(int64_t, false)
 
 #undef INSTANTIATE_REMAP_BASE
 
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal
+

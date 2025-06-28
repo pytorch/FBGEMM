@@ -19,9 +19,9 @@
 #include <algorithm> // for min and max
 #include <cassert>
 
-namespace fbgemm {
 
-namespace internal {
+
+namespace fbgemm::internal {
 
 template <
     bool FUSE_RELU,
@@ -374,8 +374,8 @@ void SparseDenseInt8MMAvx512(
             c_v[idx] = _mm512_loadu_si512(C_i32 + i * ldb + idx * VLEN_INT32);
           }
         } else {
-          for (int idx = 0; idx < 4; ++idx) {
-            c_v[idx] = _mm512_set1_epi32(0);
+          for (auto & idx : c_v) {
+            idx = _mm512_set1_epi32(0);
           }
         }
 
@@ -581,5 +581,5 @@ CREATE_INSTANCE(false, QuantizationGranularity::TENSOR)
 CREATE_INSTANCE(false, QuantizationGranularity::OUT_CHANNEL)
 #undef CREATE_INSTANCE
 
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal
+
