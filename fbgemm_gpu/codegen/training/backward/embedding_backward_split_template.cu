@@ -688,9 +688,9 @@ Tensor {{ embedding_cuda_op }}(
     }
 
     {%- if not nobag %}
-    int32_t T = D_offsets.numel() - 1;
+    auto T = D_offsets.numel() - 1;
     {%- else %}
-    int32_t T = weights_offsets.numel();
+    auto T = weights_offsets.numel();
     {%- endif %}
 
     TORCH_CHECK_GT(T, 0);

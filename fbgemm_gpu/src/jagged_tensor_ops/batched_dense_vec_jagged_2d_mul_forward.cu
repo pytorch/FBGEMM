@@ -58,7 +58,7 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(v, a_values, a_offsets);
   CUDA_DEVICE_GUARD(v);
 
-  const int B = a_offsets.numel() - 1;
+  const auto B = a_offsets.numel() - 1;
   TORCH_CHECK(
       B == 0 || v.size(0) % B == 0,
       "B, ",

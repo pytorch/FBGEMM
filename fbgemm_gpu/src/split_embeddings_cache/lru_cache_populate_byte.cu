@@ -106,7 +106,7 @@ Tensor direct_mapped_lru_cache_find_uncached_cuda(
 
   CUDA_DEVICE_GUARD(linear_cache_indices);
 
-  const int32_t N = linear_cache_indices.numel();
+  const auto N = linear_cache_indices.numel();
 
   auto cache_sets = empty_like(
       linear_cache_indices, linear_cache_indices.options().dtype(at::kInt));
@@ -392,7 +392,7 @@ void lru_cache_insert_byte_cuda(
 
   CUDA_DEVICE_GUARD(weights);
 
-  const int32_t N = cache_set_sorted_unique_indices.numel();
+  const auto N = cache_set_sorted_unique_indices.numel();
 
   AT_DISPATCH_INDEX_TYPES(
       cache_set_sorted_unique_indices.scalar_type(),

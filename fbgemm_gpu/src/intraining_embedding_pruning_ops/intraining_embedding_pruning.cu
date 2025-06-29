@@ -769,7 +769,7 @@ Tensor remap_indices_update_utils_cuda(
   const auto feature_offsets_a = feature_offsets.accessor<int64_t, 1>();
 
   const auto use_gdt = full_values_list.has_value();
-  const int32_t num_features = feature_lengths.numel();
+  const auto num_features = feature_lengths.numel();
   const bool update_util_value = update_util.has_value()
       ? update_util.value()
       : ((iter < 10) || (iter < 100 && (iter + 1) % 19 == 0) ||

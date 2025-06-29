@@ -181,7 +181,7 @@ lru_cache_find_uncached_cuda(
       unique_indices,
       lxu_cache_state.size(0),
       unique_indices.options().dtype(at::kInt));
-  const int32_t N = unique_indices.numel();
+  const auto N = unique_indices.numel();
   auto sorted_cache_sets = empty_like(cache_sets);
   auto cache_set_sorted_unique_indices = empty_like(unique_indices);
 
