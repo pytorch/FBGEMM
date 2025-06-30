@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['vec_5freg_5ft_0',['vec_reg_t',['../structfbgemm_1_1simd__info.html',1,'fbgemm']]]
+  ['warpreduceallsum_0',['warpReduceAllSum',['../namespacefbgemm__gpu.html#a2118fa9b635aa7a322512ccf6eea8845',1,'fbgemm_gpu']]]
 ];
