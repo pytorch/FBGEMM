@@ -7,7 +7,6 @@
  */
 
 #include "common.cuh"
-#include "fbgemm_gpu/config/feature_gates.h"
 
 using Tensor = at::Tensor;
 
@@ -118,33 +117,6 @@ __global__ inline void _get_FP8_qparam_cuda_kernel(
   output_row_qparams[1] = 0.0;
 }
 
-template <typename scalar_t>
-struct VectorSizeTraits {
-  // Default to 4 elements for most types (16 bytes for float)
-  static constexpr int value = 4;
-};
-
-// Specialization for half (float16)
-template <>
-struct VectorSizeTraits<c10::Half> {
-  // 8 elements for half precision (16 bytes total)
-  static constexpr int value = 8;
-};
-
-// Specialization for __nv_bfloat16
-template <>
-struct VectorSizeTraits<c10::BFloat16> {
-  // 8 elements for bfloat16 precision (16 bytes total)
-  static constexpr int value = 8;
-};
-
-// aligned vector generates vectorized load/store on CUDA (copy-pasted from
-// MemoryAccess.cuh)
-template <typename scalar_t, int vec_size = VectorSizeTraits<scalar_t>::value>
-struct alignas(sizeof(scalar_t) * vec_size) aligned_vector {
-  scalar_t val[vec_size];
-};
-
 template <typename input_t>
 __global__ inline void _compute_FP8_quantize_cuda_kernel(
     const pta::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
@@ -182,77 +154,6 @@ __global__ inline void _compute_FP8_quantize_cuda_kernel(
       output_row[col] = float_to_hfp8(
           to_float(input[row * ncols + col]) * scale, ebit, bias, max_pos);
     }
-  }
-}
-
-template <typename input_t>
-__global__ inline void _compute_FP8_quantize_cuda_vectorized_kernel(
-    const pta::PackedTensorAccessor64<input_t, 1, at::RestrictPtrTraits> input,
-    const int64_t nrows,
-    const int64_t ncols,
-    pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> output,
-    const bool forward) {
-  CUDA_KERNEL_ASSERT(nrows * ncols >= 0);
-
-  // Calculate global row index with 2D thread blocks
-  const int64_t gy = blockIdx.y * blockDim.y + threadIdx.y;
-  const int64_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
-  static constexpr int vec_size = VectorSizeTraits<input_t>::value;
-  // Early return if row is out of bounds
-  if (gy >= nrows || (thread_idx * vec_size) >= ncols) {
-    return;
-  }
-
-  int ebit = forward ? 4 : 5;
-  int bias = forward ? 15 : 31;
-  float max_pos = forward ? 0.9375 : 0.875;
-
-  // Calculate output width
-  const auto ncols_aligned = (ncols + 4 - 1) / 4 * 4;
-  const auto output_columns = ncols_aligned + 2 * sizeof(float);
-
-  // Calculate base offsets for the current row
-  const int64_t input_row_offset = gy * ncols;
-  const int64_t output_row_offset = gy * output_columns;
-
-  // Calculate the position where the scale values are stored
-  const int64_t scale_offset = output_row_offset + ncols_aligned;
-  const float scale_value = reinterpret_cast<float*>(&output[scale_offset])[0];
-
-  const int64_t vector_blocks = ncols / vec_size;
-
-  using vec_t = aligned_vector<input_t, vec_size>;
-  using vec_i = aligned_vector<uint8_t, vec_size>;
-
-  const int64_t col_idx = thread_idx * vec_size;
-
-  // Don't access beyond the valid input data
-  if (col_idx + (vec_size - 1) < ncols) {
-    // Load vec_size elements - handle both aligned and unaligned cases
-    // correctly
-    const vec_t* input_row =
-        reinterpret_cast<const vec_t*>(&input[input_row_offset + col_idx]);
-
-    vec_i* output_row =
-        reinterpret_cast<vec_i*>(&output[output_row_offset + col_idx]);
-
-#pragma unroll
-    for (int i = 0; i < vec_size; ++i) {
-      output_row->val[i] = float_to_hfp8(
-          to_float(input_row->val[i]) * scale_value, ebit, bias, max_pos);
-    }
-  }
-
-  // 2. Process any remaining elements (less than vec_size) with scalar
-  // operations
-  const int64_t remaining_start = vector_blocks * vec_size;
-  for (int64_t col = remaining_start + threadIdx.x; col < ncols;
-       col += blockDim.x) {
-    output[output_row_offset + col] = float_to_hfp8(
-        to_float(input[input_row_offset + col]) * scale_value,
-        ebit,
-        bias,
-        max_pos);
   }
 }
 
@@ -349,6 +250,13 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
           C10_CUDA_KERNEL_LAUNCH_CHECK();
         });
   } else {
+    // range_tensor is used to store the range for each embedding row.
+    // We save max_pos/max_val(rowwise) as row scale to quantize
+    // unlike INT8, FP8 does not have zero shift
+    // This will guarantee the numerical match but bring some perf
+    // regression.
+    auto range_tensor = at::empty({nrows}, input.options().dtype(at::kFloat));
+
     {
       // we need a blockDim.x that is a power of 2 no larger than the warp size
       // of 32
@@ -386,40 +294,7 @@ Tensor _float_to_FP8rowwise_gpu_t(const Tensor& input, const bool forward) {
           });
     }
 
-    const uintptr_t addr = reinterpret_cast<uintptr_t>(&input);
-    const static bool use_vectorization =
-        ((addr % 16) == 0) &&
-        !config::is_feature_enabled(
-            config::FeatureGateName::DISABLE_FP8_QUANT_VECTORIZATION);
-
-    if (use_vectorization) {
-      const constexpr int vec_size = VectorSizeTraits<input_t>::value;
-      const int blockDim_x = std::min(
-          ncols > vec_size ? ncols / vec_size : 1,
-          static_cast<int64_t>(threads_per_block));
-      dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
-      const auto gridDim_x = cuda_calc_xblock_count(ncols, blockDim.x);
-      const auto gridDim_y = cuda_calc_block_count(nrows, blockDim.y);
-      dim3 gridDim(gridDim_x, gridDim_y);
-
-      FBGEMM_DISPATCH_FLOATING_TYPES(
-          input.scalar_type(),
-          "_compute_FP8_quantize_cuda_vectorized_kernel",
-          [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-            const auto func_name =
-                "_compute_FP8_quantize_cuda_vectorized_kernel";
-#endif
-            _compute_FP8_quantize_cuda_vectorized_kernel<scalar_t>
-                <<<gridDim, blockDim, 0, at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA_WITH_NAME(func_name, input_1D, scalar_t, 1, 64),
-                    nrows,
-                    ncols,
-                    MAKE_PTA_WITH_NAME(func_name, output_1D, uint8_t, 1, 64),
-                    forward);
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-          });
-    } else {
+    {
       const int blockDim_x =
           std::min(ncols, static_cast<int64_t>(threads_per_block));
       dim3 blockDim(blockDim_x, threads_per_block / blockDim_x);
@@ -489,8 +364,8 @@ Tensor _FP8rowwise_to_float_gpu_t(
   // to 1, 2, 4, 8, or 16 bytes. Any access (via a variable or a pointer) to
   // data residing in global memory compiles to a single global memory
   // instruction if and only if the size of the data type is 1, 2, 4, 8, or 16
-  // bytes and the data is naturally aligned (i.e., its address is a multiple
-  // of that size).
+  // bytes and the data is naturally aligned (i.e., its address is a multiple of
+  // that size).
   auto output_dims = input_sizes.vec();
   output_dims[last_dim] = output_columns;
   const auto output_sdtype = static_cast<SparseType>(output_dtype);
