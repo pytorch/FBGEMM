@@ -153,8 +153,10 @@ __set_feature_flags () {
   # NOTE: The full list of feature flags is defined (without the `FBGEMM_`
   # prefix) in:
   #   fbgemm_gpu/include/config/feature_gates.h
+  #   fbgemm_gpu/fbgemm_gpu/config/feature_list.py
   local feature_flags=(
     FBGEMM_TBE_ENSEMBLE_ROWWISE_ADAGRAD
+    FBGEMM_DISABLE_FP8_QUANT_VECTORIZATION
   )
 
   echo "[TEST] Setting feature flags ..."
