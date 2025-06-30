@@ -13,9 +13,7 @@
 #include "./TransposeUtils.h" // @manual
 #include "./TransposeUtilsAvx2.h" // @manual
 
-namespace fbgemm {
-
-namespace internal {
+namespace fbgemm::internal {
 
 template <>
 void transpose_avx2(
@@ -338,6 +336,4 @@ void transpose_avx2(
   }
 }
 
-} // namespace internal
-
-} // namespace fbgemm
+} // namespace fbgemm::internal

@@ -251,7 +251,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
   // reduceAvx2 only written for T == uint8_t
   static_assert(
-      std::is_same<T, uint8_t>::value,
+      std::is_same_v<T, uint8_t>,
       "PackAWithIm2Col<T, accT>::pack only works for T == uint8_t");
   if (point_wise) {
     int32_t ld = this->numCols();
@@ -297,7 +297,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       conv_p_.pad[1] == ((conv_p_.K[1] - 1) / 2) &&
       block_p.col_size <= BaseType::blockColSize() &&
       conv_p_.dilation[0] == 1 && conv_p_.dilation[1] == 1 &&
-      std::is_same<T, uint8_t>::value) {
+      std::is_same_v<T, uint8_t>) {
     if (BaseType::blockColSize() == 256) {
       pack_a_with_im2col_opt<SPATIAL_DIM, 256>(
           conv_p_,
@@ -711,7 +711,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
   for (auto r = 0; r < BaseType::numPackedRows(); ++r) {
     for (auto c = 0; c < BaseType::numPackedCols(); ++c) {
       T val = out[r * BaseType::blockColSize() + c];
-      if (std::is_integral<T>::value) {
+      if (std::is_integral_v<T>) {
         // cast to int64 because cout doesn't print int8_t type directly
         std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
       } else {

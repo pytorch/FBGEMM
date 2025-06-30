@@ -133,7 +133,7 @@ void QuantizeAvx2(
 #endif
 }
 
-uint32_t Xor128(void) {
+uint32_t Xor128() {
   /* library-local */ static uint32_t x = 123456789;
   /* library-local */ static uint32_t y = 362436069;
   /* library-local */ static uint32_t z = 521288629;
@@ -482,7 +482,7 @@ void requantizeOutputProcessingAvx2(
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v;
   if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
-    if (is_same<BIAS_TYPE, float>::value) {
+    if (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm256_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
     }
@@ -635,7 +635,7 @@ void requantizeOutputProcessingAvx2(
       }
       __m256 xf_v, yf_v, zf_v, wf_v;
       if (HAS_BIAS) {
-        if (is_same<BIAS_TYPE, float>::value) {
+        if (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
@@ -828,7 +828,7 @@ void requantizeOutputProcessingAvx2(
       }
       __m256 xf_v;
       if (HAS_BIAS) {
-        if (is_same<BIAS_TYPE, float>::value) {
+        if (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v;
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
@@ -923,7 +923,7 @@ void requantizeOutputProcessingAvx2(
 
       __m256 xf_v;
       if (HAS_BIAS) {
-        if (is_same<BIAS_TYPE, float>::value) {
+        if (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v;
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
@@ -1168,7 +1168,7 @@ void requantizeOutputProcessingGConvAvx2(
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v;
   if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
-    if (is_same<BIAS_TYPE, float>::value) {
+    if (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm256_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
     }
@@ -1281,7 +1281,7 @@ void requantizeOutputProcessingGConvAvx2(
       }
       __m256 xf_v;
       if (HAS_BIAS) {
-        if (is_same<BIAS_TYPE, float>::value) {
+        if (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v =
               _mm256_loadu_ps(reinterpret_cast<const float*>(r.bias + j));
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {

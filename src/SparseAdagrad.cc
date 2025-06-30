@@ -50,7 +50,7 @@ template <
     inst_set_t instSet = inst_set_t::avx2>
 class GenSparseAdagrad {
  public:
-  GenSparseAdagrad() {}
+  GenSparseAdagrad() = default;
   void genSparseAdagrad(
       x86::Emitter* a,
       int unroll_factor,
@@ -136,7 +136,7 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
     typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
     bool has_weight_decay) {
   // NOTE: temp_vreg is defined only when remainder is true and instSet == avx2
-  typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+  using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
   constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
   for (int vec_idx = 0; vec_idx < num_vec_regs_per_block;
        vec_idx += unroll_factor) {
@@ -243,7 +243,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     typename simd_info<instSet>::vec_reg_t temp_vreg,
     typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
     bool has_weight_decay) {
-  typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+  using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
   constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
 
   // Reduce the unroll factor by 1 for partial sum
@@ -254,7 +254,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     a->prefetchw(x86::dword_ptr(h, temp3_));
   }
 
-  bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
+  bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
   auto indices_ptr = areIndices64b
       ? x86::qword_ptr(
             indices, temp1_, 3) // use of 3 is to muliply by 8 (int64_t)
@@ -458,7 +458,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
-        bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
+        bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
 #if defined(FBGEMM_LOG_CODE)
         std::string filename = "SparseAdagrad";
         filename += "_emd_dim_" + std::to_string(block_size);
@@ -561,7 +561,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
 
-        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
 
         int num_vec_regs_per_block = (block_size + vlen - 1) / vlen;
         int remainder = block_size % vlen;

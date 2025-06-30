@@ -24,10 +24,10 @@
 using namespace std;
 
 namespace fbgemm {
-typedef union {
+using fint32 = union {
   uint32_t I;
   float F;
-} fint32;
+};
 
 // Thread-safe random number generator
 //
@@ -1210,8 +1210,8 @@ bool EmbeddingSpMDM_ref(
     bool no_bag /*=false*/,
     bool is_bf16_out /*=false*/,
     bool is_bf16_in /*=false*/) {
-  const bool isWeight8bit = is_same<InType, uint8_t>::value;
-  const bool isOutput8bit = is_same<OutType, uint8_t>::value;
+  const bool isWeight8bit = is_same_v<InType, uint8_t>;
+  const bool isOutput8bit = is_same_v<OutType, uint8_t>;
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1594,7 +1594,7 @@ bool EmbeddingSpMDMFP8_ref(
       }
     }
     for (int j = 0; j < block_size; ++j) {
-      out[j] = is_same<OutType, uint16_t>::value
+      out[j] = is_same_v<OutType, uint16_t>
           ? convert_from_float_ref<OutType>(buf[j], is_bf16_out)
           : buf[j];
     }
@@ -1619,7 +1619,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     float* out,
     bool is_weight_positional,
     bool use_offsets) {
-  bool is8bit = is_same<InType, uint8_t>::value;
+  bool is8bit = is_same_v<InType, uint8_t>;
 
   if (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
@@ -1709,7 +1709,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
           const InType* inptr = input + block_size * idx + j;
           out[j] = std::fma(
               w,
-              is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
+              is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
               out[j]);
         }
 
@@ -1938,7 +1938,7 @@ int rowwise_sparse_adagrad_fused_ref(
     grad_stride = block_size;
   }
 
-  constexpr bool isFloat16w = std::is_same<float16, DataType>::value;
+  constexpr bool isFloat16w = std::is_same_v<float16, DataType>;
   // Local random buffer to emulate SIMD vector
   // R: generated 32bit base random numbers
   // r: extracted 8-bit for rounding

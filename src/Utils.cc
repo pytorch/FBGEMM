@@ -66,7 +66,7 @@ int compare_buffers(
       T reference = ref[i * ld + j], actual = test[i * ld + j];
       if (std::abs(reference - actual) > atol) {
         std::cout << "\tmismatch at (" << i << ", " << j << ")" << std::endl;
-        if (std::is_integral<T>::value) {
+        if (std::is_integral_v<T>) {
           std::cout << "\t  reference:" << static_cast<int64_t>(reference)
                     << " test:" << static_cast<int64_t>(actual) << std::endl;
         } else {
@@ -108,7 +108,7 @@ void printMatrix(
   for (size_t r = 0; r < R; ++r) {
     for (size_t c = 0; c < C; ++c) {
       T res = tr ? inp[c * ld + r] : inp[r * ld + c];
-      if (std::is_integral<T>::value) {
+      if (std::is_integral_v<T>) {
         std::cout << std::setw(5) << static_cast<int64_t>(res) << " ";
       } else {
         std::cout << std::setw(5) << res << " ";
@@ -783,8 +783,8 @@ std::pair<K*, V*> radix_sort_parallel(
   int num_bits = sizeof(K) * 8;
   if (!maybe_with_neg_vals)
     // __builtin_clz is not portable, std::countl_zero is available in C++20
-    num_bits -= count_leading_zeros(
-        static_cast<typename std::make_unsigned<K>::type>(max_value));
+    num_bits -=
+        count_leading_zeros(static_cast<std::make_unsigned_t<K>>(max_value));
 
   const unsigned int num_passes = (num_bits + 7) / 8;
 

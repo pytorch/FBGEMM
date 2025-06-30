@@ -19,8 +19,7 @@
 #include <cstring>
 #include "./MaskAvx2.h" // @manual
 
-namespace fbgemm {
-namespace internal {
+namespace fbgemm::internal {
 
 static inline __m256i permute_row(__m256i row) {
   // clang-format off
@@ -257,5 +256,4 @@ CREATE_INSTANCE(false, QuantizationGranularity::TENSOR)
 CREATE_INSTANCE(false, QuantizationGranularity::OUT_CHANNEL)
 #undef CREATE_INSTANCE
 
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal
