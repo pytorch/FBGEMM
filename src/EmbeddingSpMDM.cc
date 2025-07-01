@@ -862,7 +862,7 @@ GenEmbeddingSpMDMLookup<
               a->vmulps(out_vreg, out_vreg, vlen_inv_vreg);
             }
 
-            if (std::is_same_v<outType, float>) {
+            if constexpr (std::is_same_v<outType, float>) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                 if (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(dst_addr, mask_vreg, out_vreg.ymm());
@@ -1032,7 +1032,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool is_bf16_out /*=false*/,
         bool is_bf16_in /*=false*/) {
 #if defined(__APPLE__) || defined(_WIN32)
-  if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
+  if constexpr (std::is_same<inType, uint16_t>::value && is_bf16_in &&
       std::is_same<outType, float>::value) {
     throw std::runtime_error(
         "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
@@ -1042,7 +1042,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     output_stride = block_size;
   }
   if (input_stride == -1) {
-    if (std::is_same_v<inType, uint8_t>) {
+    if constexpr (std::is_same_v<inType, uint8_t>) {
       const auto scale_bias_offset =
           2 * (scale_bias_last ? sizeof(float) : sizeof(uint16_t));
       input_stride = block_size + scale_bias_offset;
@@ -1351,7 +1351,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     bool use_offsets) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   int64_t input_stride = block_size;
-  if (std::is_same_v<inType, uint8_t>) {
+  if constexpr (std::is_same_v<inType, uint8_t>) {
     const auto scale_bias_offset = 2 * sizeof(float);
     input_stride = block_size + scale_bias_offset;
   }

@@ -49,7 +49,7 @@ static ALWAYS_INLINE void requantize_(
   __m256i B_zero_point_v = _mm256_setzero_si256();
   if (Q_GRAN == QuantizationGranularity::TENSOR) {
     multiplier_v = _mm256_set1_ps(*C_multiplier);
-    if (std::is_same<BIAS_TYPE, float>::value) {
+    if constexpr (std::is_same<BIAS_TYPE, float>::value) {
       act_times_w_rcp_v = _mm256_set1_ps(1.0 / (*act_times_w_scale));
     }
     B_zero_point_v = _mm256_set1_epi32(B_zero_point[0]);
@@ -226,7 +226,7 @@ static ALWAYS_INLINE void requantize_(
     // convert to float
     __m256 xf_v, yf_v, zf_v, wf_v;
     if (HAS_BIAS) { // static if
-      if (std::is_same<BIAS_TYPE, float>::value) {
+      if constexpr (std::is_same<BIAS_TYPE, float>::value) {
         __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
             (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
@@ -431,7 +431,7 @@ static ALWAYS_INLINE void requantize_(
     // Convert to float
     __m256 xf_v;
     if (HAS_BIAS) { // static if
-      if (std::is_same<BIAS_TYPE, float>::value) {
+      if constexpr (std::is_same<BIAS_TYPE, float>::value) {
         __m256 x_bias_v;
         if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL ||
             (Q_GRAN == QuantizationGranularity::GROUP && K_PER_G == 1)) {
@@ -504,7 +504,7 @@ static ALWAYS_INLINE void requantize_(
     }
     float raw_f;
     if (HAS_BIAS) { // static if
-      if (std::is_same<BIAS_TYPE, float>::value) {
+      if constexpr (std::is_same<BIAS_TYPE, float>::value) {
         raw_f = raw;
         raw_f += bias[j] / act_times_w_scale[quant_param_idx];
       } else {

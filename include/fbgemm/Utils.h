@@ -447,7 +447,7 @@ void nbit_embedding_sanity_check(
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
       "input_bit_rate must be 2 or 4");
-  if (std::is_same<OutType, uint8_t>::value) {
+  if constexpr (std::is_same<OutType, uint8_t>::value) {
     assert(
         (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
         "we currently only support int4 to int4 for sequential TBE");
