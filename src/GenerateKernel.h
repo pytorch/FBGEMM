@@ -107,9 +107,9 @@ class CodeGenBase {
       int NR) {
     std::ostringstream oss;
     oss << "gemm_";
-    if constexpr (std::is_same<accT, std::int16_t>::value) {
+    if constexpr (std::is_same_v<accT, std::int16_t>) {
       oss << "acc16_";
-    } else if constexpr (std::is_same<accT, std::int32_t>::value) {
+    } else if constexpr (std::is_same_v<accT, std::int32_t>) {
       oss << "acc32_";
     } else {
       oss << "unknown_";

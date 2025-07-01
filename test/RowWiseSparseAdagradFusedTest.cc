@@ -132,8 +132,8 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
     for (size_t i = 0; i < h.size(); ++i) {
       h_ref[i] = h[i] = values_gen(generator);
     }
-    for (size_t i = 0; i < g.size(); ++i) {
-      g[i] = values_gen(generator);
+    for (float & i : g) {
+      i = values_gen(generator);
     }
 
     vector<int64_t> lengths, offsets, indices;

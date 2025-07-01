@@ -180,7 +180,7 @@ template <typename T>
       }
       // compare scale/bias
       float scaleTest, scaleRef, biasTest, biasRef;
-      if (is_same<T, float16>::value) {
+      if constexpr (is_same_v<T, float16>) {
         // half scale and bias
         scaleTest = cpu_half2float(reinterpret_cast<const float16*>(
             res.data() + i * ld + out_emb_cols)[0]);

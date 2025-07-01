@@ -488,8 +488,8 @@ TEST_P(rowwiseSparseEmbeddingSpMDMTest, rowwiseSparseTest) {
     // Create embedding table
     vector<float> embedding_table(num_compressed_rows * embedding_dim);
     normal_distribution<float> embedding_distribution;
-    for (size_t i = 0; i < embedding_table.size(); ++i) {
-      embedding_table[i] = embedding_distribution(generator);
+    for (float & i : embedding_table) {
+      i = embedding_distribution(generator);
     }
     vector<float16> embedding_table_fp16;
     if (isFp16) {

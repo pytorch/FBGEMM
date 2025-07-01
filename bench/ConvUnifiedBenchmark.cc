@@ -505,14 +505,14 @@ void performance_test(
   } // shapes
 }
 
-typedef struct {
+using user_args_t = struct {
   bool no_flush; /* if true, llc won't be flushed inbetween benchmark iterations
                   */
   bool run_extended_shapes; /* if true, runs additional shapes on top of the
                                default set */
   int benchmark_repetitions; /* specified number of timed benchmark iterations
                               */
-} user_args_t;
+};
 
 int main(int argc, const char* argv[]) {
   user_args_t user_args;

@@ -17,9 +17,9 @@
 
 #include "./MaskAvx2.h" // @manual
 
-namespace fbgemm {
 
-namespace internal {
+
+namespace fbgemm::internal {
 
 #ifdef __AVX2__
 // NOTE: Make sure every function defined in here has static linkage because
@@ -812,6 +812,4 @@ static void transpose_kernel_mxn_avx2_uint8(
 
 #endif // __AVX2__
 
-} // namespace internal
-
-} // namespace fbgemm
+} // namespace fbgemm::internal

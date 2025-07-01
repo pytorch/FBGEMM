@@ -5,7 +5,18 @@
 # but override them if there's a conflict.
 InheritParentConfig: true
 Checks: '
+-*,
 bugprone-argument-comment,
+modernize*,
+-modernize-use-auto,
+-modernize-use-constraints,
+-modernize-use-trailing-return-type,
+-modernize-avoid-c-arrays,
+-modernize-avoid-bind,
+-modernize-use-designated-initializers,
+-modernize-use-ranges,
+-modernize-use-integer-sign-comparison
+-modernize-use-nodiscard,
 '
 CheckOptions:
  - key: facebook-cuda-safe-api-call-check.HandlerName

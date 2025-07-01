@@ -26,7 +26,7 @@ namespace x86 = asmjit::x86;
 template <
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
+    std::enable_if_t<instSet == inst_set_t::avx2, int> = 0>
 void gen16BitVectorOne(x86::Emitter* a, T dest) {
   a->vpcmpeqw(dest, dest, dest);
   a->vpsrlw(dest, dest, 15);
@@ -35,11 +35,11 @@ void gen16BitVectorOne(x86::Emitter* a, T dest) {
 template <
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<
+    std::enable_if_t<
         instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
             instSet == inst_set_t::avx512_vnni ||
             instSet == inst_set_t::avx512_vnni_ymm,
-        int>::type = 0>
+        int> = 0>
 void gen16BitVectorOne(x86::Emitter* a, T dest) {
   a->vpternlogd(dest, dest, dest, 0xff);
   a->vpsrlw(dest, dest, 15);
@@ -55,7 +55,7 @@ void gen16BitVectorOne(x86::Emitter* a, T dest) {
 template <
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
+    std::enable_if_t<instSet == inst_set_t::avx2, int> = 0>
 void emitLoadDWord(x86::Emitter* a, T dest, const x86::Mem& ptr) {
   a->vmovdqa(dest, ptr);
 }
@@ -63,11 +63,11 @@ void emitLoadDWord(x86::Emitter* a, T dest, const x86::Mem& ptr) {
 template <
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<
+    std::enable_if_t<
         instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
             instSet == inst_set_t::avx512_vnni ||
             instSet == inst_set_t::avx512_vnni_ymm,
-        int>::type = 0>
+        int> = 0>
 void emitLoadDWord(x86::Emitter* a, T dest, const x86::Mem& ptr) {
   a->vmovdqa32(dest, ptr);
 }
@@ -84,11 +84,11 @@ void emitLoadDWord(x86::Emitter* a, T dest, const x86::Mem& ptr) {
 template <
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<
+    std::enable_if_t<
         instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
             instSet == inst_set_t::avx512_vnni ||
             instSet == inst_set_t::avx512_vnni_ymm,
-        int>::type = 0>
+        int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
     x86::Ymm half,
@@ -100,11 +100,11 @@ void emitExtractHalfVector(
 template <
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<
+    std::enable_if_t<
         instSet == inst_set_t::avx512 || instSet == inst_set_t::avx512_ymm ||
             instSet == inst_set_t::avx512_vnni ||
             instSet == inst_set_t::avx512_vnni_ymm,
-        int>::type = 0>
+        int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
     x86::Xmm half,
@@ -116,7 +116,7 @@ void emitExtractHalfVector(
 template <
     inst_set_t instSet,
     typename T,
-    typename std::enable_if<instSet == inst_set_t::avx2, int>::type = 0>
+    std::enable_if_t<instSet == inst_set_t::avx2, int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
     x86::Xmm half,
@@ -135,7 +135,7 @@ void emitExtractHalfVector(
  */
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, x86::Ymm>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, x86::Ymm>, int> = 0>
 void gen8BitVectorOne(x86::Emitter* a, T dest) {
   a->vpcmpeqw(dest, dest, dest);
   a->vpabsb(dest, dest);
@@ -143,7 +143,7 @@ void gen8BitVectorOne(x86::Emitter* a, T dest) {
 
 template <
     typename T,
-    typename std::enable_if<std::is_same<T, x86::Zmm>::value, int>::type = 0>
+    std::enable_if_t<std::is_same_v<T, x86::Zmm>, int> = 0>
 void gen8BitVectorOne(x86::Emitter* a, T dest) {
   a->vpternlogd(dest, dest, dest, 0xff);
   a->vpabsb(dest, dest);
@@ -159,9 +159,9 @@ void gen8BitVectorOne(x86::Emitter* a, T dest) {
 
 template <
     inst_set_t INST_SET,
-    typename std::enable_if<
+    std::enable_if_t<
         INST_SET == inst_set_t::avx2 || INST_SET == inst_set_t::avx512,
-        int>::type = 0>
+        int> = 0>
 void genU8I8S32FMA(
     x86::Emitter* a,
     typename simd_info<INST_SET>::vec_reg_t aReg,
@@ -176,7 +176,7 @@ void genU8I8S32FMA(
 
 template <
     inst_set_t INST_SET,
-    typename std::enable_if<INST_SET == inst_set_t::avx512_vnni, int>::type = 0>
+    std::enable_if_t<INST_SET == inst_set_t::avx512_vnni, int> = 0>
 void genU8I8S32FMA(
     x86::Emitter* a,
     typename simd_info<INST_SET>::vec_reg_t aReg,
@@ -199,9 +199,9 @@ void genU8I8S32FMA(
  */
 template <
     inst_set_t INST_SET,
-    typename std::enable_if<
+    std::enable_if_t<
         INST_SET == inst_set_t::avx2 || INST_SET == inst_set_t::avx512,
-        int>::type = 0>
+        int> = 0>
 void genU8Sum4(
     x86::Emitter* a,
     typename simd_info<INST_SET>::vec_reg_t src,
@@ -221,7 +221,7 @@ void genU8Sum4(
 
 template <
     inst_set_t INST_SET,
-    typename std::enable_if<INST_SET == inst_set_t::avx512_vnni, int>::type = 0>
+    std::enable_if_t<INST_SET == inst_set_t::avx512_vnni, int> = 0>
 void genU8Sum4(
     x86::Emitter* a,
     typename simd_info<INST_SET>::vec_reg_t src,
