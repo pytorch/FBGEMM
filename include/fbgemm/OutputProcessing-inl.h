@@ -104,7 +104,7 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
         }
         float raw_f;
         if (bias_) {
-          if (std::is_same<BIAS_TYPE, float>::value) {
+          if constexpr (std::is_same<BIAS_TYPE, float>::value) {
             raw_f = raw;
             raw_f += bias_[j] / act_times_w_scale_[Bq_zero_point_idx];
           } else {

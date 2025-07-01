@@ -130,7 +130,7 @@ Tensor _fusednbitrowwise_to_float_cpu(
       (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
 
   Tensor output;
-  if (std::is_same<output_t, float>::value) {
+  if constexpr (std::is_same<output_t, float>::value) {
     output = at::empty(
         {nrows, output_columns}, // 4 = sizeof(float)
         input.options().dtype(at::kFloat));
@@ -167,15 +167,15 @@ Tensor _fusednbitrowwise_sbfront_to_float_or_half_cpu(
       (ncols - 2 * sizeof(at::Half)) * num_elem_per_byte;
 
   Tensor output;
-  if (std::is_same<output_t, float>::value) {
+  if constexpr (std::is_same<output_t, float>::value) {
     output = at::empty(
         {nrows, output_columns}, // 4 = sizeof(float)
         input.options().dtype(at::kFloat));
-  } else if (std::is_same<output_t, at::Half>::value) {
+  } else if constexpr (std::is_same<output_t, at::Half>::value) {
     output = at::empty(
         {nrows, output_columns}, // 2 = sizeof(half)
         input.options().dtype(at::kHalf));
-  } else if (std::is_same<output_t, at::BFloat16>::value) {
+  } else if constexpr (std::is_same<output_t, at::BFloat16>::value) {
     output = at::empty(
         {nrows, output_columns}, // 2 = sizeof(half)
         input.options().dtype(at::kBFloat16));
@@ -258,7 +258,7 @@ Tensor float_or_half_to_fused8bitrowwise_cpu(const Tensor& input) {
       input.options().dtype(at::kByte)); // at::kBytes for uint8_t
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(), "float_or_half_to_fused8bitrowwise_cpu", [&] {
-        if (std::is_same<scalar_t, float>::value) {
+        if constexpr (std::is_same<scalar_t, float>::value) {
           _float_to_fused8bitrowwise_cpu_out(output, input);
         } else { // scalar_t = at::Half
           _half_to_fused8bitrowwise_cpu_out(output, input);
@@ -419,7 +419,7 @@ Tensor float_or_half_to_fusednbitrowwise_cpu(
   Tensor output;
   FBGEMM_DISPATCH_FLOAT_AND_HALF(
       input.scalar_type(), "float_or_half_to_fusednbitrowwise_cpu", [&] {
-        if (std::is_same<scalar_t, float>::value) {
+        if constexpr (std::is_same<scalar_t, float>::value) {
           output = _float_to_fusednbitrowwise_cpu<float>(input, bit_rate);
         } else { // scalar_t = at::Half
           output =

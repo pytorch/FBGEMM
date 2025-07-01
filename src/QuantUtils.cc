@@ -571,7 +571,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     // NOTE: this can be optimized, however we don't care much about performance
     // for reference implementation.
     for (int col = 0; col < input_columns; ++col) {
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         input_row_float[col] = input_row[col];
       } else {
         input_row_float[col] = cpu_half2float(input_row[col]);
@@ -684,7 +684,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
         reinterpret_cast<float*>(output_row + input_columns);
 
     for (int col = 0; col < input_columns; ++col) {
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         input_row_float[col] = input_row[col];
       } else {
         input_row_float[col] = cpu_half2float(input_row[col]);
@@ -758,7 +758,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
       quantized >>= (col % num_elem_per_byte) * bit_rate;
       quantized &= (1 << bit_rate) - 1;
       float output_value = scale * quantized + bias;
-      if (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
       } else {
         if constexpr (is_uint16_t_of_type_bf16) {
@@ -822,7 +822,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     for (int col = 0; col < output_columns; ++col) {
       float output_value =
           input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
-      if (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
       } else {
         output_row[col] = cpu_float2half_rn(output_value);

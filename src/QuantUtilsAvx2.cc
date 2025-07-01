@@ -482,7 +482,7 @@ void requantizeOutputProcessingAvx2(
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v;
   if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
-    if (is_same_v<BIAS_TYPE, float>) {
+    if constexpr (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm256_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
     }
@@ -635,7 +635,7 @@ void requantizeOutputProcessingAvx2(
       }
       __m256 xf_v, yf_v, zf_v, wf_v;
       if (HAS_BIAS) {
-        if (is_same_v<BIAS_TYPE, float>) {
+        if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
@@ -828,7 +828,7 @@ void requantizeOutputProcessingAvx2(
       }
       __m256 xf_v;
       if (HAS_BIAS) {
-        if (is_same_v<BIAS_TYPE, float>) {
+        if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v;
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
@@ -923,7 +923,7 @@ void requantizeOutputProcessingAvx2(
 
       __m256 xf_v;
       if (HAS_BIAS) {
-        if (is_same_v<BIAS_TYPE, float>) {
+        if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v;
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
@@ -1168,7 +1168,7 @@ void requantizeOutputProcessingGConvAvx2(
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v;
   if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
-    if (is_same_v<BIAS_TYPE, float>) {
+    if constexpr (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm256_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
     }
@@ -1281,7 +1281,7 @@ void requantizeOutputProcessingGConvAvx2(
       }
       __m256 xf_v;
       if (HAS_BIAS) {
-        if (is_same_v<BIAS_TYPE, float>) {
+        if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v =
               _mm256_loadu_ps(reinterpret_cast<const float*>(r.bias + j));
           if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
@@ -1583,7 +1583,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
       2 * sizeof(std::uint16_t);
 
   float* input_row_float_for_fp16;
-  if (std::is_same<InputType, float16>()) {
+  if constexpr (std::is_same<InputType, float16>()) {
     input_row_float_for_fp16 = static_cast<float*>(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
@@ -1591,7 +1591,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
   for (size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float;
-    if (std::is_same<InputType, float>()) {
+    if constexpr (std::is_same<InputType, float>()) {
       // NOTE: this reinterpret_cast is only to workaround c++
       // type requirements -- it is not for fp16 case and `input_row` HAS to be
       // float* type. Remove it and use constexpr when pytorch allows C++17.
@@ -1613,7 +1613,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     int col;
     for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v;
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         in_v = _mm256_loadu_ps(input_row_float + col);
       } else {
         __m128i in_half_v =
@@ -1634,7 +1634,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     }
 
     for (; col < input_columns; ++col) {
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         minimum_element = std::min(minimum_element, input_row_float[col]);
         maximum_element = std::max(maximum_element, input_row_float[col]);
       } else {
@@ -1757,7 +1757,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     }
   } // for each row
 
-  if (std::is_same<InputType, float16>()) {
+  if constexpr (std::is_same_v<InputType, float16>) {
     fbgemmAlignedFree(input_row_float_for_fp16);
   }
 }
@@ -1786,14 +1786,14 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
 
   const int64_t output_columns = input_columns + 2 * sizeof(float);
   float* input_row_float_for_fp16;
-  if (std::is_same<InputType, float16>()) {
+  if constexpr (std::is_same_v<InputType, float16>) {
     input_row_float_for_fp16 = static_cast<float*>(
         fbgemmAlignedAlloc(64, input_columns * sizeof(float)));
   }
   for (size_t row = 0; row < input_rows; ++row) {
     const InputType* input_row = input + row * input_columns;
     const float* input_row_float;
-    if (std::is_same<InputType, float>()) {
+    if constexpr (std::is_same_v<InputType, float>) {
       // NOTE: this reinterpret_cast is only to workaround c++
       // type requirements -- it is not for fp16 case and `input_row` HAS to be
       // float* type. Remove it and use constexpr when pytorch allows C++17.
@@ -1812,7 +1812,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     int col;
     for (col = 0; col < input_columns / VLEN * VLEN; col += VLEN) {
       __m256 in_v;
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         in_v = _mm256_loadu_ps(input_row_float + col);
       } else {
         __m128i in_half_v =
@@ -1832,7 +1832,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
     }
 
     for (; col < input_columns; ++col) {
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         minimum_element = std::min(minimum_element, input_row_float[col]);
         maximum_element = std::max(maximum_element, input_row_float[col]);
       } else {
@@ -1893,7 +1893,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatAvx2(
           std::lrintf((input_row_float[col] - minimum_element) * inverse_scale);
     }
   } // for each row
-  if (std::is_same<InputType, float16>()) {
+  if constexpr (std::is_same_v<InputType, float16>) {
     fbgemmAlignedFree(input_row_float_for_fp16);
   }
 }
@@ -1905,7 +1905,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     int input_columns,
     OutputType* output) {
   static_assert(
-      std::is_same<OutputType, float>() || std::is_same<OutputType, float16>(),
+      std::is_same_v<OutputType, float> || std::is_same<OutputType, float16>(),
       "Only float and float16 types are allowed.");
   constexpr int VLEN = 8;
   constexpr int NUM_ELEM_PER_BYTE = 8 / BIT_RATE;
@@ -1932,7 +1932,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
             NUM_OF_32BIT_PER_VLOAD));
     remainder = output_columns % (4 * VLEN);
     int remainder_ratio = 1;
-    if (std::is_same<OutputType, float16>()) {
+    if constexpr (std::is_same<OutputType, float16>()) {
       // For fp16 we only need half of the mask.
       //
       // For instance, if reminder is 2, for FP32 the masks are
@@ -1980,7 +1980,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     float bias = halfToFloat(input_row_scale_bias[1]);
     OutputType* output_row = output + row * output_columns;
     float* output_row_float;
-    if (std::is_same<OutputType, float>()) {
+    if constexpr (std::is_same_v<OutputType, float>) {
       // NOTE: this reinterpret_cast is only to workaround c++
       // type requirements -- it is not for fp16 case and `output_row` HAS to be
       // float* type. Remove it and use constexpr when pytorch allows C++17.
@@ -2026,7 +2026,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
         vinq2 = _mm256_fmadd_ps(vscale, vinq2, vbias);
         vinq3 = _mm256_fmadd_ps(vscale, vinq3, vbias);
 
-        if (std::is_same<OutputType, float>()) {
+        if constexpr (std::is_same_v<OutputType, float>) {
           _mm256_storeu_ps(output_row_float + col, vinq0);
           _mm256_storeu_ps(output_row_float + col + VLEN, vinq1);
           _mm256_storeu_ps(output_row_float + col + 2 * VLEN, vinq2);
@@ -2087,7 +2087,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
         vinq2 = _mm256_fmadd_ps(vscale, vinq2, vbias);
         vinq3 = _mm256_fmadd_ps(vscale, vinq3, vbias);
 
-        if (std::is_same<OutputType, float>()) {
+        if constexpr (std::is_same_v<OutputType, float>) {
           _mm256_maskstore_ps(output_row_float + col, vmask_store0, vinq0);
           _mm256_maskstore_ps(
               output_row_float + col + VLEN, vmask_store1, vinq1);
@@ -2124,7 +2124,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
         quantized >>= (col % NUM_ELEM_PER_BYTE) * BIT_RATE;
         quantized &= (1 << BIT_RATE) - 1;
         float output_value = scale * quantized + bias;
-        if (std::is_same<OutputType, float>()) {
+        if constexpr (std::is_same_v<OutputType, float>) {
           output_row[col] = output_value;
         } else {
           output_row[col] = cpu_float2half_rn(output_value);
@@ -2161,7 +2161,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
 #else
       __m256 dequantzed_v = _mm256_add_ps(_mm256_mul_ps(in_v, scale_v), bias_v);
 #endif
-      if (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         float* output_row_float = reinterpret_cast<float*>(output_row);
         _mm256_storeu_ps(output_row_float + col, dequantzed_v);
       } else {
@@ -2175,7 +2175,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfAvx2(
     for (; col < output_columns; ++col) {
       float output_value =
           input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
-      if (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same_v<OutputType, float>) {
         output_row[col] = output_value;
       } else {
         output_row[col] = cpu_float2half_rn(output_value);

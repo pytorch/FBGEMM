@@ -141,7 +141,7 @@ Tensor masked_index_impl(
         const auto func_name = is_index_put ? "masked_index_put_kernel"
                                             : "masked_index_select_kernel";
 #endif
-        if (std::is_same_v<value_t, uint8_t>) {
+        if constexpr (std::is_same_v<value_t, uint8_t>) {
           TORCH_CHECK(D % 16 == 0, "D needs to be padded to be multiple of 16");
         }
         FBGEMM_DISPATCH_INTEGRAL_TYPES(

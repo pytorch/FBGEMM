@@ -48,7 +48,7 @@ void requantizeOutputProcessingGConvAvx512(
   __m512 act_times_w_rcp_v;
 
   if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
-    if (is_same_v<BIAS_TYPE, float>) {
+    if constexpr (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm512_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
     }
@@ -220,7 +220,7 @@ void requantizeOutputProcessingGConvAvx512(
       }
       __m512 xf_v;
       if (HAS_BIAS) {
-        if (is_same_v<BIAS_TYPE, float>) {
+        if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m512 x_bias_v;
           if (C_PER_G != 8) {
             x_bias_v =

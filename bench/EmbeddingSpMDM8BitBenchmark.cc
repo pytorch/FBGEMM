@@ -261,10 +261,10 @@ int run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same<OutType, float>::value) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same<OutType, uint16_t>::value) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -288,9 +288,9 @@ int run_benchmark(
 #pragma omp barrier
 #endif
       if (fbgemm_get_thread_num() == 0) {
-        if (std::is_same<OutType, float>::value) {
+        if constexpr (std::is_same<OutType, float>::value) {
           cout << "out type fp32";
-        } else if (std::is_same<OutType, uint16_t>::value) {
+        } else if constexpr (std::is_same<OutType, uint16_t>::value) {
           if (is_bf16_out) {
             cout << "out type bf16";
           } else {
