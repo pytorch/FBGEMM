@@ -240,7 +240,7 @@ void transpose_kernel_mxn_avx512(
   // load from src to registers
   __mmask16 src_mask = (1 << N) - 1;
   __m512 input[16];
-  int i;
+  int i = 0;
   for (i = 0; i < M; ++i) {
     input[i] = _mm512_maskz_loadu_ps(src_mask, &src[i * ld_src]);
   }

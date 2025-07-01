@@ -417,24 +417,18 @@ FBGEMM_API void compressed_indices_remap_ref(
 
 template <typename T>
 float convert_to_float_ref(T src, bool is_bf16 = false) {
-  float f_value;
   if constexpr (std::is_same_v<T, uint16_t>) {
-    f_value = is_bf16 ? cpu_bf162float(src) : cpu_half2float(src);
-  } else {
-    f_value = src;
+    return is_bf16 ? cpu_bf162float(src) : cpu_half2float(src);
   }
-  return f_value;
+  return src;
 }
 
 template <typename T>
 T convert_from_float_ref(float src, bool is_bf16 = false) {
-  T o_value;
   if constexpr (std::is_same_v<T, uint16_t>) {
-    o_value = is_bf16 ? cpu_float2bfloat16(src) : cpu_float2half_rn(src);
-  } else {
-    o_value = src;
+    return is_bf16 ? cpu_float2bfloat16(src) : cpu_float2half_rn(src);
   }
-  return o_value;
+  return src;
 }
 
 } // namespace fbgemm

@@ -7,6 +7,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <math.h>
 #include <iostream>
 
 #include "bench/BenchUtils.h" // @manual
@@ -32,8 +33,8 @@ INSTANTIATE_TEST_CASE_P(
  * Test for packing/unpacking
  */
 TEST_P(packUnpackTest, sparseUnpackTest) {
-  int N, K;
-  float fnz;
+  int N = 0, K = 0;
+  float fnz = NAN;
   tie(N, K, fnz) = GetParam();
 
   // wData is dense

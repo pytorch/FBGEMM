@@ -91,11 +91,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
   bool test_thread_local = bool_dist(generator);
-  int bit_rate, prefetch;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMDtypeChoice out_type;
-  tie(bit_rate, prefetch, weight_choice, corner_case, out_type) = GetParam();
+  auto [bit_rate, prefetch, weight_choice, corner_case, out_type] = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
   bool is_bf16_out = out_type == BFLOAT16;
@@ -198,7 +194,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
       FloatToBfloat16_ref(&sentry_value, &output_bf16[i], 1);
     }
 
-    bool success, success_ref;
+    bool success = false, success_ref = false;
 
 #define TEST_BASE(                                                      \
     indices,                                                            \
@@ -394,11 +390,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
-  int bit_rate, prefetch;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMDtypeChoice out_type;
-  tie(bit_rate, prefetch, weight_choice, corner_case, out_type) = GetParam();
+  auto [bit_rate, prefetch, weight_choice, corner_case, out_type] = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 
@@ -471,7 +463,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
 
     vector<float>& output_ref = use_weight ? output_slws_ref : output_sls_ref;
     vector<float>& output = use_weight ? output_slws : output_sls;
-    bool success, success_ref;
+    bool success = false, success_ref = false;
 
     if (isOffset64b) {
       if (isIndex64b) {

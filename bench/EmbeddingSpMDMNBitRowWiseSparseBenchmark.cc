@@ -325,10 +325,10 @@ static int run_benchmark(
 }
 
 int main() {
-  int batch_size;
-  int num_rows;
-  int embedding_dim;
-  int average_len;
+  int batch_size = 0;
+  int num_rows = 0;
+  int embedding_dim = 0;
+  int average_len = 0;
 
   vector<vector<int>> inputs(GetInputs_());
 

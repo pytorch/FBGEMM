@@ -27,6 +27,7 @@
 #endif
 
 #ifdef _OPENMP
+#include <cmath>
 #include <omp.h>
 #endif
 
@@ -136,7 +137,6 @@ double measureWithWarmup(
   {
 #endif
     for (int i = 0; i < measuredIterations; ++i) {
-      std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
 
       const auto thread_id = useOpenMP ? fbgemm_get_thread_num() : 0;
 
@@ -149,7 +149,7 @@ double measureWithWarmup(
 #pragma omp barrier
       }
 #endif
-      start = std::chrono::high_resolution_clock::now();
+      auto start = std::chrono::high_resolution_clock::now();
 
       fn();
 
@@ -159,7 +159,7 @@ double measureWithWarmup(
       }
 #endif
 
-      end = std::chrono::high_resolution_clock::now();
+      auto end = std::chrono::high_resolution_clock::now();
       auto dur =
           std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
@@ -256,7 +256,6 @@ void performance_test(
 #endif
 
   std::string type;
-  double gflops, gbs, ttot;
   for (auto s : shapes) {
     int m = s[0];
     int n = s[1];
@@ -321,6 +320,7 @@ void performance_test(
 
     double nflops = 2.0 * m * n * k;
     double nbytes = 4.0 * m * k + sizeof(btype) * 1.0 * k * n + 4.0 * m * n;
+    double gflops = 0, gbs = 0, ttot = 0.0;
 
     // warm up MKL and fbgemm
     // check correctness at the same time

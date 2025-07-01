@@ -426,7 +426,7 @@ void fbgemmPartition1DBlocked(
     return fbgemmPartition1D(thread_id, num_threads, total_work, start, end);
   }
   int64_t total_work_in_blocks = total_work / block_size;
-  int64_t start_block, end_block;
+  int64_t start_block = 0, end_block = 0;
   fbgemmPartition1D(
       thread_id, num_threads, total_work_in_blocks, start_block, end_block);
   start = std::min(start_block * block_size, total_work);
@@ -440,7 +440,7 @@ void* fbgemmAlignedAlloc(
     size_t size,
     bool raiseException /*=false*/) {
   void* aligned_mem = nullptr;
-  int ret;
+  int ret = 0;
 #ifdef _MSC_VER
   aligned_mem = _aligned_malloc(size, align);
   ret = 0;
