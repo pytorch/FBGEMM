@@ -54,7 +54,7 @@ static inline void fill_output(
     const float* src,
     const int64_t block_size,
     const bool is_bf16_out) {
-  if (std::is_same_v<OutType, float>) {
+  if constexpr (std::is_same_v<OutType, float>) {
     for (int j = 0; j < block_size; ++j) {
       out[j] = src[j];
     }
@@ -72,7 +72,7 @@ static inline void fill_output(
 template <typename OutType>
 static inline EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
-  if (std::is_same_v<OutType, float>) {
+  if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
   } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
     return EmbeddingStatsTracker::DataType::BF16;
@@ -1139,7 +1139,7 @@ template <typename InType>
 static int64_t stride_SpMDMWithStrides(
     int64_t block_size,
     bool scale_bias_last) {
-  if (std::is_same_v<InType, uint8_t>) {
+  if constexpr (std::is_same_v<InType, uint8_t>) {
     const size_t scale_bias_offset =
         2 * (scale_bias_last ? sizeof(float) : sizeof(uint16_t));
     return block_size + scale_bias_offset;
@@ -1215,7 +1215,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       } else {                                                            \
         weights = nullptr;                                                \
       }                                                                   \
-      if (std::is_same<InType, uint8_t>::value) {                         \
+      if constexpr (std::is_same<InType, uint8_t>::value) {               \
         assert(!specialize(IS_BF16_IN, is_bf16_in));                      \
         return EmbeddingSpMDM8Bit_autovec(                                \
             specialize(BLOCK_SIZE, block_size),                           \
