@@ -27,7 +27,7 @@
 using namespace std;
 using namespace fbgemm;
 
-void performance_test(
+static void performance_test(
     const BlockingFactors* tuning_params,
     set<vector<int>>& incorrect_configs,
     const vector<int>& shape,

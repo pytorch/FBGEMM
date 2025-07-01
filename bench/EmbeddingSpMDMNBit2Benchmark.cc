@@ -171,17 +171,6 @@ static void print_benchmark_results() {
   }
 }
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
-                << ",";
-    }
-    std::cout << std::endl;
-  }
-}
-
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
       // batch size, number of rows of table, emb dim , avg lengthl
@@ -200,7 +189,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-int run_benchmark(
+static int run_benchmark(
     int bit_rate,
     int batch_size,
     int num_rows,
@@ -488,7 +477,7 @@ int run_benchmark(
   return 0;
 }
 
-void sweep_benchmark(KernelType kern_type) {
+static void sweep_benchmark(KernelType kern_type) {
   int batch_size;
   int num_rows;
   int embedding_dim;

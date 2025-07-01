@@ -26,7 +26,7 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<QuantizationGranularity> qGranularityVals{
+static vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::GROUP,
     QuantizationGranularity::OUT_CHANNEL};
@@ -262,7 +262,7 @@ TEST_P(fbgemmIm2colTest, Acc16Test) {
 }
 
 template <QuantizationGranularity Q_GRAN>
-void SConvTest() {
+static void SConvTest() {
   for (auto conv_p : shapes) {
     for (int groups : {1, 4}) {
       if (conv_p.IC % groups != 0 || conv_p.OC % groups != 0) {

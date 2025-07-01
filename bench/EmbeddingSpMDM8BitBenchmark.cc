@@ -30,7 +30,8 @@
 using namespace std;
 using namespace fbgemm;
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
+/*
+static void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
   for (int i = 0; i < rows; i++) {
     cout << "row: " << i << " : " << endl;
     for (int ii = 0; ii < embedding_dim; ii++) {
@@ -39,6 +40,7 @@ void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
     cout << endl;
   }
 }
+*/
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -58,10 +60,10 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-vector<double> benchmarkTimes;
+static vector<double> benchmarkTimes;
 
 template <typename OutType>
-int run_benchmark(
+static int run_benchmark(
     int batch_size,
     int num_rows,
     int embedding_dim,

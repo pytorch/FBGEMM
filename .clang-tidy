@@ -6,6 +6,7 @@
 InheritParentConfig: true
 Checks: '
 bugprone-argument-comment,
+misc-use-internal-linkage
 '
 CheckOptions:
  - key: facebook-cuda-safe-api-call-check.HandlerName

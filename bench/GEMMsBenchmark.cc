@@ -29,7 +29,7 @@
 using namespace std;
 using namespace fbgemm;
 
-void performance_test(
+static void performance_test(
     const int M,
     const int N,
     const int K,
