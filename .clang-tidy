@@ -4,8 +4,10 @@
 # Get options for config files in parent directories,
 # but override them if there's a conflict.
 InheritParentConfig: true
+# NOLINT(clang-tidy-config-check-not-enabled)
 Checks: '
 bugprone-argument-comment,
+misc-use-internal-linkage,
 '
 CheckOptions:
  - key: facebook-cuda-safe-api-call-check.HandlerName

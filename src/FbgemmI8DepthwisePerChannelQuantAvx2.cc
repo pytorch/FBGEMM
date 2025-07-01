@@ -15,7 +15,7 @@ namespace fbgemm {
 
 // Old interface
 template <typename BIAS_TYPE /*=std::int32_t*/>
-void depthwise_2d_per_channel_quantization_same_pad(
+static void depthwise_2d_per_channel_quantization_same_pad(
     int N,
     int H,
     int W,
