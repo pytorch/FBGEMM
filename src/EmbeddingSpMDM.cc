@@ -1032,7 +1032,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
         bool is_bf16_out /*=false*/,
         bool is_bf16_in /*=false*/) {
 #if defined(__APPLE__) || defined(_WIN32)
-  if constexpr (std::is_same<inType, uint16_t>::value && is_bf16_in &&
+  if (std::is_same<inType, uint16_t>::value && is_bf16_in &&
       std::is_same<outType, float>::value) {
     throw std::runtime_error(
         "Bfloat16 input with float32 output is not yet supported on Apple or Windows");
