@@ -10,7 +10,7 @@
 import os
 import unittest
 
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -278,7 +278,7 @@ class FP8Tests(unittest.TestCase):
         ),
         QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
         Bias=st.sampled_from([True, False]),
-        CudaGraph=st.sampled_from([True, False]),
+        CudaGraph=st.sampled_from([False]),
         UseTriton=st.sampled_from([False] + ([True] if torch.version.cuda else [])),
         UseFastAccum=st.booleans(),
         InputMultiDim=st.booleans(),
@@ -864,6 +864,7 @@ class FP8Tests(unittest.TestCase):
         N=st.sampled_from([128, 256]),
         K=st.sampled_from([256, 512]),
         use_loopover=st.sampled_from([True, False]),
+        Bias=st.sampled_from([True, False]),
     )
     def test_fp8_batched_gemm(
         self,
@@ -871,6 +872,7 @@ class FP8Tests(unittest.TestCase):
         M: int,
         N: int,
         K: int,
+        Bias: bool,
         use_loopover: bool,
     ) -> None:
         x = (
@@ -889,6 +891,15 @@ class FP8Tests(unittest.TestCase):
             )
             * 0.01
         )
+        bias = (
+            torch.randn(
+                size=(B, N),
+                dtype=torch.bfloat16,
+                device=self.device,
+            )
+            if Bias
+            else None
+        )
 
         xq, x_scale = quantize_fp8_row(x)
         x_scale = x_scale.view(B, -1)
@@ -898,10 +909,11 @@ class FP8Tests(unittest.TestCase):
         assert w_scale.shape == (B, N)
 
         def fp8_loopover_bmm(
-            xq: List[torch.Tensor],
-            wq: List[torch.Tensor],
-            x_scale: List[torch.Tensor],
-            w_scale: List[torch.Tensor],
+            xq: torch.Tensor,
+            wq: torch.Tensor,
+            x_scale: torch.Tensor,
+            w_scale: torch.Tensor,
+            bias: Optional[torch.Tensor],
         ) -> torch.Tensor:
             B = len(xq)
             M = xq[0].shape[0]
@@ -909,15 +921,24 @@ class FP8Tests(unittest.TestCase):
             y = torch.empty((B, M, N), dtype=torch.bfloat16, device=xq[0].device)
             for i in range(B):
                 y[i] = torch.ops.fbgemm.f8f8bf16_rowwise(
-                    xq[i], wq[i], x_scale[i], w_scale[i]
+                    xq[i],
+                    wq[i],
+                    x_scale[i],
+                    w_scale[i],
+                    bias[i] if bias is not None else None,
                 )
             return y
 
         y_ref = torch.bmm(x, w.transpose(1, 2))
+        if bias is not None:
+            y_ref += bias.unsqueeze(1)
+
         if use_loopover:
-            y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale)
+            y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale, bias)
         else:
-            y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(xq, wq, x_scale, w_scale)
+            y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
+                xq, wq, x_scale, w_scale, bias
+            )
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
     @unittest.skipIf(

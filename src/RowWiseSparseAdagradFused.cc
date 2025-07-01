@@ -50,7 +50,7 @@ template <
     inst_set_t instSet = inst_set_t::avx2>
 class GenRowWiseSparseAdagradFused {
  public:
-  GenRowWiseSparseAdagradFused() {}
+  GenRowWiseSparseAdagradFused() = default;
 
   typename ReturnFunctionSignature<indxType, offsetType, dataType>::
       jit_sparse_adagrad_kernel
@@ -133,8 +133,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
-        bool areIndices64b = is_same<indxType, int64_t>::value;
-        bool areWeightsFp16 = is_same<dataType, float16>::value;
+        bool areIndices64b = is_same_v<indxType, int64_t>;
+        bool areWeightsFp16 = is_same_v<dataType, float16>;
 #if defined(FBGEMM_LOG_CODE)
         string filename = "RowWiseSparseAdagradFused";
         filename += "_emd_dim_" + to_string(block_size);
@@ -226,7 +226,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
 
-        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
 
         int num_vec_regs_per_block = (block_size + vlen - 1) / vlen;
         int remainder = block_size % vlen;
@@ -820,7 +820,7 @@ GenerateRowWiseSparseAdaGradFused(
   }
 
   // Use avx512 only for fp16 + stochastic rounding
-  if (fbgemmHasAvx512Support() && std::is_same<DataType, float16>::value &&
+  if (fbgemmHasAvx512Support() && std::is_same_v<DataType, float16> &&
       use_stochastic_rounding) {
     static GenRowWiseSparseAdagradFused<
         IndexType,
@@ -847,7 +847,7 @@ GenerateRowWiseSparseAdaGradFused(
                                  float lr) {
       // Initialize random buffer in the first execution
       // TODO: JIT
-      if (std::is_same<DataType, float16>::value && use_stochastic_rounding) {
+      if (std::is_same_v<DataType, float16> && use_stochastic_rounding) {
         rand_initialize();
       }
 
@@ -891,7 +891,7 @@ GenerateRowWiseSparseAdaGradFused(
                                  float lr) {
       // Initialize random buffer in the first execution
       // TODO: JIT
-      if (std::is_same<DataType, float16>::value && use_stochastic_rounding) {
+      if (std::is_same_v<DataType, float16> && use_stochastic_rounding) {
         rand_initialize();
       }
 

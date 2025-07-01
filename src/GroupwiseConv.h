@@ -124,13 +124,17 @@ class GenConvKernelBase {
     H_PAD_ = conv_param.pad[0];
     W_PAD_ = conv_param.pad[1];
 
-    use_bottom_padding_ =
-        !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 2] % 2 == 0);
+    if constexpr (SPATIAL_DIM >= 2) {
+      use_bottom_padding_ =
+          !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 2] % 2 == 0);
+    } else {
+      use_bottom_padding_ = false;
+    }
     use_right_padding_ =
         !(STRIDE_ > 1 && conv_param.IN_DIM[SPATIAL_DIM - 1] % 2 == 0);
   }
 
-  ~GenConvKernelBase() {}
+  ~GenConvKernelBase() = default;
 
   static std::string getCodeLoggingFile(kernel_sig_t kernel_sig) {
     std::ostringstream oss;
@@ -209,7 +213,7 @@ class GenConvKernelBase {
 template <int SPATIAL_DIM, inst_set_t INST_SET>
 class FBGEMM_API GenConvKernel
     : public GenConvKernelBase<SPATIAL_DIM, INST_SET> {
-  typedef typename simd_info<INST_SET>::vec_reg_t vec_reg_t;
+  using vec_reg_t = typename simd_info<INST_SET>::vec_reg_t;
 
  public:
   GenConvKernel(
