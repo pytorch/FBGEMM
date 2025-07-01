@@ -711,7 +711,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
   for (auto r = 0; r < BaseType::numPackedRows(); ++r) {
     for (auto c = 0; c < BaseType::numPackedCols(); ++c) {
       T val = out[r * BaseType::blockColSize() + c];
-      if (std::is_integral_v<T>) {
+      if constexpr (std::is_integral_v<T>) {
         // cast to int64 because cout doesn't print int8_t type directly
         std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
       } else {
