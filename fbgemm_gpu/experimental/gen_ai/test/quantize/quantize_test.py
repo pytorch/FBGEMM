@@ -278,7 +278,7 @@ class FP8Tests(unittest.TestCase):
         ),
         QType=st.sampled_from([fp8_e4m3, fp8_e5m2]),
         Bias=st.sampled_from([True, False]),
-        CudaGraph=st.sampled_from([False]),
+        CudaGraph=st.sampled_from([True, False]),
         UseTriton=st.sampled_from([False] + ([True] if torch.version.cuda else [])),
         UseFastAccum=st.booleans(),
         InputMultiDim=st.booleans(),
@@ -337,78 +337,62 @@ class FP8Tests(unittest.TestCase):
         )
 
         if Mode == "tensorwise":
-            if CudaGraph:
-                g = torch.cuda.CUDAGraph()
-                with torch.cuda.graph(g):
-                    xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
-                    wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
-                    zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale)
-                    if bias is not None:
-                        zq += bias
-                g.replay()
-            else:
+
+            def f(
+                x: torch.Tensor, w: torch.Tensor, bias: Optional[torch.Tensor]
+            ) -> torch.Tensor:
                 xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
                 wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
                 zq = torch.ops.fbgemm.f8f8bf16(xq, wq, x_scale * w_scale)
                 if bias is not None:
                     zq += bias
+                return zq
+
+            if CudaGraph:
+                # Warm-up to avoid capture issues
+                f(x, w, bias)
+
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    zq = f(x, w, bias)
+                g.replay()
+            else:
+                zq = f(x, w, bias)
         elif Mode == "tensorwise_broadcast":
+
+            def f(
+                xq: torch.Tensor,
+                wq: torch.Tensor,
+                scale: float,
+                bias: Optional[torch.Tensor],
+            ) -> torch.Tensor:
+                zq = torch.ops.fbgemm.f8f8bf16_tensorwise(
+                    xq, wq, scale, use_fast_accum=UseFastAccum
+                )
+                if bias is not None:
+                    zq += bias
+                return zq
+
             xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(x)
             wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_tensor(w)
             x_scale = x_scale.item()
             w_scale = w_scale.item()
+
             if CudaGraph:
+                # Warm-up to avoid capture issues
+                f(xq, wq, x_scale * w_scale, bias)
+
                 g = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(g):
-                    zq = torch.ops.fbgemm.f8f8bf16_tensorwise(
-                        xq, wq, x_scale * w_scale, use_fast_accum=UseFastAccum
-                    )
-                    if bias is not None:
-                        zq += bias
+                    zq = f(xq, wq, x_scale * w_scale, bias)
                 g.replay()
             else:
-                zq = torch.ops.fbgemm.f8f8bf16_tensorwise(
-                    xq, wq, x_scale * w_scale, use_fast_accum=UseFastAccum
-                )
-                if bias is not None:
-                    zq += bias
+                zq = f(xq, wq, x_scale * w_scale, bias)
         elif Mode == "rowwise":
-            if CudaGraph:
-                # Warm up triton functions before cuda graph.
-                xq, x_scale = quantize_fp8_row(x)
-                wq, w_scale = quantize_fp8_row(w)
-                if UseTriton and torch.version.cuda:
-                    zq = matmul_fp8_row(
-                        xq, wq, x_scale, w_scale, fp8_fast_accum=UseFastAccum
-                    )
-                g = torch.cuda.CUDAGraph()
-                with torch.cuda.graph(g):
-                    if torch.version.cuda:
-                        xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
-                            x, output_dtype=QType
-                        )
-                        wq, w_scale = torch.ops.fbgemm.quantize_fp8_per_row(w)
-                    else:
-                        xq, x_scale = quantize_fp8_row(x)
-                        wq, w_scale = quantize_fp8_row(w)
-                    if UseTriton and torch.version.cuda:
-                        zq = matmul_fp8_row(xq, wq, x_scale, w_scale)
-                        if bias is not None:
-                            zq += bias
-                    else:
-                        zq = torch.ops.fbgemm.f8f8bf16_rowwise(
-                            xq,
-                            wq,
-                            x_scale,
-                            w_scale,
-                            bias=bias if torch.version.cuda else None,
-                            use_fast_accum=UseFastAccum,
-                        )
-                        # Bias fusion not yet supported on AMD.
-                        if bias is not None and torch.version.hip:
-                            zq += bias
-                g.replay()
-            else:
+
+            def f(
+                x: torch.Tensor, w: torch.Tensor, bias: Optional[torch.Tensor]
+            ) -> torch.Tensor:
                 if torch.version.cuda:
                     xq, x_scale = torch.ops.fbgemm.quantize_fp8_per_row(
                         x, output_dtype=QType
@@ -418,9 +402,7 @@ class FP8Tests(unittest.TestCase):
                     xq, x_scale = quantize_fp8_row(x)
                     wq, w_scale = quantize_fp8_row(w)
                 if UseTriton and torch.version.cuda:
-                    zq = matmul_fp8_row(
-                        xq, wq, x_scale, w_scale, fp8_fast_accum=UseFastAccum
-                    )
+                    zq = matmul_fp8_row(xq, wq, x_scale, w_scale)
                     if bias is not None:
                         zq += bias
                 else:
@@ -435,61 +417,27 @@ class FP8Tests(unittest.TestCase):
                     # Bias fusion not yet supported on AMD.
                     if bias is not None and torch.version.hip:
                         zq += bias
-        elif Mode == "blockwise":
-            block_m = block_n = block_k = 128
-            output_device = torch.device(self.device)
-            if CudaGraph:
-                #  Need a warmup to compile the Triton kernel before cuda graph
 
-                wq, w_scale = quantize_fp8_block(
-                    w, block_n, block_k, output_device=output_device
-                )
-                xq, x_scale = quantize_fp8_block(x, block_m, block_k)
-                if UseTriton:
-                    zq = matmul_fp8_block(
-                        xq,
-                        wq,
-                        x_scale,
-                        w_scale,
-                        block_m,
-                        block_n,
-                        block_k,
-                        fp8_fast_accum=UseFastAccum,
-                    )
-                else:
-                    zq = torch.ops.fbgemm.f8f8bf16_blockwise(
-                        xq, wq, x_scale, w_scale, block_m, block_n, block_k
-                    )
-                if bias is not None:
-                    zq += bias
+                return zq
+
+            if CudaGraph:
+                # Warm-up to avoid capture issues
+                f(x, w, bias)
 
                 g = torch.cuda.CUDAGraph()
                 with torch.cuda.graph(g):
-                    wq, w_scale = quantize_fp8_block(
-                        w, block_n, block_k, output_device=output_device
-                    )
-                    xq, x_scale = quantize_fp8_block(x, block_m, block_k)
-                    if UseTriton:
-                        zq = matmul_fp8_block(
-                            xq,
-                            wq,
-                            x_scale,
-                            w_scale,
-                            block_m,
-                            block_n,
-                            block_k,
-                            fp8_fast_accum=UseFastAccum,
-                        )
-                    else:
-                        zq = torch.ops.fbgemm.f8f8bf16_blockwise(
-                            xq, wq, x_scale, w_scale, block_m, block_n, block_k
-                        )
-                    if bias is not None:
-                        zq += bias
+                    zq = f(x, w, bias)
                 g.replay()
             else:
+                zq = f(x, w, bias)
+        elif Mode == "blockwise":
+
+            def f(
+                x: torch.Tensor, w: torch.Tensor, bias: Optional[torch.Tensor]
+            ) -> torch.Tensor:
+                block_m = block_n = block_k = 128
                 wq, w_scale = quantize_fp8_block(
-                    w, block_n, block_k, output_device=output_device
+                    w, block_n, block_k, output_device=torch.device(self.device)
                 )
                 xq, x_scale = quantize_fp8_block(x, block_m, block_k)
                 if UseTriton:
@@ -509,6 +457,19 @@ class FP8Tests(unittest.TestCase):
                     )
                 if bias is not None:
                     zq += bias
+
+                return zq
+
+            if CudaGraph:
+                # Warm-up to avoid capture issues
+                f(x, w, bias)
+
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    zq = f(x, w, bias)
+                g.replay()
+            else:
+                zq = f(x, w, bias)
         else:
             raise ValueError(f"Invalid mode {Mode}")
 
