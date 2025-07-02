@@ -115,6 +115,22 @@ class FixedBlockPool : public std::pmr::memory_resource {
   }
 
   template <typename scalar_t>
+  static scalar_t* ptr_offset_from_front(
+      scalar_t* block,
+      const int64_t offset) {
+    return reinterpret_cast<scalar_t*>(
+        reinterpret_cast<char*>(block) + offset * sizeof(scalar_t));
+  }
+
+  template <typename scalar_t>
+  static const scalar_t* ptr_offset_from_front(
+      const scalar_t* block,
+      const int64_t offset) {
+    return reinterpret_cast<const scalar_t*>(
+        reinterpret_cast<const char*>(block) + offset * sizeof(scalar_t));
+  }
+
+  template <typename scalar_t>
   static scalar_t get_l2weight(scalar_t* block, size_t dimension) {
     scalar_t* data = FixedBlockPool::data_ptr(block);
     return std::sqrt(std::accumulate(

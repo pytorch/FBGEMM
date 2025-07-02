@@ -698,6 +698,16 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return returned_keys;
   }
 
+  void set_range_to_storage(
+      const at::Tensor& weights,
+      const int64_t start,
+      const int64_t length) override {
+    const auto seq_indices =
+        at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
+    const auto count = at::tensor({length}, at::ScalarType::Long);
+    folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
+  }
+
   void get_range_from_snapshot(
       const at::Tensor& weights,
       const int64_t start,
