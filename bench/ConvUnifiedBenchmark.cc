@@ -230,42 +230,42 @@ void performance_test(
   const int NITER = repetitions;
 
   string header = "MB, IC, OC, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "IT, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "IH, ";
   }
   header += "IW, G, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "KT, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "KH, ";
   }
   header += "KW, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "stride_t, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "stride_h, ";
   }
   header += "stride_w, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "pad_t, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "pad_h, ";
   }
   header += "pad_w, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "dilation_t, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "dilation_h, ";
   }
   header += "dilation_w, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "output_padding_t, ";
   }
   if (SPATIAL_DIM > 1) {

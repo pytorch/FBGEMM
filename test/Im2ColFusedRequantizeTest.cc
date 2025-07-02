@@ -79,9 +79,9 @@ static void Im2colTest(bool b_symmetric) {
       aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
 
       int ncols_per_quant_group = conv_p.OC;
-      if (Q_GRAN == QuantizationGranularity::GROUP) {
+      if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         ncols_per_quant_group = conv_p.OC / conv_p.G;
-      } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         ncols_per_quant_group = 1;
       }
       int32_t Aint8_zero_point;
@@ -280,9 +280,9 @@ void SConvTest() {
       aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
 
       int ncols_per_quant_group = conv_p.OC;
-      if (Q_GRAN == QuantizationGranularity::GROUP) {
+      if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         ncols_per_quant_group = conv_p.OC / conv_p.G;
-      } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         ncols_per_quant_group = 1;
       }
       int32_t Aint8_zero_point;
@@ -580,9 +580,9 @@ static void Im2col3DTest(bool b_symmetric) {
       aligned_vector<uint8_t> Cint8_fb(Cint32_ref.size());
 
       int ncols_per_quant_group = conv_p.OC;
-      if (Q_GRAN == QuantizationGranularity::GROUP) {
+      if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
         ncols_per_quant_group = conv_p.OC / conv_p.G;
-      } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         ncols_per_quant_group = 1;
       }
       int32_t Aint8_zero_point;
