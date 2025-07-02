@@ -329,22 +329,22 @@ Functions</h2></td></tr>
 <tr class="separator:ae6d6321b283eaa5a8ddaaa96ea22c62f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4bd183ba7e59151ac6bff236729d4a41" id="r_a4bd183ba7e59151ac6bff236729d4a41"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a4bd183ba7e59151ac6bff236729d4a41">is_autovec_disabled</a> ()</td></tr>
 <tr class="separator:a4bd183ba7e59151ac6bff236729d4a41"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aa06c4dd5673e6b3df1dfe3617fdc919d" id="r_aa06c4dd5673e6b3df1dfe3617fdc919d"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, typename std::enable_if&lt; instSet==inst_set_t::avx2, int &gt;::type = 0&gt; </td></tr>
+<tr class="memitem:aa06c4dd5673e6b3df1dfe3617fdc919d" id="r_aa06c4dd5673e6b3df1dfe3617fdc919d"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:aa06c4dd5673e6b3df1dfe3617fdc919d"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa06c4dd5673e6b3df1dfe3617fdc919d">gen16BitVectorOne</a> (x86::Emitter *a, T dest)</td></tr>
 <tr class="separator:aa06c4dd5673e6b3df1dfe3617fdc919d"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aa56904bd84399e10104d286e0e10a2d7" id="r_aa56904bd84399e10104d286e0e10a2d7"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, typename std::enable_if&lt; instSet==inst_set_t::avx2, int &gt;::type = 0&gt; </td></tr>
+<tr class="memitem:aa56904bd84399e10104d286e0e10a2d7" id="r_aa56904bd84399e10104d286e0e10a2d7"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:aa56904bd84399e10104d286e0e10a2d7"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa56904bd84399e10104d286e0e10a2d7">emitLoadDWord</a> (x86::Emitter *a, T dest, const x86::Mem &amp;ptr)</td></tr>
 <tr class="separator:aa56904bd84399e10104d286e0e10a2d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a602ac18c0e6c32448ff8d21818bded38" id="r_a602ac18c0e6c32448ff8d21818bded38"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, typename std::enable_if&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt;::type = 0&gt; </td></tr>
+<tr class="memitem:a602ac18c0e6c32448ff8d21818bded38" id="r_a602ac18c0e6c32448ff8d21818bded38"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:a602ac18c0e6c32448ff8d21818bded38"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a602ac18c0e6c32448ff8d21818bded38">emitExtractHalfVector</a> (x86::Emitter *a, x86::Ymm half, const x86::Zmm vec, int idx)</td></tr>
 <tr class="separator:a602ac18c0e6c32448ff8d21818bded38"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3c476c8ddbed58f3f6b4395dd55ed2a3" id="r_a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memTemplParams" colspan="2">template&lt;typename T, typename std::enable_if&lt; std::is_same&lt; T, x86::Ymm &gt;::value, int &gt;::type = 0&gt; </td></tr>
+<tr class="memitem:a3c476c8ddbed58f3f6b4395dd55ed2a3" id="r_a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memTemplParams" colspan="2">template&lt;typename T, std::enable_if_t&lt; std::is_same_v&lt; T, x86::Ymm &gt;, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a3c476c8ddbed58f3f6b4395dd55ed2a3">gen8BitVectorOne</a> (x86::Emitter *a, T dest)</td></tr>
 <tr class="separator:a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a2a15434be774f5beeb39e4fe225d6fb9" id="r_a2a15434be774f5beeb39e4fe225d6fb9"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, typename std::enable_if&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt;::type = 0&gt; </td></tr>
+<tr class="memitem:a2a15434be774f5beeb39e4fe225d6fb9" id="r_a2a15434be774f5beeb39e4fe225d6fb9"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:a2a15434be774f5beeb39e4fe225d6fb9"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a2a15434be774f5beeb39e4fe225d6fb9">genU8I8S32FMA</a> (x86::Emitter *a, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t aReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t bReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t cReg, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t oneReg16Bit, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t tmpReg)</td></tr>
 <tr class="separator:a2a15434be774f5beeb39e4fe225d6fb9"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:aa9ddfdb1cd3e41712844257212fcb050" id="r_aa9ddfdb1cd3e41712844257212fcb050"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, typename std::enable_if&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt;::type = 0&gt; </td></tr>
+<tr class="memitem:aa9ddfdb1cd3e41712844257212fcb050" id="r_aa9ddfdb1cd3e41712844257212fcb050"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:aa9ddfdb1cd3e41712844257212fcb050"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa9ddfdb1cd3e41712844257212fcb050">genU8Sum4</a> (x86::Emitter *a, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t src, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t dest, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t oneReg16Bit, typename <a class="el" href="structfbgemm_1_1simd__info.html">simd_info</a>&lt; INST_SET &gt;::vec_reg_t tmpReg)</td></tr>
 <tr class="separator:aa9ddfdb1cd3e41712844257212fcb050"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3535bf91ff758b3bd13929bf9f211c90" id="r_a3535bf91ff758b3bd13929bf9f211c90"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
@@ -820,7 +820,7 @@ template&lt;QuantizationGranularity Q_GRAN, typename BIAS_TYPE = std::int32_t&gt
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, typename std::enable_if&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt;::type = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt; = 0&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void emitExtractHalfVector </td>
@@ -869,7 +869,7 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, typename std::enable_if&lt; instSet==inst_set_t::avx2, int &gt;::type = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void emitLoadDWord </td>
@@ -1784,7 +1784,7 @@ template&lt;typename OutputType, bool is_uint16_t_of_type_bf16 = false&gt; </div
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, typename std::enable_if&lt; instSet==inst_set_t::avx2, int &gt;::type = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void gen16BitVectorOne </td>
@@ -1821,7 +1821,7 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;typename T, typename std::enable_if&lt; std::is_same&lt; T, x86::Ymm &gt;::value, int &gt;::type = 0&gt; </div>
+template&lt;typename T, std::enable_if_t&lt; std::is_same_v&lt; T, x86::Ymm &gt;, int &gt; = 0&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void gen8BitVectorOne </td>
@@ -2376,7 +2376,7 @@ template&lt;typename IndexType, typename OffsetType = std::int32_t, typename Dat
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, typename std::enable_if&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt;::type = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void genU8I8S32FMA </td>
@@ -2433,7 +2433,7 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
 <div class="memitem">
 <div class="memproto">
 <div class="memtemplate">
-template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, typename std::enable_if&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt;::type = 0&gt; </div>
+template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> INST_SET, std::enable_if_t&lt; INST_SET==inst_set_t::avx2||INST_SET==inst_set_t::avx512, int &gt; = 0&gt; </div>
       <table class="memname">
         <tr>
           <td class="memname">void genU8Sum4 </td>
