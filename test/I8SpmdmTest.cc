@@ -27,7 +27,7 @@
 using namespace std;
 using namespace fbgemm;
 
-std::vector<float> densities{0.0001f, 0.001f, 0.01f, 0.1f, 1.0f};
+static std::vector<float> densities{0.0001f, 0.001f, 0.01f, 0.1f, 1.0f};
 
 namespace {
 class fbgemmSPMDMTest

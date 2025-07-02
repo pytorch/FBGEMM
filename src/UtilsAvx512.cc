@@ -1485,7 +1485,7 @@ static inline void transpose_contiguous_32x2_block(
 }
 
 template <bool MREM = false, bool NREM = false>
-void transpose_16x16_block(
+static void transpose_16x16_block(
     const uint16_t* src,
     int64_t ld_src,
     uint16_t* dst,
@@ -1611,7 +1611,7 @@ void transpose_16x16_block(
 }
 
 template <bool MREM = false, bool NREM = false>
-void transpose_16x32_block(
+static void transpose_16x32_block(
     const uint8_t* src,
     int64_t ld_src,
     uint8_t* dst,

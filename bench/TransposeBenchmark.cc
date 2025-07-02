@@ -21,7 +21,7 @@ using namespace std;
 using namespace fbgemm;
 
 template <typename T>
-void performance_test() {
+static void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 

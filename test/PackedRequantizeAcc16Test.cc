@@ -29,11 +29,11 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<matrix_op_t> transposeVals{
+static vector<matrix_op_t> transposeVals{
     matrix_op_t::NoTranspose,
     matrix_op_t::Transpose};
 
-vector<QuantizationGranularity> qGranularityVals{
+static vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::GROUP,
     QuantizationGranularity::OUT_CHANNEL};
