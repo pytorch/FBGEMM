@@ -293,7 +293,7 @@ void fbgemmDirectConv(
 
       /*
       int groups = 1;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         groups = conv_p.OC;
       }
       */

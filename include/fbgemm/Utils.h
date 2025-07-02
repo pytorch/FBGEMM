@@ -267,7 +267,7 @@ bool isValidBlockingFactor(const BlockingFactors* const param) {
   constexpr bool is_16bit = std::is_same<accT, int16_t>::value;
   static const auto iset = fbgemmInstructionSet();
 
-  if (is_32bit) {
+  if constexpr (is_32bit) {
     if (param->ROW_INTERLEAVE != 4)
       return false;
 
@@ -278,7 +278,7 @@ bool isValidBlockingFactor(const BlockingFactors* const param) {
       if (param->NR_MIN != 8 || param->NR % param->NR_MIN)
         return false;
     }
-  } else if (is_16bit) {
+  } else if constexpr (is_16bit) {
     if (param->ROW_INTERLEAVE != 2)
       return false;
 
@@ -296,11 +296,11 @@ bool isValidBlockingFactor(const BlockingFactors* const param) {
   if (param->NCB % param->NR)
     return false;
   if (isZmm(iset)) {
-    if (is_32bit) {
+    if constexpr (is_32bit) {
       // Zmm register usage for C
       if (param->MR * (param->NR / param->NR_MIN) > 28)
         return false;
-    } else if (is_16bit) {
+    } else if constexpr (is_16bit) {
       // Zmm register usage for C + one row for loading B
       if ((param->MR * (param->NR / param->NR_MIN) +
            (param->NR / param->NR_MIN)) > 28)
