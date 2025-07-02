@@ -49,7 +49,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-void run_benchmark(
+static void run_benchmark(
     int batch_size,
     int num_rows,
     int embedding_dim,

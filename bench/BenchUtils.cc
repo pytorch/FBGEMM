@@ -19,22 +19,22 @@
 
 namespace fbgemm {
 
-std::default_random_engine eng;
+static std::default_random_engine eng;
 
 template <typename T>
-void randFill(aligned_vector<T>& vec, T low, T high, std::true_type) {
+static void randFill(aligned_vector<T>& vec, T low, T high, std::true_type) {
   std::uniform_int_distribution<int> dis(low, high);
   std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
 }
 
 template <typename T>
-void randFill(aligned_vector<T>& vec, T low, T high, std::false_type) {
+static void randFill(aligned_vector<T>& vec, T low, T high, std::false_type) {
   std::uniform_real_distribution<T> dis(low, high);
   std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
 }
 
 template <typename T>
-void randFill(aligned_vector<T>& vec, T low, T high) {
+static void randFill(aligned_vector<T>& vec, T low, T high) {
   randFill(vec, low, high, std::is_integral<T>());
 }
 
@@ -165,7 +165,7 @@ aligned_vector<float> getRandomSparseVector(
 }
 
 template <typename T>
-aligned_vector<T> getRandomBlockSparseMatrix(
+static aligned_vector<T> getRandomBlockSparseMatrix(
     int Rows,
     int Cols,
     float fractionNonZerosBlocks,

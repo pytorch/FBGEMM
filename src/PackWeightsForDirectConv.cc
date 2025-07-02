@@ -161,7 +161,7 @@ PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT<3>(
     int ncols_per_quant_group);
 
 template <int SPATIAL_DIM>
-void directConvRowSum(
+static void directConvRowSum(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const uint8_t* A,
     int32_t* inSum,
