@@ -74,7 +74,7 @@ INSTANTIATE_TEST_CASE_P(
  * @brief 3D Shapes for unit test.
  */
 template <int SPATIAL_DIM>
-static typename std::enable_if<SPATIAL_DIM == 3, vector<conv_param_t<3>>>::type
+static std::enable_if_t<SPATIAL_DIM == 3, vector<conv_param_t<3>>>
 GetShapes_() {
   // clang-format off
   vector<conv_param_t<3>> shapes = {
@@ -188,7 +188,7 @@ GetShapes_() {
  * @brief 2D Shapes for unit test.
  */
 template <int SPATIAL_DIM = 2>
-static typename std::enable_if<SPATIAL_DIM == 2, vector<conv_param_t<2>>>::type
+static std::enable_if_t<SPATIAL_DIM == 2, vector<conv_param_t<2>>>
 GetShapes_() {
     vector<conv_param_t<>> shapes = {
         // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w},

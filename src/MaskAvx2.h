@@ -9,9 +9,7 @@
 #pragma once
 #include <cstdint>
 
-namespace fbgemm {
-
-namespace internal {
+namespace fbgemm::internal {
 
 // A constant array to initialize an AVX2 register to be used as a 32-bit
 // granularity mask.
@@ -58,6 +56,4 @@ alignas(64) static const std::int8_t sse_epi8_masks[17][16] = {
 };
 // clang-format on
 
-} // namespace internal
-
-} // namespace fbgemm
+} // namespace fbgemm::internal

@@ -267,7 +267,7 @@ void performance_test(
     randFill(Aint, 0, 4);
     std::vector<aligned_vector<float>> A;
     for (int i = 0; i < num_instances; ++i) {
-      A.push_back(aligned_vector<float>(Aint.begin(), Aint.end()));
+      A.emplace_back(Aint.begin(), Aint.end());
     }
 
     aligned_vector<int> Bint(k * n);
@@ -309,13 +309,13 @@ void performance_test(
       aligned_vector<int> Cint(m * n);
       randFill(Cint, 0, 4);
       for (int i = 0; i < num_instances; ++i) {
-        C_ref.push_back(aligned_vector<float>(Cint.begin(), Cint.end()));
-        C_fb.push_back(aligned_vector<float>(Cint.begin(), Cint.end()));
+        C_ref.emplace_back(Cint.begin(), Cint.end());
+        C_fb.emplace_back(Cint.begin(), Cint.end());
       }
     } else {
       for (int i = 0; i < num_instances; ++i) {
-        C_ref.push_back(aligned_vector<float>(m * n, 1.f));
-        C_fb.push_back(aligned_vector<float>(m * n, NAN));
+        C_ref.emplace_back(m * n, 1.f);
+        C_fb.emplace_back(m * n, NAN);
       }
     }
 
