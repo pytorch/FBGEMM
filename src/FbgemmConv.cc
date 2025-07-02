@@ -64,12 +64,12 @@ bool takePointWiseFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
 }
 
 template <int SPATIAL_DIM>
-bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+static bool take1DFastPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   return false && !conv_p.transposed;
 }
 
 template <int SPATIAL_DIM, typename ACC_T>
-bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
+static bool takeDirectConvPath(const conv_param_t<SPATIAL_DIM>& conv_p) {
   // Note: Direct convolutions (2D) are optimized for
   // filter size: 2 x 1 to 2 x 6,  transposed conv,
   // in_channel % 8 == 0, out_channel % 8 == 0

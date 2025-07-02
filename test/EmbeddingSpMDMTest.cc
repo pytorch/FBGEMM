@@ -64,7 +64,7 @@ class IndexRemapTest
     : public testing::TestWithParam<tuple<int, int, int, bool, bool>> {};
 } // namespace
 
-vector<int> prefetch_distances = {0, 16, 1000000};
+static vector<int> prefetch_distances = {0, 16, 1000000};
 
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,

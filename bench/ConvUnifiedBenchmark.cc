@@ -28,7 +28,7 @@ using namespace fbgemm;
 
 // clang-format off
 // 1D conv shapes
-vector<conv_param_t<1>> shapes_1d = {
+static vector<conv_param_t<1>> shapes_1d = {
   // MB, IC, OC, IW, G, KW, stride_w, pad_w_left, pad_w_right,
   // (dilation, output_padding_w, tranpose)
   // regular
@@ -46,7 +46,7 @@ vector<conv_param_t<1>> shapes_1d = {
 };
 
 // 2D conv shapes
-vector<conv_param_t<2>> shapes_2d = {
+static vector<conv_param_t<2>> shapes_2d = {
   // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
   // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right,
   // (dilation_h, dilation_w, output_padding_h, output_padding_w, tranpose)
@@ -84,7 +84,7 @@ vector<conv_param_t<2>> shapes_2d = {
       {1, 1}, {0, 0, 0, 0})
 };
 
-vector<conv_param_t<2>> shapes_2d_resnext_101 = {
+static vector<conv_param_t<2>> shapes_2d_resnext_101 = {
   // ResNext-101 (unique shapes only)
   // conv_param_t<>(N, C, M, H, W, groups, /* kern */ {KH, KW}, /* stride */
   //   {stride_h, stride_w}, /* padding pad_l = pad_h */ {pad_l, pad_l, pad_l, pad_l}, /* dialation */
@@ -143,7 +143,7 @@ vector<conv_param_t<2>> shapes_2d_resnext_101 = {
 };
 
 // 3D conv shapes
-vector<conv_param_t<3>> shapes_3d = {
+static vector<conv_param_t<3>> shapes_3d = {
   // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW}, {stride_t, stride_h,
   // stride_w},
   // {pad_prev, pad_h_top, pad_w_left, pad_next, pad_h_bottom, pad_w_right},
@@ -216,7 +216,7 @@ vector<conv_param_t<3>> shapes_3d = {
 // clang-format on
 
 template <int SPATIAL_DIM, typename Acc_t>
-void performance_test(
+static void performance_test(
     const vector<conv_param_t<SPATIAL_DIM>>& shapes,
     bool flush,
     int repetitions) {

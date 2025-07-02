@@ -26,7 +26,7 @@ using namespace std;
 using namespace fbgemm;
 
 template <typename Acc_t>
-void performance_test() {
+static void performance_test() {
   vector<conv_param_t<>> shapes = {
       // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
       // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right

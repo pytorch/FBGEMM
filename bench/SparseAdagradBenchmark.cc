@@ -40,7 +40,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-void run_benchmark(
+static void run_benchmark(
     const int num_rows, // number of rows reading
     const int block_size, // number of parameters per row
     const uint64_t param_size, // total number of parameters

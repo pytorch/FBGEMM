@@ -27,11 +27,11 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<matrix_op_t> transposeVals{
+static vector<matrix_op_t> transposeVals{
     matrix_op_t::NoTranspose,
     matrix_op_t::Transpose};
 
-vector<QuantizationGranularity> qGranularityVals{
+static vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::GROUP,
     QuantizationGranularity::OUT_CHANNEL};
@@ -269,7 +269,7 @@ GetShapes_() {
  * accumulation. Output processing: requantization -> nothing
  */
 template <int SPATIAL_DIM = 2>
-void runRequantizeTest(matrix_op_t /* unused */,
+static void runRequantizeTest(matrix_op_t /* unused */,
     matrix_op_t btrans,
     QuantizationGranularity q_granularity,
     bool a_symmetric, bool b_symmetric) {
@@ -591,7 +591,7 @@ TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
 */
 
 template <int SPATIAL_DIM = 2>
-void runPackUnpackTest(matrix_op_t btrans) {
+static void runPackUnpackTest(matrix_op_t btrans) {
   vector<conv_param_t<SPATIAL_DIM>> shapes(GetShapes_<SPATIAL_DIM>());
 
   for (auto conv_p : shapes) {

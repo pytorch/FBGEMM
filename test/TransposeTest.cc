@@ -18,7 +18,7 @@ using namespace std;
 using namespace fbgemm;
 
 template <typename T>
-::testing::AssertionResult compare_tranpose_results(
+static ::testing::AssertionResult compare_tranpose_results(
     vector<T> expected,
     vector<T> acutal,
     int m,

@@ -36,7 +36,7 @@ namespace fbgemm {
 //padding */ {pad, pad, pad, pad},
 //    /* dialation */ {1, 1}, /* otpt_pad */ {0,0}, /* trans */ transpose),
 // 2D conv shapes
-  vector<conv_param_t<2>> shapes = {
+  static vector<conv_param_t<2>> shapes = {
     // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
     // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right,
     // (dilation_h, dilation_w, output_padding_h, output_padding_w, tranpose)
@@ -56,7 +56,7 @@ namespace fbgemm {
     conv_param_t<>(1, 64, 64,     {2, 257}, 1, {2, 6}, {1, 2}, {0, 0, 0, 0},     {1, 1}, {0, 0}, false),
   };
 
-vector<conv_param_t<2>> shapes_trans = {
+static vector<conv_param_t<2>> shapes_trans = {
     conv_param_t<>(1, 256, 176, {2, 4}, 1,   {2, 6}, {1, 2}, {0, 0, 0, 0},
     {1, 1}, {0, 0}, true),
     conv_param_t<>(1, 128, 128, {4, 12}, 1,   {2, 6}, {1, 1}, {0, 0, 0, 0},
@@ -80,7 +80,7 @@ class FBGemmDirectConvTransFbgemmTest
 } // namespace
 
 template <int SPATIAL_DIM>
-void transposeConvWeights_KwIchO8I4(
+static void transposeConvWeights_KwIchO8I4(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const std::int8_t* src,
     std::int8_t* dest) {
@@ -114,48 +114,7 @@ void transposeConvWeights_KwIchO8I4(
   }
 }
 
-void directConvRowSum(
-    const conv_param_t<2>& conv_p,
-    uint8_t* A,
-    int32_t* inSum,
-    int32_t* rowSum) {
-  int IN0 = conv_p.IN_DIM[0];
-  int IN1 = conv_p.IN_DIM[1];
-  int IC = conv_p.IC;
-  int K0 = conv_p.K[0];
-  int K1 = conv_p.K[1];
-  int OUT0 = conv_p.OUT_DIM[0];
-  int OUT1 = conv_p.OUT_DIM[1];
-  int stride = conv_p.stride[1];
-
-  memset(rowSum, 0, sizeof(int32_t) * OUT0 * OUT1);
-  for (int ih = 0; ih < IN0; ++ih)
-    for (int iw = 0; iw < IN1; ++iw) {
-      inSum[ih * IN1 + iw] = reduceAvx2(A + ih * IN1 * IC + iw * IC, IC);
-  }
-
-
-  for (int ih = 0; ih < IN0; ++ih)
-    for (int iw = 0; iw < IN1; iw++) {
-      for (int r = 0; r < K0; ++r) {
-        for (int s = 0; s < K1; ++s) {
-          rowSum[(ih + r) * OUT1 + iw * stride + s] += inSum[ih * IN1 + iw];
-        }
-      }
-    }
-  /*
-    compare_buffers(
-        rowSum,
-        rowoffsets,
-        OUT0,
-        OUT1,
-        OUT1,
-        5);
-  */
-}
-
-
-void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
+static void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
     const conv_param_t<2>& conv_p,
     const int8_t* Bint8,
     const int32_t* B_zero_point,
@@ -207,8 +166,9 @@ void col_offsets_with_zero_pt_s8acc32_DirectConvT_ref(
   }
 }
 
+/*
 
-void QuantizeDirectConv_ref(
+static void QuantizeDirectConv_ref(
     const conv_param_t<2>& conv_p,
     aligned_vector<uint8_t> Aint8,
     aligned_vector<int8_t> Bint8,
@@ -288,7 +248,6 @@ void QuantizeDirectConv_ref(
   }
 }
 
-/*
 INSTANTIATE_TEST_CASE_P(
     InstantiationName,
     FBGemmDirectConvTest,

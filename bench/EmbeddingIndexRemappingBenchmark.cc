@@ -37,7 +37,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-int run_benchmark(
+static int run_benchmark(
     int batch_size,
     int num_rows,
     int average_len,

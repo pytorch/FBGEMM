@@ -29,7 +29,7 @@
 using namespace std;
 using namespace fbgemm;
 
-void performance_test() {
+static void performance_test() {
   // clang-format off
   vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current

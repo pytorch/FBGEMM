@@ -51,7 +51,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-vector<int> prefetch_distances{0, 16, 1000000};
+static vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 

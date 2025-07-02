@@ -25,7 +25,7 @@
 using namespace std;
 using namespace fbgemm;
 
-void performance_test() {
+static void performance_test() {
   // clang-format off
   const vector<conv_param_t<>> shapes = {
     // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w}, pad_t, pad_l,
