@@ -19,7 +19,7 @@
 
 namespace fbgemm {
 
-std::default_random_engine eng;
+static std::default_random_engine eng;
 
 template <typename T>
 void randFill(aligned_vector<T>& vec, T low, T high, std::true_type) {

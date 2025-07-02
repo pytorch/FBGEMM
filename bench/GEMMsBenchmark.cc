@@ -29,11 +29,8 @@
 using namespace std;
 using namespace fbgemm;
 
-void performance_test(
-    const int M,
-    const int N,
-    const int K,
-    const bool timebreak) {
+static void
+performance_test(const int M, const int N, const int K, const bool timebreak) {
   // clang-format off
   const vector<vector<int>> shapes = {
     // NOTE: clang-format wants to use a different formatting but the current
