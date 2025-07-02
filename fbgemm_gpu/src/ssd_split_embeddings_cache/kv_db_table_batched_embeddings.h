@@ -357,10 +357,10 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
       const at::Tensor& weights,
       const int64_t start,
       const int64_t length) {
-    const auto seq_indices =
-        at::arange(start, start + length, at::TensorOptions().dtype(at::kLong));
-    const auto count = at::tensor({length}, at::ScalarType::Long);
-    folly::coro::blockingWait(set_kv_db_async(seq_indices, weights, count));
+    (void)weights;
+    (void)start;
+    (void)length;
+    FBEXCEPTION("Not implemented");
   }
 
   virtual void get_range_from_snapshot(
@@ -400,6 +400,11 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
 
   virtual int64_t get_max_D() {
     return max_D_;
+  }
+
+  virtual bool get_backend_return_whole_row() {
+    // only DRAM backend can enable this for now
+    return false;
   }
 
 #ifdef FBGEMM_FBCODE
