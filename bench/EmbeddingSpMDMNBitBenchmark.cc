@@ -376,10 +376,10 @@ static int run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if constexpr (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -412,10 +412,10 @@ static int run_benchmark(
           for (size_t i = 0; i < output_autovec.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if constexpr (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output_autovec[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output_autovec[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -438,9 +438,9 @@ static int run_benchmark(
 #endif
       }
 
-      if constexpr (std::is_same<OutType, float>::value) {
+      if constexpr (std::is_same_v<OutType, float>) {
         cout << "out type fp32, ";
-      } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+      } else if constexpr (std::is_same_v<OutType, uint16_t>) {
         if (is_bf16_out) {
           cout << "out type bf16, ";
         } else {
