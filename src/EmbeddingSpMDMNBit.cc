@@ -475,7 +475,7 @@ GenEmbeddingSpMDMNBitLookup<
                 mask_vreg,
                 x86::ymmword_ptr(
                     scratchReg1_, (vlen - remainder) % vlen * sizeof(int32_t)));
-            if (std::is_same_v<outType, uint16_t>) {
+            if constexpr (std::is_same_v<outType, uint16_t>) {
               if (remainder > 1) {
                 a->vmovups(
                     mask_fp16_vreg,
@@ -866,7 +866,7 @@ GenEmbeddingSpMDMNBitLookup<
               a->vmulps(out_vreg, out_vreg, vlen_inv_vreg);
             }
 
-            if (std::is_same_v<outType, float>) {
+            if constexpr (std::is_same_v<outType, float>) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                 if (instSet == inst_set_t::avx512) {
                   a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
@@ -1040,7 +1040,7 @@ typename EmbeddingSpMDMKernelSignature<uint8_t, indxType, offsetType, outType>::
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
       "input_bit_rate must be 2 or 4");
-  if (std::is_same_v<outType, uint8_t>) {
+  if constexpr (std::is_same_v<outType, uint8_t>) {
     assert(
         (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
         "we currently only support int4 to int4 when using sequential TBE");

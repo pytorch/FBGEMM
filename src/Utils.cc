@@ -66,7 +66,7 @@ int compare_buffers(
       T reference = ref[i * ld + j], actual = test[i * ld + j];
       if (std::abs(reference - actual) > atol) {
         std::cout << "\tmismatch at (" << i << ", " << j << ")" << std::endl;
-        if (std::is_integral_v<T>) {
+        if constexpr (std::is_integral_v<T>) {
           std::cout << "\t  reference:" << static_cast<int64_t>(reference)
                     << " test:" << static_cast<int64_t>(actual) << std::endl;
         } else {
@@ -108,7 +108,7 @@ void printMatrix(
   for (size_t r = 0; r < R; ++r) {
     for (size_t c = 0; c < C; ++c) {
       T res = tr ? inp[c * ld + r] : inp[r * ld + c];
-      if (std::is_integral_v<T>) {
+      if constexpr (std::is_integral_v<T>) {
         std::cout << std::setw(5) << static_cast<int64_t>(res) << " ";
       } else {
         std::cout << std::setw(5) << res << " ";
