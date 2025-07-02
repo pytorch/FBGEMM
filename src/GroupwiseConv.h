@@ -26,25 +26,25 @@
 
 #define GCONV_INST_AVX2_HEADER          \
   template <inst_set_t ISET = INST_SET> \
-  typename std::enable_if<ISET == inst_set_t::avx2, void>::type
+  typename std::enable_if_t<ISET == inst_set_t::avx2, void>
 
 #define GCONV_INST_AVX512_AND_VNNI_HEADER                            \
   template <inst_set_t ISET = INST_SET>                              \
-  typename std::enable_if<                                           \
+  typename std::enable_if_t<                                         \
       ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
-      void>::type
+      void>
 
 #define GCONV_INST_DEF_AVX2_HEADER                \
   template <int SPATIAL_DIM, inst_set_t INST_SET> \
   template <inst_set_t ISET>                      \
-  typename std::enable_if<ISET == inst_set_t::avx2, void>::type
+  typename std::enable_if_t<ISET == inst_set_t::avx2, void>
 
 #define GCONV_INST_DEF_AVX512_AND_VNNI_HEADER                        \
   template <int SPATIAL_DIM, inst_set_t INST_SET>                    \
   template <inst_set_t ISET>                                         \
-  typename std::enable_if<                                           \
+  typename std::enable_if_t<                                         \
       ISET == inst_set_t::avx512 || ISET == inst_set_t::avx512_vnni, \
-      void>::type
+      void>
 
 namespace fbgemm {
 

@@ -235,7 +235,7 @@ class EmbeddingStatsTracker {
 
  private:
   // Private constructor for singleton pattern
-  EmbeddingStatsTracker() {}
+  EmbeddingStatsTracker() = default;
 
   // Private copy constructor and assignment operator to enforce singleton
   // pattern

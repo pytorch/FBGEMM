@@ -87,7 +87,7 @@ static void Im2colTest(bool b_symmetric) {
       int32_t Aint8_zero_point;
       aligned_vector<int32_t> Bint8_zero_point(
           conv_p.OC / ncols_per_quant_group);
-      if (is_same<ACC_T, int32_t>::value) {
+      if constexpr (is_same_v<ACC_T, int32_t>) {
         randFill<uint8_t>(Aint8, 0, 80);
         Aint8_zero_point = 43;
         randFill<int8_t>(Bint8, -16, 16);
@@ -588,7 +588,7 @@ static void Im2col3DTest(bool b_symmetric) {
       int32_t Aint8_zero_point;
       aligned_vector<int32_t> Bint8_zero_point(
           conv_p.OC / ncols_per_quant_group);
-      if (is_same<ACC_T, int32_t>::value) {
+      if constexpr (is_same_v<ACC_T, int32_t>) {
         randFill<uint8_t>(Aint8, 0, 80);
         Aint8_zero_point = 43;
         randFill<int8_t>(Bint8, -16, 16);

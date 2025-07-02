@@ -16,9 +16,7 @@
 #include <arm_sve.h>
 #endif
 
-namespace fbgemm {
-
-namespace internal {
+namespace fbgemm::internal {
 
 #if HAVE_SVE
 // NOTE: Make sure every function defined in here has static linkage because
@@ -651,6 +649,4 @@ static void transpose_kernel_mxn_large_sve(
 
 #endif // __SVE__
 
-} // namespace internal
-
-} // namespace fbgemm
+} // namespace fbgemm::internal

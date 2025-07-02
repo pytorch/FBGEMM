@@ -1215,7 +1215,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       } else {                                                            \
         weights = nullptr;                                                \
       }                                                                   \
-      if constexpr (std::is_same<InType, uint8_t>::value) {               \
+      if constexpr (std::is_same_v<InType, uint8_t>) {                    \
         assert(!specialize(IS_BF16_IN, is_bf16_in));                      \
         return EmbeddingSpMDM8Bit_autovec(                                \
             specialize(BLOCK_SIZE, block_size),                           \

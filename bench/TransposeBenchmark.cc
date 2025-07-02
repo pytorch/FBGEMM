@@ -29,7 +29,7 @@ static void performance_test() {
   default_random_engine engine;
 
   string runType;
-  if (is_same<T, float>::value) {
+  if (is_same_v<T, float>) {
     runType = "float";
   } else {
     runType = "i8";

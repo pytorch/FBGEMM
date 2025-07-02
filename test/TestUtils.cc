@@ -23,7 +23,7 @@ int compare_validate_buffers(
     T atol) {
   for (int i = 0; i < m; ++i) {
     for (int j = 0; j < n; ++j) {
-      if constexpr (std::is_integral<T>::value) {
+      if constexpr (std::is_integral_v<T>) {
         EXPECT_EQ(test[i * ld + j], ref[i * ld + j])
             << "GEMM results differ at (" << i << ", " << j
             << ") reference: " << (int64_t)ref[i * ld + j]
