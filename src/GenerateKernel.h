@@ -71,9 +71,9 @@ class CodeGenBase {
   template <inst_set_t instSet>
   void genComputeBlock(
       x86::Emitter* a,
-      x86::Gp buffer_A,
-      x86::Gp buffer_B,
-      x86::Gp B_pf,
+      const x86::Gp& buffer_A,
+      const x86::Gp& buffer_B,
+      const x86::Gp& B_pf,
       int rowRegs,
       int colRegs,
       int lda);
@@ -87,8 +87,8 @@ class CodeGenBase {
       x86::Emitter* a,
       int rowRegs,
       int colRegs,
-      x86::Gp C_Offset,
-      x86::Gp ldcReg,
+      const x86::Gp& C_Offset,
+      const x86::Gp& ldcReg,
       bool accum);
 
   const BlockingFactors* blocking_params;

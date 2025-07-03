@@ -23,9 +23,9 @@ template <>
 void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock<
     inst_set_t::avx2>(
     x86::Emitter* a,
-    x86::Gp buffer_A,
-    x86::Gp buffer_B,
-    x86::Gp /* unused (reserved for prefetching)*/,
+    const x86::Gp& buffer_A,
+    const x86::Gp& buffer_B,
+    const x86::Gp& /* unused (reserved for prefetching)*/,
     int rowRegs,
     int colRegs,
     int lda) {
@@ -65,8 +65,8 @@ void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
-    x86::Gp C_Offset,
-    x86::Gp ldcReg,
+    const x86::Gp& C_Offset,
+    const x86::Gp& ldcReg,
     bool accum) {
   using VecT = typename simd_info<instSet>::vec_reg_t;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
@@ -175,12 +175,12 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     //"nc must be equal to the number of register blocks");
 
     // arguments to the function created
-    x86::Gp buffer_A = a->zdi();
-    x86::Gp buffer_B = a->zsi();
-    x86::Gp B_pf = a->zdx();
-    x86::Gp CBase = a->zcx();
-    x86::Gp kSize = a->gpz(8);
-    x86::Gp ldcReg = a->gpz(9);
+    const x86::Gp& buffer_A = a->zdi();
+    const x86::Gp& buffer_B = a->zsi();
+    const x86::Gp& B_pf = a->zdx();
+    const x86::Gp& CBase = a->zcx();
+    const x86::Gp& kSize = a->gpz(8);
+    const x86::Gp& ldcReg = a->gpz(9);
 
     asmjit::FuncDetail func;
     func.init(
@@ -216,11 +216,11 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     asmjit::Label Loopk = a->newLabel();
     asmjit::Label LoopMBlocks = a->newLabel();
 
-    x86::Gp buffer_B_saved = a->gpz(10);
-    x86::Gp C_Offset = a->gpz(11);
-    // x86::Gp B_pf_saved = a->gpz(12);
-    x86::Gp iIdx = a->gpz(13);
-    x86::Gp kIdx = a->gpz(14);
+    const x86::Gp& buffer_B_saved = a->gpz(10);
+    const x86::Gp& C_Offset = a->gpz(11);
+    // const x86::Gp& B_pf_saved = a->gpz(12);
+    const x86::Gp& iIdx = a->gpz(13);
+    const x86::Gp& kIdx = a->gpz(14);
 
     int colRegs = nc * row_interleave / vectorLen;
     if (mRegBlocks > 0) {
@@ -352,8 +352,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<inst_set_t::avx2>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
-    x86::Gp C_Offset,
-    x86::Gp ldcReg,
+    const x86::Gp& C_Offset,
+    const x86::Gp& ldcReg,
     bool accum);
 
 /**
@@ -365,8 +365,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<inst_set_t::avx512>(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
-    x86::Gp C_Offset,
-    x86::Gp ldcReg,
+    const x86::Gp& C_Offset,
+    const x86::Gp& ldcReg,
     bool accum);
 
 /**
@@ -378,8 +378,8 @@ template void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::storeCRegs<
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
-    x86::Gp C_Offset,
-    x86::Gp ldcReg,
+    const x86::Gp& C_Offset,
+    const x86::Gp& ldcReg,
     bool accum);
 
 } // namespace fbgemm

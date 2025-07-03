@@ -57,11 +57,11 @@ class GenSparseAdagrad {
       int num_vec_regs_per_block,
       int remainder,
       int prefetch,
-      typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-      typename simd_info<instSet>::vec_reg_t lr_vreg,
-      x86::Ymm mask_vreg,
-      typename simd_info<instSet>::vec_reg_t temp_vreg,
-      typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+      const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+      const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+      const x86::Ymm& mask_vreg,
+      const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+      const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
       bool has_weight_decay);
 
   void genRowwiseSparseAdagrad(
@@ -71,11 +71,11 @@ class GenSparseAdagrad {
       int num_vec_regs_per_block,
       int remainder,
       int prefetch,
-      typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-      typename simd_info<instSet>::vec_reg_t lr_vreg,
-      x86::Ymm mask_vreg,
-      typename simd_info<instSet>::vec_reg_t temp_vreg,
-      typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+      const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+      const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+      const x86::Ymm& mask_vreg,
+      const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+      const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
       bool has_weight_decay);
 
   typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
@@ -129,11 +129,11 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
     int num_vec_regs_per_block,
     int remainder,
     int prefetch,
-    typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-    typename simd_info<instSet>::vec_reg_t lr_vreg,
-    x86::Ymm mask_vreg,
-    typename simd_info<instSet>::vec_reg_t temp_vreg,
-    typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+    const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+    const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+    const x86::Ymm& mask_vreg,
+    const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+    const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
     bool has_weight_decay) {
   // NOTE: temp_vreg is defined only when remainder is true and instSet == avx2
   using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
@@ -237,11 +237,11 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     int num_vec_regs_per_block,
     int remainder,
     int prefetch,
-    typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-    typename simd_info<instSet>::vec_reg_t lr_vreg,
-    x86::Ymm mask_vreg,
-    typename simd_info<instSet>::vec_reg_t temp_vreg,
-    typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+    const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+    const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+    const x86::Ymm& mask_vreg,
+    const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+    const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
     bool has_weight_decay) {
   using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
   constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;

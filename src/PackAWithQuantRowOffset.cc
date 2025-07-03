@@ -209,7 +209,7 @@ int32_t PackAWithQuantRowOffset<T, accT>::addr(int32_t r, int32_t c) const {
 }
 
 template <typename T, typename accT>
-void PackAWithQuantRowOffset<T, accT>::printPackedMatrix(std::string name) {
+void PackAWithQuantRowOffset<T, accT>::printPackedMatrix(const std::string& name) {
   std::cout << name << ":" << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
 
