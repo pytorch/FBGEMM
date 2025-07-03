@@ -209,7 +209,7 @@ void fbgemmPacked(
 
 template <int SPATIAL_DIM>
 bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
-  if (SPATIAL_DIM == 1)
+  if constexpr (SPATIAL_DIM == 1)
     return false;
 
   int C_per_G = conv_p.IC / conv_p.G;

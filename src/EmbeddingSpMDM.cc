@@ -354,7 +354,7 @@ GenEmbeddingSpMDMLookup<
         asmjit::FuncFrame frame;
         frame.init(func);
 
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
               asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
@@ -468,7 +468,7 @@ GenEmbeddingSpMDMLookup<
         }
 
         if (remainder) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->vmovups(
                 mask_vreg,
                 x86::ymmword_ptr(
@@ -524,7 +524,7 @@ GenEmbeddingSpMDMLookup<
 
           // OK to use vreg0 because it's for out_vreg used in the main loop
           vec_reg_t temp_vreg(0);
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->mov(scratchReg1_, 1);
             a->cvtsi2ss(vlen_inv_vreg.xmm(), scratchReg1_);
             a->cvtsi2ss(temp_vreg.xmm(), lengths_R_);
@@ -752,7 +752,7 @@ GenEmbeddingSpMDMLookup<
               a->vfmadd231ps(out_vreg, src_vreg, scale_vreg);
             } else if (is_16bit_in) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   if (remainder % 2 == 0) {
                     a->vmaskmovps(src_vreg.xmm(), mask_fp16_vreg, src_addr);
                   } else {
@@ -819,7 +819,7 @@ GenEmbeddingSpMDMLookup<
               }
               if (has_weight) {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vfmadd231ps(out_vreg, w_vreg, src_vreg);
                   } else {
                     a->k(x86::k(1)).vfmadd231ps(out_vreg, w_vreg, src_addr);
@@ -829,7 +829,7 @@ GenEmbeddingSpMDMLookup<
                 }
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vaddps(out_vreg, out_vreg, src_vreg);
                   } else {
                     a->k(x86::k(1)).vaddps(out_vreg, out_vreg, src_addr);
@@ -864,7 +864,7 @@ GenEmbeddingSpMDMLookup<
 
             if constexpr (std::is_same_v<outType, float>) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(dst_addr, mask_vreg, out_vreg.ymm());
                 } else {
                   a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
@@ -874,7 +874,7 @@ GenEmbeddingSpMDMLookup<
               }
             } else {
               // fp16/bf16 output
-              if (instSet == inst_set_t::avx2) {
+              if constexpr (instSet == inst_set_t::avx2) {
                 // round nearest with no exception
                 if (is_fp16_out) {
                   a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
