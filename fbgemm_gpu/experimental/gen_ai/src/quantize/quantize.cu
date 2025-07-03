@@ -89,16 +89,25 @@ namespace fbgemm_gpu {
 // outputs are of size float[D]
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+#if HIP_FP8_TYPE_OCP
+using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3;
+using __nv_fp8x2_e4m3 = __hip_fp8x2_e4m3;
+using __nv_fp8_e4m3 = __hip_fp8_e4m3;
+using __nv_fp8_e5m2 = __hip_fp8_e5m2;
+#define torch_fp8_e4m3 at::kFloat8_e4m3fn
+#define torch_fp8_e5m2 at::kFloat8_e5m2
+#else // HIP_FP8_TYPE_OCP
 using __nv_fp8x4_e4m3 = __hip_fp8x4_e4m3_fnuz;
 using __nv_fp8x2_e4m3 = __hip_fp8x2_e4m3_fnuz;
 using __nv_fp8_e4m3 = __hip_fp8_e4m3_fnuz;
 using __nv_fp8_e5m2 = __hip_fp8_e5m2_fnuz;
 #define torch_fp8_e4m3 at::kFloat8_e4m3fnuz
 #define torch_fp8_e5m2 at::kFloat8_e5m2fnuz
-#else
+#endif // HIP_FP8_TYPE_OCP
+#else // USE_ROCM
 #define torch_fp8_e4m3 at::kFloat8_e4m3fn
 #define torch_fp8_e5m2 at::kFloat8_e5m2
-#endif
+#endif // USE_ROCM
 
 #if defined(CUDA_VERSION) && (CUDA_VERSION >= 12080)
 #include <torch/all.h>
