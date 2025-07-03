@@ -12,7 +12,6 @@
 #endif
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
@@ -262,10 +261,10 @@ static int run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if constexpr (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -289,9 +288,9 @@ static int run_benchmark(
 #pragma omp barrier
 #endif
       if (fbgemm_get_thread_num() == 0) {
-        if constexpr (std::is_same<OutType, float>::value) {
+        if constexpr (std::is_same_v<OutType, float>) {
           cout << "out type fp32";
-        } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+        } else if constexpr (std::is_same_v<OutType, uint16_t>) {
           if (is_bf16_out) {
             cout << "out type bf16";
           } else {
@@ -340,11 +339,6 @@ static int run_benchmark(
 }
 
 int main() {
-  int batch_size;
-  int num_rows;
-  int embedding_dim;
-  int average_len;
-
   bool stress_multi_threading = false;
 
   vector<vector<int>> inputs(GetInputs_());
@@ -352,10 +346,10 @@ int main() {
 
   for (auto& input : inputs) {
     assert(input.size() > 3);
-    batch_size = input[0];
-    num_rows = input[1];
-    embedding_dim = input[2];
-    average_len = input[3];
+    int batch_size = input[0];
+    int num_rows = input[1];
+    int embedding_dim = input[2];
+    int average_len = input[3];
 
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)

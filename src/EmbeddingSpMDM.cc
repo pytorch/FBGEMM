@@ -235,15 +235,15 @@ GenEmbeddingSpMDMLookup<
                 offsetType,
                 outType,
                 ROWWISE_SPARSE>::jit_embedding_kernel {
-        bool is_8bit_in = std::is_same_v<inType, uint8_t>;
-        bool is_16bit_in = std::is_same_v<inType, uint16_t>;
-        bool is_16bit_out = std::is_same_v<outType, uint16_t>;
+        constexpr bool is_8bit_in = std::is_same_v<inType, uint8_t>;
+        constexpr bool is_16bit_in = std::is_same_v<inType, uint16_t>;
+        constexpr bool is_16bit_out = std::is_same_v<outType, uint16_t>;
         bool is_fp16_in = is_16bit_in && !is_bf16_in;
         bool is_fp16_out = is_16bit_out && !is_bf16_out;
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
-        bool areIndices64b = std::is_same_v<indxType, int64_t>;
+        constexpr bool areIndices64b = std::is_same_v<indxType, int64_t>;
 
         asmjit::CodeHolder code;
         code.init(runtime().environment());
@@ -576,7 +576,7 @@ GenEmbeddingSpMDMLookup<
           a->jl(LoopDataIndexEnd);
 
           // Array out of bound check
-          if (areIndices64b) {
+          if constexpr (areIndices64b) {
             a->mov(scratchReg1_, x86::qword_ptr(indices));
           } else {
             a->mov(scratchReg1_.r32(), x86::dword_ptr(indices));
@@ -584,7 +584,7 @@ GenEmbeddingSpMDMLookup<
           if (!scale_bias_last) {
             // When scale_bias_last == false, assume this is for table batched
             // embedding (TBE) that can get -1 for pruned rows.
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->cmp(scratchReg1_, static_cast<asmjit::Imm>(-1));
             } else {
               a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
@@ -623,7 +623,7 @@ GenEmbeddingSpMDMLookup<
             a->cmp(scratchReg2_, index_size);
             a->jge(pref_dist_reset_start);
 
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->mov(
                   scratchReg2_,
                   x86::qword_ptr(indices, pref_dist * sizeof(indxType)));
@@ -638,7 +638,7 @@ GenEmbeddingSpMDMLookup<
             a->bind(pref_dist_reset_start);
             // things are not okay just get the current row
             // this can be improved to getting the max dist row.
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->mov(scratchReg2_, x86::qword_ptr(indices));
             } else {
               a->mov(scratchReg2_.r32(), x86::dword_ptr(indices));

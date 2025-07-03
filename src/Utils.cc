@@ -99,7 +99,7 @@ void printMatrix(
     size_t R,
     size_t C,
     size_t ld,
-    std::string name) {
+    const std::string& name) {
   // R: number of rows in op(inp)
   // C: number of cols in op(inp)
   // ld: leading dimension in inp
@@ -160,28 +160,28 @@ template void printMatrix<float>(
     size_t R,
     size_t C,
     size_t ld,
-    std::string name);
+    const std::string& name);
 template void printMatrix<int8_t>(
     matrix_op_t op,
     const int8_t* inp,
     size_t R,
     size_t C,
     size_t ld,
-    std::string name);
+    const std::string& name);
 template void printMatrix<uint8_t>(
     matrix_op_t op,
     const uint8_t* inp,
     size_t R,
     size_t C,
     size_t ld,
-    std::string name);
+    const std::string& name);
 template void printMatrix<int32_t>(
     matrix_op_t op,
     const int32_t* inp,
     size_t R,
     size_t C,
     size_t ld,
-    std::string name);
+    const std::string& name);
 
 namespace {
 inst_set_t g_forced_isa = inst_set_t::anyarch;

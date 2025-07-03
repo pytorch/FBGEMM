@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 namespace fbgemm {
 
@@ -128,7 +129,9 @@ std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
     const conv_param_t<SPATIAL_DIM>& test_conv_p) {
   std::string msg = "";
 
-  auto combineStr = [](std::string id, std::string str1, std::string str2) {
+  auto combineStr = [](const std::string& id,
+                       const std::string& str1,
+                       const std::string& str2) {
     std::string out = id + std::string(" ");
     out += str1;
     out += std::string(" vs ") + str2;
@@ -137,7 +140,8 @@ std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
   };
 
   auto combineInt = [&combineStr](std::string id, int int1, int int2) {
-    return combineStr(id, std::to_string(int1), std::to_string(int2));
+    return combineStr(
+        std::move(id), std::to_string(int1), std::to_string(int2));
   };
 
   if (conv_param_.IC != test_conv_p.IC) {

@@ -64,8 +64,8 @@ static void run_benchmark(
 
   vector<float> embedding_table(num_rows * embedding_dim);
   normal_distribution<float> embedding_distribution;
-  for (size_t i = 0; i < embedding_table.size(); ++i) {
-    embedding_table[i] = embedding_distribution(generator);
+  for (float& i : embedding_table) {
+    i = embedding_distribution(generator);
   }
   vector<float16> embedding_table_fp16;
   vector<bfloat16> embedding_table_bf16;
@@ -235,15 +235,15 @@ static void run_benchmark(
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
         /*use_offsets=*/true,
-        /*isbf16=*/true);
+        /*is_bf16_out=*/true);
     auto kernel_bf16_i64 = GenerateEmbeddingSpMDM<bfloat16, int64_t>(
         embedding_dim,
         has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
-        /*is_weight_positional=*/true,
-        /*isbf16=*/true);
+        /*use_offsets=*/true,
+        /*is_bf16_out=*/true);
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {

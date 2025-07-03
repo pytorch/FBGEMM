@@ -143,10 +143,10 @@ static void print_benchmark_results() {
       << "asmjit b/w (GB/s), asmjit effective b/w (GB/s), asmjit time, "
       << "autovec b/w (GB/s), autovec effective b/w (GB/s), autovec time, "
       << "ref b/w (GB/s), ref effective b/w (GB/s), ref time, "
-      << "asmjit speedup ratio, autovec speedup ratio" << std::endl;
-  for (size_t i = 0; i < benchmarks.size(); ++i) {
-    BenchmarkSpec& spec = benchmarks[i].first;
-    BenchmarkResult& res = benchmarks[i].second;
+      << "asmjit speedup ratio, autovec speedup ratio" << endl;
+  for (auto& benchmark : benchmarks) {
+    BenchmarkSpec& spec = benchmark.first;
+    BenchmarkResult& res = benchmark.second;
     float asmjit_speedup = res.ref_bw > 0.0 ? res.asmjit_bw / res.ref_bw : 0;
     float autovec_speedup = res.ref_bw > 0.0 ? res.autovec_bw / res.ref_bw : 0;
     std::cout << spec.bit_rate << ", " << spec.batch_size << ", "
@@ -158,7 +158,7 @@ static void print_benchmark_results() {
               << res.asmjit_time << ", " << res.autovec_bw << ", "
               << res.autovec_eff_bw << ", " << res.autovec_time << ", "
               << res.ref_bw << ", " << res.ref_eff_bw << ", " << res.ref_time
-              << ", " << asmjit_speedup << ", " << autovec_speedup << std::endl;
+              << ", " << asmjit_speedup << ", " << autovec_speedup << endl;
   }
 }
 
@@ -457,7 +457,7 @@ static int run_benchmark(
         find_benchmark_record(spec).set_asmjit_result(
             bytes / 1e9 / t, bytes_padded / 1e9 / t, t);
       } else {
-        std::cerr << "Bad kern_type parameter: " << kern_type << std::endl;
+        std::cerr << "Bad kern_type parameter: " << kern_type << endl;
         assert(false);
       }
       if (!success) {
@@ -469,20 +469,15 @@ static int run_benchmark(
 }
 
 static void sweep_benchmark(KernelType kern_type) {
-  int batch_size;
-  int num_rows;
-  int embedding_dim;
-  int average_len;
-
   vector<vector<int>> inputs(GetInputs_());
 
   for (int bit_rate : {4, 2}) {
     for (auto& input : inputs) {
       assert(input.size() > 3);
-      batch_size = input[0];
-      num_rows = input[1];
-      embedding_dim = input[2];
-      average_len = input[3];
+      int batch_size = input[0];
+      int num_rows = input[1];
+      int embedding_dim = input[2];
+      int average_len = input[3];
 
       auto run_benchmark_with_above_shape = [&](bool use_32_bit_indices,
                                                 bool prefetch) {

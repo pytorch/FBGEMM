@@ -27,6 +27,7 @@ class Int64GemmTest : public testing::Test {
     random_device r;
     default_random_engine generator(r());
     uniform_int_distribution<int> dist_dim(1, 128);
+    shapes.reserve(256);
     for (int i = 0; i < 256; ++i) {
       shapes.push_back(
           {dist_dim(generator), dist_dim(generator), dist_dim(generator)});

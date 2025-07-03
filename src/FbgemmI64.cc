@@ -33,9 +33,9 @@ template <>
 template <inst_set_t instSet>
 void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::genComputeBlock(
     x86::Emitter* a,
-    x86::Gp buffer_A,
-    x86::Gp buffer_B,
-    x86::Gp B_pf,
+    const x86::Gp& buffer_A,
+    const x86::Gp& buffer_B,
+    const x86::Gp& B_pf,
     int rowRegs,
     int colRegs,
     int lda) {
@@ -79,8 +79,8 @@ void CodeGenBase<int64_t, int64_t, int64_t, int64_t>::storeCRegs(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
-    x86::Gp C_Offset,
-    x86::Gp ldcReg,
+    const x86::Gp& C_Offset,
+    const x86::Gp& ldcReg,
     bool accum) {
   using VecT = typename simd_info<instSet>::vec_reg_t;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BITS / 64;

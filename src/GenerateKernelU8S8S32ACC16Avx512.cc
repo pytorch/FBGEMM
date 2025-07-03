@@ -22,9 +22,9 @@ template <>
 template <inst_set_t instSet>
 void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock(
     x86::Emitter* a,
-    x86::Gp buffer_A,
-    x86::Gp buffer_B,
-    x86::Gp /* unused (reserved for prefetching)*/,
+    const x86::Gp& buffer_A,
+    const x86::Gp& buffer_B,
+    const x86::Gp& /* unused (reserved for prefetching)*/,
     int rowRegs,
     int colRegs,
     int lda) {
