@@ -703,7 +703,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
-    std::string name) {
+    const std::string& name) {
   std::cout << name << ":" << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
 

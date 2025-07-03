@@ -19,6 +19,8 @@ modernize*,
 -modernize-use-ranges,
 -modernize-use-integer-sign-comparison
 -modernize-use-nodiscard,
+performance*,
+-performance-avoid-endl
 '
 CheckOptions:
  - key: facebook-cuda-safe-api-call-check.HandlerName
