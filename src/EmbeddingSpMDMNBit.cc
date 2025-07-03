@@ -285,7 +285,7 @@ GenEmbeddingSpMDMNBitLookup<
         ++reg_id;
         x86::Gp scratchReg2_ = a->gpz(reg_id); // 14 or 15
         x86::Gp scratchReg3_;
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           scratchReg3_ = a->zax();
         }
 
@@ -470,7 +470,7 @@ GenEmbeddingSpMDMNBitLookup<
         unroll_factor = unroll_factor / 4 * 4;
 
         if (remainder) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->vmovups(
                 mask_vreg,
                 x86::ymmword_ptr(
@@ -496,7 +496,7 @@ GenEmbeddingSpMDMNBitLookup<
         }
 
         if (remainder_32bit_granularity) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->lea(
                 x86::rsp,
                 x86::dword_ptr(
@@ -548,7 +548,7 @@ GenEmbeddingSpMDMNBitLookup<
           a->jl(IfLengthsEnd);
 
           vec_reg_t temp_vreg0(0);
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->mov(scratchReg1_, 1);
             a->cvtsi2ss(vlen_inv_vreg.xmm(), scratchReg1_);
             a->cvtsi2ss(temp_vreg0.xmm(), lengths_R_);
@@ -755,7 +755,7 @@ GenEmbeddingSpMDMNBitLookup<
             if (bit_rate == 4) {
               if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
                   remainder_32bit_granularity) {
-                if (instSet == inst_set_t::avx512) {
+                if constexpr (instSet == inst_set_t::avx512) {
                   a->k(x86::k(2)).vmovups(src_vreg.ymm(), src_addr);
                 } else {
                   a->vpmaskmovd(src_vreg.xmm(), mask2_vreg.xmm(), src_addr);
@@ -765,7 +765,7 @@ GenEmbeddingSpMDMNBitLookup<
                 a->vpmovzxbw(src_vreg, src_addr);
               }
               a->vpslld(temp_vreg, src_vreg, asmjit::Imm(4));
-              if (instSet == inst_set_t::avx512) {
+              if constexpr (instSet == inst_set_t::avx512) {
                 a->vpord(src_vreg, src_vreg, temp_vreg);
                 a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
               } else {
@@ -776,7 +776,7 @@ GenEmbeddingSpMDMNBitLookup<
             } else {
               if (num_vec_regs_per_block - (vec_idx + v) < 4 &&
                   remainder_32bit_granularity) {
-                if (instSet == inst_set_t::avx512) {
+                if constexpr (instSet == inst_set_t::avx512) {
                   a->k(x86::k(2)).vmovups(src_vreg.xmm(), src_addr);
                   a->vpmovzxbd(src_vreg, src_vreg.xmm());
                 } else {
@@ -788,13 +788,13 @@ GenEmbeddingSpMDMNBitLookup<
               }
               a->vpslld(temp_vreg, src_vreg, 2 * 8 + 2);
               a->vpslld(temp2_vreg, src_vreg, 8 + 4);
-              if (instSet == inst_set_t::avx512) {
+              if constexpr (instSet == inst_set_t::avx512) {
                 a->vpord(temp_vreg, temp_vreg, temp2_vreg);
               } else {
                 a->vpor(temp_vreg.ymm(), temp_vreg.ymm(), temp2_vreg.ymm());
               }
               a->vpslld(temp2_vreg, src_vreg, 6);
-              if (instSet == inst_set_t::avx512) {
+              if constexpr (instSet == inst_set_t::avx512) {
                 a->vpord(temp_vreg, temp_vreg, temp2_vreg);
                 a->vpord(src_vreg, temp_vreg, src_vreg);
                 a->vpandd(src_vreg, src_vreg, extract_mask_vreg);
@@ -817,11 +817,11 @@ GenEmbeddingSpMDMNBitLookup<
               if (i == 0) {
                 a->vpmovsxbd(temp_vreg, src_vreg.xmm());
                 // this is only needed for avx2
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   a->vmovups(temp2_vreg, src_vreg);
                 }
               } else {
-                if (instSet == inst_set_t::avx512) {
+                if constexpr (instSet == inst_set_t::avx512) {
                   // We could've used avx512_ymm for clock frequency advantage,
                   // if there's an instruction to extract a 64-bit portion from
                   // a YMM as an XMM register.
@@ -868,7 +868,7 @@ GenEmbeddingSpMDMNBitLookup<
 
             if constexpr (std::is_same_v<outType, float>) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx512) {
+                if constexpr (instSet == inst_set_t::avx512) {
                   a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
                 } else {
                   a->vmaskmovps(dst_addr, mask_vreg, out_vreg.ymm());
@@ -878,7 +878,7 @@ GenEmbeddingSpMDMNBitLookup<
               }
             } else {
               // 16-bit output
-              if (instSet == inst_set_t::avx2) {
+              if constexpr (instSet == inst_set_t::avx2) {
                 if (is_bf16_out) {
                   a->vpaddd(out_vreg, out_vreg, ones_vreg);
                   a->vpsrld(out_vreg, out_vreg, 16);

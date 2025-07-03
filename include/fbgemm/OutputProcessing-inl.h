@@ -81,7 +81,8 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
   int g = block.col_start / ncol_per_group;
-  if (instSet == inst_set_t::anyarch || !std::is_same<outT, uint8_t>::value) {
+  if constexpr (
+      instSet == inst_set_t::anyarch || !std::is_same<outT, uint8_t>::value) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + (j - block.col_start)];
@@ -89,11 +90,11 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
           raw -= Aq_zero_point_ * q_col_offsets_[j];
         }
         int Bq_zero_point_idx;
-        if (Q_GRAN == QuantizationGranularity::TENSOR) {
+        if constexpr (Q_GRAN == QuantizationGranularity::TENSOR) {
           Bq_zero_point_idx = 0;
-        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
           Bq_zero_point_idx = g;
-        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           Bq_zero_point_idx = j;
         } else {
           assert(false && "unknown quantization granularity");
@@ -123,7 +124,8 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
             std::min(255l, rounded));
       }
     }
-  } else if (instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
+  } else if constexpr (
+      instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
     bool b_symmetric =
         (Q_GRAN == QuantizationGranularity::TENSOR && Bq_zero_point_[0] == 0) ||
         q_row_offsets_ == nullptr;
@@ -211,7 +213,8 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
   int g = block.col_start / ncol_per_group;
-  if (instSet == inst_set_t::anyarch || !std::is_same<outT, float>::value) {
+  if constexpr (
+      instSet == inst_set_t::anyarch || !std::is_same<outT, float>::value) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + j - block.col_start];
@@ -219,11 +222,11 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
           raw -= Aq_zero_point_ * q_col_offsets_[j];
         }
         int Bq_zero_point_idx;
-        if (Q_GRAN == QuantizationGranularity::TENSOR) {
+        if constexpr (Q_GRAN == QuantizationGranularity::TENSOR) {
           Bq_zero_point_idx = 0;
-        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+        } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
           Bq_zero_point_idx = g;
-        } else if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           Bq_zero_point_idx = j;
         } else {
           assert(false && "unknown quantization granularity");
@@ -242,7 +245,8 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
         }
       }
     }
-  } else if (instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
+  } else if constexpr (
+      instSet == inst_set_t::avx2 || instSet == inst_set_t::avx512) {
     bool b_symmetric =
         (Q_GRAN == QuantizationGranularity::TENSOR && Bq_zero_point_[0] == 0) ||
         q_row_offsets_ == nullptr;

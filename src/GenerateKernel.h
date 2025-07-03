@@ -118,13 +118,13 @@ class CodeGenBase {
         << "_NC-" + std::to_string(nc) << "_NCB-" + std::to_string(NCB)
         << "_KCB-" + std::to_string(KCB) << "_MR-" + std::to_string(MR)
         << "_NR-" + std::to_string(NR);
-    if (instSet == inst_set_t::avx512_vnni) {
+    if constexpr (instSet == inst_set_t::avx512_vnni) {
       oss << "_avx512vnni";
-    } else if (instSet == inst_set_t::avx512) {
+    } else if constexpr (instSet == inst_set_t::avx512) {
       oss << "_avx512";
-    } else if (instSet == inst_set_t::avx512_ymm) {
+    } else if constexpr (instSet == inst_set_t::avx512_ymm) {
       oss << "_avx512_ymm";
-    } else if (instSet == inst_set_t::avx2) {
+    } else if constexpr (instSet == inst_set_t::avx2) {
       oss << "_avx2";
     }
     oss << ".txt";

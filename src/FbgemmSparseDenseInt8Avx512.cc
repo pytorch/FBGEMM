@@ -44,7 +44,7 @@ requantizeForMM(__m512i x[], int rowIdx, trRequantizationParams_t& rParams) {
   __m512i row_offset_v = _mm512_set1_epi32(row_offset);
 
   int weight_zeropoint_idx = 0;
-  if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+  if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
     weight_zeropoint_idx = rowIdx;
   }
 
@@ -56,7 +56,7 @@ requantizeForMM(__m512i x[], int rowIdx, trRequantizationParams_t& rParams) {
   }
 
   __m512 act_times_w_div_c_v;
-  if (Q_GRAN == QuantizationGranularity::TENSOR) {
+  if constexpr (Q_GRAN == QuantizationGranularity::TENSOR) {
     act_times_w_div_c_v =
         _mm512_set1_ps(rParams.act_times_w_scale[0] / rParams.C_scale);
   } else {

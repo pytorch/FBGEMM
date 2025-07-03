@@ -736,9 +736,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
     float* out,
     const bool is_weight_positional,
     const bool use_offsets) {
-  bool is8bit = std::is_same_v<InType, uint8_t>;
+  constexpr bool is8bit = std::is_same_v<InType, uint8_t>;
 
-  if (is8bit) {
+  if constexpr (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
     // of an entire row, including scale and bias.
     const auto scale_bias_offset = 2 * sizeof(float);

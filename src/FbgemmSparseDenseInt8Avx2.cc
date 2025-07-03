@@ -106,8 +106,8 @@ void SparseDenseInt8MMAvx2(
       // unrolled by 1
       for (; r < row_ptr[i + 1]; ++r) {
         // this is needed for correct operation
-        assert(rowBlockSize == 1 && "row block size should be 1");
-        assert(colBlockSize == 4 && "column block size should be 4");
+        static_assert(rowBlockSize == 1, "row block size should be 1");
+        static_assert(colBlockSize == 4, "column block size should be 4");
         int acbr_block = col_idx[r];
         int32_t v = reinterpret_cast<const int32_t*>(values)[r];
         __m256i a_v = _mm256_set1_epi32(v);

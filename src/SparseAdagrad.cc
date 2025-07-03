@@ -162,7 +162,7 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
       auto w_ptr = x86::dword_ptr(
           w, base_offset, 0, (vec_idx + v) * vlen * sizeof(float));
       if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           a->vmaskmovps(g_vreg.ymm(), mask_vreg, g_ptr);
           if (has_weight_decay) {
             // TODO(@taiqing) use a vreg for weights to avoid duplicate indexing
@@ -185,7 +185,7 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
           a->vaddps(out_vreg, out_vreg, temp_vreg);
 
           a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
-        } else if (instSet == inst_set_t::avx512) {
+        } else if constexpr (instSet == inst_set_t::avx512) {
           a->k(x86::k(1)).vmovups(g_vreg, g_ptr);
           if (has_weight_decay) {
             a->k(x86::k(1)).vfmadd231ps(g_vreg, weight_decay_vreg, w_ptr);
@@ -299,7 +299,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
           w, base_offset, 0, (vec_idx + v) * vlen_avx2 * sizeof(float));
       if (block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS &&
           vec_idx + v == num_vec_regs_per_block_avx2 - 1) {
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           a->vmaskmovps(out_vreg, mask_vreg, g_ptr);
           if (has_weight_decay) {
             a->vmaskmovps(temp_vreg.ymm(), mask_vreg, w_ptr);
@@ -401,7 +401,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
       auto w_ptr = x86::dword_ptr(
           w, base_offset, 0, (vec_idx + v) * vlen * sizeof(float));
       if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           a->vmaskmovps(temp_vreg.ymm(), mask_vreg, g_ptr);
           if (has_weight_decay) {
             a->vmaskmovps(out_vreg.ymm(), mask_vreg, w_ptr);
@@ -519,7 +519,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         asmjit::FuncFrame frame;
         frame.init(func);
 
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
               asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
@@ -586,13 +586,13 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         }
 
         if (remainder) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             --unroll_factor;
             temp_vreg = vec_reg_t(unroll_factor);
           }
 
           // Creating masks for non multiples of vlen iterations
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             --unroll_factor;
             mask_vreg = x86::Ymm(unroll_factor);
             a->vmovups(mask_vreg, x86::dword_ptr(mask_avx2));

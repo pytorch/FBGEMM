@@ -186,7 +186,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         asmjit::FuncFrame frame;
         frame.init(func);
 
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
               asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
@@ -273,7 +273,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           first_available_vec_reg_id++;
 
           // Load random buffer for FP16 stochastic rounding
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->vmovdqa(S0_vreg.ymm(), x86::dword_ptr(rand_buffer));
             a->vmovdqa(
                 S1_vreg.ymm(),
@@ -299,7 +299,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         }
 
         if (remainder) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             src_vreg = vec_reg_t(first_available_vec_reg_id);
             ++first_available_vec_reg_id;
 
@@ -370,7 +370,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 x86::dword_ptr(g, (vec_idx + v) * vlen_avx2 * sizeof(float));
             if (block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS &&
                 vec_idx + v == num_vec_regs_per_block_avx2 - 1) {
-              if (instSet == inst_set_t::avx2) {
+              if constexpr (instSet == inst_set_t::avx2) {
                 a->vmaskmovps(out_vreg, mask_vreg, g_ptr);
               } else {
                 a->k(reduce_mask_avx512).z().vmovups(out_vreg, g_ptr);
@@ -525,7 +525,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
               auto w_ptr = x86::dword_ptr(
                   w, scratchReg1, 2, (vec_idx + v) * vlen * sizeof(dataType));
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(src_vreg.ymm(), mask_vreg, g_ptr);
                   a->vmulps(src_vreg, float_step_vreg, src_vreg);
 
@@ -574,7 +574,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   a->vpaddd(r0_vreg, S0_vreg, S3_vreg);
                   a->vpslld(r1_vreg, r0_vreg, 7);
                   a->vpsrld(r0_vreg, r0_vreg, 25);
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vpor(R_vreg.ymm(), r0_vreg.ymm(), r1_vreg.ymm());
                   } else {
                     a->vpord(R_vreg, r0_vreg, r1_vreg);
@@ -583,7 +583,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
                   a->vpslld(r0_vreg, S1_vreg, 9);
 
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vpxor(S2_vreg.ymm(), S2_vreg.ymm(), S0_vreg.ymm());
                     a->vpxor(S3_vreg.ymm(), S3_vreg.ymm(), S1_vreg.ymm());
                     a->vpxor(S1_vreg.ymm(), S1_vreg.ymm(), S2_vreg.ymm());
@@ -600,7 +600,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   }
                   a->vpslld(r0_vreg, S3_vreg, 11);
                   a->vpsrld(r1_vreg, S3_vreg, 21);
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vpor(S3_vreg.ymm(), r0_vreg.ymm(), r1_vreg.ymm());
                   } else {
                     a->vpord(S3_vreg, r0_vreg, r1_vreg);
@@ -627,7 +627,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
               }
 
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(src_vreg.ymm(), mask_vreg, g_ptr);
                   // No AVX2 mask load/store for 16bit
                   // Copy input to stack using loop instead and reuse GPR for h
@@ -723,7 +723,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->bind(exit);
 
         if (areWeightsFp16 && use_stochastic_rounding) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->vmovdqa(x86::dword_ptr(rand_buffer), S0_vreg.ymm());
             a->vmovdqa(
                 x86::dword_ptr(rand_buffer, 1 * vlen * sizeof(uint32_t)),

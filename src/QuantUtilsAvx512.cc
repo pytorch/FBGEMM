@@ -38,7 +38,7 @@ void requantizeOutputProcessingGConvAvx512(
   // Adoption of implementation at QNNPACK/src/requantization/fp32-sse2.c
   // using AVX2 instructions
   int quant_param_idx = 0;
-  if (Q_GRAN == QuantizationGranularity::GROUP) {
+  if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
     int ncol_per_group = r.ncols / r.groups;
     int g = block.col_start / ncol_per_group;
     quant_param_idx = g;
@@ -47,7 +47,7 @@ void requantizeOutputProcessingGConvAvx512(
   // Broadcasted reciprocal of act_times_w_scale
   __m512 act_times_w_rcp_v;
 
-  if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
+  if constexpr (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
     if constexpr (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm512_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
@@ -122,7 +122,7 @@ void requantizeOutputProcessingGConvAvx512(
     for (; j < block.col_start + ((block.col_size + VLEN - 1) / VLEN * VLEN);
          j += VLEN) {
       __m512i x_v;
-      if (C_PER_G != 8) {
+      if constexpr (C_PER_G != 8) {
         x_v = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(
             inp + (i - block.row_start) * ld_in + (j - block.col_start)));
       } else {
@@ -135,7 +135,7 @@ void requantizeOutputProcessingGConvAvx512(
 
       if (!A_SYMMETRIC) {
         __m512i col_off_raw_v;
-        if (C_PER_G != 8) {
+        if constexpr (C_PER_G != 8) {
           col_off_raw_v = _mm512_loadu_si512(
               reinterpret_cast<const __m512i*>(r.col_offsets + j));
         } else {
@@ -149,7 +149,7 @@ void requantizeOutputProcessingGConvAvx512(
       if (!B_SYMMETRIC) {
         __m512i row_offset_v;
 
-        if (C_PER_G == 2) {
+        if constexpr (C_PER_G == 2) {
           // When C_PER_G == 2, we need to handle 8 groups at a time to fully
           // utilize 64B AVX12 vector register (C_PER_G * 8 * sizeof(int32_t) ==
           // 64B)
@@ -169,7 +169,7 @@ void requantizeOutputProcessingGConvAvx512(
 
         // Groups 0,1,2,3 when C_PER_G == 4
         // Group 0 when C_PER_G == 8
-        else if (C_PER_G == 4) {
+        else if constexpr (C_PER_G == 4) {
           // Load row_offsets for 4 groups and broadcast by 4 times each because
           // we have 4 channels per group.
           // groups 0,1,2,3
@@ -178,38 +178,38 @@ void requantizeOutputProcessingGConvAvx512(
               _mm512_broadcast_i32x4(
                   _mm_loadu_si128(reinterpret_cast<const __m128i*>(
                       r.row_offsets + (i - block.row_start) * 4))));
-        } else if (C_PER_G == 8) {
+        } else if constexpr (C_PER_G == 8) {
           row_offset_v =
               _mm512_set1_epi32(r.row_offsets[(i - block.row_start)]);
         } else {
-          assert(C_PER_G == 16);
+          static_assert(C_PER_G == 16);
           row_offset_v =
               _mm512_set1_epi32(r.row_offsets[(i - block.row_start)]);
         }
 
         __m512i B_zero_point_v = _mm512_set1_epi32(r.B_zero_point[0]);
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          if (C_PER_G != 8) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          if constexpr (C_PER_G != 8) {
             B_zero_point_v = _mm512_loadu_si512(
                 reinterpret_cast<const __m512i*>(r.B_zero_point + j));
           } else {
             B_zero_point_v = _mm512_maskz_loadu_epi32(mask, r.B_zero_point + j);
           }
-        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-          if (C_PER_G == 2) {
+        } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+          if constexpr (C_PER_G == 2) {
             B_zero_point_v =
                 _mm512_castps_si512(_mm512_moveldup_ps(_mm512_permutexvar_ps(
                     permute_mask_v_g8,
                     _mm512_castps256_ps512(
                         _mm256_loadu_ps(reinterpret_cast<const float*>(
                             r.B_zero_point + quant_param_idx))))));
-          } else if (C_PER_G == 4) {
+          } else if constexpr (C_PER_G == 4) {
             B_zero_point_v = _mm512_permutexvar_epi32(
                 permute_mask_v_g4,
                 _mm512_broadcast_i32x4(
                     _mm_loadu_si128(reinterpret_cast<const __m128i*>(
                         r.B_zero_point + quant_param_idx))));
-          } else if (C_PER_G == 8) {
+          } else if constexpr (C_PER_G == 8) {
             B_zero_point_v = _mm512_set1_epi32(r.B_zero_point[quant_param_idx]);
           } else {
             B_zero_point_v = _mm512_set1_epi32(r.B_zero_point[quant_param_idx]);
@@ -222,7 +222,7 @@ void requantizeOutputProcessingGConvAvx512(
       if (HAS_BIAS) {
         if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m512 x_bias_v;
-          if (C_PER_G != 8) {
+          if constexpr (C_PER_G != 8) {
             x_bias_v =
                 _mm512_loadu_ps(reinterpret_cast<const float*>(r.bias + j));
           } else {
@@ -230,32 +230,32 @@ void requantizeOutputProcessingGConvAvx512(
                 mask, reinterpret_cast<const float*>(r.bias + j));
           }
 
-          if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             __m512 act_times_w_scale_v;
-            if (C_PER_G != 8) {
+            if constexpr (C_PER_G != 8) {
               act_times_w_scale_v = _mm512_loadu_ps(r.act_times_w_scale + j);
             } else {
               act_times_w_scale_v =
                   _mm512_maskz_loadu_ps(mask, r.act_times_w_scale + j);
             }
             x_bias_v = _mm512_div_ps(x_bias_v, act_times_w_scale_v);
-          } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+          } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
             __m512 diviser_v;
-            if (C_PER_G == 2) {
+            if constexpr (C_PER_G == 2) {
               diviser_v = _mm512_moveldup_ps(_mm512_permutexvar_ps(
                   permute_mask_v_g8,
                   _mm512_castps256_ps512(
                       _mm256_loadu_ps(r.act_times_w_scale + quant_param_idx))));
-            } else if (C_PER_G == 4) {
+            } else if constexpr (C_PER_G == 4) {
               diviser_v = _mm512_permutexvar_ps(
                   permute_mask_v_g4,
                   _mm512_broadcast_f32x4(
 
                       _mm_loadu_ps(r.act_times_w_scale + quant_param_idx)));
-            } else if (C_PER_G == 8) {
+            } else if constexpr (C_PER_G == 8) {
               diviser_v = _mm512_set1_ps(r.act_times_w_scale[quant_param_idx]);
             } else {
-              assert(C_PER_G == 16);
+              static_assert(C_PER_G == 16);
               diviser_v = _mm512_set1_ps(r.act_times_w_scale[quant_param_idx]);
             }
             x_bias_v = _mm512_div_ps(x_bias_v, diviser_v);
@@ -286,26 +286,26 @@ void requantizeOutputProcessingGConvAvx512(
        * FP32 value with ties to even with default MXCSR rounding mode.
        */
       __m512 x_scaled_v;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         __m512 C_multiplier_v;
-        if (C_PER_G != 8) {
+        if constexpr (C_PER_G != 8) {
           C_multiplier_v = _mm512_loadu_ps(r.C_multiplier + j);
         } else {
           C_multiplier_v = _mm512_maskz_loadu_ps(mask, r.C_multiplier + j);
         }
         x_scaled_v = _mm512_mul_ps(xf_v, C_multiplier_v);
-      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-        if (C_PER_G == 2) {
+      } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+        if constexpr (C_PER_G == 2) {
           multiplier_v = _mm512_moveldup_ps(_mm512_permutexvar_ps(
               permute_mask_v_g8,
               _mm512_castps256_ps512(
                   _mm256_loadu_ps(r.C_multiplier + quant_param_idx))));
-        } else if (C_PER_G == 4) {
+        } else if constexpr (C_PER_G == 4) {
           multiplier_v = _mm512_permutexvar_ps(
               permute_mask_v_g4,
               _mm512_broadcast_f32x4(
                   _mm_loadu_ps(r.C_multiplier + quant_param_idx)));
-        } else if (C_PER_G == 8) {
+        } else if constexpr (C_PER_G == 8) {
           multiplier_v = _mm512_set1_ps(r.C_multiplier[quant_param_idx]);
         } else {
           multiplier_v = _mm512_set1_ps(r.C_multiplier[quant_param_idx]);
@@ -370,7 +370,7 @@ void requantizeOutputProcessingGConvAvx512(
        * ---------------------
        * 9 instructions total
        */
-      if (C_PER_G != 8) {
+      if constexpr (C_PER_G != 8) {
         _mm_storeu_si128(
             reinterpret_cast<__m128i*>(out + i * ld_out + j),
             _mm512_castsi512_si128(x_clamped_v));

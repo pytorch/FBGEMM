@@ -63,7 +63,7 @@ void QuantizeAvx2(
   for (; i < len / VLEN * VLEN; i += VLEN) {
     __m256 src_v = _mm256_loadu_ps(src + i);
     __m256 transformed_v;
-    if (LEGACY) { // static if
+    if constexpr (LEGACY) { // static if
       transformed_v =
           _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
     } else {
@@ -76,7 +76,7 @@ void QuantizeAvx2(
         _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    if (!LEGACY) {
+    if constexpr (!LEGACY) {
       rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
     }
     __m256i clipped_v = _mm256_min_epi32(
@@ -100,7 +100,7 @@ void QuantizeAvx2(
     // reinterpret_cast<const __m128i*>(internal::sse_epi8_masks[rem]));
     __m256 src_v = _mm256_maskload_ps(src + i, mask_v);
     __m256 transformed_v;
-    if (LEGACY) {
+    if constexpr (LEGACY) {
       transformed_v =
           _mm256_fmadd_ps(src_v, inverse_scale_v, zero_point_v_legacy);
     } else {
@@ -110,7 +110,7 @@ void QuantizeAvx2(
         _mm256_min_ps(transformed_v, _mm256_set1_ps(int32_float_max_val));
 
     __m256i rounded_v = _mm256_cvtps_epi32(transformed_v);
-    if (!LEGACY) {
+    if constexpr (!LEGACY) {
       rounded_v = _mm256_add_epi32(rounded_v, zero_point_v_non_legacy);
     }
     __m256i clipped_v = _mm256_min_epi32(
@@ -472,7 +472,7 @@ void requantizeOutputProcessingAvx2(
   // Adoption of implementation at QNNPACK/src/requantization/fp32-sse2.c
   // using AVX2 instructions
   int quant_param_idx = 0;
-  if (Q_GRAN == QuantizationGranularity::GROUP) {
+  if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
     int ncol_per_group = r.ncols / r.groups;
     int g = block.col_start / ncol_per_group;
     quant_param_idx = g;
@@ -481,7 +481,7 @@ void requantizeOutputProcessingAvx2(
 
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v;
-  if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
+  if constexpr (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
     if constexpr (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm256_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
@@ -515,16 +515,16 @@ void requantizeOutputProcessingAvx2(
   for (int64_t i = block.row_start; i < block.row_start + block.row_size; ++i) {
     // Scale row_offset with Bq_zero_point
     int32_t row_offset = 0;
-    if (B_SYMMETRIC) {
+    if constexpr (B_SYMMETRIC) {
       row_offset = 0;
-    } else if (
+    } else if constexpr (
         Q_GRAN == QuantizationGranularity::TENSOR ||
         Q_GRAN == QuantizationGranularity::GROUP) {
       row_offset =
           r.row_offsets[i - block.row_start] * r.B_zero_point[quant_param_idx];
     } else {
-      assert(
-          Q_GRAN == QuantizationGranularity::OUT_CHANNEL &&
+      static_assert(
+          Q_GRAN == QuantizationGranularity::OUT_CHANNEL,
           "unknown quantization granularity");
     }
     __m256i row_offset_v = _mm256_set1_epi32(row_offset);
@@ -544,9 +544,9 @@ void requantizeOutputProcessingAvx2(
           inp + (i - block.row_start) * ld_in + (j - block.col_start) +
           3 * VLEN));
 
-      if (!A_SYMMETRIC) {
+      if constexpr (!A_SYMMETRIC) {
         __m256i col_off_v;
-        if (DIRECT == false) {
+        if constexpr (DIRECT == false) {
           col_off_v = _mm256_mullo_epi32(
               A_zero_point_v,
               _mm256_loadu_si256(
@@ -560,7 +560,7 @@ void requantizeOutputProcessingAvx2(
 
         x_v = _mm256_sub_epi32(x_v, col_off_v);
 
-        if (DIRECT == false) {
+        if constexpr (DIRECT == false) {
           col_off_v = _mm256_mullo_epi32(
               A_zero_point_v,
               _mm256_loadu_si256(
@@ -574,7 +574,7 @@ void requantizeOutputProcessingAvx2(
 
         y_v = _mm256_sub_epi32(y_v, col_off_v);
 
-        if (DIRECT == false) {
+        if constexpr (DIRECT == false) {
           col_off_v = _mm256_mullo_epi32(
               A_zero_point_v,
               _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
@@ -588,7 +588,7 @@ void requantizeOutputProcessingAvx2(
 
         z_v = _mm256_sub_epi32(z_v, col_off_v);
 
-        if (DIRECT == false) {
+        if constexpr (DIRECT == false) {
           col_off_v = _mm256_mullo_epi32(
               A_zero_point_v,
               _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
@@ -603,29 +603,29 @@ void requantizeOutputProcessingAvx2(
         w_v = _mm256_sub_epi32(w_v, col_off_v);
       }
 
-      if (!B_SYMMETRIC) {
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (!B_SYMMETRIC) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_loadu_si256(
                   reinterpret_cast<const __m256i*>(r.B_zero_point + j)));
         }
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_loadu_si256(
                   reinterpret_cast<const __m256i*>(r.B_zero_point + j + VLEN)));
         }
         y_v = _mm256_sub_epi32(y_v, row_offset_v);
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
                   r.B_zero_point + j + 2 * VLEN)));
         }
         z_v = _mm256_sub_epi32(z_v, row_offset_v);
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
@@ -634,10 +634,10 @@ void requantizeOutputProcessingAvx2(
         w_v = _mm256_sub_epi32(w_v, row_offset_v);
       }
       __m256 xf_v, yf_v, zf_v, wf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
-          if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
                 _mm256_loadu_ps(
                     reinterpret_cast<const float*>(r.bias + j + 0 * VLEN)),
@@ -718,7 +718,7 @@ void requantizeOutputProcessingAvx2(
        * FP32 value with ties to even with default MXCSR rounding mode.
        */
       __m256 x_scaled_v, y_scaled_v, z_scaled_v, w_scaled_v;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         x_scaled_v =
             _mm256_mul_ps(xf_v, _mm256_loadu_ps(r.C_multiplier + j + 0 * VLEN));
         y_scaled_v =
@@ -801,9 +801,9 @@ void requantizeOutputProcessingAvx2(
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
           inp + (i - block.row_start) * ld_in + (j - block.col_start)));
 
-      if (!A_SYMMETRIC) {
+      if constexpr (!A_SYMMETRIC) {
         __m256i col_off_v;
-        if (DIRECT == false) {
+        if constexpr (DIRECT == false) {
           col_off_v = _mm256_mullo_epi32(
               A_zero_point_v,
               _mm256_loadu_si256(
@@ -817,8 +817,8 @@ void requantizeOutputProcessingAvx2(
         x_v = _mm256_sub_epi32(x_v, col_off_v);
       }
 
-      if (!B_SYMMETRIC) {
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (!B_SYMMETRIC) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_loadu_si256(
@@ -827,10 +827,10 @@ void requantizeOutputProcessingAvx2(
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
       }
       __m256 xf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v;
-          if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
                 _mm256_loadu_ps(reinterpret_cast<const float*>(r.bias + j)),
                 _mm256_loadu_ps(r.act_times_w_scale + j));
@@ -851,7 +851,7 @@ void requantizeOutputProcessingAvx2(
       }
 
       __m256 x_scaled_v;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         x_scaled_v = _mm256_mul_ps(xf_v, _mm256_loadu_ps(r.C_multiplier + j));
       } else {
         x_scaled_v = _mm256_mul_ps(xf_v, multiplier_v);
@@ -898,9 +898,9 @@ void requantizeOutputProcessingAvx2(
       __m256i x_v = _mm256_maskload_epi32(
           inp + (i - block.row_start) * ld_in + (j - block.col_start), mask_v);
 
-      if (!A_SYMMETRIC) {
+      if constexpr (!A_SYMMETRIC) {
         __m256i col_off_v;
-        if (DIRECT == false) {
+        if constexpr (DIRECT == false) {
           col_off_v = _mm256_mullo_epi32(
               A_zero_point_v, _mm256_maskload_epi32(r.col_offsets + j, mask_v));
         } else {
@@ -912,8 +912,8 @@ void requantizeOutputProcessingAvx2(
         x_v = _mm256_sub_epi32(x_v, col_off_v);
       }
 
-      if (!B_SYMMETRIC) {
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (!B_SYMMETRIC) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_maskload_epi32(r.B_zero_point + j, mask_v));
@@ -922,10 +922,10 @@ void requantizeOutputProcessingAvx2(
       }
 
       __m256 xf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v;
-          if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
                 _mm256_maskload_ps(
                     reinterpret_cast<const float*>(r.bias + j), mask_v),
@@ -949,7 +949,7 @@ void requantizeOutputProcessingAvx2(
       }
 
       __m256 x_scaled_v;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         x_scaled_v =
             _mm256_mul_ps(xf_v, _mm256_maskload_ps(r.C_multiplier + j, mask_v));
       } else {
@@ -1010,7 +1010,7 @@ void requantizeForFloatAvx2(
   // Adoption of implementation at QNNPACK/src/requantization/fp32-sse2.c
   // using AVX2 instructions
   int quant_param_idx = 0;
-  if (Q_GRAN == QuantizationGranularity::GROUP) {
+  if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
     int ncol_per_group = r.ncols / r.groups;
     int g = block.col_start / ncol_per_group;
     quant_param_idx = g;
@@ -1036,16 +1036,16 @@ void requantizeForFloatAvx2(
   for (int64_t i = block.row_start; i < block.row_start + block.row_size; ++i) {
     // Scale row_offset with Bq_zero_point
     int32_t row_offset = 0;
-    if (B_SYMMETRIC) {
+    if constexpr (B_SYMMETRIC) {
       row_offset = 0;
-    } else if (
+    } else if constexpr (
         Q_GRAN == QuantizationGranularity::TENSOR ||
         Q_GRAN == QuantizationGranularity::GROUP) {
       row_offset =
           r.row_offsets[i - block.row_start] * r.B_zero_point[quant_param_idx];
     } else {
-      assert(
-          Q_GRAN == QuantizationGranularity::OUT_CHANNEL &&
+      static_assert(
+          Q_GRAN == QuantizationGranularity::OUT_CHANNEL,
           "unknown quantization granularity");
     }
     __m256i row_offset_v = _mm256_set1_epi32(row_offset);
@@ -1055,7 +1055,7 @@ void requantizeForFloatAvx2(
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
           inp + (i - block.row_start) * ld_in + (j - block.col_start)));
 
-      if (!A_SYMMETRIC) {
+      if constexpr (!A_SYMMETRIC) {
         __m256i col_off_v = _mm256_mullo_epi32(
             A_zero_point_v,
             _mm256_loadu_si256(
@@ -1063,8 +1063,8 @@ void requantizeForFloatAvx2(
         x_v = _mm256_sub_epi32(x_v, col_off_v);
       }
 
-      if (!B_SYMMETRIC) {
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (!B_SYMMETRIC) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_loadu_si256(
@@ -1074,7 +1074,7 @@ void requantizeForFloatAvx2(
       }
 
       __m256 x_scaled_v;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         x_scaled_v = _mm256_mul_ps(
             _mm256_cvtepi32_ps(x_v),
             _mm256_mul_ps(
@@ -1083,10 +1083,10 @@ void requantizeForFloatAvx2(
         x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
       }
 
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         x_scaled_v = _mm256_add_ps(x_scaled_v, _mm256_loadu_ps(r.bias + j));
       }
-      if (FUSE_RELU) {
+      if constexpr (FUSE_RELU) {
         x_scaled_v = _mm256_max_ps(_mm256_setzero_ps(), x_scaled_v);
       }
 
@@ -1101,14 +1101,14 @@ void requantizeForFloatAvx2(
       __m256i x_v = _mm256_maskload_epi32(
           inp + (i - block.row_start) * ld_in + (j - block.col_start), mask_v);
 
-      if (!A_SYMMETRIC) {
+      if constexpr (!A_SYMMETRIC) {
         __m256i col_off_v = _mm256_mullo_epi32(
             A_zero_point_v, _mm256_maskload_epi32(r.col_offsets + j, mask_v));
         x_v = _mm256_sub_epi32(x_v, col_off_v);
       }
 
-      if (!B_SYMMETRIC) {
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (!B_SYMMETRIC) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           row_offset_v = _mm256_mullo_epi32(
               _mm256_set1_epi32(r.row_offsets[i - block.row_start]),
               _mm256_maskload_epi32(r.B_zero_point + j, mask_v));
@@ -1117,7 +1117,7 @@ void requantizeForFloatAvx2(
       }
 
       __m256 x_scaled_v;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         x_scaled_v = _mm256_mul_ps(
             _mm256_cvtepi32_ps(x_v),
             _mm256_mul_ps(
@@ -1127,11 +1127,11 @@ void requantizeForFloatAvx2(
         x_scaled_v = _mm256_mul_ps(_mm256_cvtepi32_ps(x_v), multiplier_v);
       }
 
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         x_scaled_v =
             _mm256_add_ps(x_scaled_v, _mm256_maskload_ps(r.bias + j, mask_v));
       }
-      if (FUSE_RELU) {
+      if constexpr (FUSE_RELU) {
         x_scaled_v = _mm256_max_ps(_mm256_setzero_ps(), x_scaled_v);
       }
 
@@ -1158,7 +1158,7 @@ void requantizeOutputProcessingGConvAvx2(
   // Adoption of implementation at QNNPACK/src/requantization/fp32-sse2.c
   // using AVX2 instructions
   int quant_param_idx = 0;
-  if (Q_GRAN == QuantizationGranularity::GROUP) {
+  if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
     int ncol_per_group = r.ncols / r.groups;
     int g = block.col_start / ncol_per_group;
     quant_param_idx = g;
@@ -1167,7 +1167,7 @@ void requantizeOutputProcessingGConvAvx2(
 
   // Broadcasted reciprocal of act_times_w_scale
   __m256 act_times_w_rcp_v;
-  if (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
+  if constexpr (!(Q_GRAN == QuantizationGranularity::OUT_CHANNEL)) {
     if constexpr (is_same_v<BIAS_TYPE, float>) {
       act_times_w_rcp_v =
           _mm256_set1_ps(1.0 / r.act_times_w_scale[quant_param_idx]);
@@ -1203,7 +1203,7 @@ void requantizeOutputProcessingGConvAvx2(
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
           inp + (i - block.row_start) * ld_in + (j - block.col_start)));
 
-      if (!A_SYMMETRIC) {
+      if constexpr (!A_SYMMETRIC) {
         __m256i col_off_v = _mm256_mullo_epi32(
             A_zero_point_v,
             _mm256_loadu_si256(
@@ -1211,10 +1211,10 @@ void requantizeOutputProcessingGConvAvx2(
         x_v = _mm256_sub_epi32(x_v, col_off_v);
       }
 
-      if (!B_SYMMETRIC) {
+      if constexpr (!B_SYMMETRIC) {
         __m256i row_offset_v;
 
-        if (C_PER_G == 2) {
+        if constexpr (C_PER_G == 2) {
           // When C_PER_G == 2, we need to handle 4 groups at a time to fully
           // utilize 32B AVX2 vector register (C_PER_G * 4 * sizeof(int32_t) ==
           // 32B)
@@ -1234,7 +1234,7 @@ void requantizeOutputProcessingGConvAvx2(
 
         // Groups 0 and 1 when C_PER_G == 4
         // Group 0 when C_PER_G == 8
-        else if (C_PER_G == 4) {
+        else if constexpr (C_PER_G == 4) {
           // Load row_offsets for 2 groups and broadcast by 4 times each because
           // we have 4 channels per group.
           // groups 0 and 1
@@ -1243,34 +1243,34 @@ void requantizeOutputProcessingGConvAvx2(
                   _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 2 + 0])),
               _mm_set1_epi32(r.row_offsets[(i - block.row_start) * 2 + 1]),
               1);
-        } else if (C_PER_G == 8) {
+        } else if constexpr (C_PER_G == 8) {
           row_offset_v =
               _mm256_set1_epi32(r.row_offsets[(i - block.row_start)]);
         } else {
-          assert(C_PER_G == 16);
+          static_assert(C_PER_G == 16);
           row_offset_v =
               _mm256_set1_epi32(r.row_offsets[(i - block.row_start)]);
         }
 
         __m256i B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[0]);
-        if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+        if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           B_zero_point_v = _mm256_loadu_si256(
               reinterpret_cast<const __m256i*>(r.B_zero_point + j));
-        } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-          if (C_PER_G == 2) {
+        } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+          if constexpr (C_PER_G == 2) {
             B_zero_point_v =
                 _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
                     _mm256_castps128_ps256(
                         _mm_loadu_ps(reinterpret_cast<const float*>(
                             r.B_zero_point + quant_param_idx))),
                     permute_mask_v)));
-          } else if (C_PER_G == 4) {
+          } else if constexpr (C_PER_G == 4) {
             B_zero_point_v = _mm256_insertf128_si256(
                 _mm256_castsi128_si256(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 1]),
                 1);
-          } else if (C_PER_G == 8) {
+          } else if constexpr (C_PER_G == 8) {
             B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
           } else {
             B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
@@ -1280,30 +1280,30 @@ void requantizeOutputProcessingGConvAvx2(
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
       }
       __m256 xf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m256 x_bias_v =
               _mm256_loadu_ps(reinterpret_cast<const float*>(r.bias + j));
-          if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+          if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
             x_bias_v = _mm256_div_ps(
                 x_bias_v, _mm256_loadu_ps(r.act_times_w_scale + j));
-          } else if (Q_GRAN == QuantizationGranularity::GROUP) {
+          } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
             __m256 diviser_v;
-            if (C_PER_G == 2) {
+            if constexpr (C_PER_G == 2) {
               diviser_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
                   _mm256_castps128_ps256(
                       _mm_loadu_ps(r.act_times_w_scale + quant_param_idx)),
                   permute_mask_v));
-            } else if (C_PER_G == 4) {
+            } else if constexpr (C_PER_G == 4) {
               diviser_v = _mm256_insertf128_ps(
                   _mm256_castps128_ps256(
                       _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 0])),
                   _mm_set1_ps(r.act_times_w_scale[quant_param_idx + 1]),
                   1);
-            } else if (C_PER_G == 8) {
+            } else if constexpr (C_PER_G == 8) {
               diviser_v = _mm256_set1_ps(r.act_times_w_scale[quant_param_idx]);
             } else {
-              assert(C_PER_G == 16);
+              static_assert(C_PER_G == 16);
               diviser_v = _mm256_set1_ps(r.act_times_w_scale[quant_param_idx]);
             }
             x_bias_v = _mm256_div_ps(x_bias_v, diviser_v);
@@ -1334,21 +1334,21 @@ void requantizeOutputProcessingGConvAvx2(
        * FP32 value with ties to even with default MXCSR rounding mode.
        */
       __m256 x_scaled_v;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         x_scaled_v = _mm256_mul_ps(xf_v, _mm256_loadu_ps(r.C_multiplier + j));
-      } else if (Q_GRAN == QuantizationGranularity::GROUP) {
-        if (C_PER_G == 2) {
+      } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+        if constexpr (C_PER_G == 2) {
           multiplier_v = _mm256_moveldup_ps(_mm256_permutevar8x32_ps(
               _mm256_castps128_ps256(
                   _mm_loadu_ps(r.C_multiplier + quant_param_idx)),
               permute_mask_v));
-        } else if (C_PER_G == 4) {
+        } else if constexpr (C_PER_G == 4) {
           multiplier_v = _mm256_insertf128_ps(
               _mm256_castps128_ps256(
                   _mm_set1_ps(r.C_multiplier[quant_param_idx])),
               _mm_set1_ps(r.C_multiplier[quant_param_idx + 1]),
               1);
-        } else if (C_PER_G == 8) {
+        } else if constexpr (C_PER_G == 8) {
           multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
         } else {
           multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
@@ -1667,7 +1667,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
     output_row_scale_bias[0] = floatToHalf(scale);
 
     col = 0;
-    if (BIT_RATE == 2 || BIT_RATE == 4) {
+    if constexpr (BIT_RATE == 2 || BIT_RATE == 4) {
       __m256i permute_mask1_v =
           _mm256_set_epi32(0x07, 0x03, 0x06, 0x02, 0x05, 0x01, 0x04, 0x00);
       __m256 inverse_scale_v = _mm256_set1_ps(inverse_scale);
@@ -1701,7 +1701,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
             xyzw_packed_v,
             _mm256_set1_epi8(static_cast<char>((1 << BIT_RATE) - 1)));
 
-        if (BIT_RATE == 4) {
+        if constexpr (BIT_RATE == 4) {
           // pack into lower 8-bit of each 16-bit
           xyzw_packed_v = _mm256_and_si256(
               _mm256_or_si256(
@@ -1720,7 +1720,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfAvx2(
         }
 
         __m128i out_v;
-        if (BIT_RATE == 4) {
+        if constexpr (BIT_RATE == 4) {
           // avx2 doesn't have _mm256_cvtepi16_epi8
           out_v = _mm_packus_epi16(
               _mm256_castsi256_si128(xyzw_packed_v),
@@ -1923,7 +1923,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
   int remainder_32bit_granularity, remainder;
   __m128i vmask_load;
   __m256i vmask_store0, vmask_store1, vmask_store2, vmask_store3;
-  if (BIT_RATE == 4 || BIT_RATE == 2) {
+  if constexpr (BIT_RATE == 4 || BIT_RATE == 2) {
     remainder_32bit_granularity = (output_columns + NUM_ELEM_PER_32BIT - 1) /
         NUM_ELEM_PER_32BIT % NUM_OF_32BIT_PER_VLOAD;
     vmask_load = _mm_lddqu_si128(reinterpret_cast<const __m128i*>(
@@ -1988,13 +1988,13 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
     }
 
     int col = 0;
-    if (BIT_RATE == 4 || BIT_RATE == 2) {
+    if constexpr (BIT_RATE == 4 || BIT_RATE == 2) {
       __m256 vscale = _mm256_set1_ps(scale);
       __m256 vbias = _mm256_set1_ps(bias);
       for (; col + 4 * VLEN <= output_columns; col += 4 * VLEN) {
         __m256i vinq;
         // unpack to 8-bit integers
-        if (BIT_RATE == 4) {
+        if constexpr (BIT_RATE == 4) {
           vinq = _mm256_cvtepu8_epi16(
               _mm_loadu_si128(reinterpret_cast<const __m128i*>(
                   input_row + col / NUM_ELEM_PER_BYTE)));
@@ -2053,7 +2053,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
 
       if (remainder) {
         __m256i vinq;
-        if (BIT_RATE == 4) {
+        if constexpr (BIT_RATE == 4) {
           vinq = _mm256_cvtepu8_epi16(_mm_maskload_epi32(
               reinterpret_cast<const int*>(input_row + col / NUM_ELEM_PER_BYTE),
               vmask_load));

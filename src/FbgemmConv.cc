@@ -143,12 +143,13 @@ int fbgemmConv(
       const std::int32_t* B_zero_point = outProcess.getBZeroPoint();
       const float* C_multiplier = outProcess.getCMultiplier();
       const float* act_times_w_scale = outProcess.getActWScale();
-      if (SPATIAL_DIM == 3) {
+      if constexpr (SPATIAL_DIM == 3) {
         static_assert(
             std::is_same_v<typename processOutputType::outType, std::uint8_t>,
             "For depthwise, only requantized output is supported");
 
-        if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
+        if constexpr (
+            processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
           depthwise_3d_same_pad<QuantizationGranularity::TENSOR>(
               *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
               outProcess.getAZeroPoint(),
@@ -164,7 +165,7 @@ int fbgemmConv(
               act_times_w_scale,
               thread_id,
               num_threads);
-        } else if (
+        } else if constexpr (
             processOutputType::QGRANType == QuantizationGranularity::GROUP) {
           depthwise_3d_same_pad<QuantizationGranularity::GROUP>(
               *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
@@ -181,7 +182,7 @@ int fbgemmConv(
               act_times_w_scale, // act_scale * weight_scale
               thread_id,
               num_threads);
-        } else if (
+        } else if constexpr (
             processOutputType::QGRANType ==
             QuantizationGranularity::OUT_CHANNEL) {
           depthwise_3d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
@@ -205,8 +206,9 @@ int fbgemmConv(
               "not supported";
           throw std::runtime_error(msg);
         }
-      } else if (SPATIAL_DIM == 2) {
-        if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
+      } else if constexpr (SPATIAL_DIM == 2) {
+        if constexpr (
+            processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
           depthwise_2d_same_pad<QuantizationGranularity::TENSOR>(
               conv_p.MB, // mini batch
               conv_p.IN_DIM[0], // H
@@ -228,7 +230,7 @@ int fbgemmConv(
               act_times_w_scale,
               thread_id,
               num_threads);
-        } else if (
+        } else if constexpr (
             processOutputType::QGRANType == QuantizationGranularity::GROUP) {
           depthwise_2d_same_pad<QuantizationGranularity::GROUP>(
               conv_p.MB, // mini batch
@@ -251,7 +253,7 @@ int fbgemmConv(
               act_times_w_scale, // act_scale * weight_scale
               thread_id,
               num_threads);
-        } else if (
+        } else if constexpr (
             processOutputType::QGRANType ==
             QuantizationGranularity::OUT_CHANNEL) {
           // The number of input channels == groups for depthwise convolutions
@@ -368,15 +370,16 @@ int fbgemmConv(
 
       const std::int32_t* b_zero_point = outProcess.getBZeroPoint();
       bool b_symmetric = false;
-      if (processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
+      if constexpr (
+          processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
         b_symmetric = b_zero_point[0] == 0;
-      } else if (
+      } else if constexpr (
           processOutputType::QGRANType == QuantizationGranularity::GROUP) {
         b_symmetric =
             std::all_of(b_zero_point, b_zero_point + conv_p.G, [](int i) {
               return i == 0;
             });
-      } else if (
+      } else if constexpr (
           processOutputType::QGRANType ==
           QuantizationGranularity::OUT_CHANNEL) {
         b_symmetric =

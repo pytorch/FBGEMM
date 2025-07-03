@@ -1024,10 +1024,10 @@ void fbgemmGroupwiseConv(
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_param);
 
-  if (SPATIAL_DIM == 1) {
+  if constexpr (SPATIAL_DIM == 1) {
     throw std::runtime_error("Groupwise 1D not implemented!");
   }
-  if (SPATIAL_DIM == 2) {
+  if constexpr (SPATIAL_DIM == 2) {
     // Parallelization:
     int64_t batch_start = 0;
     int64_t batch_end = MB;

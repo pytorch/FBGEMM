@@ -58,7 +58,7 @@ static inline void requantizeForMV(
           x_v, _mm512_mullo_epi32(act_zero_point_v, weight_row_offset_v));
     }
     __m512 act_times_w_scale_v;
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
       act_times_w_scale_v = _mm512_loadu_ps(rParams.act_times_w_scale + i);
     } else {
       act_times_w_scale_v = _mm512_set1_ps(rParams.act_times_w_scale[0]);
@@ -104,7 +104,7 @@ static inline void requantizeForMV(
           x_v, _mm512_mullo_epi32(act_zero_point_v, weight_row_offset_v));
     }
     __m512 act_times_w_scale_v;
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
       act_times_w_scale_v =
           _mm512_maskz_loadu_ps(mask_int32_v, rParams.act_times_w_scale + i);
     } else {
