@@ -30,8 +30,8 @@ FBGEMM_API void trRequantizeOpt(
     int ld_out,
     int ld_in,
     const trRequantizationParams_t& r) {
-  assert(
-      (Q_GRAN != QuantizationGranularity::GROUP) &&
+  static_assert(
+      Q_GRAN != QuantizationGranularity::GROUP,
       "GROUP Granularity is not supported");
 
   // Broadcasted act_times_w_scale / C_scale
@@ -74,7 +74,7 @@ FBGEMM_API void trRequantizeOpt(
     __m256i row_offset_v = _mm256_set1_epi32(row_offset);
 
     int weight_zeropoint_idx = 0;
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
       weight_zeropoint_idx = i;
     }
     __m256 bias_v;
@@ -83,7 +83,7 @@ FBGEMM_API void trRequantizeOpt(
       bias_v = _mm256_set1_ps(bias);
     }
 
-    if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+    if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
       float act_times_w_div_c =
           r.act_times_w_scale[weight_zeropoint_idx] / r.C_scale;
       act_times_w_div_c_v = _mm256_set1_ps(act_times_w_div_c);

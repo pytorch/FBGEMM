@@ -32,16 +32,17 @@
 using namespace std;
 using namespace fbgemm;
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
+/*
+static void print_fused_table(int rows, int embedding_dim, const uint8_t* table)
+{ for (int i = 0; i < rows; i++) { std::cout << "row: " << i << " : " <<
+std::endl; for (int ii = 0; ii < embedding_dim; ii++) { std::cout <<
+(int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
                 << ",";
     }
     std::cout << std::endl;
   }
 }
+*/
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -62,7 +63,7 @@ static vector<vector<int>> GetInputs_() {
 }
 
 template <typename OutType>
-int run_benchmark(
+static int run_benchmark(
     int bit_rate,
     int batch_size,
     int num_rows,
@@ -375,10 +376,10 @@ int run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if constexpr (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -411,10 +412,10 @@ int run_benchmark(
           for (size_t i = 0; i < output_autovec.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if constexpr (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output_autovec[i];
               tmp2 = output_ref[i];
-            } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output_autovec[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -437,9 +438,9 @@ int run_benchmark(
 #endif
       }
 
-      if constexpr (std::is_same<OutType, float>::value) {
+      if constexpr (std::is_same_v<OutType, float>) {
         cout << "out type fp32, ";
-      } else if constexpr (std::is_same<OutType, uint16_t>::value) {
+      } else if constexpr (std::is_same_v<OutType, uint16_t>) {
         if (is_bf16_out) {
           cout << "out type bf16, ";
         } else {

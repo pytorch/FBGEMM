@@ -25,11 +25,11 @@ using namespace fbgemm;
 
 // T is the type of scale and bias
 template <typename T>
-void performance_test() {
+static void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
-  if (is_same<T, float16>::value) {
+  if (is_same_v<T, float16>) {
     cout << "With result as float16" << endl;
   } else {
     cout << "With result as float" << endl;

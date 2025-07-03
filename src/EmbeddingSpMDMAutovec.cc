@@ -736,9 +736,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
     float* out,
     const bool is_weight_positional,
     const bool use_offsets) {
-  bool is8bit = std::is_same_v<InType, uint8_t>;
+  constexpr bool is8bit = std::is_same_v<InType, uint8_t>;
 
-  if (is8bit) {
+  if constexpr (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
     // of an entire row, including scale and bias.
     const auto scale_bias_offset = 2 * sizeof(float);
@@ -1215,7 +1215,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       } else {                                                            \
         weights = nullptr;                                                \
       }                                                                   \
-      if constexpr (std::is_same<InType, uint8_t>::value) {               \
+      if constexpr (std::is_same_v<InType, uint8_t>) {                    \
         assert(!specialize(IS_BF16_IN, is_bf16_in));                      \
         return EmbeddingSpMDM8Bit_autovec(                                \
             specialize(BLOCK_SIZE, block_size),                           \

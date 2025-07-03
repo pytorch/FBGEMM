@@ -76,7 +76,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn({1, 2, 5, 8, 9, 16, 20, 28, 32, 33, 64, 65})));
 
 template <typename T, layout_t LT>
-void ref_impl(
+static void ref_impl(
     const vector<float>& src,
     int K,
     int C,
@@ -111,7 +111,7 @@ void ref_impl(
 }
 
 template <typename T, layout_t LT>
-void runTests(
+static void runTests(
     const vector<float>& src,
     int K,
     int C,
@@ -134,7 +134,7 @@ void runTests(
  * while comparing results.
  */
 template <typename T>
-::testing::AssertionResult isNear(
+static ::testing::AssertionResult isNear(
     const vector<T>& res,
     const vector<T>& res_ref) {
   bool match = true;
@@ -154,7 +154,7 @@ template <typename T>
 }
 
 template <typename T>
-::testing::AssertionResult isQEmbeddingClose(
+static ::testing::AssertionResult isQEmbeddingClose(
     const vector<uint8_t>& res_ref,
     const vector<uint8_t>& res,
     int out_rows,
@@ -180,7 +180,7 @@ template <typename T>
       }
       // compare scale/bias
       float scaleTest, scaleRef, biasTest, biasRef;
-      if (is_same<T, float16>::value) {
+      if constexpr (is_same_v<T, float16>) {
         // half scale and bias
         scaleTest = cpu_half2float(reinterpret_cast<const float16*>(
             res.data() + i * ld + out_emb_cols)[0]);
@@ -297,7 +297,7 @@ TEST_P(QuantizeGroupwiseTest, quantizeGTest) {
 }
 
 template <typename T>
-void runQuantizeTests(
+static void runQuantizeTests(
     const vector<float>& src,
     float scale,
     int zero_point,
@@ -431,7 +431,7 @@ TEST(QuantizeTestQParams, chooseQParamsSymmetric) {
 }
 
 template <typename T>
-void runFusedQuantizeDequantizeTests(
+static void runFusedQuantizeDequantizeTests(
     const vector<float>& src,
     float scale,
     int zero_point,

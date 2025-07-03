@@ -21,7 +21,7 @@ using namespace std;
 using namespace fbgemm;
 
 template <typename T>
-void performance_test() {
+static void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
@@ -29,7 +29,7 @@ void performance_test() {
   default_random_engine engine;
 
   string runType;
-  if (is_same<T, float>::value) {
+  if (is_same_v<T, float>) {
     runType = "float";
   } else {
     runType = "i8";

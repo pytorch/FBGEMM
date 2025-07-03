@@ -27,7 +27,7 @@ namespace fbgemm {
 using namespace std;
 
 template <int SPATIAL_DIM>
-void calculateRowOffsets(
+static void calculateRowOffsets(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     const uint8_t* activations,
     int32_t* rowOffsetBuf,
@@ -67,7 +67,7 @@ void calculateRowOffsets(
 }
 
 template <int SPATIAL_DIM = 2>
-kernel_sig_t getKernelSig(
+static kernel_sig_t getKernelSig(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     bool isAZeroPointZero,
     bool needRowOffset,
@@ -104,7 +104,7 @@ kernel_sig_t getKernelSig(
 }
 
 template <int SPATIAL_DIM = 2>
-jit_conv_kernel_fp getOrCreateConvKernel(
+static jit_conv_kernel_fp getOrCreateConvKernel(
     const conv_param_t<SPATIAL_DIM>& conv_param,
     int a_zero_point,
     bool needRowOffset,
@@ -808,7 +808,7 @@ void fbgemmGroupwiseConv(
  * This function does exactly the same compute as the JIT'ed kernel
  */
 template <int SPATIAL_DIM>
-void kernel_compute(
+static void kernel_compute(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const uint8_t* in_acts,
     int8_t* wghts,
@@ -879,7 +879,7 @@ void kernel_compute(
 }
 
 template <typename processOutputType, typename outT, typename inT>
-void dispatchOutputProcessing(
+static void dispatchOutputProcessing(
     const processOutputType& outProcess,
     int32_t* rowOffsetBuf,
     outT* out,
@@ -1024,10 +1024,10 @@ void fbgemmGroupwiseConv(
   int G_together = PackWeightMatrixForGConv<int8_t, int32_t, SPATIAL_DIM>::
       numOfGroupsTogether(conv_param);
 
-  if (SPATIAL_DIM == 1) {
+  if constexpr (SPATIAL_DIM == 1) {
     throw std::runtime_error("Groupwise 1D not implemented!");
   }
-  if (SPATIAL_DIM == 2) {
+  if constexpr (SPATIAL_DIM == 2) {
     // Parallelization:
     int64_t batch_start = 0;
     int64_t batch_end = MB;

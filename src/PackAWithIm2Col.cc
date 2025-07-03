@@ -123,7 +123,7 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
 }
 
 template <int SPATIAL_DIM, int BCOL>
-void pack_a_with_im2col_opt(
+static void pack_a_with_im2col_opt(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const block_type_t& block,
     const uint8_t* sdata,
@@ -326,7 +326,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
   }
   if (conv_p_.transposed) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      if (SPATIAL_DIM == 1) { // static if
+      if constexpr (SPATIAL_DIM == 1) { // static if
         int n = i / (conv_p_.OUT_DIM[0]);
         int ow = i % (conv_p_.OUT_DIM[0]);
         for (int j = block.col_start;
@@ -366,7 +366,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           }
         }
 
-      } else if (SPATIAL_DIM == 2) { // static if
+      } else if constexpr (SPATIAL_DIM == 2) { // static if
         int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int ow = hw % conv_p_.OUT_DIM[1];
@@ -416,7 +416,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
                 sizeof(T) * (j_blk_end - j_blk_start));
           }
         }
-      } else if (SPATIAL_DIM == 3) { // static if
+      } else if constexpr (SPATIAL_DIM == 3) { // static if
         int n =
             i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
         int thw =
@@ -503,7 +503,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
     } // for each i
   } else {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      if (SPATIAL_DIM == 1) { // static if
+      if constexpr (SPATIAL_DIM == 1) { // static if
         int n = i / (conv_p_.OUT_DIM[0]);
         int w = i % (conv_p_.OUT_DIM[0]);
         for (int j = block.col_start;
@@ -542,7 +542,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           }
         }
 
-      } else if (SPATIAL_DIM == 2) { // static if
+      } else if constexpr (SPATIAL_DIM == 2) { // static if
         int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int w = hw % conv_p_.OUT_DIM[1];
@@ -615,7 +615,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
                 sizeof(T) * (j_blk_end - j_blk_start));
           }
         }
-      } else if (SPATIAL_DIM == 3) { // static if
+      } else if constexpr (SPATIAL_DIM == 3) { // static if
         int n =
             i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
         int thw =

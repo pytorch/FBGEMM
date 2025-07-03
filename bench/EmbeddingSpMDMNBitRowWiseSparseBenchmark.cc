@@ -31,16 +31,17 @@
 using namespace std;
 using namespace fbgemm;
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
+/*
+static void print_fused_table(int rows, int embedding_dim, const uint8_t* table)
+{ for (int i = 0; i < rows; i++) { std::cout << "row: " << i << " : " <<
+std::endl; for (int ii = 0; ii < embedding_dim; ii++) { std::cout <<
+(int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
                 << ",";
     }
     std::cout << std::endl;
   }
 }
+*/
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -60,7 +61,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-int run_benchmark(
+static int run_benchmark(
     int bit_rate,
     int batch_size,
     int num_rows,

@@ -33,7 +33,7 @@ using fint32 = union {
 //
 // Return a random 32bit integer using xoshiro128++
 // http://prng.di.unimi.it/xoshiro128plusplus.c
-inline uint32_t rnd128_next(int idx, int vlen) {
+static inline uint32_t rnd128_next(int idx, int vlen) {
   constexpr int VLEN_MAX = 16; // max vector size
   alignas(64) static thread_local uint32_t g_rnd128_buffer[4 * VLEN_MAX];
   static thread_local bool g_rnd128_initialized = false;
@@ -1619,9 +1619,9 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     float* out,
     bool is_weight_positional,
     bool use_offsets) {
-  bool is8bit = is_same_v<InType, uint8_t>;
+  constexpr bool is8bit = is_same_v<InType, uint8_t>;
 
-  if (is8bit) {
+  if constexpr (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
     // of an entire row, including scale and bias.
     const auto scale_bias_offset = 2 * sizeof(float);

@@ -25,11 +25,11 @@ using namespace fbgemm;
 
 // T is the type of scale and bias
 template <typename T>
-void performance_test() {
+static void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
-  if (is_same<T, float16>::value) {
+  if (is_same_v<T, float16>) {
     cout << "With scale and bias as float16" << endl;
   } else {
     cout << "With scale and bias as float" << endl;
@@ -38,7 +38,7 @@ void performance_test() {
        << "cols" << "," << setw(16) << "elems_per_usec" << "," << setw(10)
        << "GB/Sec" << endl;
   std::vector<int> bit_rates;
-  if (is_same<T, float16>::value) {
+  if (is_same_v<T, float16>) {
     bit_rates = {2, 4, 8};
   } else {
     // float
