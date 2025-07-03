@@ -226,7 +226,7 @@ inline float16 cpu_float2half_rz(float f) {
       /*Src=*/detail::IEEE754Single,
       /*Tgt=*/detail::IEEE754Half,
       detail::RoundingMode::ToZero>(f_u32);
-};
+}
 
 // Converts a 16-bit unsigned integer representation of a IEEE754 half-precision
 // float into an IEEE754 32-bit single-precision float
