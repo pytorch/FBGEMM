@@ -117,41 +117,31 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
                     div_round_up(max_L, kWarpSize) * kWarpSize, kMaxThreads);
                 int block_dim_y = kMaxThreads / block_dim_x;
 
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name1 = "dense_vec_jagged_2d_transposed_bmm";
-#endif
-
-                dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>
-                    <<<div_round_up(B * H, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        MAKE_PTA_WITH_NAME(func_name1, grad_output, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, a_values, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, a_offsets, index_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, v_grad, scalar_t, 2, 32)
-                        );
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                FBGEMM_LAUNCH_KERNEL(
+                    (dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>),
+                    div_round_up(B * H, block_dim_y),
+                    dim3(block_dim_x, block_dim_y),
+                    0,
+                    at::cuda::getCurrentCUDAStream(),
+                    PTA_B(grad_output, scalar_t, 2, 32),
+                    PTA_B(a_values, scalar_t, 2, 32),
+                    PTA_B(a_offsets, index_t, 1, 32),
+                    PTA_B(v_grad, scalar_t, 2, 32));
 
                 block_dim_x = std::min(
                     div_round_up(D, kWarpSize) * kWarpSize, kMaxThreads);
                 block_dim_y = kMaxThreads / block_dim_x;
 
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name2 = "outer_prod_jagged_2d_output";
-#endif
-
-                outer_prod_jagged_2d_output<index_t, scalar_t>
-                    <<<div_round_up(B * H * max_L, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        MAKE_PTA_WITH_NAME(func_name2, v, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name2, grad_output, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name2, a_offsets, index_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name2, a_values_grad, scalar_t, 2, 32)
-                        );
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                FBGEMM_LAUNCH_KERNEL(
+                    (outer_prod_jagged_2d_output<index_t, scalar_t>),
+                    div_round_up(B * H * max_L, block_dim_y),
+                    dim3(block_dim_x, block_dim_y),
+                    0,
+                    at::cuda::getCurrentCUDAStream(),
+                    PTA_B(v, scalar_t, 2, 32),
+                    PTA_B(grad_output, scalar_t, 2, 32),
+                    PTA_B(a_offsets, index_t, 1, 32),
+                    PTA_B(a_values_grad, scalar_t, 2, 32));
               });
         });
   } else {
