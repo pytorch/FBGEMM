@@ -26,6 +26,7 @@ from fbgemm_gpu.experimental.gemm.triton_gemm.fp8_gemm import (
     matmul_fp8_block,
     matmul_fp8_row,
     quantize_fp8_block,
+    quantize_fp8_group,
     quantize_fp8_row,
     scale_fp8_row,
     triton_quantize_fp8_row,
@@ -1119,9 +1120,7 @@ class DeepGemmBlockwise(QuantizeOpBase):
         return x, wq, w_scale, out
 
     def quantize(self, x, wq, w_scale, out):
-        xq, x_scale = quantize_fp8_block(x, block_m=1, block_k=128)
-        # Pretranspose scales to deepgemm format.
-        x_scale = get_col_major_tma_aligned_tensor(x_scale)
+        xq, x_scale = quantize_fp8_group(x, group_size=128)
         return xq, wq, x_scale, w_scale, out
 
     def compute(self, xq, wq, x_scale, w_scale, out):
