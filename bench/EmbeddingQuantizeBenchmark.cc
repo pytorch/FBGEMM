@@ -29,7 +29,7 @@ static void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
-  if (is_same_v<T, float16>) {
+  if constexpr (is_same_v<T, float16>) {
     cout << "With scale and bias as float16" << endl;
   } else {
     cout << "With scale and bias as float" << endl;
@@ -38,7 +38,7 @@ static void performance_test() {
        << "cols" << "," << setw(16) << "elems_per_usec" << "," << setw(10)
        << "GB/Sec" << endl;
   std::vector<int> bit_rates;
-  if (is_same_v<T, float16>) {
+  if constexpr (is_same_v<T, float16>) {
     bit_rates = {2, 4, 8};
   } else {
     // float
@@ -52,7 +52,7 @@ static void performance_test() {
 
         int out_emb_cols = colSize;
 
-        if (is_same<T, float16>::value) {
+        if constexpr (is_same_v<T, float16>) {
           int elements_per_byte = 8 / bit_rate;
           out_emb_cols = (colSize + elements_per_byte - 1) / elements_per_byte;
         }
@@ -63,7 +63,7 @@ static void performance_test() {
 
         duration = measureWithWarmup(
             [&]() {
-              is_same<T, float16>::value
+              is_same_v<T, float16>
                   ? FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
                         bit_rate,
                         inpVec.data(),

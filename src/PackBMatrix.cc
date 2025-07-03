@@ -388,7 +388,7 @@ int32_t PackBMatrix<T, accT>::addr(int32_t r, int32_t c) const {
 
 template <typename T, typename accT>
 void PackBMatrix<T, accT>::printPackedMatrix(
-    std::string name,
+    const std::string& name,
     const BlockingFactors* params) {
   std::cout << name << ":" << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;

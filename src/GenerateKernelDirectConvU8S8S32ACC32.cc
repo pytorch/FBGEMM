@@ -44,8 +44,8 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegs(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
-    x86::Gp C_Offset,
-    x86::Gp ldcReg,
+    const x86::Gp& C_Offset,
+    const x86::Gp& ldcReg,
     bool accum) {
   using VecT = typename simd_info<instSet>::vec_reg_t;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
@@ -76,9 +76,9 @@ template <inst_set_t instSet>
 void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     genComputeBlockDirectConv(
         x86::Emitter* a,
-        x86::Gp buffer_A,
-        x86::Gp buffer_B,
-        x86::Gp /*B_pf*/,
+        const x86::Gp& buffer_A,
+        const x86::Gp& buffer_B,
+        const x86::Gp& /*B_pf*/,
         int rowRegs,
         int colRegs,
         int strideXich) {
@@ -266,13 +266,13 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     // asmjit::Label LoopOBlocks = a->newLabel();
     // asmjit::Label LoopNBlocks = a->newLabel();
 
-    x86::Gp buffer_B_saved = a->gpz(10);
-    x86::Gp C_Offset = a->gpz(11);
-    // x86::Gp B_pf_saved = a->gpz(12);
-    x86::Gp iIdx = a->gpz(13);
-    // x86::Gp jIdx = a->gpz(14);
-    x86::Gp kIdx = a->gpz(15);
-    // x86::Gp B_pf = a->gpz(8);
+    const x86::Gp& buffer_B_saved = a->gpz(10);
+    const x86::Gp& C_Offset = a->gpz(11);
+    // const x86::Gp& B_pf_saved = a->gpz(12);
+    const x86::Gp& iIdx = a->gpz(13);
+    // const x86::Gp& jIdx = a->gpz(14);
+    const x86::Gp& kIdx = a->gpz(15);
+    // const x86::Gp& B_pf = a->gpz(8);
 
     VecRegT oneReg(numRegs - 3);
 
@@ -432,9 +432,9 @@ void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::storeCRegsTrans(
     x86::Emitter* a,
     int rowRegs,
     int colRegs,
-    x86::Gp C_offset,
-    x86::Gp o1XocReg,
-    x86::Gp ldcReg,
+    const x86::Gp& C_offset,
+    const x86::Gp& o1XocReg,
+    const x86::Gp& ldcReg,
     bool accum) {
   using VecT = typename simd_info<instSet>::vec_reg_t;
   // static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
@@ -488,10 +488,10 @@ template <inst_set_t instSet>
 void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     genComputeBlockDirectConvTrans(
         x86::Emitter* a,
-        x86::Gp buffer_A,
-        x86::Gp buffer_B,
-        x86::Gp icReg,
-        x86::Gp C_offset,
+        const x86::Gp& buffer_A,
+        const x86::Gp& buffer_B,
+        const x86::Gp& icReg,
+        const x86::Gp& C_offset,
         int rowRegs,
         int colRegs) {
   // static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
@@ -644,13 +644,13 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         "MRegs x NRegs is above available registers (MAX_REGS - 4)");
 
     // arguments to the function created
-    x86::Gp buffer_A = a->zdi();
-    x86::Gp buffer_B = a->zsi();
-    x86::Gp CBase = a->zcx();
-    x86::Gp ic = a->gpz(8);
-    x86::Gp ldcReg = a->gpz(9);
-    x86::Gp o1Xoc = a->gpz(10);
-    x86::Gp i1 = a->gpz(11);
+    const x86::Gp& buffer_A = a->zdi();
+    const x86::Gp& buffer_B = a->zsi();
+    const x86::Gp& CBase = a->zcx();
+    const x86::Gp& ic = a->gpz(8);
+    const x86::Gp& ldcReg = a->gpz(9);
+    const x86::Gp& o1Xoc = a->gpz(10);
+    const x86::Gp& i1 = a->gpz(11);
 
     asmjit::FuncDetail func;
     func.init(
@@ -691,10 +691,10 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
     asmjit::Label LoopMBlocks = a->newLabel();
 
-    x86::Gp C_offset = a->gpz(12);
-    x86::Gp buffer_B_saved = a->gpz(13);
-    x86::Gp iIdx = a->gpz(14);
-    x86::Gp kIdx = a->gpz(15);
+    const x86::Gp& C_offset = a->gpz(12);
+    const x86::Gp& buffer_B_saved = a->gpz(13);
+    const x86::Gp& iIdx = a->gpz(14);
+    const x86::Gp& kIdx = a->gpz(15);
 
     VecRegT oneReg(numRegs - 3);
 
@@ -801,8 +801,8 @@ template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         x86::Emitter* a,
         int rowRegs,
         int colRegs,
-        x86::Gp C_Offset,
-        x86::Gp ldcReg,
+        const x86::Gp& C_Offset,
+        const x86::Gp& ldcReg,
         bool accum);
 
 /**
@@ -814,8 +814,8 @@ template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         x86::Emitter* a,
         int rowRegs,
         int colRegs,
-        x86::Gp C_Offset,
-        x86::Gp ldcReg,
+        const x86::Gp& C_Offset,
+        const x86::Gp& ldcReg,
         bool accum);
 
 /**
@@ -827,8 +827,8 @@ template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         x86::Emitter* a,
         int rowRegs,
         int colRegs,
-        x86::Gp C_Offset,
-        x86::Gp ldcReg,
+        const x86::Gp& C_Offset,
+        const x86::Gp& ldcReg,
         bool accum);
 
 /**
@@ -840,9 +840,9 @@ template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         x86::Emitter* a,
         int rowRegs,
         int colRegs,
-        x86::Gp C_offset,
-        x86::Gp o1XocReg,
-        x86::Gp ldcReg,
+        const x86::Gp& C_offset,
+        const x86::Gp& o1XocReg,
+        const x86::Gp& ldcReg,
         bool accum);
 
 /**
@@ -854,9 +854,9 @@ template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         x86::Emitter* a,
         int rowRegs,
         int colRegs,
-        x86::Gp C_offset,
-        x86::Gp o1XocReg,
-        x86::Gp ldcReg,
+        const x86::Gp& C_offset,
+        const x86::Gp& o1XocReg,
+        const x86::Gp& ldcReg,
         bool accum);
 
 /**
@@ -868,9 +868,9 @@ template void DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
         x86::Emitter* a,
         int rowRegs,
         int colRegs,
-        x86::Gp C_offset,
-        x86::Gp o1XocReg,
-        x86::Gp ldcReg,
+        const x86::Gp& C_offset,
+        const x86::Gp& o1XocReg,
+        const x86::Gp& ldcReg,
         bool accum);
 
 /**

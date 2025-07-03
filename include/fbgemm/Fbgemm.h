@@ -379,7 +379,7 @@ class FBGEMM_API PackAMatrix final
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
  private:
   matrix_op_t trans_;
@@ -464,7 +464,7 @@ class FBGEMM_API PackBMatrix final
    * @brief Print the packed block.
    */
   void printPackedMatrix(
-      std::string name,
+      const std::string& name,
       const BlockingFactors* params = nullptr);
 
   /**
@@ -745,7 +745,7 @@ class FBGEMM_API PackAWithIm2Col
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
   /**
    * @return Size of row offset buffer in number of elements
@@ -835,7 +835,7 @@ class FBGEMM_API PackAWithRowOffset final
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
   /**
    * @return size of row offset buffer in number of elements
@@ -927,7 +927,7 @@ class FBGEMM_API PackAWithQuantRowOffset final
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
   /**
    * @return Size of row offset buffer in number of elements
