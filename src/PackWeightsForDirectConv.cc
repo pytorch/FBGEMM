@@ -248,7 +248,7 @@ void fbgemmDirectConv(
   } else {
     if (conv_p.transposed) {
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-          jit_micro_kernel_fp_convT fn;
+          jit_micro_kernel_fp_convT fn = nullptr;
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
       /*
          fn = codeObj.getOrCreateDirectConvTrans<inst_set_t::avx2>(

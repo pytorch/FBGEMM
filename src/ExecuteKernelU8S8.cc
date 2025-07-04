@@ -114,8 +114,8 @@ void ExecuteKernel<
 
   int32_t bColBlocks = packedB_.blockCols();
 
-  int8_t* bBuf;
-  int8_t* bBuf_pf;
+  int8_t* bBuf = nullptr;
+  int8_t* bBuf_pf = nullptr;
 
   uint8_t* aBuf = packedA_.getBuf(0);
 
@@ -127,7 +127,7 @@ void ExecuteKernel<
   bool lastKBlock = packedB_.isThisLastKBlock(kBlock % packedB_.blockRows());
   bool accum = (kBlock % packedB_.blockRows()) > 0;
 
-  int64_t jb_begin, jb_end;
+  int64_t jb_begin = 0, jb_end = 0;
   fbgemmPartition1D(
       th_info_.n_thread_id,
       th_info_.n_num_threads,
