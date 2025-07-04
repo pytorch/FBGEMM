@@ -164,7 +164,7 @@ Tensor jagged_jagged_bmm_forward_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(x_values, y_values, offsets);
   CUDA_DEVICE_GUARD(x_values);
 
-  const int B = offsets.numel() - 1;
+  const auto B = offsets.numel() - 1;
   const int M = x_values.size(-1);
   const int N = y_values.size(-1);
   auto output = at::zeros({B, M, N}, x_values.options());
