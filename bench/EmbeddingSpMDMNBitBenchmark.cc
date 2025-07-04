@@ -485,7 +485,7 @@ static int run_benchmark(
 #ifndef OUT_TYPE_FLOAT16
       cout << ", asmjit speedup, " << t_ref / t;
 #endif
-      cout << std::endl;
+      cout << endl;
     } // flush_cache
   } // has_weight
   return 0;
