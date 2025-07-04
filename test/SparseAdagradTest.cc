@@ -64,8 +64,9 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(SparseAdagradTest, basicTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds, use_weight_decay, adjust_weight_decay;
-  int prefetch;
+  bool isIndex64b = false, out_of_bounds = false, use_weight_decay = false,
+       adjust_weight_decay = false;
+  int prefetch = 0;
   tie(isIndex64b,
       prefetch,
       out_of_bounds,
@@ -125,7 +126,7 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
       }
     }
 
-    int ret_fbgemm, ret_ref;
+    int ret_fbgemm = 0, ret_ref = 0;
     if (isIndex64b) {
       ret_ref = sparse_adagrad_ref(
           num_rows, // number of rows reading
@@ -198,8 +199,9 @@ TEST_P(SparseAdagradTest, basicTest_two_stages) {
 
 TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isIndex64b, out_of_bounds, use_weight_decay, adjust_weight_decay;
-  int prefetch;
+  bool isIndex64b = false, out_of_bounds = false, use_weight_decay = false,
+       adjust_weight_decay = false;
+  int prefetch = 0;
   tie(isIndex64b,
       prefetch,
       out_of_bounds,
@@ -256,7 +258,7 @@ TEST_P(SparseAdagradTest, rowwiseTest_two_stages) {
       }
     }
 
-    int ret_fbgemm, ret_ref;
+    int ret_fbgemm = 0, ret_ref = 0;
     if (isIndex64b) {
       ret_ref = rowwise_sparse_adagrad_ref(
           num_rows, // number of rows reading

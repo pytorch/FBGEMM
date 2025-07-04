@@ -107,10 +107,9 @@ class aligned_allocator {
 
     // Mallocator wraps malloc().
     void* pv = nullptr;
-    int ret;
+    int ret = 0;
 #ifdef _MSC_VER
     pv = _aligned_malloc(n * sizeof(T), Alignment);
-    ret = 0;
 #else
     ret = posix_memalign(&pv, Alignment, n * sizeof(T));
 #endif

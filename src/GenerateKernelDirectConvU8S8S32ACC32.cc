@@ -180,14 +180,13 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
-  std::tuple<bool, int, int, int, int, int, int> kernelSig;
   // int ichSize = 32;
   int mRegBlockSize = 12;
   int nRegBlockSize = 8;
   // int nRegBlockSizeMin;
   int row_interleave = 4;
 
-  kernelSig = std::make_tuple(
+  auto kernelSig = std::make_tuple(
       accum, O1, i1Xich, strideXich, i1Xich, mRegBlockSize, nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
@@ -402,8 +401,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
 
     a->emitEpilog(frame);
 
-    jit_micro_kernel_fp fn;
-    asmjit::Error err;
+    jit_micro_kernel_fp fn = nullptr;
+    asmjit::Error err = 0;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
@@ -608,7 +607,6 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
   constexpr int numRegs = simd_info<instSet>::NUM_VEC_REGS;
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
-  std::tuple<bool, int, int, int> kernelSig;
   // int ichSize = 32;
   int mRowRegBlockSize = 2;
   int mColRegBlockSize = numColRegs;
@@ -617,7 +615,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
   // int nRegBlockSizeMin;
   int row_interleave = 4;
 
-  kernelSig = std::make_tuple(accum, stride, mRegBlockSize, nRegBlockSize);
+  auto kernelSig = std::make_tuple(accum, stride, mRegBlockSize, nRegBlockSize);
 
   return codeCacheT_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp_convT {
     asmjit::CodeHolder code;
@@ -772,8 +770,8 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
 
     a->emitEpilog(frame);
 
-    jit_micro_kernel_fp_convT fn;
-    asmjit::Error err;
+    jit_micro_kernel_fp_convT fn = nullptr;
+    asmjit::Error err = 0;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
