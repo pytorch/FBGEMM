@@ -425,7 +425,7 @@ GenEmbeddingSpMDMLookup<
         x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
         vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
 
-        if (is_8bit_in) {
+        if constexpr (is_8bit_in) {
           // We need 2 vec registers for 1. scale 2. bias
           --unroll_factor;
           scale_vreg = vec_reg_t(unroll_factor);
@@ -687,7 +687,7 @@ GenEmbeddingSpMDMLookup<
           // broadcast the scale
           x86::Mem scale_src, bias_src;
           constexpr unsigned int CACHE_LINE_LEN = 64;
-          if (is_8bit_in) {
+          if constexpr (is_8bit_in) {
             if (scale_bias_last) {
               scale_src = x86::dword_ptr(
                   input, scratchReg1_, 0, block_size * sizeof(uint8_t));
@@ -737,7 +737,7 @@ GenEmbeddingSpMDMLookup<
 
             // For 8bit SLS convert usigned 8-bit to 32bit int, then to float
             // multiply with scale and then add with bias
-            if (is_8bit_in) {
+            if constexpr (is_8bit_in) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
                   instSet == inst_set_t::avx512) {
                 a->k(x86::k(1)).z().vpmovzxbd(src_vreg, src_addr);
@@ -750,7 +750,7 @@ GenEmbeddingSpMDMLookup<
               a->vcvtdq2ps(src_vreg, src_vreg);
               a->vaddps(out_vreg, out_vreg, bias_vreg);
               a->vfmadd231ps(out_vreg, src_vreg, scale_vreg);
-            } else if (is_16bit_in) {
+            } else if constexpr (is_16bit_in) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
                 if constexpr (instSet == inst_set_t::avx2) {
                   if (remainder % 2 == 0) {

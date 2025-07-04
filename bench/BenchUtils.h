@@ -265,6 +265,7 @@ void performance_test(
     aligned_vector<int> Aint(m * k);
     randFill(Aint, 0, 4);
     std::vector<aligned_vector<float>> A;
+    A.reserve(num_instances);
     for (int i = 0; i < num_instances; ++i) {
       A.emplace_back(Aint.begin(), Aint.end());
     }

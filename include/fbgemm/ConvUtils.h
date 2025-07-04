@@ -17,28 +17,28 @@ namespace fbgemm {
 
 template <int N, int... Vals>
 constexpr
-    typename std::enable_if<N == sizeof...(Vals), std::array<int, N>>::type
+    std::enable_if_t<N == sizeof...(Vals), std::array<int, N>>
     array_of_ones() {
   return std::array<int, N>{{Vals...}};
 }
 
 template <int N, int... Vals>
 constexpr
-    typename std::enable_if<N != sizeof...(Vals), std::array<int, N>>::type
+    std::enable_if_t<N != sizeof...(Vals), std::array<int, N>>
     array_of_ones() {
   return array_of_ones<N, Vals..., 1>();
 }
 
 template <int N, int... Vals>
 constexpr
-    typename std::enable_if<N == sizeof...(Vals), std::array<int, N>>::type
+    std::enable_if_t<N == sizeof...(Vals), std::array<int, N>>
     array_of_zeroes() {
   return std::array<int, N>{{Vals...}};
 }
 
 template <int N, int... Vals>
 constexpr
-    typename std::enable_if<N != sizeof...(Vals), std::array<int, N>>::type
+    std::enable_if_t<N != sizeof...(Vals), std::array<int, N>>
     array_of_zeroes() {
   return array_of_zeroes<N, Vals..., 0>();
 }
