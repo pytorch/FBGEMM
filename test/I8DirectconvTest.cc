@@ -257,9 +257,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(1, 2))); // oc_per_g
 
 TEST_P(FBGemmDirectConvTest, Test2D) {
-  bool a_symmetric, b_symmetric;
-  int oc_per_g;
-  tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
+  auto [a_symmetric, b_symmetric, oc_per_g] = GetParam();
 
   for (auto conv_p : shapes) {
     int im_in_dim = accumulate(
@@ -429,10 +427,6 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(1, 2))); // oc_per_g
 
 TEST_P(FBGemmDirectConvTransTest, Test2D) {
-  bool a_symmetric, b_symmetric;
-  int oc_per_g;
-  tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
-
   for (auto conv_p : shapes_trans) {
     int im_in_dim = accumulate(
         conv_p.IN_DIM.begin(), conv_p.IN_DIM.end(), 1, multiplies<int>());
@@ -624,10 +618,6 @@ INSTANTIATE_TEST_CASE_P(
 
 
 TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
-  bool a_symmetric, b_symmetric;
-  int oc_per_g;
-  tie(a_symmetric, b_symmetric, oc_per_g) = GetParam();
-
   for (auto conv_p : shapes_trans) {
     int im_in_dim = accumulate(
         conv_p.IN_DIM.begin(), conv_p.IN_DIM.end(), 1, multiplies<int>());

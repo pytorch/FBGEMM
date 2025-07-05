@@ -50,7 +50,7 @@ static void calculateRowOffsets(
         for (int s = 0; s < conv_param.K[1]; ++s) {
           int w_in = -W_PAD + w * conv_param.stride[1] + s;
           for (int c = 0; c < C_per_G; ++c) {
-            int a_val;
+            int a_val = 0;
             if (h_in < 0 || h_in >= IH || w_in < 0 || w_in >= IW) {
               a_val = a_zero_point;
             } else {
@@ -299,8 +299,8 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
 
   a->emitEpilog(frame_);
 
-  jit_conv_kernel_fp fn;
-  asmjit::Error err;
+  jit_conv_kernel_fp fn = nullptr;
+  asmjit::Error err = 0;
   {
     unique_lock<mutex> lock(this->rtMutex_);
     err = this->runtime().add(&fn, &code);
@@ -1203,7 +1203,7 @@ void fbgemmGroupwiseConv(
         isBottomEdgeIncluded,
         isTopBottomEdgeSame,
         true);
-    jit_conv_kernel_fp fpConv;
+    jit_conv_kernel_fp fpConv = nullptr;
 #endif
 
     int ih_start = 0;

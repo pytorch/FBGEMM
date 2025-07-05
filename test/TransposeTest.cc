@@ -94,7 +94,7 @@ TEST(TransposeTest, TransposeTest) {
   }
 
   for (const auto& shape : shapes) {
-    int m, n, ld_src, ld_dst;
+    int m = 0, n = 0, ld_src = 0, ld_dst = 0;
     tie(m, n, ld_src, ld_dst) = shape;
 
     // float test

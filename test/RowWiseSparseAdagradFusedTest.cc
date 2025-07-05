@@ -87,9 +87,9 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
   vector<vector<int>> inputs(GetInputs_());
-  bool isWeightFp16, useStochasticRounding, isIndex64b, isOffset64b,
-      use_offsets, use_grad_stride;
-  int prefetch;
+  bool isWeightFp16 = false, useStochasticRounding = false, isIndex64b = false,
+       isOffset64b = false, use_offsets = false, use_grad_stride = false;
+  int prefetch = 0;
   EmbeddingSpMDMCornerCase corner_case;
   tie(isWeightFp16,
       useStochasticRounding,
@@ -201,7 +201,7 @@ TEST_P(RowWiseSparseAdagradFusedTest, rowwiseTest) {
         lr);                                                                  \
   } while (0)
 
-    bool success, success_ref;
+    bool success = false, success_ref = false;
     if (isWeightFp16) {
       if (isOffset64b) {
         if (isIndex64b) {
