@@ -746,9 +746,9 @@ static void transpose_kernel_mxn_avx2_uint8(
     input[i] = _mm256_loadu_si256(reinterpret_cast<__m256i*>(&local_buffer[0]));
   }
 
-  // for (; i < 8; ++i) {
-  // input[i] = _mm256_setzero_si256();
-  //}
+  for (; i < 8; ++i) {
+    input[i] = _mm256_setzero_si256();
+  }
 
   // interleaving 8-bit elements
   // e.g., temp[0] now becomes: a0 b0 a1 b1 a2 b2 ...
