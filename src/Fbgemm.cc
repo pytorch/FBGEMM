@@ -58,9 +58,9 @@ void fbgemmPacked(
     throw std::runtime_error("unknown architecure");
   }
 
-  int64_t MCB;
-  int KCB;
-  int MR;
+  int64_t MCB = 0;
+  int KCB = 0;
+  int MR = 0;
 
   if (blocking_params) {
     MCB = blocking_params->MCB;
@@ -129,7 +129,7 @@ void fbgemmPacked(
   // remainders
   int _kc = KDimPerGroup % KCB;
 
-  int kc, mc;
+  int kc = 0, mc = 0;
 
   block_type_t blockA{0, 0, 0, 0};
 
@@ -146,7 +146,7 @@ void fbgemmPacked(
   // if (thread_id == 0)
   //   std::cout << ", " << th_info.toString();
 
-  int64_t g_begin, g_end, i_begin, i_end;
+  int64_t g_begin = 0, g_end = 0, i_begin = 0, i_end = 0;
 
   // Calculate the begin and end index along the group dimension
   fbgemmPartition1D(

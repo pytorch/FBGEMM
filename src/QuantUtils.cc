@@ -460,7 +460,7 @@ FBGEMM_API void Requantize<uint8_t>(
     const RequantizationParams& params,
     int thread_id,
     int num_threads) {
-  int64_t i_begin, i_end;
+  int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
       fbgemmHasAvx2Support()) {
@@ -482,7 +482,7 @@ FBGEMM_API void RequantizeFixedPoint(
     const RequantizationParams& params,
     int thread_id,
     int num_threads) {
-  int64_t i_begin, i_end;
+  int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   if (std::is_same_v<T, uint8_t> && params.target_qparams.precision == 8 &&
       cpuinfo_initialize() && fbgemmHasAvx2Support()) {
@@ -524,7 +524,7 @@ FBGEMM_API void RequantizeFixedPoint<uint8_t>(
     const RequantizationParams& params,
     int thread_id,
     int num_threads) {
-  int64_t i_begin, i_end;
+  int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
 
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&

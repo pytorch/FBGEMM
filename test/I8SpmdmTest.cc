@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 #ifdef _OPENMP
+#include <math.h>
 #include <omp.h>
 #endif
 
@@ -51,8 +52,8 @@ TEST_P(fbgemmSPMDMTest, TestsSpMDM) {
       {14 * 14 * 2, 4, 2},
   };
 
-  float density;
-  bool accumulation, test_ld;
+  float density = NAN;
+  bool accumulation = false, test_ld = false;
   tie(density, accumulation, test_ld) = GetParam();
 
   for (const auto& shape : shapes) {

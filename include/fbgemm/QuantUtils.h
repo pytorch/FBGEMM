@@ -68,7 +68,7 @@ T Quantize(
     std::int32_t zero_point,
     float scale,
     int result_precision,
-    bool result_is_signed = std::is_signed<T>::value) {
+    bool result_is_signed = std::is_signed_v<T>) {
   // Note: We want to multiply with src with inv_scale instead of
   // dividing src by scale. The same is done in vector code and
   // at other places.
@@ -162,7 +162,7 @@ void Dequantize(
     const TensorQuantizationParams& qparams,
     int thread_id = 0,
     int num_threads = 1) {
-  int64_t i_begin, i_end;
+  int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   for (int64_t i = i_begin; i < i_end; i++) {
     dst[i] = Dequantize(src[i], qparams);

@@ -91,8 +91,8 @@ template <
         int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
-    x86::Ymm half,
-    const x86::Zmm vec,
+    const x86::Ymm& half,
+    const x86::Zmm& vec,
     int idx) {
   a->vextracti32x8(half, vec, idx);
 }
@@ -107,8 +107,8 @@ template <
         int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
-    x86::Xmm half,
-    x86::Ymm vec,
+    const x86::Xmm& half,
+    const x86::Ymm& vec,
     int idx) {
   a->vextracti32x4(half, vec, idx);
 }
@@ -119,8 +119,8 @@ template <
     std::enable_if_t<instSet == inst_set_t::avx2, int> = 0>
 void emitExtractHalfVector(
     x86::Emitter* a,
-    x86::Xmm half,
-    x86::Ymm vec,
+    const x86::Xmm& half,
+    const x86::Ymm& vec,
     int idx) {
   a->vextracti128(half, vec, idx);
 }

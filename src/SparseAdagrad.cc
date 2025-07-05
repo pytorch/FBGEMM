@@ -770,7 +770,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 
         typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
             fn;
-        asmjit::Error err;
+        asmjit::Error err = 0;
         {
           std::unique_lock<std::mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);

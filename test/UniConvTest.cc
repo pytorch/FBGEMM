@@ -193,7 +193,7 @@ INSTANTIATE_TEST_CASE_P(
  * Test for conv packing
  */
 TEST_P(uniConvTest, packingTest) {
-  int MB, IC, OC, IT, IH, IW, G, kernel, stride, pad;
+  int MB = 0, IC = 0, OC = 0, IT = 0, IH = 0, IW = 0, G = 0, kernel = 0, stride = 0, pad = 0;
   tie(MB, IC, OC, IT, IH, IW, G, kernel, stride, pad) = GetParam();
 
   conv_param_t<1> conv_p_1d(
@@ -452,7 +452,7 @@ TEST_P(uniConvTest, packingTest) {
  * Test for packing/unpacking
  */
 TEST_P(uniConvTest, packUnpackTest) {
-  int MB, IC, OC, IT, IH, IW, G, kernel, stride, pad;
+  int MB = 0, IC = 0, OC = 0, IT = 0, IH = 0, IW = 0, G = 0, kernel = 0, stride = 0, pad = 0;
   tie(MB, IC, OC, IT, IH, IW, G, kernel, stride, pad) = GetParam();
 
   conv_param_t<1> conv_p_1d(
@@ -976,8 +976,8 @@ static void runRequantizeTest(
 
 TEST_P(UniConvQGranTest, requantizeTest) {
   QuantizationGranularity q_granularity;
-  bool a_symmetric, b_symmetric;
-  bool test_bias, test_float_bias;
+  bool a_symmetric = false, b_symmetric = false;
+  bool test_bias = false, test_float_bias = false;
   tie(q_granularity, a_symmetric, b_symmetric, test_bias, test_float_bias) =
       GetParam();
 
