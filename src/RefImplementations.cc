@@ -13,6 +13,8 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
 
+#include <math.h>
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -410,7 +412,7 @@ void cblas_gemm_i64_i64acc_ref(
     int ldc) {
   for (int i = 0; i < M; ++i) {
     for (int j = 0; j < N; ++j) {
-      int64_t acc;
+      int64_t acc = 0;
       if (accumulate) {
         acc = C[i * ldc + j];
       } else {
@@ -1210,8 +1212,8 @@ bool EmbeddingSpMDM_ref(
     bool no_bag /*=false*/,
     bool is_bf16_out /*=false*/,
     bool is_bf16_in /*=false*/) {
-  const bool isWeight8bit = is_same_v<InType, uint8_t>;
-  const bool isOutput8bit = is_same_v<OutType, uint8_t>;
+  constexpr bool isWeight8bit = is_same_v<InType, uint8_t>;
+  constexpr bool isOutput8bit = is_same_v<OutType, uint8_t>;
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1220,7 +1222,7 @@ bool EmbeddingSpMDM_ref(
   }
   vector<float> buf(block_size);
 
-  if (isWeight8bit) {
+  if constexpr (isWeight8bit) {
     // block_size is the number of elements and fused_block_size is the size of
     // an entire row, including scale and bias.
     if (input_stride == -1) {
@@ -1252,7 +1254,7 @@ bool EmbeddingSpMDM_ref(
             weight = weights[m];
           }
 
-          float scale, bias;
+          float scale = NAN, bias = NAN;
           if (scale_bias_last) {
             scale = weight * scale_bias[0];
             bias = weight * scale_bias[1];
@@ -1305,7 +1307,7 @@ bool EmbeddingSpMDM_ref(
         if (weights) {
           weight = weights[is_weight_positional ? i : current];
         }
-        float scale, bias;
+        float scale = NAN, bias = NAN;
         if (scale_bias_last) {
           scale = weight * scale_bias[0];
           bias = weight * scale_bias[1];
@@ -1579,7 +1581,7 @@ bool EmbeddingSpMDMFP8_ref(
 
       for (int j = 0; j < block_size; ++j) {
         const uint8_t* inptr = input + input_stride * idx + j;
-        float input_f;
+        float input_f = NAN;
         // Dequantize FP8 to FP32 before compute
         Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
         buf[j] = std::fma(w, input_f, buf[j]);
@@ -1831,11 +1833,11 @@ int sparse_adagrad_ref(
     float freq =
         (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
-    const float* g_;
-    const float* h_;
-    const float* w_;
-    float* nh_;
-    float* nw_;
+    const float* g_ = nullptr;
+    const float* h_ = nullptr;
+    const float* w_ = nullptr;
+    float* nh_ = nullptr;
+    float* nw_ = nullptr;
 
     g_ = g + offsetI;
     h_ = h + offsetIdx;
@@ -1879,9 +1881,9 @@ int rowwise_sparse_adagrad_ref(
     float freq =
         (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
-    const float* g_;
-    float* h_;
-    float* w_;
+    const float* g_ = nullptr;
+    float* h_ = nullptr;
+    float* w_ = nullptr;
 
     g_ = g + offsetI;
     h_ = h + idx; // This is different from sparse adagrad

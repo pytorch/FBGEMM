@@ -17,6 +17,7 @@
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
+#include <math.h>
 #endif
 
 namespace fbgemm {
@@ -58,7 +59,7 @@ static ALWAYS_INLINE void requantize_(
   __m256i min_v = _mm256_set1_epi8(static_cast<std::uint8_t>(0));
   __m256i max_v = _mm256_set1_epi8(static_cast<std::uint8_t>(255));
 
-  if (A_SYMMETRIC) {
+  if constexpr (A_SYMMETRIC) {
     assert(A_zero_point == 0 || col_offsets == nullptr);
   }
   __m256i A_zero_point_v = _mm256_set1_epi32(A_zero_point);
@@ -81,7 +82,7 @@ static ALWAYS_INLINE void requantize_(
         reinterpret_cast<const __m256i*>(C_int32 + j + 3 * VLEN));
 
     __m256i row_offset_v;
-    if (!B_SYMMETRIC) {
+    if constexpr (!B_SYMMETRIC) {
       if (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j));
@@ -111,7 +112,7 @@ static ALWAYS_INLINE void requantize_(
       x_v = _mm256_sub_epi32(x_v, row_offset_v);
     }
     __m256i col_off_v;
-    if (!A_SYMMETRIC) {
+    if constexpr (!A_SYMMETRIC) {
       col_off_v = _mm256_mullo_epi32(
           A_zero_point_v,
           _mm256_loadu_si256(
@@ -119,8 +120,8 @@ static ALWAYS_INLINE void requantize_(
       x_v = _mm256_sub_epi32(x_v, col_off_v);
     }
 
-    if (!B_SYMMETRIC) {
-      if (K_PER_G == 1) {
+    if constexpr (!B_SYMMETRIC) {
+      if constexpr (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j + VLEN));
       } else {
@@ -147,7 +148,7 @@ static ALWAYS_INLINE void requantize_(
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       y_v = _mm256_sub_epi32(y_v, row_offset_v);
     }
-    if (!A_SYMMETRIC) {
+    if constexpr (!A_SYMMETRIC) {
       col_off_v = _mm256_mullo_epi32(
           A_zero_point_v,
           _mm256_loadu_si256(
@@ -155,7 +156,7 @@ static ALWAYS_INLINE void requantize_(
       y_v = _mm256_sub_epi32(y_v, col_off_v);
     }
 
-    if (!B_SYMMETRIC) {
+    if constexpr (!B_SYMMETRIC) {
       if (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j + 2 * VLEN));
@@ -183,7 +184,7 @@ static ALWAYS_INLINE void requantize_(
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       z_v = _mm256_sub_epi32(z_v, row_offset_v);
     }
-    if (!A_SYMMETRIC) {
+    if constexpr (!A_SYMMETRIC) {
       col_off_v = _mm256_mullo_epi32(
           A_zero_point_v,
           _mm256_loadu_si256(
@@ -191,7 +192,7 @@ static ALWAYS_INLINE void requantize_(
       z_v = _mm256_sub_epi32(z_v, col_off_v);
     }
 
-    if (!B_SYMMETRIC) {
+    if constexpr (!B_SYMMETRIC) {
       if (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j + 3 * VLEN));
@@ -219,7 +220,7 @@ static ALWAYS_INLINE void requantize_(
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       w_v = _mm256_sub_epi32(w_v, row_offset_v);
     }
-    if (!A_SYMMETRIC) {
+    if constexpr (!A_SYMMETRIC) {
       col_off_v = _mm256_mullo_epi32(
           A_zero_point_v,
           _mm256_loadu_si256(
@@ -400,7 +401,7 @@ static ALWAYS_INLINE void requantize_(
     __m256i x_v =
         _mm256_loadu_si256(reinterpret_cast<const __m256i*>(C_int32 + j));
 
-    if (!B_SYMMETRIC) {
+    if constexpr (!B_SYMMETRIC) {
       __m256i row_offset_v;
       if (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
@@ -430,7 +431,7 @@ static ALWAYS_INLINE void requantize_(
       row_offset_v = _mm256_mullo_epi32(row_offset_v, B_zero_point_v);
       x_v = _mm256_sub_epi32(x_v, row_offset_v);
     }
-    if (!A_SYMMETRIC) {
+    if constexpr (!A_SYMMETRIC) {
       __m256i col_off_v = _mm256_mullo_epi32(
           A_zero_point_v,
           _mm256_loadu_si256(
@@ -509,14 +510,14 @@ static ALWAYS_INLINE void requantize_(
     } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
       quant_param_idx = j / 2;
     }
-    if (!B_SYMMETRIC) {
+    if constexpr (!B_SYMMETRIC) {
       raw -= B_zero_point[quant_param_idx] * row_offsets[j / K_PER_G];
     }
-    if (!A_SYMMETRIC) {
+    if constexpr (!A_SYMMETRIC) {
       raw -= A_zero_point * col_offsets[j];
     }
-    float raw_f;
-    if (HAS_BIAS) { // static if
+    float raw_f = NAN;
+    if constexpr (HAS_BIAS) { // static if
       if constexpr (std::is_same_v<BIAS_TYPE, float>) {
         raw_f = raw;
         raw_f += bias[j] / act_times_w_scale[quant_param_idx];
