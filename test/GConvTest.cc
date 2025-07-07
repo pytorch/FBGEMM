@@ -487,11 +487,7 @@ static void runRequantizeTest(matrix_op_t /* unused */,
 }
 
 TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
-  matrix_op_t atrans, btrans;
-  QuantizationGranularity q_granularity;
-  bool a_symmetric, b_symmetric;
-
-  tie(atrans, btrans, q_granularity, a_symmetric, b_symmetric) = GetParam();
+  auto [atrans, btrans, q_granularity, a_symmetric, b_symmetric] = GetParam();
 
   runRequantizeTest<2>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
   runRequantizeTest<3>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
@@ -504,8 +500,7 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
 /*
 TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
   vector<conv_param_t<>> shapes(GetShapes_());
-  matrix_op_t atrans, btrans;
-  tie(atrans, btrans) = GetParam();
+  auto [atrans, btrans] = GetParam();
 
   for (auto conv_p : shapes) {
     int R = conv_p.K[0];

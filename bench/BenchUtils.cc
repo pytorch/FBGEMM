@@ -150,9 +150,8 @@ aligned_vector<float> getRandomSparseVector(
   std::sort(sorted_res.begin(), sorted_res.end());
   int32_t numZeros =
       size - static_cast<int32_t>(std::round(size * fractionNonZeros));
-  float thr;
   if (numZeros) {
-    thr = sorted_res[numZeros - 1];
+    float thr = sorted_res[numZeros - 1];
 
     for (auto& f : res) {
       if (f <= thr) {
