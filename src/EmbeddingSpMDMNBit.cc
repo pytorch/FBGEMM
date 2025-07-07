@@ -993,7 +993,7 @@ GenEmbeddingSpMDMNBitLookup<
             offsetType,
             outType,
             ROWWISE_SPARSE>::jit_embedding_kernel fn;
-        asmjit::Error err;
+        asmjit::Error err = 0;
         {
           unique_lock<mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);

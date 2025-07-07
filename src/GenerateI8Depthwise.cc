@@ -557,8 +557,8 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
     e->emitEpilog(frame);
 
-    jit_kernel_signature fn;
-    asmjit::Error err;
+    jit_kernel_signature fn = nullptr;
+    asmjit::Error err = 0;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);

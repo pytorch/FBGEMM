@@ -170,7 +170,8 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (IC + 31) / 32 * 32 * sizeof(int32_t)));
 
-  int64_t n_begin, n_end, t_begin, t_end, h_begin, h_end;
+  int64_t n_begin = 0, n_end = 0, t_begin = 0, t_end = 0, h_begin = 0,
+          h_end = 0;
   // Reuse the 3-dim partition scheme for parallelization in matrix
   // multiplication.
   thread_type_t th_info =
@@ -185,15 +186,15 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
   fbgemmPartition1D(
       th_info.n_thread_id, th_info.n_num_threads, H_OUT, h_begin, h_end);
 
-  GenI8Depthwise::jit_kernel_signature middle_kernel;
+  GenI8Depthwise::jit_kernel_signature middle_kernel = nullptr;
 
   for (int n = n_begin; n < n_end; ++n) {
     const uint8_t* A_base = A + n * T * H * W * IC;
     uint8_t* C_uint8_base = C_uint8 + n * T_OUT * H_OUT * W_OUT * OC;
 
-    int t;
+    int t = 0;
     for (t = t_begin; t < PAD_P; ++t) {
-      int h;
+      int h = 0;
       for (h = h_begin; h < PAD_T; ++h) {
         for (int w = 0; w < W_OUT; ++w) {
           depthwise_3d_kernel_<
@@ -230,7 +231,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
       } // h
 
       for (; h < std::min(H_OUT - PAD_B - stride_h + 1, h_end); ++h) {
-        int w;
+        int w = 0;
         for (w = 0; w < PAD_L; ++w) {
           depthwise_3d_kernel_<
               FUSE_RELU,
@@ -264,7 +265,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
               act_times_w_scale);
         } // w
 
-        GenI8Depthwise::jit_kernel_signature kernel;
+        GenI8Depthwise::jit_kernel_signature kernel = nullptr;
         for (; w < W_OUT - PAD_R - stride_w + 1; ++w) {
           if (w == PAD_L) {
             int remainder = OC % 32;
@@ -389,7 +390,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
     } // t
 
     for (; t < std::min(T_OUT - PAD_N - stride_t + 1, t_end); ++t) {
-      int h;
+      int h = 0;
       for (h = h_begin; h < PAD_T; ++h) {
         for (int w = 0; w < W_OUT; ++w) {
           depthwise_3d_kernel_<
@@ -426,7 +427,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
       } // h
 
       for (; h < std::min(H_OUT - PAD_B - stride_h + 1, h_end); ++h) {
-        int w;
+        int w = 0;
         for (w = 0; w < PAD_L; ++w) {
           depthwise_3d_kernel_<
               FUSE_RELU,
@@ -583,7 +584,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
     } // t
 
     for (; t < t_end; ++t) {
-      int h;
+      int h = 0;
       for (h = h_begin; h < PAD_T; ++h) {
         for (int w = 0; w < W_OUT; ++w) {
           depthwise_3d_kernel_<
@@ -620,7 +621,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
       } // h
 
       for (; h < std::min(H_OUT - PAD_B - stride_h + 1, h_end); ++h) {
-        int w;
+        int w = 0;
         for (w = 0; w < PAD_L; ++w) {
           depthwise_3d_kernel_<
               FUSE_RELU,
@@ -654,7 +655,7 @@ static ALWAYS_INLINE void depthwise_3d_same_pad_(
               act_times_w_scale);
         } // w
 
-        GenI8Depthwise::jit_kernel_signature kernel;
+        GenI8Depthwise::jit_kernel_signature kernel = nullptr;
         for (; w < W_OUT - PAD_R - stride_w + 1; ++w) {
           if (w == PAD_L) {
             int remainder = OC % 32;

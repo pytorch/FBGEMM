@@ -7,6 +7,7 @@ InheritParentConfig: true
 # @nolint
 Checks: '
 -*,
+cppcoreguidelines-init-variables,
 bugprone-argument-comment,
 misc-use-internal-linkage,
 modernize*,

@@ -754,7 +754,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         // jit_fused8bitembedding_kernel fn;
         typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             jit_sparse_adagrad_kernel fn;
-        asmjit::Error err;
+        asmjit::Error err = 0;
         {
           unique_lock<mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);

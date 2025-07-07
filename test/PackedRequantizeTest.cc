@@ -112,7 +112,7 @@ static vector<vector<int>> GetShapes_() {
 TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
-  bool test_ld;
+  bool test_ld = false;
   QuantizationGranularity q_granularity;
   tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
@@ -380,7 +380,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, Test) {
 TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
-  bool test_ld;
+  bool test_ld = false;
   QuantizationGranularity q_granularity;
   tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
@@ -636,7 +636,7 @@ TEST_P(fbgemmu8s8acc32WithQuantGranularityTest, TestFloatInputOutput) {
 TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t atrans, btrans;
-  bool test_ld;
+  bool test_ld = false;
   tie(atrans, btrans, test_ld) = GetParam();
 
   for (auto shape : shapes) {
@@ -780,7 +780,7 @@ TEST_P(fbgemmu8s8acc32Test, TestSymmetricQuantizedInputOutput) {
 TEST_P(fbgemmPackUnpackAcc32Test, TestPackUnpack) {
   vector<vector<int>> shapes(GetShapes_());
   matrix_op_t btrans;
-  bool test_ld;
+  bool test_ld = false;
   tie(btrans, test_ld) = GetParam();
 
   BlockingFactors params;

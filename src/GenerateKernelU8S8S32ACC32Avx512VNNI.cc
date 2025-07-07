@@ -66,13 +66,12 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
       simd_info<instSet>::WIDTH_BITS == 512 ? inst_set_t::avx512
                                             : inst_set_t::avx512_ymm;
 
-  std::tuple<bool, int, int, int, int, int, int> kernelSig;
-  int kBlock;
-  int nBlock;
-  int mRegBlockSize;
-  int nRegBlockSize;
-  int nRegBlockSizeMin;
-  int row_interleave;
+  int kBlock = 0;
+  int nBlock = 0;
+  int mRegBlockSize = 0;
+  int nRegBlockSize = 0;
+  int nRegBlockSizeMin = 0;
+  int row_interleave = 0;
 
   if (blocking_params) {
     kBlock = blocking_params->KCB;
@@ -91,7 +90,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
   }
   (void)nRegBlockSizeMin; // Suppress unused variable warning
 
-  kernelSig = std::make_tuple(
+  auto kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
@@ -352,8 +351,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreate(
 
     a->emitEpilog(frame);
 
-    jit_micro_kernel_fp fn;
-    asmjit::Error err;
+    jit_micro_kernel_fp fn = nullptr;
+    asmjit::Error err = 0;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);

@@ -155,7 +155,8 @@ static ALWAYS_INLINE void depthwise_2d_(
   int32_t* row_offsets = static_cast<int32_t*>(
       fbgemmAlignedAlloc(64, (IC + 31) / 32 * 32 * sizeof(int32_t)));
 
-  int64_t n_begin, n_end, h_begin, h_end, w_begin, w_end;
+  int64_t n_begin = 0, n_end = 0, h_begin = 0, h_end = 0, w_begin = 0,
+          w_end = 0;
   // Reuse the 3-dim partition scheme for parallelization in matrix
   // multiplication.
   thread_type_t th_info =
@@ -170,7 +171,7 @@ static ALWAYS_INLINE void depthwise_2d_(
   fbgemmPartition1D(
       th_info.n_thread_id, th_info.n_num_threads, W_OUT, w_begin, w_end);
 
-  GenI8Depthwise::jit_kernel_signature middle_kernel;
+  GenI8Depthwise::jit_kernel_signature middle_kernel{};
 
   for (int n = n_begin; n < n_end; ++n) {
     const std::uint8_t* A_base = A + n * H * W * IC;

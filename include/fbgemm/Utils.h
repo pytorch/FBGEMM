@@ -35,7 +35,7 @@ namespace fbgemm {
 template <typename T>
 struct is_8bit {
   static constexpr bool value =
-      std::is_same<T, int8_t>::value || std::is_same<T, uint8_t>::value;
+      std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>;
 };
 
 /**
@@ -263,8 +263,8 @@ std::string arrayToString(const std::array<T, SIZE>& inp) {
 
 template <typename accT = std::int32_t>
 bool isValidBlockingFactor(const BlockingFactors* const param) {
-  constexpr bool is_32bit = std::is_same<accT, int32_t>::value;
-  constexpr bool is_16bit = std::is_same<accT, int16_t>::value;
+  constexpr bool is_32bit = std::is_same_v<accT, int32_t>;
+  constexpr bool is_16bit = std::is_same_v<accT, int16_t>;
   static const auto iset = fbgemmInstructionSet();
 
   if constexpr (is_32bit) {
@@ -447,7 +447,7 @@ void nbit_embedding_sanity_check(
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
       "input_bit_rate must be 2 or 4");
-  if constexpr (std::is_same<OutType, uint8_t>::value) {
+  if constexpr (std::is_same_v<OutType, uint8_t>) {
     assert(
         (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
         "we currently only support int4 to int4 for sequential TBE");
