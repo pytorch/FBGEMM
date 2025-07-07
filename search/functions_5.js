@@ -1,7 +1,7 @@
 var searchData=
 [
   ['embedding_5finplace_5fupdate_5fcuda_0',['embedding_inplace_update_cuda',['../namespacefbgemm__gpu.html#a358cc74c17a25856e51a4bf73a8247ec',1,'fbgemm_gpu']]],
-  ['emitextracthalfvector_1',['emitExtractHalfVector',['../namespacefbgemm.html#a602ac18c0e6c32448ff8d21818bded38',1,'fbgemm']]],
+  ['emitextracthalfvector_1',['emitExtractHalfVector',['../namespacefbgemm.html#a4993a1153f61fe37484f085800439418',1,'fbgemm']]],
   ['emitloaddword_2',['emitLoadDWord',['../namespacefbgemm.html#aa56904bd84399e10104d286e0e10a2d7',1,'fbgemm']]],
   ['equals_3',['equals',['../classfbgemm_1_1_pack_b_matrix.html#a5299773354edb62a96e39dc55ab5d770',1,'fbgemm::PackBMatrix']]],
   ['example_5fmethod_4',['example_method',['../group__example-method-group.html#ga56a504c1752577359ba5b75a9cd52737',1,'example_code.cpp']]],

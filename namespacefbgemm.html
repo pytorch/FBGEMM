@@ -265,9 +265,9 @@ Functions</h2></td></tr>
 <tr class="separator:a0bfa499fd1b485bc3e457842343bca57"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1671cc912f6aa4bab678a0d255c8a690" id="r_a1671cc912f6aa4bab678a0d255c8a690"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a1671cc912f6aa4bab678a0d255c8a690">SparseDenseMM</a> (int M, int N, const int *row_ptr, const int *col_idx, const float *values, const float *B, int ldb, float *C, int ldc, bool accum=false)</td></tr>
 <tr class="separator:a1671cc912f6aa4bab678a0d255c8a690"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3350c03dc2d62e8e434332d088f6a895" id="r_a3350c03dc2d62e8e434332d088f6a895"><td class="memTemplParams" colspan="2">template&lt;typename T, bool LEGACY = true&gt; </td></tr>
-<tr class="memitem:a3350c03dc2d62e8e434332d088f6a895"><td class="memTemplItemLeft" align="right" valign="top">T&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a3350c03dc2d62e8e434332d088f6a895">Quantize</a> (float src, std::int32_t zero_point, float scale, int result_precision, bool result_is_signed=std::is_signed&lt; T &gt;::value)</td></tr>
-<tr class="separator:a3350c03dc2d62e8e434332d088f6a895"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abd985ab6123d0e7cb4a7334265aa26c5" id="r_abd985ab6123d0e7cb4a7334265aa26c5"><td class="memTemplParams" colspan="2">template&lt;typename T, bool LEGACY = true&gt; </td></tr>
+<tr class="memitem:abd985ab6123d0e7cb4a7334265aa26c5"><td class="memTemplItemLeft" align="right" valign="top">T&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#abd985ab6123d0e7cb4a7334265aa26c5">Quantize</a> (float src, std::int32_t zero_point, float scale, int result_precision, bool result_is_signed=std::is_signed_v&lt; T &gt;)</td></tr>
+<tr class="separator:abd985ab6123d0e7cb4a7334265aa26c5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga7a5705b5705425abc8f72fe339c2ae91" id="r_ga7a5705b5705425abc8f72fe339c2ae91"><td class="memTemplParams" colspan="2">template&lt;typename T, layout_t LAYOUT = layout_t::KCX&gt; </td></tr>
 <tr class="memitem:ga7a5705b5705425abc8f72fe339c2ae91"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-generic.html#ga7a5705b5705425abc8f72fe339c2ae91">QuantizeGroupwise</a> (const float *src, int K, int C, int X, int G, const float *scales, const std::int32_t *zero_points, T *dst)</td></tr>
 <tr class="separator:ga7a5705b5705425abc8f72fe339c2ae91"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -298,8 +298,8 @@ Functions</h2></td></tr>
 <tr class="memitem:a19217d3a8551a7b251ecb1eba79669bc" id="r_a19217d3a8551a7b251ecb1eba79669bc"><td class="memTemplParams" colspan="2">template&lt;typename OutputType&gt; </td></tr>
 <tr class="memitem:a19217d3a8551a7b251ecb1eba79669bc"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a19217d3a8551a7b251ecb1eba79669bc">Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef</a> (const uint8_t *input, size_t input_rows, int input_columns, OutputType *output)</td></tr>
 <tr class="separator:a19217d3a8551a7b251ecb1eba79669bc"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ga94b9e26f3c7ff032c5316bcc0167c23b" id="r_ga94b9e26f3c7ff032c5316bcc0167c23b"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-avx2.html#ga94b9e26f3c7ff032c5316bcc0167c23b">Xor128</a> (void)</td></tr>
-<tr class="separator:ga94b9e26f3c7ff032c5316bcc0167c23b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ga53e986441f4188a7a412761b20737e8d" id="r_ga53e986441f4188a7a412761b20737e8d"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-avx2.html#ga53e986441f4188a7a412761b20737e8d">Xor128</a> ()</td></tr>
+<tr class="separator:ga53e986441f4188a7a412761b20737e8d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ga92e2b96889b039f101e24855e163021b" id="r_ga92e2b96889b039f101e24855e163021b"><td class="memTemplParams" colspan="2">template&lt;bool A_SYMMETRIC, bool B_SYMMETRIC, QuantizationGranularity Q_GRAN, bool HAS_BIAS, bool FUSE_RELU, typename BIAS_TYPE = std::int32_t, bool DIRECT = false&gt; </td></tr>
 <tr class="memitem:ga92e2b96889b039f101e24855e163021b"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="group__fbgemm-quant-utils-avx2.html#ga92e2b96889b039f101e24855e163021b">requantizeOutputProcessingAvx2</a> (std::uint8_t *out, const std::int32_t *inp, const <a class="el" href="structfbgemm_1_1block__type__t.html">block_type_t</a> &amp;block, int ld_out, int ld_in, const <a class="el" href="structfbgemm_1_1requantization_params__t.html">requantizationParams_t</a>&lt; BIAS_TYPE &gt; &amp;r)</td></tr>
 <tr class="separator:ga92e2b96889b039f101e24855e163021b"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -332,9 +332,9 @@ Functions</h2></td></tr>
 <tr class="memitem:aa56904bd84399e10104d286e0e10a2d7" id="r_aa56904bd84399e10104d286e0e10a2d7"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx2, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:aa56904bd84399e10104d286e0e10a2d7"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#aa56904bd84399e10104d286e0e10a2d7">emitLoadDWord</a> (x86::Emitter *a, T dest, const x86::Mem &amp;ptr)</td></tr>
 <tr class="separator:aa56904bd84399e10104d286e0e10a2d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a602ac18c0e6c32448ff8d21818bded38" id="r_a602ac18c0e6c32448ff8d21818bded38"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt; = 0&gt; </td></tr>
-<tr class="memitem:a602ac18c0e6c32448ff8d21818bded38"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a602ac18c0e6c32448ff8d21818bded38">emitExtractHalfVector</a> (x86::Emitter *a, x86::Ymm half, const x86::Zmm vec, int idx)</td></tr>
-<tr class="separator:a602ac18c0e6c32448ff8d21818bded38"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4993a1153f61fe37484f085800439418" id="r_a4993a1153f61fe37484f085800439418"><td class="memTemplParams" colspan="2">template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</a> instSet, typename T, std::enable_if_t&lt; instSet==inst_set_t::avx512||instSet==inst_set_t::avx512_ymm||instSet==inst_set_t::avx512_vnni||instSet==inst_set_t::avx512_vnni_ymm, int &gt; = 0&gt; </td></tr>
+<tr class="memitem:a4993a1153f61fe37484f085800439418"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a4993a1153f61fe37484f085800439418">emitExtractHalfVector</a> (x86::Emitter *a, const x86::Ymm &amp;half, const x86::Zmm &amp;vec, int idx)</td></tr>
+<tr class="separator:a4993a1153f61fe37484f085800439418"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3c476c8ddbed58f3f6b4395dd55ed2a3" id="r_a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memTemplParams" colspan="2">template&lt;typename T, std::enable_if_t&lt; std::is_same_v&lt; T, x86::Ymm &gt;, int &gt; = 0&gt; </td></tr>
 <tr class="memitem:a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a3c476c8ddbed58f3f6b4395dd55ed2a3">gen8BitVectorOne</a> (x86::Emitter *a, T dest)</td></tr>
 <tr class="separator:a3c476c8ddbed58f3f6b4395dd55ed2a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -814,8 +814,8 @@ template&lt;QuantizationGranularity Q_GRAN, typename BIAS_TYPE = std::int32_t&gt
 
 </div>
 </div>
-<a id="a602ac18c0e6c32448ff8d21818bded38" name="a602ac18c0e6c32448ff8d21818bded38"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a602ac18c0e6c32448ff8d21818bded38">&#9670;&#160;</a></span>emitExtractHalfVector()</h2>
+<a id="a4993a1153f61fe37484f085800439418" name="a4993a1153f61fe37484f085800439418"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4993a1153f61fe37484f085800439418">&#9670;&#160;</a></span>emitExtractHalfVector()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -830,12 +830,12 @@ template&lt;<a class="el" href="#a637f4382ad9fa1da0795e05672b74301">inst_set_t</
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">x86::Ymm</td>          <td class="paramname"><span class="paramname"><em>half</em></span>, </td>
+          <td class="paramtype">const x86::Ymm &amp;</td>          <td class="paramname"><span class="paramname"><em>half</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">const x86::Zmm</td>          <td class="paramname"><span class="paramname"><em>vec</em></span>, </td>
+          <td class="paramtype">const x86::Zmm &amp;</td>          <td class="paramname"><span class="paramname"><em>vec</em></span>, </td>
         </tr>
         <tr>
           <td class="paramkey"></td>
@@ -2680,8 +2680,8 @@ template&lt;typename T&gt; </div>
 
 </div>
 </div>
-<a id="a3350c03dc2d62e8e434332d088f6a895" name="a3350c03dc2d62e8e434332d088f6a895"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3350c03dc2d62e8e434332d088f6a895">&#9670;&#160;</a></span>Quantize()</h2>
+<a id="abd985ab6123d0e7cb4a7334265aa26c5" name="abd985ab6123d0e7cb4a7334265aa26c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abd985ab6123d0e7cb4a7334265aa26c5">&#9670;&#160;</a></span>Quantize()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -2711,7 +2711,7 @@ template&lt;typename T, bool LEGACY = true&gt; </div>
         <tr>
           <td class="paramkey"></td>
           <td></td>
-          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>result_is_signed</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::is_signed&lt;T&gt;::value</span>&#160;)</td>
+          <td class="paramtype">bool</td>          <td class="paramname"><span class="paramname"><em>result_is_signed</em></span><span class="paramdefsep"> = </span><span class="paramdefval">std::is_signed_v&lt;T&gt;</span>&#160;)</td>
         </tr>
       </table>
 </div><div class="memdoc">
