@@ -50,8 +50,8 @@ INSTANTIATE_TEST_CASE_P(
  * Test for float bias
  */
 TEST_P(FloatRequantizeTest, floatBiasTest) {
-  int rows, cols;
-  bool fuse_relu;
+  int rows = 0, cols = 0;
+  bool fuse_relu = false;
   QuantizationGranularity q_gran;
   tie(rows, cols, fuse_relu, q_gran) = GetParam();
 
