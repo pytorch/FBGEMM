@@ -588,6 +588,28 @@ at::Tensor f8i4bf16_rowwise_meta(
   return Y;
 }
 
+std::tuple<at::Tensor, at::Tensor> preshuffle_i4_meta(
+    at::Tensor WQ,
+    at::Tensor w_scale) {
+  auto WS = at::empty_like(w_scale);
+  if (w_scale.dtype() != at::kBFloat16) {
+    WS = at::empty({w_scale.size(0), 8, w_scale.size(1)}, w_scale.options());
+  }
+  return {at::empty_like(WQ), WS};
+}
+
+at::Tensor f8i4bf16_shuffled_meta(
+    at::Tensor XQ, // FP8
+    at::Tensor WQ, // INT4
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    at::Tensor /* w_scale_group */) {
+  const at::SymInt M = XQ.sym_size(0);
+  const at::SymInt N = WQ.sym_size(0);
+  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  return Y;
+}
+
 at::Tensor bf16i4bf16_rowwise_meta(
     at::Tensor X, // BF16
     at::Tensor W, // INT4
@@ -723,6 +745,8 @@ TORCH_LIBRARY_IMPL(fbgemm, Meta, m) {
   m.impl("bf16i4bf16_rowwise_batched", bf16i4bf16_rowwise_batched_meta);
   m.impl("f8f8bf16_lite", f8f8bf16_lite_meta);
   m.impl("scaled_fp4_quant", scaled_fp4_quant_meta);
+  m.impl("preshuffle_i4", preshuffle_i4_meta);
+  m.impl("f8i4bf16_shuffled", f8i4bf16_shuffled_meta);
 #endif
 #ifdef USE_ROCM
   m.impl("f8f8f16_rowwise", f8f8f16_rowwise_meta);
