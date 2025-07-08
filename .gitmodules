@@ -18,7 +18,7 @@
 	branch = FBGEMM
 [submodule "external/composable_kernel"]
 	path = external/composable_kernel
-	url = https://github.com/jwfromm/composable_kernel.git
+	url = https://github.com/ppalaniappan-amd/FBGEMM
 	branch = FBGEMM
 [submodule "external/json"]
 	path = external/json
