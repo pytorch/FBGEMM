@@ -17,7 +17,7 @@ import tempfile
 import threading
 import time
 from functools import cached_property
-from math import floor, log2
+from math import ceil, floor, log2
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch  # usort:skip
 
@@ -98,6 +98,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     weights_offsets: Tensor
     _local_instance_index: int = -1
     res_params: RESParams
+    table_names: List[str]
 
     def __init__(
         self,
@@ -169,6 +170,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         enable_raw_embedding_streaming: bool = False,  # whether enable raw embedding streaming
         res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
         flushing_block_size: int = 2_000_000_000,  # 2GB
+        table_names: Optional[List[str]] = None,
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -200,6 +202,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
         self.embedding_specs = embedding_specs
+        self.table_names = table_names if table_names is not None else []
         (rows, dims) = zip(*embedding_specs)
         T_ = len(self.embedding_specs)
         assert T_ > 0
@@ -3315,3 +3318,141 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             return timer.recording(**kwargs)
         # No-Op context manager
         return contextlib.nullcontext()
+
+    def fetch_from_l1_sp_w_row_ids(
+        self, row_ids: torch.Tensor, only_get_optimizer_states: bool = False
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fetch the optimizer states and/or weights from L1 and SP for given linearized row_ids.
+        @return: updated_weights/optimizer_states, mask of which rows are filled
+        """
+        with torch.no_grad():
+            weights_dtype = self.weights_precision.as_dtype()
+            step = self.step
+            if not self.enable_optimizer_offloading and only_get_optimizer_states:
+                raise RuntimeError(
+                    "Optimizer states are not offloaded, while only_get_optimizer_states is True"
+                )
+            if only_get_optimizer_states:
+                start_pos = pad4(self.max_D)
+                row_dim = self.optimizer.state_size_dim(weights_dtype)
+                result_dtype = self.optimizer.dtype()
+                result_dim = int(
+                    ceil(row_dim / (result_dtype.itemsize / weights_dtype.itemsize))
+                )
+            else:
+                start_pos = 0
+                # get the whole row
+                row_dim = self.cache_row_dim
+                result_dim = row_dim
+                result_dtype = weights_dtype
+
+            with record_function(f"## fetch_from_l1_{step}_{self.tbe_unique_id} ##"):
+                lxu_cache_locations: torch.Tensor = torch.ops.fbgemm.lxu_cache_lookup(
+                    row_ids,
+                    self.lxu_cache_state,
+                    self.total_hash_size,
+                )
+                updated_weights = torch.empty(
+                    row_ids.numel(),
+                    result_dim,
+                    device=self.current_device,
+                    dtype=result_dtype,
+                )
+
+                # D2D copy cache
+                cache_location_mask = lxu_cache_locations >= 0
+                updated_weights[cache_location_mask] = self.lxu_cache_weights[
+                    lxu_cache_locations[cache_location_mask],
+                    start_pos : start_pos + row_dim,
+                ].view(result_dtype)
+
+            with record_function(f"## fetch_from_sp_{step}_{self.tbe_unique_id} ##"):
+                if len(self.ssd_scratch_pad_eviction_data) > 0:
+                    sp = self.ssd_scratch_pad_eviction_data[0][0]
+                    sp_idx = self.ssd_scratch_pad_eviction_data[0][1].to(
+                        self.current_device
+                    )
+                    actions_count_gpu = self.ssd_scratch_pad_eviction_data[0][2][0]
+                    if actions_count_gpu.item() == 0:
+                        # no action to take
+                        return (updated_weights, cache_location_mask)
+
+                    sp_idx = sp_idx[:actions_count_gpu]
+
+                    # -1 in lxu_cache_locations means the row is not in L1 cache and in SP
+                    # fill the row_ids in L1 with -2, >0 values means in SP
+                    # @eg. updated_row_ids_in_sp= [1, 100, 1, 2, -2, 3, 4, 5, 10]
+                    updated_row_ids_in_sp = row_ids.masked_fill(
+                        lxu_cache_locations != -1, -2
+                    )
+                    # sort the sp_idx for binary search
+                    # should already be sorted
+                    # sp_idx_inverse_indices is the indices before sorting which is same to the location in SP.
+                    # @eg. sp_idx = [4, 2, 1, 3, 10]
+                    # @eg sorted_sp_idx = [ 1,  2,  3,  4, 10] and sp_idx_inverse_indices = [2, 1, 3, 0, 4]
+                    sorted_sp_idx, sp_idx_inverse_indices = torch.sort(sp_idx)
+                    # search rows id in sp against the SP indexes to find location of the rows in SP
+                    # @eg: updated_ids_in_sp_idx = [0, 5, 0, 1, 0, 2, 3, 4, 4]
+                    # @eg: 5 is OOB
+                    updated_ids_in_sp_idx = torch.searchsorted(
+                        sorted_sp_idx, updated_row_ids_in_sp
+                    )
+                    # does not found in SP will Out of Bound
+                    oob_sp_idx = updated_ids_in_sp_idx >= sp_idx.numel()
+                    # make the oob items in bound
+                    # @eg updated_ids_in_sp_idx=[0, 0, 0, 1, 0, 2, 3, 4, 4]
+                    updated_ids_in_sp_idx[oob_sp_idx] = 0
+
+                    # -1s locations will be filtered out in masked_index_select
+                    sp_locations_in_updated_weights = torch.full_like(
+                        updated_row_ids_in_sp, -1
+                    )
+                    # torch.searchsorted is not exact match,
+                    # we only take exact matched rows, where the id is found in SP.
+                    # @eg 5 in updated_row_ids_in_sp is not in sp_idx, but has 4 in updated_ids_in_sp_idx
+                    # @eg sorted_sp_idx[updated_ids_in_sp_idx]=[ 1,  1,  1,  2,  1,  3,  4, 10, 10]
+                    # @eg exact_match_mask=[ True, False,  True,  True, False,  True,  True, False,  True]
+                    exact_match_mask = (
+                        sorted_sp_idx[updated_ids_in_sp_idx] == updated_row_ids_in_sp
+                    )
+                    # Get the location of the row ids found in SP.
+                    # @eg: sp_locations_found=[2, 2, 1, 3, 0, 4]
+                    sp_locations_found = sp_idx_inverse_indices[
+                        updated_ids_in_sp_idx[exact_match_mask]
+                    ]
+                    # @eg: sp_locations_in_updated_weights=[ 2, -1,  2,  1, -1,  3,  0, -1,  4]
+                    sp_locations_in_updated_weights[exact_match_mask] = (
+                        sp_locations_found
+                    )
+
+                    # D2D copy SP
+                    updated_weights[exact_match_mask] = sp[
+                        sp_locations_found, start_pos : start_pos + row_dim
+                    ].view(result_dtype)
+                    # cache_location_mask is the mask of rows in L1
+                    # exact_match_mask is the mask of rows in SP
+                    cache_location_mask = torch.logical_or(
+                        cache_location_mask, exact_match_mask
+                    )
+
+            return (updated_weights, cache_location_mask)
+
+    def register_backward_hook_before_eviction(
+        self, backward_hook: Callable[[torch.Tensor], None]
+    ) -> None:
+        """
+        Register a backward hook to the TBE module.
+        And make sure this is called before the sp eviction hook.
+        """
+        # make sure this hook is the first one to be executed
+        hooks = []
+        backward_hooks = self.placeholder_autograd_tensor._backward_hooks
+        if backward_hooks is not None:
+            for _handle_id, hook in backward_hooks.items():
+                hooks.append(hook)
+            backward_hooks.clear()
+
+        self.placeholder_autograd_tensor.register_hook(backward_hook)
+        for hook in hooks:
+            self.placeholder_autograd_tensor.register_hook(hook)
