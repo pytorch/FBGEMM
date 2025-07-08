@@ -224,12 +224,6 @@ else(MSVC)
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(
-    src/FbgemmI64.cc
-    src/FbgemmI8Depthwise3DAvx2.cc
-    src/FbgemmI8DepthwiseAvx2.cc
-    src/UtilsAvx2.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-uninitialized")
   set_source_files_properties(src/PackMatrix.cc
     PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
