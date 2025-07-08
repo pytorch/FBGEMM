@@ -2288,8 +2288,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             table_offset += emb_height
         logging.info(
             f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
-            # pyre-ignore [16]
-            f"num ids list: {[ids.numel() for ids in sorted_id_tensor]}"
+            f"num ids list: {None if not sorted_id_tensor else [ids.numel() for ids in sorted_id_tensor]}"
         )
         return opt_list
 
