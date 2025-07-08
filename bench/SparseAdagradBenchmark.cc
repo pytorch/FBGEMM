@@ -199,9 +199,9 @@ static void run_benchmark(
 }
 
 int main() {
-  int num_rows;
-  int block_size;
-  uint64_t param_size;
+  int num_rows = 0;
+  int block_size = 0;
+  uint64_t param_size = 0;
   vector<vector<int>> inputs(GetInputs_());
 
   for (auto isIndex64b : vector<bool>{true, false}) {

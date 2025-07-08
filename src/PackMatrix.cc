@@ -44,7 +44,7 @@ int PackMatrix<PT, inpType, accType>::packedBufferSize(
     assert(0 && "unknown architecure");
   }
 
-  int MCB, KCB, NCB;
+  int MCB = 0, KCB = 0, NCB = 0;
   if (params) {
     MCB = params->MCB;
     NCB = params->NCB;

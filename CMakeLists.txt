@@ -208,8 +208,11 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
   string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
+  string(APPEND CMAKE_CXX_FLAGS " -Wunused-variable")
   if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
     string(APPEND CMAKE_CXX_FLAGS " -Wno-vla-cxx-extension")
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
   endif()
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
@@ -221,12 +224,6 @@ else(MSVC)
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(
-    src/FbgemmI64.cc
-    src/FbgemmI8Depthwise3DAvx2.cc
-    src/FbgemmI8DepthwiseAvx2.cc
-    src/UtilsAvx2.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-uninitialized")
   set_source_files_properties(src/PackMatrix.cc
     PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
