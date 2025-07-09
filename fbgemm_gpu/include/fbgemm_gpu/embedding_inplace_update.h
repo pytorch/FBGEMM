@@ -90,6 +90,19 @@ void embedding_inplace_update_cpu(
         std::nullopt // Not used, to match cache interface for CUDA op
 );
 
+void dram_kv_embedding_inplace_update_cpu(
+    torch::jit::Module* tbe_module,
+    std::string tbe_module_update_func_name,
+    Tensor weights_placements,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    Tensor update_weights,
+    Tensor update_table_idx,
+    Tensor update_row_idx,
+    Tensor update_offsets,
+    const int64_t row_alignment);
+
 /**
  * Index remapping function that returns the remapped indices.
  *

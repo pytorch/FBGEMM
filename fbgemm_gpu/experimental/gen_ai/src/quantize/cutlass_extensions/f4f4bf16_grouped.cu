@@ -131,7 +131,8 @@ __global__ void set_stacked_kernel_args_kernel(
     LayoutSFA* layout_SFA,
     LayoutSFB* layout_SFB,
     ElementGlobalScale* global_scale,
-    const ElementGlobalScale** global_scale_ptr) {
+    const ElementGlobalScale** global_scale_ptr,
+    int64_t* starting_row_after_padding) {
   uint32_t group_index = blockIdx.x * blockDim.x + threadIdx.x;
   // If this thread corresponds to a valid group, write kernel args to device
   // memory.
@@ -166,11 +167,10 @@ __global__ void set_stacked_kernel_args_kernel(
         /* It's calculated this way since the scales are at least padded to
            multiples of (128, 4), and there is a group of 16 elements per scale.
         */
-        accumulated_x_scale +=
-            (((M_sizes[i] + 128 - 1) / 128) * 128 * ((K + 4 - 1) / 4) * 4 / 16);
         accumulated_w_scale +=
             (((N + 128 - 1) / 128) * 128 * ((K + 4 - 1) / 4) * 4 / 16);
       }
+      accumulated_x_scale = starting_row_after_padding[group_index] * K / 16;
       // Set the problem shape for this group.
       problem_shape_ptr[non_zero_idx] = ProblemShape(N, M, K);
       // Set input pointers.
@@ -216,7 +216,8 @@ at::Tensor f4f4bf16_grouped_impl(
     at::Tensor output,
     std::optional<at::Tensor> zero_start_index_M,
     std::optional<at::Tensor> M_sizes,
-    std::optional<InputType> global_scale) {
+    std::optional<InputType> global_scale,
+    std::optional<at::Tensor> starting_row_after_padding) {
   int64_t G;
   at::TensorOptions options;
   if constexpr (std::is_same_v<InputType, at::TensorList>) {
@@ -230,6 +231,12 @@ at::Tensor f4f4bf16_grouped_impl(
     TORCH_CHECK(M_sizes.has_value(), "M_sizes is assumed to be provided.");
     at::Tensor M_sizes_actual = M_sizes.value_or(at::zeros({0}));
     G = M_sizes_actual.size(0);
+    TORCH_CHECK(
+        starting_row_after_padding.has_value(),
+        "starting_row_after_padding is assumed to be provided.");
+    at::Tensor starting_row_after_padding_actual =
+        starting_row_after_padding.value_or(at::zeros({0}));
+    TORCH_CHECK(starting_row_after_padding_actual.size(0) == G + 1);
     options = XQ.options();
   }
 
@@ -559,6 +566,8 @@ at::Tensor f4f4bf16_grouped_impl(
 
     int64_t* M_sizes_ptr =
         reinterpret_cast<int64_t*>(M_sizes.value().data_ptr());
+    int64_t* starting_row_after_padding_ptr = reinterpret_cast<int64_t*>(
+        starting_row_after_padding.value().data_ptr());
     // NVFP4 stacked args kernel
     if constexpr (std::is_same_v<
                       InputQuantType,
@@ -600,7 +609,8 @@ at::Tensor f4f4bf16_grouped_impl(
           layout_SFB,
           reinterpret_cast<ElementGlobalScale*>(
               global_scale.value().data_ptr()),
-          global_scale_ptr);
+          global_scale_ptr,
+          starting_row_after_padding_ptr);
     }
     // MXFP4 stacked args kernel
     else {
@@ -639,6 +649,7 @@ at::Tensor f4f4bf16_grouped_impl(
           M_sizes_ptr,
           layout_SFA,
           layout_SFB,
+          nullptr,
           nullptr,
           nullptr);
     }
@@ -727,6 +738,7 @@ at::Tensor dispatch_fp4_grouped_kernel(
     std::optional<at::Tensor> zero_start_index_M = std::nullopt,
     std::optional<at::Tensor> M_sizes = std::nullopt,
     std::optional<InputType> global_scale = std::nullopt,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt,
     bool use_mx = true) {
   // MXFP4
   if (use_mx) {
@@ -748,7 +760,8 @@ at::Tensor dispatch_fp4_grouped_kernel(
           output,
           zero_start_index_M,
           M_sizes,
-          global_scale);
+          global_scale,
+          starting_row_after_padding);
     } else {
       return f4f4bf16_grouped_impl<
           InputType,
@@ -767,7 +780,8 @@ at::Tensor dispatch_fp4_grouped_kernel(
           output,
           zero_start_index_M,
           M_sizes,
-          global_scale);
+          global_scale,
+          starting_row_after_padding);
     }
   } // NVFP4
   else {
@@ -789,7 +803,8 @@ at::Tensor dispatch_fp4_grouped_kernel(
           output,
           zero_start_index_M,
           M_sizes,
-          global_scale);
+          global_scale,
+          starting_row_after_padding);
     } else {
       return f4f4bf16_grouped_impl<
           InputType,
@@ -808,7 +823,8 @@ at::Tensor dispatch_fp4_grouped_kernel(
           output,
           zero_start_index_M,
           M_sizes,
-          global_scale);
+          global_scale,
+          starting_row_after_padding);
     }
   }
 }
@@ -849,6 +865,7 @@ OutputType _f4f4bf16_grouped(
       std::nullopt,
       std::nullopt,
       global_scale,
+      std::nullopt,
       use_mx);
 
   // Return appropriate output type.
@@ -883,6 +900,7 @@ at::Tensor f4f4bf16_grouped_stacked(
     at::Tensor w_scale,
     at::Tensor M_sizes,
     std::optional<at::Tensor> global_scale = std::nullopt,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt,
     bool use_mx = true) {
   int64_t total_M = XQ.size(0);
   int64_t N = WQ.size(1);
@@ -908,6 +926,7 @@ at::Tensor f4f4bf16_grouped_stacked(
       std::nullopt,
       M_sizes,
       global_scale,
+      starting_row_after_padding,
       use_mx);
 }
 
@@ -931,6 +950,7 @@ at::Tensor f4f4bf16_grouped_stacked(
     at::Tensor w_scale,
     at::Tensor M_sizes,
     std::optional<at::Tensor> global_scale = std::nullopt,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt,
     bool use_mx = true) {
   throw std::runtime_error(
       "CUDA version is older than 12.8"); // requires CUDA>=12.8

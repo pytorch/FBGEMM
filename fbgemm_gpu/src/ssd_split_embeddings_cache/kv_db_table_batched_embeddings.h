@@ -402,6 +402,16 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
     return max_D_;
   }
 
+  virtual bool get_backend_return_whole_row() {
+    // only DRAM backend can enable this for now
+    return false;
+  }
+
+  virtual int64_t get_metaheader_width_in_front() {
+    // will return non-zero if DRAM enables backend_return_whole_row
+    return 0;
+  }
+
 #ifdef FBGEMM_FBCODE
   folly::coro::Task<void> tensor_stream(
       const at::Tensor& indices,
