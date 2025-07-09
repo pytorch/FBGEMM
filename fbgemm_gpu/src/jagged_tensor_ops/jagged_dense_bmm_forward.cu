@@ -158,7 +158,7 @@ Tensor jagged_dense_bmm_forward_cuda(
   TENSORS_ON_SAME_CUDA_GPU_IF_NOT_OPTIONAL(x_values, x_offsets, y);
   CUDA_DEVICE_GUARD(x_values);
 
-  const int B = x_offsets.numel() - 1;
+  const auto B = x_offsets.numel() - 1;
   const int M = x_values.size(-1);
   const int N = y.size(-1);
   const int total_L = x_values.size(0);
