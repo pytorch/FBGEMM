@@ -174,7 +174,7 @@ add_to_package(
 
 install(
   DIRECTORY bench
-  DESTINATION fbgemm_gpu/experimental)
+  DESTINATION fbgemm_gpu/experimental/gen_ai)
 
 install(
   DIRECTORY gen_ai
