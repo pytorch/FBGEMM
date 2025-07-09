@@ -970,6 +970,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         else:
             return self.max_D
 
+        self.bounds_check_version: int = get_bounds_check_version_for_platform()
+
     @property
     # pyre-ignore
     def ssd_db(self):
