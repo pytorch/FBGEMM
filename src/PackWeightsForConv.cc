@@ -139,7 +139,7 @@ std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
     return out;
   };
 
-  auto combineInt = [&combineStr](std::string id, int int1, int int2) {
+  auto combineInt = [&combineStr](const std::string& id, int int1, int int2) {
     return combineStr(
         std::move(id), std::to_string(int1), std::to_string(int2));
   };

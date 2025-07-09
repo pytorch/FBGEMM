@@ -307,7 +307,7 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   }
 
   if (err) {
-    cout << "Error: in fn add" << endl;
+    cout << "Error: in fn add" << '\n';
     return nullptr;
   }
 
