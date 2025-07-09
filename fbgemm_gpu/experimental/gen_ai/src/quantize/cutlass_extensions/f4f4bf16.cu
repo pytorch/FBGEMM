@@ -34,6 +34,13 @@ at::Tensor dispatch_f4f4bf16_kernel(
       N % BLOCK_SIZE == 0 && K % BLOCK_SIZE == 0,
       "Weight dimensions N and K must be multiples of block size 16");
 
+  auto out_sizes = XQ.sizes().vec();
+  out_sizes.back() = N;
+  if (M == 0 || N == 0 || K == 0) {
+    // Use zeros instead of empty for special case where K=0.
+    return at::zeros(out_sizes, XQ.options().dtype(at::kBFloat16));
+  }
+
   // MXFP4
   if (use_mx) {
     if (M <= 128) {
