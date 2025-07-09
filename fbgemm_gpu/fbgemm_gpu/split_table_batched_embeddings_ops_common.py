@@ -96,6 +96,71 @@ class EvictionPolicy(NamedTuple):
         60
     )
 
+    def validate(self) -> None:
+        assert self.eviction_trigger_mode in [0, 1, 2, 3], (
+            "eviction_trigger_mode must be 0, 1, 2, or 3, "
+            f"actual {self.eviction_trigger_mode}"
+        )
+        if self.eviction_trigger_mode == 0:
+            return
+
+        assert self.eviction_strategy in [0, 1, 2, 3], (
+            "eviction_strategy must be 0, 1, 2, or 3, "
+            f"actual {self.eviction_strategy}"
+        )
+        if self.eviction_trigger_mode == 1:
+            assert (
+                self.eviction_step_intervals is not None
+                and self.eviction_step_intervals > 0
+            ), (
+                "eviction_step_intervals must be positive if eviction_trigger_mode is 1, "
+                f"actual {self.eviction_step_intervals}"
+            )
+        elif self.eviction_trigger_mode == 2:
+            assert (
+                self.eviction_mem_threshold_gb is not None
+            ), "eviction_mem_threshold_gb must be set if eviction_trigger_mode is 2"
+
+        if self.eviction_strategy == 0:
+            assert self.ttls_in_mins is not None, (
+                "ttls_in_mins must be set if eviction_strategy is 0, "
+                f"actual {self.ttls_in_mins}"
+            )
+        elif self.eviction_strategy == 1:
+            assert self.counter_thresholds is not None, (
+                "counter_thresholds must be set if eviction_strategy is 1, "
+                f"actual {self.counter_thresholds}"
+            )
+            assert self.counter_decay_rates is not None, (
+                "counter_decay_rates must be set if eviction_strategy is 1, "
+                f"actual {self.counter_decay_rates}"
+            )
+            assert len(self.counter_thresholds) == len(self.counter_decay_rates), (
+                "counter_thresholds and counter_decay_rates must have the same length, "
+                f"actual {self.counter_thresholds} vs {self.counter_decay_rates}"
+            )
+        elif self.eviction_strategy == 2:
+            assert self.counter_thresholds is not None, (
+                "counter_thresholds must be set if eviction_strategy is 2, "
+                f"actual {self.counter_thresholds}"
+            )
+            assert self.counter_decay_rates is not None, (
+                "counter_decay_rates must be set if eviction_strategy is 2, "
+                f"actual {self.counter_decay_rates}"
+            )
+            assert self.ttls_in_mins is not None, (
+                "ttls_in_mins must be set if eviction_strategy is 2, "
+                f"actual {self.ttls_in_mins}"
+            )
+            assert len(self.counter_thresholds) == len(self.counter_decay_rates), (
+                "counter_thresholds and counter_decay_rates must have the same length, "
+                f"actual {self.counter_thresholds} vs {self.counter_decay_rates}"
+            )
+            assert len(self.counter_thresholds) == len(self.ttls_in_mins), (
+                "counter_thresholds and ttls_in_mins must have the same length, "
+                f"actual {self.counter_thresholds} vs {self.ttls_in_mins}"
+            )
+
 
 class KVZCHParams(NamedTuple):
     # global bucket id start and global bucket id end offsets for each logical table,
@@ -113,6 +178,8 @@ class KVZCHParams(NamedTuple):
             "bucket_offsets and bucket_sizes must have the same length, "
             f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
         )
+        if self.eviction_policy is not None:
+            self.eviction_policy.validate()
 
 
 class BackendType(enum.IntEnum):
