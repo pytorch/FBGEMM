@@ -784,3 +784,90 @@ class SSDCheckpointTest(unittest.TestCase):
         self.assertTrue(all(processed_counts >= shard_load))
         self.assertTrue(all(full_duration_ms > 0))
         self.assertTrue(all(exec_duration_ms >= 0))
+
+    @given(
+        T=st.integers(min_value=2, max_value=10),
+        D=st.integers(min_value=2, max_value=128),
+        log_E=st.integers(min_value=2, max_value=3),
+        weights_precision=st.sampled_from([SparseType.FP32, SparseType.FP16]),
+        enable_l2=st.sampled_from([True, False]),
+    )
+    @settings(**default_settings)
+    def test_dram_enable_backend_return_whole_row(
+        self,
+        T: int,
+        D: int,
+        log_E: int,
+        weights_precision: SparseType,
+        enable_l2: bool,
+    ) -> None:
+        kv_zch_params = KVZCHParams(
+            enable_optimizer_offloading=True,
+            backend_return_whole_row=True,  # whole row will be returned to KVT
+        )
+        metaheader_dim: int = 16 // (weights_precision.bit_rate() // 8)
+        opt_dim: int = 4 // (weights_precision.bit_rate() // 8)
+        emb, Es, Ds = self.generate_fbgemm_kv_tbe(
+            T,
+            D,
+            log_E,
+            weights_precision,
+            mixed=True,
+            enable_l2=enable_l2,
+            kv_zch_params=kv_zch_params,
+            backend_type=BackendType.DRAM,
+        )
+        dtype = weights_precision.as_dtype()
+        row_offset = 0
+        max_D = max(Ds)
+        N = 2
+
+        for E, D in zip(Es, Ds):
+            # create random index tensor with size N, valued from [0, N-1] unordered
+            indices = torch.randperm(N)
+            # insert the weights with the corresponding indices into the table
+            # which will also populate the metaheader with weight_id at front
+            weights = torch.arange(N * D, dtype=dtype).view(N, D)
+            padded_weights = torch.nn.functional.pad(weights, (0, max_D - D))
+            # emb.ssd_db.set_kv_to_storage(indices + row_offset, padded_weights)
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                shape=[E, D],  # only write D from weights
+                dtype=dtype,
+                row_offset=row_offset,
+                snapshot_handle=None,
+            )
+            tensor_wrapper.set_dram_db_wrapper(emb.ssd_db)
+            tensor_wrapper.set_weights_and_ids(padded_weights, indices)
+
+            # reset KVT's shape to full dim to get whole row
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                shape=[E, metaheader_dim + pad4(D) + pad4(opt_dim)],
+                dtype=dtype,
+                row_offset=row_offset,
+                snapshot_handle=None,
+            )
+            tensor_wrapper.set_dram_db_wrapper(emb.ssd_db)
+
+            # Call narrow which should fetch the whole row
+            narrowed = tensor_wrapper.narrow(0, 0, N)
+            opt_offset = metaheader_dim + pad4(D)
+
+            for i in range(N):
+                # Check if the id matches
+                torch.testing.assert_close(
+                    narrowed[i, : metaheader_dim // 2].view(torch.int64),
+                    torch.tensor([i + row_offset], dtype=torch.int64),
+                )
+
+                # Check if weight matches the one passed in with weights
+                torch.testing.assert_close(
+                    narrowed[i, metaheader_dim:opt_offset],
+                    weights[indices.tolist().index(i)],
+                )
+
+            # The trailing opt part should all be init'ed with 0s
+            torch.testing.assert_close(
+                narrowed[:, opt_offset : opt_offset + opt_dim],
+                torch.zeros(N, opt_dim, dtype=dtype),
+            )
+            row_offset += E
