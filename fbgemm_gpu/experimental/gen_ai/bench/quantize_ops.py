@@ -41,8 +41,12 @@ from fbgemm_gpu.experimental.gen_ai.quantize import (
     quantize_int4_preshuffle,
 )
 
-from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm
-from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
+try:
+    from gen_ai.llm_inference.fb.llm.kernel.rms_norm import rms_norm
+    from gen_ai.llm_inference.fb.llm.kernel.silu_mul import silu_mul
+except ImportError:
+    # Above is used for some experiments, but the quantize is not relying on them. Okay to just skip.
+    pass
 
 try:
     from tinygemm.utils import group_quantize_tensor
