@@ -106,6 +106,9 @@ class KVZCHParams(NamedTuple):
     bucket_sizes: List[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
+    # when enabled, backend will return whole row(metaheader + weight + optimizer) instead of weight only
+    # can only be enabled when enable_optimizer_offloading is enabled
+    backend_return_whole_row: bool = False
     eviction_policy: Optional[EvictionPolicy] = None
 
     def validate(self) -> None:
@@ -113,6 +116,9 @@ class KVZCHParams(NamedTuple):
             "bucket_offsets and bucket_sizes must have the same length, "
             f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
         )
+        assert (
+            not self.backend_return_whole_row or self.enable_optimizer_offloading
+        ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
 
 
 class BackendType(enum.IntEnum):
