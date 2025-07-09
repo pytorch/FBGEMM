@@ -1546,7 +1546,7 @@ def triton_scale_nvfp4_quant(
     ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
 
     # Two fp4 values will be packed into an uint8.
-    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
+    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
 
     # We use the rounded values to store the swizzled values. Due to the
     # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
@@ -1559,7 +1559,7 @@ def triton_scale_nvfp4_quant(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -1896,7 +1896,7 @@ def triton_scale_nvfp4_quant_silu(
     ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
 
     # Two fp4 values will be packed into an uint8.
-    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
+    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
 
     # We use the rounded values to store the swizzled values. Due to the
     # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
@@ -1909,7 +1909,7 @@ def triton_scale_nvfp4_quant_silu(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -2072,7 +2072,7 @@ def _kernel_nvfp4_quantize_rms(
                 input_offset
                 - (input_offset // (GROUPS_PER_ROW * GROUP_SIZE)) * ROW_PADDING
             )
-        # When theres no padding we can simplify indexing.
+        # When there's no padding we can simplify indexing.
         else:
             padded_input_offset = input_offset
 
@@ -2258,7 +2258,7 @@ def triton_scale_nvfp4_quant_rms(
     ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
 
     # Two fp4 values will be packed into an uint8.
-    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
+    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
 
     # We use the rounded values to store the swizzled values. Due to the
     # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
@@ -2271,7 +2271,7 @@ def triton_scale_nvfp4_quant_rms(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -2316,6 +2316,391 @@ def triton_scale_nvfp4_quant_rms(
         input_global_scale,
         out,
         scale,
+        rand_bits=rand_bits,
+        M=M,
+        K=K,
+        GROUPS_PER_ROW=groups_per_row,
+        GROUPS_PER_THREAD=groups_per_thread,
+        ROW_PADDING=padding,
+        # pyre-ignore[6]
+        EPS=EPS,
+        # pyre-ignore[6]
+        GROUP_SIZE=group_size,
+        # pyre-ignore[6]
+        EBITS=ebits,
+        # pyre-ignore[6]
+        MBITS=mbits,
+        # pyre-ignore[6]
+        ROUNDING_MODE=rounding_mode,
+        # pyre-ignore[6]
+        STOCHASTIC_CASTING=stochastic_casting,
+        FP4_EXP_BIAS=get_mx4_exp_bias(ebits),
+        # pyre-ignore[6]
+        GROUP_LOAD=GROUP_LOAD,
+        # pyre-ignore[6]
+        USE_INT64=use_int64,
+        # pyre-ignore[6]
+        SCALE_K=rounded_K,
+    )
+
+    scale = scale.flatten()
+    return out.view(list(orig_shape[:-1]) + [-1]).view(torch.uint8), scale
+
+
+@triton.jit
+def _kernel_nvfp4_quantize_stacked(
+    A,
+    input_global_scale_tensor,
+    out,
+    scale,
+    belong_indices,
+    starting_row_after_padding,
+    row_within_tensor,
+    rand_bits,
+    M,
+    K,
+    GROUPS_PER_ROW,
+    GROUPS_PER_THREAD,
+    ROW_PADDING,
+    EPS: tl.constexpr,
+    GROUP_SIZE: tl.constexpr,
+    EBITS: tl.constexpr,
+    MBITS: tl.constexpr,
+    ROUNDING_MODE: tl.constexpr,
+    STOCHASTIC_CASTING: tl.constexpr,
+    FP4_EXP_BIAS: tl.constexpr,
+    GROUP_LOAD: tl.constexpr,
+    USE_INT64: tl.constexpr,
+    SCALE_K: tl.constexpr,
+) -> None:
+    """Quantize a 1D float tensor into a packed MX4 tensor.
+
+    Args:
+        A (Tensor): [M] float tensor to be quantized.
+        out (Tensor): [M / 2] output containing packed mx4 values.
+        scale (Tensor): [M / GROUP_SIZE] containing mx4 shared exponents.
+        rand_bits (Optional Tensor): [M, K / 2] random integers used for stochastic rounding.
+        M (int): Number of input rows.
+        K (int): Number of input columns.
+        GROUPS_PER_ROW (int): Number of groups in each row of the input.
+        GROUPS_PER_THREAD (int): Number of groups to process per thread.
+        ROW_PADDING (int): Number of elements of padding to insert into each row.
+        GROUP_SIZE (int): Size of chunks that use the same shared exponent.
+        EBITS (int): Number of exponent bits in target mx4 format.
+        MBITS (int): Number of mantissa bits in target mx4 format.
+        ROUNDING_MODE (int): Which rounding method to use when calculating shared exponent.
+        STOCHASTIC_CASTING (bool): Whether to use stochastic rounding when downcasting.
+        FP4_EXP_BIAS (int): Exponent bias of target mx4 format.
+        GROUP_LOAD (int): Number of groups to process simultaneously.
+        USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
+    """
+    # Define Constant Expressions.
+    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+
+    # Get the current thread number.
+    pid = tl.program_id(0)
+    # For very large inputs, we need to use int64 indexes. This is slower but necessary.
+    if USE_INT64:
+        pid = pid.to(tl.int64)
+        M = tl.cast(M, tl.int64)
+        K = tl.cast(K, tl.int64)
+        GROUPS_PER_THREAD = tl.cast(GROUPS_PER_THREAD, tl.int64)
+
+    # Boundaries for writing to output tensor.
+    NUM_GROUPS = M * GROUPS_PER_ROW
+    OUTPUT_CHUNK_SIZE = (GROUPS_PER_THREAD * GROUP_SIZE) // 8
+    SCALE_CHUNK_SIZE = GROUPS_PER_THREAD
+    OUTPUT_SIZE = (GROUP_SIZE * NUM_GROUPS) // 8
+    SCALE_SIZE = NUM_GROUPS
+
+    # load scaling factor
+    input_global_scale = tl.load(input_global_scale_tensor)
+
+    # Find starting offsets for this thread. These are calculated before adjusting for padding.
+    input_start = pid * (GROUPS_PER_THREAD * GROUP_SIZE)
+    output_start = pid * OUTPUT_CHUNK_SIZE
+    exp_start = pid * SCALE_CHUNK_SIZE
+    # Initiate offset ranges used in kernel.
+    input_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE) + input_start
+    output_offset = tl.arange(0, GROUP_LOAD * (GROUP_SIZE // 8)) + output_start
+
+    # We need to shift output offsets to make space for shared exponent storage.
+    # Now create offsets for writing the shared exponent.
+    # make sure to add offset from padding
+    exp_offset = tl.arange(0, GROUP_LOAD) + exp_start
+
+    row_idx = exp_offset // GROUPS_PER_ROW
+    tensor_idx = tl.load(
+        belong_indices + row_idx,
+        mask=(row_idx < M),
+    )
+    tensor_offset = (
+        tl.load(starting_row_after_padding + tensor_idx, mask=(row_idx < M))
+        * GROUPS_PER_ROW
+    )
+    inner_idx = (
+        tl.load(
+            row_within_tensor + row_idx,
+            mask=(row_idx < M),
+        )
+        * GROUPS_PER_ROW
+    )
+    actual_scale_offset = tensor_offset + inner_idx + exp_offset % GROUPS_PER_ROW
+
+    # Load and process blocks of values for this chunk.
+    for _k in range(0, tl.cdiv(GROUPS_PER_THREAD, GROUP_LOAD)):
+        # We need to make some adjustments to allow for padding.
+        pad_mask = (input_offset % (GROUPS_PER_ROW * GROUP_SIZE)) < K
+        if ROW_PADDING != 0:
+            # Shift the input to account for padding.
+            padded_input_offset = (
+                input_offset
+                - (input_offset // (GROUPS_PER_ROW * GROUP_SIZE)) * ROW_PADDING
+            )
+        # When there's no padding we can simplify indexing.
+        else:
+            padded_input_offset = input_offset
+
+        # Load a block of values.
+        a = tl.load(
+            A + padded_input_offset,
+            # Mask values out of range for both the main array and this chunk. Also pad if needed.
+            mask=(padded_input_offset < (M * K))
+            & (padded_input_offset < ((pid + 1) * GROUPS_PER_THREAD * GROUP_SIZE))
+            & pad_mask,
+            other=0,
+        )
+
+        # View the block in terms of groups.
+        a_groups = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE])
+        # Compute the shared exponent of each group.
+        group_max = tl.max(tl.abs(a_groups), axis=1).to(tl.float32)
+
+        # Next we scale A in preparation for quantization.
+        scale_ = group_max / 6.0 * input_global_scale
+        # Prevent infinite values in log.
+        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+
+        # Apply scale_ to input. We do this by broadcasting scale.
+        scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
+            6.0 / group_max, [GROUP_LOAD, 1]
+        )
+        # Reshape back to a flat array.
+        scaled_a = tl.reshape(scaled_a, [GROUP_LOAD * GROUP_SIZE])
+        # split them into 8 arrays with in a round robin fashion
+        # element 0 -> array 0, element 1 -> array 1, element 2 -> array 2 and so on
+        temp_l, temp_r = tl.split(
+            tl.reshape(scaled_a, [(GROUP_LOAD * GROUP_SIZE) // 2, 2])
+        )  # 0, 2, 4, 6, 8 || 1, 3, 5, 7, 9
+        t_one, t_two = tl.split(
+            tl.reshape(temp_l, [(GROUP_LOAD * GROUP_SIZE) // 4, 2])
+        )  # 0 4 8 || 2, 6, 10
+        t_three, t_four = tl.split(
+            tl.reshape(temp_r, [(GROUP_LOAD * GROUP_SIZE) // 4, 2])
+        )  # 1, 5, 9 || 3, 7, 11
+
+        f_one, f_two = tl.split(
+            tl.reshape(t_one, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 0, 8 || 4, 12
+        f_three, f_four = tl.split(
+            tl.reshape(t_two, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 2, 10 || 6, 14
+        f_five, f_six = tl.split(
+            tl.reshape(t_three, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 1, 9 || 5, 13
+        f_seven, f_eight = tl.split(
+            tl.reshape(t_four, [(GROUP_LOAD * GROUP_SIZE) // 8, 2])
+        )  # 3, 11 || 7, 15
+        packed_result = tl.inline_asm_elementwise(
+            asm="""
+            {
+                .reg .b8 byte0;
+                .reg .b8 byte1;
+                .reg .b8 byte2;
+                .reg .b8 byte3;
+                cvt.rn.satfinite.e2m1x2.f32  byte0, $2, $1;
+                cvt.rn.satfinite.e2m1x2.f32  byte1, $4, $3;
+                cvt.rn.satfinite.e2m1x2.f32  byte2, $6, $5;
+                cvt.rn.satfinite.e2m1x2.f32  byte3, $8, $7;
+                mov.b32 $0, {byte0, byte1, byte2, byte3};
+
+            }
+            """,
+            constraints="=r," "f, f, f, f, f, f, f, f",
+            args=[f_one, f_five, f_three, f_seven, f_two, f_six, f_four, f_eight],
+            dtype=tl.int32,
+            is_pure=True,
+            pack=1,
+        )
+
+        n_col_blocks = SCALE_K // 4
+        first_dim = actual_scale_offset // (512 * n_col_blocks)
+        second_dim = (actual_scale_offset % (512 * n_col_blocks)) // (
+            128 * n_col_blocks
+        )
+        third_dim = (actual_scale_offset % (128 * n_col_blocks)) // (4 * n_col_blocks)
+        fourth_dim = (actual_scale_offset % (4 * n_col_blocks)) // 4
+        fifth_dim = actual_scale_offset % 4
+        actual_scale_offset_permute = (
+            first_dim * (512 * n_col_blocks)
+            + fourth_dim * (512)
+            + third_dim * (16)
+            + second_dim * (4)
+            + fifth_dim
+        )
+
+        tl.store(
+            scale + actual_scale_offset_permute,
+            scale_.to(tl.float8e4nv).to(tl.uint8, bitcast=True),
+            # Prevent writing outside this chunk or the main array.
+            mask=(row_idx < M)
+            & (exp_offset < (SCALE_CHUNK_SIZE * (pid + 1)))
+            & (exp_offset < SCALE_SIZE),
+        )
+        # Write out packed values to output tensor.
+        tl.store(
+            out + output_offset,
+            packed_result,
+            # Prevent writing outside this chunk or the main array.
+            mask=(output_offset < OUTPUT_SIZE)
+            & (output_offset < (OUTPUT_CHUNK_SIZE * (pid + 1))),
+        )
+
+        # Update offsets so we work on the next block.
+        input_offset += GROUP_LOAD * GROUP_SIZE
+
+        # since next group might go across the tensor boundary into a new tensor, recalculate offset
+        exp_offset += GROUP_LOAD
+        row_idx = exp_offset // GROUPS_PER_ROW
+        tensor_idx = tl.load(
+            belong_indices + row_idx,
+            mask=(row_idx < M),
+        )
+        tensor_offset = (
+            tl.load(starting_row_after_padding + tensor_idx, mask=(row_idx < M))
+            * GROUPS_PER_ROW
+        )
+        inner_idx = (
+            tl.load(
+                row_within_tensor + row_idx,
+                mask=(row_idx < M),
+            )
+            * GROUPS_PER_ROW
+        )
+        actual_scale_offset = tensor_offset + inner_idx + exp_offset % GROUPS_PER_ROW
+
+        output_offset += GROUP_LOAD * GROUP_SIZE // 8
+
+
+def triton_nvfp4_quant_stacked(
+    input: torch.Tensor,
+    input_global_scale: torch.Tensor,
+    belong_indices: torch.Tensor,
+    starting_row_after_padding: torch.Tensor,
+    row_within_tensor: torch.Tensor,
+    group_size: int = 16,
+    ebits: int = 2,
+    mbits: int = 1,
+    rounding_mode: Union[RoundingMode, int] = RoundingMode.ceil,
+    stochastic_casting: bool = False,
+    EPS: float = 1e-5,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Quantize a tensor to nvfp4 format using efficient triton kernels.
+
+    Args:
+        a (Tensor): [M] higher precision input tensor.
+        group_size (int): Size of chunks that will use the same shared exponent.
+        ebits (int): Number of bits to use for exponent in target nvfp4 format.
+        mbits (int): Number of bits to use for mantissa in target nvfp4 format.
+        rounding_mode (Union[RoundingMode, int]): Which type of rounding to use
+        when calculating shared exponent. Defaults to pre-rounding to nearest even int.
+        stochastic_casting (bool): Whether to use stochastic casting.
+
+    Returns:
+        torch.Tensor: [M / 2] nvfp4 scaled tensor packed into in8
+        torch.Tensor: [M / group_size] nvfp4 shared exponents into int8
+
+        eg.
+        Input with shape [1, 8192] will be quantized to [1, 4096 + 512] as
+        each value contain two elements packed into an int8 and
+        there are 32 elements per group.
+    """
+
+    orig_shape = input.shape
+    assert input.ndim >= 1, f"input.ndim needs to be >= 1, but got {input.ndim}."
+    other_dims = 1 if input.ndim == 1 else -1
+    input = input.reshape(other_dims, input.shape[-1])
+    M, K = input.shape
+    block_size = group_size
+    device = input.device
+
+    assert K % block_size == 0, f"last dim has to be multiple of 16, but got {K}."
+    assert input.dtype in (
+        torch.float16,
+        torch.bfloat16,
+    ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
+
+    # Two fp4 values will be packed into an uint8.
+    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
+
+    # We use the rounded values to store the swizzled values. Due to the
+    # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
+    # So, we first pad the scales to multiples of 128 and 4. Then, the scales
+    # (in float8_e4m3fn) int8. More:
+    # https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-mma-scale-factor-b-layout-4x
+    def round_up(x: int, y: int) -> int:
+        return (x + y - 1) // y * y
+
+    rounded_M = round_up(M + (starting_row_after_padding.numel() - 1) * 128, 128)
+    scale_K = K // block_size
+    rounded_K = round_up(scale_K, 4)
+    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
+
+    # In this kernel, we want each row to be divisible by group_size.
+    # If the rows are not, then we will pad them. Find the number of
+    # groups per row after padding.
+    groups_per_row = math.ceil(K / group_size)
+    num_groups = M * groups_per_row
+    # Find how many groups each thread should process. We do this
+    # by assuming that it is good to distribute work evenly over threads.
+    num_threads = math.ceil(math.sqrt(input.numel()))
+    # Data is loaded in chunks of GROUP_LOAD elements, so theres no reason
+    # to ever fewer groups per thread than it.
+    GROUP_LOAD = 64
+    groups_per_thread = max(math.ceil(num_groups / num_threads), GROUP_LOAD)
+    # Determine how much padding, if any is needed for each row.
+    if K % group_size != 0:
+        padding = group_size - (K % group_size)
+    else:
+        padding = 0
+    # If using stochastic rounding, create random noise for each group.
+    # We use the same random bits as seeds when doing stochastic downcasting.
+    if rounding_mode == RoundingMode.stochastic or stochastic_casting:
+        # Each group will need a seed.
+        rand_bits = torch.randint(
+            low=0,
+            high=2**31 - 1,
+            size=(num_groups,),
+            dtype=torch.int32,
+            device=input.device,
+        )
+    else:
+        rand_bits = None
+
+    # Check if we need to use int64 for indexing.
+    use_int64 = num_threads * groups_per_thread * group_size > 2**31 - 1
+    # Invoke triton quantization kernel over rows.
+
+    grid = (num_threads,)
+    _kernel_nvfp4_quantize_stacked[grid](
+        input,
+        input_global_scale,
+        out,
+        scale,
+        belong_indices,
+        starting_row_after_padding,
+        row_within_tensor,
         rand_bits=rand_bits,
         M=M,
         K=K,

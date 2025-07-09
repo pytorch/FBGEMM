@@ -66,6 +66,7 @@ at::Tensor f4f4bf16_grouped_stacked(
     at::Tensor w_scale,
     at::Tensor M_sizes,
     std::optional<at::Tensor> global_scale = std::nullopt,
+    std::optional<at::Tensor> starting_row_after_padding = std::nullopt,
     bool use_mx = true);
 at::Tensor f8f8bf16(
     at::Tensor XQ,
