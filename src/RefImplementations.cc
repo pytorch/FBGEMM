@@ -13,7 +13,7 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
 
-#include <math.h>
+#include <cmath>
 
 #include <algorithm>
 #include <cassert>
@@ -1949,7 +1949,7 @@ int rowwise_sparse_adagrad_fused_ref(
   int vlen = emu_vector_size;
   if (vlen != 8 && vlen != 16) {
     // Raise error as it may cause buffer overflow
-    cerr << "Not supported emu_vector_size: " << emu_vector_size << endl;
+    cerr << "Not supported emu_vector_size: " << emu_vector_size << '\n';
     return 0;
   }
 
