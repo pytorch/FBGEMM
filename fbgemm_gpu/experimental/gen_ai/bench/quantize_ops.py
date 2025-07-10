@@ -1490,6 +1490,48 @@ class FP8CutlassBlockwiseGemm(QuantizeOpBase):
         return True
 
 
+@register_quantize_op
+class FP8CutlassGroupwiseGemm(QuantizeOpBase):
+    """
+    FP8 matmul with group / block scaling.
+    """
+
+    def preprocess(self, x, w):
+        # Quantize weights.
+        # Scale is expected to be in [K, N] layout (N Major).
+        wq, w_scale = quantize_fp8_block(w, block_m=128, block_k=128, K_major=False)
+        # Return processed tensors.
+        return x, wq, w_scale
+
+    def quantize(self, x, wq, w_scale):
+        # Scale is expected to be in [K, M] layout (M Major).
+        xq, x_scale = quantize_fp8_block(x, block_m=1, block_k=128, K_major=False)
+        # Pretranspose scales to deepgemm format.
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f8f8bf16_groupwise(xq, wq, x_scale, w_scale)
+
+    def quantize_and_compute(self, x, wq, w_scale):
+        xq, wq, x_scale, w_scale = self.quantize(x, wq, w_scale)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_groupwise"
+        else:
+            return "ck_groupwise"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
 ####################################################################################################
 # CUTLASS kernel v2
 ####################################################################################################

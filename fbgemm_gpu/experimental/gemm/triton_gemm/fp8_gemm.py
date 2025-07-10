@@ -3018,6 +3018,7 @@ def _kernel_quantize_fp8_block(
     CLAMP_MAX: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_K: tl.constexpr,
+    K_MAJOR: tl.constexpr,
 ) -> None:
     """Quantize and scale each [BLOCK_M, BLOCK_K] block.
 
@@ -3047,6 +3048,7 @@ def _kernel_quantize_fp8_block(
         CLAMP_MAX (bool): Whether to apply scale_ub.
         BLOCK_M (int): Block size for M dimension of A_scale and kernel.
         BLOCK_K (int): Block size for K dimension of A_scale and kernel.
+        K_MAJOR (bool): Whether output scales should be K major (True) or MN major (False).
     """
     pid = tl.program_id(0)
     grid_k = tl.cdiv(K, BLOCK_K)
@@ -3068,9 +3070,12 @@ def _kernel_quantize_fp8_block(
         block_max = tl.maximum(block_max, EPS)
     scale = MAX_FP8 / block_max
 
-    tl.store(
-        A_scale + block_m * stride_a_scale_m + block_k * stride_a_scale_k, 1.0 / scale
-    )
+    # Write in transposed order if specified.
+    if K_MAJOR:
+        scale_offset = block_m * stride_a_scale_m + block_k * stride_a_scale_k
+    else:
+        scale_offset = block_k * stride_a_scale_m + block_m * stride_a_scale_k
+    tl.store(A_scale + scale_offset, 1.0 / scale)
     a_fp8 = a_block * scale
     # Clamp A to fp8 range to make sure there's no overflow.
     # This is required for AMD. Nvidia's default saturation
@@ -3085,6 +3090,7 @@ def triton_quantize_fp8_block(
     block_m: int = 256,
     block_k: int = 256,
     scale_ub: Optional[torch.Tensor] = None,
+    K_major: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings.
@@ -3096,10 +3102,12 @@ def triton_quantize_fp8_block(
         block_m (int): Block size for M dimension of scale.
         block_k (int): Block size for K dimension of scale.
         scale_ub: Maximum allowed value for scale.
+        K_major (bool): Whether output scales should be K major (True) or MN major (False).
 
     Returns:
         torch.Tensor : [M, K] fp8 scaled tensor.
-        torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block.
+        torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block
+        if K_major is True, otherwise [cdiv(K, block_k), cdiv(M, block_M)].
     """
     assert x.device != torch.device(
         "cpu"
@@ -3111,7 +3119,10 @@ def triton_quantize_fp8_block(
     M, K = x.shape
     grid_m = triton.cdiv(M, block_m)
     grid_k = triton.cdiv(K, block_k)
-    x_scale = torch.empty((grid_m, grid_k), device=x.device, dtype=torch.float32)
+    if K_major:
+        x_scale = torch.empty((grid_m, grid_k), device=x.device, dtype=torch.float32)
+    else:
+        x_scale = torch.ones((grid_k, grid_m), device=x.device, dtype=torch.float32)
     x_fp8 = torch.empty((M, K), device=x.device, dtype=pt_dtype)
 
     _kernel_quantize_fp8_block[(grid_m * grid_k,)](
@@ -3139,6 +3150,8 @@ def triton_quantize_fp8_block(
         BLOCK_M=block_m,
         # pyre-ignore[6]: Incompatible parameter type [6]
         BLOCK_K=block_k,
+        # pyre-ignore[6]: Incompatible parameter type [6]
+        K_MAJOR=K_major,
     )
 
     return x_fp8.view(x_shape), x_scale
@@ -3151,6 +3164,7 @@ def quantize_fp8_block(
     scale_ub: Optional[torch.Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
+    K_major: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings and optionally move to output device.
@@ -3164,10 +3178,12 @@ def quantize_fp8_block(
         scale_ub: Maximum allowed value for scale.
         use_triton (bool): Whether to use triton kernel or pytorch.
         output_device (torch.device): Device to optionally move the scaled tensors to.
+        K_major (bool): Whether output scales should be K major (True) or MN major (False).
 
     Returns:
         torch.Tensor: [M, K] fp8 scaled tensor.
-        torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block.
+        torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block
+        if K_major is True, otherwise [cdiv(K, block_k), cdiv(M, block_M)].
     """
     x_shape = x.shape
     x = x.view(-1, x.size(-1))
@@ -3175,7 +3191,7 @@ def quantize_fp8_block(
         logger.info("Triton does not support cpu, falling back to torch ops.")
         use_triton = False
     if use_triton:
-        xq, x_scale = triton_quantize_fp8_block(x, block_m, block_k, scale_ub)
+        xq, x_scale = triton_quantize_fp8_block(x, block_m, block_k, scale_ub, K_major)
         return xq.view(x_shape), x_scale
     # else use pytorch implementation.
     if not output_device:
@@ -3219,6 +3235,8 @@ def quantize_fp8_block(
     x_fp8 = x_fp8.to(device=output_device, dtype=pt_dtype)
     x_scale = x_scale.to(output_device)  # pyre-ignore
     del x, x_padded
+    if not K_major:
+        x_scale = x_scale.t().contiguous()
     return x_fp8.view(x_shape), 1 / x_scale  # pyre-ignore
 
 
