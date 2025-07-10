@@ -448,7 +448,7 @@ void* fbgemmAlignedAlloc(
   ret = posix_memalign(&aligned_mem, align, size);
 #endif
   // Throw std::bad_alloc in the case of memory allocation failure.
-  if (raiseException || ret || aligned_mem == nullptr) {
+  if (raiseException && (ret || aligned_mem == nullptr)) {
     throw std::bad_alloc();
   }
   return aligned_mem;
