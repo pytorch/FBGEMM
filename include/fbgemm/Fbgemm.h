@@ -247,7 +247,7 @@ class PackMatrix {
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name) {
+  void printPackedMatrix(const std::string& name) {
     static_cast<PT*>(this)->printPackedMatrix(name);
   }
 
@@ -482,7 +482,7 @@ class FBGEMM_API PackBMatrix final
    */
   void unpack(T* origin_buf, const BlockingFactors* params = nullptr);
 
-  ~PackBMatrix() {}
+  ~PackBMatrix() override = default;
 
  private:
   matrix_op_t trans_;
@@ -752,7 +752,7 @@ class FBGEMM_API PackAWithIm2Col
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
-  ~PackAWithIm2Col() {
+  ~PackAWithIm2Col() override {
     if (rowOffsetAllocatedHere) {
       fbgemmAlignedFree(row_offset_);
     }
@@ -842,7 +842,7 @@ class FBGEMM_API PackAWithRowOffset final
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
-  ~PackAWithRowOffset() {
+  ~PackAWithRowOffset() override {
     if (rowOffsetAllocatedHere) {
       fbgemmAlignedFree(row_offset_);
     }
@@ -934,7 +934,7 @@ class FBGEMM_API PackAWithQuantRowOffset final
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
-  ~PackAWithQuantRowOffset() {
+  ~PackAWithQuantRowOffset() override {
     if (rowOffsetAllocatedHere) {
       fbgemmAlignedFree(row_offset_);
     }
@@ -967,7 +967,7 @@ class FBGEMM_API DoNothing {
  public:
   using outType = outT;
   using inpType = inT;
-  DoNothing() {}
+  DoNothing() = default;
   template <inst_set_t instSet>
   int f(
       outType* /* unused */,

@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include <stdexcept>
 #include "fbgemm/Types.h"
 #include "fbgemm/Utils.h"
 

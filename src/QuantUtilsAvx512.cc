@@ -12,10 +12,7 @@
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
 #include <immintrin.h>
 #endif
-#include <algorithm> //for std::min/std::max
 #include <cassert>
-#include <cmath> //for nearbyint
-#include <limits> //for numeric_limits
 
 namespace fbgemm {
 
@@ -133,7 +130,7 @@ void requantizeOutputProcessingGConvAvx512(
             mask, inp + (i - block.row_start) * ld_in + (j - block.col_start));
       }
 
-      if (!A_SYMMETRIC) {
+      if constexpr (!A_SYMMETRIC) {
         __m512i col_off_raw_v;
         if constexpr (C_PER_G != 8) {
           col_off_raw_v = _mm512_loadu_si512(
@@ -146,7 +143,7 @@ void requantizeOutputProcessingGConvAvx512(
         x_v = _mm512_sub_epi32(x_v, col_off_v);
       }
 
-      if (!B_SYMMETRIC) {
+      if constexpr (!B_SYMMETRIC) {
         __m512i row_offset_v;
 
         if constexpr (C_PER_G == 2) {
@@ -209,8 +206,6 @@ void requantizeOutputProcessingGConvAvx512(
                 _mm512_broadcast_i32x4(
                     _mm_loadu_si128(reinterpret_cast<const __m128i*>(
                         r.B_zero_point + quant_param_idx))));
-          } else if constexpr (C_PER_G == 8) {
-            B_zero_point_v = _mm512_set1_epi32(r.B_zero_point[quant_param_idx]);
           } else {
             B_zero_point_v = _mm512_set1_epi32(r.B_zero_point[quant_param_idx]);
           }
@@ -219,7 +214,7 @@ void requantizeOutputProcessingGConvAvx512(
         x_v = _mm512_sub_epi32(x_v, row_offset_v);
       }
       __m512 xf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         if constexpr (is_same_v<BIAS_TYPE, float>) {
           __m512 x_bias_v;
           if constexpr (C_PER_G != 8) {
@@ -305,8 +300,6 @@ void requantizeOutputProcessingGConvAvx512(
               permute_mask_v_g4,
               _mm512_broadcast_f32x4(
                   _mm_loadu_ps(r.C_multiplier + quant_param_idx)));
-        } else if constexpr (C_PER_G == 8) {
-          multiplier_v = _mm512_set1_ps(r.C_multiplier[quant_param_idx]);
         } else {
           multiplier_v = _mm512_set1_ps(r.C_multiplier[quant_param_idx]);
         }

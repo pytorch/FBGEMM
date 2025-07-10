@@ -32,9 +32,8 @@ namespace fbgemm {
 
 CompressedSparseColumn::CompressedSparseColumn(int num_of_rows, int num_of_cols)
     : num_rows_(num_of_rows),
-      colptr_(num_of_cols + 1),
-      hyper_sparse_(false),
-      old_nnz_(-1) {}
+      colptr_(num_of_cols + 1)
+      {}
 
 double CompressedSparseColumn::Density() const {
   return static_cast<double>(NumOfNonZeros()) / (NumOfRows() * NumOfCols());
