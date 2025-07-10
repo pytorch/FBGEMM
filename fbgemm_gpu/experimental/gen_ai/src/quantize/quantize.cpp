@@ -103,6 +103,11 @@ at::Tensor f8f8f16_rowwise(
     at::Tensor w_scale,
     std::optional<at::Tensor> bias = std::nullopt,
     bool use_fast_accum = true);
+at::Tensor f8f8bf16_groupwise(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale);
 at::Tensor f8f8bf16_rowwise_preshuffle(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -300,6 +305,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
       quantize_fp8_per_tensor_fixed_scale);
 
 #ifndef USE_ROCM
+  m.impl("f8f8bf16_groupwise", f8f8bf16_groupwise);
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f4f4bf16", f4f4bf16);
   m.impl("f4f4bf16_grouped", f4f4bf16_grouped);
@@ -352,6 +358,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CPU, m) {
   m.impl("bf16bf16bf16_grouped_dyanmic", bf16bf16bf16_grouped_dynamic);
   m.impl("bf16bf16bf16_grouped_stacked", bf16bf16bf16_grouped_stacked);
 #ifndef USE_ROCM
+  m.impl("f8f8bf16_groupwise", f8f8bf16_groupwise);
   m.impl("i8i8bf16", i8i8bf16);
   m.impl("f4f4bf16", f4f4bf16);
   m.impl("f4f4bf16_grouped", f4f4bf16_grouped);
