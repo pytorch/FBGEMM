@@ -1244,6 +1244,56 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class FP8StackedGroupwiseGroupedGemm(QuantizeOpBase):
+    """
+    FP8 grouped matmul with groupwise scaling and stacked inputs.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        # Quantize weights.
+        wq, w_scale = zip(
+            *[quantize_fp8_block(i, block_m=128, block_k=128, k_major=False) for i in w]
+        )
+        # Group weights as single tensor.
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, wq, w_scale, m_sizes
+
+    def quantize(self, x, wq, w_scale, m_sizes):
+        xq, x_scale = quantize_fp8_group(x, m_sizes=m_sizes)
+        return xq, wq, x_scale, w_scale, m_sizes
+
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes):
+        return torch.ops.fbgemm.f8f8bf16_groupwise_grouped(
+            xq, wq, x_scale, w_scale, m_sizes
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, wq, w_scale, m_sizes)
+        return self.compute(xq, wq, x_scale, w_scale, m_sizes)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_groupwise_grouped"
+        else:
+            return "ck_groupwise_grouped"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class BF16GroupedGemm(QuantizeOpBase):
     """
     BF16 grouped matmul implemented with CK or Cutlass.
@@ -1499,13 +1549,13 @@ class FP8CutlassGroupwiseGemm(QuantizeOpBase):
     def preprocess(self, x, w):
         # Quantize weights.
         # Scale is expected to be in [K, N] layout (N Major).
-        wq, w_scale = quantize_fp8_block(w, block_m=128, block_k=128, K_major=False)
+        wq, w_scale = quantize_fp8_block(w, block_m=128, block_k=128, k_major=False)
         # Return processed tensors.
         return x, wq, w_scale
 
     def quantize(self, x, wq, w_scale):
         # Scale is expected to be in [K, M] layout (M Major).
-        xq, x_scale = quantize_fp8_block(x, block_m=1, block_k=128, K_major=False)
+        xq, x_scale = quantize_fp8_group(x, k_major=False)
         # Pretranspose scales to deepgemm format.
         return xq, wq, x_scale, w_scale
 

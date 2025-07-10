@@ -3090,7 +3090,7 @@ def triton_quantize_fp8_block(
     block_m: int = 256,
     block_k: int = 256,
     scale_ub: Optional[torch.Tensor] = None,
-    K_major: bool = True,
+    k_major: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings.
@@ -3102,12 +3102,12 @@ def triton_quantize_fp8_block(
         block_m (int): Block size for M dimension of scale.
         block_k (int): Block size for K dimension of scale.
         scale_ub: Maximum allowed value for scale.
-        K_major (bool): Whether output scales should be K major (True) or MN major (False).
+        k_major (bool): Whether output scales should be K major (True) or MN major (False).
 
     Returns:
         torch.Tensor : [M, K] fp8 scaled tensor.
         torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block
-        if K_major is True, otherwise [cdiv(K, block_k), cdiv(M, block_M)].
+        if k_major is True, otherwise [cdiv(K, block_k), cdiv(M, block_M)].
     """
     assert x.device != torch.device(
         "cpu"
@@ -3119,10 +3119,10 @@ def triton_quantize_fp8_block(
     M, K = x.shape
     grid_m = triton.cdiv(M, block_m)
     grid_k = triton.cdiv(K, block_k)
-    if K_major:
+    if k_major:
         x_scale = torch.empty((grid_m, grid_k), device=x.device, dtype=torch.float32)
     else:
-        x_scale = torch.ones((grid_k, grid_m), device=x.device, dtype=torch.float32)
+        x_scale = torch.empty((grid_k, grid_m), device=x.device, dtype=torch.float32)
     x_fp8 = torch.empty((M, K), device=x.device, dtype=pt_dtype)
 
     _kernel_quantize_fp8_block[(grid_m * grid_k,)](
@@ -3151,7 +3151,7 @@ def triton_quantize_fp8_block(
         # pyre-ignore[6]: Incompatible parameter type [6]
         BLOCK_K=block_k,
         # pyre-ignore[6]: Incompatible parameter type [6]
-        K_MAJOR=K_major,
+        K_MAJOR=k_major,
     )
 
     return x_fp8.view(x_shape), x_scale
@@ -3164,7 +3164,7 @@ def quantize_fp8_block(
     scale_ub: Optional[torch.Tensor] = None,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
-    K_major: bool = True,
+    k_major: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with block-wise scalings and optionally move to output device.
@@ -3178,12 +3178,12 @@ def quantize_fp8_block(
         scale_ub: Maximum allowed value for scale.
         use_triton (bool): Whether to use triton kernel or pytorch.
         output_device (torch.device): Device to optionally move the scaled tensors to.
-        K_major (bool): Whether output scales should be K major (True) or MN major (False).
+        k_major (bool): Whether output scales should be K major (True) or MN major (False).
 
     Returns:
         torch.Tensor: [M, K] fp8 scaled tensor.
         torch.Tensor: [cdiv(M, block_m), cdiv(K, block_k)] reciprocal scale tensor per block
-        if K_major is True, otherwise [cdiv(K, block_k), cdiv(M, block_M)].
+        if k_major is True, otherwise [cdiv(K, block_k), cdiv(M, block_M)].
     """
     x_shape = x.shape
     x = x.view(-1, x.size(-1))
@@ -3191,7 +3191,7 @@ def quantize_fp8_block(
         logger.info("Triton does not support cpu, falling back to torch ops.")
         use_triton = False
     if use_triton:
-        xq, x_scale = triton_quantize_fp8_block(x, block_m, block_k, scale_ub, K_major)
+        xq, x_scale = triton_quantize_fp8_block(x, block_m, block_k, scale_ub, k_major)
         return xq.view(x_shape), x_scale
     # else use pytorch implementation.
     if not output_device:
@@ -3219,7 +3219,6 @@ def quantize_fp8_block(
     if scale_ub is not None:
         block_max = torch.clamp(block_max, min=eps, max=scale_ub.item())
     else:
-        # pyre-ignore[6]: Incompatible parameter type [6]
         block_max = torch.clamp(block_max, min=eps)
     x_scale = torch.empty((grid_m, grid_k), dtype=torch.float32, device=output_device)
     x_scale = max_fp8 / block_max.to(torch.float32)  # pyre-ignore
@@ -3235,7 +3234,7 @@ def quantize_fp8_block(
     x_fp8 = x_fp8.to(device=output_device, dtype=pt_dtype)
     x_scale = x_scale.to(output_device)  # pyre-ignore
     del x, x_padded
-    if not K_major:
+    if not k_major:
         x_scale = x_scale.t().contiguous()
     return x_fp8.view(x_shape), 1 / x_scale  # pyre-ignore
 
@@ -3256,6 +3255,7 @@ def _kernel_quantize_fp8_group(
     A_scale,
     A_fp8,
     scale_ub,
+    m_sizes,
     M,
     K,
     stride_am,
@@ -3270,6 +3270,8 @@ def _kernel_quantize_fp8_group(
     CLAMP_MAX: tl.constexpr,
     USE_INT64: tl.constexpr,
     GROUP_SIZE: tl.constexpr,
+    USE_M_MAJOR: tl.constexpr,
+    G: tl.constexpr,
     GROUP_LOAD: tl.constexpr,
 ):
     """Quantize and scale each GROUP_SIZE chunk of each row.
@@ -3284,6 +3286,7 @@ def _kernel_quantize_fp8_group(
         A_scale (Tensor): [M, cdiv(K, GROUP_SIZE)] reciprocal scale tensor per group.
         A_fp8 (Tensor): [M, K] fp8 scaled tensor. A_fp8 = A * a
         scale_ub (Tensor): [1] Maximum allowed value for scale.
+        m_sizes (Optional[Tensor]): [G] Number of rows in each group.
         M (int): Number of rows.
         K (int): Number of columns.
         stride_am (int): Stride of m dimension of A.
@@ -3298,6 +3301,8 @@ def _kernel_quantize_fp8_group(
         CLAMP_MAX (bool): Whether to apply scale_ub.
         USE_INT64 (bool): Whether to index using int64, which may be needed for large tensors.
         GROUP_SIZE (int): Group size for K dimension of A_scale and kernel.
+        USE_M_MAJOR (bool): Whether to use grouped M-major layout for A_scale.
+        G (int): Number of groups in A_scale, only relevant when m_sizes is provided.
         GROUP_LOAD (int): Number of groups to load and process simultaneously.
     """
     pid = tl.program_id(0)
@@ -3310,6 +3315,26 @@ def _kernel_quantize_fp8_group(
     k_offset = tl.arange(0, GROUP_LOAD * GROUP_SIZE)
     scale_k_offset = tl.arange(0, GROUP_LOAD)
     NUM_GROUPS: tl.constexpr = K // GROUP_SIZE
+
+    # When dealing with an M-major grouped gemm, we need to figure out
+    # which group this thread corresponds to and figure out the corresponding
+    # scale offset.
+    group_offset = 0
+    group_cumsum = 0
+    group_M = 0
+    stop = False
+    if USE_M_MAJOR and G > 0:
+        # Iterate over groups to both compute the cumulative sum and find which group we are in.
+        for i in range(G):
+            if not stop:
+                group_M = tl.cast(tl.load(m_sizes + i), pid.dtype)
+                if (group_cumsum + group_M) <= pid:
+                    group_cumsum += group_M
+                else:
+                    # Indicate we are finished computing cumsum.
+                    stop = True
+
+        group_offset = group_cumsum * NUM_GROUPS
 
     for k in range(0, tl.cdiv(K, (GROUP_LOAD * GROUP_SIZE))):
         # Load groups of the input.
@@ -3330,11 +3355,31 @@ def _kernel_quantize_fp8_group(
         # Scale and quantize.
         a_scale = MAX_FP8 / group_max
         scale_chunk_offset = scale_k_offset + k * GROUP_LOAD
-        tl.store(
-            A_scale + scale_row_offset + scale_chunk_offset * stride_a_scale_k,
-            1.0 / a_scale,
-            mask=scale_chunk_offset < NUM_GROUPS,
-        )
+
+        if USE_M_MAJOR and G > 0:
+            tl.store(
+                A_scale
+                + group_offset
+                + (pid - group_cumsum) * stride_a_scale_k
+                + (scale_chunk_offset * group_M),
+                1.0 / a_scale,
+                mask=scale_chunk_offset < NUM_GROUPS,
+            )
+        else:
+            if USE_M_MAJOR:
+                tl.store(
+                    A_scale
+                    + pid * stride_a_scale_k
+                    + scale_chunk_offset * stride_a_scale_m,
+                    1.0 / a_scale,
+                    mask=scale_chunk_offset < NUM_GROUPS,
+                )
+            else:
+                tl.store(
+                    A_scale + scale_row_offset + scale_chunk_offset * stride_a_scale_k,
+                    1.0 / a_scale,
+                    mask=scale_chunk_offset < NUM_GROUPS,
+                )
         # Apply scale to input.
         a_fp8 = a_grouped * a_scale[:, None]
         # Clamp to FP8 range to avoid overflow
@@ -3351,6 +3396,8 @@ def triton_quantize_fp8_group(
     x: torch.Tensor,
     group_size: int = 128,
     scale_ub: Optional[torch.Tensor] = None,
+    m_sizes: Optional[torch.Tensor] = None,
+    k_major: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Quantize a tensor to fp8 with group-wise scalings.
@@ -3361,6 +3408,8 @@ def triton_quantize_fp8_group(
         x (torch.Tensor): [M, K] higher precision input tensor.
         group_size (int): Group size for M dimension of scale.
         scale_ub: Maximum allowed value for scale.
+        m_sizes: Optional input for grouped gemm to specify the number of rows in each group.
+        k_major (bool): Whether output scales should be K major (True) or MN major (False).
 
     Returns:
         torch.Tensor: [M, K] fp8 scaled tensor.
@@ -3374,13 +3423,17 @@ def triton_quantize_fp8_group(
     pt_dtype, tl_dtype, max_fp8, eps = get_fp8_constants()
     M, K = x.shape
     k_groups = triton.cdiv(K, group_size)
-    x_scale = torch.empty((M, k_groups), device=x.device, dtype=torch.float32)
+    if k_major:
+        x_scale = torch.empty((M, k_groups), device=x.device, dtype=torch.float32)
+    else:
+        x_scale = torch.empty((k_groups, M), device=x.device, dtype=torch.float32)
     x_fp8 = torch.empty((M, K), device=x.device, dtype=pt_dtype)
     _kernel_quantize_fp8_group[(M,)](
         x,
         x_scale,
         x_fp8,
         scale_ub,
+        m_sizes,
         M,
         K,
         x.stride(0),
@@ -3395,6 +3448,8 @@ def triton_quantize_fp8_group(
         CLAMP_MAX=scale_ub is not None,
         USE_INT64=x.numel() > (2**32 - 1),
         GROUP_SIZE=group_size,
+        USE_M_MAJOR=m_sizes is not None or k_major is False,
+        G=m_sizes.numel() if m_sizes is not None else 0,
     )
     return x_fp8.view(x_shape), x_scale
 
@@ -3403,6 +3458,8 @@ def quantize_fp8_group(
     x: torch.Tensor,
     group_size: int = 128,
     scale_ub: Optional[torch.Tensor] = None,
+    m_sizes: Optional[torch.Tensor] = None,
+    k_major: bool = True,
     use_triton: bool = True,
     output_device: Optional[torch.device] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -3415,6 +3472,9 @@ def quantize_fp8_group(
         x (Tensor): [M, K] higher precision input tensor.
         group_size (int): Group size for M dimension of scale.
         scale_ub: Maximum allowed value for scale.
+        m_sizes: Optional input for grouped gemm to specify the number of rows in each group.
+        k_major (bool): Whether output scales should be K major (True) or MN major (False).
+        This is needed because some kernels like cutlass require a special layout for scales.
         use_triton (bool): Whether to use triton kernel or pytorch.
         output_device (torch.device): Device to optionally move the scaled tensors to.
 
@@ -3428,7 +3488,9 @@ def quantize_fp8_group(
         logger.info("Triton does not support cpu, falling back to torch ops.")
         use_triton = False
     if use_triton:
-        xq, x_scale = triton_quantize_fp8_group(x, group_size, scale_ub)
+        xq, x_scale = triton_quantize_fp8_group(
+            x, group_size, scale_ub, m_sizes, k_major
+        )
         return xq.view(x_shape), x_scale
     # else use pytorch implementation.
     if not output_device:
@@ -3441,6 +3503,7 @@ def quantize_fp8_group(
     assert (
         K % group_size == 0
     ), "K must be divisible by group_size for cpu implementation."
+    assert m_sizes is None, "m_sizes is not supported for cpu implementation."
     k_groups = triton.cdiv(K, group_size)
     # View input as colleciton of groups for reduction.
     x_grouped = x.view(M, k_groups, group_size).to(torch.float32)
@@ -3461,6 +3524,8 @@ def quantize_fp8_group(
     # Cast and move data to output device (for cpu weight loading).
     x_fp8 = x_fp8.to(device=output_device, dtype=pt_dtype)
     x_scale = x_scale.to(output_device)  # pyre-ignore
+    if not k_major:
+        x_scale = x_scale.t().contiguous()
     return x_fp8.view(x_shape), 1 / x_scale  # pyre-ignore
 
 
