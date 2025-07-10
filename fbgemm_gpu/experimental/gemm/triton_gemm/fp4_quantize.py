@@ -74,7 +74,7 @@ def _kernel_quantize_mx4_unpack(
     MBITS_IMPLICIT: tl.constexpr = MBITS + 1  # type: ignore[Incompatible variable type]
     MAX_FP16_MANTISSA_BITS: tl.constexpr = 8  # type: ignore[Incompatible variable type]
     IMPLIED_1_BIT: tl.constexpr = 1 << 7  # type: ignore[Incompatible variable type]
-    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
     MANTISSA_OVERFLOW_THRESHOLD: tl.constexpr = (1 << MBITS_IMPLICIT) - 1  # type: ignore[Incompatible variable type]
     EXPONENT_OVERFLOW_THRESHOLD: tl.constexpr = (1 << EBITS) - 1  # type: ignore[Incompatible variable type]
     IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
@@ -145,7 +145,7 @@ def _kernel_quantize_mx4_unpack(
         # Compute the shared exponent of each group.
         group_max = tl.max(tl.abs(a_groups), axis=1)
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
         # Load relevant random values if doing stochastic rounding
         # or stochastic casting.
         group_rand_bits = None
@@ -513,7 +513,7 @@ def _kernel_silu_quantize_mx4_unpack(
     MBITS_IMPLICIT: tl.constexpr = MBITS + 1  # type: ignore[Incompatible variable type]
     MAX_FP16_MANTISSA_BITS: tl.constexpr = 8  # type: ignore[Incompatible variable type]
     IMPLIED_1_BIT: tl.constexpr = 1 << 7  # type: ignore[Incompatible variable type]
-    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
     MANTISSA_OVERFLOW_THRESHOLD: tl.constexpr = (1 << MBITS_IMPLICIT) - 1  # type: ignore[Incompatible variable type]
     EXPONENT_OVERFLOW_THRESHOLD: tl.constexpr = (1 << EBITS) - 1  # type: ignore[Incompatible variable type]
     IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
@@ -597,7 +597,7 @@ def _kernel_silu_quantize_mx4_unpack(
         # Compute the shared exponent of each group.
         group_max = tl.max(tl.abs(a_groups), axis=1)
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
         # Load relevant random values if doing stochastic rounding
         # or stochastic casting.
         group_rand_bits = None
@@ -928,7 +928,7 @@ def _kernel_rms_quantize_mx4_unpack(
     MBITS_IMPLICIT: tl.constexpr = MBITS + 1  # type: ignore[Incompatible variable type]
     MAX_FP16_MANTISSA_BITS: tl.constexpr = 8  # type: ignore[Incompatible variable type]
     IMPLIED_1_BIT: tl.constexpr = 1 << 7  # type: ignore[Incompatible variable type]
-    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
     MANTISSA_OVERFLOW_THRESHOLD: tl.constexpr = (1 << MBITS_IMPLICIT) - 1  # type: ignore[Incompatible variable type]
     EXPONENT_OVERFLOW_THRESHOLD: tl.constexpr = (1 << EBITS) - 1  # type: ignore[Incompatible variable type]
     IMPLICIT_1_MASK = (1 << (MBITS_IMPLICIT - 1)) - 1
@@ -1021,7 +1021,7 @@ def _kernel_rms_quantize_mx4_unpack(
         # Compute the shared exponent of each group.
         group_max = tl.max(tl.abs(a_groups), axis=1)
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
         # Load relevant random values if doing stochastic rounding
         # or stochastic casting.
         group_rand_bits = None
@@ -1346,7 +1346,7 @@ def _kernel_nvfp4_quantize(
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
     """
     # Define Constant Expressions.
-    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
     pid = tl.program_id(0)
@@ -1411,7 +1411,7 @@ def _kernel_nvfp4_quantize(
         # Next we scale A in preparation for quantization.
         scale_ = group_max / 6.0 * input_global_scale
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
@@ -1546,7 +1546,7 @@ def triton_scale_nvfp4_quant(
     ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
 
     # Two fp4 values will be packed into an uint8.
-    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
+    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
 
     # We use the rounded values to store the swizzled values. Due to the
     # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
@@ -1559,7 +1559,7 @@ def triton_scale_nvfp4_quant(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -1679,7 +1679,7 @@ def _kernel_nvfp4_quantize_silu(
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
     """
     # Define Constant Expressions.
-    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
     pid = tl.program_id(0)
@@ -1758,7 +1758,7 @@ def _kernel_nvfp4_quantize_silu(
         # Next we scale A in preparation for quantization.
         scale_ = group_max / 6.0 * input_global_scale
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
@@ -1896,7 +1896,7 @@ def triton_scale_nvfp4_quant_silu(
     ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
 
     # Two fp4 values will be packed into an uint8.
-    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
+    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
 
     # We use the rounded values to store the swizzled values. Due to the
     # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
@@ -1909,7 +1909,7 @@ def triton_scale_nvfp4_quant_silu(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -2029,7 +2029,7 @@ def _kernel_nvfp4_quantize_rms(
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
     """
     # Define Constant Expressions.
-    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
     pid = tl.program_id(0)
@@ -2117,7 +2117,7 @@ def _kernel_nvfp4_quantize_rms(
         # Next we scale A in preparation for quantization.
         scale_ = group_max / 6.0 * input_global_scale
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
@@ -2258,7 +2258,7 @@ def triton_scale_nvfp4_quant_rms(
     ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
 
     # Two fp4 values will be packed into an uint8.
-    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
+    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
 
     # We use the rounded values to store the swizzled values. Due to the
     # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
@@ -2271,7 +2271,7 @@ def triton_scale_nvfp4_quant_rms(
     rounded_M = round_up(M, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -2395,7 +2395,7 @@ def _kernel_nvfp4_quantize_stacked(
         USE_INT64 (bool): Whether to use int64 for indexing. This is needed for large tensors.
     """
     # Define Constant Expressions.
-    FP16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
+    BF16_MIN_NORMAL: tl.constexpr = 2 ** (-126)  # type: ignore[Incompatible variable type]
 
     # Get the current thread number.
     pid = tl.program_id(0)
@@ -2479,7 +2479,7 @@ def _kernel_nvfp4_quantize_stacked(
         # Next we scale A in preparation for quantization.
         scale_ = group_max / 6.0 * input_global_scale
         # Prevent infinite values in log.
-        group_max = tl.where(group_max == 0, FP16_MIN_NORMAL, group_max)
+        group_max = tl.where(group_max == 0, BF16_MIN_NORMAL, group_max)
 
         # Apply scale_ to input. We do this by broadcasting scale.
         scaled_a = tl.reshape(a, [GROUP_LOAD, GROUP_SIZE]) * tl.reshape(
@@ -2642,7 +2642,7 @@ def triton_nvfp4_quant_stacked(
     ), f"input.dtype needs to be fp16 or bf16 but got {input.dtype}."
 
     # Two fp4 values will be packed into an uint8.
-    out = torch.zeros((M, K // 8), device=device, dtype=torch.uint32)
+    out = torch.empty((M, K // 8), device=device, dtype=torch.uint32)
 
     # We use the rounded values to store the swizzled values. Due to the
     # requirement of the Tensor Core, the minimum tile is 128x4 for the scales.
@@ -2655,7 +2655,7 @@ def triton_nvfp4_quant_stacked(
     rounded_M = round_up(M + (starting_row_after_padding.numel() - 1) * 128, 128)
     scale_K = K // block_size
     rounded_K = round_up(scale_K, 4)
-    scale = torch.zeros((rounded_M, rounded_K), device=device, dtype=torch.int8)
+    scale = torch.empty((rounded_M, rounded_K), device=device, dtype=torch.int8)
 
     # In this kernel, we want each row to be divisible by group_size.
     # If the rows are not, then we will pad them. Find the number of
@@ -2730,3 +2730,148 @@ def triton_nvfp4_quant_stacked(
 
     scale = scale.flatten()
     return out.view(list(orig_shape[:-1]) + [-1]).view(torch.uint8), scale
+
+
+@triton.jit
+def fused_padding_cumsum_and_segmented_arange_kernel(
+    m_sizes_ptr,  # [num_segments] input sizes
+    starting_row_after_padding_ptr,  # [num_segments + 1] output: padded cumsum
+    size_cumulative_ptr,  # [num_segments + 1] input: regular cumsum
+    belong_indices_ptr,  # [N] output: segment index
+    row_within_tensor_ptr,  # [N] output: position within segment
+    num_segments: tl.constexpr,
+    N: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+):
+    pid = tl.program_id(0)
+
+    # Part 1: Compute padded cumsum (only first block does this)
+    if pid == 0:
+        offs = tl.arange(0, BLOCK_SIZE)
+        mask = offs < num_segments
+
+        # Load m_sizes
+        m_sizes = tl.load(m_sizes_ptr + offs, mask=mask, other=0)
+
+        # Compute padded sizes
+        padded_sizes = ((m_sizes + 128 - 1) // 128) * 128
+
+        # Compute inclusive cumsum
+        cumsum = tl.cumsum(padded_sizes, axis=0)
+
+        # Store at indices 1 through num_segments
+        tl.store(starting_row_after_padding_ptr + offs + 1, cumsum, mask=mask)
+
+        # Set first element to zero
+        first_elem_mask = offs == 0
+        tl.store(
+            starting_row_after_padding_ptr + offs,
+            tl.zeros([BLOCK_SIZE], dtype=cumsum.dtype),
+            mask=first_elem_mask,
+        )
+
+    # Part 2: Segmented arange (all blocks do this)
+    offs = tl.arange(0, BLOCK_SIZE)
+    row_idx = pid * BLOCK_SIZE + offs
+    mask = row_idx < N
+
+    # Binary search using the regular cumsum
+    left = tl.zeros([BLOCK_SIZE], dtype=tl.int32)
+    right = tl.zeros([BLOCK_SIZE], dtype=tl.int32) + num_segments
+
+    for _ in range(32):  # 32 iterations for binary search
+        mid = (left + right) // 2
+        mid_val = tl.load(size_cumulative_ptr + mid, mask=mask, other=0)
+        cond = mid_val <= row_idx
+        left = tl.where(cond, mid + 1, left)
+        right = tl.where(cond, right, mid)
+
+    belong_idx = left - 1
+    tl.store(belong_indices_ptr + row_idx, belong_idx, mask=mask)
+
+    # Compute row_within_tensor
+    segment_start = tl.load(size_cumulative_ptr + belong_idx, mask=mask, other=0)
+    row_within = row_idx - segment_start
+    tl.store(row_within_tensor_ptr + row_idx, row_within, mask=mask)
+
+
+@triton.jit
+def cumsum_kernel(
+    m_sizes_ptr,
+    size_cumulative_ptr,
+    N: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+):
+    offs = tl.arange(0, BLOCK_SIZE)
+    mask = offs < N
+
+    # Load m_sizes
+    m_sizes = tl.load(m_sizes_ptr + offs, mask=mask, other=0)
+
+    # Compute inclusive cumsum
+    cumsum = tl.cumsum(m_sizes, axis=0)
+
+    # Store cumsum at indices 1 through N
+    tl.store(size_cumulative_ptr + offs + 1, cumsum, mask=mask)
+
+    # Set first element to zero
+    first_elem_mask = offs == 0
+    tl.store(
+        size_cumulative_ptr + offs,
+        tl.zeros([BLOCK_SIZE], dtype=cumsum.dtype),
+        mask=first_elem_mask,
+    )
+
+
+def nvfp4_fused_padding_cumsum_and_segmented_arange(m_sizes, N):
+    device = m_sizes.device
+    dtype = m_sizes.dtype
+    num_segments = m_sizes.shape[0]
+
+    # First compute regular cumsum (needed for segmented arange)
+    size_cumulative = nvfp4_triton_cumsum(m_sizes)
+
+    # Allocate outputs
+    starting_row_after_padding = torch.empty(
+        num_segments + 1, dtype=dtype, device=device
+    )
+    belong_indices = torch.empty(N, dtype=dtype, device=device)
+    row_within_tensor = torch.empty(N, dtype=dtype, device=device)
+
+    BLOCK_SIZE = 256
+    # Need enough blocks to cover N, but at least 1 for the padding cumsum
+    grid = (max(1, triton.cdiv(N, BLOCK_SIZE)),)
+
+    fused_padding_cumsum_and_segmented_arange_kernel[grid](
+        m_sizes,
+        starting_row_after_padding,
+        size_cumulative,
+        belong_indices,
+        row_within_tensor,
+        num_segments=num_segments,
+        N=N,
+        BLOCK_SIZE=BLOCK_SIZE,
+        num_warps=4,
+    )
+
+    return starting_row_after_padding, belong_indices, row_within_tensor
+
+
+def nvfp4_triton_cumsum(m_sizes):
+    device = m_sizes.device
+    dtype = m_sizes.dtype
+    N = m_sizes.shape[0]
+
+    size_cumulative = torch.empty(N + 1, dtype=dtype, device=device)
+
+    BLOCK_SIZE = triton.next_power_of_2(N)
+    grid = (1,)  # single-block kernel
+
+    cumsum_kernel[grid](
+        m_sizes,
+        size_cumulative,
+        N=N,
+        BLOCK_SIZE=BLOCK_SIZE,
+        num_warps=4,
+    )
+    return size_cumulative
