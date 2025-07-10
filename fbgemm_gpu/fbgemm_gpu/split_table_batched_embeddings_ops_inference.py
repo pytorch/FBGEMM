@@ -517,29 +517,18 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         )
         self.weight_initialized: bool = False
 
-        self.register_buffer(
-            "weights_dev",
-            torch.zeros(
-                0,
-                device=self.current_device,
-                dtype=torch.uint8,
-            ),
-            persistent=False,
+        self.weights_dev: torch.Tensor = torch.zeros(
+            0,
+            device=self.current_device,
+            dtype=torch.uint8,
         )
 
-        self.register_buffer(
-            "weights_host",
-            torch.zeros(
-                0,
-                device=self.current_device,
-                dtype=torch.uint8,
-            ),
+        self.weights_host: torch.Tensor = torch.zeros(
+            0, device=self.current_device, dtype=torch.uint8
         )
 
-        self.register_buffer(
-            "weights_uvm",
-            torch.empty(0, device=self.current_device, dtype=torch.uint8),
-            persistent=False,
+        self.weights_uvm: torch.Tensor = torch.empty(
+            0, device=self.current_device, dtype=torch.uint8
         )
 
         cached_dims = [
