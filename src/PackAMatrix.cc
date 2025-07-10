@@ -204,9 +204,9 @@ void PackAMatrix<T, accT>::printPackedMatrix(const std::string& name) {
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template class PackAMatrix<uint8_t, int32_t>;

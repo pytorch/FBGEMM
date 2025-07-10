@@ -53,8 +53,7 @@ void EmbeddingStatsTracker::recordPattern(
     }
     for (const auto& pair : tables_) {
       const auto& pattern = pair.first;
-      logFile_ << pattern.toString() << "freq=" << pair.second << ";"
-               << std::endl;
+      logFile_ << pattern.toString() << "freq=" << pair.second << ";" << '\n';
     }
     logFile_.flush();
     logFile_.close();

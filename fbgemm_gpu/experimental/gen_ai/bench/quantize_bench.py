@@ -29,7 +29,10 @@ except ImportError:
             super().__init__()
 
 
-from fbgemm_gpu.experimental.gen_ai.quantize_ops import get_quantize_ops, QuantizeOpBase
+from fbgemm_gpu.experimental.gen_ai.bench.quantize_ops import (
+    get_quantize_ops,
+    QuantizeOpBase,
+)
 
 
 def generate_group_tensor(G, M):

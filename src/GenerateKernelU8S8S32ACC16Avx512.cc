@@ -352,7 +352,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 
