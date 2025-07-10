@@ -176,6 +176,7 @@ __fbgemm_gpu_post_install_checks () {
 install_fbgemm_gpu_wheel () {
   local env_name="$1"
   local wheel_path="$2"
+  ls -ls "${wheel_path}"
   if [ "$wheel_path" == "" ]; then
     echo "Usage: ${FUNCNAME[0]} ENV_NAME WHEEL_NAME"
     echo "Example(s):"
