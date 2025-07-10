@@ -970,29 +970,18 @@
         <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">weight_initialized</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
-            <span class="s2">&quot;weights_dev&quot;</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
-                <span class="mi">0</span><span class="p">,</span>
-                <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
-                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
-            <span class="p">),</span>
-            <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weights_dev</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+            <span class="mi">0</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
         <span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
-            <span class="s2">&quot;weights_host&quot;</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
-                <span class="mi">0</span><span class="p">,</span>
-                <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span>
-                <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
-            <span class="p">),</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weights_host</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+            <span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>
         <span class="p">)</span>
 
-        <span class="bp">self</span><span class="o">.</span><span class="n">register_buffer</span><span class="p">(</span>
-            <span class="s2">&quot;weights_uvm&quot;</span><span class="p">,</span>
-            <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">),</span>
-            <span class="n">persistent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">weights_uvm</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
+            <span class="mi">0</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">current_device</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span>
         <span class="p">)</span>
 
         <span class="n">cached_dims</span> <span class="o">=</span> <span class="p">[</span>
