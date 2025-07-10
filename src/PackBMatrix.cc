@@ -400,12 +400,12 @@ void PackBMatrix<T, accT>::printPackedMatrix(
         g *
             BaseType::packedBufferSize(
                 BaseType::numPackedRows(), BaseType::numPackedCols(), params);
-    std::cout << "group: " << g << std::endl;
+    std::cout << "group: " << g << '\n';
     for (auto nr = 0; nr < BaseType::blockRows(); ++nr) {
       auto rows = (nr == BaseType::blockRows() - 1) ? BaseType::lastBrow()
                                                     : BaseType::blockRowSize();
       for (auto nc = 0; nc < BaseType::blockCols(); ++nc) {
-        std::cout << "block:" << nr << ", " << nc << std::endl;
+        std::cout << "block:" << nr << ", " << nc << '\n';
         auto cols = (nc == BaseType::blockCols() - 1)
             ? BaseType::lastBcol()
             : BaseType::blockColSize();
@@ -424,9 +424,9 @@ void PackBMatrix<T, accT>::printPackedMatrix(
               std::cout << std::setw(5) << val << " ";
             }
           }
-          std::cout << std::endl;
+          std::cout << '\n';
         }
-        std::cout << std::endl;
+        std::cout << '\n';
       }
     }
   }

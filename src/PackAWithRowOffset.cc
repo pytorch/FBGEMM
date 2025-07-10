@@ -203,9 +203,9 @@ void PackAWithRowOffset<T, accT>::printPackedMatrix(const std::string& name) {
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T, typename accT>

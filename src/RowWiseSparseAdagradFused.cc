@@ -760,7 +760,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           err = runtime().add(&fn, &code);
         }
         if (err) {
-          cout << "Error: in fn add" << endl;
+          cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 

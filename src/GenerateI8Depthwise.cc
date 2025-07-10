@@ -564,7 +564,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 
