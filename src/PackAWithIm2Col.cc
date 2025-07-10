@@ -718,9 +718,9 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T, typename accT, int SPATIAL_DIM>

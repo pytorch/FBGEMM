@@ -65,10 +65,10 @@ int compare_buffers(
     for (int j = 0; j < n; ++j) {
       T reference = ref[i * ld + j], actual = test[i * ld + j];
       if (std::abs(reference - actual) > atol) {
-        std::cout << "\tmismatch at (" << i << ", " << j << ")" << std::endl;
+        std::cout << "\tmismatch at (" << i << ", " << j << ")" << '\n';
         if constexpr (std::is_integral_v<T>) {
           std::cout << "\t  reference:" << static_cast<int64_t>(reference)
-                    << " test:" << static_cast<int64_t>(actual) << std::endl;
+                    << " test:" << static_cast<int64_t>(actual) << '\n';
         } else {
           std::cout << "\t  reference:" << reference << " test:" << actual
                     << std::endl;
@@ -103,7 +103,7 @@ void printMatrix(
   // R: number of rows in op(inp)
   // C: number of cols in op(inp)
   // ld: leading dimension in inp
-  std::cout << name << ":" << "[" << R << ", " << C << "]" << std::endl;
+  std::cout << name << ":" << "[" << R << ", " << C << "]" << '\n';
   bool tr = (op == matrix_op_t::Transpose);
   for (size_t r = 0; r < R; ++r) {
     for (size_t c = 0; c < C; ++c) {
@@ -114,7 +114,7 @@ void printMatrix(
         std::cout << std::setw(5) << res << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
 }
 

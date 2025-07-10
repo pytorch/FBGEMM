@@ -7,6 +7,8 @@ InheritParentConfig: true
 # @nolint
 Checks: '
 -*,
+clang-analyzer*,
+clang-diagnostic-missing-prototypes,
 cppcoreguidelines-init-variables,
 bugprone-argument-comment,
 misc-use-internal-linkage,
@@ -21,7 +23,6 @@ modernize*,
 -modernize-use-integer-sign-comparison
 -modernize-use-nodiscard,
 performance*,
--performance-avoid-endl
 '
 CheckOptions:
  - key: facebook-cuda-safe-api-call-check.HandlerName

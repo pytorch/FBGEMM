@@ -776,7 +776,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
           err = runtime().add(&fn, &code);
         }
         if (err) {
-          std::cout << "Error: in fn add" << std::endl;
+          std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 

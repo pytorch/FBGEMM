@@ -15,7 +15,7 @@
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
 
-#include <math.h>
+#include <cmath>
 
 #include <algorithm>
 #include <array>
