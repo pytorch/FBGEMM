@@ -740,6 +740,10 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
  protected:
   bool evict_block(weight_type* block, int sub_table_id) override {
     int64_t ttl = ttls_in_mins_[sub_table_id];
+    if (ttl == 0) {
+      // ttl = 0 means no eviction
+      return false;
+    }
     auto current_time = FixedBlockPool::current_timestamp();
     return current_time - FixedBlockPool::get_timestamp(block) > ttl * 60;
   }
@@ -776,8 +780,17 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
  protected:
   bool evict_block(weight_type* block, int sub_table_id) override {
     int64_t ttl = ttls_in_mins_[sub_table_id];
+    if (ttl == 0) {
+      // ttl = 0 means no eviction
+      return false;
+    }
     double decay_rate = decay_rates_[sub_table_id];
     int64_t threshold = thresholds_[sub_table_id];
+    if (threshold == 0) {
+      // threshold = 0 means no eviction
+      return false;
+    }
+
     // Apply decay and check the count threshold and ttl.
     auto current_time = FixedBlockPool::current_timestamp();
     auto current_count = FixedBlockPool::get_count(block);
@@ -818,6 +831,10 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
   bool evict_block(weight_type* block, int sub_table_id) override {
     size_t dimension = sub_table_dims_[sub_table_id];
     double threshold = thresholds_[sub_table_id];
+    if (threshold == 0.0) {
+      // threshold = 0 means no eviction
+      return false;
+    }
     auto l2weight = FixedBlockPool::get_l2weight(block, dimension);
     return l2weight < threshold;
   }
