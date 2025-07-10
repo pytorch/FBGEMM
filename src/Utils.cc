@@ -478,7 +478,7 @@ int fbgemmGet2DPartition(
   // for large thread numbers, we would like to reduce the aspect_ratio ---
   // if the matrix is short-and-fat
   // this allows us to assign more parallelism to i-dimension
-  if (nthreads > 16 && m / n < 0.2) {
+  if (nthreads > 16 && static_cast<double>(m) / n < 0.2) {
     aspect_ratio = 0.2;
   }
 
