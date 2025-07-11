@@ -448,7 +448,7 @@ void* fbgemmAlignedAlloc(
   ret = posix_memalign(&aligned_mem, align, size);
 #endif
   // Throw std::bad_alloc in the case of memory allocation failure.
-  if (raiseException || ret || aligned_mem == nullptr) {
+  if (raiseException && (ret || aligned_mem == nullptr)) {
     throw std::bad_alloc();
   }
   return aligned_mem;
@@ -478,7 +478,7 @@ int fbgemmGet2DPartition(
   // for large thread numbers, we would like to reduce the aspect_ratio ---
   // if the matrix is short-and-fat
   // this allows us to assign more parallelism to i-dimension
-  if (nthreads > 16 && m / n < 0.2) {
+  if (nthreads > 16 && static_cast<double>(m) / n < 0.2) {
     aspect_ratio = 0.2;
   }
 
