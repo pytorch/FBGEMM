@@ -102,7 +102,7 @@ static int run_benchmark(
   // Compute the number of indices
   int lengths_sum = offsets[batch_size];
   if (fbgemm_get_thread_num() == 0) {
-    cout << "lengths_sum " << lengths_sum << endl;
+    cout << "lengths_sum " << lengths_sum << '\n';
   }
 
   // Generate indices
@@ -274,11 +274,11 @@ static int run_benchmark(
               }
             } else {
               assert(false && "ERROR: unsupported output type");
-              cout << "ERROR: unsupported output type" << endl;
+              cout << "ERROR: unsupported output type" << '\n';
             }
             assert(fabs(tmp1 - tmp2) < 1e-3);
             if (fabs(tmp1 - tmp2) >= 1e-3) {
-              cout << i << " " << tmp1 << " " << tmp2 << endl;
+              cout << i << " " << tmp1 << " " << tmp2 << '\n';
             }
           }
         }
@@ -298,7 +298,7 @@ static int run_benchmark(
           }
         } else {
           assert(false && "ERROR: unsupported output type");
-          cout << "ERROR: unsupported output type" << endl;
+          cout << "ERROR: unsupported output type" << '\n';
         }
 
         if (has_weight) {
@@ -331,7 +331,7 @@ static int run_benchmark(
              << " GB/s" << setw(20) << "effective b/w: " << setw(16)
              << bytes_padded / 1e9 / max_time << "GB/s" << setw(8) << " time "
              << setw(16) << max_time << " load_imbalance " << load_imbalance
-             << endl;
+             << '\n';
       }
     } // flush_cache
   } // has_weight
@@ -354,7 +354,7 @@ int main() {
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
-         << endl;
+         << '\n';
     // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
     // prefetch
     cout << "64 bit indices, ";
