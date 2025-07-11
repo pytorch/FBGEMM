@@ -15,6 +15,7 @@ import torch
 import triton  # @manual=//triton:triton
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
+    nvfp4_fused_padding_cumsum_and_segmented_arange,
     triton_nvfp4_quant_stacked,
     triton_quantize_mx4_unpack,
     triton_scale_nvfp4_quant,
@@ -1243,6 +1244,56 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class FP8StackedGroupwiseGroupedGemm(QuantizeOpBase):
+    """
+    FP8 grouped matmul with groupwise scaling and stacked inputs.
+    """
+
+    def preprocess(self, x, w):
+        m_values = [i.shape[0] for i in x]
+        m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
+        # Quantize weights.
+        wq, w_scale = zip(
+            *[quantize_fp8_block(i, block_m=128, block_k=128, k_major=False) for i in w]
+        )
+        # Group weights as single tensor.
+        wq = torch.stack(wq, dim=0).contiguous()
+        w_scale = torch.stack(w_scale, dim=0).contiguous()
+        # Also view input as flattened.
+        x = torch.concat(x, dim=0).contiguous()
+        # Return processed tensors.
+        return x, wq, w_scale, m_sizes
+
+    def quantize(self, x, wq, w_scale, m_sizes):
+        xq, x_scale = quantize_fp8_group(x, m_sizes=m_sizes)
+        return xq, wq, x_scale, w_scale, m_sizes
+
+    def compute(self, xq, wq, x_scale, w_scale, m_sizes):
+        return torch.ops.fbgemm.f8f8bf16_groupwise_grouped(
+            xq, wq, x_scale, w_scale, m_sizes
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, m_sizes = self.quantize(x, wq, w_scale, m_sizes)
+        return self.compute(xq, wq, x_scale, w_scale, m_sizes)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_groupwise_grouped"
+        else:
+            return "ck_groupwise_grouped"
+
+    @property
+    def hip(self) -> bool:
+        return False
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
 class BF16GroupedGemm(QuantizeOpBase):
     """
     BF16 grouped matmul implemented with CK or Cutlass.
@@ -1483,6 +1534,48 @@ class FP8CutlassBlockwiseGemm(QuantizeOpBase):
     @property
     def hip(self) -> bool:
         return True
+
+    @property
+    def cuda(self) -> bool:
+        return True
+
+
+@register_quantize_op
+class FP8CutlassGroupwiseGemm(QuantizeOpBase):
+    """
+    FP8 matmul with group / block scaling.
+    """
+
+    def preprocess(self, x, w):
+        # Quantize weights.
+        # Scale is expected to be in [K, N] layout (N Major).
+        wq, w_scale = quantize_fp8_block(w, block_m=128, block_k=128, k_major=False)
+        # Return processed tensors.
+        return x, wq, w_scale
+
+    def quantize(self, x, wq, w_scale):
+        # Scale is expected to be in [K, M] layout (M Major).
+        xq, x_scale = quantize_fp8_group(x, k_major=False)
+        # Pretranspose scales to deepgemm format.
+        return xq, wq, x_scale, w_scale
+
+    def compute(self, xq, wq, x_scale, w_scale):
+        return torch.ops.fbgemm.f8f8bf16_groupwise(xq, wq, x_scale, w_scale)
+
+    def quantize_and_compute(self, x, wq, w_scale):
+        xq, wq, x_scale, w_scale = self.quantize(x, wq, w_scale)
+        return self.compute(xq, wq, x_scale, w_scale)
+
+    @property
+    def name(self) -> str:
+        if torch.version.cuda:
+            return "cutlass_groupwise"
+        else:
+            return "ck_groupwise"
+
+    @property
+    def hip(self) -> bool:
+        return False
 
     @property
     def cuda(self) -> bool:
@@ -2427,61 +2520,9 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
 
             return x_global_scale, w_global_scale, global_scale
 
-        def segmented_arange(x):
-            N = x.shape[0]
-            device = x.device
-
-            # Compute segment boundaries (no dynamic indexing)
-            change = torch.ones(N, dtype=torch.bool, device=device)
-            change[1:] = x[1:] != x[:-1]
-
-            # Compute segment starts as positions, using arithmetic
-            positions = torch.arange(N, device=device)
-
-            # Multiply positions by change mask (0's out non-starts)
-            segment_starts = positions * change.long()
-
-            # Propagate segment start positions forward
-            segment_starts = torch.cummax(segment_starts, dim=0)[0]
-
-            # Compute index within segment directly
-            idx_in_segment = positions - segment_starts
-
-            return idx_in_segment
-
-        if x.shape[0] == 0:
-            return (
-                torch.zeros((0, 0), device=x.device),
-                torch.zeros((0, 0), device=x.device),
-                torch.zeros((0, 0), device=x.device),
-                torch.zeros((0, 0), device=x.device),
-                m_sizes,
-                torch.zeros((0, 0), device=x.device),
-                torch.zeros((0), device=x.device, dtype=torch.int64),
-            )
-        # calculate cumulative sum, and find the index range each row belongs to
-        size_cumulative = torch.zeros(
-            m_sizes.shape[0] + 1, device=m_sizes.device, dtype=m_sizes.dtype
+        starting_row_after_padding, belong_indices, row_within_tensor = (
+            nvfp4_fused_padding_cumsum_and_segmented_arange(m_sizes, x.shape[0])
         )
-        # Compute the cumulative sum directly into the preallocated tensor
-        size_cumulative[1:] = torch.cumsum(m_sizes, dim=0)
-
-        belong_indices = (
-            torch.searchsorted(
-                size_cumulative,
-                torch.arange(0, x.shape[0], device=size_cumulative.device),
-                right=True,
-            )
-            - 1
-        )
-
-        padded_size = ((m_sizes + 128 - 1) // 128) * 128
-        starting_row_after_padding = torch.zeros(
-            padded_size.shape[0] + 1, device=padded_size.device, dtype=padded_size.dtype
-        )
-        starting_row_after_padding[1:] = torch.cumsum(padded_size, dim=0)
-
-        row_within_tensor = segmented_arange(belong_indices)
 
         # Compute global scale for each group
         G = m_sizes.numel()
