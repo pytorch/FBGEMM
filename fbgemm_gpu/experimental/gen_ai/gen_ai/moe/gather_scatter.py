@@ -601,7 +601,7 @@ def _fbgemm_gather_scale_fp8_rowwise_quant_dense_tokens(
         input_ptr + input_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:]
     )
     out_2d_ptr = (
-        output_ptr + output_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:],
+        output_ptr + output_token_index.to(tl.int64) * D + tl.arange(0, BLOCK_D)[:]
     )
     for _ in range(0, D, BLOCK_D):
         # Load from L2
