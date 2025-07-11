@@ -23,13 +23,6 @@ if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   endif()
 
   #build Googletest framework
-  #MSVC needs gtest_for_shared_crt to select right runtime lib
-  if (MSVC AND FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-    message(WARNING "gtest_force_shared_crt is ON")
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  else()
-    message(WARNING "gtest_force_shared_crt is OFF")
-  endif()
   add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
   # add flags required for mac build
   if(NOT MSVC)
