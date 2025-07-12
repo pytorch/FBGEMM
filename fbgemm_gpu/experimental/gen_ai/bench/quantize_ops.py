@@ -2490,13 +2490,10 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
     """
 
     def preprocess(self, x, w):
-
         m_values = [i.shape[0] for i in x]
         m_sizes = torch.tensor(m_values).to(dtype=torch.int64, device=x[0].device)
         x = torch.concat(x, dim=0).contiguous()
-        return x, w, m_sizes
 
-    def quantize(self, x, w, m_sizes):
         def get_global_scale(x, w):
             G = len(w)
             x_global_scale = []
@@ -2520,20 +2517,24 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
 
             return x_global_scale, w_global_scale, global_scale
 
-        starting_row_after_padding, belong_indices, row_within_tensor = (
-            nvfp4_fused_padding_cumsum_and_segmented_arange(m_sizes, x.shape[0])
-        )
-
         # Compute global scale for each group
         G = m_sizes.numel()
-
         x_global_scale, w_global_scale, global_scale = get_global_scale(x, w)
+
+        global_scale = torch.stack(global_scale, dim=0).contiguous()
 
         wq, w_scale = zip(
             *[triton_scale_nvfp4_quant(w[i], w_global_scale[i]) for i in range(G)]
         )
         wq = torch.stack(wq, dim=0).contiguous()
         w_scale = torch.stack(w_scale, dim=0).contiguous()
+
+        return x, wq, w_scale, x_global_scale, global_scale, m_sizes
+
+    def quantize(self, x, wq, w_scale, x_global_scale, global_scale, m_sizes):
+        starting_row_after_padding, belong_indices, row_within_tensor = (
+            nvfp4_fused_padding_cumsum_and_segmented_arange(m_sizes, x.shape[0])
+        )
 
         xq, x_scale = triton_nvfp4_quant_stacked(
             x,
@@ -2543,7 +2544,7 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             row_within_tensor,
         )
         x_scale = x_scale.reshape(-1, x.shape[1] // 16)
-        global_scale = torch.stack(global_scale, dim=0).contiguous()
+
         return (
             xq,
             wq,
@@ -2575,9 +2576,11 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
             use_mx=False,
         )
 
-    def quantize_and_compute(self, x, w, m_sizes):
+    def quantize_and_compute(
+        self, x, wq, w_scale, x_global_scale, global_scale, m_sizes
+    ):
         xq, wq, x_scale, w_scale, m_sizes, global_scale, starting_row_after_padding = (
-            self.quantize(x, w, m_sizes)
+            self.quantize(x, wq, w_scale, x_global_scale, global_scale, m_sizes)
         )
         return self.compute(
             xq, wq, x_scale, w_scale, m_sizes, global_scale, starting_row_after_padding

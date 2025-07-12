@@ -195,7 +195,7 @@ static void run_benchmark(
   cout << "time taken by jit code(secs): " << setw(10) << fixed
        << setprecision(6) << t << " | ";
   cout << "bandwidth fbgemm (GB/s) " << setw(10) << fixed << setprecision(6)
-       << data_moved / t / 1e9 << endl;
+       << data_moved / t / 1e9 << '\n';
 }
 
 int main() {

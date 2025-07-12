@@ -36,7 +36,7 @@ static void performance_test() {
   }
 
   cout << setw(8) << "dtype" << setw(4) << "M" << setw(4) << "N"
-       << " B_elements_per_sec" << endl;
+       << " B_elements_per_sec" << '\n';
 
   int dims[] = {1,  2,  3,  4,  5,  6,  8,   9,   10,  15,  16,
                 17, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256};
@@ -55,7 +55,7 @@ static void performance_test() {
       duration *= 1e9; // convert to ns
 
       cout << setw(8) << runType << setw(4) << M << setw(4) << N << setw(10)
-           << setprecision(3) << (M * N) / duration << endl;
+           << setprecision(3) << (M * N) / duration << '\n';
 
       compare_buffers(b_ref.data(), b.data(), M, N, N, 5);
     } // N
