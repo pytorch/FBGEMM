@@ -42,8 +42,8 @@ at::Tensor f8f8bf16_tensorwise_impl(
   // WQ: N x K
   // output: M x N
   int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
-  int N = WQ.size(0);
-  int K = WQ.size(1);
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
   // 1. If the input tensor is {M, K}, the output tensor is {M, N}.
   // 2. If the input tensor is {b, M, K}, the output tensor is {b, M, N}.
   auto out_sizes = XQ.sizes().vec();

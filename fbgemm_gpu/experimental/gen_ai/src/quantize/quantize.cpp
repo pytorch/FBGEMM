@@ -489,9 +489,22 @@ at::Tensor f8f8bf16_blockwise_meta(
     int64_t /* block_m = 128*/,
     int64_t /* block_n = 128*/,
     int64_t /* block_k = 128*/) {
-  const at::SymInt M = XQ.sym_size(0);
-  const at::SymInt N = WQ.sym_size(0);
-  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  int64_t x_dims = XQ.dim();
+  int64_t w_dims = WQ.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of XQ must be 2 or 3, and dim of WQ must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = XQ.sym_size(0);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = XQ.sym_size(0);
+    const at::SymInt M = XQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
@@ -575,13 +588,26 @@ at::Tensor fp8fp8bf16_fast_gemv_meta(
 }
 
 at::Tensor f8f8bf16_tensorwise_meta(
-    at::Tensor X,
-    at::Tensor W,
-    double scale,
-    bool use_fast_accum = true) {
-  const at::SymInt M = X.sym_size(0);
-  const at::SymInt N = W.sym_size(0);
-  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+    at::Tensor XQ,
+    at::Tensor WQ,
+    double /* scale */,
+    bool /* use_fast_accum = true */) {
+  int64_t x_dims = XQ.dim();
+  int64_t w_dims = WQ.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of XQ must be 2 or 3, and dim of WQ must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = XQ.sym_size(0);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = XQ.sym_size(0);
+    const at::SymInt M = XQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
@@ -595,12 +621,25 @@ at::Tensor f8f8bf16_lite_meta(at::Tensor X, at::Tensor W, at::Tensor scale) {
 at::Tensor f8i4bf16_rowwise_meta(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // INT4
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    at::Tensor w_zp) {
-  const at::SymInt M = XQ.sym_size(0);
-  const at::SymInt N = WQ.sym_size(0);
-  auto Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+    at::Tensor /* x_scale */,
+    at::Tensor /* w_scale */,
+    at::Tensor /* w_zp */) {
+  int64_t x_dims = XQ.dim();
+  int64_t w_dims = WQ.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of X must be 2 or 3, and dim of W must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = XQ.sym_size(0);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({M, N}, XQ.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = XQ.sym_size(0);
+    const at::SymInt M = XQ.sym_size(1);
+    const at::SymInt N = WQ.sym_size(0);
+    Y = at::empty_symint({B, M, N}, XQ.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
@@ -632,9 +671,22 @@ at::Tensor bf16i4bf16_rowwise_meta(
     at::Tensor /*  w_scale_group */,
     at::Tensor /* w_zero_group */
 ) {
-  const at::SymInt M = X.sym_size(0);
-  const at::SymInt N = W.sym_size(0);
-  auto Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+  int64_t x_dims = X.dim();
+  int64_t w_dims = W.dim();
+  TORCH_CHECK(
+      (x_dims == 2 || x_dims == 3) && (w_dims == 2),
+      "The dim of XQ must be 2 or 3, and dim of WQ must be 2");
+  at::Tensor Y;
+  if (x_dims == 2) {
+    const at::SymInt M = X.sym_size(0);
+    const at::SymInt N = W.sym_size(0);
+    Y = at::empty_symint({M, N}, X.options().dtype(at::kBFloat16));
+  } else {
+    const at::SymInt B = X.sym_size(0);
+    const at::SymInt M = X.sym_size(1);
+    const at::SymInt N = W.sym_size(0);
+    Y = at::empty_symint({B, M, N}, X.options().dtype(at::kBFloat16));
+  }
   return Y;
 }
 
