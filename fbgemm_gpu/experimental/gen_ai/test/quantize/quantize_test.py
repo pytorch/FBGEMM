@@ -300,7 +300,7 @@ class FP8Tests(unittest.TestCase):
         if torch.version.hip:
             UseFastAccum = True
         # Setup input shapes.
-        if InputMultiDim and not torch.version.hip:
+        if InputMultiDim:
             x = (
                 torch.randn(
                     size=(3, B_T, D),
