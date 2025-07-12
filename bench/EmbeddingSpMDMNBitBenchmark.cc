@@ -110,7 +110,7 @@ static int run_benchmark(
 
   // Compute the number of indices
   int lengths_sum = offsets[batch_size];
-  cout << "lengths_sum " << lengths_sum << endl;
+  cout << "lengths_sum " << lengths_sum << '\n';
 
   // Generate indices
   vector<int64_t> indices;
@@ -371,7 +371,7 @@ static int run_benchmark(
               false &&
               "ERROR: reference impl and JIT impl did not both succeed");
           cout << "asmjit return " << success << " ref return " << success_ref
-               << endl;
+               << '\n';
         } else {
           for (size_t i = 0; i < output.size(); ++i) {
             float tmp1 = 0;
@@ -389,13 +389,13 @@ static int run_benchmark(
               }
             } else {
               assert(false && "ERROR: unsupported output type");
-              cout << "ERROR: unsupported output type" << endl;
+              cout << "ERROR: unsupported output type" << '\n';
             }
 
             assert(fabs(tmp1 - tmp2) < 1e-3);
             if (fabs(tmp1 - tmp2) >= 1e-3) {
               cout << "asmjit vs ref  : " << i << " " << tmp1 << " " << tmp2
-                   << endl;
+                   << '\n';
             }
           }
         }
@@ -407,7 +407,7 @@ static int run_benchmark(
               false &&
               "ERROR: reference impl and autovec impl did not both succeed");
           cout << "autovec return " << success_autovec << " ref return "
-               << success_ref << endl;
+               << success_ref << '\n';
         } else {
           for (size_t i = 0; i < output_autovec.size(); ++i) {
             float tmp1 = 0;
@@ -425,13 +425,13 @@ static int run_benchmark(
               }
             } else {
               assert(false && "ERROR: unsupported output type");
-              cout << "ERROR: unsupported output type" << endl;
+              cout << "ERROR: unsupported output type" << '\n';
             }
 
             assert(fabs(tmp1 - tmp2) < 1e-3);
             if (fabs(tmp1 - tmp2) >= 1e-3) {
               cout << "autovec vs ref: " << i << " " << tmp1 << " " << tmp2
-                   << endl;
+                   << '\n';
             }
           }
         }
@@ -448,7 +448,7 @@ static int run_benchmark(
         }
       } else {
         assert(false && "ERROR: unsupported output type");
-        cout << "ERROR: unsupported output type" << endl;
+        cout << "ERROR: unsupported output type" << '\n';
       }
 
       if (has_weight) {
@@ -485,7 +485,7 @@ static int run_benchmark(
 #ifndef OUT_TYPE_FLOAT16
       cout << ", asmjit speedup, " << t_ref / t;
 #endif
-      cout << endl;
+      cout << '\n';
     } // flush_cache
   } // has_weight
   return 0;
@@ -509,7 +509,7 @@ int main() {
 
       cout << "bit_rate, " << bit_rate << ", batch size, " << batch_size
            << ", num rows, " << num_rows << ", emb dim, " << embedding_dim
-           << ", avg length, " << average_len << endl;
+           << ", avg length, " << average_len << '\n';
       // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
       // prefetch
       cout << "64 bit indices, ";

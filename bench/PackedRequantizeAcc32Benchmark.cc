@@ -93,7 +93,7 @@ static void performance_test() {
        << "Type, " << setw(5) << "GOPs" << endl;
 #else
   cout << setw(8) << "M, " << setw(8) << "N, " << setw(8) << "K, " << setw(22)
-       << "Type, " << setw(5) << "GOPS" << endl;
+       << "Type, " << setw(5) << "GOPS" << '\n';
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> start, end;
@@ -178,7 +178,7 @@ static void performance_test() {
          << ", ";
 #endif
     cout << setw(20) << runType << ", " << setw(5) << fixed << setprecision(1)
-         << nops / ttot << endl;
+         << nops / ttot << '\n';
 #endif
 
     vector<int32_t> row_offsets(m);
@@ -323,8 +323,8 @@ static void performance_test() {
          << total_run_time / (double)NITER / 1e6 << ", ";
 #endif
     cout << setw(20) << runType << ", " << setw(5) << fixed << setprecision(1)
-         << NITER * nops / ttot << endl;
-    cout << endl;
+         << NITER * nops / ttot << '\n';
+    cout << '\n';
 
 #ifdef USE_MKL
     compare_buffers(Cint8_local.data(), Cint8_fb.data(), m, n, n, 5);
