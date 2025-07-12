@@ -177,14 +177,14 @@ static void run_benchmark(
   for (size_t i = 0; i < w.size(); ++i) {
     assert(fabs(w[i] - w_ref[i]) < 1e-5);
     if (fabs(w[i] - w_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%ld %f %f\n", i, w[i], w_ref[i]);
+      fprintf(stderr, "%zu %f %f\n", i, w[i], w_ref[i]);
     }
   }
 
   for (size_t i = 0; i < h.size(); ++i) {
     assert(fabs(h[i] - h_ref[i]) < 1e-5);
     if (fabs(h[i] - h_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%ld %f %f\n", i, h[i], h_ref[i]);
+      fprintf(stderr, "%zu %f %f\n", i, h[i], h_ref[i]);
     }
   }
 

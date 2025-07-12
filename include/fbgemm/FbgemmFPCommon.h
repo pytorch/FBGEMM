@@ -14,6 +14,8 @@
 #include <fbgemm/Types.h>
 #include <fbgemm/Utils.h>
 #include <array>
+#include <cmath>
+#include <memory>
 
 #if defined(FBGEMM_FP16_FALLBACK_TO_REF_KERNEL) || \
     defined(FBGEMM_FP32_FALLBACK_TO_REF_KERNEL)
@@ -161,7 +163,7 @@ void cblas_gemm_compute(
 #endif
 #endif
   GemmParams<T> gp;
-  int i_begin, i_end;
+  int i_begin = 0, i_end = 0;
   i_begin = 0;
   i_end = m;
   for (auto m0 = i_begin; m0 < i_end; m0 += mb_max) {
@@ -169,7 +171,7 @@ void cblas_gemm_compute(
     assert(mb < static_cast<int64_t>(partition.size()));
     for (auto k_ind = 0; k_ind < k; k_ind += Bp.blockRowSize()) {
       // set up proper accumulation to avoid "Nan" problem
-      float beta_;
+      float beta_ = NAN;
       if (k_ind == 0) {
         // accumulate of beta != 0.0
         // do not!!! accumulate otherwise
@@ -231,7 +233,7 @@ void cblas_gemm_compute(
           }
 #endif
           if ((n % Bp.blockColSize()) == 0) {
-            int64_t jb_begin, jb_end;
+            int64_t jb_begin = 0, jb_end = 0;
             fbgemmPartition1D(
                 thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
             gp.B += gp.k * Bp.blockColSize() * jb_begin;
@@ -253,7 +255,7 @@ void cblas_gemm_compute(
           } else {
             int last_blk_col = nbcol * Bp.blockColSize();
             if (nbcol) {
-              int64_t jb_begin, jb_end;
+              int64_t jb_begin = 0, jb_end = 0;
               fbgemmPartition1D(
                   thread_id, num_threads, gp.b_block_cols, jb_begin, jb_end);
               gp.B += gp.k * Bp.blockColSize() * jb_begin;

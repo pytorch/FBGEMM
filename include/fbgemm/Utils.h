@@ -125,12 +125,12 @@ FBGEMM_API void transpose_simd(
 /**
  * @brief Explicitly set instruction set to be used
  */
-FBGEMM_API void fbgemmForceIsa(inst_set_t);
+FBGEMM_API void fbgemmForceIsa(inst_set_t /*isa*/);
 
 /**
  * @brief Enable AVX512-256 path for Intel(r) Xeon(r) D servers
  */
-FBGEMM_API void fbgemmEnableAvx512Ymm(bool);
+FBGEMM_API void fbgemmEnableAvx512Ymm(bool /*flag*/);
 
 /**
  * @brief Are we running on a Xeon-D cpu?
@@ -175,12 +175,12 @@ FBGEMM_API inst_set_t fbgemmInstructionSet();
 /**
  * @brief Is ISA is wide vector ZMM
  */
-FBGEMM_API bool isZmm(inst_set_t);
+FBGEMM_API bool isZmm(inst_set_t /*isa*/);
 
 /**
  * @brief Is ISA is wide vector ZMM
  */
-FBGEMM_API bool isYmm(inst_set_t);
+FBGEMM_API bool isYmm(inst_set_t /*isa*/);
 
 /**
  * @brief Helper struct to enable autotuning of FBGEMM packing and kernels.
@@ -212,7 +212,7 @@ struct FBGEMM_API thread_type_t {
   int n_thread_id;
 
   std::string toString() const {
-    std::string out = "";
+    std::string out;
     out += "g num threads: " + std::to_string(g_num_threads) + ", ";
     out += "m num threads: " + std::to_string(m_num_threads) + ", ";
     out += "n num threads: " + std::to_string(n_num_threads) + ", ";

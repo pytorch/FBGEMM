@@ -17,7 +17,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <numeric>
@@ -1456,7 +1455,7 @@ bool EmbeddingSpMDMNBit_ref(
     // We currently only support int4 to int4 for sequential TBE in this nbit
     // kernel. Note that assert() will be ignored in release mode, so we check
     // here to double check and also avoid "unused variable" warning
-    if (!(input_bit_rate == 4 && output_bit_rate == 4)) {
+    if (input_bit_rate != 4 || output_bit_rate != 4) {
       WARN_ONCE("no_bag is only supported for int4 to int4");
       return false;
     }

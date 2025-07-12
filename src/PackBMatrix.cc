@@ -368,18 +368,18 @@ void PackBMatrix<T, accT>::unpack(
 }
 
 template <typename T, typename accT>
-int32_t PackBMatrix<T, accT>::addr(int32_t r, int32_t c) const {
-  int32_t block_row_id = r / BaseType::blockRowSize();
+int32_t PackBMatrix<T, accT>::addr(int32_t i, int32_t j) const {
+  int32_t block_row_id = i / BaseType::blockRowSize();
   int32_t brow_offset = (block_row_id * BaseType::blockCols()) *
       (BaseType::blockRowSize() * BaseType::blockColSize());
 
-  int32_t block_col_id = c / BaseType::blockColSize();
+  int32_t block_col_id = j / BaseType::blockColSize();
   int32_t bcol_offset =
       block_col_id * BaseType::blockRowSize() * BaseType::blockColSize();
   int32_t block_offset = brow_offset + bcol_offset;
-  int32_t inblock_offset = (r % BaseType::blockRowSize() / row_interleave_) *
+  int32_t inblock_offset = (i % BaseType::blockRowSize() / row_interleave_) *
           BaseType::blockColSize() * row_interleave_ +
-      (c % BaseType::blockColSize()) * row_interleave_ + r % row_interleave_;
+      (j % BaseType::blockColSize()) * row_interleave_ + i % row_interleave_;
 
   int32_t index = block_offset + inblock_offset;
 

@@ -230,7 +230,7 @@ static ALWAYS_INLINE void requantize_(
 
     // convert to float
     __m256 xf_v, yf_v, zf_v, wf_v;
-    if (HAS_BIAS) { // static if
+    if constexpr (HAS_BIAS) { // static if
       if constexpr (std::is_same_v<BIAS_TYPE, float>) {
         __m256 x_bias_v, y_bias_v, z_bias_v, w_bias_v;
         if constexpr (
@@ -441,7 +441,7 @@ static ALWAYS_INLINE void requantize_(
 
     // Convert to float
     __m256 xf_v;
-    if (HAS_BIAS) { // static if
+    if constexpr (HAS_BIAS) { // static if
       if constexpr (std::is_same_v<BIAS_TYPE, float>) {
         __m256 x_bias_v;
         if constexpr (

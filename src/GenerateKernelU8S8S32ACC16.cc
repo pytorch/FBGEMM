@@ -103,15 +103,14 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     bool accum,
     int32_t mc,
     int32_t nc,
-    int32_t kc) {
-  (void)kc; // Suppress unused variable warning
+    int32_t kc [[maybe_unused]]) {
   constexpr int vectorLen = simd_info<inst_set_t::avx2>::WIDTH_BYTES;
 
   int kBlock = 0;
   int nBlock = 0;
   int mRegBlockSize = 0;
   int nRegBlockSize = 0;
-  int nRegBlockSizeMin = 0;
+  int nRegBlockSizeMin [[maybe_unused]] = 0;
   int row_interleave = 0;
 
   if (blocking_params) {
@@ -131,7 +130,6 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     row_interleave =
         PackingTraits<uint8_t, int16_t, inst_set_t::avx2>::ROW_INTERLEAVE;
   }
-  (void)nRegBlockSizeMin; // Suppress unused variable warning
 
   auto kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
@@ -158,10 +156,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate<inst_set_t::avx2>(
     assert(
         kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
     assert(nc % nRegBlockSizeMin == 0 && "nc must be a multiple of NR_MIN");
-    const int maxMRegs = mRegBlockSize;
-    const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
-    (void)maxMRegs; // Suppress unused variable warning
-    (void)maxNRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
+    const int maxNRegs [[maybe_unused]] = nRegBlockSize * row_interleave / vectorLen;
     assert(
         maxMRegs * maxNRegs <= 13 &&
         "MR*(NR*ROW_INTERLEAVE*8/256"

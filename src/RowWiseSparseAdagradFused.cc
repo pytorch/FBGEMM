@@ -774,8 +774,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
 // Per-thread global buffer for random number generating, with max vector size
 constexpr size_t VLEN_MAX = simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS;
-alignas(64) static thread_local uint32_t g_rnd128v_buffer[4 * VLEN_MAX];
-static thread_local bool g_rnd128v_initialized = false;
+alignas(64) thread_local uint32_t g_rnd128v_buffer[4 * VLEN_MAX];
+thread_local bool g_rnd128v_initialized = false;
 
 void rand_initialize() {
   // Splitmix64: http://prng.di.unimi.it/splitmix64.c

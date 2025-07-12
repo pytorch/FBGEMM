@@ -13,10 +13,6 @@
 
 #include <cpuinfo.h>
 #include <cassert>
-#include <cstdlib>
-#include <memory>
-#include <stdexcept>
-#include <vector>
 
 #include "./FbgemmPackMatrixB.h" // @manual
 #include "./FloatConversion.h" // @manual
