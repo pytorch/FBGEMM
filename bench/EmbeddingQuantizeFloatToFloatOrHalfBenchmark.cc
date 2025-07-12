@@ -30,12 +30,12 @@ static void performance_test() {
   constexpr int NITER = 256;
 
   if constexpr (is_same_v<T, float16>) {
-    cout << "With result as float16" << endl;
+    cout << "With result as float16" << '\n';
   } else {
-    cout << "With result as float" << endl;
+    cout << "With result as float" << '\n';
   }
   cout << setw(6) << "rows" << "," << setw(6) << "cols" << "," << setw(16)
-       << "elems_per_usec" << "," << setw(10) << "GB/Sec" << endl;
+       << "elems_per_usec" << "," << setw(10) << "GB/Sec" << '\n';
 
   for (int rowSize : {100, 120, 1000}) {
     for (int colSize : {16, 64, 128, 256, 512, 1024, 2048}) {
@@ -79,7 +79,7 @@ static void performance_test() {
       cout << setw(16) << std::fixed << std::setprecision(2)
            << elements_per_usec << ", ";
       cout << setw(10) << std::fixed << std::setprecision(2) << gigabyes_per_sec
-           << endl;
+           << '\n';
     } // for each cols
   } // for each rows
 } // performance_test

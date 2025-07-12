@@ -285,7 +285,7 @@ static void performance_test(
        << "Postprocessing (ms), " << "fbgemmPacked (ms), " << "Total (ms), "
        << "GOPS" << endl;
 #else
-  cout << setw(6) << header << setw(5) << "GOPS" << endl;
+  cout << setw(6) << header << setw(5) << "GOPS" << '\n';
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
@@ -493,7 +493,7 @@ static void performance_test(
          << total_run_time / (double)NITER / 1e6 << ", "
          << ttot / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setprecision(2) << nops / ttot << endl;
+    cout << setprecision(2) << nops / ttot << '\n';
 
     compare_buffers(
         Cint8_ref.data(),

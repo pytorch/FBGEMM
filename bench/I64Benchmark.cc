@@ -31,7 +31,7 @@ int main() {
     const int m = s[0];
     const int n = s[1];
     const int k = s[2];
-    cout << "m " << m << " n " << n << " k " << k << endl;
+    cout << "m " << m << " n " << n << " k " << k << '\n';
 
     aligned_vector<int64_t> A(m * k);
     aligned_vector<int64_t> B(k * n);
@@ -80,7 +80,7 @@ int main() {
         [&]() { llc_flush(llc); });
 
     const double ops = 2.0 * m * n * k;
-    cout << "Gops/s = " << ops / ttot / 1e9 << endl;
+    cout << "Gops/s = " << ops / ttot / 1e9 << '\n';
     compare_buffers(C_ref.data(), C.data(), m, n, n, 5);
 
     cblas_gemm_i64_i64acc_ref(
@@ -132,7 +132,7 @@ int main() {
         NITER,
         [&]() { llc_flush(llc); });
 
-    cout << "Gops/s = " << ops / ttot / 1e9 << endl;
+    cout << "Gops/s = " << ops / ttot / 1e9 << '\n';
     compare_buffers(C_ref.data(), C_acc.data(), m, n, n, 5);
   }
 }

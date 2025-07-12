@@ -29,7 +29,7 @@ static void performance_test() {
   default_random_engine engine;
 
   cout << setw(4) << "M" << " elements_per_ns_ref" << " elements_per_ns_simd"
-       << endl;
+       << '\n';
 
   array<int, 8> dims{1, 10, 32, 40, 129, 256, 1024, 8000};
 
@@ -59,7 +59,7 @@ static void performance_test() {
     duration_simd *= 1e9; // convert to ns
 
     cout << setw(4) << M << setw(10) << setprecision(3) << M / duration_ref
-         << setw(10) << setprecision(3) << M / duration_simd << endl;
+         << setw(10) << setprecision(3) << M / duration_simd << '\n';
 
     compare_buffers(b_ref.data(), b.data(), M, 1, 1, 5);
   } // M

@@ -34,7 +34,7 @@ static void performance_test() {
   constexpr int NITER = 256;
 
   cout << setw(4) << "len" << ", " << setw(10) << "Type"
-       << ", B_elements_per_sec" << endl;
+       << ", B_elements_per_sec" << '\n';
 
   for (int len : {1,  2,  3,  4,  5,  7,  8,   9,   15,  16,  17,
                   31, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256}) {
@@ -132,7 +132,7 @@ static void performance_test() {
           cout << setw(10) << "per_channel";
           break;
       }
-      cout << ", " << setw(10) << setprecision(3) << len / duration << endl;
+      cout << ", " << setw(10) << setprecision(3) << len / duration << '\n';
     } // for each bench_type
   } // for each length
 } // performance_test

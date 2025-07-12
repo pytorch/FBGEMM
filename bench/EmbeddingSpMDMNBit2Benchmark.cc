@@ -142,7 +142,7 @@ static void print_benchmark_results() {
       << "asmjit b/w (GB/s), asmjit effective b/w (GB/s), asmjit time, "
       << "autovec b/w (GB/s), autovec effective b/w (GB/s), autovec time, "
       << "ref b/w (GB/s), ref effective b/w (GB/s), ref time, "
-      << "asmjit speedup ratio, autovec speedup ratio" << endl;
+      << "asmjit speedup ratio, autovec speedup ratio" << '\n';
   for (auto& benchmark : benchmarks) {
     BenchmarkSpec& spec = benchmark.first;
     BenchmarkResult& res = benchmark.second;
@@ -157,7 +157,7 @@ static void print_benchmark_results() {
               << res.asmjit_time << ", " << res.autovec_bw << ", "
               << res.autovec_eff_bw << ", " << res.autovec_time << ", "
               << res.ref_bw << ", " << res.ref_eff_bw << ", " << res.ref_time
-              << ", " << asmjit_speedup << ", " << autovec_speedup << endl;
+              << ", " << asmjit_speedup << ", " << autovec_speedup << '\n';
   }
 }
 
@@ -456,7 +456,7 @@ static int run_benchmark(
         find_benchmark_record(spec).set_asmjit_result(
             bytes / 1e9 / t, bytes_padded / 1e9 / t, t);
       } else {
-        std::cerr << "Bad kern_type parameter: " << kern_type << endl;
+        std::cerr << "Bad kern_type parameter: " << kern_type << '\n';
         assert(false);
       }
       if (!success) {

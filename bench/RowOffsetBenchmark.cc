@@ -26,7 +26,7 @@ static void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
-  cout << setw(4) << "len" << ", B_elements_per_sec" << endl;
+  cout << setw(4) << "len" << ", B_elements_per_sec" << '\n';
 
   for (int len : {1,  2,  3,  4,  5,  7,  8,   9,   15,  16,  17,
                   31, 32, 33, 63, 64, 65, 127, 128, 129, 255, 256}) {
@@ -37,7 +37,7 @@ static void performance_test() {
     duration *= 1e9; // convert to ns
 
     cout << setw(4) << len << ", " << setw(10) << setprecision(3)
-         << len / duration << endl;
+         << len / duration << '\n';
   } // for each length
 } // performance_test
 
