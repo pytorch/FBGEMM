@@ -15,8 +15,6 @@
 #include <tuple>
 #include <type_traits>
 #include "./CodeGenHelpers.h" // @manual
-#include "./RefImplementations.h" // @manual
-#include "./TransposeUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/SimdUtils.h"

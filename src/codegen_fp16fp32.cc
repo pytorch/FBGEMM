@@ -15,12 +15,9 @@
 #include <cpuid.h>
 #include <stdlib.h>
 #include <string.h>
-#include <algorithm>
 #include <array>
 #include <fstream>
-#include <functional>
 #include <iostream>
-#include <map>
 #include <string>
 #include <unordered_set>
 #include <vector>
