@@ -144,7 +144,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
+        asmjit::FuncSignature::build<
             void,
             uint8_t*,
             int8_t*,

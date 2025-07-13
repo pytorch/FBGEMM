@@ -217,7 +217,7 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
   scratchReg2_ = a->gpz(13);
 
   func_.init(
-      asmjit::FuncSignatureT<
+      asmjit::FuncSignature::build<
           void,
           uint8_t*,
           int8_t*,

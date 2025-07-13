@@ -179,7 +179,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
+        asmjit::FuncSignature::build<
             void,
             int64_t*,
             int64_t*,
