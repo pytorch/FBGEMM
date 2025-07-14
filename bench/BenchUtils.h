@@ -9,6 +9,7 @@
 #pragma once
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <vector>
 
 #if defined(__x86_64__) || defined(__i386__) || \
