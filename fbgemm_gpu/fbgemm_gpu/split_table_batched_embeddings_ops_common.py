@@ -95,6 +95,7 @@ class EvictionPolicy(NamedTuple):
         # wait at least # seconds before trigger next round of eviction, if last finished eviction is sufficient
         60
     )
+    meta_header_lens: Optional[List[int]] = None  # metaheader length for each table
 
     def validate(self) -> None:
         assert self.eviction_trigger_mode in [0, 1, 2, 3], (
@@ -171,15 +172,20 @@ class KVZCHParams(NamedTuple):
     bucket_sizes: List[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
-    eviction_policy: Optional[EvictionPolicy] = None
+    # when enabled, backend will return whole row(metaheader + weight + optimizer) instead of weight only
+    # can only be enabled when enable_optimizer_offloading is enabled
+    backend_return_whole_row: bool = False
+    eviction_policy: EvictionPolicy = EvictionPolicy()
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
             "bucket_offsets and bucket_sizes must have the same length, "
             f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
         )
-        if self.eviction_policy is not None:
-            self.eviction_policy.validate()
+        self.eviction_policy.validate()
+        assert (
+            not self.backend_return_whole_row or self.enable_optimizer_offloading
+        ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
 
 
 class BackendType(enum.IntEnum):
