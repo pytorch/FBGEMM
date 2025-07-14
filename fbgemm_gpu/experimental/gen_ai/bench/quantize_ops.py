@@ -15,6 +15,7 @@ import torch
 import triton  # @manual=//triton:triton
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
+    fused_single_block_cumsum_and_segmented_arange,
     nvfp4_fused_padding_cumsum_and_segmented_arange,
     triton_nvfp4_quant_stacked,
     triton_quantize_mx4_unpack,
@@ -2533,7 +2534,7 @@ class NVFP4StackedGroupedGemm(QuantizeOpBase):
 
     def quantize(self, x, wq, w_scale, x_global_scale, global_scale, m_sizes):
         starting_row_after_padding, belong_indices, row_within_tensor = (
-            nvfp4_fused_padding_cumsum_and_segmented_arange(m_sizes, x.shape[0])
+            fused_single_block_cumsum_and_segmented_arange(m_sizes, x.shape[0])
         )
 
         xq, x_scale = triton_nvfp4_quant_stacked(
