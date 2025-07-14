@@ -190,15 +190,27 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.kv_zch_params = kv_zch_params
         self.backend_type = backend_type
         self.enable_optimizer_offloading: bool = False
+        self.backend_return_whole_row: bool = False
         if self.kv_zch_params:
             self.kv_zch_params.validate()
             self.enable_optimizer_offloading = (
                 # pyre-ignore [16]
                 self.kv_zch_params.enable_optimizer_offloading
             )
+            self.backend_return_whole_row = (
+                # pyre-ignore [16]
+                self.kv_zch_params.backend_return_whole_row
+            )
 
             if self.enable_optimizer_offloading:
                 logging.info("Optimizer state offloading is enabled")
+            if self.backend_return_whole_row:
+                assert (
+                    self.backend_type == BackendType.DRAM
+                ), f"Only DRAM backend supports backend_return_whole_row, but got {self.backend_type}"
+                logging.info(
+                    "Backend will return whole row including metaheader, weight and optimizer for checkpoint"
+                )
 
         self.pooling_mode = pooling_mode
         self.bounds_check_mode_int: int = bounds_check_mode.value
@@ -625,13 +637,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             logging.info(
                 f"Logging DRAM offloading setup, tbe_unique_id:{tbe_unique_id}, l2_cache_size:{l2_cache_size}GB,"
                 f"num_shards={ssd_rocksdb_shards},num_threads={ssd_rocksdb_shards},"
-                f"max_D={self.max_D}"
+                f"max_D={self.max_D},"
                 f"uniform_init_lower={ssd_uniform_init_lower},uniform_init_upper={ssd_uniform_init_upper},"
                 f"row_storage_bitwidth={weights_precision.bit_rate()},"
                 f"self.cache_row_dim={self.cache_row_dim},"
                 f"enable_optimizer_offloading={self.enable_optimizer_offloading},"
                 f"feature_dims={self.feature_dims},"
-                f"hash_size_cumsum={self.hash_size_cumsum}"
+                f"hash_size_cumsum={self.hash_size_cumsum},"
+                f"backend_return_whole_row={self.backend_return_whole_row}"
             )
             table_dims = (
                 tensor_pad4(self.table_dims)
@@ -672,6 +685,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if self.enable_optimizer_offloading
                     else None
                 ),  # hash_size_cumsum
+                self.backend_return_whole_row,  # backend_return_whole_row
             )
         else:
             raise AssertionError(f"Invalid backend type {self.backend_type}")
@@ -2282,16 +2296,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             # pyre-ignore
             bucket_size = self.kv_zch_params.bucket_sizes[t]
             row_offset = table_offset
-            if sorted_id_tensor is None or sorted_id_tensor[t].numel() == 0:
+            if not self.backend_return_whole_row and (
+                sorted_id_tensor is None or sorted_id_tensor[t].numel() == 0
+            ):
                 opt_list.append(
                     torch.empty(0, dtype=self.optimizer.dtype(), device="cpu")
                     # empty optimizer state for module initialization
+                    # which will NOT be used for cp loading
                 )
             else:
                 if not self.enable_optimizer_offloading:
                     # convert global id back to local id, then linearize with table offset
                     local_id_tensor = (
-                        sorted_id_tensor[t]
+                        sorted_id_tensor[t]  # pyre-ignore[16]
                         - bucket_id_start * bucket_size
                         + table_offset
                     )
@@ -2300,27 +2317,79 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     )
                 else:
                     row_offset = table_offset - (bucket_id_start * bucket_size)
-                    # using KVTensorWrapper to query backend to avoid OOM memory, since
-                    # backend will return both weight and optimizer in one tensor, read the whole tensor
-                    # out could OOM CPU memory.
-                    tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                        shape=[emb_height, optimizer_dim],
-                        dtype=dtype,
-                        row_offset=row_offset,
-                        snapshot_handle=snapshot_handle,
-                        sorted_indices=sorted_id_tensor[t],
-                        width_offset=pad4(emb_dim),
-                    )
-                    (
-                        tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
-                        if self.backend_type == BackendType.SSD
-                        else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
-                    )
-                    opt_list.append(
-                        self.get_offloaded_optimizer_states(
-                            tensor_wrapper, sorted_id_tensor[t].numel()
+                    if self.backend_return_whole_row:
+                        # When backend returns whole row, the optimizer will be returned as PMT directly
+                        if (
+                            sorted_id_tensor[t].size(0) == 0
+                            and self.local_weight_counts[t] > 0
+                        ):
+                            logging.info(
+                                f"before opt PMT loading, resetting id tensor with {self.local_weight_counts[t]}"
+                            )
+                            # pyre-ignore [16]
+                            sorted_id_tensor[t] = torch.zeros(
+                                (self.local_weight_counts[t], 1),
+                                device=torch.device("cpu"),
+                                dtype=torch.int64,
+                            )
+
+                        metaheader_dim = (
+                            # pyre-ignore[16]
+                            self.kv_zch_params.eviction_policy.meta_header_lens[t]
                         )
-                    )
+                        tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                            shape=[
+                                (
+                                    sorted_id_tensor[t].size(0)
+                                    if sorted_id_tensor is not None
+                                    and sorted_id_tensor[t].size(0) > 0
+                                    else emb_height
+                                ),
+                                optimizer_dim,
+                            ],
+                            dtype=dtype,
+                            row_offset=row_offset,
+                            snapshot_handle=snapshot_handle,
+                            sorted_indices=sorted_id_tensor[t],
+                            width_offset=(
+                                metaheader_dim  # metaheader is already padded so no need for pad4
+                                + pad4(emb_dim)
+                            ),
+                            read_only=True,  # optimizer written to DB with weights, so skip write here
+                        )
+                        (
+                            tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
+                            if self.backend_type == BackendType.SSD
+                            else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
+                        )
+                        opt_list.append(
+                            PartiallyMaterializedTensor(
+                                tensor_wrapper,
+                                True if self.kv_zch_params else False,
+                            )
+                        )
+                    else:
+                        # using KVTensorWrapper to query backend to avoid OOM memory, since
+                        # backend will return both weight and optimizer in one tensor, read the whole tensor
+                        # out could OOM CPU memory.
+                        tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                            shape=[emb_height, optimizer_dim],
+                            dtype=dtype,
+                            row_offset=row_offset,
+                            snapshot_handle=snapshot_handle,
+                            sorted_indices=sorted_id_tensor[t],
+                            width_offset=pad4(emb_dim),
+                        )
+                        (
+                            tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
+                            if self.backend_type == BackendType.SSD
+                            else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
+                        )
+                        opt_list.append(
+                            self.get_offloaded_optimizer_states(
+                                tensor_wrapper, sorted_id_tensor[t].numel()
+                            )
+                        )
             table_offset += emb_height
         logging.info(
             f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
@@ -2515,10 +2584,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             bucket_ascending_id_tensor = None
             bucket_t = None
             row_offset = table_offset
+            metaheader_dim = 0
             if self.kv_zch_params:
                 bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[i]
                 # pyre-ignore
                 bucket_size = self.kv_zch_params.bucket_sizes[i]
+                metaheader_dim = (
+                    # pyre-ignore[16]
+                    self.kv_zch_params.eviction_policy.meta_header_lens[i]
+                )
 
                 # linearize with table offset
                 table_input_id_start = table_offset
@@ -2548,7 +2622,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     and self.local_weight_counts[i] > 0
                 ):
                     logging.info(
-                        f"resetting bucket id tensor with {self.local_weight_counts[i]}"
+                        f"before weight PMT loading, resetting id tensor with {self.local_weight_counts[i]}"
                     )
                     bucket_ascending_id_tensor = torch.zeros(
                         (self.local_weight_counts[i], 1),
@@ -2574,7 +2648,19 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         if bucket_ascending_id_tensor is not None
                         else emb_height
                     ),
-                    emb_dim,
+                    (
+                        (
+                            metaheader_dim  # metaheader is already padded
+                            + pad4(emb_dim)
+                            + pad4(
+                                self.optimizer.state_size_dim(
+                                    self.weights_precision.as_dtype()
+                                )
+                            )
+                        )
+                        if self.backend_return_whole_row
+                        else emb_dim
+                    ),
                 ],
                 dtype=dtype,
                 row_offset=row_offset,
@@ -2611,6 +2697,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     @torch.jit.ignore
     def apply_state_dict(self) -> None:
+        if self.backend_return_whole_row:
+            logging.info(
+                "backend_return_whole_row is enabled, no need to apply_state_dict"
+            )
+            return
         # After checkpoint loading, the _cached_kvzch_data will be loaded from checkpoint.
         # Caller should call this function to apply the cached states to backend.
         if self.load_state_dict is False:
@@ -2729,6 +2820,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
     @torch.jit.ignore
     def enable_load_state_dict_mode(self) -> None:
+        if self.backend_return_whole_row:
+            logging.info(
+                "backend_return_whole_row is enabled, no need to enable load_state_dict mode"
+            )
+            return
         # Enable load state dict mode before loading checkpoint
         if self.load_state_dict:
             return
