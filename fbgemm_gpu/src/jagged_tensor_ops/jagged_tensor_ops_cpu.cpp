@@ -18,6 +18,7 @@
 #include "fbgemm_gpu/utils/binary_search_range.h"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
 #include "fbgemm_gpu/utils/ops_utils.h"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/utils/tensor_utils.h"
 
 namespace fbgemm_gpu {
@@ -689,10 +690,10 @@ jagged_dense_elementwise_add_jagged_output_cpu(
 
 template <typename index_t, typename scalar_t>
 void dense_vec_jagged_2d_bmm(
-    const at::TensorAccessor<scalar_t, 2>& v,
-    const at::TensorAccessor<scalar_t, 2>& a_values,
-    const at::TensorAccessor<index_t, 1>& a_offsets,
-    at::TensorAccessor<scalar_t, 2> output) {
+    const pta::TensorAccessor<scalar_t, 2>& v,
+    const pta::TensorAccessor<scalar_t, 2>& a_values,
+    const pta::TensorAccessor<index_t, 1>& a_offsets,
+    pta::TensorAccessor<scalar_t, 2> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = v.size(1);
@@ -726,10 +727,10 @@ void dense_vec_jagged_2d_bmm(
 
 template <typename index_t, typename scalar_t>
 void dense_vec_jagged_2d_transposed_bmm(
-    const at::TensorAccessor<scalar_t, 2>& v,
-    const at::TensorAccessor<scalar_t, 2>& a_values,
-    const at::TensorAccessor<index_t, 1>& a_offsets,
-    at::TensorAccessor<scalar_t, 2> output) {
+    const pta::TensorAccessor<scalar_t, 2>& v,
+    const pta::TensorAccessor<scalar_t, 2>& a_values,
+    const pta::TensorAccessor<index_t, 1>& a_offsets,
+    pta::TensorAccessor<scalar_t, 2> output) {
   const int B = a_offsets.size(0) - 1;
   const int H = v.size(0) / B;
   const int max_L = output.size(1);
@@ -766,10 +767,10 @@ void dense_vec_jagged_2d_transposed_bmm(
 
 template <typename index_t, typename scalar_t>
 void outer_prod_jagged_2d_output(
-    const at::TensorAccessor<scalar_t, 2>& x,
-    const at::TensorAccessor<scalar_t, 2>& y,
-    const at::TensorAccessor<index_t, 1>& offsets,
-    at::TensorAccessor<scalar_t, 2> output_values) {
+    const pta::TensorAccessor<scalar_t, 2>& x,
+    const pta::TensorAccessor<scalar_t, 2>& y,
+    const pta::TensorAccessor<index_t, 1>& offsets,
+    pta::TensorAccessor<scalar_t, 2> output_values) {
   const int B = offsets.size(0) - 1;
   const int H = x.size(0) / B;
   const int max_L = x.size(1);
@@ -809,15 +810,17 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
   auto output = at::empty({B * H, D}, v.options());
 
   if (B > 0 && D > 0) {
+    const auto func_name = "batched_dense_vec_jagged_2d_mul_forward";
+
     AT_DISPATCH_INDEX_TYPES(
         a_offsets.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_1", [&] {
           FBGEMM_DISPATCH_FLOATING_TYPES(
               a_values.scalar_type(), "dense_vec_jagged_2d_bmm_kernel_2", [&] {
                 dense_vec_jagged_2d_bmm<index_t, scalar_t>(
-                    v.accessor<scalar_t, 2>(),
-                    a_values.accessor<scalar_t, 2>(),
-                    a_offsets.accessor<index_t, 1>(),
-                    output.accessor<scalar_t, 2>());
+                    TA_B(v, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_values, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_offsets, index_t, 1, 64).build(func_name),
+                    TA_B(output, scalar_t, 2, 64).build(func_name));
               });
         });
   }
@@ -838,6 +841,7 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
   const int D = grad_output.size(-1);
 
   if (B > 0 && D > 0) {
+    const auto func_name = "batched_dense_vec_jagged_2d_mul_backward";
     AT_DISPATCH_INDEX_TYPES(
         a_offsets.scalar_type(),
         "dense_vec_jagged_2d_bmm_backward_kernel_1",
@@ -847,16 +851,16 @@ std::tuple<Tensor, Tensor> batched_dense_vec_jagged_2d_mul_backward(
               "dense_vec_jagged_2d_bmm_backward_kernel_2",
               [&] {
                 dense_vec_jagged_2d_transposed_bmm<index_t, scalar_t>(
-                    grad_output.accessor<scalar_t, 2>(),
-                    a_values.accessor<scalar_t, 2>(),
-                    a_offsets.accessor<index_t, 1>(),
-                    v_grad.accessor<scalar_t, 2>());
+                    TA_B(grad_output, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_values, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_offsets, index_t, 1, 64).build(func_name),
+                    TA_B(v_grad, scalar_t, 2, 64).build(func_name));
 
                 outer_prod_jagged_2d_output<index_t, scalar_t>(
-                    v.accessor<scalar_t, 2>(),
-                    grad_output.accessor<scalar_t, 2>(),
-                    a_offsets.accessor<index_t, 1>(),
-                    a_values_grad.accessor<scalar_t, 2>());
+                    TA_B(v, scalar_t, 2, 64).build(func_name),
+                    TA_B(grad_output, scalar_t, 2, 64).build(func_name),
+                    TA_B(a_offsets, index_t, 1, 64).build(func_name),
+                    TA_B(a_values_grad, scalar_t, 2, 64).build(func_name));
               });
         });
   } else {
