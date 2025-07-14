@@ -2678,7 +2678,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     @given(**default_st)
     @settings(verbosity=Verbosity.verbose, max_examples=MAX_EXAMPLES, deadline=None)
-    def test_ssd_fetch_from_l1_sp_w_row_ids(
+    def test_ssd_fetch_from_l1_sp_w_row_ids_weight(
         self,
         T: int,
         D: int,
@@ -2928,7 +2928,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             indices.numel(),
             1,
             device=emb.current_device,
-            dtype=emb.optimizer.dtype(),
+            # NOTE: This is a hack to keep fetch_from_l1_sp_w_row_ids unit test
+            # working until it is upgraded to support optimizers with multiple
+            # states and dtypes
+            dtype=torch.float32,
         )
         linearized_indices = []
         for f, idxes in enumerate(indices_list):
@@ -3034,7 +3037,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
             torch.testing.assert_close(
                 split_optimizer_states[t][indices].float(),
-                opt_states_per_tb.cpu(),
+                opt_states_per_tb.cpu().float(),
                 atol=tolerance,
                 rtol=tolerance,
             )

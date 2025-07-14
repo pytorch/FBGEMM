@@ -12,6 +12,7 @@ import contextlib
 import functools
 import itertools
 import logging
+import math
 import os
 import tempfile
 import threading
@@ -172,6 +173,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         res_params: Optional[RESParams] = None,  # raw embedding streaming sharding info
         flushing_block_size: int = 2_000_000_000,  # 2GB
         table_names: Optional[List[str]] = None,
+        optimizer_state_dtypes: Dict[str, SparseType] = {},  # noqa: B006
     ) -> None:
         super(SSDTableBatchedEmbeddingBags, self).__init__()
 
@@ -185,6 +187,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert weights_precision in (SparseType.FP32, SparseType.FP16)
         self.weights_precision = weights_precision
         self.output_dtype: int = output_dtype.as_int()
+        self.optimizer_state_dtypes: Dict[str, SparseType] = optimizer_state_dtypes
 
         # Zero collision TBE configurations
         self.kv_zch_params = kv_zch_params
@@ -987,12 +990,23 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         """
         if self.enable_optimizer_offloading:
             return self.max_D + pad4(
-                # Compute the number of elements of cache_dtype needed to store the
-                # optimizer state
-                self.optimizer.state_size_dim(self.weights_precision.as_dtype())
+                # Compute the number of elements of cache_dtype needed to store
+                # the optimizer state
+                self.optimizer_state_dim
             )
         else:
             return self.max_D
+
+    @cached_property
+    def optimizer_state_dim(self) -> int:
+        return int(
+            math.ceil(
+                self.optimizer.state_size_nbytes(
+                    self.max_D, self.optimizer_state_dtypes
+                )
+                / self.weights_precision.as_dtype().itemsize
+            )
+        )
 
     @property
     # pyre-ignore
@@ -2285,9 +2299,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         table_offset = 0
 
         dtype = self.weights_precision.as_dtype()
-        optimizer_dim = self.optimizer.state_size_dim(dtype)
         logging.info(
-            f"split_optimizer_states: {optimizer_dim=}, {self.optimizer.dtype()=} {self.enable_load_state_dict_mode=}"
+            f"split_optimizer_states: {self.optimizer_state_dim=}, {self.optimizer.dtype()=} {self.enable_load_state_dict_mode=}"
         )
 
         for t, (emb_height, emb_dim) in enumerate(self.embedding_specs):
@@ -2345,7 +2358,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                                     and sorted_id_tensor[t].size(0) > 0
                                     else emb_height
                                 ),
-                                optimizer_dim,
+                                self.optimizer_state_dim,
                             ],
                             dtype=dtype,
                             row_offset=row_offset,
@@ -2373,7 +2386,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         # backend will return both weight and optimizer in one tensor, read the whole tensor
                         # out could OOM CPU memory.
                         tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                            shape=[emb_height, optimizer_dim],
+                            shape=[emb_height, self.optimizer_state_dim],
                             dtype=dtype,
                             row_offset=row_offset,
                             snapshot_handle=snapshot_handle,
@@ -2652,11 +2665,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         (
                             metaheader_dim  # metaheader is already padded
                             + pad4(emb_dim)
-                            + pad4(
-                                self.optimizer.state_size_dim(
-                                    self.weights_precision.as_dtype()
-                                )
-                            )
+                            + pad4(self.optimizer_state_dim)
                         )
                         if self.backend_return_whole_row
                         else emb_dim
@@ -2802,8 +2811,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # TODO: make chunk_size configurable or dynamic
         chunk_size = 10000
         row = weight_state.size(0)
-        optimizer_dim = self.optimizer.state_size_dim(dtype)
-        opt_state_2d = opt_state.view(dtype).view(-1, optimizer_dim)
+        opt_state_2d = opt_state.view(dtype).view(-1, self.optimizer_state_dim)
         for i in range(0, row, chunk_size):
             length = min(chunk_size, row - i)
             chunk_buffer = torch.empty(
@@ -2813,9 +2821,9 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 device="cpu",
             )
             chunk_buffer[:, : weight_state.size(1)] = weight_state[i : i + length, :]
-            chunk_buffer[:, D_rounded : D_rounded + optimizer_dim] = opt_state_2d[
-                i : i + length, :
-            ]
+            chunk_buffer[:, D_rounded : D_rounded + self.optimizer_state_dim] = (
+                opt_state_2d[i : i + length, :]
+            )
             kvt.set_weights_and_ids(chunk_buffer, id_tensor[i : i + length, :].view(-1))
 
     @torch.jit.ignore
@@ -3454,20 +3462,35 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         Fetch the optimizer states and/or weights from L1 and SP for given linearized row_ids.
         @return: updated_weights/optimizer_states, mask of which rows are filled
         """
+        if not self.enable_optimizer_offloading and only_get_optimizer_states:
+            raise RuntimeError(
+                "Optimizer states are not offloaded, while only_get_optimizer_states is True"
+            )
+
+        # NOTE: Remove this once there is support for fetching multiple
+        # optimizer states in fetch_from_l1_sp_w_row_ids
+        if self.optimizer != OptimType.EXACT_ROWWISE_ADAGRAD:
+            raise RuntimeError(
+                "Only rowwise adagrad is supported in fetch_from_l1_sp_w_row_ids at the moment"
+            )
+
         with torch.no_grad():
             weights_dtype = self.weights_precision.as_dtype()
             step = self.step
-            if not self.enable_optimizer_offloading and only_get_optimizer_states:
-                raise RuntimeError(
-                    "Optimizer states are not offloaded, while only_get_optimizer_states is True"
-                )
+
             if only_get_optimizer_states:
                 start_pos = pad4(self.max_D)
-                row_dim = self.optimizer.state_size_dim(weights_dtype)
-                result_dtype = self.optimizer.dtype()
+                # NOTE: This is a hack to keep fetch_from_l1_sp_w_row_ids working
+                # until it is upgraded to support optimizers with multiple states
+                # and dtypes
+                row_dim = int(
+                    math.ceil(torch.float32.itemsize / weights_dtype.itemsize)
+                )
+                result_dtype = torch.float32
                 result_dim = int(
                     ceil(row_dim / (result_dtype.itemsize / weights_dtype.itemsize))
                 )
+
             else:
                 start_pos = 0
                 # get the whole row
