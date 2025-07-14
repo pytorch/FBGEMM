@@ -224,7 +224,7 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
       }
     }
     if (flush) {
-      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+      ((volatile char*)(llc.data()))[0] = llc[0] + 1;
     }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");
@@ -312,7 +312,7 @@ performance_test(const int M, const int N, const int K, const bool timebreak) {
       }
     }
     if (flush) {
-      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+      ((volatile char*)(llc.data()))[0] = llc[0] + 1;
     }
     // printMatrix(matrix_op_t::NoTranspose, Bint8.data(), k, n, n, "B
     // unpacked");

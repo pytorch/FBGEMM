@@ -123,13 +123,13 @@ template <>
       match = relDiff <= rtol;
     }
     if (!match) {
-      ss << " mismatch at (" << i << ") " << std::endl;
-      ss << "\t  ref: " << a[i] << " test: " << b[i] << std::endl;
+      ss << " mismatch at (" << i << ") " << '\n';
+      ss << "\t  ref: " << a[i] << " test: " << b[i] << '\n';
       if (consider_absDiff) {
-        ss << "\t absolute diff: " << absDiff << " > " << atol << std::endl;
+        ss << "\t absolute diff: " << absDiff << " > " << atol << '\n';
       }
       if (consider_relDiff) {
-        ss << "\t relative diff: " << relDiff << " > " << rtol << std::endl;
+        ss << "\t relative diff: " << relDiff << " > " << rtol << '\n';
       }
       return ::testing::AssertionFailure()
           << " results do not match. " << ss.str();

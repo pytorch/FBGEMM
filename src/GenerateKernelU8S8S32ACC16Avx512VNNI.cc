@@ -10,8 +10,6 @@
 
 namespace fbgemm {
 
-namespace x86 = asmjit::x86;
-
 /**
  * Get or Create the AVX512 instructions for 16-bit Accumulation macro-kernel.
  *

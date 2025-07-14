@@ -8,8 +8,6 @@
 
 #define FBGEMM_EXPORTS
 #include <algorithm>
-#include <iterator>
-#include <numeric>
 #include <type_traits>
 
 #include "fbgemm/QuantUtils.h"

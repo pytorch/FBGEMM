@@ -7,7 +7,7 @@
  */
 
 #include <gtest/gtest.h>
-#include <math.h>
+#include <cmath>
 #include <iostream>
 
 #include "bench/BenchUtils.h" // @manual
