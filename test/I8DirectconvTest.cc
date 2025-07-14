@@ -248,7 +248,7 @@ static void QuantizeDirectConv_ref(
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDirectConvTest,
     ::testing::Combine(
@@ -418,7 +418,7 @@ TEST_P(FBGemmDirectConvTest, Test2D) {
 */
 
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDirectConvTransTest,
     ::testing::Combine(
@@ -608,7 +608,7 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
 }
 
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDirectConvTransFbgemmTest,
     ::testing::Combine(

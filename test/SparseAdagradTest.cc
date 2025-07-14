@@ -52,7 +52,7 @@ class SparseAdagradTest
 constexpr float DEFAULT_TOL = 1.0e-6;
 
 // Test:
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     SparseAdagradTest,
     ::testing::Combine(
