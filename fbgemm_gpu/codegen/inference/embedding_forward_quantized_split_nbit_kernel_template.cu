@@ -413,7 +413,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
         if constexpr (PackedMode) {
           // The actual row index in packed bag w.r.t. the required uint4 loads.
           row_load_idx %= uint4_loads_per_row;
-        }
+        }gi
         uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
         // In case of PackedMode, packed_bag_load_idx already takes into account uint4_loads_per_row,
         // so only the packed_bag index should be evaluated against total number of packed bags.
