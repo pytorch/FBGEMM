@@ -316,14 +316,14 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
   #avoid generating _dllimport functions.
   target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
-  set_property(TARGET fbgemm PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()
+set_property(TARGET fbgemm PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_link_libraries(fbgemm PUBLIC
     fbgemm_generic
