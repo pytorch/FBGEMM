@@ -192,12 +192,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     const int64_t max_int8_D,
     const int64_t max_float16_D,
     const int64_t max_float32_D,
-    const int64_t INT2_max_ls,
-    const int64_t INT4_max_ls,
-    const int64_t INT8_max_ls,
-    const int64_t FP8_max_ls,
-    const int64_t FP16_max_ls,
-    const int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     {%- if not nobag %}
@@ -212,7 +206,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor lxu_cache_locations,
     const int64_t max_float8_D,
     const int64_t fp8_exponent_bits,
-    const int64_t fp8_exponent_bias
+    const int64_t fp8_exponent_bias,
+    const int64_t INT2_max_ls,
+    const int64_t INT4_max_ls,
+    const int64_t INT8_max_ls,
+    const int64_t FP8_max_ls,
+    const int64_t FP16_max_ls,
+    const int64_t FP32_max_ls
 ) {
     TENSOR_ON_CUDA_GPU(dev_weights);
     TENSORS_ON_SAME_DEVICE(uvm_weights, dev_weights);
@@ -539,12 +539,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     const int64_t max_int8_D,
     const int64_t max_float16_D,
     const int64_t max_float32_D,
-    const int64_t INT2_max_ls,
-    const int64_t INT4_max_ls,
-    const int64_t INT8_max_ls,
-    const int64_t FP8_max_ls,
-    const int64_t FP16_max_ls,
-    const int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     {%- if not nobag %}
@@ -559,7 +553,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     Tensor lxu_cache_locations,
     const int64_t max_float8_D,
     const int64_t fp8_exponent_bits,
-    const int64_t fp8_exponent_bias
+    const int64_t fp8_exponent_bias,
+    const int64_t INT2_max_ls,
+    const int64_t INT4_max_ls,
+    const int64_t INT8_max_ls,
+    const int64_t FP8_max_ls,
+    const int64_t FP16_max_ls,
+    const int64_t FP32_max_ls
 ) {
     // All argument tensors need to be on the same CUDA device
     TENSOR_ON_CUDA_GPU(dev_weights);
@@ -606,12 +606,6 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         max_int8_D,
         max_float16_D,
         max_float32_D,
-        INT2_max_ls,
-        INT4_max_ls,
-        INT8_max_ls,
-        FP8_max_ls,
-        FP16_max_ls,
-        FP32_max_ls,
         indices,
         offsets,
         {%- if not nobag %}
@@ -626,7 +620,13 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         lxu_cache_locations,
         max_float8_D,
         fp8_exponent_bits,
-        fp8_exponent_bias);
+        fp8_exponent_bias,
+        INT2_max_ls,
+        INT4_max_ls,
+        INT8_max_ls,
+        FP8_max_ls,
+        FP16_max_ls,
+        FP32_max_ls);
     });
 
     return output;
