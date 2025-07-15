@@ -13,7 +13,7 @@
 #include <stdexcept>
 
 #include <gtest/gtest.h>
-#include <math.h>
+#include <cmath>
 
 #include "./EmbeddingSpMDMTestUtils.h"
 #include "fbgemm/Fbgemm.h"

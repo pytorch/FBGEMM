@@ -124,11 +124,11 @@ struct conv_param_t {
   std::string toString() const {
     std::string dim_string[3] = {"T", "H", "W"};
 
-    std::string out = "";
+    std::string out;
     out += "MB:" + std::to_string(MB) + ", ";
     out += "IC:" + std::to_string(IC) + ", ";
     out += "OC:" + std::to_string(OC) + ", ";
-    if (SPATIAL_DIM <= 3) {
+    if constexpr (SPATIAL_DIM <= 3) {
       for (int d = 0; d < SPATIAL_DIM; ++d) {
         out += "I" + dim_string[3 - SPATIAL_DIM + d] + ":" +
             std::to_string(IN_DIM[d]) + ", ";
@@ -139,7 +139,7 @@ struct conv_param_t {
       }
     }
     out += "G:" + std::to_string(G) + ", ";
-    if (SPATIAL_DIM <= 3) {
+    if constexpr (SPATIAL_DIM <= 3) {
       for (int d = 0; d < SPATIAL_DIM; ++d) {
         out += "K" + dim_string[3 - SPATIAL_DIM + d] + ":" +
             std::to_string(K[d]) + ", ";

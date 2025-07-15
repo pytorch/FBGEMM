@@ -9,9 +9,7 @@
 #define FBGEMM_EXPORTS
 
 #include <cpuinfo.h>
-#include <iomanip>
 #include <stdexcept>
-#include <type_traits>
 #include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
@@ -20,10 +18,10 @@ template <typename PT, typename inpType, typename accType>
 PackMatrix<PT, inpType, accType>::PackMatrix(
     int32_t rows,
     int32_t cols,
-    inpType* buf,
+    inpType* pmat,
     int groups,
     const BlockingFactors* params)
-    : buf_(buf), nrows_(rows), ncols_(cols), G_(groups) {
+    : buf_(pmat), nrows_(rows), ncols_(cols), G_(groups) {
   bufAllocatedHere_ = false;
   blocking_params = params;
   if (!cpuinfo_initialize()) {

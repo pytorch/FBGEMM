@@ -127,7 +127,7 @@ bool PackWeightsForConv<SPATIAL_DIM, T, accT>::isPackingCompliant(
 template <int SPATIAL_DIM, typename T, typename accT>
 std::string PackWeightsForConv<SPATIAL_DIM, T, accT>::mismatchingParams(
     const conv_param_t<SPATIAL_DIM>& test_conv_p) {
-  std::string msg = "";
+  std::string msg;
 
   auto combineStr = [](const std::string& id,
                        const std::string& str1,

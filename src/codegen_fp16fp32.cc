@@ -240,8 +240,6 @@ int main(int argc, const char* argv[]) {
       hdrfile << "using GemmParams" << d_type.second << " = GemmParams<float"
               << (isFp16 ? "16" : "") << ">;\n\n";
 
-      unsigned labelId = 0;
-
       bool fixedA = false, fixedB = false, fixedC = false;
 
       vector<vector<unsigned>>& ukernel_shape = s.shapes;

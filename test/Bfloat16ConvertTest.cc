@@ -67,7 +67,7 @@ TEST(FBGemmBfloat16Test, Conversion_simd2) {
     int m = s[0];
     int n = s[1];
 
-    cerr << "m = " << m << " n = " << n << endl;
+    cerr << "m = " << m << " n = " << n << '\n';
     aligned_vector<float> A_fp32_ref(m * n); // fp32 type
     aligned_vector<bfloat16> A_bfloat16(m * n); // bfloat16 type
     aligned_vector<float> A_fp32_final(m * n); // fp32 type

@@ -50,7 +50,7 @@ static inline void requantizeForMV(
   int i = 0;
   for (; i < len / VLEN_INT32 * VLEN_INT32; i += VLEN_INT32) {
     __m512i x_v = _mm512_loadu_si512(src + i);
-    if (!ACT_ZP_0) {
+    if constexpr (!ACT_ZP_0) {
       __m512i weight_row_offset_v =
           _mm512_loadu_si512(rParams.weight_row_offsets + i);
       __m512i act_zero_point_v = _mm512_set1_epi32(rParams.act_zero_point);
@@ -67,7 +67,7 @@ static inline void requantizeForMV(
     __m512 act_times_w_div_c_v = _mm512_div_ps(act_times_w_scale_v, c_scale_v);
 
     __m512 xf_v;
-    if (HAS_BIAS) {
+    if constexpr (HAS_BIAS) {
       __m512 bias_v = _mm512_loadu_ps(rParams.bias + i);
       bias_v = _mm512_div_ps(bias_v, act_times_w_scale_v);
       xf_v = _mm512_add_ps(_mm512_cvtepi32_ps(x_v), bias_v);
@@ -81,7 +81,7 @@ static inline void requantizeForMV(
 
     __m512i x_clamped_v = _mm512_packs_epi32(x_added_v, _mm512_setzero_si512());
     x_clamped_v = _mm512_packus_epi16(x_clamped_v, _mm512_setzero_si512());
-    if (FUSE_RELU) {
+    if constexpr (FUSE_RELU) {
       x_clamped_v = _mm512_max_epu8(C_zero_point_epi8_v, x_clamped_v);
     }
     x_clamped_v = _mm512_permutexvar_epi32(permute_mask_v, x_clamped_v);
@@ -96,7 +96,7 @@ static inline void requantizeForMV(
     __mmask16 mask_int32_v = (1ULL << rem_int32) - 1;
     __m512i x_v = _mm512_maskz_loadu_epi32(mask_int32_v, src + i);
 
-    if (!ACT_ZP_0) {
+    if constexpr (!ACT_ZP_0) {
       __m512i weight_row_offset_v = _mm512_maskz_loadu_epi32(
           mask_int32_v, rParams.weight_row_offsets + i);
       __m512i act_zero_point_v = _mm512_set1_epi32(rParams.act_zero_point);
@@ -114,7 +114,7 @@ static inline void requantizeForMV(
     __m512 act_times_w_div_c_v = _mm512_div_ps(act_times_w_scale_v, c_scale_v);
 
     __m512 xf_v;
-    if (HAS_BIAS) {
+    if constexpr (HAS_BIAS) {
       __m512 bias_v = _mm512_maskz_loadu_ps(mask_int32_v, rParams.bias + i);
       bias_v = _mm512_div_ps(bias_v, act_times_w_scale_v);
       xf_v = _mm512_add_ps(_mm512_cvtepi32_ps(x_v), bias_v);
@@ -128,7 +128,7 @@ static inline void requantizeForMV(
 
     __m512i x_clamped_v = _mm512_packs_epi32(x_added_v, _mm512_setzero_si512());
     x_clamped_v = _mm512_packus_epi16(x_clamped_v, _mm512_setzero_si512());
-    if (FUSE_RELU) {
+    if constexpr (FUSE_RELU) {
       x_clamped_v = _mm512_max_epu8(C_zero_point_epi8_v, x_clamped_v);
     }
     x_clamped_v = _mm512_permutexvar_epi32(permute_mask_v, x_clamped_v);
@@ -149,8 +149,7 @@ void SparseDenseInt8MVAvx512(
     trRequantizationParams_t& rParams,
     bool accum,
     int thread_id,
-    int num_threads) {
-  (void)num_threads; // Suppress unused variable warning
+    int num_threads [[maybe_unused]]) {
   // Calcualtes accum ? C += A * B : C = A * B
   constexpr int VLEN_INT32 = 16;
 

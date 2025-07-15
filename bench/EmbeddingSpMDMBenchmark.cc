@@ -408,8 +408,8 @@ int main() {
               cout << "Mean ";
             }
             cout << input_dtype << " inputs";
-            bool use_fp16_inputs = input_dtype == "fp16" ? true : false;
-            bool use_bf16_inputs = input_dtype == "fp16" ? true : false;
+            bool use_fp16_inputs = input_dtype == "fp16";
+            bool use_bf16_inputs = input_dtype == "fp16";
             cout << (use_32_bit_indices ? " 32" : " 64") << " bit indices";
             if (prefetch) {
               cout << " with prefetching";

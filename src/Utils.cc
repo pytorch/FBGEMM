@@ -365,11 +365,8 @@ bool isYmm(inst_set_t isa) {
 
 bool fbgemmIsIntelXeonD() {
   auto const pkgInfo = cpuinfo_get_packages();
-  if (strstr(pkgInfo->name, "Intel Xeon D-") ||
-      cpuinfo_get_packages_count() == 1) {
-    return true;
-  }
-  return false;
+  return strstr(pkgInfo->name, "Intel Xeon D-") ||
+      cpuinfo_get_packages_count() == 1;
 }
 
 bool fbgemmHasAvx512Support() {
@@ -423,7 +420,8 @@ void fbgemmPartition1DBlocked(
     int64_t& start,
     int64_t& end) {
   if (block_size == 1) {
-    return fbgemmPartition1D(thread_id, num_threads, total_work, start, end);
+    fbgemmPartition1D(thread_id, num_threads, total_work, start, end);
+    return;
   }
   int64_t total_work_in_blocks = total_work / block_size;
   int64_t start_block = 0, end_block = 0;
@@ -629,7 +627,7 @@ void update_prefsum_and_offset_in_range(
 
 void combine_prefix_sum(
     const int nthreads,
-    const int64_t elements_count,
+    const int64_t elements_count [[maybe_unused]],
     const int64_t* const histogram,
     int64_t* const histogram_ps) {
   int64_t offset = 0;
@@ -638,13 +636,11 @@ void combine_prefix_sum(
   // TODO(DamianSzwichtenberg): Is assert sufficient? In most cases, it will
   // work only in debug build.
   assert(offset == elements_count);
-  // Suppress unused variable warning
-  (void)elements_count;
 }
 
 void combine_prefix_sum_for_msb(
     const int nthreads,
-    const int64_t elements_count,
+    const int64_t elements_count [[maybe_unused]],
     const int64_t* const histogram,
     int64_t* const histogram_ps) {
   int64_t offset = 0;
@@ -655,8 +651,6 @@ void combine_prefix_sum_for_msb(
   // TODO(DamianSzwichtenberg): Is assert sufficient? In most cases, it will
   // work only in debug build.
   assert(offset == elements_count);
-  // Suppress unused variable warning
-  (void)elements_count;
 }
 
 template <typename K, typename V>

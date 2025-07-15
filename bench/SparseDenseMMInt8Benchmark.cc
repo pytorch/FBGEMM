@@ -18,7 +18,7 @@
 using namespace std;
 using namespace fbgemm;
 
-int main(int, char**) {
+int main(int /*unused*/, char** /*unused*/) {
   vector<vector<int>> shapes = getSparseMatrixShapes();
 
   // C is MxN -> CT is NxM

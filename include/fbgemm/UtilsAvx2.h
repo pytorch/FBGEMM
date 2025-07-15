@@ -31,7 +31,7 @@ struct FBGEMM_API block_type_t {
   int col_size;
 
   std::string toString() const {
-    std::string out = "";
+    std::string out;
     out += "row start:" + std::to_string(row_start) + ", ";
     out += "row size:" + std::to_string(row_size) + ", ";
     out += "col start:" + std::to_string(col_start) + ", ";

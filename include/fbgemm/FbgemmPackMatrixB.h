@@ -11,11 +11,7 @@
 
 #include <assert.h>
 #include <cpuinfo.h>
-#include <array>
-#include <memory>
 #include <stdexcept>
-#include <typeinfo>
-#include <vector>
 
 #include "SimdUtils.h" // @manual
 #include "Types.h" // @manual
@@ -277,13 +273,13 @@ class PackedGemmMatrixB {
   T* pmat() const {
     return pmat_;
   }
-  inline int blockRowSize() const {
+  int blockRowSize() const {
     return brow_;
   }
-  inline int blockColSize() const {
+  int blockColSize() const {
     return bcol_;
   }
-  inline int kernelNumColBlocks() const {
+  int kernelNumColBlocks() const {
     return kernel_ncol_blocks_;
   }
 

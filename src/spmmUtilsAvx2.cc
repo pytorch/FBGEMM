@@ -36,7 +36,7 @@ FBGEMM_API void trRequantizeOpt(
 
   // Broadcasted act_times_w_scale / C_scale
   __m256 act_times_w_div_c_v;
-  if (Q_GRAN != QuantizationGranularity::OUT_CHANNEL) {
+  if constexpr (Q_GRAN != QuantizationGranularity::OUT_CHANNEL) {
     act_times_w_div_c_v = _mm256_set1_ps(r.act_times_w_scale[0] / r.C_scale);
   }
 
@@ -67,7 +67,7 @@ FBGEMM_API void trRequantizeOpt(
   for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
     // Scale weight_row_offset with act_zero_point
     int32_t row_offset = 0;
-    if (!ACT_SYMMETRIC) {
+    if constexpr (!ACT_SYMMETRIC) {
       row_offset = r.act_zero_point * r.weight_row_offsets[i];
     }
 
@@ -78,7 +78,7 @@ FBGEMM_API void trRequantizeOpt(
       weight_zeropoint_idx = i;
     }
     __m256 bias_v;
-    if (HAS_BIAS) {
+    if constexpr (HAS_BIAS) {
       float bias = r.bias[i] / r.act_times_w_scale[weight_zeropoint_idx];
       bias_v = _mm256_set1_ps(bias);
     }
@@ -107,13 +107,13 @@ FBGEMM_API void trRequantizeOpt(
           inp + (i - block.row_start) * ld_in + (j - block.col_start) +
           3 * VLEN));
 
-      if (!ACT_SYMMETRIC) {
+      if constexpr (!ACT_SYMMETRIC) {
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
         y_v = _mm256_sub_epi32(y_v, row_offset_v);
         z_v = _mm256_sub_epi32(z_v, row_offset_v);
         w_v = _mm256_sub_epi32(w_v, row_offset_v);
       }
-      if (!WEIGHT_SYMMETRIC) {
+      if constexpr (!WEIGHT_SYMMETRIC) {
         __m256i col_offset_v = _mm256_mullo_epi32(
             _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
                 r.act_col_offsets + j - block.col_start)),
@@ -152,7 +152,7 @@ FBGEMM_API void trRequantizeOpt(
        * FP32 value with ties to even with default MXCSR rounding mode.
        */
       __m256 xf_v, yf_v, zf_v, wf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         xf_v = _mm256_add_ps(_mm256_cvtepi32_ps(x_v), bias_v);
         yf_v = _mm256_add_ps(_mm256_cvtepi32_ps(y_v), bias_v);
         zf_v = _mm256_add_ps(_mm256_cvtepi32_ps(z_v), bias_v);
@@ -225,10 +225,10 @@ FBGEMM_API void trRequantizeOpt(
       __m256i x_v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
           inp + (i - block.row_start) * ld_in + (j - block.col_start)));
 
-      if (!ACT_SYMMETRIC) {
+      if constexpr (!ACT_SYMMETRIC) {
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
       }
-      if (!WEIGHT_SYMMETRIC) {
+      if constexpr (!WEIGHT_SYMMETRIC) {
         __m256i col_offset_v = _mm256_mullo_epi32(
             _mm256_loadu_si256(reinterpret_cast<const __m256i*>(
                 r.act_col_offsets + j - block.col_start)),
@@ -236,7 +236,7 @@ FBGEMM_API void trRequantizeOpt(
         x_v = _mm256_sub_epi32(x_v, col_offset_v);
       }
       __m256 xf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         xf_v = _mm256_add_ps(_mm256_cvtepi32_ps(x_v), bias_v);
       } else {
         xf_v = _mm256_cvtepi32_ps(x_v);
@@ -272,10 +272,10 @@ FBGEMM_API void trRequantizeOpt(
       __m256i x_v = _mm256_maskload_epi32(
           inp + (i - block.row_start) * ld_in + (j - block.col_start), mask_v);
 
-      if (!ACT_SYMMETRIC) {
+      if constexpr (!ACT_SYMMETRIC) {
         x_v = _mm256_sub_epi32(x_v, row_offset_v);
       }
-      if (!WEIGHT_SYMMETRIC) {
+      if constexpr (!WEIGHT_SYMMETRIC) {
         __m256i col_offset_v = _mm256_mullo_epi32(
             _mm256_maskload_epi32(
                 r.act_col_offsets + j - block.col_start, mask_v),
@@ -284,7 +284,7 @@ FBGEMM_API void trRequantizeOpt(
       }
 
       __m256 xf_v;
-      if (HAS_BIAS) {
+      if constexpr (HAS_BIAS) {
         xf_v = _mm256_add_ps(_mm256_cvtepi32_ps(x_v), bias_v);
       } else {
         xf_v = _mm256_cvtepi32_ps(x_v);
