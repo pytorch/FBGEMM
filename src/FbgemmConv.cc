@@ -149,8 +149,11 @@ int fbgemmConv(
             "For depthwise, only requantized output is supported");
 
         if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
-          depthwise_3d_same_pad<QuantizationGranularity::TENSOR>(
+            processOutputType::QGRANType == QuantizationGranularity::TENSOR ||
+            processOutputType::QGRANType == QuantizationGranularity::GROUP ||
+            processOutputType::QGRANType ==
+                QuantizationGranularity::OUT_CHANNEL) {
+          depthwise_3d_same_pad<processOutputType::QGRANType>(
               *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
               outProcess.getAZeroPoint(),
               activations,
@@ -163,41 +166,6 @@ int fbgemmConv(
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
               act_times_w_scale,
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::GROUP) {
-          depthwise_3d_same_pad<QuantizationGranularity::GROUP>(
-              *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType ==
-            QuantizationGranularity::OUT_CHANNEL) {
-          depthwise_3d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
-              *reinterpret_cast<const conv_param_t<3>*>(&conv_p),
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
@@ -208,8 +176,11 @@ int fbgemmConv(
         }
       } else if constexpr (SPATIAL_DIM == 2) {
         if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::TENSOR) {
-          depthwise_2d_same_pad<QuantizationGranularity::TENSOR>(
+            processOutputType::QGRANType == QuantizationGranularity::TENSOR ||
+            processOutputType::QGRANType == QuantizationGranularity::GROUP ||
+            processOutputType::QGRANType ==
+                QuantizationGranularity::OUT_CHANNEL) {
+          depthwise_2d_same_pad<processOutputType::QGRANType>(
               conv_p.MB, // mini batch
               conv_p.IN_DIM[0], // H
               conv_p.IN_DIM[1], // W
@@ -228,54 +199,6 @@ int fbgemmConv(
               outProcess.getBias(),
               outProcess.RELU_FUSED, // fuse_relu
               act_times_w_scale,
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType == QuantizationGranularity::GROUP) {
-          depthwise_2d_same_pad<QuantizationGranularity::GROUP>(
-              conv_p.MB, // mini batch
-              conv_p.IN_DIM[0], // H
-              conv_p.IN_DIM[1], // W
-              conv_p.IC, // input channels
-              conv_p.OC, // output channels
-              conv_p.stride[0], // stride_h
-              conv_p.stride[1], // stride_w
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
-              thread_id,
-              num_threads);
-        } else if constexpr (
-            processOutputType::QGRANType ==
-            QuantizationGranularity::OUT_CHANNEL) {
-          // The number of input channels == groups for depthwise convolutions
-          depthwise_2d_same_pad<QuantizationGranularity::OUT_CHANNEL>(
-              conv_p.MB, // mini batch
-              conv_p.IN_DIM[0], // H
-              conv_p.IN_DIM[1], // W
-              conv_p.IC, // input channels
-              conv_p.OC, // output channels
-              conv_p.stride[0], // stride_h
-              conv_p.stride[1], // stride_w
-              outProcess.getAZeroPoint(),
-              activations,
-              B_zero_point,
-              *(packed_weights.getPackedWForDepthwise()),
-              C_multiplier,
-              outProcess.getCZeroPoint(),
-              out,
-              outProcess.getColOffsets(),
-              outProcess.getBias(),
-              outProcess.RELU_FUSED, // fuse_relu
-              act_times_w_scale, // act_scale * weight_scale
               thread_id,
               num_threads);
         } else {
