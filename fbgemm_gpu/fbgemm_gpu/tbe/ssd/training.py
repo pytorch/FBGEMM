@@ -852,21 +852,14 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             dtype=table_embedding_dtype,
         )
 
-        momentum1_offsets = [0] + list(itertools.accumulate(rows))
-        self._apply_split(
-            SplitState(
-                dev_size=(
-                    self.total_hash_size if not self.enable_optimizer_offloading else 0
-                ),
-                host_size=0,
-                uvm_size=0,
-                placements=[EmbeddingLocation.DEVICE for _ in range(T_)],
-                offsets=momentum1_offsets[:-1],
-            ),
-            "momentum1",
+        # Create the optimizer state tensors
+        for template in self.optimizer.ssd_state_splits(
+            self.embedding_specs,
+            self.optimizer_state_dtypes,
+            self.enable_optimizer_offloading,
+        ):
             # pyre-fixme[6]: For 3rd argument expected `Type[dtype]` but got `dtype`.
-            dtype=torch.float32,
-        )
+            self._apply_split(*template)
 
         # For storing current iteration data
         self.current_iter_data: Optional[IterData] = None
