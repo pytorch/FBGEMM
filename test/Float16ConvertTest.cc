@@ -21,7 +21,7 @@ namespace {
 class FBGemmFloat16Test : public testing::TestWithParam<bool> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmFloat16Test,
     ::testing::Bool());

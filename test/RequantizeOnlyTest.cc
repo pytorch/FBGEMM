@@ -35,7 +35,7 @@ class FloatRequantizeTest
 
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FloatRequantizeTest,
     ::testing::Combine(

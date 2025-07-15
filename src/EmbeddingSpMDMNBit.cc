@@ -290,7 +290,7 @@ GenEmbeddingSpMDMNBitLookup<
 
         if constexpr (ROWWISE_SPARSE) {
           func.init(
-              asmjit::FuncSignatureT<
+              asmjit::FuncSignature::build<
                   bool,
                   int64_t, // output_size
                   int64_t, // index_size
@@ -305,7 +305,7 @@ GenEmbeddingSpMDMNBitLookup<
               a->environment());
         } else {
           func.init(
-              asmjit::FuncSignatureT<
+              asmjit::FuncSignature::build<
                   bool,
                   int64_t, // output_size
                   int64_t, // index_size

@@ -49,14 +49,14 @@ class fbgemmGConvAcc32WithQuantGranularityTest
 class fbgemmGConvPackTest : public testing::TestWithParam<matrix_op_t> {};
 }; // namespace
 
-// INSTANTIATE_TEST_CASE_P(
+// INSTANTIATE_TEST_SUITE_P(
 //     InstantiationName,
 //     fbgemmGConvAcc32Test,
 //     ::testing::Combine(
 //         ::testing::Values(matrix_op_t::NoTranspose),
 //         ::testing::ValuesIn(transposeVals)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmGConvAcc32WithQuantGranularityTest,
     ::testing::Combine(
@@ -66,7 +66,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // A symmetric
         ::testing::Bool())); // B symmetric
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmGConvPackTest,
     ::testing::ValuesIn(transposeVals));

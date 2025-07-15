@@ -500,7 +500,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 
         asmjit::FuncDetail func;
         func.init(
-            asmjit::FuncSignatureT<
+            asmjit::FuncSignature::build<
                 int, // return type
                 int, // num rows
                 std::uint64_t, // param_size

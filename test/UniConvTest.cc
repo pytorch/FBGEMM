@@ -165,7 +165,7 @@ class UniConvQGranTest
 }; // namespace
 
 // Combine only allows at most 10 generators.
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     uniConvTest,
     ::testing::Combine(
@@ -180,7 +180,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn({1, 2}), // stride
         ::testing::ValuesIn({0, 1, 2}))); // pad
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     UniConvQGranTest,
     ::testing::Combine(

@@ -35,7 +35,7 @@ class fbgemmSPMDMTest
     : public testing::TestWithParam<std::tuple<float, bool, bool>> {};
 } // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Instance0,
     fbgemmSPMDMTest,
     ::testing::Combine(

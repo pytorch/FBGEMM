@@ -68,7 +68,7 @@ class RowWiseSparseAdagradFusedTest : public testing::TestWithParam<tuple<
 
 constexpr float DEFAULT_TOL = 1.0e-6;
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     RowWiseSparseAdagradFusedTest,
     ::testing::Combine(

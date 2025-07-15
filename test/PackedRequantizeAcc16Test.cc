@@ -48,7 +48,7 @@ class fbgemmPackUnpackAcc16Test
     : public testing::TestWithParam<tuple<matrix_op_t, bool>> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmu8s8acc16WithQuantGranularityTest,
     ::testing::Combine(
@@ -57,7 +57,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(),
         ::testing::ValuesIn(qGranularityVals)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmu8s8acc16Test,
     ::testing::Combine(
@@ -65,7 +65,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(transposeVals),
         ::testing::Bool()));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmPackUnpackAcc16Test,
     ::testing::Combine(::testing::ValuesIn(transposeVals), ::testing::Bool()));

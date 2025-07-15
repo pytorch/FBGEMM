@@ -58,7 +58,7 @@ class Fused8BitRowwiseEmbeddingLookupTest
           EmbeddingSpMDMOutputDtypeChoice>> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     Fused8BitRowwiseEmbeddingLookupTest,
     ::testing::Combine(

@@ -13,7 +13,7 @@
 
 using FBGemmFP16Test = fbgemm::FBGemmFPTest<fbgemm::float16>;
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmFP16Test,
     ::testing::Values(

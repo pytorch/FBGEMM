@@ -42,7 +42,7 @@ class EmbeddingQuantizeTest
 class EmbeddingQuantizeSBFloatTest
     : public testing::TestWithParam<tuple<int, int>> {};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     QuantizeGroupwiseTest,
     ::testing::Combine(
@@ -52,17 +52,17 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn({1, 4}), // G
         ::testing::ValuesIn({layout_t::KCX, layout_t::KXC})));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     QuantizeTest,
     ::testing::Values(1, 2, 5, 8, 9, 16, 20, 28, 32, 33));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FusedQuantizeDequantizeTest,
     ::testing::Values(1, 2, 5, 8, 9, 16, 20, 28, 32, 33));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     EmbeddingQuantizeTest,
     ::testing::Combine(
@@ -70,7 +70,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn({1, 2, 3}),
         ::testing::ValuesIn({4, 8, 16, 20, 28, 32, 64, 84})));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     EmbeddingQuantizeSBFloatTest,
     ::testing::Combine(
@@ -604,7 +604,7 @@ class EmbeddingQuantizeFixedNumberTest : public testing::TestWithParam<int> {
   std::vector<uint8_t> expected_output_float;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     EmbeddingQuantizeFixedNumberTest,
     ::testing::ValuesIn({2, 4, 8}));
