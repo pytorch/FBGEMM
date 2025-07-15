@@ -67,7 +67,7 @@ class IndexRemapTest
 
 static vector<int> prefetch_distances = {0, 16, 1000000};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     EmbeddingSpMDMTest,
     ::testing::Combine(
@@ -84,7 +84,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(FLOAT, FLOAT16, BFLOAT16),
         ::testing::Values(FLOAT, FLOAT16, BFLOAT16)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     rowwiseSparseEmbeddingSpMDMTest,
     ::testing::Combine(
@@ -99,7 +99,7 @@ INSTANTIATE_TEST_CASE_P(
             OUT_OF_BOUND_INDICES,
             UNMATCHED_NUM_INDICES_AND_LENGTHS_SUM)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     IndexRemapTest,
     ::testing::Combine(

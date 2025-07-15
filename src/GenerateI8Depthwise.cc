@@ -262,7 +262,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
+        asmjit::FuncSignature::build<
             void,
             const std::uint8_t*,
             const std::int8_t*,
