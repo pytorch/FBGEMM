@@ -825,9 +825,7 @@ GenEmbeddingSpMDMNBitLookup<
                   a->vextracti32x4(temp_vreg.xmm(), src_vreg, asmjit::Imm(i));
                   a->vpmovsxbd(temp_vreg, temp_vreg.xmm());
                 } else {
-                  if (i == 1) {
-                    a->vpsrldq(src_vreg, src_vreg, asmjit::Imm(8));
-                  } else if (i == 2) {
+                  if (i == 2) {
                     a->vextractf128(
                         src_vreg.xmm(), temp2_vreg.ymm(), asmjit::Imm(i >> 1));
                   } else {
