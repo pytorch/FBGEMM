@@ -13,11 +13,8 @@
 #include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <cassert>
-#include <cmath>
 #include <iostream>
-#include <map>
 #include <mutex>
-#include <string>
 #include <tuple>
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
@@ -244,7 +241,7 @@ GenEmbeddingSpMDMNBitLookup<
         if (!use_offsets) {
           filename += "_use_lengths";
         }
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           filename += "_rowwise_sparse";
         }
         if (!scale_bias_last) {
@@ -271,7 +268,7 @@ GenEmbeddingSpMDMNBitLookup<
         x86::Gp out = a->gpz(reg_id); // 11
 
         x86::Gp compressed_indices_table;
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           ++reg_id;
           compressed_indices_table = a->gpz(reg_id); // 12
         }
@@ -291,7 +288,7 @@ GenEmbeddingSpMDMNBitLookup<
 
         asmjit::FuncDetail func;
 
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           func.init(
               asmjit::FuncSignatureT<
                   bool,
@@ -339,7 +336,7 @@ GenEmbeddingSpMDMNBitLookup<
                 : asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           args.assignAll(
               output_size,
               index_size,
@@ -627,7 +624,7 @@ GenEmbeddingSpMDMNBitLookup<
           a->cmp(scratchReg1_, data_size);
           a->jae(error);
 
-          if (ROWWISE_SPARSE) {
+          if constexpr (ROWWISE_SPARSE) {
             a->mov(
                 scratchReg1_.r32(),
                 x86::dword_ptr(
@@ -669,7 +666,7 @@ GenEmbeddingSpMDMNBitLookup<
             }
 
             a->bind(pref_dist_reset_end);
-            if (ROWWISE_SPARSE) {
+            if constexpr (ROWWISE_SPARSE) {
               asmjit::Label rowwise_sparse_pref_corner_case_begin =
                   a->newLabel();
               asmjit::Label rowwise_sparse_pref_corner_case_end = a->newLabel();
@@ -702,7 +699,7 @@ GenEmbeddingSpMDMNBitLookup<
             a->add(weights, static_cast<asmjit::Imm>(sizeof(float)));
           }
 
-          if (ROWWISE_SPARSE) {
+          if constexpr (ROWWISE_SPARSE) {
             a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
             a->je(LoopDataIndexBegin);
           }

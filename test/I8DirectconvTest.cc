@@ -547,8 +547,6 @@ TEST_P(FBGemmDirectConvTransTest, Test2D) {
           conv_p.OC);
     }
 
-    string runType;
-
     PackedDirectConvMatrix packedB(conv_p.IC, conv_p.OC, kernel_dim, Bint8.data());
 
     DoNothing<> doNothingObj{};

@@ -207,8 +207,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     }
 #endif
 
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
     assert(
         maxMRegs * maxNRegs <= numRegs - 4 &&
@@ -634,8 +633,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     }
 #endif
 
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
     assert(
         maxMRegs * maxNRegs <= numRegs - 4 &&

@@ -33,7 +33,7 @@ void SparseDenseMMAvx512(
   // size of col_idx is equal to nnzs
   constexpr int VLEN = 16;
   int j = 0;
-  const int effective_N = ((int)((N + VLEN - 1) / (2 * VLEN))) * (2 * VLEN);
+  const int effective_N = (((N + VLEN - 1) / (2 * VLEN))) * (2 * VLEN);
   for (; j < effective_N; j += 2 * VLEN) {
     // r1 is for j:j+VLEN
     // r2 is for j+VLEN:j+2*VLEN

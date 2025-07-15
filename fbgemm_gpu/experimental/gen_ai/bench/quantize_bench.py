@@ -10,6 +10,7 @@ import itertools
 import os
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -491,7 +492,10 @@ def main(args: Any):
         os.makedirs(args.output_dir, exist_ok=True)
         print("csv and images will be saved to " + args.output_dir)
     if args.export_csv:
-        csv_file = os.path.join(args.output_dir, "quantize_ops_benchmark.csv")
+        datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_file = os.path.join(
+            args.output_dir, f"quantize_ops_benchmark_{datetime_str}.csv"
+        )
         # Export results to a CSV file.
         df = pd.DataFrame(benchmark_results)
         df.to_csv(csv_file, index=False)

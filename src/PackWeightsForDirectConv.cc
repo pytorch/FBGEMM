@@ -82,7 +82,7 @@ void PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT(
   // at initialization stage like other quantized conv implementation.
   // Thus the col_offsets computation will be invoked at forward pass,
   // and only the first pass will prepare the col_offsets.
-  if (first_call == false) {
+  if (!first_call) {
     return;
   }
   int IC = conv_p.IC;
@@ -243,7 +243,7 @@ void fbgemmDirectConv(
     return;
   }
 
-  if (SPATIAL_DIM != 2) {
+  if constexpr (SPATIAL_DIM != 2) {
     assert(false && "1d/3d direct conv not supported");
   } else {
     if (conv_p.transposed) {

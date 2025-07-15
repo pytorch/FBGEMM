@@ -57,7 +57,7 @@ struct PackingTraits<
     T,
     std::int32_t,
     inst_set_t::avx2,
-    typename std::enable_if<is_8bit<T>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value>> {
   static constexpr int MR{12}; ///< Register block for M dimension.
   static constexpr int NR_MIN{8}; ///< Minimum register block for N dimension.
                                   ///< 8 because 8*ROW_INTERLEAVE int8 elements
@@ -105,7 +105,7 @@ struct PackingTraits<
     T,
     std::int16_t,
     inst_set_t::avx2,
-    typename std::enable_if<is_8bit<T>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value>> {
   static constexpr int MR{3}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -200,7 +200,7 @@ struct PackingTraits<
     T,
     std::int32_t,
     inst_set_t::avx512,
-    typename std::enable_if<is_8bit<T>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value>> {
   static constexpr int MR{14}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -251,7 +251,7 @@ struct PackingTraits<
     T,
     std::int32_t,
     inst_set_t::avx512_ymm,
-    typename std::enable_if<is_8bit<T>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value>> {
   static constexpr int MR{7}; ///< Register block for M dimension.
   static constexpr int NR_MIN{16}; ///< Minimum register block for N dimension.
                                    ///< 8 because 8*ROW_INTERLEAVE int8 elements
@@ -300,7 +300,7 @@ struct PackingTraits<
     T,
     std::int16_t,
     inst_set_t::avx512,
-    typename std::enable_if<is_8bit<T>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value>> {
   static constexpr int MR{6}; ///< Register block for M dimension
   static constexpr int NR_MIN{
       32}; ///< Minimum register block for N dimension;
@@ -351,7 +351,7 @@ struct PackingTraits<
     T,
     std::int16_t,
     inst_set_t::avx512_ymm,
-    typename std::enable_if<is_8bit<T>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value>> {
   static constexpr int MR{6}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -396,7 +396,7 @@ struct PackingTraits<
 template <typename T>
 struct is_16or32bit {
   static constexpr bool value =
-      std::is_same<T, int16_t>::value || std::is_same<T, int32_t>::value;
+      std::is_same_v<T, int16_t> || std::is_same_v<T, int32_t>;
 };
 
 /**
@@ -414,8 +414,7 @@ struct PackingTraits<
     T,
     accT,
     inst_set_t::avx512_vnni,
-    typename std::enable_if<
-        is_8bit<T>::value && is_16or32bit<accT>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value && is_16or32bit<accT>::value>> {
   static constexpr int MR{8}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.
@@ -469,8 +468,7 @@ struct PackingTraits<
     T,
     accT,
     inst_set_t::avx512_vnni_ymm,
-    typename std::enable_if<
-        is_8bit<T>::value && is_16or32bit<accT>::value>::type> {
+    std::enable_if_t<is_8bit<T>::value && is_16or32bit<accT>::value>> {
   static constexpr int MR{4}; ///< Register block for M dimension.
   static constexpr int NR_MIN{
       16}; ///< Minimum register block for N dimension.

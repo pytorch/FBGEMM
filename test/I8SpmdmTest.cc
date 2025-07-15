@@ -16,8 +16,8 @@
 
 #include <gtest/gtest.h>
 #ifdef _OPENMP
-#include <math.h>
 #include <omp.h>
+#include <cmath>
 #endif
 
 #include "./TestUtils.h" // @manual

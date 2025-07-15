@@ -8,11 +8,11 @@
 
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <random>
 #include <set>
 #include <vector>
