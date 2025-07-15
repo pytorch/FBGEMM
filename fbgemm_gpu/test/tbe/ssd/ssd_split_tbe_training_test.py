@@ -757,7 +757,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
 
     def split_optimizer_states_(
         self, emb: SSDTableBatchedEmbeddingBags
-    ) -> List[torch.Tensor]:
+    ) -> List[List[torch.Tensor]]:
         _, bucket_asc_ids_list, _ = emb.split_embedding_weights(
             no_snapshot=False, should_flush=True
         )
@@ -962,7 +962,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # pyre-fixme[16]: Optional type has no attribute `float`.
             ref_optimizer_state = emb_ref[f].weight.grad.float().to_dense().pow(2)
             torch.testing.assert_close(
-                split_optimizer_states[t].float(),
+                split_optimizer_states[t][0].float(),
                 ref_optimizer_state.mean(dim=1),
                 atol=tolerance,
                 rtol=tolerance,
@@ -978,7 +978,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 emb_r.weight.float(),
                 value=-lr,
                 tensor1=emb_r.weight.grad.float().to_dense(),
-                tensor2=split_optimizer_states[t]
+                tensor2=split_optimizer_states[t][0]
                 .float()
                 .sqrt_()
                 .add_(eps)
@@ -1113,7 +1113,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 emb_r.weight.float(),
                 value=-lr,
                 tensor1=emb_r.weight.grad.float().to_dense(),  # pyre-ignore[16]
-                tensor2=split_optimizer_states[table_index]
+                # NOTE: The [0] index is a hack since the test is fixed to use
+                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+                # be upgraded in the future to support multiple optimizers
+                tensor2=split_optimizer_states[table_index][0]
                 .float()
                 .sqrt_()
                 .add_(eps)
@@ -1188,7 +1191,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         optimizer_states_ref = [
-            s.clone().float() for s in self.split_optimizer_states_(emb)
+            [s.clone().float() for s in states]
+            for states in self.split_optimizer_states_(emb)
         ]
 
         Es = [emb.embedding_specs[t][0] for t in range(T)]
@@ -1334,8 +1338,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # Compare optimizer states
             split_optimizer_states = self.split_optimizer_states_(emb)
             for f, t in self.get_physical_table_arg_indices_(emb.feature_table_map):
-                optim_state_r = optimizer_states_ref[t]
-                optim_state_t = split_optimizer_states[t]
+                optim_state_r = optimizer_states_ref[t][0]
+                # NOTE: The [0] index is a hack since the test is fixed to use
+                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+                # be upgraded in the future to support multiple optimizers
+                optim_state_t = split_optimizer_states[t][0]
                 emb_r = emb_ref[f]
 
                 optim_state_r.add_(
@@ -1753,7 +1760,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 dim=1
             )
             torch.testing.assert_close(
-                split_optimizer_states[t].float(),
+                # NOTE: The [0] index is a hack since the test is fixed to use
+                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+                # be upgraded in the future to support multiple optimizers
+                split_optimizer_states[t][0].float(),
                 ref_opt_mean.cpu(),
                 atol=tolerance,
                 rtol=tolerance,
@@ -1799,8 +1809,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 .to_dense()[bucket_asc_ids_list[table_index].view(-1)]
             )
             self.assertLess(table_index, len(emb_state_dict_list))
-            assert len(split_optimizer_states[table_index]) == num_ids
-            opt = split_optimizer_states[table_index]
+            assert len(split_optimizer_states[table_index][0]) == num_ids
+            # NOTE: The [0] index is a hack since the test is fixed to use
+            # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+            # be upgraded in the future to support multiple optimizers
+            opt = split_optimizer_states[table_index][0]
             new_ref_weight = torch.addcdiv(
                 emb_r_w.float(),
                 value=-lr,
@@ -1985,7 +1998,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
             ref_kv_opt = ref_optimizer_state[bucket_asc_ids_list[t]].view(-1)
             torch.testing.assert_close(
-                split_optimizer_states[t].float(),
+                # NOTE: The [0] index is a hack since the test is fixed to use
+                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+                # be upgraded in the future to support multiple optimizers
+                split_optimizer_states[t][0].float(),
                 ref_kv_opt,
                 atol=tolerance,
                 rtol=tolerance,
@@ -2031,8 +2047,11 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 .to_dense()[bucket_asc_ids_list[table_index].view(-1)]
             )
             self.assertLess(table_index, len(emb_state_dict_list))
-            assert len(split_optimizer_states[table_index]) == num_ids
-            opt = split_optimizer_states[table_index]
+            # NOTE: The [0] index is a hack since the test is fixed to use
+            # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+            # be upgraded in the future to support multiple optimizers
+            assert len(split_optimizer_states[table_index][0]) == num_ids
+            opt = split_optimizer_states[table_index][0]
             new_ref_weight = torch.addcdiv(
                 emb_r_w.float(),
                 value=-lr,
@@ -2221,7 +2240,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `__getitem__`.
             ref_kv_opt = ref_optimizer_state[bucket_asc_ids_list[t]].view(-1)
             opt = (
-                split_optimizer_states[t]
+                # NOTE: The [0] index is a hack since the test is fixed to use
+                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+                # be upgraded in the future to support multiple optimizers
+                split_optimizer_states[t][0]
                 .narrow(0, 0, bucket_asc_ids_list[t].size(0))
                 .view(-1)
                 .view(torch.float32)
@@ -2276,7 +2298,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 .to_dense()[bucket_asc_ids_list[table_index].view(-1)]
             )
             self.assertLess(table_index, len(emb_state_dict_list))
-            assert split_optimizer_states[table_index].size(0) == num_ids
+            # NOTE: The [0] index is a hack since the test is fixed to use
+            # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+            # be upgraded in the future to support multiple optimizers
+            assert split_optimizer_states[table_index][0].size(0) == num_ids
             new_ref_weight = torch.addcdiv(
                 emb_r_w.float(),
                 value=-lr,
@@ -2501,9 +2526,12 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
                 emb_state_dict_list[i].full_tensor()
             )
+            # NOTE: The [0] index is a hack since the test is fixed to use
+            # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+            # be upgraded in the future to support multiple optimizers
             # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_optimizer_state_per_table[i].copy_(
-                split_optimizer_states[i]
+                split_optimizer_states[i][0]
             )
             # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_id_tensor_per_table[i].copy_(
@@ -2547,8 +2575,8 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
                 rtol=tolerance,
             )
             torch.testing.assert_close(
-                split_optimizer_states[t][sorted_ids.indices],
-                split_optimizer_states2[t][sorted_ids2.indices],
+                split_optimizer_states[t][0][sorted_ids.indices],
+                split_optimizer_states2[t][0][sorted_ids2.indices],
                 atol=tolerance,
                 rtol=tolerance,
             )
@@ -2820,7 +2848,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # pyre-fixme[16]: Optional type has no attribute `float`.
             ref_optimizer_state = emb_ref[f].weight.grad.float().to_dense().pow(2)
             torch.testing.assert_close(
-                split_optimizer_states[t].float(),
+                # NOTE: The [0] index is a hack since the test is fixed to use
+                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+                # be upgraded in the future to support multiple optimizers
+                split_optimizer_states[t][0].float(),
                 ref_optimizer_state.mean(dim=1),
                 atol=tolerance,
                 rtol=tolerance,
@@ -3036,7 +3067,10 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             cursor += local_idxes.numel()
 
             torch.testing.assert_close(
-                split_optimizer_states[t][indices].float(),
+                # NOTE: The [0] index is a hack since the test is fixed to use
+                # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
+                # be upgraded in the future to support multiple optimizers
+                split_optimizer_states[t][0][indices].float(),
                 opt_states_per_tb.cpu().float(),
                 atol=tolerance,
                 rtol=tolerance,
