@@ -8,7 +8,6 @@
 # pyre-strict
 
 import enum
-import math
 from typing import Any, Dict  # noqa: F401
 
 import torch
@@ -41,22 +40,33 @@ class EmbOptimType(enum.Enum):
     def __str__(self) -> str:
         return self.value
 
-    def state_size(self) -> int:
+    def _extract_dtype(
+        self, optimizer_state_dtypes: Dict[str, "SparseType"], name: str
+    ) -> torch.dtype:
+        if optimizer_state_dtypes is None or name not in optimizer_state_dtypes:
+            return torch.float32
+        return optimizer_state_dtypes[name].as_dtype()
+
+    def state_size_nbytes(
+        self, D: int, optimizer_state_dtypes: Dict[str, "SparseType"] = {}  # noqa: B006
+    ) -> int:
         """
         Returns the size of the data (in bytes) required to hold the optimizer
-        state (per table row), or 0 if none needed
+        state (per table row)
         """
-        return {
-            # Only holds the momentum float value per row
-            EmbOptimType.EXACT_ROWWISE_ADAGRAD: torch.float32.itemsize,
-        }.get(self, 0)
+        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
+            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
+            # Store one value for momentum per row
+            return momentum1_dtype.itemsize
 
-    def state_size_dim(self, dtype: torch.dtype) -> int:
-        """
-        Returns the size of the data (in units of elements of dtype) rquired to
-        hold optimizer information (per table row)
-        """
-        return int(math.ceil(self.state_size() / dtype.itemsize))
+        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
+            momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
+            # Store one value for momentum2 plus D values for momentum1 per row
+            return momentum2_dtype.itemsize + (D * momentum1_dtype.itemsize)
+
+        else:
+            return 0
 
     def dtype(self) -> torch.dtype:
         """
