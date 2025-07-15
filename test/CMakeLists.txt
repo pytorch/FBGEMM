@@ -17,6 +17,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   #Download Googletest framework from github if
   #GOOGLETEST_SOURCE_DIR is not specified.
+  set(INSTALL_GTEST OFF)
   if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
     set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
       CACHE STRING "googletest source directory from submodules")
