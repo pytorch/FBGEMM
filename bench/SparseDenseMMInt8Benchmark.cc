@@ -166,7 +166,7 @@ int main(int /*unused*/, char** /*unused*/) {
         if (std::abs(ctDataRef_u8[i] - ctDataIntrin_u8[i]) > 0) {
           fprintf(
               stderr,
-              "Error: Results differ ref %d and test %d at %ld\n",
+              "Error: Results differ ref %d and test %d at %zu\n",
               ctDataRef_u8[i],
               ctDataIntrin_u8[i],
               i);

@@ -381,7 +381,7 @@ void performance_test(
         if (std::abs(C_ref[0][i] - C_fb[0][i]) > 1e-3) {
           fprintf(
               stderr,
-              "Error: too high diff between fp32 ref %f and fp16 %f at %ld\n",
+              "Error: too high diff between fp32 ref %f and fp16 %f at %zu\n",
               C_ref[0][i],
               C_fb[0][i],
               i);
