@@ -28,6 +28,7 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     DEFAULT_SCALE_BIAS_SIZE_IN_BYTES,
     EmbeddingLocation,
     EmbeddingSpecInfo,
+    get_bounds_check_version_for_platform,
     get_new_embedding_location,
     MAX_PREFETCH_DEPTH,
     PoolingMode,
@@ -351,7 +352,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         feature_table_map: Optional[List[int]] = None,  # [T]
         index_remapping: Optional[List[Tensor]] = None,
         pooling_mode: PoolingMode = PoolingMode.SUM,
-        Ls=None,
         device: Optional[Union[str, int, torch.device]] = None,
         bounds_check_mode: BoundsCheckMode = BoundsCheckMode.WARNING,
         weight_lists: Optional[List[Tuple[Tensor, Optional[Tensor]]]] = None,
@@ -481,27 +481,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 ],
                 default=0,
             )
-
-        def find_max_ls(ty: SparseType, weights_tys: List[SparseType], Ls) -> int:
-            if isinstance(Ls, list):
-                return (
-                    0
-                    if not any(t.value == ty.value for t in weights_tys)
-                    else int(max(Ls))
-                )
-            elif Ls is None:
-                return 0
-            else:
-                return (
-                    0 if not any(t.value == ty.value for t in weights_tys) else int(Ls)
-                )
-
-        self.INT2_max_ls = find_max_ls(SparseType.INT2, weights_tys, Ls)
-        self.INT4_max_ls = find_max_ls(SparseType.INT4, weights_tys, Ls)
-        self.INT8_max_ls = find_max_ls(SparseType.INT8, weights_tys, Ls)
-        self.FP8_max_ls = find_max_ls(SparseType.FP8, weights_tys, Ls)
-        self.FP16_max_ls = find_max_ls(SparseType.FP16, weights_tys, Ls)
-        self.FP32_max_ls = find_max_ls(SparseType.FP32, weights_tys, Ls)
 
         self.max_int2_D: int = max_ty_D(SparseType.INT2)
         self.max_int4_D: int = max_ty_D(SparseType.INT4)
@@ -656,6 +635,8 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
         else:
             self.fp8_exponent_bits = -1
             self.fp8_exponent_bias = -1
+
+        self.bounds_check_version: int = get_bounds_check_version_for_platform()
 
     @torch.jit.ignore
     def log(self, msg: str) -> None:
@@ -997,6 +978,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                     self.bounds_check_mode_int,
                     self.bounds_check_warning,
                     per_sample_weights,
+                    bounds_check_version=self.bounds_check_version,
                 )
 
         # Index remapping changes input indices, and some of them becomes -1 (prunned rows).
@@ -1039,6 +1021,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 self.bounds_check_mode_int,
                 self.bounds_check_warning,
                 per_sample_weights,
+                bounds_check_version=self.bounds_check_version,
             )
         # Note: CPU and CUDA ops use the same interface to facilitate JIT IR
         # generation for CUDA/CPU. For CPU op, we don't need weights_uvm and
@@ -1056,12 +1039,6 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             max_int8_D=self.max_int8_D,
             max_float16_D=self.max_float16_D,
             max_float32_D=self.max_float32_D,
-            INT2_max_ls=self.INT2_max_ls,
-            INT4_max_ls=self.INT4_max_ls,
-            INT8_max_ls=self.INT8_max_ls,
-            FP8_max_ls=self.FP8_max_ls,
-            FP16_max_ls=self.FP16_max_ls,
-            FP32_max_ls=self.FP32_max_ls,
             indices=indices,
             offsets=offsets,
             pooling_mode=int(self.pooling_mode),
@@ -1544,6 +1521,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
                 for i, weight in enumerate(weights):
                     weights[i] = (
                         weight[0].to(device),
+                        # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `to`.
                         weight[1].to(device) if weight[1] is not None else None,
                     )
             (
@@ -1813,6 +1791,7 @@ class IntNBitTableBatchedEmbeddingBagsCodegen(nn.Module):
             dest_weight[0].copy_(input_weight[0])
             if input_weight[1] is not None:
                 assert dest_weight[1] is not None
+                # pyre-fixme[16]: Undefined attribute: `Optional` has no attribute `copy_`.
                 dest_weight[1].copy_(input_weight[1])
             else:
                 assert dest_weight[1] is None
