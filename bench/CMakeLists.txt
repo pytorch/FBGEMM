@@ -20,7 +20,7 @@ if (NOT ${MKL_FOUND})
 endif()
 
 if (USE_SANITIZER)
-    message(WARNING "USING SANITIZER IN TEST")
+  message(WARNING "USING SANITIZER IN TEST")
 endif()
 
 if (${OpenMP_FOUND})
@@ -58,6 +58,9 @@ macro(add_benchmark BENCHNAME)
     target_compile_options(${BENCHNAME} PRIVATE
       "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
     target_link_options(${BENCHNAME} PRIVATE "-fsanitize=${USE_SANITIZER}")
+  endif()
+  if (APPLE)
+    target_link_options(${BENCHNAME} PRIVATE " -Wno-deprecated-declarations")
   endif()
 
   if(OpenMP_FOUND)
