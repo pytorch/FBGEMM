@@ -889,7 +889,7 @@ static void dispatchOutputProcessing(
     int ld_in,
     int groups,
     int C_per_G,
-    true_type) {
+    true_type /*unused*/) {
   constexpr QuantizationGranularity Q_GRAN = processOutputType::QGRANType;
   constexpr int FUSE_RELU = processOutputType::RELU_FUSED;
   bool b_symmetric = (Q_GRAN == QuantizationGranularity::TENSOR &&
