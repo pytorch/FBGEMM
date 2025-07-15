@@ -6,11 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <algorithm>
-#include <numeric>
-#include <ostream>
 #include <random>
-#include <stdexcept>
 
 #include <gtest/gtest.h>
 
@@ -91,11 +87,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
   bool test_thread_local = bool_dist(generator);
-  int bit_rate = 0, prefetch = 0;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMDtypeChoice out_type;
-  tie(bit_rate, prefetch, weight_choice, corner_case, out_type) = GetParam();
+  auto [bit_rate, prefetch, weight_choice, corner_case, out_type] = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
   bool is_bf16_out = out_type == BFLOAT16;
@@ -394,11 +386,7 @@ TEST_P(FusedNBitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
-  int bit_rate = 0, prefetch = 0;
-  EmbeddingSpMDMWeightChoice weight_choice;
-  EmbeddingSpMDMCornerCase corner_case;
-  EmbeddingSpMDMDtypeChoice out_type;
-  tie(bit_rate, prefetch, weight_choice, corner_case, out_type) = GetParam();
+  auto [bit_rate, prefetch, weight_choice, corner_case, out_type] = GetParam();
   bool is_wt_positional = weight_choice == POSITIONAL_WEIGHTED;
   bool use_weight = weight_choice != UNWEIGHTED;
 
