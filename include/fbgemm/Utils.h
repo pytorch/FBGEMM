@@ -447,6 +447,7 @@ void nbit_embedding_sanity_check(
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
       "input_bit_rate must be 2 or 4");
+  // NOLINTNEXTLINE(bugprone-branch-clone)
   if constexpr (std::is_same_v<OutType, uint8_t>) {
     assert(
         (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
