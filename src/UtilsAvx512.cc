@@ -1493,7 +1493,7 @@ static void transpose_16x16_block(
     int mrem = 16,
     int nrem = 16) {
   __m512i r[8];
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     load_with_remainders_i16(src, ld_src, r, mrem, nrem);
   } else {
     __m256i t00 =
@@ -1556,7 +1556,7 @@ static void transpose_16x16_block(
   }
   __m512i u[8];
   core_transpose_16x16_block(r, u);
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     store_with_remainders_i16(dst, ld_dst, u, mrem, nrem);
   } else {
     _mm256_storeu_si256(
@@ -1639,7 +1639,7 @@ static void transpose_16x32_block(
   // 15_00 15_01 15_02 15_03 15_04 15_05 15_06 15_07
 
   __m512i r[8];
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     load_with_remainders_i8(src, ld_src, r, mrem, nrem);
   } else {
     __m256i t00 =
@@ -1710,7 +1710,7 @@ static void transpose_16x32_block(
   __m512i u[8];
   core_transpose_16x32_block_i8(r, u);
 
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     store_with_remainders_i8(dst, ld_dst, u, mrem, nrem);
   } else {
     _mm_storeu_si128(

@@ -1,3 +1,5 @@
+#include <math.h>
+
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
  * All rights reserved.
@@ -17,7 +19,7 @@ inline int memCopy<outT, inT, nextOPType>::f(
     int ld_out,
     int ld_in) const {
   static_assert(
-      std::is_same<outT, inT>::value,
+      std::is_same_v<outT, inT>,
       "input and output data type must be of same type");
   // only copy if destination is not the same as source
   if (out + block.row_start * ld_out + block.col_start != inp) {
@@ -74,22 +76,21 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
     int ld_out,
     int ld_in) const {
   static_assert(
-      std::is_same<inT, int32_t>::value,
-      "input data type must be of int32_t type");
+      std::is_same_v<inT, int32_t>, "input data type must be of int32_t type");
   int ncol_per_group = ncols_ / groups_;
   assert(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
   int g = block.col_start / ncol_per_group;
   if constexpr (
-      instSet == inst_set_t::anyarch || !std::is_same<outT, uint8_t>::value) {
+      instSet == inst_set_t::anyarch || !std::is_same_v<outT, uint8_t>) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + (j - block.col_start)];
         if (Aq_zero_point_) {
           raw -= Aq_zero_point_ * q_col_offsets_[j];
         }
-        int Bq_zero_point_idx;
+        int Bq_zero_point_idx = 0;
         if constexpr (Q_GRAN == QuantizationGranularity::TENSOR) {
           Bq_zero_point_idx = 0;
         } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
@@ -103,9 +104,9 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
           raw -= q_row_offsets_[i - block.row_start] *
               Bq_zero_point_[Bq_zero_point_idx];
         }
-        float raw_f;
+        float raw_f = NAN;
         if (bias_) {
-          if constexpr (std::is_same<BIAS_TYPE, float>::value) {
+          if constexpr (std::is_same_v<BIAS_TYPE, float>) {
             raw_f = raw;
             raw_f += bias_[j] / act_times_w_scale_[Bq_zero_point_idx];
           } else {
@@ -203,25 +204,23 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
     int ld_out,
     int ld_in) const {
   static_assert(
-      std::is_same<int32_t, inT>::value,
-      "input data type is of not expected type");
+      std::is_same_v<int32_t, inT>, "input data type is of not expected type");
   static_assert(
-      std::is_same<float, outT>::value,
-      "output data type is of not expected type");
+      std::is_same_v<float, outT>, "output data type is of not expected type");
   int ncol_per_group = ncols_ / groups_;
   assert(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
   int g = block.col_start / ncol_per_group;
   if constexpr (
-      instSet == inst_set_t::anyarch || !std::is_same<outT, float>::value) {
+      instSet == inst_set_t::anyarch || !std::is_same_v<outT, float>) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
         inT raw = inp[(i - block.row_start) * ld_in + j - block.col_start];
         if (Aq_zero_point_) {
           raw -= Aq_zero_point_ * q_col_offsets_[j];
         }
-        int Bq_zero_point_idx;
+        int Bq_zero_point_idx = 0;
         if constexpr (Q_GRAN == QuantizationGranularity::TENSOR) {
           Bq_zero_point_idx = 0;
         } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {

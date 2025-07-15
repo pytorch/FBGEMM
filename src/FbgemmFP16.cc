@@ -125,7 +125,9 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
 } // namespace
 
 template <>
-const isa_descriptor<float16>& getIsaHandlers(inst_set_t isa, float16) {
+const isa_descriptor<float16>& getIsaHandlers(
+    inst_set_t isa,
+    float16 /*unused*/) {
   static isa_descriptor<float16> avx2_descriptor =
       std::make_tuple(kernel_fp16_avx2, partition_avx2);
   static isa_descriptor<float16> avx512_descriptor =

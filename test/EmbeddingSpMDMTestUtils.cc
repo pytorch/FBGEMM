@@ -39,7 +39,7 @@ int GenerateLengthsIndicesWeights(
   }
 
   // Compute the number of indices
-  int lengths_sum = accumulate(lengths.begin(), lengths.end(), 0);
+  int64_t lengths_sum = accumulate(lengths.begin(), lengths.end(), 0l);
 
   // Generate indices
   indices.resize(lengths_sum);

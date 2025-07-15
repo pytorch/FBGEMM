@@ -158,8 +158,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
     }
 #endif
 
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize / vectorLen;
     assert(
         maxMRegs * maxNRegs <= 30 &&
