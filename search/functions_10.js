@@ -18,7 +18,7 @@ var searchData=
   ['packmatrix_15',['PackMatrix',['../classfbgemm_1_1_pack_matrix.html#ac15276b97315df2567c4ab36d48b8da0',1,'fbgemm::PackMatrix']]],
   ['packweightmatrixforgconv_16',['PackWeightMatrixForGConv',['../classfbgemm_1_1_pack_weight_matrix_for_g_conv.html#ac4aac545b455c64f161fc78ac724d3e3',1,'fbgemm::PackWeightMatrixForGConv']]],
   ['padding_5ffused_5ftbe_5finput_5fcombine_5fwith_5flength_5fcpu_17',['padding_fused_tbe_input_combine_with_length_cpu',['../namespacefbgemm__gpu.html#af01b4023830652f0cc3e99c87f7b4526',1,'fbgemm_gpu']]],
-  ['pause_5fongoing_5feviction_18',['pause_ongoing_eviction',['../classkv__db_1_1_embedding_k_v_d_b.html#a121cc1bc15c3f4197845b1fba6dba7a0',1,'kv_db::EmbeddingKVDB']]],
+  ['pause_5fongoing_5feviction_18',['pause_ongoing_eviction',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a700a279c2f2a7f119eff580812bb5d3d',1,'kv_mem::DramKVEmbeddingCache::pause_ongoing_eviction()'],['../classkv__db_1_1_embedding_k_v_d_b.html#a2ff1dfc470540680bb0395bba2577272',1,'kv_db::EmbeddingKVDB::pause_ongoing_eviction()']]],
   ['per_5ftensor_5fquantize_5fi8_19',['per_tensor_quantize_i8',['../namespacefbgemm__gpu.html#ace574b23fe99327816839526e99298ac',1,'fbgemm_gpu']]],
   ['permute_5fmulti_5fembedding_5fautograd_20',['permute_multi_embedding_autograd',['../namespacefbgemm__gpu.html#ae85fe18941deb26c531c609da34d7c78',1,'fbgemm_gpu']]],
   ['printmatrix_21',['printMatrix',['../namespacefbgemm.html#adfee356e154f8b2f88c725885b1dbc11',1,'fbgemm::printMatrix(matrix_op_t trans, const T *inp, size_t R, size_t C, size_t ld, std::string name)'],['../namespacefbgemm.html#afd61ae194dbb24a73fe7098d9d823258',1,'fbgemm::printMatrix(matrix_op_t op, const T *inp, size_t R, size_t C, size_t ld, const std::string &amp;name)']]],

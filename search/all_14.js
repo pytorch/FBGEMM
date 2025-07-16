@@ -56,7 +56,7 @@ var searchData=
   ['packweightsforconv_3c_20spatial_5fdim_2c_20t_2c_20acct_20_3e_53',['PackWeightsForConv&lt; SPATIAL_DIM, T, accT &gt;',['../classfbgemm_1_1_pack_weights_for_conv.html',1,'fbgemm']]],
   ['padding_5ffused_5ftbe_5finput_5fcombine_5fwith_5flength_5fcpu_54',['padding_fused_tbe_input_combine_with_length_cpu',['../namespacefbgemm__gpu.html#af01b4023830652f0cc3e99c87f7b4526',1,'fbgemm_gpu']]],
   ['params_55',['Params',['../structcutlass_1_1epilogue_1_1thread_1_1_linear_combination_on_device_1_1_params.html',1,'cutlass::epilogue::thread::LinearCombinationOnDevice']]],
-  ['pause_5fongoing_5feviction_56',['pause_ongoing_eviction',['../classkv__db_1_1_embedding_k_v_d_b.html#a121cc1bc15c3f4197845b1fba6dba7a0',1,'kv_db::EmbeddingKVDB']]],
+  ['pause_5fongoing_5feviction_56',['pause_ongoing_eviction',['../classkv__mem_1_1_dram_k_v_embedding_cache.html#a700a279c2f2a7f119eff580812bb5d3d',1,'kv_mem::DramKVEmbeddingCache::pause_ongoing_eviction()'],['../classkv__db_1_1_embedding_k_v_d_b.html#a2ff1dfc470540680bb0395bba2577272',1,'kv_db::EmbeddingKVDB::pause_ongoing_eviction()']]],
   ['per_5ftensor_5fquantize_5fi8_57',['per_tensor_quantize_i8',['../namespacefbgemm__gpu.html#ace574b23fe99327816839526e99298ac',1,'fbgemm_gpu']]],
   ['permute_20pooled_20embeddings_20operators_20cpu_58',['Permute Pooled Embeddings Operators (CPU)',['../group__permute-pooled-embs-cpu.html',1,'']]],
   ['permute_20pooled_20embeddings_20operators_20cuda_59',['Permute Pooled Embeddings Operators (CUDA)',['../group__permute-pooled-embs-gpu.html',1,'']]],
