@@ -195,14 +195,8 @@ target_link_libraries(fbgemm_generic PUBLIC
   $<BUILD_INTERFACE:asmjit>
   $<BUILD_INTERFACE:cpuinfo>)
 
-# On Windows:
-# 1)  Adding definition of ASMJIT_STATIC to avoid generating asmjit function
-#     calls with _dllimport attribute
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
-  if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
-    target_compile_definitions(fbgemm_generic PUBLIC ASMJIT_STATIC)
-  endif()
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
   if(OpenMP_FOUND)
@@ -274,20 +268,6 @@ if(NOT TARGET asmjit)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
-  # Add a flag required for mac build
-  if(NOT MSVC)
-    target_compile_options(asmjit PRIVATE "-Wno-sign-conversion")
-  endif()
-
-  target_compile_options_if_supported(asmjit -Wno-deprecated-enum-enum-conversion)
-  target_compile_options_if_supported(asmjit -Wno-deprecated-anon-enum-enum-conversion)
-  target_compile_options_if_supported(asmjit -Wno-error=deprecated-enum-enum-conversion)
-
-  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 13.0.0)
-    # See https://github.com/pytorch/pytorch/issues/74352, https://github.com/pytorch/FBGEMM/issues/1173
-    target_compile_options_if_supported(asmjit -Wno-deprecated-copy)
-    target_compile_options_if_supported(asmjit -Wno-unused-but-set-variable)
-  endif()
 endif()
 
 if(NOT TARGET cpuinfo)
@@ -350,16 +330,6 @@ install(
   EXPORT fbgemmLibraryConfig
   DESTINATION share/cmake/fbgemm
   FILE fbgemmLibraryConfig.cmake)
-
-if(MSVC)
-  if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-    install(
-      FILES $<TARGET_PDB_FILE:fbgemm> $<TARGET_PDB_FILE:asmjit>
-      DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
-  endif()
-  install(TARGETS fbgemm DESTINATION ${CMAKE_INSTALL_LIBDIR})
-  install(TARGETS asmjit DESTINATION ${CMAKE_INSTALL_LIBDIR})
-endif()
 
 #Make project importable from the build directory
 #export(TARGETS fbgemm asmjit FILE fbgemmLibraryConfig.cmake)
