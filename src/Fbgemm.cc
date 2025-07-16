@@ -43,9 +43,9 @@ void fbgemmPacked(
     int num_threads,
     const BlockingFactors* blocking_params) {
   static_assert(
-      std::is_same<
+      std::is_same_v<
           typename packingAMatrix::accType,
-          typename packingBMatrix::accType>::value,
+          typename packingBMatrix::accType>,
       "Accumulation type of both matrices should be the same");
 
   // Run time CPU detection
@@ -58,9 +58,9 @@ void fbgemmPacked(
     throw std::runtime_error("unknown architecure");
   }
 
-  int64_t MCB;
-  int KCB;
-  int MR;
+  int64_t MCB = 0;
+  int KCB = 0;
+  int MR = 0;
 
   if (blocking_params) {
     MCB = blocking_params->MCB;
@@ -129,7 +129,7 @@ void fbgemmPacked(
   // remainders
   int _kc = KDimPerGroup % KCB;
 
-  int kc, mc;
+  int kc = 0, mc = 0;
 
   block_type_t blockA{0, 0, 0, 0};
 
@@ -146,7 +146,7 @@ void fbgemmPacked(
   // if (thread_id == 0)
   //   std::cout << ", " << th_info.toString();
 
-  int64_t g_begin, g_end, i_begin, i_end;
+  int64_t g_begin = 0, g_end = 0, i_begin = 0, i_end = 0;
 
   // Calculate the begin and end index along the group dimension
   fbgemmPartition1D(
@@ -209,7 +209,7 @@ void fbgemmPacked(
 
 template <int SPATIAL_DIM>
 bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
-  if (SPATIAL_DIM == 1)
+  if constexpr (SPATIAL_DIM == 1)
     return false;
 
   int C_per_G = conv_p.IC / conv_p.G;
@@ -227,17 +227,23 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
       std::all_of(
              conv_p.K.begin(),
              conv_p.K.end(),
-             std::bind(areEqual, std::placeholders::_1, 3)) &&
+             [areEqual](auto&& PH1) {
+               return areEqual(std::forward<decltype(PH1)>(PH1), 3);
+             }) &&
 
       std::all_of(
              conv_p.pad.begin(),
              conv_p.pad.end(),
-             std::bind(areEqual, std::placeholders::_1, 1)) &&
+             [areEqual](auto&& PH1) {
+               return areEqual(std::forward<decltype(PH1)>(PH1), 1);
+             }) &&
 
       std::all_of(
              conv_p.dilation.begin(),
              conv_p.dilation.end(),
-             std::bind(areEqual, std::placeholders::_1, 1)) &&
+             [areEqual](auto&& PH1) {
+               return areEqual(std::forward<decltype(PH1)>(PH1), 1);
+             }) &&
 
       // Height/Width strides should be the same and
       // should be either 1 or 2
@@ -245,11 +251,15 @@ bool fbgemmOptimizedGConv(const conv_param_t<SPATIAL_DIM>& conv_p) {
       (std::all_of(
            conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           std::bind(areEqual, std::placeholders::_1, 1)) ||
+           [areEqual](auto&& PH1) {
+             return areEqual(std::forward<decltype(PH1)>(PH1), 1);
+           }) ||
        std::all_of(
            conv_p.stride.begin() + SPATIAL_DIM - 2,
            conv_p.stride.end(),
-           std::bind(areEqual, std::placeholders::_1, 2))) &&
+           [areEqual](auto&& PH1) {
+             return areEqual(std::forward<decltype(PH1)>(PH1), 2);
+           })) &&
       !conv_p.transposed;
 }
 
@@ -436,7 +446,7 @@ INSTANTIATE_RELU(int16_t)
   INSTANTIATE_Q_GRANS(PACK_A, true)
 
 INSTANTIATE_RELU(PackAWithRowOffset)
-INSTANTIATE_RELU(PackAWithQuantRowOffset);
+INSTANTIATE_RELU(PackAWithQuantRowOffset)
 
 #undef INSTANTIATE_RELU
 #undef INSTANTIATE_Q_GRANS

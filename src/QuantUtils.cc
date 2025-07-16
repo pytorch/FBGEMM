@@ -8,8 +8,6 @@
 
 #define FBGEMM_EXPORTS
 #include <algorithm>
-#include <iterator>
-#include <numeric>
 #include <type_traits>
 
 #include "fbgemm/QuantUtils.h"
@@ -460,7 +458,7 @@ FBGEMM_API void Requantize<uint8_t>(
     const RequantizationParams& params,
     int thread_id,
     int num_threads) {
-  int64_t i_begin, i_end;
+  int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
       fbgemmHasAvx2Support()) {
@@ -482,9 +480,9 @@ FBGEMM_API void RequantizeFixedPoint(
     const RequantizationParams& params,
     int thread_id,
     int num_threads) {
-  int64_t i_begin, i_end;
+  int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
-  if (std::is_same<T, uint8_t>::value && params.target_qparams.precision == 8 &&
+  if (std::is_same_v<T, uint8_t> && params.target_qparams.precision == 8 &&
       cpuinfo_initialize() && fbgemmHasAvx2Support()) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
     RequantizeFixedPointAvx2(
@@ -524,7 +522,7 @@ FBGEMM_API void RequantizeFixedPoint<uint8_t>(
     const RequantizationParams& params,
     int thread_id,
     int num_threads) {
-  int64_t i_begin, i_end;
+  int64_t i_begin = 0, i_end = 0;
   fbgemmPartition1D(thread_id, num_threads, len, i_begin, i_end);
 
   if (params.target_qparams.precision == 8 && cpuinfo_initialize() &&
@@ -571,7 +569,7 @@ void FloatOrHalfToFusedNBitRowwiseQuantizedSBHalfRef(
     // NOTE: this can be optimized, however we don't care much about performance
     // for reference implementation.
     for (int col = 0; col < input_columns; ++col) {
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         input_row_float[col] = input_row[col];
       } else {
         input_row_float[col] = cpu_half2float(input_row[col]);
@@ -684,7 +682,7 @@ void FloatOrHalfToFused8BitRowwiseQuantizedSBFloatRef(
         reinterpret_cast<float*>(output_row + input_columns);
 
     for (int col = 0; col < input_columns; ++col) {
-      if (std::is_same<InputType, float>()) {
+      if constexpr (std::is_same<InputType, float>()) {
         input_row_float[col] = input_row[col];
       } else {
         input_row_float[col] = cpu_half2float(input_row[col]);
@@ -758,7 +756,7 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfRef(
       quantized >>= (col % num_elem_per_byte) * bit_rate;
       quantized &= (1 << bit_rate) - 1;
       float output_value = scale * quantized + bias;
-      if (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
       } else {
         if constexpr (is_uint16_t_of_type_bf16) {
@@ -822,7 +820,7 @@ void Fused8BitRowwiseQuantizedSBFloatToFloatOrHalfRef(
     for (int col = 0; col < output_columns; ++col) {
       float output_value =
           input_row[col] * input_row_scale_bias[0] + input_row_scale_bias[1];
-      if (std::is_same<OutputType, float>()) {
+      if constexpr (std::is_same<OutputType, float>()) {
         output_row[col] = output_value;
       } else {
         output_row[col] = cpu_float2half_rn(output_value);

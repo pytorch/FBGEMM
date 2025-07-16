@@ -36,9 +36,9 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-vector<int> prefetch_distances{16};
+static vector<int> prefetch_distances{16};
 
-void run_benchmark(
+static void run_benchmark(
     const int num_rows, // number of rows reading
     const int block_size, // number of parameters per row
     const uint64_t param_size, // total number of parameters
@@ -170,14 +170,14 @@ void run_benchmark(
   for (size_t i = 0; i < w.size(); ++i) {
     assert(fabs(w[i] - w_ref[i]) < 1e-5);
     if (fabs(w[i] - w_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%ld %f %f\n", i, w[i], w_ref[i]);
+      fprintf(stderr, "%zu %f %f\n", i, w[i], w_ref[i]);
     }
   }
 
   for (size_t i = 0; i < h.size(); ++i) {
     assert(fabs(h[i] - h_ref[i]) < 1e-5);
     if (fabs(h[i] - h_ref[i]) >= 1e-5) {
-      fprintf(stderr, "%ld %f %f\n", i, h[i], h_ref[i]);
+      fprintf(stderr, "%zu %f %f\n", i, h[i], h_ref[i]);
     }
   }
 
@@ -188,13 +188,13 @@ void run_benchmark(
   cout << "time taken by jit code(secs): " << setw(10) << fixed
        << setprecision(6) << t << " | ";
   cout << "bandwidth fbgemm (GB/s) " << setw(10) << fixed << setprecision(6)
-       << data_moved / t / 1e9 << endl;
+       << data_moved / t / 1e9 << '\n';
 }
 
 int main() {
-  int num_rows;
-  int block_size;
-  uint64_t param_size;
+  int num_rows = 0;
+  int block_size = 0;
+  uint64_t param_size = 0;
   vector<vector<int>> inputs(GetInputs_());
 
   for (auto isIndex64b : vector<bool>{true, false}) {

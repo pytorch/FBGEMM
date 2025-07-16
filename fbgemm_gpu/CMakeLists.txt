@@ -103,7 +103,7 @@ endif()
 # Declare CMake project
 project(
   fbgemm_gpu
-  VERSION 1.2.0
+  VERSION 1.3.0
   LANGUAGES ${project_languages})
 
 # AVX Flags Setup - must be set AFTER project declaration

@@ -22,7 +22,7 @@ int32_t reduceAvx2(const uint8_t* A, int len) {
   __m256i one_epi16_v = _mm256_set1_epi16(1);
   __m256i one_epi8_v = _mm256_set1_epi8(1);
 
-  int i;
+  int i = 0;
   // vectorized
   for (i = 0; i < len / 32 * 32; i += 32) {
     __m256i src_v = _mm256_loadu_si256(reinterpret_cast<__m256i const*>(A + i));
@@ -34,8 +34,8 @@ int32_t reduceAvx2(const uint8_t* A, int len) {
 
   alignas(64) int32_t temp[8];
   _mm256_store_si256(reinterpret_cast<__m256i*>(temp), sum_v);
-  for (int k = 0; k < 8; ++k) {
-    row_sum += temp[k];
+  for (int k : temp) {
+    row_sum += k;
   }
 
   // scalar
@@ -58,7 +58,7 @@ void transpose_8rows(
     uint8_t* dst,
     int ld_dst) {
   constexpr int M = 8;
-  int j;
+  int j = 0;
   // vectorized loop
   for (j = 0; j < N / 32 * 32; j += 32) {
     // a : a0 a1 ... a31

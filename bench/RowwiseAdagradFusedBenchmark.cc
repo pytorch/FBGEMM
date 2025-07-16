@@ -8,11 +8,11 @@
 
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <random>
 #include <set>
 #include <vector>
@@ -42,7 +42,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-void run_benchmark(
+static void run_benchmark(
     int batch_size,
     int num_rows,
     int embedding_dim,
@@ -81,7 +81,7 @@ void run_benchmark(
 
   // Compute the number of indices
   int lengths_sum = offsets[batch_size];
-  cout << "lengths_sum " << lengths_sum << endl;
+  cout << "lengths_sum " << lengths_sum << '\n';
 
   // Generate indices
   vector<int64_t> indices;
@@ -167,7 +167,7 @@ void run_benchmark(
 
     cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / t << " GB/s"
          << setw(20) << "effective b/w: " << setw(16) << bytes_padded / 1e9 / t
-         << "GB/s" << setw(8) << " time " << setw(16) << t << endl;
+         << "GB/s" << setw(8) << " time " << setw(16) << t << '\n';
   }
 }
 
@@ -184,7 +184,7 @@ int main() {
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
-         << endl;
+         << '\n';
 
     for (bool use_32_bit_indices : {false, true}) {
       for (bool prefetch : {false, true}) {

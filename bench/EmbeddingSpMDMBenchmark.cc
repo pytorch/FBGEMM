@@ -12,7 +12,6 @@
 #endif
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
@@ -49,7 +48,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-void run_benchmark(
+static void run_benchmark(
     int batch_size,
     int num_rows,
     int embedding_dim,
@@ -64,8 +63,8 @@ void run_benchmark(
 
   vector<float> embedding_table(num_rows * embedding_dim);
   normal_distribution<float> embedding_distribution;
-  for (size_t i = 0; i < embedding_table.size(); ++i) {
-    embedding_table[i] = embedding_distribution(generator);
+  for (float& i : embedding_table) {
+    i = embedding_distribution(generator);
   }
   vector<float16> embedding_table_fp16;
   vector<bfloat16> embedding_table_bf16;
@@ -95,7 +94,7 @@ void run_benchmark(
 
   // Compute the number of indices
   int lengths_sum = offsets[batch_size];
-  cout << "lengths_sum " << lengths_sum << endl;
+  cout << "lengths_sum " << lengths_sum << '\n';
 
   // Generate indices
   vector<int64_t> indices;
@@ -235,15 +234,15 @@ void run_benchmark(
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
         /*use_offsets=*/true,
-        /*isbf16=*/true);
+        /*is_bf16_out=*/true);
     auto kernel_bf16_i64 = GenerateEmbeddingSpMDM<bfloat16, int64_t>(
         embedding_dim,
         has_weight,
         normalize_by_lengths,
         prefetch ? 16 : 0,
         /*is_weight_positional=*/false,
-        /*is_weight_positional=*/true,
-        /*isbf16=*/true);
+        /*use_offsets=*/true,
+        /*is_bf16_out=*/true);
 
     vector<float>& output = has_weight ? output_slws : output_sls;
     for (bool flush_cache : {false, true}) {
@@ -354,7 +353,7 @@ void run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             assert(output[i] == output_ref[i]);
             if (output[i] != output_ref[i]) {
-              cout << i << " " << output[i] << " " << output_ref[i] << endl;
+              cout << i << " " << output[i] << " " << output_ref[i] << '\n';
             }
           }
         }
@@ -379,7 +378,7 @@ void run_benchmark(
       cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / t << " GB/s"
            << setw(20) << "effective b/w: " << setw(16)
            << bytes_padded / 1e9 / t << "GB/s" << setw(8) << " time "
-           << setw(16) << t << endl;
+           << setw(16) << t << '\n';
     } // flush_cache
   } // has_weight
 }
@@ -397,7 +396,7 @@ int main() {
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
-         << endl;
+         << '\n';
 
     for (bool normalize_by_lengths : {false, true}) {
       for (std::string input_dtype : {"bf16", "fp16", "fp32"}) {
@@ -409,8 +408,8 @@ int main() {
               cout << "Mean ";
             }
             cout << input_dtype << " inputs";
-            bool use_fp16_inputs = input_dtype == "fp16" ? true : false;
-            bool use_bf16_inputs = input_dtype == "fp16" ? true : false;
+            bool use_fp16_inputs = input_dtype == "fp16";
+            bool use_bf16_inputs = input_dtype == "fp16";
             cout << (use_32_bit_indices ? " 32" : " 64") << " bit indices";
             if (prefetch) {
               cout << " with prefetching";

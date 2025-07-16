@@ -17,19 +17,13 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   #Download Googletest framework from github if
   #GOOGLETEST_SOURCE_DIR is not specified.
+  set(INSTALL_GTEST OFF)
   if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
     set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
       CACHE STRING "googletest source directory from submodules")
   endif()
 
   #build Googletest framework
-  #MSVC needs gtest_for_shared_crt to select right runtime lib
-  if (MSVC AND FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-    message(WARNING "gtest_force_shared_crt is ON")
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  else()
-    message(WARNING "gtest_force_shared_crt is OFF")
-  endif()
   add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
   # add flags required for mac build
   if(NOT MSVC)
@@ -74,8 +68,8 @@ macro(add_gtest TESTNAME)
 
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
 
-  if(${OpenMP_FOUND})
-    target_link_libraries(${TESTNAME} ${OpenMP_CXX_LIBRARIES})
+  if(OpenMP_FOUND)
+    target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)
   endif()
 
   add_dependencies(${TESTNAME} gtest fbgemm)

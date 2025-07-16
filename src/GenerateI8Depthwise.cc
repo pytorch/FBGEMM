@@ -54,15 +54,15 @@ namespace x86 = asmjit::x86;
 static void genMaddEpi16xNPacked(
     x86::Emitter* e,
     x86::Ymm a[4],
-    x86::Gp b,
+    const x86::Gp& b,
     x86::Ymm c[4],
     x86::Ymm* a_sum,
     int n,
     int remainder,
     bool accumulation,
-    x86::Ymm one_epi8,
-    x86::Ymm one_epi16,
-    x86::Ymm zero) {
+    const x86::Ymm& one_epi8,
+    const x86::Ymm& one_epi16,
+    const x86::Ymm& zero) {
   // Interleave inputs corresponding to 4 filter positions.
   // Reuse a[1] and a[3] to save registers
   x86::Ymm a01_lo(0), a01_hi(1), a23_lo(a[1]), a23_hi(a[3]);
@@ -262,7 +262,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
+        asmjit::FuncSignature::build<
             void,
             const std::uint8_t*,
             const std::int8_t*,
@@ -557,14 +557,14 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
 
     e->emitEpilog(frame);
 
-    jit_kernel_signature fn;
-    asmjit::Error err;
+    jit_kernel_signature fn = nullptr;
+    asmjit::Error err = 0;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 

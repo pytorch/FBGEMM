@@ -25,20 +25,20 @@ using namespace fbgemm;
 
 // T is the type of scale and bias
 template <typename T>
-void performance_test() {
+static void performance_test() {
   constexpr int NWARMUP = 4;
   constexpr int NITER = 256;
 
-  if (is_same<T, float16>::value) {
-    cout << "With scale and bias as float16" << endl;
+  if constexpr (is_same_v<T, float16>) {
+    cout << "With scale and bias as float16" << '\n';
   } else {
-    cout << "With scale and bias as float" << endl;
+    cout << "With scale and bias as float" << '\n';
   }
   cout << setw(8) << "bit_rate" << ", " << setw(6) << "rows" << "," << setw(6)
        << "cols" << "," << setw(16) << "elems_per_usec" << "," << setw(10)
-       << "GB/Sec" << endl;
+       << "GB/Sec" << '\n';
   std::vector<int> bit_rates;
-  if (is_same<T, float16>::value) {
+  if constexpr (is_same_v<T, float16>) {
     bit_rates = {2, 4, 8};
   } else {
     // float
@@ -52,7 +52,7 @@ void performance_test() {
 
         int out_emb_cols = colSize;
 
-        if (is_same<T, float16>::value) {
+        if constexpr (is_same_v<T, float16>) {
           int elements_per_byte = 8 / bit_rate;
           out_emb_cols = (colSize + elements_per_byte - 1) / elements_per_byte;
         }
@@ -63,7 +63,7 @@ void performance_test() {
 
         duration = measureWithWarmup(
             [&]() {
-              is_same<T, float16>::value
+              is_same_v<T, float16>
                   ? FloatOrHalfToFusedNBitRowwiseQuantizedSBHalf<float>(
                         bit_rate,
                         inpVec.data(),
@@ -91,7 +91,7 @@ void performance_test() {
         cout << setw(16) << std::fixed << std::setprecision(2)
              << elements_per_usec << ", ";
         cout << setw(10) << std::fixed << std::setprecision(2)
-             << gigabyes_per_sec << endl;
+             << gigabyes_per_sec << '\n';
       } // for each cols
     } // for each rows
   } // for each bit_rate

@@ -24,7 +24,7 @@
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
-#include "fbgemm_gpu/utils/barrier_isolation.cuh"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
@@ -484,20 +484,8 @@ int32_t compute_num_groups_and_dynamic_smem_bytes(
   }
   TORCH_CHECK_GE(*num_groups, 1);
 
-  // Check https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
-  // "Compute capability 7.x devices allow a single thread block to
-  // address the full capacity of shared memory: 96 KB on Volta,
-  // 64 KB on Turing. Kernels relying on shared memory allocations
-  // over 48 KB per block are architecture-specific, as such they
-  // must use dynamic shared memory (rather than statically sized
-  // arrays) and require an explicit opt-in using cudaFuncSetAttribute()".
-#ifndef USE_ROCM
-  cudaFuncSetAttribute(
-      bwd_kernel_fn,
-      cudaFuncAttributeMaxDynamicSharedMemorySize,
-      used_shared_bytes); // V100: 64 KB; A100: 96 KB; H100: 144 KB
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-#endif
+  utils::cuda::set_max_dynamic_smem(bwd_kernel_fn, used_shared_bytes);
+
   return smem_bytes;
 }
 
@@ -1179,7 +1167,7 @@ Tensor {{ embedding_cuda_op }}(
                     int32_t num_warp_per_row_groups = kBackwardMaxThreads / kThreadGroupSize;
                     int32_t warp_per_row_smem_bytes = 0;
 
-                    if (kUseVecBlocking) {
+                    if constexpr (kUseVecBlocking) {
                       warp_per_row_smem_bytes = compute_num_groups_and_dynamic_smem_bytes(
                           &num_warp_per_row_groups,
                           // Use max_D to compute shmem_bytes (for smem_grad_sum)

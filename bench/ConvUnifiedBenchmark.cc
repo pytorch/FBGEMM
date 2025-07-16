@@ -28,7 +28,7 @@ using namespace fbgemm;
 
 // clang-format off
 // 1D conv shapes
-vector<conv_param_t<1>> shapes_1d = {
+static vector<conv_param_t<1>> shapes_1d = {
   // MB, IC, OC, IW, G, KW, stride_w, pad_w_left, pad_w_right,
   // (dilation, output_padding_w, tranpose)
   // regular
@@ -46,7 +46,7 @@ vector<conv_param_t<1>> shapes_1d = {
 };
 
 // 2D conv shapes
-vector<conv_param_t<2>> shapes_2d = {
+static vector<conv_param_t<2>> shapes_2d = {
   // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
   // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right,
   // (dilation_h, dilation_w, output_padding_h, output_padding_w, tranpose)
@@ -84,7 +84,7 @@ vector<conv_param_t<2>> shapes_2d = {
       {1, 1}, {0, 0, 0, 0})
 };
 
-vector<conv_param_t<2>> shapes_2d_resnext_101 = {
+static vector<conv_param_t<2>> shapes_2d_resnext_101 = {
   // ResNext-101 (unique shapes only)
   // conv_param_t<>(N, C, M, H, W, groups, /* kern */ {KH, KW}, /* stride */
   //   {stride_h, stride_w}, /* padding pad_l = pad_h */ {pad_l, pad_l, pad_l, pad_l}, /* dialation */
@@ -143,7 +143,7 @@ vector<conv_param_t<2>> shapes_2d_resnext_101 = {
 };
 
 // 3D conv shapes
-vector<conv_param_t<3>> shapes_3d = {
+static vector<conv_param_t<3>> shapes_3d = {
   // MB, IC, OC, {IT, IH, IW}, G, {KT, KH, KW}, {stride_t, stride_h,
   // stride_w},
   // {pad_prev, pad_h_top, pad_w_left, pad_next, pad_h_bottom, pad_w_right},
@@ -216,7 +216,7 @@ vector<conv_param_t<3>> shapes_3d = {
 // clang-format on
 
 template <int SPATIAL_DIM, typename Acc_t>
-void performance_test(
+static void performance_test(
     const vector<conv_param_t<SPATIAL_DIM>>& shapes,
     bool flush,
     int repetitions) {
@@ -230,42 +230,42 @@ void performance_test(
   const int NITER = repetitions;
 
   string header = "MB, IC, OC, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "IT, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "IH, ";
   }
   header += "IW, G, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "KT, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "KH, ";
   }
   header += "KW, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "stride_t, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "stride_h, ";
   }
   header += "stride_w, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "pad_t, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "pad_h, ";
   }
   header += "pad_w, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "dilation_t, ";
   }
   if (SPATIAL_DIM > 1) {
     header += "dilation_h, ";
   }
   header += "dilation_w, ";
-  if (SPATIAL_DIM == 3) {
+  if constexpr (SPATIAL_DIM == 3) {
     header += "output_padding_t, ";
   }
   if (SPATIAL_DIM > 1) {
@@ -285,7 +285,7 @@ void performance_test(
        << "Postprocessing (ms), " << "fbgemmPacked (ms), " << "Total (ms), "
        << "GOPS" << endl;
 #else
-  cout << setw(6) << header << setw(5) << "GOPS" << endl;
+  cout << setw(6) << header << setw(5) << "GOPS" << '\n';
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
@@ -493,7 +493,7 @@ void performance_test(
          << total_run_time / (double)NITER / 1e6 << ", "
          << ttot / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setprecision(2) << nops / ttot << endl;
+    cout << setprecision(2) << nops / ttot << '\n';
 
     compare_buffers(
         Cint8_ref.data(),
@@ -505,14 +505,14 @@ void performance_test(
   } // shapes
 }
 
-typedef struct {
+using user_args_t = struct {
   bool no_flush; /* if true, llc won't be flushed inbetween benchmark iterations
                   */
   bool run_extended_shapes; /* if true, runs additional shapes on top of the
                                default set */
   int benchmark_repetitions; /* specified number of timed benchmark iterations
                               */
-} user_args_t;
+};
 
 int main(int argc, const char* argv[]) {
   user_args_t user_args;

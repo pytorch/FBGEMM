@@ -75,4 +75,4 @@ jobs:
       test-infra-ref: main
       build-matrix: ${{ needs.filter-matrix.outputs.matrix }}
       trigger-event: ${{ github.event_name }}
-      timeout: 180
+      timeout: 210

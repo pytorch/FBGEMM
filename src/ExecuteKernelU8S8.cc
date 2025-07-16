@@ -8,7 +8,6 @@
 
 #include "./ExecuteKernelU8S8.h" // @manual
 #include <cpuinfo.h>
-#include <chrono>
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double kernel_time = 0.0;
@@ -115,8 +114,8 @@ void ExecuteKernel<
 
   int32_t bColBlocks = packedB_.blockCols();
 
-  int8_t* bBuf;
-  int8_t* bBuf_pf;
+  int8_t* bBuf = nullptr;
+  int8_t* bBuf_pf = nullptr;
 
   uint8_t* aBuf = packedA_.getBuf(0);
 
@@ -128,7 +127,7 @@ void ExecuteKernel<
   bool lastKBlock = packedB_.isThisLastKBlock(kBlock % packedB_.blockRows());
   bool accum = (kBlock % packedB_.blockRows()) > 0;
 
-  int64_t jb_begin, jb_end;
+  int64_t jb_begin = 0, jb_end = 0;
   fbgemmPartition1D(
       th_info_.n_thread_id,
       th_info_.n_num_threads,
@@ -144,7 +143,9 @@ void ExecuteKernel<
   const inst_set_t isa = fbgemmInstructionSet();
   switch (isa) {
     case inst_set_t::avx512_vnni:
-      if (std::is_same<typename packingAMatrix::accType, std::int16_t>::value) {
+      if constexpr (std::is_same_v<
+                        typename packingAMatrix::accType,
+                        std::int16_t>) {
         // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
         CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
         fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
@@ -162,7 +163,9 @@ void ExecuteKernel<
       break;
 
     case inst_set_t::avx512_vnni_ymm:
-      if (std::is_same<typename packingAMatrix::accType, std::int16_t>::value) {
+      if constexpr (std::is_same_v<
+                        typename packingAMatrix::accType,
+                        std::int16_t>) {
         // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
         CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
         fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(
@@ -221,8 +224,8 @@ void ExecuteKernel<
       if (nc != nbSize_) {
         switch (isa) {
           case inst_set_t::avx512_vnni:
-            if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
-                    value) {
+            if (std::
+                    is_same_v<typename packingAMatrix::accType, std::int16_t>) {
               // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
               CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
               fn = codeObj.getOrCreate<inst_set_t::avx512_vnni>(
@@ -234,8 +237,8 @@ void ExecuteKernel<
             break;
 
           case inst_set_t::avx512_vnni_ymm:
-            if (std::is_same<typename packingAMatrix::accType, std::int16_t>::
-                    value) {
+            if (std::
+                    is_same_v<typename packingAMatrix::accType, std::int16_t>) {
               // For AVX512VNNI, we redirect int16_t to int32_t accumulation.
               CodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
               fn = codeObj.getOrCreate<inst_set_t::avx512_vnni_ymm>(
@@ -386,27 +389,27 @@ void ExecuteKernel<
       ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>>;
 
 #define INSTANTIATE_REQUANT_BIAS_T(PACK_A, ACC_T, RELU, Q_GRAN) \
-  INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN, float); \
-  INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN, int32_t);
+  INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN, float)  \
+  INSTANTIATE_REQUANT_BASE(PACK_A, ACC_T, RELU, Q_GRAN, int32_t)
 
-#define INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, RELU)     \
-  INSTANTIATE_REQUANT_BIAS_T(                                \
-      PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_REQUANT_BIAS_T(                                \
-      PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_REQUANT_BIAS_T(                                \
-      PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, RELU)    \
+  INSTANTIATE_REQUANT_BIAS_T(                               \
+      PACK_A, ACC_T, RELU, QuantizationGranularity::TENSOR) \
+  INSTANTIATE_REQUANT_BIAS_T(                               \
+      PACK_A, ACC_T, RELU, QuantizationGranularity::GROUP)  \
+  INSTANTIATE_REQUANT_BIAS_T(                               \
+      PACK_A, ACC_T, RELU, QuantizationGranularity::OUT_CHANNEL)
 
-#define INSTANTIATE_REQUANT_RELU(PACK_A, ACC_T)      \
-  INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, false); \
-  INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, true);
+#define INSTANTIATE_REQUANT_RELU(PACK_A, ACC_T)     \
+  INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, false) \
+  INSTANTIATE_REQUANT_Q_GRANS(PACK_A, ACC_T, true)
 
-#define INSTANTIATE_REQUANT_ACC_T(PACK_A)    \
-  INSTANTIATE_REQUANT_RELU(PACK_A, int32_t); \
-  INSTANTIATE_REQUANT_RELU(PACK_A, int16_t);
+#define INSTANTIATE_REQUANT_ACC_T(PACK_A)   \
+  INSTANTIATE_REQUANT_RELU(PACK_A, int32_t) \
+  INSTANTIATE_REQUANT_RELU(PACK_A, int16_t)
 
-INSTANTIATE_REQUANT_ACC_T(PackAMatrix);
-INSTANTIATE_REQUANT_ACC_T(PackAWithRowOffset);
+INSTANTIATE_REQUANT_ACC_T(PackAMatrix)
+INSTANTIATE_REQUANT_ACC_T(PackAWithRowOffset)
 
 #undef INSTANTIATE_REQUANT_ACC_T
 #undef INSTANTIATE_REQUANT_RELU
@@ -423,28 +426,28 @@ INSTANTIATE_REQUANT_ACC_T(PackAWithRowOffset);
       ReQuantizeOutput<RELU, Q_GRAN, BIAS_TYPE>>;
 
 #define INSTANTIATE_IM2COL_REQUANT_BIAS_T(ACC_T, RELU, SPATIAL_DIM, Q_GRAN) \
-  INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, float); \
-  INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, int32_t);
+  INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, float)  \
+  INSTANTIATE_IM2COL_REQUANT_BASE(ACC_T, RELU, SPATIAL_DIM, Q_GRAN, int32_t)
 
 #define INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, SPATIAL_DIM) \
   INSTANTIATE_IM2COL_REQUANT_BIAS_T(                                 \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR);    \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR)     \
   INSTANTIATE_IM2COL_REQUANT_BIAS_T(                                 \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);     \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP)      \
   INSTANTIATE_IM2COL_REQUANT_BIAS_T(                                 \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, RELU) \
-  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 1);       \
-  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 2);       \
-  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 3);
+  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 1)        \
+  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 2)        \
+  INSTANTIATE_IM2COL_REQUANT_Q_GRANS(ACC_T, RELU, 3)
 
-#define INSTANTIATE_IM2COL_REQUANT_RELU(ACC_T)          \
-  INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, false); \
-  INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, true);
+#define INSTANTIATE_IM2COL_REQUANT_RELU(ACC_T)         \
+  INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, false) \
+  INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM(ACC_T, true)
 
-INSTANTIATE_IM2COL_REQUANT_RELU(int32_t);
-INSTANTIATE_IM2COL_REQUANT_RELU(int16_t);
+INSTANTIATE_IM2COL_REQUANT_RELU(int32_t)
+INSTANTIATE_IM2COL_REQUANT_RELU(int16_t)
 
 #undef INSTANTIATE_IM2COL_REQUANT_RELU
 #undef INSTANTIATE_IM2COL_REQUANT_SPATIAL_DIM
@@ -461,20 +464,19 @@ INSTANTIATE_IM2COL_REQUANT_RELU(int16_t);
       float,                                                 \
       ReQuantizeForFloat<RELU, Q_GRAN>>;
 
-#define INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, RELU) \
-  INSTANTIATE_REQUANT_FLOAT_BASE(                       \
-      PACK_A, RELU, QuantizationGranularity::TENSOR);   \
-  INSTANTIATE_REQUANT_FLOAT_BASE(                       \
-      PACK_A, RELU, QuantizationGranularity::GROUP);    \
-  INSTANTIATE_REQUANT_FLOAT_BASE(                       \
-      PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, RELU)                        \
+  INSTANTIATE_REQUANT_FLOAT_BASE(                                              \
+      PACK_A, RELU, QuantizationGranularity::TENSOR)                           \
+  INSTANTIATE_REQUANT_FLOAT_BASE(PACK_A, RELU, QuantizationGranularity::GROUP) \
+  INSTANTIATE_REQUANT_FLOAT_BASE(                                              \
+      PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL)
 
-#define INSTANTIATE_REQUANT_FLOAT_RELU(PACK_A)      \
-  INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, false); \
-  INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, true);
+#define INSTANTIATE_REQUANT_FLOAT_RELU(PACK_A)     \
+  INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, false) \
+  INSTANTIATE_REQUANT_FLOAT_Q_GRANS(PACK_A, true)
 
-INSTANTIATE_REQUANT_FLOAT_RELU(PackAWithRowOffset);
-INSTANTIATE_REQUANT_FLOAT_RELU(PackAWithQuantRowOffset);
+INSTANTIATE_REQUANT_FLOAT_RELU(PackAWithRowOffset)
+INSTANTIATE_REQUANT_FLOAT_RELU(PackAWithQuantRowOffset)
 
 #undef INSTANTIATE_REQUANT_FLOAT_RELU
 #undef INSTANTIATE_REQUANT_FLOAT_Q_GRANS
@@ -490,23 +492,23 @@ INSTANTIATE_REQUANT_FLOAT_RELU(PackAWithQuantRowOffset);
 
 #define INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, SPATIAL_DIM) \
   INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE(                                   \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR);          \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::TENSOR)           \
   INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE(                                   \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP);           \
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::GROUP)            \
   INSTANTIATE_REQUANT_FLOAT_IM2COL_BASE(                                   \
-      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL);
+      ACC_T, RELU, SPATIAL_DIM, QuantizationGranularity::OUT_CHANNEL)
 
 #define INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, RELU) \
-  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 1);       \
-  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 2);       \
-  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 3);
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 1)        \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 2)        \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_Q_GRANS(ACC_T, RELU, 3)
 
-#define INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(ACC_T)          \
-  INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, false); \
-  INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, true);
+#define INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(ACC_T)         \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, false) \
+  INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM(ACC_T, true)
 
-INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(int32_t);
-INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(int16_t);
+INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(int32_t)
+INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU(int16_t)
 
 #undef INSTANTIATE_REQUANT_FLOAT_IM2COL_RELU
 #undef INSTANTIATE_REQUANT_FLOAT_IM2COL_SPATIAL_DIM
@@ -528,17 +530,17 @@ template class ExecuteKernel<
       uint8_t,                                       \
       DoSpmdmOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<RELU, Q_GRAN>>>;
 
-#define INSTANTIATE_SPMDM_Q_GRANS(PACK_A, RELU)                          \
-  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_SPMDM_Q_GRANS(PACK_A, RELU)                         \
+  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::TENSOR) \
+  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::GROUP)  \
+  INSTANTIATE_SPMDM_BASE(PACK_A, RELU, QuantizationGranularity::OUT_CHANNEL)
 
-#define INSTANTIATE_SPMDM_RELU(PACK_A)      \
-  INSTANTIATE_SPMDM_Q_GRANS(PACK_A, false); \
-  INSTANTIATE_SPMDM_Q_GRANS(PACK_A, true);
+#define INSTANTIATE_SPMDM_RELU(PACK_A)     \
+  INSTANTIATE_SPMDM_Q_GRANS(PACK_A, false) \
+  INSTANTIATE_SPMDM_Q_GRANS(PACK_A, true)
 
-INSTANTIATE_SPMDM_RELU(PackAMatrix);
-INSTANTIATE_SPMDM_RELU(PackAWithRowOffset);
+INSTANTIATE_SPMDM_RELU(PackAMatrix)
+INSTANTIATE_SPMDM_RELU(PackAWithRowOffset)
 
 #undef INSTANTIATE_SPMDM_RELU
 #undef INSTANTIATE_SPMDM_Q_GRANS
@@ -551,13 +553,13 @@ INSTANTIATE_SPMDM_RELU(PackAWithRowOffset);
       uint8_t,                               \
       DoSConvOnInpBuffer<uint8_t, int32_t, ReQuantizeOutput<RELU, Q_GRAN>>>;
 
-#define INSTANTIATE_SCONV_Q_GRANS(RELU)                          \
-  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::TENSOR); \
-  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::GROUP);  \
-  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::OUT_CHANNEL);
+#define INSTANTIATE_SCONV_Q_GRANS(RELU)                         \
+  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::TENSOR) \
+  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::GROUP)  \
+  INSTANTIATE_SCONV_BASE(RELU, QuantizationGranularity::OUT_CHANNEL)
 
-INSTANTIATE_SCONV_Q_GRANS(false);
-INSTANTIATE_SCONV_Q_GRANS(true);
+INSTANTIATE_SCONV_Q_GRANS(false)
+INSTANTIATE_SCONV_Q_GRANS(true)
 
 #undef INSTANTIATE_SCONV_Q_GRANS
 #undef INSTANTIATE_SCONV_BASE
@@ -581,8 +583,8 @@ template class ExecuteKernel<
   INSTANTIATE_MEMCPY_BASE(PACK_A, int32_t) \
   INSTANTIATE_MEMCPY_BASE(PACK_A, int16_t)
 
-INSTANTIATE_MEMCPY_ACC_T(PackAMatrix);
-INSTANTIATE_MEMCPY_ACC_T(PackAWithRowOffset);
+INSTANTIATE_MEMCPY_ACC_T(PackAMatrix)
+INSTANTIATE_MEMCPY_ACC_T(PackAWithRowOffset)
 
 #undef INSTANTIATE_MEMCPY_ACC_T
 #undef INSTANTIATE_MEMCPY_BASE
@@ -595,12 +597,12 @@ INSTANTIATE_MEMCPY_ACC_T(PackAWithRowOffset);
       memCopy<>>;
 
 #define INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(ACC_T) \
-  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 1);          \
-  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 2);          \
-  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 3);
+  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 1)           \
+  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 2)           \
+  INSTANTIATE_MEMCPY_IM2COL_BASE(ACC_T, 3)
 
-INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(int32_t);
-INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(int16_t);
+INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(int32_t)
+INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM(int16_t)
 
 #undef INSTANTIATE_MEMCPY_IM2COL_SPATIAL_DIM
 #undef INSTANTIATE_MEMCPY_IM2COL_BASE

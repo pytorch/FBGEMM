@@ -23,7 +23,7 @@ int compare_validate_buffers(
     T atol) {
   for (int i = 0; i < m; ++i) {
     for (int j = 0; j < n; ++j) {
-      if (std::is_integral<T>::value) {
+      if constexpr (std::is_integral_v<T>) {
         EXPECT_EQ(test[i * ld + j], ref[i * ld + j])
             << "GEMM results differ at (" << i << ", " << j
             << ") reference: " << (int64_t)ref[i * ld + j]
@@ -123,13 +123,13 @@ template <>
       match = relDiff <= rtol;
     }
     if (!match) {
-      ss << " mismatch at (" << i << ") " << std::endl;
-      ss << "\t  ref: " << a[i] << " test: " << b[i] << std::endl;
+      ss << " mismatch at (" << i << ") " << '\n';
+      ss << "\t  ref: " << a[i] << " test: " << b[i] << '\n';
       if (consider_absDiff) {
-        ss << "\t absolute diff: " << absDiff << " > " << atol << std::endl;
+        ss << "\t absolute diff: " << absDiff << " > " << atol << '\n';
       }
       if (consider_relDiff) {
-        ss << "\t relative diff: " << relDiff << " > " << rtol << std::endl;
+        ss << "\t relative diff: " << relDiff << " > " << rtol << '\n';
       }
       return ::testing::AssertionFailure()
           << " results do not match. " << ss.str();

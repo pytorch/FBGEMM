@@ -17,14 +17,14 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
   execute_process(
-    COMMAND "${PYTHON_EXECUTABLE}" -c
+    COMMAND "${Python_EXECUTABLE}" -c
             "exec(open('defs.bzl').read());print(';'.join(${name}))"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     OUTPUT_VARIABLE _tempvar
     RESULT_VARIABLE _resvar
     ERROR_VARIABLE _errvar)
-  if (NOT "${_resvar}" EQUAL "0")
-    message(WARNING "Failed to execute Python (${PYTHON_EXECUTABLE})\n"
+  if(NOT "${_resvar}" EQUAL "0")
+    message(WARNING "Failed to execute Python (${Python_EXECUTABLE})\n"
       "Result: ${_resvar}\n"
       "Error: ${_errvar}\n")
   endif()
@@ -94,7 +94,7 @@ project(fbgemm VERSION 0.1 LANGUAGES CXX C)
 include(GNUInstallDirs)
 
 # Load Python
-find_package(PythonInterp)
+find_package(Python)
 
 set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
@@ -105,7 +105,17 @@ option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
+option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
+
+
+if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
+  if(BUILD_SHARED_LIB)
+    set(FBGEMM_LIBRARY_TYPE "shared")
+  else()
+    set(FBGEMM_LIBRARY_TYPE "static")
+  endif()
+endif()
 
 if(FBGEMM_BUILD_TESTS)
   enable_testing()
@@ -136,22 +146,18 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
 
 # We should default to a Release build
-if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 
 if(DISABLE_FBGEMM_AUTOVEC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DISABLE_FBGEMM_AUTOVEC")
+  add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
 
 # Check if compiler supports OpenMP
 find_package(OpenMP)
-if (OpenMP_FOUND)
+if(OpenMP_FOUND)
   message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
-  include_directories(${OpenMP_C_INCLUDE_DIRS})
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 else()
   message(WARNING "OpenMP is not supported by the compiler")
 endif()
@@ -164,46 +170,48 @@ get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})"
 get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
 get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})"
   FBGEMM_AVX512_INLINE_SRCS)
-get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+if(NOT DISABLE_FBGEMM_AUTOVEC)
+  get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+endif()
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
+set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
 add_library(fbgemm_avx512 OBJECT
   ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
-add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
+if(NOT DISABLE_FBGEMM_AUTOVEC)
+  add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
+  list(APPEND fbgemm_targets fbgemm_autovec)
+endif()
+
 
 # Make libraries depend on defs.bzl
 add_custom_target(defs.bzl DEPENDS defs.bzl)
 add_dependencies(fbgemm_generic defs.bzl)
-add_dependencies(fbgemm_avx2 defs.bzl)
-add_dependencies(fbgemm_avx512 defs.bzl)
-add_dependencies(fbgemm_autovec defs.bzl)
+foreach(target IN LISTS fbgemm_targets)
+  target_link_libraries(${target} PUBLIC fbgemm_generic)
+endforeach()
+
+target_include_directories(fbgemm_generic PUBLIC
+      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
+      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>)
+
+target_link_libraries(fbgemm_generic PUBLIC
+  $<BUILD_INTERFACE:asmjit>
+  $<BUILD_INTERFACE:cpuinfo>)
 
 # On Windows:
 # 1)  Adding definition of ASMJIT_STATIC to avoid generating asmjit function
 #     calls with _dllimport attribute
-# 2)  MSVC uses /MD in default cxx compiling flags,
-# Need to change it to /MT in static case
 if(MSVC)
-  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
   if(FBGEMM_LIBRARY_TYPE STREQUAL "static")
-    target_compile_definitions(fbgemm_generic PRIVATE ASMJIT_STATIC)
-    target_compile_definitions(fbgemm_avx2 PRIVATE ASMJIT_STATIC)
-    target_compile_definitions(fbgemm_avx512 PRIVATE ASMJIT_STATIC)
-    foreach(flag_var
-      CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-      CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-      if(${flag_var} MATCHES "/MD")
-        string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
-      endif(${flag_var} MATCHES "/MD")
-    endforeach(flag_var)
+    target_compile_definitions(fbgemm_generic PUBLIC ASMJIT_STATIC)
   endif()
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
-  if(OpenMP_FOUND)
-    target_compile_options(fbgemm_autovec PRIVATE "/openmp:experimental")
-  endif()
 else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wall")
   string(APPEND CMAKE_CXX_FLAGS " -Wextra")
@@ -212,8 +220,11 @@ else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
   string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
   string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
+  string(APPEND CMAKE_CXX_FLAGS " -Wunused-variable")
   if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
     string(APPEND CMAKE_CXX_FLAGS " -Wno-vla-cxx-extension")
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
   endif()
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
@@ -225,12 +236,6 @@ else(MSVC)
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-  set_source_files_properties(
-    src/FbgemmI64.cc
-    src/FbgemmI8Depthwise3DAvx2.cc
-    src/FbgemmI8DepthwiseAvx2.cc
-    src/UtilsAvx2.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-uninitialized")
   set_source_files_properties(src/PackMatrix.cc
     PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
@@ -244,11 +249,9 @@ else(MSVC)
 endif(MSVC)
 
 if(USE_SANITIZER)
-  target_compile_options(fbgemm_generic PRIVATE
+  target_link_options(fbgemm_generic PUBLIC
     "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-  target_compile_options(fbgemm_avx2 PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-  target_compile_options(fbgemm_avx512 PRIVATE
+  target_compile_options(fbgemm_generic PUBLIC
     "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
 endif()
 
@@ -267,7 +270,7 @@ if(NOT TARGET asmjit)
 
   # Build asmjit
   # For MSVC shared build, asmjit needs to be shared also.
-  if (MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+  if(MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
     set(ASMJIT_STATIC OFF)
   else()
     set(ASMJIT_STATIC ON)
@@ -309,85 +312,29 @@ if(NOT TARGET cpuinfo)
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-target_include_directories(fbgemm_generic BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-target_include_directories(fbgemm_avx2 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-target_include_directories(fbgemm_avx512 BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-target_include_directories(fbgemm_autovec BEFORE
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-      PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      PRIVATE "${ASMJIT_SRC_DIR}/src"
-      PRIVATE "${CPUINFO_SOURCE_DIR}/include")
-
-if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
-  add_library(fbgemm
-    $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>
-    $<TARGET_OBJECTS:fbgemm_autovec>)
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-  add_library(fbgemm SHARED
-    $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>
-    $<TARGET_OBJECTS:fbgemm_autovec>)
-  set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
-  set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
+file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
+if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+  add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
 elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
-  add_library(fbgemm STATIC
-    $<TARGET_OBJECTS:fbgemm_generic>
-    $<TARGET_OBJECTS:fbgemm_avx2>
-    $<TARGET_OBJECTS:fbgemm_avx512>
-    $<TARGET_OBJECTS:fbgemm_autovec>)
+  add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
   #avoid generating _dllimport functions.
-  target_compile_definitions(fbgemm_generic PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_avx2 PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_avx512 PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm_autovec PRIVATE FBGEMM_STATIC)
-  target_compile_definitions(fbgemm PRIVATE FBGEMM_STATIC)
+  target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()
+foreach(target IN ITEMS "${fbgemm_targets};fbgemm;fbgemm_generic")
+  set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE ON)
+endforeach()
 
-if(USE_SANITIZER)
-  target_link_options(fbgemm PRIVATE
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-endif()
-
-target_include_directories(fbgemm BEFORE
-    PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-    PUBLIC $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>)
-
-target_link_libraries(fbgemm
-  $<BUILD_INTERFACE:asmjit>
-  $<BUILD_INTERFACE:cpuinfo>)
-add_dependencies(fbgemm
-  asmjit
-  cpuinfo)
+target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
 
 if(OpenMP_FOUND)
-  target_link_libraries(fbgemm OpenMP::OpenMP_CXX)
+  target_link_libraries(fbgemm_generic PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 install(
-  TARGETS fbgemm
+  TARGETS fbgemm fbgemm_generic ${fbgemm_targets}
   EXPORT fbgemmLibraryConfig
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -433,4 +380,14 @@ endif()
 
 if(NOT HAVE_GNU_F2H_IEEE)
   add_definitions(-DMISSING_GNU_F2H_IEEE)
+endif()
+
+if(FBGEMM_USE_IPO)
+  include(CheckIPOSupported)
+  check_ipo_supported()
+  foreach(target IN LISTS fbgemm_targets "fbgemm_generic")
+    set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+  endforeach()
+  set_property(TARGET fbgemm_avx2 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
+  set_property(TARGET fbgemm_avx512 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
 endif()

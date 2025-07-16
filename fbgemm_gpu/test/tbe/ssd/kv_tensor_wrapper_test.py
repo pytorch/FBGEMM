@@ -647,3 +647,65 @@ class KvTensorWrapperTest(TestCase):
                 tensor_wrapper.narrow(0, 0, 1)
             with self.assertRaises(RuntimeError):
                 tensor_wrapper.get_weights_by_ids(torch.tensor([1]))
+
+    def test_dram_kv_read_only_mode(self) -> None:
+        max_D = MAX_D  # max emb dimension seen dram backend
+        D = 64
+        N = 10  # window size
+        E = int(1e4)
+        weights_precision = SparseType.FP16
+        weights_dtype = weights_precision.as_dtype()
+
+        dram_kv = torch.classes.fbgemm.DramKVEmbeddingCacheWrapper(
+            max_D=max_D,
+            uniform_init_lower=-0.1,
+            uniform_init_upper=0.1,
+            num_shards=8,
+            num_threads=32,
+            row_storage_bitwidth=weights_precision.bit_rate(),
+        )
+
+        # create random index tensor with size N
+        indices = torch.arange(N)
+        # insert the weights with the corresponding indices into the table
+        weights = torch.arange(N * D, dtype=weights_dtype).view(N, D)
+        padded_weights = torch.nn.functional.pad(weights, (0, max_D - D), value=1.0)
+        count = torch.tensor([N])
+        dram_kv.set(indices, padded_weights, count)
+
+        tensor_wrapper_read_only = torch.classes.fbgemm.KVTensorWrapper(
+            shape=[E, D], dtype=weights_dtype, row_offset=0, read_only=True
+        )
+        tensor_wrapper_read_only.set_dram_db_wrapper(dram_kv)
+
+        # Get the weights that are already stored in the DRAM KV cache
+        narrowed_weights = tensor_wrapper_read_only.narrow(0, 0, N)
+        weights_by_ids = tensor_wrapper_read_only.get_weights_by_ids(indices)
+        self.assertTrue(
+            torch.equal(narrowed_weights, weights),
+            msg=(
+                f"Tensor value mismatch :\n"
+                f"actual\n{narrowed_weights}\n\nexpected\n{weights}"
+            ),
+        )
+        self.assertTrue(
+            torch.equal(weights_by_ids, weights),
+            msg=(
+                f"Tensor value mismatch :\n"
+                f"actual\n{weights_by_ids}\n\nexpected\n{weights}"
+            ),
+        )
+
+        # Try to set_range() on a read-only tensor wrapper, which should be no-op
+        insert_weight = torch.randn(D, dtype=weights_dtype).view(1, D)
+        tensor_wrapper_read_only.set_range(0, N, 1, insert_weight)
+
+        # narrow from the above, which should not match the original weights
+        narrowed_weight = tensor_wrapper_read_only.narrow(0, N, 1)
+        self.assertTrue(
+            not torch.equal(narrowed_weight, insert_weight),
+            msg=(
+                f"Tensor value should not match :\n"
+                f"actual\n{narrowed_weight}\n\nexpected\n{insert_weight}"
+            ),
+        )

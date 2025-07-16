@@ -23,10 +23,6 @@ if (USE_SANITIZER)
     message(WARNING "USING SANITIZER IN TEST")
 endif()
 
-if (${OpenMP_FOUND})
-  message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
-endif()
-
 if (${MKL_FOUND})
   message(STATUS "MKL_LIBRARIES= ${MKL_LIBRARIES}")
 endif()
@@ -45,24 +41,16 @@ macro(add_benchmark BENCHNAME)
     ../test/EmbeddingSpMDMTestUtils.cc
   )
 
-  target_compile_options(
-    ${BENCHNAME}
-    PRIVATE
-    "-m64" "-mavx2" "-mfma" "-masm=intel"
-  )
+  if(NOT MSVC)
+    target_compile_options(
+      ${BENCHNAME}
+      PRIVATE
+      "-m64" "-mavx2" "-mfma" "-masm=intel"
+    )
+  endif()
 
   target_link_libraries(${BENCHNAME} fbgemm)
-  add_dependencies(${BENCHNAME} fbgemm)
 
-  if (USE_SANITIZER)
-    target_compile_options(${BENCHNAME} PRIVATE
-      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-    target_link_options(${BENCHNAME} PRIVATE "-fsanitize=${USE_SANITIZER}")
-  endif()
-
-  if(${OpenMP_FOUND})
-    target_link_libraries(${BENCHNAME} "${OpenMP_CXX_LIBRARIES}")
-  endif()
 
   if(${MKL_FOUND})
     target_include_directories(${BENCHNAME} PRIVATE "${MKL_INCLUDE_DIR}")
@@ -99,9 +87,5 @@ if(FBGEMM_BUILD_BENCHMARKS)
 
   add_dependencies(run_benchmarks
     ${BENCHMARKS})
-
-  set_source_files_properties(
-    bench/GEMMsBenchmark.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-unused-variable")
 
 endif()

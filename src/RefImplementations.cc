@@ -13,9 +13,10 @@
 #include "fbgemm/FbgemmConvert.h"
 #include "fbgemm/FloatConversion.h"
 
+#include <cmath>
+
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <numeric>
@@ -24,16 +25,16 @@
 using namespace std;
 
 namespace fbgemm {
-typedef union {
+using fint32 = union {
   uint32_t I;
   float F;
-} fint32;
+};
 
 // Thread-safe random number generator
 //
 // Return a random 32bit integer using xoshiro128++
 // http://prng.di.unimi.it/xoshiro128plusplus.c
-inline uint32_t rnd128_next(int idx, int vlen) {
+static inline uint32_t rnd128_next(int idx, int vlen) {
   constexpr int VLEN_MAX = 16; // max vector size
   alignas(64) static thread_local uint32_t g_rnd128_buffer[4 * VLEN_MAX];
   static thread_local bool g_rnd128_initialized = false;
@@ -410,7 +411,7 @@ void cblas_gemm_i64_i64acc_ref(
     int ldc) {
   for (int i = 0; i < M; ++i) {
     for (int j = 0; j < N; ++j) {
-      int64_t acc;
+      int64_t acc = 0;
       if (accumulate) {
         acc = C[i * ldc + j];
       } else {
@@ -1210,8 +1211,8 @@ bool EmbeddingSpMDM_ref(
     bool no_bag /*=false*/,
     bool is_bf16_out /*=false*/,
     bool is_bf16_in /*=false*/) {
-  const bool isWeight8bit = is_same<InType, uint8_t>::value;
-  const bool isOutput8bit = is_same<OutType, uint8_t>::value;
+  constexpr bool isWeight8bit = is_same_v<InType, uint8_t>;
+  constexpr bool isOutput8bit = is_same_v<OutType, uint8_t>;
   if (output_stride == -1) {
     output_stride = block_size;
   }
@@ -1220,7 +1221,7 @@ bool EmbeddingSpMDM_ref(
   }
   vector<float> buf(block_size);
 
-  if (isWeight8bit) {
+  if constexpr (isWeight8bit) {
     // block_size is the number of elements and fused_block_size is the size of
     // an entire row, including scale and bias.
     if (input_stride == -1) {
@@ -1252,7 +1253,7 @@ bool EmbeddingSpMDM_ref(
             weight = weights[m];
           }
 
-          float scale, bias;
+          float scale = NAN, bias = NAN;
           if (scale_bias_last) {
             scale = weight * scale_bias[0];
             bias = weight * scale_bias[1];
@@ -1305,7 +1306,7 @@ bool EmbeddingSpMDM_ref(
         if (weights) {
           weight = weights[is_weight_positional ? i : current];
         }
-        float scale, bias;
+        float scale = NAN, bias = NAN;
         if (scale_bias_last) {
           scale = weight * scale_bias[0];
           bias = weight * scale_bias[1];
@@ -1454,7 +1455,7 @@ bool EmbeddingSpMDMNBit_ref(
     // We currently only support int4 to int4 for sequential TBE in this nbit
     // kernel. Note that assert() will be ignored in release mode, so we check
     // here to double check and also avoid "unused variable" warning
-    if (!(input_bit_rate == 4 && output_bit_rate == 4)) {
+    if (input_bit_rate != 4 || output_bit_rate != 4) {
       WARN_ONCE("no_bag is only supported for int4 to int4");
       return false;
     }
@@ -1579,7 +1580,7 @@ bool EmbeddingSpMDMFP8_ref(
 
       for (int j = 0; j < block_size; ++j) {
         const uint8_t* inptr = input + input_stride * idx + j;
-        float input_f;
+        float input_f = NAN;
         // Dequantize FP8 to FP32 before compute
         Float8ToFloat_ref(*inptr, &input_f, exponent_bits, exponent_bias);
         buf[j] = std::fma(w, input_f, buf[j]);
@@ -1594,7 +1595,7 @@ bool EmbeddingSpMDMFP8_ref(
       }
     }
     for (int j = 0; j < block_size; ++j) {
-      out[j] = is_same<OutType, uint16_t>::value
+      out[j] = is_same_v<OutType, uint16_t>
           ? convert_from_float_ref<OutType>(buf[j], is_bf16_out)
           : buf[j];
     }
@@ -1619,9 +1620,9 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
     float* out,
     bool is_weight_positional,
     bool use_offsets) {
-  bool is8bit = is_same<InType, uint8_t>::value;
+  constexpr bool is8bit = is_same_v<InType, uint8_t>;
 
-  if (is8bit) {
+  if constexpr (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
     // of an entire row, including scale and bias.
     const auto scale_bias_offset = 2 * sizeof(float);
@@ -1709,7 +1710,7 @@ bool EmbeddingSpMDMRowWiseSparse_ref(
           const InType* inptr = input + block_size * idx + j;
           out[j] = std::fma(
               w,
-              is_same<InType, float16>::value ? cpu_half2float(*inptr) : *inptr,
+              is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
               out[j]);
         }
 
@@ -1831,11 +1832,11 @@ int sparse_adagrad_ref(
     float freq =
         (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
-    const float* g_;
-    const float* h_;
-    const float* w_;
-    float* nh_;
-    float* nw_;
+    const float* g_ = nullptr;
+    const float* h_ = nullptr;
+    const float* w_ = nullptr;
+    float* nh_ = nullptr;
+    float* nw_ = nullptr;
 
     g_ = g + offsetI;
     h_ = h + offsetIdx;
@@ -1879,9 +1880,9 @@ int rowwise_sparse_adagrad_ref(
     float freq =
         (counter && counter[idx] > 0) ? counter_halflife / counter[idx] : 1.0;
 
-    const float* g_;
-    float* h_;
-    float* w_;
+    const float* g_ = nullptr;
+    float* h_ = nullptr;
+    float* w_ = nullptr;
 
     g_ = g + offsetI;
     h_ = h + idx; // This is different from sparse adagrad
@@ -1938,7 +1939,7 @@ int rowwise_sparse_adagrad_fused_ref(
     grad_stride = block_size;
   }
 
-  constexpr bool isFloat16w = std::is_same<float16, DataType>::value;
+  constexpr bool isFloat16w = std::is_same_v<float16, DataType>;
   // Local random buffer to emulate SIMD vector
   // R: generated 32bit base random numbers
   // r: extracted 8-bit for rounding
@@ -1947,7 +1948,7 @@ int rowwise_sparse_adagrad_fused_ref(
   int vlen = emu_vector_size;
   if (vlen != 8 && vlen != 16) {
     // Raise error as it may cause buffer overflow
-    cerr << "Not supported emu_vector_size: " << emu_vector_size << endl;
+    cerr << "Not supported emu_vector_size: " << emu_vector_size << '\n';
     return 0;
   }
 

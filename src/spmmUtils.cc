@@ -61,10 +61,8 @@ FBGEMM_API void trRequantizeRef(
       if (r.act_zero_point) {
         raw -= r.act_zero_point * r.weight_row_offsets[i];
       }
-      int weight_zeropoint_idx;
-      if (Q_GRAN == QuantizationGranularity::TENSOR) {
-        weight_zeropoint_idx = 0;
-      } else {
+      int weight_zeropoint_idx = 0;
+      if constexpr (Q_GRAN != QuantizationGranularity::TENSOR) {
         // Q_GRAN == QuantizationGranularity::OUT_CHANNEL
         weight_zeropoint_idx = i;
       }
@@ -172,11 +170,11 @@ vector<vector<int>> getSparseMatrixShapes() {
       {51, 1024, 4096},
     };
     shapes.insert(shapes.end(), roberta_shapes.begin(), roberta_shapes.end() );
-    cout << "RoBERTa shapes included." << endl;
+    cout << "RoBERTa shapes included." << '\n';
   }
   else {
     cout << "RoBERTa shapes not included. " <<
-      "To include, add \"INCLUDE_ROBERTA=1\" as an env variable." << endl;
+      "To include, add \"INCLUDE_ROBERTA=1\" as an env variable." << '\n';
   }
 
   // LSTM shapes
@@ -191,11 +189,11 @@ vector<vector<int>> getSparseMatrixShapes() {
       {18, 2560, 720},
     };
     shapes.insert(shapes.end(), lstm_shapes.begin(), lstm_shapes.end() );
-    cout << "LSTM shapes included." << endl;
+    cout << "LSTM shapes included." << '\n';
   }
   else {
     cout << "LSTM shapes not included. " <<
-      "To include, add \"INCLUDE_LSTM=1\" as an env variable." << endl;
+      "To include, add \"INCLUDE_LSTM=1\" as an env variable." << '\n';
   }
 
   // RNNT shapes
@@ -243,11 +241,11 @@ vector<vector<int>> getSparseMatrixShapes() {
       {64, 256, 4500},
     };
     shapes.insert(shapes.end(), rnnt_shapes.begin(), rnnt_shapes.end() );
-    cout << "rnnt shapes included." << endl;
+    cout << "rnnt shapes included." << '\n';
   }
   else {
     cout << "RNNT shapes not included. " <<
-      "To include, add \"INCLUDE_RNNT=1\" as an env variable." << endl;
+      "To include, add \"INCLUDE_RNNT=1\" as an env variable." << '\n';
   }
   // clang-format on
   return shapes;

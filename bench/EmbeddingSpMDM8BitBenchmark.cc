@@ -12,7 +12,6 @@
 #endif
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
@@ -30,15 +29,16 @@
 using namespace std;
 using namespace fbgemm;
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
-    cout << "row: " << i << " : " << endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii] << ",";
+/*
+static void print_fused_table(int rows, int embedding_dim, const uint8_t* table)
+{ for (int i = 0; i < rows; i++) { cout << "row: " << i << " : " << endl; for
+(int ii = 0; ii < embedding_dim; ii++) { cout << (int)table[i * (embedding_dim +
+2 * sizeof(float)) + ii] << ",";
     }
     cout << endl;
   }
 }
+*/
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -58,10 +58,10 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-vector<double> benchmarkTimes;
+static vector<double> benchmarkTimes;
 
 template <typename OutType>
-int run_benchmark(
+static int run_benchmark(
     int batch_size,
     int num_rows,
     int embedding_dim,
@@ -102,7 +102,7 @@ int run_benchmark(
   // Compute the number of indices
   int lengths_sum = offsets[batch_size];
   if (fbgemm_get_thread_num() == 0) {
-    cout << "lengths_sum " << lengths_sum << endl;
+    cout << "lengths_sum " << lengths_sum << '\n';
   }
 
   // Generate indices
@@ -261,10 +261,10 @@ int run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -274,11 +274,11 @@ int run_benchmark(
               }
             } else {
               assert(false && "ERROR: unsupported output type");
-              cout << "ERROR: unsupported output type" << endl;
+              cout << "ERROR: unsupported output type" << '\n';
             }
             assert(fabs(tmp1 - tmp2) < 1e-3);
             if (fabs(tmp1 - tmp2) >= 1e-3) {
-              cout << i << " " << tmp1 << " " << tmp2 << endl;
+              cout << i << " " << tmp1 << " " << tmp2 << '\n';
             }
           }
         }
@@ -288,9 +288,9 @@ int run_benchmark(
 #pragma omp barrier
 #endif
       if (fbgemm_get_thread_num() == 0) {
-        if (std::is_same<OutType, float>::value) {
+        if constexpr (std::is_same_v<OutType, float>) {
           cout << "out type fp32";
-        } else if (std::is_same<OutType, uint16_t>::value) {
+        } else if constexpr (std::is_same_v<OutType, uint16_t>) {
           if (is_bf16_out) {
             cout << "out type bf16";
           } else {
@@ -298,7 +298,7 @@ int run_benchmark(
           }
         } else {
           assert(false && "ERROR: unsupported output type");
-          cout << "ERROR: unsupported output type" << endl;
+          cout << "ERROR: unsupported output type" << '\n';
         }
 
         if (has_weight) {
@@ -331,7 +331,7 @@ int run_benchmark(
              << " GB/s" << setw(20) << "effective b/w: " << setw(16)
              << bytes_padded / 1e9 / max_time << "GB/s" << setw(8) << " time "
              << setw(16) << max_time << " load_imbalance " << load_imbalance
-             << endl;
+             << '\n';
       }
     } // flush_cache
   } // has_weight
@@ -339,11 +339,6 @@ int run_benchmark(
 }
 
 int main() {
-  int batch_size;
-  int num_rows;
-  int embedding_dim;
-  int average_len;
-
   bool stress_multi_threading = false;
 
   vector<vector<int>> inputs(GetInputs_());
@@ -351,15 +346,15 @@ int main() {
 
   for (auto& input : inputs) {
     assert(input.size() > 3);
-    batch_size = input[0];
-    num_rows = input[1];
-    embedding_dim = input[2];
-    average_len = input[3];
+    int batch_size = input[0];
+    int num_rows = input[1];
+    int embedding_dim = input[2];
+    int average_len = input[3];
 
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(16) << num_rows << setw(10) << "emb dim" << setw(6)
          << embedding_dim << setw(16) << "avg length" << setw(6) << average_len
-         << endl;
+         << '\n';
     // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
     // prefetch
     cout << "64 bit indices, ";

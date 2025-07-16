@@ -71,7 +71,6 @@ bool parseArgumentBool(
     const char* argv[],
     const char* arg,
     bool def_val) {
-  int arg_len = strlen(arg);
   for (auto i = 1; i < argc; ++i) {
     const char* ptr = strstr(argv[i], arg);
     if (ptr) {
@@ -83,7 +82,6 @@ bool parseArgumentBool(
 
 int main(int argc, const char* argv[]) {
   bool iaca = false;
-  bool disable = false;
   unordered_set<string> enabledDataType;
 
   // Always generate FP16
@@ -102,8 +100,6 @@ int main(int argc, const char* argv[]) {
 
   const int prefetch_c_len =
       parseArgumentInt(argc, argv, "--prefetch-c", 0, 1024);
-
-  bool fixedA = true, fixedB = true, fixedC = true;
 
   int eax, ebx, ecx, edx;
   __cpuid(1 /* ecx = vendor string */, eax, ebx, ecx, edx);
@@ -243,8 +239,6 @@ int main(int argc, const char* argv[]) {
       hdrfile << "namespace fbgemm {\n\n";
       hdrfile << "using GemmParams" << d_type.second << " = GemmParams<float"
               << (isFp16 ? "16" : "") << ">;\n\n";
-
-      unsigned labelId = 0;
 
       bool fixedA = false, fixedB = false, fixedC = false;
 

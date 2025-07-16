@@ -17,9 +17,7 @@
 
 #include "./MaskAvx2.h" // @manual
 
-namespace fbgemm {
-
-namespace internal {
+namespace fbgemm::internal {
 
 #ifdef __AVX2__
 // NOTE: Make sure every function defined in here has static linkage because
@@ -77,7 +75,7 @@ static void transpose_kernel_mxn_sse(
   // load from src to registers
   __m128i mask_v = _mm_load_si128(reinterpret_cast<const __m128i*>(masks[N]));
   __m128 input[4];
-  unsigned i;
+  unsigned i = 0;
   for (i = 0; i < M; ++i) {
     input[i] = _mm_maskload_ps(&src[i * ld_src], mask_v);
   }
@@ -212,7 +210,7 @@ static void transpose_kernel_mxn_avx2(
   __m256i mask_v = _mm256_load_si256(
       reinterpret_cast<const __m256i*>(internal::avx2_ps_or_epi32_masks[N]));
   __m256 input[8];
-  unsigned i;
+  unsigned i = 0;
   for (i = 0; i < M; ++i) {
     input[i] = _mm256_maskload_ps(&src[i * ld_src], mask_v);
   }
@@ -551,7 +549,7 @@ inline static void transpose_kernel_8x16_avx2(
   // f : f0 f1 f2 f3 f4 f5 f6 f7 ... f15
   // g : g0 g1 g2 g3 g4 g5 g6 g7 ... g15
   // h : h0 h1 h2 h3 h4 h5 h6 h7 ... h15
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     load_with_remainders_i16(src, ld_src, r, mrem, nrem);
   } else {
     r[0] = _mm256_loadu_si256(
@@ -661,7 +659,7 @@ inline static void transpose_kernel_8x16_avx2(
   r[7] = _mm256_unpackhi_epi64(__t3, __t7); // 7, 15
 
   // stores back 16 rows:
-  if (MREM || NREM) {
+  if constexpr (MREM || NREM) {
     store_with_remainders_i16(dst, ld_dst, r, mrem, nrem);
   } else {
     _mm_storeu_si128(
@@ -730,7 +728,7 @@ static void transpose_kernel_mxn_avx2_uint8(
       internal::avx2_ps_or_epi32_masks[N / 4]));
 
   __m256i input[8];
-  unsigned i, j;
+  unsigned i = 0, j = 0;
   for (i = 0; i < M; ++i) {
     uint8_t local_buffer[32] = {0};
 
@@ -748,9 +746,9 @@ static void transpose_kernel_mxn_avx2_uint8(
     input[i] = _mm256_loadu_si256(reinterpret_cast<__m256i*>(&local_buffer[0]));
   }
 
-  // for (; i < 8; ++i) {
-  // input[i] = _mm256_setzero_si256();
-  //}
+  for (; i < 8; ++i) {
+    input[i] = _mm256_setzero_si256();
+  }
 
   // interleaving 8-bit elements
   // e.g., temp[0] now becomes: a0 b0 a1 b1 a2 b2 ...
@@ -785,7 +783,7 @@ static void transpose_kernel_mxn_avx2_uint8(
   // 64-127 bit: a1 -- h1,
   // 128-191 bit:  a16 -- h16,
   // 192-255 bit:   a17 -- h17
-  uint64_t t;
+  uint64_t t = 0;
   mask_v = _mm256_load_si256(reinterpret_cast<const __m256i*>(
       internal::avx2_ps_or_epi32_masks[M / 4]));
   for (i = 0; i < N; ++i) {
@@ -812,6 +810,4 @@ static void transpose_kernel_mxn_avx2_uint8(
 
 #endif // __AVX2__
 
-} // namespace internal
-
-} // namespace fbgemm
+} // namespace fbgemm::internal

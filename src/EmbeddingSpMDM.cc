@@ -13,12 +13,8 @@
 
 #include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
-#include <cassert>
-#include <cmath>
 #include <iostream>
-#include <map>
 #include <mutex>
-#include <string>
 #include <tuple>
 #include "./CodeCache.h" // @manual
 #include "./EmbeddingSpMDMAutovec.h" // @manual
@@ -92,7 +88,7 @@ template <
     bool THREAD_LOCAL = false>
 class GenEmbeddingSpMDMLookup {
  public:
-  GenEmbeddingSpMDMLookup() {}
+  GenEmbeddingSpMDMLookup() = default;
   typename ReturnFunctionSignature<
       inType,
       indxType,
@@ -236,15 +232,15 @@ GenEmbeddingSpMDMLookup<
                 offsetType,
                 outType,
                 ROWWISE_SPARSE>::jit_embedding_kernel {
-        bool is_8bit_in = std::is_same<inType, uint8_t>::value;
-        bool is_16bit_in = std::is_same<inType, uint16_t>::value;
-        bool is_16bit_out = std::is_same<outType, uint16_t>::value;
+        constexpr bool is_8bit_in = std::is_same_v<inType, uint8_t>;
+        constexpr bool is_16bit_in = std::is_same_v<inType, uint16_t>;
+        constexpr bool is_16bit_out = std::is_same_v<outType, uint16_t>;
         bool is_fp16_in = is_16bit_in && !is_bf16_in;
         bool is_fp16_out = is_16bit_out && !is_bf16_out;
 
         // TODO: Make this tunable
         int pref_dist = prefetch;
-        bool areIndices64b = std::is_same<indxType, int64_t>::value;
+        constexpr bool areIndices64b = std::is_same_v<indxType, int64_t>;
 
         asmjit::CodeHolder code;
         code.init(runtime().environment());
@@ -279,7 +275,7 @@ GenEmbeddingSpMDMLookup<
         if (!use_offsets) {
           filename += "_use_lengths";
         }
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           filename += "_rowwise_sparse";
         }
         filename += "_out_stride_" + std::to_string(output_stride);
@@ -307,7 +303,7 @@ GenEmbeddingSpMDMLookup<
         x86::Gp out = a->gpz(reg_id); // 11
 
         x86::Gp compressed_indices_table;
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           ++reg_id;
           compressed_indices_table = a->gpz(reg_id); // 12
         }
@@ -321,9 +317,9 @@ GenEmbeddingSpMDMLookup<
 
         asmjit::FuncDetail func;
 
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           func.init(
-              asmjit::FuncSignatureT<
+              asmjit::FuncSignature::build<
                   bool,
                   int64_t, // output_size
                   int64_t, // index_size
@@ -338,7 +334,7 @@ GenEmbeddingSpMDMLookup<
               a->environment());
         } else {
           func.init(
-              asmjit::FuncSignatureT<
+              asmjit::FuncSignature::build<
                   bool,
                   int64_t, // output_size
                   int64_t, // index_size
@@ -355,7 +351,7 @@ GenEmbeddingSpMDMLookup<
         asmjit::FuncFrame frame;
         frame.init(func);
 
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
               asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
@@ -376,7 +372,7 @@ GenEmbeddingSpMDMLookup<
                 : asmjit::Support::bitMask(8, 9, 10, 11, 12, 13, 14));
 
         asmjit::FuncArgsAssignment args(&func);
-        if (ROWWISE_SPARSE) {
+        if constexpr (ROWWISE_SPARSE) {
           args.assignAll(
               output_size,
               index_size,
@@ -411,7 +407,7 @@ GenEmbeddingSpMDMLookup<
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
 
-        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
 
         int num_vec_regs_per_block = (block_size + vlen - 1) / vlen;
         int remainder = block_size % vlen;
@@ -426,7 +422,7 @@ GenEmbeddingSpMDMLookup<
         x86::Xmm mask_fp16_vreg; // mask for loading fp16 in avx2
         vec_reg_t ones_vreg; // 2^15 for bf16_2_fp32_rn
 
-        if (is_8bit_in) {
+        if constexpr (is_8bit_in) {
           // We need 2 vec registers for 1. scale 2. bias
           --unroll_factor;
           scale_vreg = vec_reg_t(unroll_factor);
@@ -469,7 +465,7 @@ GenEmbeddingSpMDMLookup<
         }
 
         if (remainder) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->vmovups(
                 mask_vreg,
                 x86::ymmword_ptr(
@@ -525,7 +521,7 @@ GenEmbeddingSpMDMLookup<
 
           // OK to use vreg0 because it's for out_vreg used in the main loop
           vec_reg_t temp_vreg(0);
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->mov(scratchReg1_, 1);
             a->cvtsi2ss(vlen_inv_vreg.xmm(), scratchReg1_);
             a->cvtsi2ss(temp_vreg.xmm(), lengths_R_);
@@ -577,7 +573,7 @@ GenEmbeddingSpMDMLookup<
           a->jl(LoopDataIndexEnd);
 
           // Array out of bound check
-          if (areIndices64b) {
+          if constexpr (areIndices64b) {
             a->mov(scratchReg1_, x86::qword_ptr(indices));
           } else {
             a->mov(scratchReg1_.r32(), x86::dword_ptr(indices));
@@ -585,7 +581,7 @@ GenEmbeddingSpMDMLookup<
           if (!scale_bias_last) {
             // When scale_bias_last == false, assume this is for table batched
             // embedding (TBE) that can get -1 for pruned rows.
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->cmp(scratchReg1_, static_cast<asmjit::Imm>(-1));
             } else {
               a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
@@ -604,7 +600,7 @@ GenEmbeddingSpMDMLookup<
           a->cmp(scratchReg1_, data_size);
           a->jae(error);
 
-          if (ROWWISE_SPARSE) {
+          if constexpr (ROWWISE_SPARSE) {
             a->mov(
                 scratchReg1_.r32(),
                 x86::dword_ptr(
@@ -624,7 +620,7 @@ GenEmbeddingSpMDMLookup<
             a->cmp(scratchReg2_, index_size);
             a->jge(pref_dist_reset_start);
 
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->mov(
                   scratchReg2_,
                   x86::qword_ptr(indices, pref_dist * sizeof(indxType)));
@@ -639,14 +635,14 @@ GenEmbeddingSpMDMLookup<
             a->bind(pref_dist_reset_start);
             // things are not okay just get the current row
             // this can be improved to getting the max dist row.
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->mov(scratchReg2_, x86::qword_ptr(indices));
             } else {
               a->mov(scratchReg2_.r32(), x86::dword_ptr(indices));
             }
 
             a->bind(pref_dist_reset_end);
-            if (ROWWISE_SPARSE) {
+            if constexpr (ROWWISE_SPARSE) {
               asmjit::Label rowwise_sparse_pref_corner_case_begin =
                   a->newLabel();
               asmjit::Label rowwise_sparse_pref_corner_case_end = a->newLabel();
@@ -678,7 +674,7 @@ GenEmbeddingSpMDMLookup<
             a->add(weights, static_cast<asmjit::Imm>(sizeof(float)));
           }
 
-          if (ROWWISE_SPARSE) {
+          if constexpr (ROWWISE_SPARSE) {
             a->cmp(scratchReg1_.r32(), static_cast<asmjit::Imm>(-1));
             a->je(LoopDataIndexBegin);
           }
@@ -688,7 +684,7 @@ GenEmbeddingSpMDMLookup<
           // broadcast the scale
           x86::Mem scale_src, bias_src;
           constexpr unsigned int CACHE_LINE_LEN = 64;
-          if (is_8bit_in) {
+          if constexpr (is_8bit_in) {
             if (scale_bias_last) {
               scale_src = x86::dword_ptr(
                   input, scratchReg1_, 0, block_size * sizeof(uint8_t));
@@ -738,7 +734,7 @@ GenEmbeddingSpMDMLookup<
 
             // For 8bit SLS convert usigned 8-bit to 32bit int, then to float
             // multiply with scale and then add with bias
-            if (is_8bit_in) {
+            if constexpr (is_8bit_in) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1 &&
                   instSet == inst_set_t::avx512) {
                 a->k(x86::k(1)).z().vpmovzxbd(src_vreg, src_addr);
@@ -751,9 +747,9 @@ GenEmbeddingSpMDMLookup<
               a->vcvtdq2ps(src_vreg, src_vreg);
               a->vaddps(out_vreg, out_vreg, bias_vreg);
               a->vfmadd231ps(out_vreg, src_vreg, scale_vreg);
-            } else if (is_16bit_in) {
+            } else if constexpr (is_16bit_in) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   if (remainder % 2 == 0) {
                     a->vmaskmovps(src_vreg.xmm(), mask_fp16_vreg, src_addr);
                   } else {
@@ -820,7 +816,7 @@ GenEmbeddingSpMDMLookup<
               }
               if (has_weight) {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vfmadd231ps(out_vreg, w_vreg, src_vreg);
                   } else {
                     a->k(x86::k(1)).vfmadd231ps(out_vreg, w_vreg, src_addr);
@@ -830,7 +826,7 @@ GenEmbeddingSpMDMLookup<
                 }
               } else {
                 if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vaddps(out_vreg, out_vreg, src_vreg);
                   } else {
                     a->k(x86::k(1)).vaddps(out_vreg, out_vreg, src_addr);
@@ -863,9 +859,9 @@ GenEmbeddingSpMDMLookup<
               a->vmulps(out_vreg, out_vreg, vlen_inv_vreg);
             }
 
-            if (std::is_same<outType, float>::value) {
+            if constexpr (std::is_same_v<outType, float>) {
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(dst_addr, mask_vreg, out_vreg.ymm());
                 } else {
                   a->k(x86::k(1)).vmovups(dst_addr, out_vreg);
@@ -875,7 +871,7 @@ GenEmbeddingSpMDMLookup<
               }
             } else {
               // fp16/bf16 output
-              if (instSet == inst_set_t::avx2) {
+              if constexpr (instSet == inst_set_t::avx2) {
                 // round nearest with no exception
                 if (is_fp16_out) {
                   a->vcvtps2ph(out_vreg.xmm(), out_vreg, 8);
@@ -991,13 +987,14 @@ GenEmbeddingSpMDMLookup<
             offsetType,
             outType,
             ROWWISE_SPARSE>::jit_embedding_kernel fn;
-        asmjit::Error err;
+        asmjit::Error err = 0;
         {
           std::unique_lock<std::mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);
         }
+
         if (err) {
-          std::cout << "Error: in fn add" << std::endl;
+          std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 
@@ -1043,7 +1040,7 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
     output_stride = block_size;
   }
   if (input_stride == -1) {
-    if (std::is_same<inType, uint8_t>::value) {
+    if constexpr (std::is_same_v<inType, uint8_t>) {
       const auto scale_bias_offset =
           2 * (scale_bias_last ? sizeof(float) : sizeof(uint16_t));
       input_stride = block_size + scale_bias_offset;
@@ -1058,10 +1055,9 @@ typename EmbeddingSpMDMKernelSignature<inType, indxType, offsetType, outType>::
       throw std::runtime_error("Failed to initialize cpuinfo!");
     }
     const inst_set_t isa = fbgemmInstructionSet();
-    if ((std::is_same<inType, float>::value ||
-         std::is_same<inType, uint16_t>::value) &&
+    if ((std::is_same_v<inType, float> || std::is_same_v<inType, uint16_t>) &&
         block_size == 1 && isYmm(isa) && output_stride == block_size &&
-        input_stride == block_size && std::is_same<outType, float>::value &&
+        input_stride == block_size && std::is_same_v<outType, float> &&
         !is_asmjit_disabled()) {
       return [=](int64_t output_size,
                  int64_t index_size,
@@ -1353,7 +1349,7 @@ GenerateEmbeddingSpMDMRowWiseSparse(
     bool use_offsets) {
 #if CPUINFO_ARCH_X86 || CPUINFO_ARCH_X86_64
   int64_t input_stride = block_size;
-  if (std::is_same<inType, uint8_t>::value) {
+  if constexpr (std::is_same_v<inType, uint8_t>) {
     const auto scale_bias_offset = 2 * sizeof(float);
     input_stride = block_size + scale_bias_offset;
   }

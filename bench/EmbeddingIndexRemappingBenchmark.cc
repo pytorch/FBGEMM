@@ -37,7 +37,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-int run_benchmark(
+static int run_benchmark(
     int batch_size,
     int num_rows,
     int average_len,
@@ -129,15 +129,15 @@ int run_benchmark(
       NWARMUP,
       NITER);
   cout << "reference:" << duration_ref * 1e6 << " (us), ";
-  cout << "Opt:" << duration * 1e6 << " (us) " << endl;
+  cout << "Opt:" << duration * 1e6 << " (us) " << '\n';
 
   return 0;
 }
 
 int main() {
-  int batch_size;
-  int num_rows;
-  int average_len;
+  int batch_size = 0;
+  int num_rows = 0;
+  int average_len = 0;
 
   vector<vector<int>> inputs(GetInputs_());
 
@@ -149,13 +149,13 @@ int main() {
 
     cout << "batch size" << setw(6) << batch_size << setw(10) << "num rows"
          << setw(14) << num_rows << setw(16) << "avg length" << setw(6)
-         << average_len << endl;
+         << average_len << '\n';
     cout << "64 bit indices, ";
     run_benchmark(batch_size, num_rows, average_len);
 
     cout << "32 bit indices, ";
     run_benchmark(batch_size, num_rows, average_len, true);
-    cout << endl;
+    cout << '\n';
   }
   return 0;
 }

@@ -18,7 +18,7 @@ using namespace std;
 using namespace fbgemm;
 
 template <typename T>
-::testing::AssertionResult compare_tranpose_results(
+static ::testing::AssertionResult compare_tranpose_results(
     vector<T> expected,
     vector<T> acutal,
     int m,
@@ -26,9 +26,9 @@ template <typename T>
     int ld_src,
     int ld_dst) {
   std::stringstream ss;
-  if (is_same<T, float>::value) {
+  if constexpr (is_same_v<T, float>) {
     ss << " float results ";
-  } else if (is_same<T, uint8_t>::value) {
+  } else if constexpr (is_same_v<T, uint8_t>) {
     ss << " i8 results ";
   } else {
     ss << " i16 results ";
@@ -62,39 +62,39 @@ TEST(TransposeTest, TransposeTest) {
     int n = dist(generator);
     int ld_src = n + dist(generator);
     int ld_dst = m + dist(generator);
-    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+    shapes.emplace_back(m, n, ld_src, ld_dst);
   }
   for (int i = 0; i < 1024; ++i) {
     int m = dist(generator);
     int n = 2;
     int ld_src = n;
     int ld_dst = m + dist(generator);
-    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+    shapes.emplace_back(m, n, ld_src, ld_dst);
   }
   for (int i = 0; i < 1024; ++i) {
     int m = dist(generator);
     int n = 4;
     int ld_src = n;
     int ld_dst = m + dist(generator);
-    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+    shapes.emplace_back(m, n, ld_src, ld_dst);
   }
   for (int i = 0; i < 1024; ++i) {
     int m = 2;
     int n = dist(generator);
     int ld_src = n + dist(generator);
     int ld_dst = m;
-    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+    shapes.emplace_back(m, n, ld_src, ld_dst);
   }
   for (int i = 0; i < 1024; ++i) {
     int m = 4;
     int n = dist(generator);
     int ld_src = n + dist(generator);
     int ld_dst = m;
-    shapes.push_back(make_tuple(m, n, ld_src, ld_dst));
+    shapes.emplace_back(m, n, ld_src, ld_dst);
   }
 
   for (const auto& shape : shapes) {
-    int m, n, ld_src, ld_dst;
+    int m = 0, n = 0, ld_src = 0, ld_dst = 0;
     tie(m, n, ld_src, ld_dst) = shape;
 
     // float test
