@@ -151,7 +151,7 @@ if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
 endif()
 
 if(DISABLE_FBGEMM_AUTOVEC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DISABLE_FBGEMM_AUTOVEC")
+  add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
 
 # Check if compiler supports OpenMP
@@ -170,21 +170,28 @@ get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})"
 get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
 get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})"
   FBGEMM_AVX512_INLINE_SRCS)
-get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+if(NOT DISABLE_FBGEMM_AUTOVEC)
+  get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+endif()
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
+set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
 add_library(fbgemm_avx512 OBJECT
   ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
-add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
+if(NOT DISABLE_FBGEMM_AUTOVEC)
+  add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
+  list(APPEND fbgemm_targets fbgemm_autovec)
+endif()
+
 
 # Make libraries depend on defs.bzl
 add_custom_target(defs.bzl DEPENDS defs.bzl)
 add_dependencies(fbgemm_generic defs.bzl)
-target_link_libraries(fbgemm_avx2 PUBLIC fbgemm_generic)
-target_link_libraries(fbgemm_avx512 PUBLIC fbgemm_generic)
-target_link_libraries(fbgemm_autovec PUBLIC fbgemm_generic)
+foreach(target IN LISTS fbgemm_targets)
+  target_link_libraries(${target} PUBLIC fbgemm_generic)
+endforeach()
 
 target_include_directories(fbgemm_generic PUBLIC
       $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
@@ -205,9 +212,6 @@ if(MSVC)
   endif()
   target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
   target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
-  if(OpenMP_FOUND)
-    target_compile_options(fbgemm_autovec PRIVATE "/openmp:experimental")
-  endif()
 else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wall")
   string(APPEND CMAKE_CXX_FLAGS " -Wextra")
@@ -319,24 +323,18 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()
-set_property(TARGET fbgemm PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_property(TARGET fbgemm_generic PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_property(TARGET fbgemm_avx2 PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_property(TARGET fbgemm_avx512 PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_property(TARGET fbgemm_autovec PROPERTY POSITION_INDEPENDENT_CODE ON)
+foreach(target IN ITEMS "${fbgemm_targets};fbgemm;fbgemm_generic")
+  set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE ON)
+endforeach()
 
-target_link_libraries(fbgemm PUBLIC
-    fbgemm_generic
-    fbgemm_avx2
-    fbgemm_avx512
-    fbgemm_autovec)
+target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
 
 if(OpenMP_FOUND)
   target_link_libraries(fbgemm_generic PUBLIC OpenMP::OpenMP_CXX)
 endif()
 
 install(
-  TARGETS fbgemm fbgemm_generic fbgemm_avx2 fbgemm_avx512 fbgemm_autovec
+  TARGETS fbgemm fbgemm_generic ${fbgemm_targets}
   EXPORT fbgemmLibraryConfig
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -387,8 +385,9 @@ endif()
 if(FBGEMM_USE_IPO)
   include(CheckIPOSupported)
   check_ipo_supported()
-  set_property(TARGET fbgemm_generic PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  foreach(target IN LISTS fbgemm_targets "fbgemm_generic")
+    set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+  endforeach()
   set_property(TARGET fbgemm_avx2 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
   set_property(TARGET fbgemm_avx512 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
-  set_property(TARGET fbgemm_autovec PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif()

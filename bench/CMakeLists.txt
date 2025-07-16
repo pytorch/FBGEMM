@@ -23,10 +23,6 @@ if (USE_SANITIZER)
     message(WARNING "USING SANITIZER IN TEST")
 endif()
 
-if (${OpenMP_FOUND})
-  message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
-endif()
-
 if (${MKL_FOUND})
   message(STATUS "MKL_LIBRARIES= ${MKL_LIBRARIES}")
 endif()
@@ -55,9 +51,6 @@ macro(add_benchmark BENCHNAME)
 
   target_link_libraries(${BENCHNAME} fbgemm)
 
-  if(OpenMP_FOUND)
-    target_link_libraries(${BENCHNAME} OpenMP::OpenMP_CXX)
-  endif()
 
   if(${MKL_FOUND})
     target_include_directories(${BENCHNAME} PRIVATE "${MKL_INCLUDE_DIR}")
