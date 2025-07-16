@@ -1,10 +1,10 @@
 /*
-* Copyright (c) Meta Platforms, Inc. and affiliates.
-* All rights reserved.
-*
-* This source code is licensed under the BSD-style license found in the
-* LICENSE file in the root directory of this source tree.
-*/
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
 
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
@@ -43,7 +43,8 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cpu(
     int64_t row_alignment,
     int64_t output_dtype,
     int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias);
+    int64_t fp8_exponent_bias,
+    bool scale_bias_last);
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor dev_weights,
@@ -60,7 +61,8 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cpu(
     Tensor indice_weights,
     int64_t output_dtype,
     int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias);
+    int64_t fp8_exponent_bias,
+    bool scale_bias_last);
 
 Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
     Tensor dev_weights,
@@ -75,7 +77,101 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
     int64_t row_alignment,
     int64_t output_dtype,
     int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias);
+    int64_t fp8_exponent_bias,
+    bool scale_bias_last);
+
+Tensor int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
+    Tensor dev_weights,
+    Tensor uvm_weights, // to match the interface of CUDA op using UVM
+    Tensor weights_placements, // to match the interface of CUDA op using UVM
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    int64_t total_D,
+    int64_t max_int2_D,
+    int64_t max_int4_D,
+    int64_t max_int8_D,
+    int64_t max_float16_D,
+    int64_t max_float32_D,
+    Tensor indices,
+    Tensor offsets,
+    int64_t pooling_mode,
+    std::optional<Tensor> indice_weights,
+    int64_t output_dtype,
+    std::optional<Tensor>
+        lxu_cache_weights, // Not used, to match cache interface for CUDA op
+    std::optional<Tensor>
+        lxu_cache_locations, // Not used, to match cache interface for CUDA op
+    std::optional<int64_t> row_alignment,
+    std::optional<int64_t> max_float8_D,
+    std::optional<int64_t> fp8_exponent_bits,
+    std::optional<int64_t> fp8_exponent_bias,
+    std::optional<bool> scale_bias_last) {
+  if (offsets.scalar_type() != indices.scalar_type()) {
+    offsets = offsets.toType(indices.scalar_type());
+  }
+  auto scale_bias_last_val = scale_bias_last ? *scale_bias_last : true;
+  if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
+    std::vector<int64_t> max_D_list{
+        max_int2_D,
+        max_int4_D,
+        max_int8_D,
+        max_float8_D ? *max_float8_D : 0,
+        max_float16_D,
+        max_float32_D};
+    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
+    return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
+        std::move(dev_weights),
+        std::move(uvm_weights),
+        std::move(weights_placements),
+        std::move(weights_offsets),
+        std::move(weights_tys),
+        max_D,
+        std::move(indices),
+        std::move(offsets),
+        pooling_mode,
+        row_alignment ? *row_alignment : 1,
+        output_dtype,
+        fp8_exponent_bits ? *fp8_exponent_bits : -1,
+        fp8_exponent_bias ? *fp8_exponent_bias : -1,
+        scale_bias_last_val);
+  }
+  if (!indice_weights || indice_weights->numel() == 0) {
+    return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
+        std::move(dev_weights),
+        std::move(uvm_weights),
+        std::move(weights_placements),
+        std::move(weights_offsets),
+        std::move(weights_tys),
+        std::move(D_offsets),
+        total_D,
+        std::move(indices),
+        std::move(offsets),
+        pooling_mode,
+        row_alignment ? *row_alignment : 1,
+        output_dtype,
+        fp8_exponent_bits ? *fp8_exponent_bits : -1,
+        fp8_exponent_bias ? *fp8_exponent_bias : -1,
+        scale_bias_last_val);
+  }
+  return int_nbit_split_embedding_codegen_forward_weighted_cpu(
+      std::move(dev_weights),
+      std::move(uvm_weights),
+      std::move(weights_placements),
+      std::move(weights_offsets),
+      std::move(weights_tys),
+      std::move(D_offsets),
+      total_D,
+      std::move(indices),
+      std::move(offsets),
+      pooling_mode,
+      row_alignment ? *row_alignment : 1,
+      std::move(*indice_weights),
+      output_dtype,
+      fp8_exponent_bits ? *fp8_exponent_bits : -1,
+      fp8_exponent_bias ? *fp8_exponent_bias : -1,
+      scale_bias_last_val);
+}
 
 ///@ingroup embedding-cpu
 Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
@@ -91,12 +187,6 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
-    int64_t INT2_max_ls,
-    int64_t INT4_max_ls,
-    int64_t INT8_max_ls,
-    int64_t FP8_max_ls, 
-    int64_t FP16_max_ls,
-    int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -110,66 +200,31 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
     std::optional<int64_t> max_float8_D,
     std::optional<int64_t> fp8_exponent_bits,
     std::optional<int64_t> fp8_exponent_bias) {
-  if (offsets.scalar_type() != indices.scalar_type()) {
-    offsets = offsets.toType(indices.scalar_type());
-  }
-  if (static_cast<PoolingMode>(pooling_mode) == PoolingMode::NONE) {
-    std::vector<int64_t> max_D_list{
-        max_int2_D,
-        max_int4_D,
-        max_int8_D,
-        max_float8_D ? *max_float8_D : 0,
-        max_float16_D,
-        max_float32_D};
-    int64_t max_D = *std::max_element(max_D_list.begin(), max_D_list.end());
-    return int_nbit_split_embedding_nobag_codegen_forward_unweighted_cpu(
-        dev_weights,
-        uvm_weights,
-        weights_placements,
-        weights_offsets,
-        weights_tys,
-        max_D,
-        indices,
-        offsets,
-        pooling_mode,
-        row_alignment ? *row_alignment : 1,
-        output_dtype,
-        fp8_exponent_bits ? *fp8_exponent_bits : -1,
-        fp8_exponent_bias ? *fp8_exponent_bias : -1);
-  }
-  if (!indice_weights || indice_weights->numel() == 0) {
-    return int_nbit_split_embedding_codegen_forward_unweighted_cpu(
-        dev_weights,
-        uvm_weights,
-        weights_placements,
-        weights_offsets,
-        weights_tys,
-        D_offsets,
-        total_D,
-        indices,
-        offsets,
-        pooling_mode,
-        row_alignment ? *row_alignment : 1,
-        output_dtype,
-        fp8_exponent_bits ? *fp8_exponent_bits : -1,
-        fp8_exponent_bias ? *fp8_exponent_bias : -1);
-  }
-  return int_nbit_split_embedding_codegen_forward_weighted_cpu(
-      dev_weights,
-      uvm_weights,
-      weights_placements,
-      weights_offsets,
-      weights_tys,
-      D_offsets,
+  return int_nbit_split_embedding_codegen_lookup_function_cpu_impl(
+      std::move(dev_weights),
+      std::move(uvm_weights),
+      std::move(weights_placements),
+      std::move(weights_offsets),
+      std::move(weights_tys),
+      std::move(D_offsets),
       total_D,
-      indices,
-      offsets,
+      max_int2_D,
+      max_int4_D,
+      max_int8_D,
+      max_float16_D,
+      max_float32_D,
+      std::move(indices),
+      std::move(offsets),
       pooling_mode,
-      row_alignment ? *row_alignment : 1,
-      *indice_weights,
+      std::move(indice_weights),
       output_dtype,
-      fp8_exponent_bits ? *fp8_exponent_bits : -1,
-      fp8_exponent_bias ? *fp8_exponent_bias : -1);
+      std::move(lxu_cache_weights),
+      std::move(lxu_cache_locations),
+      std::move(row_alignment),
+      std::move(max_float8_D),
+      std::move(fp8_exponent_bits),
+      std::move(fp8_exponent_bias),
+      false);
 }
 
 ///@ingroup embedding-cpu
@@ -186,12 +241,6 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu(
     int64_t max_int8_D,
     int64_t max_float16_D,
     int64_t max_float32_D,
-    int64_t INT2_max_ls,
-    int64_t INT4_max_ls,
-    int64_t INT8_max_ls,
-    int64_t FP8_max_ls, 
-    int64_t FP16_max_ls,
-    int64_t FP32_max_ls,
     Tensor indices,
     Tensor offsets,
     int64_t pooling_mode,
@@ -224,12 +273,6 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu(
       max_int8_D,
       max_float16_D,
       max_float32_D,
-      INT2_max_ls,
-      INT4_max_ls,
-      INT8_max_ls,
-      FP8_max_ls, 
-      FP16_max_ls,
-      FP32_max_ls,
       indices,
       offsets,
       pooling_mode,
@@ -240,8 +283,7 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu(
       row_alignment,
       max_float8_D,
       fp8_exponent_bits,
-      fp8_exponent_bias
-      );
+      fp8_exponent_bias);
 }
 
 ///@ingroup embedding-cpu
@@ -273,14 +315,14 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
       "//deeplearning/fbgemm/fbgemm_gpu:sparse_ops_py");
 #endif
   m.def(
-      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D ,int INT2_max_ls, int INT4_max_ls, int INT8_max_ls, int FP8_max_ls, int FP16_max_ls, int FP32_max_ls, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1 ) -> Tensor",
+      "int_nbit_split_embedding_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment = None, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1) -> Tensor",
       {PT2_COMPLIANT_TAG});
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_codegen_lookup_function",
       int_nbit_split_embedding_codegen_lookup_function_cpu);
 
   m.def(
-      "int_nbit_split_embedding_uvm_caching_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D ,int INT2_max_ls, int INT4_max_ls, int INT8_max_ls,  int FP8_max_ls, int FP16_max_ls, int FP32_max_ls, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights=None, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment=-1, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1, Tensor? cache_hash_size_cumsum=None, int? total_cache_hash_size=-1, Tensor? cache_index_table_map=None, Tensor? lxu_cache_state=None, Tensor? lxu_state=None) -> Tensor");
+      "int_nbit_split_embedding_uvm_caching_codegen_lookup_function(Tensor dev_weights, Tensor uvm_weights, Tensor weights_placements, Tensor weights_offsets, Tensor weights_tys, Tensor D_offsets, SymInt total_D, int max_int2_D, int max_int4_D, int max_int8_D, int max_float16_D, int max_float32_D, Tensor indices, Tensor offsets, int pooling_mode, Tensor? indice_weights=None, int output_dtype=1, Tensor? lxu_cache_weights=None, Tensor? lxu_cache_locations=None, int? row_alignment=-1, int? max_float8_D=0, int? fp8_exponent_bits=-1, int? fp8_exponent_bias=-1, Tensor? cache_hash_size_cumsum=None, int? total_cache_hash_size=-1, Tensor? cache_index_table_map=None, Tensor? lxu_cache_state=None, Tensor? lxu_state=None) -> Tensor");
   DISPATCH_TO_CPU(
       "int_nbit_split_embedding_uvm_caching_codegen_lookup_function",
       int_nbit_split_embedding_uvm_caching_codegen_lookup_function_cpu);
@@ -306,7 +348,7 @@ TORCH_LIBRARY_FRAGMENT(fbgemm, m) {
 }
 
 class PrunedMapCPU : public torch::jit::CustomClassHolder {
-public:
+ public:
   PrunedMapCPU() {}
   explicit PrunedMapCPU(std::string serialized) {
     torch::serialize::InputArchive archive;
@@ -428,7 +470,7 @@ public:
     return dense_indices;
   }
 
-private:
+ private:
 #ifdef FBCODE_CAFFE2
   std::vector<folly::F14FastMap<int32_t, int32_t>> maps_;
 #else
@@ -452,7 +494,7 @@ static auto PrunedMapCPURegistry =
             });
 
 class AtomicCounter : public torch::jit::CustomClassHolder {
-public:
+ public:
   AtomicCounter() {
     counter_ = 0;
   }
@@ -489,7 +531,7 @@ public:
     return oss.str();
   }
 
-private:
+ private:
   std::atomic<int64_t> counter_{0};
 };
 
@@ -589,7 +631,7 @@ struct TensorQueue : torch::CustomClassHolder {
         std::make_tuple("queue", queue_vec));
   }
 
-private:
+ private:
   std::deque<Tensor> queue_;
   std::mutex mutex_;
   Tensor init_tensor_;
