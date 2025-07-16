@@ -21,8 +21,8 @@ EmbeddingStatsTracker& EmbeddingStatsTracker::getInstance() {
 void EmbeddingStatsTracker::recordPattern(
     int64_t rows,
     int64_t dims,
-    DataType input_type,
-    DataType output_type,
+    DataType input_data_type,
+    DataType output_data_type,
     int64_t batch_size,
     int64_t bag_size) {
   if (!is_stats_enabled() || bag_size == 0) {
@@ -32,7 +32,7 @@ void EmbeddingStatsTracker::recordPattern(
 
   // Create the entry and ensure the pattern exists
   AccessPatternEntry key(
-      rows, dims, batch_size, bag_size, input_type, output_type);
+      rows, dims, batch_size, bag_size, input_data_type, output_data_type);
   auto result = tables_.find(key);
   if (result == tables_.end()) {
     tables_[key] = 1;
@@ -53,8 +53,7 @@ void EmbeddingStatsTracker::recordPattern(
     }
     for (const auto& pair : tables_) {
       const auto& pattern = pair.first;
-      logFile_ << pattern.toString() << "freq=" << pair.second << ";"
-               << std::endl;
+      logFile_ << pattern.toString() << "freq=" << pair.second << ";" << '\n';
     }
     logFile_.flush();
     logFile_.close();

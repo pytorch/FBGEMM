@@ -32,8 +32,12 @@
 #endif
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
+#if HIP_FP8_TYPE_OCP
+using __nv_fp8_e4m3 = __hip_fp8_e4m3;
+#else // HIP_FP8_TYPE_OCP
 using __nv_fp8_e4m3 = __hip_fp8_e4m3_fnuz;
-#endif
+#endif // HIP_FP8_TYPE_OCP
+#endif // (defined(USE_ROCM) && ROCM_VERSION >= 60200)
 
 namespace fbgemm_gpu {
 

@@ -240,6 +240,102 @@ __launch_bounds__(kMaxThreads) void reorder_batched_ad_indices_kernel(
   }
 }
 
+template <typename Dtype, typename index_t = int32_t>
+__global__
+__launch_bounds__(fbgemm_gpu::kMaxThreads) void reorder_batched_ad_indices_kernel_vec(
+    // reorder indices from (ragged) [B  x T x #num_ads_b x length_{b, t, a})]
+    // to [T][B][#num_ads_b][length_{b, t, a}], i.e. [sum(length_{b, t, a})],
+    // laid out as [T][B][A][L] (if all lengths were equal).
+
+    // if broadcast_indices is enabled, all the indices will be copies of the
+    // first batch of the cat_ad_indices, this is useful for request-only
+    // broadcast
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        cat_ad_offsets,
+    const pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        cat_ad_indices,
+    const pta::PackedTensorAccessor32<index_t, 1, at::RestrictPtrTraits>
+        reordered_cat_ad_offsets,
+    pta::PackedTensorAccessor32<Dtype, 1, at::RestrictPtrTraits>
+        reordered_cat_ad_indices,
+    const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits>
+        batch_offsets,
+    const int32_t T,
+    const bool broadcast_indices) {
+  using vec2_t =
+      typename std::conditional<sizeof(Dtype) == 8, long2, float2>::type;
+  using vec4_t =
+      typename std::conditional<sizeof(Dtype) == 8, long4, float4>::type;
+  const int32_t B = batch_offsets.size(0) - 1;
+  const int32_t num_ads_in_batch = batch_offsets[B];
+  // warp-per-segment.
+  const auto b_t = blockIdx.x * blockDim.y +
+      threadIdx.y; // can be more efficient through bitwise op
+  const int32_t b = b_t % B;
+  const int32_t t = b_t / B;
+  if (t >= T) {
+    return;
+  }
+
+  const auto num_ads_b = batch_offsets[b + 1] - batch_offsets[b];
+  const auto output_segment_offset_start =
+      t * num_ads_in_batch + batch_offsets[b];
+  const auto output_segment_start =
+      reordered_cat_ad_offsets[output_segment_offset_start];
+  const int32_t input_segment_offset_start =
+      broadcast_indices ? T * b + t : T * batch_offsets[b] + t * num_ads_b;
+  const int32_t input_segment_offset_end = broadcast_indices
+      ? input_segment_offset_start + 1
+      : input_segment_offset_start + num_ads_b;
+  const auto input_segment_start = cat_ad_offsets[input_segment_offset_start];
+  const auto input_segment_end = cat_ad_offsets[input_segment_offset_end];
+  const auto num_elements = input_segment_end - input_segment_start;
+
+  if (broadcast_indices) {
+    for (auto i = threadIdx.x; i < num_ads_b * num_elements; i += blockDim.x) {
+      reordered_cat_ad_indices[output_segment_start + i] =
+          cat_ad_indices[input_segment_start + i % num_elements];
+    }
+  } else {
+    // Idea: we want to copy the entire segment of size sum_a(length_{b, t, a})
+    // from starting point (given by cat_ad_offsets[b, t])
+    // to end point (given by reordered_cat_ad_indices[t][b])
+    if (num_elements <= 64 || !(sizeof(Dtype) == 4 || sizeof(Dtype) == 8)) {
+      for (auto i = threadIdx.x; i < input_segment_end - input_segment_start;
+           i += blockDim.x) {
+        // coalesced global memory access, can be optimzed through ILP with the
+        // help of shared memory or vector load/store (if num_ads_b>=64)
+        reordered_cat_ad_indices[output_segment_start + i] =
+            cat_ad_indices[input_segment_start + i];
+      }
+    } else if (num_elements > 64 && num_elements <= 128) {
+      auto dst =
+          (vec2_t*)(reordered_cat_ad_indices.data() + output_segment_start);
+      auto src = (vec2_t*)(cat_ad_indices.data() + input_segment_start);
+      for (auto i = threadIdx.x; i < num_elements / 2; i += blockDim.x) {
+        dst[i] = src[i];
+      }
+      if ((num_elements % 2) && threadIdx.x == 31) {
+        reordered_cat_ad_indices[output_segment_start + num_elements - 1] =
+            cat_ad_indices[input_segment_start + num_elements - 1];
+      }
+    } else if (num_elements > 128) {
+      auto dst =
+          (vec4_t*)(reordered_cat_ad_indices.data() + output_segment_start);
+      auto src = (vec4_t*)(cat_ad_indices.data() + input_segment_start);
+      for (auto i = threadIdx.x; i < num_elements / 4; i += blockDim.x) {
+        dst[i] = src[i];
+      }
+      int remainder = num_elements % 4;
+      if (remainder && threadIdx.x < remainder) {
+        reordered_cat_ad_indices
+            [output_segment_start + num_elements - threadIdx.x - 1] =
+                cat_ad_indices
+                    [input_segment_start + num_elements - threadIdx.x - 1];
+      }
+    }
+  }
+}
 DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
     const Tensor& cat_ad_offsets,
     const Tensor& cat_ad_indices,
@@ -354,11 +450,6 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
       return reordered_cat_ad_indices;
     }
   }
-  constexpr auto NUM_WARPS = 32;
-  auto maxWarpSize = kMaxThreads / NUM_WARPS;
-  const dim3 threads(
-      NUM_WARPS, maxWarpSize < kWarpSize ? maxWarpSize : kWarpSize); // 32 x 32
-  const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
   FBGEMM_DISPATCH_ALL_TYPES(
       cat_ad_indices.scalar_type(),
       "reorder_batched_ad_indices_gpu_kernel_1",
@@ -367,26 +458,38 @@ DLL_PUBLIC Tensor reorder_batched_ad_indices_gpu(
             cat_ad_offsets.scalar_type(),
             "reorder_batched_ad_indices_gpu_kernel_2",
             [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-              const auto func_name = "reorder_batched_ad_indices_kernel";
+#if defined __HIP_PLATFORM_AMD__
+              constexpr auto NUM_WARPS = 4;
+              const dim3 threads(32, NUM_WARPS); // 32 x 4
+              const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
+              constexpr auto reorder_batched_ad_indices_kernel_name =
+                  reorder_batched_ad_indices_kernel_vec<scalar_t, index_t>;
+#else
+              constexpr auto NUM_WARPS = 32;
+              auto maxWarpSize = kMaxThreads / NUM_WARPS;
+              const dim3 threads(
+                  NUM_WARPS,
+                  maxWarpSize < kWarpSize ? maxWarpSize : kWarpSize); // 32 x 32
+              const dim3 blocks(cuda_calc_xblock_count(B * T, NUM_WARPS));
+              constexpr auto reorder_batched_ad_indices_kernel_name =
+                  reorder_batched_ad_indices_kernel<scalar_t, index_t>;
 #endif
-              reorder_batched_ad_indices_kernel<scalar_t, index_t>
-                  <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                      MAKE_PTA_WITH_NAME(
-                          func_name, cat_ad_offsets, index_t, 1, 32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, cat_ad_indices, scalar_t, 1, 32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, reordered_cat_ad_offsets, index_t, 1, 32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, reordered_cat_ad_indices, scalar_t, 1, 32),
-                      MAKE_PTA_WITH_NAME(
-                          func_name, batch_offsets, int32_t, 1, 32),
-                      T,
-                      broadcast_indices);
-              C10_CUDA_KERNEL_LAUNCH_CHECK();
+              FBGEMM_LAUNCH_KERNEL(
+                  (reorder_batched_ad_indices_kernel_name),
+                  blocks,
+                  threads,
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(cat_ad_offsets, index_t, 1, 32),
+                  PTA_B(cat_ad_indices, scalar_t, 1, 32),
+                  PTA_B(reordered_cat_ad_offsets, index_t, 1, 32),
+                  PTA_B(reordered_cat_ad_indices, scalar_t, 1, 32),
+                  PTA_B(batch_offsets, int32_t, 1, 32),
+                  T,
+                  broadcast_indices);
             });
       });
+
   return reordered_cat_ad_indices;
 }
 

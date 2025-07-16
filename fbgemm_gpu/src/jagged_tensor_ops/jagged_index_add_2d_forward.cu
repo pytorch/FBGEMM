@@ -100,23 +100,18 @@ Tensor jagged_index_add_2d_forward_cuda(
               indices.scalar_type(),
               "jagged_index_add_2d_kernel_wrapper_2",
               [&] {
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name = "jagged_index_add_2d_kernel";
-#endif
-                jagged_index_add_2d_kernel<<<
+                FBGEMM_LAUNCH_KERNEL(
+                    (jagged_index_add_2d_kernel<index_t, int64_t, scalar_t>),
                     dim3(num_blocks),
                     dim3(num_cols),
                     0,
-                    at::cuda::getCurrentCUDAStream()>>>(
-                    MAKE_PTA_WITH_NAME(func_name, output, scalar_t, 2, 64),
-                    MAKE_PTA_WITH_NAME(func_name, values, scalar_t, 2, 64),
-                    MAKE_PTA_WITH_NAME(
-                        func_name, (*input_offsets_contig), int64_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-                    MAKE_PTA_WITH_NAME(
-                        func_name, output_offsets, int64_t, 1, 32),
+                    at::cuda::getCurrentCUDAStream(),
+                    PTA_B(output, scalar_t, 2, 64),
+                    PTA_B(values, scalar_t, 2, 64),
+                    PTA_B((*input_offsets_contig), int64_t, 1, 32),
+                    PTA_B(indices, index_t, 1, 32),
+                    PTA_B(output_offsets, int64_t, 1, 32),
                     num_dense_input_rows);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
               });
         });
   }

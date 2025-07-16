@@ -142,25 +142,19 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 
   using at::RestrictPtrTraits;
 
-  AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "linearize_index", ([&] {
-        const auto linearize_index_kernel_ =
-            linearize_index_wo_infos_kernel<index_t>;
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "linearize_index_kernel_";
-#endif
-        linearize_index_kernel_<<<
-            div_round_up(total_B, kMaxThreads),
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, hash_size_cumsum, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, linear_indices, index_t, 1, 32),
-            FixedDivisor(total_B / T));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "linearize_index", ([&] {
+                            FBGEMM_LAUNCH_KERNEL(
+                                (linearize_index_wo_infos_kernel<index_t>),
+                                div_round_up(total_B, kMaxThreads),
+                                kMaxThreads,
+                                0,
+                                at::cuda::getCurrentCUDAStream(),
+                                PTA_B(hash_size_cumsum, index_t, 1, 32),
+                                PTA_B(indices, index_t, 1, 32),
+                                PTA_B(offsets, index_t, 1, 32),
+                                PTA_B(linear_indices, index_t, 1, 32),
+                                FixedDivisor(total_B / T));
+                          }));
 
   Tensor linear_unique_indices;
   Tensor reverse_index;
@@ -173,43 +167,33 @@ std::tuple<Tensor, Tensor, Tensor, Tensor> jagged_unique_indices_cuda(
 
   AT_DISPATCH_INDEX_TYPES(
       indices.scalar_type(), "delinearize_unique_index", ([&] {
-        const auto delinearize_unique_index_kernel_ =
-            delinearize_unique_index_kernel<index_t>;
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "delinearize_unique_index_kernel_";
-#endif
-        delinearize_unique_index_kernel_<<<
+        FBGEMM_LAUNCH_KERNEL(
+            (delinearize_unique_index_kernel<index_t>),
             div_round_up(total_indices + 1, kMaxThreads),
             kMaxThreads,
             0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, reverse_index, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, unique_indices, index_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
+            at::cuda::getCurrentCUDAStream(),
+            PTA_B(indices, index_t, 1, 32),
+            PTA_B(reverse_index, index_t, 1, 32),
+            PTA_B(unique_indices, index_t, 1, 32));
       }));
 
   Tensor output_lengths = at::zeros({total_B}, offsets.options());
-  AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "unique_indices_length", ([&] {
-        const auto unique_indices_length_kernel_ = unique_indices_length_kernel<
-            index_t,
-            std::numeric_limits<index_t>::max(),
-            std::numeric_limits<index_t>::min()>;
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "unique_indices_length_kernel_";
-#endif
-        unique_indices_length_kernel_<<<
-            T,
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, hash_size_offsets, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, reverse_index, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, output_lengths, index_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "unique_indices_length", ([&] {
+                            FBGEMM_LAUNCH_KERNEL(
+                                (unique_indices_length_kernel<
+                                    index_t,
+                                    std::numeric_limits<index_t>::max(),
+                                    std::numeric_limits<index_t>::min()>),
+                                T,
+                                kMaxThreads,
+                                0,
+                                at::cuda::getCurrentCUDAStream(),
+                                PTA_B(hash_size_offsets, index_t, 1, 32),
+                                PTA_B(reverse_index, index_t, 1, 32),
+                                PTA_B(offsets, index_t, 1, 32),
+                                PTA_B(output_lengths, index_t, 1, 32));
+                          }));
 
   Tensor output_offsets;
   output_offsets = asynchronous_complete_cumsum_gpu(output_lengths);
@@ -261,25 +245,20 @@ std::tuple<Tensor, Tensor> jagged_hash_size_cumsum_cuda(
 
   using at::RestrictPtrTraits;
 
-  AT_DISPATCH_INDEX_TYPES(
-      indices.scalar_type(), "compute_hash_size", ([&] {
-        const auto compute_hash_size_kernel_ = compute_hash_size_kernel<
-            index_t,
-            std::numeric_limits<index_t>::min()>;
-#ifdef FBGEMM_GPU_MEMCHECK
-        const auto func_name = "compute_hash_size_kernel_";
-#endif
-        compute_hash_size_kernel_<<<
-            T,
-            kMaxThreads,
-            0,
-            at::cuda::getCurrentCUDAStream()>>>(
-            MAKE_PTA_WITH_NAME(func_name, offsets, index_t, 1, 32),
-            MAKE_PTA_WITH_NAME(func_name, indices, index_t, 1, 32),
-            batch_size,
-            MAKE_PTA_WITH_NAME(func_name, hash_size, index_t, 1, 32));
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      }));
+  AT_DISPATCH_INDEX_TYPES(indices.scalar_type(), "compute_hash_size", ([&] {
+                            FBGEMM_LAUNCH_KERNEL(
+                                (compute_hash_size_kernel<
+                                    index_t,
+                                    std::numeric_limits<index_t>::min()>),
+                                T,
+                                kMaxThreads,
+                                0,
+                                at::cuda::getCurrentCUDAStream(),
+                                PTA_B(offsets, index_t, 1, 32),
+                                PTA_B(indices, index_t, 1, 32),
+                                batch_size,
+                                PTA_B(hash_size, index_t, 1, 32));
+                          }));
 
   Tensor hash_size_cumsum;
   hash_size_cumsum = asynchronous_complete_cumsum_gpu(hash_size);

@@ -124,64 +124,57 @@ void jagged_dense_dense_elementwise_jagged_output_opt_(
             int used_shared_kb = shared_kb;
 #endif
             int used_shared_bytes = used_shared_kb << 10;
-#ifndef USE_ROCM
-            C10_CUDA_CHECK(cudaFuncSetAttribute(
+            TORCH_CHECK_LE(dynamic_smem_size, used_shared_bytes);
+
+            utils::cuda::set_max_dynamic_smem(
                 jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
                     index_t>,
-                cudaFuncAttributeMaxDynamicSharedMemorySize,
-                used_shared_bytes)); // V100: 64 KB; A100: 96 KB.
-#endif
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-            TORCH_CHECK_LE(dynamic_smem_size, used_shared_bytes);
+                used_shared_bytes);
           }
-          dim3 threads_bs = dim3(1024, 1, 1);
-          dim3 blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
 
-#ifdef FBGEMM_GPU_MEMCHECK
-          const auto func_name1 =
-              "jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_";
-#endif
-          jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
-              index_t>
-              <<<blocks_bs,
-                 threads_bs,
-                 dynamic_smem_size,
-                 at::cuda::getCurrentCUDAStream()>>>(
-                  MAKE_PTA_WITH_NAME(func_name1, x_offsets[0], index_t, 1, 32),
-                  MAKE_PTA_WITH_NAME(func_name1, t_rows_after_bs, int, 1, 32),
-                  MAKE_PTA_WITH_NAME(func_name1, t_cols_after_bs, int, 1, 32),
-                  nnz,
-                  B);
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          const auto threads_bs = dim3(1024, 1, 1);
+          const auto blocks_bs = dim3(div_round_up(nnz, threads_bs.x), 1, 1);
+          FBGEMM_LAUNCH_KERNEL(
+              (jagged_dense_dense_elementwise_jagged_output_opt_search_kernel_<
+                  index_t>),
+              blocks_bs,
+              threads_bs,
+              dynamic_smem_size,
+              at::cuda::getCurrentCUDAStream(),
+              PTA_B((x_offsets[0]), index_t, 1, 32),
+              PTA_B(t_rows_after_bs, int, 1, 32),
+              PTA_B(t_cols_after_bs, int, 1, 32),
+              nnz,
+              B);
+
           // Gather kernel
           dim3 threads = dim3(16, 16, 1);
           dim3 blocks = dim3(1, div_round_up(nnz, threads.y), 1);
           if (blocks.y > 65535) {
             blocks.y = 65535;
           }
+          const auto ff = [f] __device__(
+                              __half x, __half y0, __half y1) -> __half {
+            return f(x, y0, y1);
+          };
 
-#ifdef FBGEMM_GPU_MEMCHECK
-          const auto func_name2 =
-              "jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_";
-#endif
-          jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_<
-              index_t>
-              <<<blocks, threads, 0, at::cuda::getCurrentCUDAStream()>>>(
-                  MAKE_PTA_WITH_NAME(
-                      func_name2, output_values, c10::Half, 2, 32),
-                  MAKE_PTA_WITH_NAME(func_name2, x_values, c10::Half, 2, 32),
-                  MAKE_PTA_WITH_NAME(
-                      func_name2, y_0_reshaped, c10::Half, 3, 32),
-                  MAKE_PTA_WITH_NAME(
-                      func_name2, y_1_reshaped, c10::Half, 3, 32),
-                  MAKE_PTA_WITH_NAME(func_name2, t_rows_after_bs, int, 1, 32),
-                  MAKE_PTA_WITH_NAME(func_name2, t_cols_after_bs, int, 1, 32),
-                  nnz,
-                  E,
-                  [f] __device__(__half x, __half y0, __half y1) -> __half {
-                    return f(x, y0, y1);
-                  });
-          C10_CUDA_KERNEL_LAUNCH_CHECK();
+          FBGEMM_LAUNCH_KERNEL(
+              (jagged_dense_dense_elementwise_jagged_output_opt_gather_kernel_<
+                  index_t,
+                  decltype(ff)>),
+              blocks,
+              threads,
+              0,
+              at::cuda::getCurrentCUDAStream(),
+              PTA_B(output_values, c10::Half, 2, 32),
+              PTA_B(x_values, c10::Half, 2, 32),
+              PTA_B(y_0_reshaped, c10::Half, 3, 32),
+              PTA_B(y_1_reshaped, c10::Half, 3, 32),
+              PTA_B(t_rows_after_bs, int, 1, 32),
+              PTA_B(t_cols_after_bs, int, 1, 32),
+              nnz,
+              E,
+              ff);
         }); // AT_DISPATCH
   } else {
     JAGGED_TENSOR_DISPATCH_DIMS();

@@ -11,7 +11,6 @@
 
 #if defined(__x86_64__) || defined(__i386__) || \
     (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
-#include <immintrin.h>
 #endif
 #include <cassert>
 
@@ -27,7 +26,6 @@
 #include "./OptimizedKernelsAvx2.h" // @manual
 #include "./RefImplementations.h" // @manual
 #include "./TransposeUtils.h" // @manual
-#include "fbgemm/QuantUtilsAvx512.h"
 namespace fbgemm {
 
 PackedDirectConvMatrix::PackedDirectConvMatrix(
@@ -84,7 +82,7 @@ void PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT(
   // at initialization stage like other quantized conv implementation.
   // Thus the col_offsets computation will be invoked at forward pass,
   // and only the first pass will prepare the col_offsets.
-  if (first_call == false) {
+  if (!first_call) {
     return;
   }
   int IC = conv_p.IC;
@@ -163,7 +161,7 @@ PackedDirectConvMatrix::col_offsets_with_zero_pt_s8acc32_DirectConvT<3>(
     int ncols_per_quant_group);
 
 template <int SPATIAL_DIM>
-void directConvRowSum(
+static void directConvRowSum(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const uint8_t* A,
     int32_t* inSum,
@@ -245,12 +243,12 @@ void fbgemmDirectConv(
     return;
   }
 
-  if (SPATIAL_DIM != 2) {
+  if constexpr (SPATIAL_DIM != 2) {
     assert(false && "1d/3d direct conv not supported");
   } else {
     if (conv_p.transposed) {
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
-          jit_micro_kernel_fp_convT fn;
+          jit_micro_kernel_fp_convT fn = nullptr;
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t> codeObj;
       /*
          fn = codeObj.getOrCreateDirectConvTrans<inst_set_t::avx2>(
@@ -295,7 +293,7 @@ void fbgemmDirectConv(
 
       /*
       int groups = 1;
-      if (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
+      if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
         groups = conv_p.OC;
       }
       */

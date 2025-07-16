@@ -24,13 +24,13 @@ template <typename T, std::size_t Alignment>
 class aligned_allocator {
  public:
   // The following will be the same for virtually all allocators.
-  typedef T* pointer;
-  typedef const T* const_pointer;
-  typedef T& reference;
-  typedef const T& const_reference;
-  typedef T value_type;
-  typedef std::size_t size_type;
-  typedef std::ptrdiff_t difference_type;
+  using pointer = T*;
+  using const_pointer = T*;
+  using reference = T&;
+  using const_reference = T&;
+  using value_type = T;
+  using size_type = std::size_t;
+  using difference_type = std::ptrdiff_t;
 
   T* address(T& r) const {
     return &r;
@@ -50,7 +50,7 @@ class aligned_allocator {
   // The following must be the same for all allocators.
   template <typename U>
   struct rebind {
-    typedef aligned_allocator<U, Alignment> other;
+    using other = aligned_allocator<U, Alignment>;
   };
 
   bool operator!=(const aligned_allocator& other) const {
@@ -76,14 +76,14 @@ class aligned_allocator {
 
   // Default constructor, copy constructor, rebinding constructor, and
   // destructor. Empty for stateless allocators.
-  aligned_allocator() {}
+  aligned_allocator() = default;
 
-  aligned_allocator(const aligned_allocator&) {}
+  aligned_allocator(const aligned_allocator&) = default;
 
   template <typename U>
   aligned_allocator(const aligned_allocator<U, Alignment>&) {}
 
-  ~aligned_allocator() {}
+  ~aligned_allocator() = default;
 
   // The following will be different for each allocator.
   T* allocate(const std::size_t n) const {
@@ -107,10 +107,9 @@ class aligned_allocator {
 
     // Mallocator wraps malloc().
     void* pv = nullptr;
-    int ret;
+    int ret = 0;
 #ifdef _MSC_VER
     pv = _aligned_malloc(n * sizeof(T), Alignment);
-    ret = 0;
 #else
     ret = posix_memalign(&pv, Alignment, n * sizeof(T));
 #endif

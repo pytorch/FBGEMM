@@ -245,6 +245,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function_cpu(
       FP16_max_ls.value_or(0),
       FP32_max_ls.value_or(0)
   );
+
 }
 
 ///@ingroup embedding-cpu

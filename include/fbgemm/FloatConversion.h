@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <math.h>
+
 #include <cassert>
 #include <climits>
 #include <cstdint>
@@ -211,7 +213,7 @@ template <typename Src, typename Tgt, RoundingMode RoundingMode>
 } // namespace detail
 
 inline float16 cpu_float2half_rn(float f) {
-  uint32_t f_u32;
+  uint32_t f_u32 = 0;
   std::memcpy(&f_u32, &f, sizeof(f_u32));
   return detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
@@ -220,13 +222,13 @@ inline float16 cpu_float2half_rn(float f) {
 }
 
 inline float16 cpu_float2half_rz(float f) {
-  uint32_t f_u32;
+  uint32_t f_u32 = 0;
   std::memcpy(&f_u32, &f, sizeof(f_u32));
   return detail::ieee754_trunc<
       /*Src=*/detail::IEEE754Single,
       /*Tgt=*/detail::IEEE754Half,
       detail::RoundingMode::ToZero>(f_u32);
-};
+}
 
 // Converts a 16-bit unsigned integer representation of a IEEE754 half-precision
 // float into an IEEE754 32-bit single-precision float
@@ -263,7 +265,7 @@ inline float cpu_half2float_ref(const float16 h) {
     exponent = f32_exponent_mask;
   } else if (!exponent) { // Denorm or Zero
     if (mantissa) {
-      uint32_t msb;
+      uint32_t msb = 0;
       exponent = f32_exponent_bias - f16_exponent_bias + 1;
       do {
         msb = mantissa & f32_most_significant_bit;
@@ -279,7 +281,7 @@ inline float cpu_half2float_ref(const float16 h) {
   const uint32_t i = (sign_bit << f32_num_non_sign_bits) |
       (exponent << f32_num_mantissa_bits) | mantissa;
 
-  float ret;
+  float ret = NAN;
   std::memcpy(&ret, &i, sizeof(float));
   return ret;
 }
@@ -288,7 +290,7 @@ inline float cpu_half2float_ref(const float16 h) {
 // conversion provided by the compiler
 inline float cpu_half2float(const float16 h) {
 #if defined(HAS_NATIVE_FP16_TYPE) && not defined(MISSING_GNU_F2H_IEEE)
-  __fp16 h_fp16;
+  __fp16 h_fp16 = NAN;
   std::memcpy(&h_fp16, &h, sizeof(__fp16));
   return h_fp16;
 #else
@@ -299,7 +301,7 @@ inline float cpu_half2float(const float16 h) {
 inline float16 cpu_float2half(const float f) {
 #if defined(HAS_NATIVE_FP16_TYPE) && not defined(MISSING_GNU_F2H_IEEE)
   __fp16 h = f;
-  float16 res;
+  float16 res = 0;
   std::memcpy(&res, &h, sizeof(__fp16));
   return res;
 #else
@@ -308,7 +310,7 @@ inline float16 cpu_float2half(const float f) {
 }
 
 inline float cpu_bf162float(bfloat16 src) {
-  float ret;
+  float ret = NAN;
   uint32_t val_fp32 =
       static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(&src)[0]) << 16;
   std::memcpy(&ret, &val_fp32, sizeof(float));
@@ -316,7 +318,7 @@ inline float cpu_bf162float(bfloat16 src) {
 }
 
 inline bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp;
+  uint32_t temp = 0;
   std::memcpy(&temp, &src, sizeof(uint32_t));
   return (temp + (1u << 15)) >> 16;
 }

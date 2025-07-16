@@ -111,7 +111,7 @@ def generate_optimized_grad_sum_loop_access(
     smem_blob = blob.format(grad_vec="smem_grad_sum[d_vec]")
     reg_blob = blob.format(grad_vec="grad_sum[vec]")
     gen_blob = """
-    if (kUseVecBlocking) {
+    if constexpr (kUseVecBlocking) {
         // max_vecs is not known at compile time
         for (int32_t vec = 0;
             vec < max_vecs &&
@@ -121,8 +121,8 @@ def generate_optimized_grad_sum_loop_access(
             [[maybe_unused]] const int32_t d = d_vec * VEC_WIDTH;
             {smem_blob}
         }
-    }
-    else {
+    
+    } else {
         // kFixedMaxVecsPerThread is known at compile time
         #pragma unroll kFixedMaxVecsPerThread
         for (int32_t vec = 0;

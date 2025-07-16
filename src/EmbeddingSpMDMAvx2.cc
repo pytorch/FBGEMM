@@ -11,10 +11,7 @@
 #include "RefImplementations.h"
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include "fbgemm/Types.h"
-
-namespace fbgemm {
-namespace internal {
+namespace fbgemm::internal {
 
 template <typename InType, typename IndexType, typename OffsetType>
 bool EmbeddingSpMDMBlockSize1_(
@@ -44,7 +41,7 @@ bool EmbeddingSpMDMBlockSize1_(
 #if 0
     constexpr int VLEN = std::is_same<IndexType, std::int64_t>::value ? 4 : 8;
     for (; i < lengths[m] / VLEN * VLEN; i += VLEN) {
-      if (std::is_same<IndexType, std::int64_t>::value) {
+      if constexpr (std::is_same<IndexType, std::int64_t>::value) {
         __m256i idx_v = _mm256_lddqu_si256(
             reinterpret_cast<const __m256i*>(indices + current));
         // Should be none true
@@ -160,5 +157,4 @@ INSTANTIATE_SPMDM_INDEX_T(std::uint8_t)
 #undef INSTANTIATE_SPMDM_OFFSET_T
 #undef INSTANTIATE_SPMDM_BASE
 
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal

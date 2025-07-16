@@ -9,6 +9,7 @@
 #pragma once
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <vector>
 
 #if defined(__x86_64__) || defined(__i386__) || \
@@ -28,6 +29,7 @@
 
 #ifdef _OPENMP
 #include <omp.h>
+#include <cmath>
 #endif
 
 #ifdef USE_MKL
@@ -136,8 +138,6 @@ double measureWithWarmup(
   {
 #endif
     for (int i = 0; i < measuredIterations; ++i) {
-      std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
-
       const auto thread_id = useOpenMP ? fbgemm_get_thread_num() : 0;
 
       if (thread_id == 0) {
@@ -149,7 +149,7 @@ double measureWithWarmup(
 #pragma omp barrier
       }
 #endif
-      start = std::chrono::high_resolution_clock::now();
+      auto start = std::chrono::high_resolution_clock::now();
 
       fn();
 
@@ -159,7 +159,7 @@ double measureWithWarmup(
       }
 #endif
 
-      end = std::chrono::high_resolution_clock::now();
+      auto end = std::chrono::high_resolution_clock::now();
       auto dur =
           std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
@@ -256,7 +256,6 @@ void performance_test(
 #endif
 
   std::string type;
-  double gflops, gbs, ttot;
   for (auto s : shapes) {
     int m = s[0];
     int n = s[1];
@@ -266,8 +265,9 @@ void performance_test(
     aligned_vector<int> Aint(m * k);
     randFill(Aint, 0, 4);
     std::vector<aligned_vector<float>> A;
+    A.reserve(num_instances);
     for (int i = 0; i < num_instances; ++i) {
-      A.push_back(aligned_vector<float>(Aint.begin(), Aint.end()));
+      A.emplace_back(Aint.begin(), Aint.end());
     }
 
     aligned_vector<int> Bint(k * n);
@@ -309,18 +309,19 @@ void performance_test(
       aligned_vector<int> Cint(m * n);
       randFill(Cint, 0, 4);
       for (int i = 0; i < num_instances; ++i) {
-        C_ref.push_back(aligned_vector<float>(Cint.begin(), Cint.end()));
-        C_fb.push_back(aligned_vector<float>(Cint.begin(), Cint.end()));
+        C_ref.emplace_back(Cint.begin(), Cint.end());
+        C_fb.emplace_back(Cint.begin(), Cint.end());
       }
     } else {
       for (int i = 0; i < num_instances; ++i) {
-        C_ref.push_back(aligned_vector<float>(m * n, 1.f));
-        C_fb.push_back(aligned_vector<float>(m * n, NAN));
+        C_ref.emplace_back(m * n, 1.f);
+        C_fb.emplace_back(m * n, NAN);
       }
     }
 
     double nflops = 2.0 * m * n * k;
     double nbytes = 4.0 * m * k + sizeof(btype) * 1.0 * k * n + 4.0 * m * n;
+    double gflops = 0, gbs = 0, ttot = 0.0;
 
     // warm up MKL and fbgemm
     // check correctness at the same time
@@ -380,7 +381,7 @@ void performance_test(
         if (std::abs(C_ref[0][i] - C_fb[0][i]) > 1e-3) {
           fprintf(
               stderr,
-              "Error: too high diff between fp32 ref %f and fp16 %f at %ld\n",
+              "Error: too high diff between fp32 ref %f and fp16 %f at %zu\n",
               C_ref[0][i],
               C_fb[0][i],
               i);

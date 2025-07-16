@@ -152,7 +152,7 @@ class FileStoreTest(unittest.TestCase):
         """
         Test that FB FileStore raises ValueError when an invalid bucket is provided
         """
-        from fbgemm_gpu.fb.utils import FileStore
+        from fbgemm_gpu.fb.utils.manifold_wrapper import FileStore
 
         self.assertRaises(
             ValueError, FileStore, "".join(random.choices(string.ascii_letters, k=15))
@@ -163,7 +163,7 @@ class FileStoreTest(unittest.TestCase):
         """
         Test that FB FileStore can read and write binary data
         """
-        from fbgemm_gpu.fb.utils import FileStore
+        from fbgemm_gpu.fb.utils.manifold_wrapper import FileStore
 
         self._test_filestore_readwrite(
             FileStore("tlparse_reports"),
@@ -176,7 +176,7 @@ class FileStoreTest(unittest.TestCase):
         """
         Test that FB FileStore can read and write tensors
         """
-        from fbgemm_gpu.fb.utils import FileStore
+        from fbgemm_gpu.fb.utils.manifold_wrapper import FileStore
 
         self._test_filestore_readwrite(
             FileStore("tlparse_reports"),
@@ -189,7 +189,7 @@ class FileStoreTest(unittest.TestCase):
         """
         Test that FB FileStore can read and write files
         """
-        from fbgemm_gpu.fb.utils import FileStore
+        from fbgemm_gpu.fb.utils.manifold_wrapper import FileStore
 
         input = torch.rand((random.randint(100, 1000), random.randint(100, 1000)))
         infile = tempfile.NamedTemporaryFile()
@@ -206,6 +206,6 @@ class FileStoreTest(unittest.TestCase):
         """
         Test that FB FileStore can create and remove directories
         """
-        from fbgemm_gpu.fb.utils import FileStore
+        from fbgemm_gpu.fb.utils.manifold_wrapper import FileStore
 
         self._test_filestore_directory(FileStore("tlparse_reports"), "tree/unit_tests")

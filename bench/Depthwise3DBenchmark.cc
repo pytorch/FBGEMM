@@ -212,7 +212,7 @@ int main() {
               if (expected != actual) {
                 cerr << "Depthwise 3x3x3 results differ at (" << n << ", " << t
                      << ", " << h << ", " << w << ", " << g << "). expected "
-                     << (int)expected << " actual " << (int)actual << endl;
+                     << (int)expected << " actual " << (int)actual << '\n';
                 return -1;
               }
               assert(expected == actual);

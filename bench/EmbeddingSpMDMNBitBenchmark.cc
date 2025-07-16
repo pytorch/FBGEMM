@@ -32,16 +32,17 @@
 using namespace std;
 using namespace fbgemm;
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
+/*
+static void print_fused_table(int rows, int embedding_dim, const uint8_t* table)
+{ for (int i = 0; i < rows; i++) { std::cout << "row: " << i << " : " <<
+std::endl; for (int ii = 0; ii < embedding_dim; ii++) { std::cout <<
+(int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
                 << ",";
     }
     std::cout << std::endl;
   }
 }
+*/
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -62,7 +63,7 @@ static vector<vector<int>> GetInputs_() {
 }
 
 template <typename OutType>
-int run_benchmark(
+static int run_benchmark(
     int bit_rate,
     int batch_size,
     int num_rows,
@@ -109,7 +110,7 @@ int run_benchmark(
 
   // Compute the number of indices
   int lengths_sum = offsets[batch_size];
-  cout << "lengths_sum " << lengths_sum << endl;
+  cout << "lengths_sum " << lengths_sum << '\n';
 
   // Generate indices
   vector<int64_t> indices;
@@ -370,15 +371,15 @@ int run_benchmark(
               false &&
               "ERROR: reference impl and JIT impl did not both succeed");
           cout << "asmjit return " << success << " ref return " << success_ref
-               << endl;
+               << '\n';
         } else {
           for (size_t i = 0; i < output.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output[i];
               tmp2 = output_ref[i];
-            } else if (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -388,13 +389,13 @@ int run_benchmark(
               }
             } else {
               assert(false && "ERROR: unsupported output type");
-              cout << "ERROR: unsupported output type" << endl;
+              cout << "ERROR: unsupported output type" << '\n';
             }
 
             assert(fabs(tmp1 - tmp2) < 1e-3);
             if (fabs(tmp1 - tmp2) >= 1e-3) {
               cout << "asmjit vs ref  : " << i << " " << tmp1 << " " << tmp2
-                   << endl;
+                   << '\n';
             }
           }
         }
@@ -406,15 +407,15 @@ int run_benchmark(
               false &&
               "ERROR: reference impl and autovec impl did not both succeed");
           cout << "autovec return " << success_autovec << " ref return "
-               << success_ref << endl;
+               << success_ref << '\n';
         } else {
           for (size_t i = 0; i < output_autovec.size(); ++i) {
             float tmp1 = 0;
             float tmp2 = 0;
-            if (std::is_same<OutType, float>::value) {
+            if constexpr (std::is_same_v<OutType, float>) {
               tmp1 = output_autovec[i];
               tmp2 = output_ref[i];
-            } else if (std::is_same<OutType, uint16_t>::value) {
+            } else if constexpr (std::is_same_v<OutType, uint16_t>) {
               if (is_bf16_out) {
                 tmp1 = cpu_bf162float(output_autovec[i]);
                 tmp2 = cpu_bf162float(output_ref[i]);
@@ -424,22 +425,22 @@ int run_benchmark(
               }
             } else {
               assert(false && "ERROR: unsupported output type");
-              cout << "ERROR: unsupported output type" << endl;
+              cout << "ERROR: unsupported output type" << '\n';
             }
 
             assert(fabs(tmp1 - tmp2) < 1e-3);
             if (fabs(tmp1 - tmp2) >= 1e-3) {
               cout << "autovec vs ref: " << i << " " << tmp1 << " " << tmp2
-                   << endl;
+                   << '\n';
             }
           }
         }
 #endif
       }
 
-      if (std::is_same<OutType, float>::value) {
+      if constexpr (std::is_same_v<OutType, float>) {
         cout << "out type fp32, ";
-      } else if (std::is_same<OutType, uint16_t>::value) {
+      } else if constexpr (std::is_same_v<OutType, uint16_t>) {
         if (is_bf16_out) {
           cout << "out type bf16, ";
         } else {
@@ -447,7 +448,7 @@ int run_benchmark(
         }
       } else {
         assert(false && "ERROR: unsupported output type");
-        cout << "ERROR: unsupported output type" << endl;
+        cout << "ERROR: unsupported output type" << '\n';
       }
 
       if (has_weight) {
@@ -484,17 +485,17 @@ int run_benchmark(
 #ifndef OUT_TYPE_FLOAT16
       cout << ", asmjit speedup, " << t_ref / t;
 #endif
-      cout << std::endl;
+      cout << '\n';
     } // flush_cache
   } // has_weight
   return 0;
 }
 
 int main() {
-  int batch_size;
-  int num_rows;
-  int embedding_dim;
-  int average_len;
+  int batch_size = 0;
+  int num_rows = 0;
+  int embedding_dim = 0;
+  int average_len = 0;
 
   vector<vector<int>> inputs(GetInputs_());
 
@@ -508,7 +509,7 @@ int main() {
 
       cout << "bit_rate, " << bit_rate << ", batch size, " << batch_size
            << ", num rows, " << num_rows << ", emb dim, " << embedding_dim
-           << ", avg length, " << average_len << endl;
+           << ", avg length, " << average_len << '\n';
       // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
       // prefetch
       cout << "64 bit indices, ";

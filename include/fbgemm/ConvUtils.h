@@ -16,30 +16,26 @@
 namespace fbgemm {
 
 template <int N, int... Vals>
-constexpr
-    typename std::enable_if<N == sizeof...(Vals), std::array<int, N>>::type
-    array_of_ones() {
+constexpr std::enable_if_t<N == sizeof...(Vals), std::array<int, N>>
+array_of_ones() {
   return std::array<int, N>{{Vals...}};
 }
 
 template <int N, int... Vals>
-constexpr
-    typename std::enable_if<N != sizeof...(Vals), std::array<int, N>>::type
-    array_of_ones() {
+constexpr std::enable_if_t<N != sizeof...(Vals), std::array<int, N>>
+array_of_ones() {
   return array_of_ones<N, Vals..., 1>();
 }
 
 template <int N, int... Vals>
-constexpr
-    typename std::enable_if<N == sizeof...(Vals), std::array<int, N>>::type
-    array_of_zeroes() {
+constexpr std::enable_if_t<N == sizeof...(Vals), std::array<int, N>>
+array_of_zeroes() {
   return std::array<int, N>{{Vals...}};
 }
 
 template <int N, int... Vals>
-constexpr
-    typename std::enable_if<N != sizeof...(Vals), std::array<int, N>>::type
-    array_of_zeroes() {
+constexpr std::enable_if_t<N != sizeof...(Vals), std::array<int, N>>
+array_of_zeroes() {
   return array_of_zeroes<N, Vals..., 0>();
 }
 
@@ -128,11 +124,11 @@ struct conv_param_t {
   std::string toString() const {
     std::string dim_string[3] = {"T", "H", "W"};
 
-    std::string out = "";
+    std::string out;
     out += "MB:" + std::to_string(MB) + ", ";
     out += "IC:" + std::to_string(IC) + ", ";
     out += "OC:" + std::to_string(OC) + ", ";
-    if (SPATIAL_DIM <= 3) {
+    if constexpr (SPATIAL_DIM <= 3) {
       for (int d = 0; d < SPATIAL_DIM; ++d) {
         out += "I" + dim_string[3 - SPATIAL_DIM + d] + ":" +
             std::to_string(IN_DIM[d]) + ", ";
@@ -143,7 +139,7 @@ struct conv_param_t {
       }
     }
     out += "G:" + std::to_string(G) + ", ";
-    if (SPATIAL_DIM <= 3) {
+    if constexpr (SPATIAL_DIM <= 3) {
       for (int d = 0; d < SPATIAL_DIM; ++d) {
         out += "K" + dim_string[3 - SPATIAL_DIM + d] + ":" +
             std::to_string(K[d]) + ", ";

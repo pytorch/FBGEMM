@@ -22,9 +22,9 @@ template <>
 template <inst_set_t instSet>
 void CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::genComputeBlock(
     x86::Emitter* a,
-    x86::Gp buffer_A,
-    x86::Gp buffer_B,
-    x86::Gp /* unused (reserved for prefetching)*/,
+    const x86::Gp& buffer_A,
+    const x86::Gp& buffer_B,
+    const x86::Gp& /* unused (reserved for prefetching)*/,
     int rowRegs,
     int colRegs,
     int lda) {
@@ -71,17 +71,15 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
     bool accum,
     int32_t mc,
     int32_t nc,
-    int32_t kc) {
-  (void)kc; // Suppress unused variable warning
+    int32_t kc [[maybe_unused]]) {
   static constexpr int vectorLen = simd_info<instSet>::WIDTH_BYTES;
 
-  std::tuple<bool, int, int, int, int, int, int> kernelSig;
-  int kBlock;
-  int nBlock;
-  int mRegBlockSize;
-  int nRegBlockSize;
-  int nRegBlockSizeMin;
-  int row_interleave;
+  int kBlock = 0;
+  int nBlock = 0;
+  int mRegBlockSize = 0;
+  int nRegBlockSize = 0;
+  int nRegBlockSizeMin [[maybe_unused]] = 0;
+  int row_interleave = 0;
 
   if (blocking_params) {
     kBlock = blocking_params->KCB;
@@ -98,9 +96,8 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
     nRegBlockSizeMin = PackingTraits<uint8_t, int16_t, instSet>::NR_MIN;
     row_interleave = PackingTraits<uint8_t, int16_t, instSet>::ROW_INTERLEAVE;
   }
-  (void)nRegBlockSizeMin; // Suppress unused variable warning
 
-  kernelSig = std::make_tuple(
+  auto kernelSig = std::make_tuple(
       accum, mc, nc, nBlock, kBlock, mRegBlockSize, nRegBlockSize);
 
   return codeCache_.getOrCreate(kernelSig, [&]() -> jit_micro_kernel_fp {
@@ -125,8 +122,7 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
     assert(
         kc % row_interleave == 0 && "kc must be a multiple of row_interleave");
     assert(nc % nRegBlockSizeMin == 0 && "nc must be a multiple of NR_MIN");
-    const int maxMRegs = mRegBlockSize;
-    (void)maxMRegs; // Suppress unused variable warning
+    const int maxMRegs [[maybe_unused]] = mRegBlockSize;
     const int maxNRegs = nRegBlockSize * row_interleave / vectorLen;
     assert(
         (maxMRegs + 1) * maxNRegs <= 29 &&
@@ -146,14 +142,9 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
 
     asmjit::FuncDetail func;
     func.init(
-        asmjit::FuncSignatureT<
-            void,
-            uint8_t*,
-            int8_t*,
-            int8_t*,
-            int32_t*,
-            int,
-            int>(asmjit::CallConvId::kHost),
+        asmjit::FuncSignature::
+            build<void, uint8_t*, int8_t*, int8_t*, int32_t*, int, int>(
+                asmjit::CallConvId::kHost),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -347,14 +338,14 @@ CodeGenBase<uint8_t, int8_t, int32_t, int16_t>::getOrCreate(
 
     a->emitEpilog(frame);
 
-    jit_micro_kernel_fp fn;
-    asmjit::Error err;
+    jit_micro_kernel_fp fn = nullptr;
+    asmjit::Error err = 0;
     {
       std::unique_lock<std::mutex> lock(rtMutex_);
       err = runtime().add(&fn, &code);
     }
     if (err) {
-      std::cout << "Error: in fn add" << std::endl;
+      std::cout << "Error: in fn add" << '\n';
       return nullptr;
     }
 

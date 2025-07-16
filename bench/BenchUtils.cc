@@ -19,16 +19,24 @@
 
 namespace fbgemm {
 
-std::default_random_engine eng;
+static std::default_random_engine eng;
 
 template <typename T>
-void randFill(aligned_vector<T>& vec, T low, T high, std::true_type) {
+void randFill(
+    aligned_vector<T>& vec,
+    T low,
+    T high,
+    std::true_type /*unused*/) {
   std::uniform_int_distribution<int> dis(low, high);
   std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
 }
 
 template <typename T>
-void randFill(aligned_vector<T>& vec, T low, T high, std::false_type) {
+void randFill(
+    aligned_vector<T>& vec,
+    T low,
+    T high,
+    std::false_type /*unused*/) {
   std::uniform_real_distribution<T> dis(low, high);
   std::generate(vec.begin(), vec.end(), [&] { return dis(eng); });
 }
@@ -124,7 +132,7 @@ bool parseArgumentBool(
 }
 
 #if defined(USE_MKL)
-void test_xerbla(char* srname, const int* info, int) {
+void test_xerbla(char* srname, const int* info, int /*unused*/) {
   // srname - name of the function that called xerbla
   // info - position of the invalid parameter in the parameter list
   // len - length of the name in bytes
@@ -150,9 +158,8 @@ aligned_vector<float> getRandomSparseVector(
   std::sort(sorted_res.begin(), sorted_res.end());
   int32_t numZeros =
       size - static_cast<int32_t>(std::round(size * fractionNonZeros));
-  float thr;
   if (numZeros) {
-    thr = sorted_res[numZeros - 1];
+    float thr = sorted_res[numZeros - 1];
 
     for (auto& f : res) {
       if (f <= thr) {

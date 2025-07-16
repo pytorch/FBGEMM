@@ -112,27 +112,20 @@ Tensor jagged_softmax_backward_cuda(
               grad_output.scalar_type(),
               "jagged_softmax_backward_kernel_2",
               [&] {
-
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name1 = "jagged_softmax_backward_kernel";
-#endif
-
-                jagged_softmax_backward_kernel<
+                FBGEMM_LAUNCH_KERNEL(
+                    (jagged_softmax_backward_kernel<
+                        THREADS_PER_BLOCK,
+                        index_t,
+                        scalar_t>),
+                    grid,
                     THREADS_PER_BLOCK,
-                    index_t,
-                    scalar_t>
-                    <<<grid,
-                       THREADS_PER_BLOCK,
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        MAKE_PTA_WITH_NAME(
-                            func_name1, grad_output, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, output, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, offsets, index_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(
-                            func_name1, grad_input, scalar_t, 2, 32),
-                        (int)max_L);
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                    0,
+                    at::cuda::getCurrentCUDAStream(),
+                    PTA_B(grad_output, scalar_t, 2, 32),
+                    PTA_B(output, scalar_t, 2, 32),
+                    PTA_B(offsets, index_t, 1, 32),
+                    PTA_B(grad_input, scalar_t, 2, 32),
+                    (int)max_L);
               });
         });
   }

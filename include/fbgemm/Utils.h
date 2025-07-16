@@ -35,7 +35,7 @@ namespace fbgemm {
 template <typename T>
 struct is_8bit {
   static constexpr bool value =
-      std::is_same<T, int8_t>::value || std::is_same<T, uint8_t>::value;
+      std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>;
 };
 
 /**
@@ -125,12 +125,12 @@ FBGEMM_API void transpose_simd(
 /**
  * @brief Explicitly set instruction set to be used
  */
-FBGEMM_API void fbgemmForceIsa(inst_set_t);
+FBGEMM_API void fbgemmForceIsa(inst_set_t /*isa*/);
 
 /**
  * @brief Enable AVX512-256 path for Intel(r) Xeon(r) D servers
  */
-FBGEMM_API void fbgemmEnableAvx512Ymm(bool);
+FBGEMM_API void fbgemmEnableAvx512Ymm(bool /*flag*/);
 
 /**
  * @brief Are we running on a Xeon-D cpu?
@@ -175,12 +175,12 @@ FBGEMM_API inst_set_t fbgemmInstructionSet();
 /**
  * @brief Is ISA is wide vector ZMM
  */
-FBGEMM_API bool isZmm(inst_set_t);
+FBGEMM_API bool isZmm(inst_set_t /*isa*/);
 
 /**
  * @brief Is ISA is wide vector ZMM
  */
-FBGEMM_API bool isYmm(inst_set_t);
+FBGEMM_API bool isYmm(inst_set_t /*isa*/);
 
 /**
  * @brief Helper struct to enable autotuning of FBGEMM packing and kernels.
@@ -212,7 +212,7 @@ struct FBGEMM_API thread_type_t {
   int n_thread_id;
 
   std::string toString() const {
-    std::string out = "";
+    std::string out;
     out += "g num threads: " + std::to_string(g_num_threads) + ", ";
     out += "m num threads: " + std::to_string(m_num_threads) + ", ";
     out += "n num threads: " + std::to_string(n_num_threads) + ", ";
@@ -263,11 +263,11 @@ std::string arrayToString(const std::array<T, SIZE>& inp) {
 
 template <typename accT = std::int32_t>
 bool isValidBlockingFactor(const BlockingFactors* const param) {
-  constexpr bool is_32bit = std::is_same<accT, int32_t>::value;
-  constexpr bool is_16bit = std::is_same<accT, int16_t>::value;
+  constexpr bool is_32bit = std::is_same_v<accT, int32_t>;
+  constexpr bool is_16bit = std::is_same_v<accT, int16_t>;
   static const auto iset = fbgemmInstructionSet();
 
-  if (is_32bit) {
+  if constexpr (is_32bit) {
     if (param->ROW_INTERLEAVE != 4)
       return false;
 
@@ -278,7 +278,7 @@ bool isValidBlockingFactor(const BlockingFactors* const param) {
       if (param->NR_MIN != 8 || param->NR % param->NR_MIN)
         return false;
     }
-  } else if (is_16bit) {
+  } else if constexpr (is_16bit) {
     if (param->ROW_INTERLEAVE != 2)
       return false;
 
@@ -296,11 +296,11 @@ bool isValidBlockingFactor(const BlockingFactors* const param) {
   if (param->NCB % param->NR)
     return false;
   if (isZmm(iset)) {
-    if (is_32bit) {
+    if constexpr (is_32bit) {
       // Zmm register usage for C
       if (param->MR * (param->NR / param->NR_MIN) > 28)
         return false;
-    } else if (is_16bit) {
+    } else if constexpr (is_16bit) {
       // Zmm register usage for C + one row for loading B
       if ((param->MR * (param->NR / param->NR_MIN) +
            (param->NR / param->NR_MIN)) > 28)
@@ -447,7 +447,8 @@ void nbit_embedding_sanity_check(
   assert(
       (input_bit_rate == 2 || input_bit_rate == 4) &&
       "input_bit_rate must be 2 or 4");
-  if (std::is_same<OutType, uint8_t>::value) {
+  // NOLINTNEXTLINE(bugprone-branch-clone)
+  if constexpr (std::is_same_v<OutType, uint8_t>) {
     assert(
         (no_bag && input_bit_rate == 4 && output_bit_rate == 4) &&
         "we currently only support int4 to int4 for sequential TBE");

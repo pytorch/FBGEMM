@@ -46,7 +46,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-vector<int> prefetch_distances{0, 16, 1000000};
+static vector<int> prefetch_distances{0, 16, 1000000};
 
 namespace {
 
@@ -58,7 +58,7 @@ class Fused8BitRowwiseEmbeddingLookupTest
           EmbeddingSpMDMOutputDtypeChoice>> {};
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     Fused8BitRowwiseEmbeddingLookupTest,
     ::testing::Combine(
@@ -87,7 +87,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
-  int prefetch;
+  int prefetch = 0;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
   EmbeddingSpMDMOutputDtypeChoice out_type;
@@ -189,7 +189,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, basicTest) {
           convert_from_float_ref<uint16_t>(sentry_value, out_type == BFLOAT16);
     }
 
-    bool success, success_ref;
+    bool success = false, success_ref = false;
 
 #define TEST_BASE(                                                           \
     indices,                                                                 \
@@ -334,7 +334,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
   bool use_offsets = bool_dist(generator);
   bool scale_bias_last = bool_dist(generator);
 
-  int prefetch;
+  int prefetch = 0;
   EmbeddingSpMDMWeightChoice weight_choice;
   EmbeddingSpMDMCornerCase corner_case;
   EmbeddingSpMDMDtypeChoice out_type;
@@ -404,7 +404,7 @@ TEST_P(Fused8BitRowwiseEmbeddingLookupTest, rowwiseSparseTest) {
 
     vector<float>& output_ref = use_weight ? output_slws_ref : output_sls_ref;
     vector<float>& output = use_weight ? output_slws : output_sls;
-    bool success, success_ref;
+    bool success = false, success_ref = false;
 
     if (isOffset64b) {
       if (isIndex64b) {

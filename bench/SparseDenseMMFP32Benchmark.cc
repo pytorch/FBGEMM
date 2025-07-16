@@ -27,7 +27,7 @@ int main(int, char**) {
 
   cout << setw(7) << "index" << setw(7) << "m" << setw(7) << "n" << setw(7)
        << "k" << setw(7) << "fnz" << setw(15) << "eff_GFLOPS" << setw(15)
-       << "real_GFLOPS" << endl;
+       << "real_GFLOPS" << '\n';
 
   int index = 0;
   // for (int s = 64; s <= 128; s *= 2)
@@ -126,7 +126,7 @@ int main(int, char**) {
       cout << "[" << setw(5) << index << "]" << setw(7) << m << setw(7) << n
            << setw(7) << k << fixed << setw(7) << setprecision(2) << fnz
            << setw(15) << setprecision(5) << effective_gflops_intrin << setw(15)
-           << setprecision(5) << fnz * effective_gflops_intrin << endl;
+           << setprecision(5) << fnz * effective_gflops_intrin << '\n';
       ++index;
     }
   }
