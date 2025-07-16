@@ -7,9 +7,7 @@
  */
 
 #pragma once
-#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
-#include <map>
 #include <mutex>
 #include <sstream>
 #include <string>

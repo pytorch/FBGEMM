@@ -10,7 +10,7 @@
 
 #include "./Utils.h" // @manual
 
-#include <asmjit/asmjit.h> // @manual
+#include <asmjit/x86.h> // @manual
 
 namespace fbgemm {
 /**
