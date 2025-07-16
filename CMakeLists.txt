@@ -265,6 +265,7 @@ if(NOT TARGET asmjit)
   else()
     set(ASMJIT_STATIC ON)
   endif()
+  set(ASMJIT_NO_INSTALL ON)
 
   add_subdirectory("${ASMJIT_SRC_DIR}" "${FBGEMM_BINARY_DIR}/asmjit")
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
