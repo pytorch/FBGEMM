@@ -10,7 +10,7 @@
 import os
 import unittest
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import fbgemm_gpu.experimental.gen_ai  # noqa: F401
 
@@ -40,6 +40,19 @@ except ImportError:
     MARLIN_ENABLED = False
 
 running_on_github: bool = os.getenv("GITHUB_ENV") is not None
+
+
+def evaluate_platform_supports_fp8():
+    if torch.cuda.is_available():
+        if torch.version.hip:
+            return supports_float8_fnuz(throw_on_hip_incompatibility=False)
+        else:
+            # Only SM90 or later is supported
+            return torch.cuda.get_device_capability() >= (9, 0)
+    return False
+
+
+SUPPORTS_FP8 = evaluate_platform_supports_fp8()
 
 if torch.cuda.is_available() and supports_float8_fnuz(
     throw_on_hip_incompatibility=(not running_on_github)
@@ -815,9 +828,7 @@ class FP8Tests(unittest.TestCase):
         zq_ref = (x @ w.T).to(torch.bfloat16)
         torch.testing.assert_close(zq, zq_ref, atol=1.0e-3, rtol=1.0e-3)
 
-    @unittest.skipIf(
-        not torch.version.cuda, "Skip on AMD: BMM ops are not yet suported."
-    )
+    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
     @settings(deadline=None)
     @given(
         B=st.sampled_from([1, 4]),
@@ -825,7 +836,10 @@ class FP8Tests(unittest.TestCase):
         N=st.sampled_from([128, 256]),
         K=st.sampled_from([256, 512]),
         use_loopover=st.sampled_from([True, False]),
-        Bias=st.sampled_from([True, False]),
+        Bias=st.sampled_from([False] + ([True] if torch.version.cuda else [])),
+        mode=st.sampled_from(
+            ["default"] + (["torch_3d3d"] if torch.version.hip else [])
+        ),
     )
     def test_fp8_batched_gemm(
         self,
@@ -835,7 +849,13 @@ class FP8Tests(unittest.TestCase):
         K: int,
         Bias: bool,
         use_loopover: bool,
+        mode: str,
     ) -> None:
+        # AMD CK FP8 batched gemm does not support N < 512 or K < 512.
+        # Funny enough, grouped gemm does not have this restriction.
+        if mode == "default" and torch.version.hip and (N < 512 or K < 512):
+            return
+
         x = (
             torch.rand(
                 size=(B, M, K),
@@ -897,37 +917,42 @@ class FP8Tests(unittest.TestCase):
         if use_loopover:
             y_fp8 = fp8_loopover_bmm(xq, wq, x_scale, w_scale, bias)
         else:
-            y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
-                xq, wq, x_scale, w_scale, bias
-            )
+            if mode == "default":
+                y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_batched(
+                    xq, wq, x_scale, w_scale, bias
+                )
+            elif mode == "torch_3d3d":
+                y_fp8_ = torch.empty(
+                    (B, M, N), dtype=torch.bfloat16, device=xq[0].device
+                )
+                y_fp8 = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+                    xq,
+                    wq,
+                    x_scale,
+                    w_scale,
+                    None,
+                    y_fp8_,
+                )
+
         torch.testing.assert_close(y_ref, y_fp8, atol=8.0e-2, rtol=8.0e-2)
 
-    @unittest.skipIf(
-        torch.version.hip is not None and running_on_github,
-        "type fp8e4b8 not supported in this architecture. The supported fp8 dtypes are ('fp8e5',)",
-    )
-    @unittest.skipIf(
-        not torch.version.cuda and torch.version.hip < "6.2",
-        "Skip on AMD with < RoCM 6.2",
-    )
+    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
     @settings(deadline=None)
     @given(
         G=st.sampled_from([1, 4, 5, 16]),
         M=st.sampled_from([0, 2048, 3584]),
-        N=st.sampled_from([1024, 6144]),
-        K=st.sampled_from([512, 3584]),
+        N=st.sampled_from([256, 1024, 6144]),
+        K=st.sampled_from([256, 512, 3584]),
         use_cudagraph=st.booleans(),
-        mode=st.sampled_from(["default", "cat", "padded", "stacked"]),
+        mode=st.sampled_from(["default", "cat", "padded"]),
     )
-    def test_grouped_gemm(
-        self,
-        G: int,
-        M: int,
-        N: int,
-        K: int,
-        use_cudagraph: bool,
-        mode: str,
-    ) -> None:
+    def test_grouped_gemm_fbgemm_api(
+        self, G: int, M: int, N: int, K: int, use_cudagraph: bool, mode: str
+    ):
+        # TODO remove this restriction.
+        if N < 512 or K < 512:
+            return
+
         if M > 0:
             ms = (
                 torch.randint(
@@ -995,16 +1020,7 @@ class FP8Tests(unittest.TestCase):
             wq_group = torch.stack(wq_group, dim=0).contiguous()
             x_scale_group = torch.stack(x_scale_group, dim=0).contiguous()
             w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
-        elif mode == "stacked":
-            x_group = torch.cat(x_group, dim=0).contiguous()
-            w_group = torch.stack(w_group, dim=0).contiguous()
-            xq_group = torch.cat(xq_group, dim=0).contiguous()
-            wq_group = torch.stack(wq_group, dim=0).contiguous()
-            x_scale_group = torch.cat(x_scale_group, dim=0).contiguous()
-            w_scale_group = torch.stack(w_scale_group, dim=0).contiguous()
 
-        # FP8 grouped gemm kernel
-        if mode == "padded":
             fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_dynamic
             bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped_dynamic
             fp8_args = [
@@ -1015,12 +1031,6 @@ class FP8Tests(unittest.TestCase):
                 zero_start_index_M,
             ]
             bf16_args = [x_group, w_group, zero_start_index_M]
-        elif mode == "stacked":
-            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
-            M_sizes = ms.to(device=self.device, dtype=torch.int64)
-            fp8_args = [xq_group, wq_group, x_scale_group, w_scale_group, M_sizes]
-            bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked
-            bf16_args = [x_group, w_group, M_sizes]
         else:
             if mode == "cat":
                 fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_cat
@@ -1067,26 +1077,266 @@ class FP8Tests(unittest.TestCase):
             else:
                 y_bf16_group = torch.unbind(y_bf16_group)
 
-        # BF16 loopover gemm reference
-        # unstack input to make it compatible with loopover.
+        self.bf16_loopover_validate(
+            x_group,
+            w_group,
+            y_fp8_group,
+            y_bf16_group,
+            # default mode is worse for some reason
+            rtol_fp8=2.0e-1 if mode == "default" else 8.0e-2,
+        )
+
+    def bf16_loopover_validate(
+        self,
+        x: Union[torch.Tensor, list[torch.Tensor]],
+        w: Union[torch.Tensor, list[torch.Tensor]],
+        out_fp8: Union[torch.tensor, list[torch.Tensor]],
+        out_bf16: Union[torch.tensor, list[torch.Tensor], None] = None,
+        atol_fp8=8.0e-2,
+        rtol_fp8=8.0e-2,
+        atol_bf16=8.0e-3,
+        rtol_bf16=8.0e-3,
+    ):
+        out_ref = [torch.matmul(x[i], w[i].t()) for i in range(len(x))]
+
+        for i in range(len(out_fp8)):
+            torch.testing.assert_close(
+                out_fp8[i], out_ref[i], atol=atol_fp8, rtol=rtol_fp8
+            )
+
+        if out_bf16:
+            for i in range(len(out_bf16)):
+                torch.testing.assert_close(
+                    out_bf16[i], out_ref[i], atol=atol_bf16, rtol=rtol_bf16
+                )
+
+    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([0, 2048, 3584]),
+        N=st.sampled_from([256, 1024, 6144]),
+        K=st.sampled_from([256, 512, 3584]),
+        use_cudagraph=st.booleans(),
+        mode=st.sampled_from(["stacked", "torch_2d3d"]),
+    )
+    def test_grouped_gemm_2d_3d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+        use_cudagraph: bool,
+        mode: str,
+    ) -> None:
+        # TODO remove this restriction.
+        if (N < 512 or K < 512) and mode == "stacked":
+            return
+
+        if M > 0:
+            M_sizes = (
+                torch.randint(
+                    1,
+                    (M // 64) + 1,
+                    (G,),
+                    dtype=torch.int,
+                )
+                * 64
+            )
+        else:
+            M_sizes = torch.zeros((G,), dtype=torch.int)
+
+        M = torch.sum(M_sizes).item()
+        X = torch.randn((M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+        W = torch.randn((G, N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+
+        xq, x_scale = quantize_fp8_row(X)
+        wq, w_scale = quantize_fp8_row(W)
+
+        # FP8 grouped gemm kernel
         if mode == "stacked":
-            x_group = torch.split(x_group, tuple(ms.tolist()), dim=0)
-        y_group_ref = []
-        for i in range(len(x_group)):
-            y = torch.matmul(x_group[i], w_group[i].t())
-            y_group_ref.append(y)
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_stacked
+            M_sizes_gpu = M_sizes.clone().to(device=self.device, dtype=torch.int64)
+            fp8_args = [xq, wq, x_scale, w_scale, M_sizes_gpu]
 
-        # Assert FP8 outputs
-        for i in range(len(y_group_ref)):
-            torch.testing.assert_close(
-                y_fp8_group[i], y_group_ref[i], atol=8.0e-2, rtol=2.0e-1
+            bf16_op = torch.ops.fbgemm.bf16bf16bf16_grouped_stacked
+            bf16_args = [X, W, M_sizes_gpu]
+        elif mode == "torch_2d3d":
+            fp8_op = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm
+            M_offsets = torch.cumsum(M_sizes, dim=0).to(
+                device=self.device, dtype=torch.int32
+            )
+            out = torch.empty(M, N).to(device=self.device, dtype=torch.bfloat16)
+            fp8_args = [
+                xq,
+                wq,
+                x_scale,
+                w_scale,
+                M_offsets,
+                out,
+            ]
+
+            bf16_op = None
+            bf16_args = None
+
+        if use_cudagraph:
+            # warmup
+            fp8_op(*fp8_args)
+            # With cudagraph
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y_fp8_group = fp8_op(*fp8_args)
+            g.replay()
+        else:
+            y_fp8_group = fp8_op(*fp8_args)
+
+        # Massage output into proper format.
+        y_fp8_group = torch.split(y_fp8_group, tuple(M_sizes.tolist()), dim=0)
+
+        # unstack input to make it compatible with loopover.
+        x_group = torch.split(X, tuple(M_sizes.tolist()), dim=0)
+
+        y_bf16_group = None
+        if bf16_op is not None:
+            if use_cudagraph:
+                # warmup
+                bf16_op(*bf16_args)
+                # With cudagraph
+                g = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(g):
+                    y_bf16_group = bf16_op(*bf16_args)
+                g.replay()
+            else:
+                y_bf16_group = bf16_op(*bf16_args)
+
+            y_bf16_group = torch.split(y_bf16_group, tuple(M_sizes.tolist()), dim=0)
+
+        # BF16 loopover gemm reference
+        self.bf16_loopover_validate(x_group, W, y_fp8_group, y_bf16_group)
+
+    @unittest.skipIf(
+        not torch.version.hip,
+        "Only AMD supports torch 3D-2D grouped gemm API",
+    )
+    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([0, 64, 2048, 3584]),
+        N=st.sampled_from([64, 256, 1024, 6144]),
+        K=st.sampled_from([64, 256, 512, 3584]),
+    )
+    def test_grouped_gemm_3d_2d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+    ) -> None:
+        N_sizes = (
+            torch.randint(
+                1,
+                (N // 64) + 1,
+                (G,),
+                dtype=torch.int,
+            )
+            * 64
+        )
+        N = torch.sum(N_sizes).item()
+        N_offsets = torch.cumsum(N_sizes, dim=0).to(
+            device=self.device, dtype=torch.int32
+        )
+
+        X = torch.randn((G, M, K), dtype=torch.bfloat16, device=self.device) * 0.1
+        W = torch.randn((N, K), dtype=torch.bfloat16, device=self.device) * 0.01
+        out = torch.empty((M, N), dtype=torch.bfloat16, device=self.device)
+
+        xq, x_scale = quantize_fp8_row(X)
+        wq, w_scale = quantize_fp8_row(W)
+
+        y = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+            xq, wq, x_scale, w_scale, N_offsets, out
+        )
+
+        # Compare using loopover BF16 gemm
+        y_fp8 = torch.split(y, tuple(N_sizes), dim=1)
+        W_split = torch.split(W, tuple(N_sizes), dim=0)
+        self.bf16_loopover_validate(X, W_split, y_fp8)
+
+    @unittest.skipIf(
+        not torch.version.hip,
+        "Only AMD supports torch 2D-2D grouped gemm API",
+    )
+    @unittest.skipIf(not SUPPORTS_FP8, "FP8 not supported on this platform")
+    @settings(deadline=None)
+    @given(
+        G=st.sampled_from([1, 4, 16]),
+        M=st.sampled_from([16, 2048, 3584]),
+        N=st.sampled_from([16, 256, 1024, 6144]),
+        K=st.sampled_from([16, 256, 512, 3584]),
+        use_cudagraph=st.booleans(),
+    )
+    def test_grouped_gemm_2d_2d(
+        self,
+        G: int,
+        M: int,
+        N: int,
+        K: int,
+        use_cudagraph: bool,
+    ) -> None:
+        K_sizes = torch.ones((G,), dtype=torch.int, device=self.device) * K
+        K_offsets = torch.cumsum(K_sizes, dim=0).to(
+            device=self.device, dtype=torch.int32
+        )
+
+        # Each group should be quantized rowwise separately
+        X_list = []
+        W_list = []
+        xq_list = []
+        wq_list = []
+        x_scale_list = []
+        w_scale_list = []
+        for k_size in K_sizes.tolist():
+            X = torch.randn((M, k_size), dtype=torch.bfloat16, device=self.device) * 0.1
+            W = (
+                torch.randn((N, k_size), dtype=torch.bfloat16, device=self.device)
+                * 0.01
+            )
+            xq, x_scale = quantize_fp8_row(X)
+            wq, w_scale = quantize_fp8_row(W)
+
+            X_list.append(X)
+            W_list.append(W)
+            xq_list.append(xq)
+            wq_list.append(wq)
+            x_scale_list.append(x_scale)
+            w_scale_list.append(w_scale)
+
+        xq = torch.cat(xq_list, dim=1)
+        wq = torch.cat(wq_list, dim=1)
+        x_scale = torch.cat(x_scale_list, dim=0)
+        w_scale = torch.cat(w_scale_list, dim=0)
+
+        out = torch.empty((G, M, N), dtype=torch.bfloat16, device=self.device)
+
+        if use_cudagraph:
+            # warmup
+            torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+                xq, wq, x_scale, w_scale, K_offsets, out
+            )
+            g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(g):
+                y = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+                    xq, wq, x_scale, w_scale, K_offsets, out
+                )
+            g.replay()
+        else:
+            y = torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+                xq, wq, x_scale, w_scale, K_offsets, out
             )
 
-        # Assert BF16 outputs
-        for i in range(len(y_group_ref)):
-            torch.testing.assert_close(
-                y_bf16_group[i], y_group_ref[i], atol=8.0e-3, rtol=8.0e-3
-            )
+        # Compare using loopover BF16 gemm
+        self.bf16_loopover_validate(X_list, W_list, y)
 
     @unittest.skipIf(not torch.version.cuda, "Currently not supported on AMD.")
     @settings(deadline=None)
