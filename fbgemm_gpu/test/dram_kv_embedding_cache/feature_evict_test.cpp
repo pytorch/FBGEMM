@@ -74,6 +74,7 @@ TEST(FeatureEvictTest, CounterBasedEviction) {
       feature_evict_config,
       *kv_store_.get(),
       sub_table_hash_cumsum,
+      true, // is training
       TestMode::NORMAL);
 
   // Initial validation
@@ -153,7 +154,11 @@ TEST(FeatureEvictTest, TimeBasedEviction) {
           0); // embedding_dims
 
   auto feature_evict = create_feature_evict(
-      feature_evict_config, *kv_store_.get(), sub_table_hash_cumsum);
+      feature_evict_config,
+      *kv_store_.get(),
+      sub_table_hash_cumsum,
+      true // is training
+  );
 
   // Initial validation
   size_t total_blocks = 0;
@@ -238,7 +243,11 @@ TEST(FeatureEvictTest, TimeCounterBasedEviction) {
           0); // embedding_dims
 
   auto feature_evict = create_feature_evict(
-      feature_evict_config, *kv_store_.get(), sub_table_hash_cumsum);
+      feature_evict_config,
+      *kv_store_.get(),
+      sub_table_hash_cumsum,
+      true // is training
+  );
 
   // Initial validation
   size_t total_blocks = 0;
@@ -319,7 +328,11 @@ TEST(FeatureEvictTest, L2WeightBasedEviction) {
           0); // embedding_dims
 
   auto feature_evict = create_feature_evict(
-      feature_evict_config, *kv_store_.get(), sub_table_hash_cumsum);
+      feature_evict_config,
+      *kv_store_.get(),
+      sub_table_hash_cumsum,
+      true // is training
+  );
 
   // Initial validation
   size_t total_blocks = 0;
@@ -389,6 +402,7 @@ TEST(FeatureEvictTest, PerformanceTest) {
         counter_thresholds,
         0,
         0,
+        true, // is training
         TestMode::NORMAL);
 
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -471,6 +485,7 @@ TEST(FeatureEvictTest, DupAPINoOpCheck) {
       feature_evict_config,
       *kv_store_.get(),
       sub_table_hash_cumsum,
+      true, // is training
       TestMode::NORMAL);
 
   // Initial validation
@@ -598,6 +613,7 @@ TEST(FeatureEvictTest, EdgeCase_NoPause) {
       feature_evict_config,
       *kv_store_.get(),
       sub_table_hash_cumsum,
+      true, // is training
       TestMode::NORMAL);
 
   // Initial validation
@@ -712,6 +728,7 @@ TEST(FeatureEvictTest, EdgeCase_PauseOnLastIter) {
       feature_evict_config,
       *kv_store_.get(),
       sub_table_hash_cumsum,
+      true, // is training
       TestMode::PAUSE_ON_LAST_ITERATION);
 
   // Initial validation

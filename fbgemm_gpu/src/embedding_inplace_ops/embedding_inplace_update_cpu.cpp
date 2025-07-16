@@ -146,6 +146,8 @@ void dram_kv_embedding_inplace_update_cpu(
   auto embedding_inplace_update_method =
       tbe_module->find_method(tbe_module_update_func_name);
   TORCH_CHECK(embedding_inplace_update_method.has_value());
+  auto embedding_log_inplace_update_stats_method =
+      tbe_module->find_method("log_inplace_update_stats");
 
   const uint8_t* weights_tys_ptr = weights_tys.data_ptr<uint8_t>();
   const int32_t* D_offsets_ptr = D_offsets.data_ptr<int32_t>();
@@ -175,6 +177,9 @@ void dram_kv_embedding_inplace_update_cpu(
     at::Tensor row_id =
         at::full({1}, row_idx, at::TensorOptions().dtype(at::kLong));
     (*embedding_inplace_update_method)({t, row_id, update_weight});
+  }
+  if (embedding_log_inplace_update_stats_method.has_value()) {
+    (*embedding_log_inplace_update_stats_method)({});
   }
 }
 

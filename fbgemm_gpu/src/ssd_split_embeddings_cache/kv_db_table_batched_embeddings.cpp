@@ -140,7 +140,8 @@ EmbeddingKVDB::EmbeddingKVDB(
              << " shards, dimension:" << max_D_
              << ", enable_async_update_:" << enable_async_update_
              << ", enable_raw_embedding_streaming_:"
-             << enable_raw_embedding_streaming_;
+             << enable_raw_embedding_streaming_
+             << ", cache_size_gb:" << cache_size_gb;
 
   if (enable_async_update_) {
     cache_filling_thread_ = std::make_unique<std::thread>([=] {

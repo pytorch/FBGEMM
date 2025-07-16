@@ -29,11 +29,16 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
       const int64_t scale_bias_size_in_bytes,
       const std::optional<at::Tensor>& hash_size_cumsum);
 
-  void set_embeddings(const at::Tensor& indices, const at::Tensor& weights);
+  void set_embeddings(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      std::optional<int64_t> inplace_update_ts_opt = std::nullopt);
 
   at::Tensor get_embeddings(const at::Tensor& indices);
 
-  void trigger_evict();
+  void log_inplace_update_stats();
+
+  void trigger_evict(int64_t inplace_update_ts_64b);
 
   void wait_evict_completion();
 

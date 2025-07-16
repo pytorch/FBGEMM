@@ -343,7 +343,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"weights precision: {weights_precision}, "
             f"output dtype: {output_dtype}, "
             f"chunk size in bulk init: {bulk_init_chunk_size} bytes, backend_type: {backend_type}, "
-            f"kv_zch_params: {kv_zch_params}"
+            f"kv_zch_params: {kv_zch_params}, "
+            f"embedding spec: {embedding_specs}"
         )
         self.register_buffer(
             "lxu_cache_state",

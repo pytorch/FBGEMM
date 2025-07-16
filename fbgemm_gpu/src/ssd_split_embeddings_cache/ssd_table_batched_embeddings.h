@@ -423,7 +423,7 @@ class EmbeddingRocksDB : public kv_db::EmbeddingKVDB {
     return;
   }
 
-  void resume_ongoing_eviction() override {
+  void resume_ongoing_eviction(bool force_pause = false) override {
     // no op for now
     return;
   }
