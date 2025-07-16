@@ -346,7 +346,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         INT8_max_ls.value_or(0),
         FP8_max_ls.value_or(0),
         FP16_max_ls.value_or(0),
-        FP32_max_ls.value_or(0),
+        FP32_max_ls.value_or(0)
         );
   }
   if (!indice_weights || indice_weights->numel() == 0) {
@@ -378,7 +378,7 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         INT8_max_ls.value_or(0),
         FP8_max_ls.value_or(0),
         FP16_max_ls.value_or(0),
-        FP32_max_ls.value_or(0),
+        FP32_max_ls.value_or(0)
         );
   }
   // Force casting indice_weights to float (doing this in the backend to avoid
