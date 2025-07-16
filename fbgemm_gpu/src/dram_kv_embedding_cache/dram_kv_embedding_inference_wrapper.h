@@ -33,6 +33,11 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
 
   at::Tensor get_embeddings(const at::Tensor& indices);
 
+  std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> get_dram_kv();
+
+  void set_dram_kv(
+      std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> dram_kv);
+
   c10::List<at::Tensor> serialize() const;
 
   void deserialize(const c10::List<at::Tensor>& states);
@@ -43,7 +48,7 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   double uniform_init_upper_ = 0.0;
   int64_t evict_trigger_mode_ = 0;
 
-  std::unique_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> dram_cache_;
+  std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> dram_kv_;
   int64_t max_row_bytes_ = 0;
 };
 
