@@ -266,6 +266,7 @@ class FeatureEvict {
       const std::vector<int64_t>& sub_table_hash_cumsum,
       int64_t interval_for_insufficient_eviction_s,
       int64_t interval_for_sufficient_eviction_s,
+      bool is_training = true,
       TestMode test_mode = TestMode::DISABLED)
       : kv_store_(kv_store),
         evict_flag_(false),
@@ -277,6 +278,7 @@ class FeatureEvict {
         interval_for_insufficient_eviction_s_(
             interval_for_insufficient_eviction_s),
         interval_for_sufficient_eviction_s_(interval_for_sufficient_eviction_s),
+        is_training_(is_training),
         test_mode_(test_mode) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(num_shards_);
 
@@ -456,7 +458,7 @@ class FeatureEvict {
   }
 
   // the inner loop of each evict that can be paused
-  void start_eviction_loop(
+  void start_training_eviction_loop(
       int shard_id,
       std::vector<int64_t>& evicted_counts,
       std::vector<int64_t>& processed_counts) {
@@ -488,6 +490,42 @@ class FeatureEvict {
           evicted_counts[sub_table_id]++;
         }
       }
+    }
+  }
+
+  // the inner loop of each evict that can be paused
+  void start_inference_eviction_loop(
+      int shard_id,
+      std::vector<int64_t>& evicted_counts,
+      std::vector<int64_t>& processed_counts) {
+    auto* pool = kv_store_.pool_by(shard_id);
+    auto mem_pool_lock = pool->acquire_lock();
+
+    std::vector<int> evicting_keys;
+    evicting_keys.reserve(block_nums_snapshot_[shard_id] / 100);
+    while (!should_exit_evict_loop(shard_id)) {
+      auto* block =
+          pool->template get_block<weight_type>(block_cursors_[shard_id]++);
+      if (block == nullptr) {
+        continue;
+      }
+      int64_t key = FixedBlockPool::get_key(block);
+      int sub_table_id = get_sub_table_id(key);
+      processed_counts[sub_table_id]++;
+      if (evict_block(block, sub_table_id)) {
+        pool->template deallocate_t<weight_type>(block);
+        evicted_counts[sub_table_id]++;
+        evicting_keys.push_back(key);
+      }
+    }
+    mem_pool_lock.unlock();
+
+    // lock dram kv shard hash map to remove evicted blocks in the map
+    // dedicate map update in a wlock to reduce the blocking time for inference
+    // read
+    auto shard_map_wlock = kv_store_.by(shard_id).wlock();
+    for (auto& key : evicting_keys) {
+      shard_map_wlock->erase(key);
     }
   }
 
@@ -523,7 +561,13 @@ class FeatureEvict {
       }
 
       auto start_time = std::chrono::high_resolution_clock::now();
-      start_eviction_loop(shard_id, evicted_counts, processed_counts);
+      if (is_training_) {
+        start_training_eviction_loop(
+            shard_id, evicted_counts, processed_counts);
+      } else {
+        start_inference_eviction_loop(
+            shard_id, evicted_counts, processed_counts);
+      }
       duration += std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::high_resolution_clock::now() - start_time);
     }
@@ -673,6 +717,8 @@ class FeatureEvict {
   // pct amount of evictions for eviction to be considered as "enough"
   const double pct_evicts_enough_threshold{0.01}; // 0.01%
 
+  const bool is_training_;
+
   // UT specific mode
   TestMode test_mode_;
   std::atomic<bool> should_call_ = false;
@@ -693,12 +739,14 @@ class CounterBasedEvict : public FeatureEvict<weight_type> {
       const std::vector<int64_t>& thresholds,
       int64_t interval_for_insufficient_eviction_s,
       int64_t interval_for_sufficient_eviction_s,
+      bool is_training,
       TestMode test_mode = TestMode::DISABLED)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
             interval_for_sufficient_eviction_s,
+            is_training,
             test_mode),
         decay_rates_(decay_rates),
         thresholds_(thresholds) {
@@ -735,12 +783,14 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
       const std::vector<int64_t>& sub_table_hash_cumsum,
       const std::vector<int64_t>& ttls_in_mins,
       int64_t interval_for_insufficient_eviction_s,
-      int64_t interval_for_sufficient_eviction_s)
+      int64_t interval_for_sufficient_eviction_s,
+      bool is_training)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
-            interval_for_sufficient_eviction_s),
+            interval_for_sufficient_eviction_s,
+            is_training),
         ttls_in_mins_(ttls_in_mins) {}
 
   void update_feature_statistics(weight_type* block) override {
@@ -769,12 +819,14 @@ class TimeThresholdBasedEvict : public FeatureEvict<weight_type> {
       SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
       const std::vector<int64_t>& sub_table_hash_cumsum,
       int64_t interval_for_insufficient_eviction_s,
-      int64_t interval_for_sufficient_eviction_s)
+      int64_t interval_for_sufficient_eviction_s,
+      bool is_training)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
-            interval_for_sufficient_eviction_s) {}
+            interval_for_sufficient_eviction_s,
+            is_training) {}
 
   void update_feature_statistics(weight_type* block) override {
     FixedBlockPool::update_timestamp(block);
@@ -803,12 +855,14 @@ class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
       const std::vector<double>& decay_rates,
       const std::vector<int64_t>& thresholds,
       int64_t interval_for_insufficient_eviction_s,
-      int64_t interval_for_sufficient_eviction_s)
+      int64_t interval_for_sufficient_eviction_s,
+      bool is_training)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
-            interval_for_sufficient_eviction_s),
+            interval_for_sufficient_eviction_s,
+            is_training),
         ttls_in_mins_(ttls_in_mins),
         decay_rates_(decay_rates),
         thresholds_(thresholds) {}
@@ -856,12 +910,14 @@ class L2WeightBasedEvict : public FeatureEvict<weight_type> {
       const std::vector<double>& thresholds,
       const std::vector<int64_t>& sub_table_dims,
       int64_t interval_for_insufficient_eviction_s,
-      int64_t interval_for_sufficient_eviction_s)
+      int64_t interval_for_sufficient_eviction_s,
+      bool is_training)
       : FeatureEvict<weight_type>(
             kv_store,
             sub_table_hash_cumsum,
             interval_for_insufficient_eviction_s,
-            interval_for_sufficient_eviction_s),
+            interval_for_sufficient_eviction_s,
+            is_training),
         thresholds_(thresholds),
         sub_table_dims_(sub_table_dims) {}
 
@@ -890,6 +946,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
     c10::intrusive_ptr<FeatureEvictConfig> config,
     SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
     const std::vector<int64_t>& sub_table_hash_cumsum,
+    bool is_training = true,
     TestMode test_mode = TestMode::DISABLED) {
   switch (config->trigger_strategy_) {
     case EvictTriggerStrategy::BY_TIMESTAMP: {
@@ -898,7 +955,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           sub_table_hash_cumsum,
           config->ttls_in_mins_.value(),
           config->interval_for_insufficient_eviction_s_,
-          config->interval_for_sufficient_eviction_s_);
+          config->interval_for_sufficient_eviction_s_,
+          is_training);
     }
 
     case EvictTriggerStrategy::BY_COUNTER: {
@@ -915,6 +973,7 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->counter_thresholds_.value(),
           config->interval_for_insufficient_eviction_s_,
           config->interval_for_sufficient_eviction_s_,
+          is_training,
           test_mode);
     }
 
@@ -932,7 +991,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->counter_decay_rates_.value(),
           config->counter_thresholds_.value(),
           config->interval_for_insufficient_eviction_s_,
-          config->interval_for_sufficient_eviction_s_);
+          config->interval_for_sufficient_eviction_s_,
+          is_training);
     }
 
     case EvictTriggerStrategy::BY_L2WEIGHT: {
@@ -953,7 +1013,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           config->l2_weight_thresholds_.value(),
           config->embedding_dims_.value(),
           config->interval_for_insufficient_eviction_s_,
-          config->interval_for_sufficient_eviction_s_);
+          config->interval_for_sufficient_eviction_s_,
+          is_training);
     }
 
     case EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD: {
@@ -961,7 +1022,8 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           kv_store,
           sub_table_hash_cumsum,
           config->interval_for_insufficient_eviction_s_,
-          config->interval_for_sufficient_eviction_s_);
+          config->interval_for_sufficient_eviction_s_,
+          is_training);
     }
 
     default:

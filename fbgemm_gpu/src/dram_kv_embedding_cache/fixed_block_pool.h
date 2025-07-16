@@ -216,6 +216,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
     }
   };
 
+  std::unique_lock<std::mutex> acquire_lock() {
+    return std::unique_lock<std::mutex>(mem_pool_lock_);
+  }
+
   [[nodiscard]] const auto& get_chunks() const noexcept {
     return chunks_;
   }
@@ -308,5 +312,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
   std::pmr::vector<ChunkInfo> chunks_; // Records of all allocated chunks
   void* free_list_ = nullptr; // Free block list head pointer
   mutable std::mutex chunks_mutex_; // Mutex for chunks_
+
+  // block pool lock, only used on the inference side to guard in-place update
+  // and eviction exclusive update, this is needed to reduce locking time for
+  // better inference qps
+  std::mutex mem_pool_lock_;
 };
 } // namespace kv_mem
