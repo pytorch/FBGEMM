@@ -20,7 +20,7 @@ using namespace fbgemm;
 // tuple represents N and K
 class packUnpackTest : public testing::TestWithParam<tuple<int, int, float>> {};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     packUnpackTest,
     ::testing::Combine(

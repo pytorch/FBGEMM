@@ -8,9 +8,15 @@
 # pyre-strict
 
 import enum
-from typing import Any, Dict  # noqa: F401
+import itertools
+from typing import Any, Dict, List, Tuple  # noqa: F401
 
 import torch
+
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    EmbeddingLocation,
+    SplitState,
+)
 
 
 @enum.unique
@@ -67,6 +73,49 @@ class EmbOptimType(enum.Enum):
 
         else:
             return 0
+
+    def ssd_state_splits(
+        self,
+        embedding_specs: List[Tuple[int, int]],  # Tuple of (rows, dims)
+        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+        enable_optimizer_offloading: bool = False,
+    ) -> List[Tuple[SplitState, str, torch.dtype]]:
+        """
+        Returns the split planning for the optimizer states
+        """
+        (rows, _) = zip(*embedding_specs)
+        T_ = len(embedding_specs)
+
+        # This is the cumulative row counts for rowwise states
+        row_count_cumsum: List[int] = [0] + list(itertools.accumulate(rows))
+        # This is the cumulative element counts for elementwise states
+        table_size_cumsum: List[int] = [0] + list(
+            itertools.accumulate([r * d for r, d in embedding_specs])
+        )
+
+        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
+            params = {"momentum1": row_count_cumsum}
+        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+            params = {"momentum1": table_size_cumsum, "momentum2": row_count_cumsum}
+        else:
+            params = {}
+
+        return [
+            (
+                SplitState(
+                    dev_size=(
+                        cumsum_table[-1] if not enable_optimizer_offloading else 0
+                    ),
+                    host_size=0,
+                    uvm_size=0,
+                    placements=[EmbeddingLocation.DEVICE for _ in range(T_)],
+                    offsets=cumsum_table[:-1],
+                ),
+                name,
+                self._extract_dtype(optimizer_state_dtypes, name),
+            )
+            for (name, cumsum_table) in params.items()
+        ]
 
     def dtype(self) -> torch.dtype:
         """

@@ -107,7 +107,7 @@ class FBGemmDepthWisePackUnpackTest
 
 } // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDepthWiseTest,
     ::testing::Combine(
@@ -115,12 +115,12 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // b_symmetric
         ::testing::Values(1, 2))); // oc_per_g
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDepthWisePerChannelQuantizationTest,
     ::testing::Values(1, 2));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     FBGemmDepthWisePackUnpackTest,
     ::testing::Combine(

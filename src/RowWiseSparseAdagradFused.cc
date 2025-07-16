@@ -168,7 +168,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
         asmjit::FuncDetail func;
         func.init(
-            asmjit::FuncSignatureT<
+            asmjit::FuncSignature::build<
                 bool, // return type
                 int64_t, // output_size
                 int64_t, // index_size

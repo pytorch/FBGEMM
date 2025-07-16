@@ -28,7 +28,7 @@ class SPMMInt8Test
     : public testing::TestWithParam<
           tuple<int, int, int, float, bool, QuantizationGranularity>> {};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     SPMMInt8Test,
     ::testing::Combine(

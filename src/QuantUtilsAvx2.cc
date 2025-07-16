@@ -1265,8 +1265,6 @@ void requantizeOutputProcessingGConvAvx2(
                     _mm_set1_epi32(r.B_zero_point[quant_param_idx])),
                 _mm_set1_epi32(r.B_zero_point[quant_param_idx + 1]),
                 1);
-          } else if constexpr (C_PER_G == 8) {
-            B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
           } else {
             B_zero_point_v = _mm256_set1_epi32(r.B_zero_point[quant_param_idx]);
           }
@@ -1343,8 +1341,6 @@ void requantizeOutputProcessingGConvAvx2(
                   _mm_set1_ps(r.C_multiplier[quant_param_idx])),
               _mm_set1_ps(r.C_multiplier[quant_param_idx + 1]),
               1);
-        } else if constexpr (C_PER_G == 8) {
-          multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
         } else {
           multiplier_v = _mm256_set1_ps(r.C_multiplier[quant_param_idx]);
         }

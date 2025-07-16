@@ -35,7 +35,7 @@ void DramKVEmbeddingInferenceWrapper::init(
       static_cast<fbgemm_gpu::SparseType>(std::get<2>(specs[0])),
       static_cast<int32_t>(row_alignment),
       static_cast<int32_t>(scale_bias_size_in_bytes));
-  dram_cache_ = std::make_unique<kv_mem::DramKVEmbeddingCache<uint8_t>>(
+  dram_kv_ = std::make_unique<kv_mem::DramKVEmbeddingCache<uint8_t>>(
       max_row_bytes_,
       uniform_init_lower_,
       uniform_init_upper_,
@@ -55,12 +55,21 @@ void DramKVEmbeddingInferenceWrapper::init(
   return;
 }
 
+std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>>
+DramKVEmbeddingInferenceWrapper::get_dram_kv() {
+  return dram_kv_;
+}
+
+void DramKVEmbeddingInferenceWrapper::set_dram_kv(
+    std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> dram_kv) {
+  dram_kv_ = std::move(dram_kv);
+}
+
 void DramKVEmbeddingInferenceWrapper::set_embeddings(
     const at::Tensor& indices,
     const at::Tensor& weights) {
   const auto count = at::tensor({indices.numel()}, at::ScalarType::Long);
-  folly::coro::blockingWait(
-      dram_cache_->set_kv_db_async(indices, weights, count));
+  folly::coro::blockingWait(dram_kv_->set_kv_db_async(indices, weights, count));
   return;
 }
 
@@ -73,8 +82,7 @@ at::Tensor DramKVEmbeddingInferenceWrapper::get_embeddings(
           max_row_bytes_,
       },
       at::kByte);
-  folly::coro::blockingWait(
-      dram_cache_->get_kv_db_async(indices, weights, count));
+  folly::coro::blockingWait(dram_kv_->get_kv_db_async(indices, weights, count));
   return weights;
 }
 
