@@ -13,6 +13,10 @@
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+include(${CMAKE_MODULE_PATH}/Utilities.cmake)
+
+# Load cpp_library()
+include(${CMAKE_MODULE_PATH}/CppLibrary.cmake)
 
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
@@ -165,21 +169,46 @@ endif()
 # Define file lists
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
-get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})"
-  FBGEMM_AVX2_INLINE_SRCS)
+get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
+
 get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
-get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})"
-  FBGEMM_AVX512_INLINE_SRCS)
+get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+
 if(NOT DISABLE_FBGEMM_AUTOVEC)
   get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
 endif()
+
 get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
 set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
+# set(fbgemm_targets fbgemm_avx512)
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
+
+# cpp_library(
+#   PREFIX
+#     fbgemm_avx2
+#   TYPE
+#     OBJECT
+#   SRCS
+#     ${FBGEMM_AVX2_SRCS}
+#     ${FBGEMM_AVX2_INLINE_SRCS}
+#   INCLUDE_DIRS
+#     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+#     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
+#     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
+#   CC_FLAGS
+#     -m64 -mavx2 -mf16c -mfma
+#   MSVC_FLAGS
+#     /arch:AVX2
+#   USE_IPO
+#     ${FBGEMM_USE_IPO}
+#   DEPS
+#     $<BUILD_INTERFACE:cpuinfo>
+#     $<BUILD_INTERFACE:asmjit>
+# )
+
 add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
-add_library(fbgemm_avx512 OBJECT
-  ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
+add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
 if(NOT DISABLE_FBGEMM_AUTOVEC)
   add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
   list(APPEND fbgemm_targets fbgemm_autovec)
@@ -192,6 +221,7 @@ add_dependencies(fbgemm_generic defs.bzl)
 foreach(target IN LISTS fbgemm_targets)
   target_link_libraries(${target} PUBLIC fbgemm_generic)
 endforeach()
+# target_link_libraries(fbgemm_generic PUBLIC fbgemm_avx2)
 
 target_include_directories(fbgemm_generic PUBLIC
       $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
@@ -220,18 +250,22 @@ else(MSVC)
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
   endif()
+
   target_compile_options(fbgemm_avx2 PRIVATE
     "-m64" "-mavx2" "-mf16c" "-mfma")
   target_compile_options(fbgemm_avx512 PRIVATE
     "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
     "-mavx512vl")
+
   set_source_files_properties(
     src/FbgemmFP16UKernelsAvx2.cc
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
+
   set_source_files_properties(src/PackMatrix.cc
     PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
+
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
   if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
     set_source_files_properties(
@@ -317,7 +351,7 @@ install(
   EXPORT fbgemmLibraryConfig
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) #For windows
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) # For windows
 
 install(
   FILES ${FBGEMM_PUBLIC_HEADERS}

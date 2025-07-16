@@ -42,6 +42,7 @@ jobs:
       matrix:
         host-machine: [
           { arch: x86, instance: "linux.12xlarge" },
+          { arch: arm, instance: "linux.arm64.2xlarge" },
         ]
         library-type: [ static, shared ]
         compiler: [ "gcc", "clang" ]

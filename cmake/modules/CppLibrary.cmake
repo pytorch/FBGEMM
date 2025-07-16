@@ -1,0 +1,164 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+function(cpp_library)
+    # NOTE: This function is meant for building targets in FBGEMM, not
+    # FBGEMM_GPU or FBGEMM GenAI, which have much more complicated setups.
+    #
+    # This function does the following:
+    #
+    #   1. Builds the .SO file for the target
+    #   1. Handles MSVC-specific compilation flags
+    #   1. Handles dependencies linking
+    #   1. Adds common target properties as needed
+
+    set(flags)
+    set(singleValueArgs
+        PREFIX          # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
+        TYPE            # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
+        DESTINATION     # The install destination directory to place the build target into
+        USE_IPO         # Whether to enable interprocedural optimization (IPO) for the target
+    )
+    set(multiValueArgs
+        SRCS            # Sources for CPU-only build
+        CC_FLAGS        # General compilation flags applicable to all build variants
+        MSVC_FLAGS      # Compilation flags specific to MSVC
+        INCLUDE_DIRS    # Include directories for compilation
+        DEPS            # Target dependencies, i.e. built STATIC targets
+    )
+
+    cmake_parse_arguments(
+        args
+        "${flags}" "${singleValueArgs}" "${multiValueArgs}"
+        ${ARGN})
+
+    # Set the build target name
+    set(lib_name ${args_PREFIX})
+
+    # Set the build target sources
+    set(lib_sources ${args_SRCS})
+
+    # Create the library
+    add_library(${lib_name} ${args_TYPE}
+        ${lib_sources})
+
+    ############################################################################
+    # Compilation Flags
+    ############################################################################
+
+    if(MSVC)
+        # MSVC needs to define these variables to avoid generating _dllimport
+        # functions.
+        # if(args_TYPE STREQUAL STATIC)
+        #     target_compile_definitions(${lib_name}
+        #         PUBLIC ASMJIT_STATIC
+        #         PUBLIC FBGEMM_STATIC)
+        # endif()
+
+        set(lib_cc_flags
+            ${args_MSVC_FLAGS})
+
+    else()
+        set(lib_cc_flags
+            ${args_CC_FLAGS}
+            # Silence compiler warnings (in asmjit)
+            -Wno-deprecated-enum-enum-conversion
+            -Wno-deprecated-declarations
+            -Wall
+            -Wextra
+            -Werror
+            -Wunknown-pragmas
+            -Wimplicit-fallthrough
+            -Wno-strict-aliasing
+            -Wunused-variable)
+
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+            list(APPEND lib_cc_flags -Wno-vla-cxx-extension)
+        elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            list(APPEND lib_cc_flags -Wmaybe-uninitialized)
+        endif()
+    endif()
+
+    target_compile_options(${lib_name} PRIVATE
+        ${lib_cc_flags})
+
+    ############################################################################
+    # Library Includes and Linking
+    ############################################################################
+
+    # Add the include directories
+    target_include_directories(${lib_name} PUBLIC
+        ${args_INCLUDE_DIRS})
+
+    # Link against the external libraries as needed
+    target_link_libraries(${lib_name} PRIVATE ${args_DEPS})
+
+    # Set PIC
+    set_target_properties(${lib_name} PROPERTIES
+        # Enforce -fPIC for STATIC library option, since they are to be
+        # integrated into other libraries down the line
+        # https://stackoverflow.com/questions/3961446/why-does-gcc-not-implicitly-supply-the-fpic-flag-when-compiling-static-librarie
+        POSITION_INDEPENDENT_CODE ON)
+
+    # Set IPO
+    if(args_USE_IPO)
+        set_target_properties(${lib_name} PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION ON)
+    endif()
+
+    ############################################################################
+    # Set the Output Variable(s)
+    ############################################################################
+
+    set(${args_PREFIX} ${lib_name} PARENT_SCOPE)
+
+    ############################################################################
+    # Add to Install Package
+    ############################################################################
+
+    if(args_DESTINATION)
+        set(lib_install_destination ${args_DESTINATION})
+    else()
+        set(lib_install_destination ${CMAKE_INSTALL_LIBDIR})
+    endif()
+
+    install(
+        TARGETS ${args_PREFIX}
+        EXPORT fbgemmLibraryConfig
+        ARCHIVE DESTINATION ${lib_install_destination}
+        LIBRARY DESTINATION ${lib_install_destination}
+        # For Windows
+        RUNTIME DESTINATION ${lib_install_destination})
+
+    ############################################################################
+    # Debug Summary
+    ############################################################################
+
+    BLOCK_PRINT(
+        "CPP Library Target: ${args_PREFIX} (${args_TYPE})"
+        " "
+        "SRCS:"
+        "${args_SRCS}"
+        " "
+        "CC_FLAGS:"
+        "${args_CC_FLAGS}"
+        " "
+        "MSVC_FLAGS:"
+        "${args_MSVC_FLAGS}"
+        " "
+        "INCLUDE_DIRS:"
+        "${args_INCLUDE_DIRS}"
+        " "
+        "Library Dependencies:"
+        "${args_DEPS}"
+        " "
+        "Output Library:"
+        "${lib_name}"
+        " "
+        "Destination Directory:"
+        "${args_DESTINATION}"
+    )
+endfunction()
