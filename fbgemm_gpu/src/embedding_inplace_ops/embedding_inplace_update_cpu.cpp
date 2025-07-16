@@ -117,6 +117,72 @@ void embedding_inplace_update_cpu(
       });
 }
 
+void dram_kv_embedding_inplace_update_cpu(
+    torch::jit::Module* tbe_module,
+    std::string tbe_module_update_func_name,
+    Tensor weights_placements,
+    Tensor weights_offsets,
+    Tensor weights_tys,
+    Tensor D_offsets,
+    Tensor update_weights,
+    Tensor update_table_idx,
+    Tensor update_row_idx,
+    Tensor update_offsets,
+    const int64_t row_alignment) {
+  TENSOR_ON_CPU(weights_placements);
+  TENSOR_ON_CPU(weights_offsets);
+  TENSOR_ON_CPU(weights_tys);
+  TENSOR_ON_CPU(D_offsets);
+
+  TENSOR_ON_CPU(update_table_idx);
+  TENSOR_ON_CPU(update_row_idx);
+  TENSOR_ON_CPU(update_offsets);
+  TENSOR_ON_CPU(update_weights);
+
+  int64_t N = update_row_idx.numel();
+  if (N == 0) {
+    return;
+  }
+  auto embedding_inplace_update_method =
+      tbe_module->find_method(tbe_module_update_func_name);
+  TORCH_CHECK(embedding_inplace_update_method.has_value());
+  auto embedding_log_inplace_update_stats_method =
+      tbe_module->find_method("log_inplace_update_stats");
+
+  const uint8_t* weights_tys_ptr = weights_tys.data_ptr<uint8_t>();
+  const int32_t* D_offsets_ptr = D_offsets.data_ptr<int32_t>();
+  const uint8_t* update_weights_ptr = update_weights.data_ptr<uint8_t>();
+  const int32_t* update_table_idx_ptr = update_table_idx.data_ptr<int32_t>();
+  const int64_t* update_row_idx_ptr = update_row_idx.data_ptr<int64_t>();
+  const int64_t* update_offsets_ptr = update_offsets.data_ptr<int64_t>();
+
+  for (int64_t n = 0; n < N; ++n) {
+    int32_t t = update_table_idx_ptr[n];
+    int64_t row_idx = update_row_idx_ptr[n];
+    SparseType weight_ty = static_cast<SparseType>(weights_tys_ptr[t]);
+    int32_t D_start = D_offsets_ptr[t];
+    int32_t D_end = D_offsets_ptr[t + 1];
+    int32_t D = D_end - D_start;
+    int32_t D_bytes =
+        nbit::padded_row_size_in_bytes(D, weight_ty, row_alignment);
+
+    int64_t update_weight_offset = update_offsets_ptr[n];
+    const uint8_t* update_weight_row =
+        update_weights_ptr + update_weight_offset;
+    std::vector<uint8_t> tmp(update_weight_row, update_weight_row + D_bytes);
+    at::Tensor update_weight =
+        at::from_blob(
+            tmp.data(), {1, D_bytes}, at::TensorOptions().dtype(at::kByte))
+            .clone();
+    at::Tensor row_id =
+        at::full({1}, row_idx, at::TensorOptions().dtype(at::kLong));
+    (*embedding_inplace_update_method)({t, row_id, update_weight});
+  }
+  if (embedding_log_inplace_update_stats_method.has_value()) {
+    (*embedding_log_inplace_update_stats_method)({});
+  }
+}
+
 Tensor pruned_array_lookup_from_row_idx_cpu(
     const Tensor& update_row_indices,
     const Tensor& update_table_indices,

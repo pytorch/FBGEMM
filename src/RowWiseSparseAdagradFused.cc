@@ -50,7 +50,7 @@ template <
     inst_set_t instSet = inst_set_t::avx2>
 class GenRowWiseSparseAdagradFused {
  public:
-  GenRowWiseSparseAdagradFused() {}
+  GenRowWiseSparseAdagradFused() = default;
 
   typename ReturnFunctionSignature<indxType, offsetType, dataType>::
       jit_sparse_adagrad_kernel
@@ -133,8 +133,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
-        bool areIndices64b = is_same<indxType, int64_t>::value;
-        bool areWeightsFp16 = is_same<dataType, float16>::value;
+        bool areIndices64b = is_same_v<indxType, int64_t>;
+        bool areWeightsFp16 = is_same_v<dataType, float16>;
 #if defined(FBGEMM_LOG_CODE)
         string filename = "RowWiseSparseAdagradFused";
         filename += "_emd_dim_" + to_string(block_size);
@@ -168,7 +168,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
         asmjit::FuncDetail func;
         func.init(
-            asmjit::FuncSignatureT<
+            asmjit::FuncSignature::build<
                 bool, // return type
                 int64_t, // output_size
                 int64_t, // index_size
@@ -186,7 +186,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         asmjit::FuncFrame frame;
         frame.init(func);
 
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
               asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
@@ -226,7 +226,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
 
-        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
 
         int num_vec_regs_per_block = (block_size + vlen - 1) / vlen;
         int remainder = block_size % vlen;
@@ -273,7 +273,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           first_available_vec_reg_id++;
 
           // Load random buffer for FP16 stochastic rounding
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->vmovdqa(S0_vreg.ymm(), x86::dword_ptr(rand_buffer));
             a->vmovdqa(
                 S1_vreg.ymm(),
@@ -299,7 +299,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         }
 
         if (remainder) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             src_vreg = vec_reg_t(first_available_vec_reg_id);
             ++first_available_vec_reg_id;
 
@@ -370,7 +370,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 x86::dword_ptr(g, (vec_idx + v) * vlen_avx2 * sizeof(float));
             if (block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS &&
                 vec_idx + v == num_vec_regs_per_block_avx2 - 1) {
-              if (instSet == inst_set_t::avx2) {
+              if constexpr (instSet == inst_set_t::avx2) {
                 a->vmaskmovps(out_vreg, mask_vreg, g_ptr);
               } else {
                 a->k(reduce_mask_avx512).z().vmovups(out_vreg, g_ptr);
@@ -525,7 +525,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
               auto w_ptr = x86::dword_ptr(
                   w, scratchReg1, 2, (vec_idx + v) * vlen * sizeof(dataType));
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(src_vreg.ymm(), mask_vreg, g_ptr);
                   a->vmulps(src_vreg, float_step_vreg, src_vreg);
 
@@ -574,7 +574,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   a->vpaddd(r0_vreg, S0_vreg, S3_vreg);
                   a->vpslld(r1_vreg, r0_vreg, 7);
                   a->vpsrld(r0_vreg, r0_vreg, 25);
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vpor(R_vreg.ymm(), r0_vreg.ymm(), r1_vreg.ymm());
                   } else {
                     a->vpord(R_vreg, r0_vreg, r1_vreg);
@@ -583,7 +583,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
                   a->vpslld(r0_vreg, S1_vreg, 9);
 
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vpxor(S2_vreg.ymm(), S2_vreg.ymm(), S0_vreg.ymm());
                     a->vpxor(S3_vreg.ymm(), S3_vreg.ymm(), S1_vreg.ymm());
                     a->vpxor(S1_vreg.ymm(), S1_vreg.ymm(), S2_vreg.ymm());
@@ -600,7 +600,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                   }
                   a->vpslld(r0_vreg, S3_vreg, 11);
                   a->vpsrld(r1_vreg, S3_vreg, 21);
-                  if (instSet == inst_set_t::avx2) {
+                  if constexpr (instSet == inst_set_t::avx2) {
                     a->vpor(S3_vreg.ymm(), r0_vreg.ymm(), r1_vreg.ymm());
                   } else {
                     a->vpord(S3_vreg, r0_vreg, r1_vreg);
@@ -627,7 +627,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
               }
 
               if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-                if (instSet == inst_set_t::avx2) {
+                if constexpr (instSet == inst_set_t::avx2) {
                   a->vmaskmovps(src_vreg.ymm(), mask_vreg, g_ptr);
                   // No AVX2 mask load/store for 16bit
                   // Copy input to stack using loop instead and reuse GPR for h
@@ -723,7 +723,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->bind(exit);
 
         if (areWeightsFp16 && use_stochastic_rounding) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             a->vmovdqa(x86::dword_ptr(rand_buffer), S0_vreg.ymm());
             a->vmovdqa(
                 x86::dword_ptr(rand_buffer, 1 * vlen * sizeof(uint32_t)),
@@ -754,13 +754,13 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         // jit_fused8bitembedding_kernel fn;
         typename ReturnFunctionSignature<indxType, offsetType, dataType>::
             jit_sparse_adagrad_kernel fn;
-        asmjit::Error err;
+        asmjit::Error err = 0;
         {
           unique_lock<mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);
         }
         if (err) {
-          cout << "Error: in fn add" << endl;
+          cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 
@@ -774,8 +774,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
 
 // Per-thread global buffer for random number generating, with max vector size
 constexpr size_t VLEN_MAX = simd_info<inst_set_t::avx512>::WIDTH_32BIT_ELEMS;
-alignas(64) static thread_local uint32_t g_rnd128v_buffer[4 * VLEN_MAX];
-static thread_local bool g_rnd128v_initialized = false;
+alignas(64) thread_local uint32_t g_rnd128v_buffer[4 * VLEN_MAX];
+thread_local bool g_rnd128v_initialized = false;
 
 void rand_initialize() {
   // Splitmix64: http://prng.di.unimi.it/splitmix64.c
@@ -820,7 +820,7 @@ GenerateRowWiseSparseAdaGradFused(
   }
 
   // Use avx512 only for fp16 + stochastic rounding
-  if (fbgemmHasAvx512Support() && std::is_same<DataType, float16>::value &&
+  if (fbgemmHasAvx512Support() && std::is_same_v<DataType, float16> &&
       use_stochastic_rounding) {
     static GenRowWiseSparseAdagradFused<
         IndexType,
@@ -847,7 +847,7 @@ GenerateRowWiseSparseAdaGradFused(
                                  float lr) {
       // Initialize random buffer in the first execution
       // TODO: JIT
-      if (std::is_same<DataType, float16>::value && use_stochastic_rounding) {
+      if (std::is_same_v<DataType, float16> && use_stochastic_rounding) {
         rand_initialize();
       }
 
@@ -891,7 +891,7 @@ GenerateRowWiseSparseAdaGradFused(
                                  float lr) {
       // Initialize random buffer in the first execution
       // TODO: JIT
-      if (std::is_same<DataType, float16>::value && use_stochastic_rounding) {
+      if (std::is_same_v<DataType, float16> && use_stochastic_rounding) {
         rand_initialize();
       }
 

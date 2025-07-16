@@ -80,20 +80,16 @@ Tensor batched_dense_vec_jagged_2d_mul_forward(
               a_values.scalar_type(),
               "dense_vec_jagged_2d_bmm_kernel_2",
               [&] {
-
-#ifdef FBGEMM_GPU_MEMCHECK
-                const auto func_name1 = "dense_vec_jagged_2d_bmm";
-#endif
-                dense_vec_jagged_2d_bmm<index_t, scalar_t>
-                    <<<div_round_up(B * H, block_dim_y),
-                       dim3(block_dim_x, block_dim_y),
-                       0,
-                       at::cuda::getCurrentCUDAStream()>>>(
-                        MAKE_PTA_WITH_NAME(func_name1, v, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, a_values, scalar_t, 2, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, a_offsets, index_t, 1, 32),
-                        MAKE_PTA_WITH_NAME(func_name1, output, scalar_t, 2, 32));
-                C10_CUDA_KERNEL_LAUNCH_CHECK();
+                FBGEMM_LAUNCH_KERNEL(
+                  (dense_vec_jagged_2d_bmm<index_t, scalar_t>),
+                  div_round_up(B * H, block_dim_y),
+                  dim3(block_dim_x, block_dim_y),
+                  0,
+                  at::cuda::getCurrentCUDAStream(),
+                  PTA_B(v, scalar_t, 2, 32),
+                  PTA_B(a_values, scalar_t, 2, 32),
+                  PTA_B(a_offsets, index_t, 1, 32),
+                  PTA_B(output, scalar_t, 2, 32));
               });
         });
   }

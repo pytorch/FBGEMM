@@ -8,10 +8,15 @@
 # pyre-strict
 
 import enum
-import math
-from typing import Any, Dict  # noqa: F401
+import itertools
+from typing import Any, Dict, List, Tuple  # noqa: F401
 
 import torch
+
+from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
+    EmbeddingLocation,
+    SplitState,
+)
 
 
 @enum.unique
@@ -41,22 +46,76 @@ class EmbOptimType(enum.Enum):
     def __str__(self) -> str:
         return self.value
 
-    def state_size(self) -> int:
+    def _extract_dtype(
+        self, optimizer_state_dtypes: Dict[str, "SparseType"], name: str
+    ) -> torch.dtype:
+        if optimizer_state_dtypes is None or name not in optimizer_state_dtypes:
+            return torch.float32
+        return optimizer_state_dtypes[name].as_dtype()
+
+    def state_size_nbytes(
+        self, D: int, optimizer_state_dtypes: Dict[str, "SparseType"] = {}  # noqa: B006
+    ) -> int:
         """
         Returns the size of the data (in bytes) required to hold the optimizer
-        state (per table row), or 0 if none needed
+        state (per table row)
         """
-        return {
-            # Only holds the momentum float value per row
-            EmbOptimType.EXACT_ROWWISE_ADAGRAD: torch.float32.itemsize,
-        }.get(self, 0)
+        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
+            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
+            # Store one value for momentum per row
+            return momentum1_dtype.itemsize
 
-    def state_size_dim(self, dtype: torch.dtype) -> int:
+        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
+            momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
+            # Store one value for momentum2 plus D values for momentum1 per row
+            return momentum2_dtype.itemsize + (D * momentum1_dtype.itemsize)
+
+        else:
+            return 0
+
+    def ssd_state_splits(
+        self,
+        embedding_specs: List[Tuple[int, int]],  # Tuple of (rows, dims)
+        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+        enable_optimizer_offloading: bool = False,
+    ) -> List[Tuple[SplitState, str, torch.dtype]]:
         """
-        Returns the size of the data (in units of elements of dtype) rquired to
-        hold optimizer information (per table row)
+        Returns the split planning for the optimizer states
         """
-        return int(math.ceil(self.state_size() / dtype.itemsize))
+        (rows, _) = zip(*embedding_specs)
+        T_ = len(embedding_specs)
+
+        # This is the cumulative row counts for rowwise states
+        row_count_cumsum: List[int] = [0] + list(itertools.accumulate(rows))
+        # This is the cumulative element counts for elementwise states
+        table_size_cumsum: List[int] = [0] + list(
+            itertools.accumulate([r * d for r, d in embedding_specs])
+        )
+
+        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
+            params = {"momentum1": row_count_cumsum}
+        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+            params = {"momentum1": table_size_cumsum, "momentum2": row_count_cumsum}
+        else:
+            params = {}
+
+        return [
+            (
+                SplitState(
+                    dev_size=(
+                        cumsum_table[-1] if not enable_optimizer_offloading else 0
+                    ),
+                    host_size=0,
+                    uvm_size=0,
+                    placements=[EmbeddingLocation.DEVICE for _ in range(T_)],
+                    offsets=cumsum_table[:-1],
+                ),
+                name,
+                self._extract_dtype(optimizer_state_dtypes, name),
+            )
+            for (name, cumsum_table) in params.items()
+        ]
 
     def dtype(self) -> torch.dtype:
         """

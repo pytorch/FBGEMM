@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstddef>
 #include <memory_resource>
+#include <mutex>
 #include <numeric>
 #include <stdexcept>
 #include <vector>
@@ -99,6 +100,12 @@ class FixedBlockPool : public std::pmr::memory_resource {
     return std::max(alignof(FixedBlockPool::MetaHeader), alignof(scalar_t));
   }
 
+  // Get dimension of Metaheader
+  template <typename scalar_t>
+  static size_t get_metaheader_dim() {
+    return sizeof(FixedBlockPool::MetaHeader) / sizeof(scalar_t);
+  }
+
   // Data pointer retrieval
   template <typename scalar_t>
   static scalar_t* data_ptr(scalar_t* block) {
@@ -111,6 +118,22 @@ class FixedBlockPool : public std::pmr::memory_resource {
     return reinterpret_cast<const scalar_t*>(
         reinterpret_cast<const char*>(block) +
         sizeof(FixedBlockPool::MetaHeader));
+  }
+
+  template <typename scalar_t>
+  static scalar_t* ptr_offset_from_front(
+      scalar_t* block,
+      const int64_t offset) {
+    return reinterpret_cast<scalar_t*>(
+        reinterpret_cast<char*>(block) + offset * sizeof(scalar_t));
+  }
+
+  template <typename scalar_t>
+  static const scalar_t* ptr_offset_from_front(
+      const scalar_t* block,
+      const int64_t offset) {
+    return reinterpret_cast<const scalar_t*>(
+        reinterpret_cast<const char*>(block) + offset * sizeof(scalar_t));
   }
 
   template <typename scalar_t>
@@ -161,6 +184,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   // Release all allocated memory during destruction
   ~FixedBlockPool() override {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
     for (auto&& chunk : chunks_) {
       upstream_->deallocate(chunk.ptr, chunk.size, chunk.alignment);
     }
@@ -181,6 +205,7 @@ class FixedBlockPool : public std::pmr::memory_resource {
 
   template <typename scalar_t>
   scalar_t* get_block(size_t index) {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
     char* current_chunk =
         static_cast<char*>(chunks_[index / blocks_per_chunk_].ptr);
     char* block = current_chunk + block_size_ * (index % blocks_per_chunk_);
@@ -190,6 +215,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
       return nullptr;
     }
   };
+
+  std::unique_lock<std::mutex> acquire_lock() {
+    return std::unique_lock<std::mutex>(mem_pool_lock_);
+  }
 
   [[nodiscard]] const auto& get_chunks() const noexcept {
     return chunks_;
@@ -206,6 +235,11 @@ class FixedBlockPool : public std::pmr::memory_resource {
   [[nodiscard]] std::size_t get_aligned_block_size() const noexcept {
     return (block_size_ + block_alignment_ - 1) / block_alignment_ *
         block_alignment_;
+  }
+
+  [[nodiscard]] std::size_t get_allocated_chunk_bytes() const noexcept {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
+    return chunks_.empty() ? 0 : chunks_.size() * chunks_[0].size;
   }
 
  protected:
@@ -254,7 +288,10 @@ class FixedBlockPool : public std::pmr::memory_resource {
     void* chunk_ptr = upstream_->allocate(chunk_size, block_alignment_);
 
     // Record chunk information for later release
-    chunks_.push_back({chunk_ptr, chunk_size, block_alignment_});
+    {
+      std::lock_guard<std::mutex> guard(chunks_mutex_);
+      chunks_.push_back({chunk_ptr, chunk_size, block_alignment_});
+    }
 
     // Initialize free list: link blocks in reverse order from chunk end to
     // beginning (improves locality)
@@ -274,5 +311,11 @@ class FixedBlockPool : public std::pmr::memory_resource {
   std::pmr::memory_resource* upstream_; // Upstream memory resource
   std::pmr::vector<ChunkInfo> chunks_; // Records of all allocated chunks
   void* free_list_ = nullptr; // Free block list head pointer
+  mutable std::mutex chunks_mutex_; // Mutex for chunks_
+
+  // block pool lock, only used on the inference side to guard in-place update
+  // and eviction exclusive update, this is needed to reduce locking time for
+  // better inference qps
+  std::mutex mem_pool_lock_;
 };
 } // namespace kv_mem

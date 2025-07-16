@@ -7,6 +7,7 @@
  */
 
 #include <gtest/gtest.h>
+#include <cmath>
 #include <iostream>
 
 #include "bench/BenchUtils.h" // @manual
@@ -18,7 +19,7 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<QuantizationGranularity> qGranularityVals{
+static vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::OUT_CHANNEL};
 
@@ -27,7 +28,7 @@ class SPMMInt8Test
     : public testing::TestWithParam<
           tuple<int, int, int, float, bool, QuantizationGranularity>> {};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     SPMMInt8Test,
     ::testing::Combine(
@@ -43,9 +44,9 @@ INSTANTIATE_TEST_CASE_P(
  * Test for sparse-dense matrix-matrix multiplication (int8)
  */
 TEST_P(SPMMInt8Test, spInt8) {
-  int M, N, K;
-  float fnz;
-  bool fuse_relu;
+  int M = 0, N = 0, K = 0;
+  float fnz = NAN;
+  bool fuse_relu = false;
   QuantizationGranularity qGran;
   tie(M, N, K, fnz, fuse_relu, qGran) = GetParam();
 

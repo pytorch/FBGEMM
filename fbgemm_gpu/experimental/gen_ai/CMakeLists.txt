@@ -149,7 +149,18 @@ gpu_cpp_library(
     ${experimental_gen_ai_cpp_source_files_hip}
   TORCH_LIBS
     # Used when building as part of PyTorch
-    ${FBGEMM_GENAI_TORCH_LIBS})
+    ${FBGEMM_GENAI_TORCH_LIBS}
+  HIPCC_FLAGS
+    # Below flags are required for strong CK performance
+    # on certain kernel instances
+    -mllvm
+    # Reduce register spillage on certain kernels
+    -amdgpu-coerce-illegal-types=1
+    -mllvm
+    -enable-post-misched=0
+    -mllvm
+    -greedy-reverse-local-assignment=1
+    -fhip-new-launch-api)
 
 
 
@@ -163,7 +174,7 @@ add_to_package(
 
 install(
   DIRECTORY bench
-  DESTINATION fbgemm_gpu/experimental)
+  DESTINATION fbgemm_gpu/experimental/gen_ai)
 
 install(
   DIRECTORY gen_ai

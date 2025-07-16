@@ -64,7 +64,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
       std::optional<at::Tensor> sorted_indices = std::nullopt,
       int64_t width_offset = 0,
       const std::optional<c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>
-          checkpoint_handle = std::nullopt);
+          checkpoint_handle = std::nullopt,
+      bool read_only = false);
 
   explicit KVTensorWrapper(const std::string& serialized);
 
@@ -112,7 +113,8 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
 
   std::string serialize() const;
 
-  // ONLY FOR DEBUGGING PURPOSES, Please don't use this function in production
+  // ONLY FOR DEBUGGING PURPOSES, Please don't use this function in
+  // production
   std::string logs() const;
 
   void deserialize(const std::string& serialized);
@@ -150,6 +152,7 @@ class KVTensorWrapper : public torch::jit::CustomClassHolder {
   int64_t num_threads{};
   int64_t max_D{};
   std::string checkpoint_uuid;
+  bool read_only_{};
 };
 
 void to_json(json& j, const KVTensorWrapper& kvt);

@@ -18,7 +18,7 @@
 using namespace std;
 using namespace fbgemm;
 
-int main(int, char**) {
+int main(int /*unused*/, char** /*unused*/) {
   vector<vector<int>> shapes = getSparseMatrixShapes();
 
   // C is MxN -> CT is NxM
@@ -27,7 +27,7 @@ int main(int, char**) {
 
   cout << setw(7) << "index" << setw(7) << "m" << setw(7) << "n" << setw(7)
        << "k" << setw(7) << "fnz" << setw(15) << "eff_GFLOPS" << setw(15)
-       << "real_GFLOPS" << endl;
+       << "real_GFLOPS" << '\n';
 
   int index = 0;
   for (auto const& s : shapes) {
@@ -166,7 +166,7 @@ int main(int, char**) {
         if (std::abs(ctDataRef_u8[i] - ctDataIntrin_u8[i]) > 0) {
           fprintf(
               stderr,
-              "Error: Results differ ref %d and test %d at %ld\n",
+              "Error: Results differ ref %d and test %d at %zu\n",
               ctDataRef_u8[i],
               ctDataIntrin_u8[i],
               i);
@@ -178,7 +178,7 @@ int main(int, char**) {
       cout << "[" << setw(5) << index << "]" << setw(7) << m << setw(7) << n
            << setw(7) << k << fixed << setw(7) << setprecision(2) << fnz
            << setw(15) << setprecision(5) << effective_gflops_intrin << setw(15)
-           << setprecision(5) << fnz * effective_gflops_intrin << endl;
+           << setprecision(5) << fnz * effective_gflops_intrin << '\n';
       ++index;
     }
   }

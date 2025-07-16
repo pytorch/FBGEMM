@@ -9,6 +9,7 @@
 #include "fbgemm_gpu/sparse_ops.cuh"
 #include "fbgemm_gpu/sparse_ops.h"
 #include "fbgemm_gpu/utils/cuda_block_count.h"
+#include "fbgemm_gpu/utils/cuda_utilities.cuh"
 #include "fbgemm_gpu/utils/ops_utils.h"
 
 #include <ATen/ATen.h>
@@ -31,6 +32,7 @@
 #include "fbgemm_gpu/split_embeddings_utils.cuh"
 #include "fbgemm_gpu/utils/binary_search_range.cuh"
 #include "fbgemm_gpu/utils/dispatch_macros.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
 #include "fbgemm_gpu/utils/log2.h"
 #include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 

@@ -27,7 +27,6 @@
 
 #include <cpuinfo.h>
 #include <memory>
-#include <utility>
 #include <vector>
 
 namespace fbgemm {
@@ -75,8 +74,8 @@ void RoundToFloat16(
     bool clamp,
     bool clamp_denorms) {
   std::vector<fbgemm::float16> data_fp16(size);
-  FloatToFloat16_simd(input, &(data_fp16[0]), size, /*do_clip=*/clamp);
-  Float16ToFloat_simd(&(data_fp16[0]), output, size);
+  FloatToFloat16_simd(input, data_fp16.data(), size, /*do_clip=*/clamp);
+  Float16ToFloat_simd(data_fp16.data(), output, size);
   if (clamp_denorms) {
     // FloatToFloat16_simd always preserve fp16 denorm, so we need to manually
     // clamp.

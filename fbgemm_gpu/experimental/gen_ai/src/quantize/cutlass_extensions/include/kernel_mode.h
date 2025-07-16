@@ -15,9 +15,9 @@ namespace fbgemm_gpu {
 enum class KernelMode { Small, Medium, Large, Default };
 
 inline KernelMode get_kernel_mode(at::Tensor XQ, at::Tensor WQ) {
-  auto M = XQ.size(0);
-  auto K = XQ.size(1);
-  auto N = WQ.size(0);
+  int M = size_to_dim_(XQ.dim() - 1, XQ.sizes());
+  int K = XQ.size(-1);
+  int N = size_to_dim_(WQ.dim() - 1, WQ.sizes());
   // Use a large kernel if at least two shapes are large....
   bool use_large_kernel =
       ((M >= 2048 && K >= 2048) || (M >= 2048 && N >= 2048) ||

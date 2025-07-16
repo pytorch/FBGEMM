@@ -95,6 +95,72 @@ class EvictionPolicy(NamedTuple):
         # wait at least # seconds before trigger next round of eviction, if last finished eviction is sufficient
         60
     )
+    meta_header_lens: Optional[List[int]] = None  # metaheader length for each table
+
+    def validate(self) -> None:
+        assert self.eviction_trigger_mode in [0, 1, 2, 3], (
+            "eviction_trigger_mode must be 0, 1, 2, or 3, "
+            f"actual {self.eviction_trigger_mode}"
+        )
+        if self.eviction_trigger_mode == 0:
+            return
+
+        assert self.eviction_strategy in [0, 1, 2, 3], (
+            "eviction_strategy must be 0, 1, 2, or 3, "
+            f"actual {self.eviction_strategy}"
+        )
+        if self.eviction_trigger_mode == 1:
+            assert (
+                self.eviction_step_intervals is not None
+                and self.eviction_step_intervals > 0
+            ), (
+                "eviction_step_intervals must be positive if eviction_trigger_mode is 1, "
+                f"actual {self.eviction_step_intervals}"
+            )
+        elif self.eviction_trigger_mode == 2:
+            assert (
+                self.eviction_mem_threshold_gb is not None
+            ), "eviction_mem_threshold_gb must be set if eviction_trigger_mode is 2"
+
+        if self.eviction_strategy == 0:
+            assert self.ttls_in_mins is not None, (
+                "ttls_in_mins must be set if eviction_strategy is 0, "
+                f"actual {self.ttls_in_mins}"
+            )
+        elif self.eviction_strategy == 1:
+            assert self.counter_thresholds is not None, (
+                "counter_thresholds must be set if eviction_strategy is 1, "
+                f"actual {self.counter_thresholds}"
+            )
+            assert self.counter_decay_rates is not None, (
+                "counter_decay_rates must be set if eviction_strategy is 1, "
+                f"actual {self.counter_decay_rates}"
+            )
+            assert len(self.counter_thresholds) == len(self.counter_decay_rates), (
+                "counter_thresholds and counter_decay_rates must have the same length, "
+                f"actual {self.counter_thresholds} vs {self.counter_decay_rates}"
+            )
+        elif self.eviction_strategy == 2:
+            assert self.counter_thresholds is not None, (
+                "counter_thresholds must be set if eviction_strategy is 2, "
+                f"actual {self.counter_thresholds}"
+            )
+            assert self.counter_decay_rates is not None, (
+                "counter_decay_rates must be set if eviction_strategy is 2, "
+                f"actual {self.counter_decay_rates}"
+            )
+            assert self.ttls_in_mins is not None, (
+                "ttls_in_mins must be set if eviction_strategy is 2, "
+                f"actual {self.ttls_in_mins}"
+            )
+            assert len(self.counter_thresholds) == len(self.counter_decay_rates), (
+                "counter_thresholds and counter_decay_rates must have the same length, "
+                f"actual {self.counter_thresholds} vs {self.counter_decay_rates}"
+            )
+            assert len(self.counter_thresholds) == len(self.ttls_in_mins), (
+                "counter_thresholds and ttls_in_mins must have the same length, "
+                f"actual {self.counter_thresholds} vs {self.ttls_in_mins}"
+            )
 
 
 class KVZCHParams(NamedTuple):
@@ -106,13 +172,20 @@ class KVZCHParams(NamedTuple):
     bucket_sizes: List[int] = []
     # enable optimizer offloading or not
     enable_optimizer_offloading: bool = False
-    eviction_policy: Optional[EvictionPolicy] = None
+    # when enabled, backend will return whole row(metaheader + weight + optimizer) instead of weight only
+    # can only be enabled when enable_optimizer_offloading is enabled
+    backend_return_whole_row: bool = False
+    eviction_policy: EvictionPolicy = EvictionPolicy()
 
     def validate(self) -> None:
         assert len(self.bucket_offsets) == len(self.bucket_sizes), (
             "bucket_offsets and bucket_sizes must have the same length, "
             f"actual {self.bucket_offsets} vs {self.bucket_sizes}"
         )
+        self.eviction_policy.validate()
+        assert (
+            not self.backend_return_whole_row or self.enable_optimizer_offloading
+        ), "backend_return_whole_row can only be enabled when enable_optimizer_offloading is enabled"
 
 
 class BackendType(enum.IntEnum):

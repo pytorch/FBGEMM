@@ -26,12 +26,12 @@ on:
   workflow_dispatch:
     inputs:
       pytorch_version:
-        description: PyTorch Version (e.g. '2.6.0', 'nightly', 'test')
+        description: PyTorch Version (e.g. '2.8.0', 'nightly', 'test')
         type: string
         required: true
         default: "nightly"
       fbgemm_gpu_channel_version:
-        description: FBGEMM-GPU Channel + Version (e.g. '1.2.0', 'nightly', 'test/1.2.0')
+        description: FBGEMM-GPU Channel + Version (e.g. '1.3.0', 'nightly', 'test/1.3.0')
         type: string
         required: true
         default: "nightly"
@@ -171,7 +171,7 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} cuda/${{ matrix.cuda-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 40
+      timeout-minutes: 60
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV
 
 
@@ -241,5 +241,5 @@ jobs:
       run: . $PRELUDE; install_fbgemm_gpu_pip $BUILD_ENV ${{ github.event.inputs.fbgemm_gpu_channel_version || 'nightly' }} rocm/${{ matrix.rocm-version }}
 
     - name: Test with PyTest
-      timeout-minutes: 40
+      timeout-minutes: 60
       run: . $PRELUDE; test_all_fbgemm_gpu_modules $BUILD_ENV

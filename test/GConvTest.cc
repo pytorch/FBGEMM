@@ -27,11 +27,11 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<matrix_op_t> transposeVals{
+static vector<matrix_op_t> transposeVals{
     matrix_op_t::NoTranspose,
     matrix_op_t::Transpose};
 
-vector<QuantizationGranularity> qGranularityVals{
+static vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::GROUP,
     QuantizationGranularity::OUT_CHANNEL};
@@ -49,14 +49,14 @@ class fbgemmGConvAcc32WithQuantGranularityTest
 class fbgemmGConvPackTest : public testing::TestWithParam<matrix_op_t> {};
 }; // namespace
 
-// INSTANTIATE_TEST_CASE_P(
+// INSTANTIATE_TEST_SUITE_P(
 //     InstantiationName,
 //     fbgemmGConvAcc32Test,
 //     ::testing::Combine(
 //         ::testing::Values(matrix_op_t::NoTranspose),
 //         ::testing::ValuesIn(transposeVals)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmGConvAcc32WithQuantGranularityTest,
     ::testing::Combine(
@@ -66,7 +66,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Bool(), // A symmetric
         ::testing::Bool())); // B symmetric
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     fbgemmGConvPackTest,
     ::testing::ValuesIn(transposeVals));
@@ -74,7 +74,7 @@ INSTANTIATE_TEST_CASE_P(
  * @brief 3D Shapes for unit test.
  */
 template <int SPATIAL_DIM>
-static typename std::enable_if<SPATIAL_DIM == 3, vector<conv_param_t<3>>>::type
+static std::enable_if_t<SPATIAL_DIM == 3, vector<conv_param_t<3>>>
 GetShapes_() {
   // clang-format off
   vector<conv_param_t<3>> shapes = {
@@ -188,7 +188,7 @@ GetShapes_() {
  * @brief 2D Shapes for unit test.
  */
 template <int SPATIAL_DIM = 2>
-static typename std::enable_if<SPATIAL_DIM == 2, vector<conv_param_t<2>>>::type
+static std::enable_if_t<SPATIAL_DIM == 2, vector<conv_param_t<2>>>
 GetShapes_() {
     vector<conv_param_t<>> shapes = {
         // MB, IC, OC, {IH, IW}, G, {KH, KW}, {stride_h, stride_w},
@@ -269,7 +269,7 @@ GetShapes_() {
  * accumulation. Output processing: requantization -> nothing
  */
 template <int SPATIAL_DIM = 2>
-void runRequantizeTest(matrix_op_t /* unused */,
+static void runRequantizeTest(matrix_op_t /* unused */,
     matrix_op_t btrans,
     QuantizationGranularity q_granularity,
     bool a_symmetric, bool b_symmetric) {
@@ -487,11 +487,7 @@ void runRequantizeTest(matrix_op_t /* unused */,
 }
 
 TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
-  matrix_op_t atrans, btrans;
-  QuantizationGranularity q_granularity;
-  bool a_symmetric, b_symmetric;
-
-  tie(atrans, btrans, q_granularity, a_symmetric, b_symmetric) = GetParam();
+  auto [atrans, btrans, q_granularity, a_symmetric, b_symmetric] = GetParam();
 
   runRequantizeTest<2>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
   runRequantizeTest<3>(atrans, btrans, q_granularity, a_symmetric, b_symmetric);
@@ -504,8 +500,7 @@ TEST_P(fbgemmGConvAcc32WithQuantGranularityTest, requantizeTest) {
 /*
 TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
   vector<conv_param_t<>> shapes(GetShapes_());
-  matrix_op_t atrans, btrans;
-  tie(atrans, btrans) = GetParam();
+  auto [atrans, btrans] = GetParam();
 
   for (auto conv_p : shapes) {
     int R = conv_p.K[0];
@@ -591,7 +586,7 @@ TEST_P(fbgemmGConvAcc32Test, NoRequantizeTest) {
 */
 
 template <int SPATIAL_DIM = 2>
-void runPackUnpackTest(matrix_op_t btrans) {
+static void runPackUnpackTest(matrix_op_t btrans) {
   vector<conv_param_t<SPATIAL_DIM>> shapes(GetShapes_<SPATIAL_DIM>());
 
   for (auto conv_p : shapes) {

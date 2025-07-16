@@ -15,14 +15,13 @@
 #include "fbgemm/FbgemmBuild.h"
 #include "fbgemm/FloatConversion.h"
 
+#include <cmath>
+
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cmath>
 #include <cstring>
-#include <new>
-#include <numeric>
-#include <thread>
+#include <memory>
 
 /// @defgroup tbe-cpu-autovec TBE CPU Autovectorization (FP8/16/32)
 
@@ -55,11 +54,11 @@ static inline void fill_output(
     const float* src,
     const int64_t block_size,
     const bool is_bf16_out) {
-  if (std::is_same<OutType, float>::value) {
+  if constexpr (std::is_same_v<OutType, float>) {
     for (int j = 0; j < block_size; ++j) {
       out[j] = src[j];
     }
-  } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
     for (int j = 0; j < block_size; ++j) {
       out[j] = cpu_float2bfloat16(src[j]);
     }
@@ -73,9 +72,9 @@ static inline void fill_output(
 template <typename OutType>
 static inline EmbeddingStatsTracker::DataType get_output_type(
     const bool is_bf16_out) {
-  if (std::is_same<OutType, float>::value) {
+  if constexpr (std::is_same_v<OutType, float>) {
     return EmbeddingStatsTracker::DataType::FP32;
-  } else if (std::is_same<OutType, uint16_t>::value && is_bf16_out) {
+  } else if (std::is_same_v<OutType, uint16_t> && is_bf16_out) {
     return EmbeddingStatsTracker::DataType::BF16;
   } else {
     return EmbeddingStatsTracker::DataType::FP16;
@@ -101,7 +100,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
     const bool scale_bias_last,
     const bool no_bag,
     const bool is_bf16_out) {
-  constexpr bool isOutput8bit = std::is_same<OutType, uint8_t>::value;
+  constexpr bool isOutput8bit = std::is_same_v<OutType, uint8_t>;
   if (data_size < 0) {
     return false;
   }
@@ -126,7 +125,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
 
   std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
-  float* buf;
+  float* buf = nullptr;
   if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
@@ -148,19 +147,18 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
       } else {
         memset(buf, 0, sizeof(float) * block_size);
 
-        float scale;
-        float bias;
+        float scale = NAN;
+        float bias = NAN;
         const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
         if (scale_bias_last) {
-          memcpy(&scale, scale_bias_addr, sizeof(float));
-          memcpy(&bias, scale_bias_addr + sizeof(float), sizeof(float));
+          scale = *(reinterpret_cast<const float*>(scale_bias_addr));
+          bias = *(
+              reinterpret_cast<const float*>(scale_bias_addr + sizeof(float)));
         } else {
-          float16 scale16;
-          float16 bias16;
-          memcpy(&scale16, scale_bias_addr, sizeof(float16));
-          memcpy(&bias16, scale_bias_addr + sizeof(float16), sizeof(float16));
-          scale = cpu_half2float(scale16);
-          bias = cpu_half2float(bias16);
+          scale = cpu_half2float(
+              *reinterpret_cast<const float16*>(scale_bias_addr));
+          bias = cpu_half2float(*reinterpret_cast<const float16*>(
+              scale_bias_addr + sizeof(float16)));
         }
         if (weights) {
           float weight = weights[m];
@@ -242,18 +240,17 @@ static bool ALWAYS_INLINE EmbeddingSpMDM8Bit_autovec(
       const uint8_t* input_row_base = input + input_stride * idx;
 
       const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
-      float scale;
-      float bias;
+      float scale = NAN;
+      float bias = NAN;
       if (scale_bias_last) {
-        memcpy(&scale, scale_bias_addr, sizeof(float));
-        memcpy(&bias, scale_bias_addr + sizeof(float), sizeof(float));
+        scale = *(reinterpret_cast<const float*>(scale_bias_addr));
+        bias =
+            *(reinterpret_cast<const float*>(scale_bias_addr + sizeof(float)));
       } else {
-        float16 scale16;
-        float16 bias16;
-        memcpy(&scale16, scale_bias_addr, sizeof(float16));
-        memcpy(&bias16, scale_bias_addr + sizeof(float16), sizeof(float16));
-        scale = cpu_half2float(scale16);
-        bias = cpu_half2float(bias16);
+        scale =
+            cpu_half2float(*reinterpret_cast<const float16*>(scale_bias_addr));
+        bias = cpu_half2float(*reinterpret_cast<const float16*>(
+            scale_bias_addr + sizeof(float16)));
       }
 
       if (weights != nullptr) {
@@ -343,7 +340,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
     // We currently only support int4 to int4 for sequential TBE in this nbit
     // kernel. Note that assert() will be ignored in release mode, so we check
     // here to double check and also avoid "unused variable" warning
-    if (!(input_bit_rate == 4 && output_bit_rate == 4)) {
+    if (input_bit_rate != 4 || output_bit_rate != 4) {
       WARN_ONCE("no_bag is only supported for int4 to int4");
       return false;
     }
@@ -374,7 +371,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
 
   std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
-  float* buf;
+  float* buf = nullptr;
   if (static_cast<size_t>(rounded_block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
@@ -416,10 +413,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMNBit_autovec(
       const uint8_t* scale_bias_addr = input_row_base + scale_bias_offset;
       const uint8_t* input_row = input_row_base + input_row_offset;
 
-      float16 scale16;
-      float16 bias16;
-      memcpy(&scale16, scale_bias_addr, sizeof(float16));
-      memcpy(&bias16, scale_bias_addr + sizeof(float16), sizeof(float16));
+      float16 scale16 = *reinterpret_cast<const float16*>(scale_bias_addr);
+      float16 bias16 =
+          *reinterpret_cast<const float16*>(scale_bias_addr + sizeof(float16));
       static_assert(sizeof(scale16) + sizeof(bias16) == scale_bias_size);
 
       float scale = cpu_half2float(scale16);
@@ -562,7 +558,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDM_autovec(
 
   std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
-  float* buf;
+  float* buf = nullptr;
   if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
@@ -737,9 +733,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
     float* out,
     const bool is_weight_positional,
     const bool use_offsets) {
-  bool is8bit = std::is_same<InType, uint8_t>::value;
+  constexpr bool is8bit = std::is_same_v<InType, uint8_t>;
 
-  if (is8bit) {
+  if constexpr (is8bit) {
     // block_size is the number of elements and fused_block_size is the size
     // of an entire row, including scale and bias.
     const auto scale_bias_offset = 2 * sizeof(float);
@@ -781,10 +777,9 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
         const uint8_t* scale_bias_addr = reinterpret_cast<const uint8_t*>(
             input + fused_block_size * idx + block_size);
 
-        float scale;
-        float bias;
-        memcpy(&scale, scale_bias_addr, sizeof(float));
-        memcpy(&bias, scale_bias_addr + sizeof(float), sizeof(float));
+        float scale = *(reinterpret_cast<const float*>(scale_bias_addr));
+        float bias =
+            *(reinterpret_cast<const float*>(scale_bias_addr + sizeof(float)));
         if (weights != nullptr) {
           float weight = *weights_addr++;
           scale *= weight;
@@ -861,8 +856,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           const InType* inptr = input_row++;
           out[j] = std::fma(
               weight,
-              std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
-                                                   : *inptr,
+              std::is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
               out[j]);
         }
 #endif
@@ -870,8 +864,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMRowWiseSparse_autovec(
           const InType* inptr = input_row++;
           out[j] = std::fma(
               weight,
-              std::is_same<InType, float16>::value ? cpu_half2float(*inptr)
-                                                   : *inptr,
+              std::is_same_v<InType, float16> ? cpu_half2float(*inptr) : *inptr,
               out[j]);
         }
       }
@@ -895,7 +888,7 @@ void Float8ToFloat_ref_batch(
     int exponent_bits,
     int exponent_bias) {
   for (int i = 0; i < count; ++i) {
-    uint32_t val_out, sign, multiplier;
+    uint32_t val_out = 0, sign = 0, multiplier = 0;
     uint8_t inp = input[i];
 
     sign = (inp & 0x80) << 24;
@@ -965,7 +958,7 @@ static bool ALWAYS_INLINE EmbeddingSpMDMFP8_autovec(
 
   std::array<float, LOCAL_STORAGE_SIZE> local_storage;
   std::unique_ptr<float[]> heap_storage;
-  float* buf;
+  float* buf = nullptr;
   if (static_cast<size_t>(block_size) <= LOCAL_STORAGE_SIZE) {
     buf = local_storage.data();
   } else {
@@ -1116,10 +1109,10 @@ template <typename T>
 ALWAYS_INLINE constexpr FixedParameter<T> fixed(T value) {
   return FixedParameter<T>{value};
 }
-static constexpr VariableParameter var = VariableParameter();
+constexpr VariableParameter var = VariableParameter();
 
 template <typename T>
-ALWAYS_INLINE bool match(VariableParameter, T) {
+ALWAYS_INLINE bool match(VariableParameter /*unused*/, T /*unused*/) {
   return true;
 }
 template <typename T>
@@ -1128,11 +1121,11 @@ ALWAYS_INLINE bool match(FixedParameter<T> fixed_parameter, T value) {
 }
 
 template <typename T>
-ALWAYS_INLINE T specialize(VariableParameter, T value) {
+ALWAYS_INLINE T specialize(VariableParameter /*unused*/, T value) {
   return value;
 }
 template <typename T>
-ALWAYS_INLINE T specialize(FixedParameter<T> fixed_parameter, T) {
+ALWAYS_INLINE T specialize(FixedParameter<T> fixed_parameter, T /*unused*/) {
   return fixed_parameter.value;
 }
 } // namespace specialization_helper
@@ -1142,7 +1135,7 @@ template <typename InType>
 static int64_t stride_SpMDMWithStrides(
     int64_t block_size,
     bool scale_bias_last) {
-  if (std::is_same<InType, uint8_t>::value) {
+  if constexpr (std::is_same_v<InType, uint8_t>) {
     const size_t scale_bias_offset =
         2 * (scale_bias_last ? sizeof(float) : sizeof(uint16_t));
     return block_size + scale_bias_offset;
@@ -1218,7 +1211,7 @@ typename EmbeddingSpMDMKernelSignature<InType, IndexType, OffsetType, OutType>::
       } else {                                                            \
         weights = nullptr;                                                \
       }                                                                   \
-      if (std::is_same<InType, uint8_t>::value) {                         \
+      if constexpr (std::is_same_v<InType, uint8_t>) {                    \
         assert(!specialize(IS_BF16_IN, is_bf16_in));                      \
         return EmbeddingSpMDM8Bit_autovec(                                \
             specialize(BLOCK_SIZE, block_size),                           \

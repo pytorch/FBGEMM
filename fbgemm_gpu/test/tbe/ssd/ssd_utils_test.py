@@ -121,6 +121,8 @@ class SSDUtilsTest(unittest.TestCase):
             num_value_rows=num_indices,
             num_output_rows=num_output_rows,
             dtype=dtype,
+            # pyre-fixme[6]: For 7th argument expected `(Tensor, Tensor, Tensor,
+            #  Tensor, bool) -> Tensor` but got `OpOverloadPacket`.
             test_fn=torch.ops.fbgemm.masked_index_put,
             is_index_put=True,
             use_pipeline=use_pipeline,
@@ -154,6 +156,8 @@ class SSDUtilsTest(unittest.TestCase):
             num_value_rows=num_value_rows,
             num_output_rows=num_indices,
             dtype=dtype,
+            # pyre-fixme[6]: For 7th argument expected `(Tensor, Tensor, Tensor,
+            #  Tensor, bool) -> Tensor` but got `OpOverloadPacket`.
             test_fn=torch.ops.fbgemm.masked_index_select,
             is_index_put=False,
             use_pipeline=use_pipeline,

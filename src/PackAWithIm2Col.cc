@@ -123,7 +123,7 @@ PackAWithIm2Col<T, accT, SPATIAL_DIM>::PackAWithIm2Col(
 }
 
 template <int SPATIAL_DIM, int BCOL>
-void pack_a_with_im2col_opt(
+static void pack_a_with_im2col_opt(
     const conv_param_t<SPATIAL_DIM>& conv_p,
     const block_type_t& block,
     const uint8_t* sdata,
@@ -251,7 +251,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
   // reduceAvx2 only written for T == uint8_t
   static_assert(
-      std::is_same<T, uint8_t>::value,
+      std::is_same_v<T, uint8_t>,
       "PackAWithIm2Col<T, accT>::pack only works for T == uint8_t");
   if (point_wise) {
     int32_t ld = this->numCols();
@@ -297,7 +297,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
       conv_p_.pad[1] == ((conv_p_.K[1] - 1) / 2) &&
       block_p.col_size <= BaseType::blockColSize() &&
       conv_p_.dilation[0] == 1 && conv_p_.dilation[1] == 1 &&
-      std::is_same<T, uint8_t>::value) {
+      std::is_same_v<T, uint8_t>) {
     if (BaseType::blockColSize() == 256) {
       pack_a_with_im2col_opt<SPATIAL_DIM, 256>(
           conv_p_,
@@ -326,7 +326,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
   }
   if (conv_p_.transposed) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      if (SPATIAL_DIM == 1) { // static if
+      if constexpr (SPATIAL_DIM == 1) { // static if
         int n = i / (conv_p_.OUT_DIM[0]);
         int ow = i % (conv_p_.OUT_DIM[0]);
         for (int j = block.col_start;
@@ -366,7 +366,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           }
         }
 
-      } else if (SPATIAL_DIM == 2) { // static if
+      } else if constexpr (SPATIAL_DIM == 2) { // static if
         int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int ow = hw % conv_p_.OUT_DIM[1];
@@ -416,7 +416,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
                 sizeof(T) * (j_blk_end - j_blk_start));
           }
         }
-      } else if (SPATIAL_DIM == 3) { // static if
+      } else if constexpr (SPATIAL_DIM == 3) { // static if
         int n =
             i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
         int thw =
@@ -503,7 +503,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
     } // for each i
   } else {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
-      if (SPATIAL_DIM == 1) { // static if
+      if constexpr (SPATIAL_DIM == 1) { // static if
         int n = i / (conv_p_.OUT_DIM[0]);
         int w = i % (conv_p_.OUT_DIM[0]);
         for (int j = block.col_start;
@@ -542,7 +542,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
           }
         }
 
-      } else if (SPATIAL_DIM == 2) { // static if
+      } else if constexpr (SPATIAL_DIM == 2) { // static if
         int n = i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int hw = i % (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1]);
         int w = hw % conv_p_.OUT_DIM[1];
@@ -615,7 +615,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
                 sizeof(T) * (j_blk_end - j_blk_start));
           }
         }
-      } else if (SPATIAL_DIM == 3) { // static if
+      } else if constexpr (SPATIAL_DIM == 3) { // static if
         int n =
             i / (conv_p_.OUT_DIM[0] * conv_p_.OUT_DIM[1] * conv_p_.OUT_DIM[2]);
         int thw =
@@ -703,7 +703,7 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::pack(const block_type_t& block) {
 
 template <typename T, typename accT, int SPATIAL_DIM>
 void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
-    std::string name) {
+    const std::string& name) {
   std::cout << name << ":" << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
 
@@ -711,16 +711,16 @@ void PackAWithIm2Col<T, accT, SPATIAL_DIM>::printPackedMatrix(
   for (auto r = 0; r < BaseType::numPackedRows(); ++r) {
     for (auto c = 0; c < BaseType::numPackedCols(); ++c) {
       T val = out[r * BaseType::blockColSize() + c];
-      if (std::is_integral<T>::value) {
+      if constexpr (std::is_integral_v<T>) {
         // cast to int64 because cout doesn't print int8_t type directly
         std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
       } else {
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T, typename accT, int SPATIAL_DIM>

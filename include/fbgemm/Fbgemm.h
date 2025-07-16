@@ -247,7 +247,7 @@ class PackMatrix {
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name) {
+  void printPackedMatrix(const std::string& name) {
     static_cast<PT*>(this)->printPackedMatrix(name);
   }
 
@@ -379,7 +379,7 @@ class FBGEMM_API PackAMatrix final
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
  private:
   matrix_op_t trans_;
@@ -464,7 +464,7 @@ class FBGEMM_API PackBMatrix final
    * @brief Print the packed block.
    */
   void printPackedMatrix(
-      std::string name,
+      const std::string& name,
       const BlockingFactors* params = nullptr);
 
   /**
@@ -482,7 +482,7 @@ class FBGEMM_API PackBMatrix final
    */
   void unpack(T* origin_buf, const BlockingFactors* params = nullptr);
 
-  ~PackBMatrix() {}
+  ~PackBMatrix() override = default;
 
  private:
   matrix_op_t trans_;
@@ -745,14 +745,14 @@ class FBGEMM_API PackAWithIm2Col
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
   /**
    * @return Size of row offset buffer in number of elements
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
-  ~PackAWithIm2Col() {
+  ~PackAWithIm2Col() override {
     if (rowOffsetAllocatedHere) {
       fbgemmAlignedFree(row_offset_);
     }
@@ -835,14 +835,14 @@ class FBGEMM_API PackAWithRowOffset final
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
   /**
    * @return size of row offset buffer in number of elements
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
-  ~PackAWithRowOffset() {
+  ~PackAWithRowOffset() override {
     if (rowOffsetAllocatedHere) {
       fbgemmAlignedFree(row_offset_);
     }
@@ -927,14 +927,14 @@ class FBGEMM_API PackAWithQuantRowOffset final
   /**
    * @brief Print the packed block.
    */
-  void printPackedMatrix(std::string name);
+  void printPackedMatrix(const std::string& name);
 
   /**
    * @return Size of row offset buffer in number of elements
    */
   static int rowOffsetBufferSize(const BlockingFactors* params = nullptr);
 
-  ~PackAWithQuantRowOffset() {
+  ~PackAWithQuantRowOffset() override {
     if (rowOffsetAllocatedHere) {
       fbgemmAlignedFree(row_offset_);
     }
@@ -967,7 +967,7 @@ class FBGEMM_API DoNothing {
  public:
   using outType = outT;
   using inpType = inT;
-  DoNothing() {}
+  DoNothing() = default;
   template <inst_set_t instSet>
   int f(
       outType* /* unused */,

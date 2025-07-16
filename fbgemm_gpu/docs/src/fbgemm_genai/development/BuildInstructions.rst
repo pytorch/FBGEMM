@@ -48,7 +48,7 @@ Clone the repo along with its submodules, and install ``requirements_genai.txt``
   # !! Run inside the Conda environment !!
 
   # Select a version tag
-  FBGEMM_VERSION=v1.2.0
+  FBGEMM_VERSION=v1.3.0
 
   # Clone the repo along with its submodules
   git clone --recursive -b ${FBGEMM_VERSION} https://github.com/pytorch/FBGEMM.git fbgemm_${FBGEMM_VERSION}

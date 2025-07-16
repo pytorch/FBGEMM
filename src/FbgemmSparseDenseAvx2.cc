@@ -15,8 +15,7 @@
 #endif
 #include "./MaskAvx2.h" // @manual
 
-namespace fbgemm {
-namespace internal {
+namespace fbgemm::internal {
 
 void SparseDenseMMAvx2(
     int M,
@@ -138,5 +137,4 @@ void SparseDenseMMAvx2(
     }
   }
 }
-} // namespace internal
-} // namespace fbgemm
+} // namespace fbgemm::internal

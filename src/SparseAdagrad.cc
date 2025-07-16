@@ -50,18 +50,18 @@ template <
     inst_set_t instSet = inst_set_t::avx2>
 class GenSparseAdagrad {
  public:
-  GenSparseAdagrad() {}
+  GenSparseAdagrad() = default;
   void genSparseAdagrad(
       x86::Emitter* a,
       int unroll_factor,
       int num_vec_regs_per_block,
       int remainder,
       int prefetch,
-      typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-      typename simd_info<instSet>::vec_reg_t lr_vreg,
-      x86::Ymm mask_vreg,
-      typename simd_info<instSet>::vec_reg_t temp_vreg,
-      typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+      const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+      const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+      const x86::Ymm& mask_vreg,
+      const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+      const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
       bool has_weight_decay);
 
   void genRowwiseSparseAdagrad(
@@ -71,11 +71,11 @@ class GenSparseAdagrad {
       int num_vec_regs_per_block,
       int remainder,
       int prefetch,
-      typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-      typename simd_info<instSet>::vec_reg_t lr_vreg,
-      x86::Ymm mask_vreg,
-      typename simd_info<instSet>::vec_reg_t temp_vreg,
-      typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+      const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+      const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+      const x86::Ymm& mask_vreg,
+      const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+      const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
       bool has_weight_decay);
 
   typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
@@ -129,14 +129,14 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
     int num_vec_regs_per_block,
     int remainder,
     int prefetch,
-    typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-    typename simd_info<instSet>::vec_reg_t lr_vreg,
-    x86::Ymm mask_vreg,
-    typename simd_info<instSet>::vec_reg_t temp_vreg,
-    typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+    const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+    const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+    const x86::Ymm& mask_vreg,
+    const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+    const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
     bool has_weight_decay) {
   // NOTE: temp_vreg is defined only when remainder is true and instSet == avx2
-  typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+  using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
   constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
   for (int vec_idx = 0; vec_idx < num_vec_regs_per_block;
        vec_idx += unroll_factor) {
@@ -162,7 +162,7 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
       auto w_ptr = x86::dword_ptr(
           w, base_offset, 0, (vec_idx + v) * vlen * sizeof(float));
       if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           a->vmaskmovps(g_vreg.ymm(), mask_vreg, g_ptr);
           if (has_weight_decay) {
             // TODO(@taiqing) use a vreg for weights to avoid duplicate indexing
@@ -185,7 +185,7 @@ void GenSparseAdagrad<indxType, instSet>::genSparseAdagrad(
           a->vaddps(out_vreg, out_vreg, temp_vreg);
 
           a->vmaskmovps(w_ptr, mask_vreg, out_vreg.ymm());
-        } else if (instSet == inst_set_t::avx512) {
+        } else if constexpr (instSet == inst_set_t::avx512) {
           a->k(x86::k(1)).vmovups(g_vreg, g_ptr);
           if (has_weight_decay) {
             a->k(x86::k(1)).vfmadd231ps(g_vreg, weight_decay_vreg, w_ptr);
@@ -237,13 +237,13 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     int num_vec_regs_per_block,
     int remainder,
     int prefetch,
-    typename simd_info<instSet>::vec_reg_t epsilon_vreg,
-    typename simd_info<instSet>::vec_reg_t lr_vreg,
-    x86::Ymm mask_vreg,
-    typename simd_info<instSet>::vec_reg_t temp_vreg,
-    typename simd_info<instSet>::vec_reg_t weight_decay_vreg,
+    const typename simd_info<instSet>::vec_reg_t& epsilon_vreg,
+    const typename simd_info<instSet>::vec_reg_t& lr_vreg,
+    const x86::Ymm& mask_vreg,
+    const typename simd_info<instSet>::vec_reg_t& temp_vreg,
+    const typename simd_info<instSet>::vec_reg_t& weight_decay_vreg,
     bool has_weight_decay) {
-  typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+  using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
   constexpr int vlen = simd_info<instSet>::WIDTH_32BIT_ELEMS;
 
   // Reduce the unroll factor by 1 for partial sum
@@ -254,7 +254,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     a->prefetchw(x86::dword_ptr(h, temp3_));
   }
 
-  bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
+  bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
   auto indices_ptr = areIndices64b
       ? x86::qword_ptr(
             indices, temp1_, 3) // use of 3 is to muliply by 8 (int64_t)
@@ -299,7 +299,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
           w, base_offset, 0, (vec_idx + v) * vlen_avx2 * sizeof(float));
       if (block_size % simd_info<inst_set_t::avx2>::WIDTH_32BIT_ELEMS &&
           vec_idx + v == num_vec_regs_per_block_avx2 - 1) {
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           a->vmaskmovps(out_vreg, mask_vreg, g_ptr);
           if (has_weight_decay) {
             a->vmaskmovps(temp_vreg.ymm(), mask_vreg, w_ptr);
@@ -401,7 +401,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
       auto w_ptr = x86::dword_ptr(
           w, base_offset, 0, (vec_idx + v) * vlen * sizeof(float));
       if (remainder && vec_idx + v == num_vec_regs_per_block - 1) {
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           a->vmaskmovps(temp_vreg.ymm(), mask_vreg, g_ptr);
           if (has_weight_decay) {
             a->vmaskmovps(out_vreg.ymm(), mask_vreg, w_ptr);
@@ -458,7 +458,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
-        bool areIndices64b = std::is_same<indxType, std::int64_t>::value;
+        bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
 #if defined(FBGEMM_LOG_CODE)
         std::string filename = "SparseAdagrad";
         filename += "_emd_dim_" + std::to_string(block_size);
@@ -500,7 +500,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 
         asmjit::FuncDetail func;
         func.init(
-            asmjit::FuncSignatureT<
+            asmjit::FuncSignature::build<
                 int, // return type
                 int, // num rows
                 std::uint64_t, // param_size
@@ -519,7 +519,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         asmjit::FuncFrame frame;
         frame.init(func);
 
-        if (instSet == inst_set_t::avx2) {
+        if constexpr (instSet == inst_set_t::avx2) {
           frame.setDirtyRegs(
               asmjit::RegGroup::kVec,
               asmjit::Support::bitMask(0, 1, 2, 3, 4, 5, 6, 7) |
@@ -561,7 +561,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         constexpr int NUM_VEC_REG = simd_info<instSet>::NUM_VEC_REGS;
         int unroll_factor = NUM_VEC_REG;
 
-        typedef typename simd_info<instSet>::vec_reg_t vec_reg_t;
+        using vec_reg_t = typename simd_info<instSet>::vec_reg_t;
 
         int num_vec_regs_per_block = (block_size + vlen - 1) / vlen;
         int remainder = block_size % vlen;
@@ -586,13 +586,13 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         }
 
         if (remainder) {
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             --unroll_factor;
             temp_vreg = vec_reg_t(unroll_factor);
           }
 
           // Creating masks for non multiples of vlen iterations
-          if (instSet == inst_set_t::avx2) {
+          if constexpr (instSet == inst_set_t::avx2) {
             --unroll_factor;
             mask_vreg = x86::Ymm(unroll_factor);
             a->vmovups(mask_vreg, x86::dword_ptr(mask_avx2));
@@ -770,13 +770,13 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
 
         typename ReturnFunctionSignature<indxType>::jit_sparse_adagrad_kernel
             fn;
-        asmjit::Error err;
+        asmjit::Error err = 0;
         {
           std::unique_lock<std::mutex> lock(rtMutex_);
           err = runtime().add(&fn, &code);
         }
         if (err) {
-          std::cout << "Error: in fn add" << std::endl;
+          std::cout << "Error: in fn add" << '\n';
           return nullptr;
         }
 

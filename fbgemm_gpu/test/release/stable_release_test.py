@@ -144,14 +144,18 @@ class StableRelease(TestSuite):  # pyre-ignore[11]
                     op_name = full_op_name.split(".")[3]
 
                     check_schema_compatibility_from_op_name(
-                        torch.ops.fbgemm, op_name, ref_schema_str
+                        # pyre-fixme[6]: For 1st argument expected `(...) -> Any`
+                        #  but got `_OpNamespace`.
+                        torch.ops.fbgemm,
+                        op_name,
+                        ref_schema_str,
                     )
 
     def test_backwards_compatibility(self) -> None:
         """
         Test the schema compatibility of the operators against previous versions of the API.
         """
-        for version in ["1.0.0", "1.1.0", "1.2.0"]:
+        for version in ["1.0.0", "1.1.0", "1.2.0", "1.3.0"]:
             try:
                 self._test_stable_schema(version)
             except Exception as e:

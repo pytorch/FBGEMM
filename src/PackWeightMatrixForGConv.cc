@@ -9,7 +9,6 @@
 #define FBGEMM_EXPORTS
 #include <cpuinfo.h>
 #include <cassert>
-#include <iomanip>
 #include <numeric>
 #include "./RefImplementations.h" // @manual
 #include "fbgemm/Fbgemm.h"
@@ -98,7 +97,7 @@ inline int PackWeightMatrixForGConv<T, accT, SPATIAL_DIM>::unpacked_index_(
   int IC_per_G = conv_param_.IC / G;
   int OC_per_G = conv_param_.OC / G;
 
-  int idx;
+  int idx = 0;
   if (tr) {
     idx = ((((g * OC_per_G + k) * F + t) * R + r) * S + s) * IC_per_G + c;
   } else {

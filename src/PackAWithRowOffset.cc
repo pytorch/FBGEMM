@@ -149,7 +149,7 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
   } else {
     // reduceAvx2 only written for T == uint8_t
     static_assert(
-        std::is_same<T, uint8_t>::value,
+        std::is_same_v<T, uint8_t>,
         "PackAWithRowOffset<T, accT>::pack only works for T == uint8_t");
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
       int buf_idx = i - block.row_start;
@@ -169,18 +169,18 @@ void PackAWithRowOffset<T, accT>::pack(const block_type_t& block) {
 }
 
 template <typename T, typename accT>
-int32_t PackAWithRowOffset<T, accT>::addr(int32_t r, int32_t c) const {
-  int32_t block_row_id = r / BaseType::blockRowSize();
+int32_t PackAWithRowOffset<T, accT>::addr(int32_t i, int32_t j) const {
+  int32_t block_row_id = i / BaseType::blockRowSize();
   int32_t brow_offset = (block_row_id * BaseType::blockCols()) *
       (BaseType::blockRowSize() * BaseType::blockColSize());
 
-  int32_t block_col_id = c / BaseType::blockColSize();
+  int32_t block_col_id = j / BaseType::blockColSize();
   int32_t bcol_offset =
       block_col_id * BaseType::blockRowSize() * BaseType::blockColSize();
   int32_t block_offset = brow_offset + bcol_offset;
   int32_t inblock_offset =
-      (r % BaseType::blockRowSize()) * BaseType::blockColSize() +
-      (c % BaseType::blockColSize());
+      (i % BaseType::blockRowSize()) * BaseType::blockColSize() +
+      (j % BaseType::blockColSize());
 
   int32_t index = block_offset + inblock_offset;
 
@@ -188,7 +188,7 @@ int32_t PackAWithRowOffset<T, accT>::addr(int32_t r, int32_t c) const {
 }
 
 template <typename T, typename accT>
-void PackAWithRowOffset<T, accT>::printPackedMatrix(std::string name) {
+void PackAWithRowOffset<T, accT>::printPackedMatrix(const std::string& name) {
   std::cout << name << ":" << "[" << BaseType::numPackedRows() << ", "
             << BaseType::numPackedCols() << "]" << std::endl;
 
@@ -196,16 +196,16 @@ void PackAWithRowOffset<T, accT>::printPackedMatrix(std::string name) {
   for (auto r = 0; r < BaseType::numPackedRows(); ++r) {
     for (auto c = 0; c < BaseType::numPackedCols(); ++c) {
       T val = out[addr(r, c)];
-      if (std::is_integral<T>::value) {
+      if constexpr (std::is_integral_v<T>) {
         // cast to int64 because cout doesn't print int8_t type directly
         std::cout << std::setw(5) << static_cast<int64_t>(val) << " ";
       } else {
         std::cout << std::setw(5) << val << " ";
       }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
   }
-  std::cout << std::endl;
+  std::cout << '\n';
 }
 
 template <typename T, typename accT>

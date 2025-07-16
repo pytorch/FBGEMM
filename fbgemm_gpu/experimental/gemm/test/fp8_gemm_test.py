@@ -21,6 +21,7 @@ if torch.cuda.is_available():
         matmul_fp8_block,
         matmul_fp8_row,
         quantize_fp8_block,
+        quantize_fp8_group,
         # packed_row unpacks the values, packed_row_raw returns just the packed tensor
         quantize_fp8_packed_row,
         quantize_fp8_packed_row_raw,
@@ -516,6 +517,37 @@ class TestFp8Matmul(unittest.TestCase):
         _test_matmul_fp8_row_skip_scaling(
             (3, 4, 5), torch.device("cuda"), use_bias=False
         )
+
+    def test_quantize_fp8_group(self) -> None:
+        def _test_quantize_fp8_group(
+            shape: Tuple[int, int],
+            group_size: int,
+            use_scale_ub: bool = False,
+        ) -> None:
+            M, K = shape
+            a = torch.randn(M, K, dtype=torch.float, device="cuda")
+
+            scale_ub = (
+                torch.tensor([1200], dtype=torch.float, device="cuda")
+                if use_scale_ub
+                else None
+            )
+
+            a_fp8, a_scale = quantize_fp8_group(a, group_size, scale_ub=scale_ub)
+
+            a_torch = a_fp8.to(torch.float)
+
+            # Undo scaling.
+            a_torch = a_torch.view(-1, K // group_size, group_size) * a_scale.unsqueeze(
+                -1
+            )
+            a_torch = a_torch.view(M, K)
+
+            self.assertTrue(torch.allclose(a, a_torch, atol=2e-1, rtol=5e-2))
+
+        _test_quantize_fp8_group((128, 128), 128)
+        _test_quantize_fp8_group((1, 256), 64)
+        _test_quantize_fp8_group((2, 384), 128, use_scale_ub=True)
 
     def test_quantize_fp8_block(self) -> None:
         def _test_quantize_fp8_block(

@@ -356,11 +356,13 @@ KVTensorWrapper::KVTensorWrapper(
     std::optional<at::Tensor> sorted_indices,
     int64_t width_offset_,
     const std::optional<c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>
-        checkpoint_handle)
+        checkpoint_handle,
+    bool read_only)
     : db_(nullptr),
       shape_(std::move(shape)),
       row_offset_(row_offset),
-      width_offset_(width_offset_) {
+      width_offset_(width_offset_),
+      read_only_(read_only) {
   CHECK_GE(width_offset_, 0);
   CHECK_EQ(shape_.size(), 2) << "Only 2D emb tensors are supported";
   options_ = at::TensorOptions()
@@ -480,7 +482,8 @@ at::Tensor KVTensorWrapper::narrow(int64_t dim, int64_t start, int64_t length) {
   CHECK_EQ(dim, 0) << "Only narrow on dim 0 is supported";
   if (db_) {
     CHECK_TRUE(db_ != nullptr);
-    CHECK_GE(db_->get_max_D(), shape_[1]);
+    CHECK_GE(
+        db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
     TORCH_CHECK(
         (snapshot_handle_ == nullptr) ==
             (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
@@ -521,14 +524,19 @@ void KVTensorWrapper::set_range(
     const int64_t start,
     const int64_t length,
     const at::Tensor& weights) {
+  if (read_only_) {
+    XLOG(INFO) << "KVTensorWrapper is read only, set_range() is no-op";
+    return;
+  }
   // Mutex lock for disabling concurrent writes to the same KVTensor
   std::lock_guard<std::mutex> lock(mtx);
   CHECK_EQ(weights.device(), at::kCPU);
   CHECK(db_) << "EmbeddingRocksDB must be a valid pointer to call set_range";
   CHECK_EQ(dim, 0) << "Only set_range on dim 0 is supported";
   CHECK_TRUE(db_ != nullptr);
-  CHECK_GE(db_->get_max_D(), shape_[1]);
-  int pad_right = db_->get_max_D() - weights.size(1);
+  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+  int pad_right =
+      db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
     db_->set_range_to_storage(weights, start + row_offset_, length);
   } else {
@@ -542,6 +550,11 @@ void KVTensorWrapper::set_range(
 void KVTensorWrapper::set_weights_and_ids(
     const at::Tensor& weights,
     const at::Tensor& ids) {
+  if (read_only_) {
+    XLOG(INFO)
+        << "KVTensorWrapper is read only, set_weights_and_ids() is no-op";
+    return;
+  }
   CHECK_EQ(weights.device(), at::kCPU);
   CHECK_TRUE(db_ != nullptr);
   CHECK_EQ(ids.size(0), weights.size(0))
@@ -614,8 +627,10 @@ void from_json(const ssd::json& j, KVTensorWrapper& kvt) {
 
 at::Tensor KVTensorWrapper::get_weights_by_ids(const at::Tensor& ids) {
   CHECK_TRUE(db_ != nullptr);
-  CHECK_GE(db_->get_max_D(), shape_[1]);
-  CHECK_GE(db_->get_max_D(), shape_[1] + width_offset_);
+  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
+  CHECK_GE(
+      db_->get_max_D() + db_->get_metaheader_width_in_front(),
+      shape_[1] + width_offset_);
   TORCH_CHECK(
       (snapshot_handle_ == nullptr) ==
           (std::dynamic_pointer_cast<EmbeddingRocksDB>(db_).get() == nullptr),
@@ -851,6 +866,7 @@ static auto dram_kv_embedding_cache_wrapper =
                 int64_t,
                 std::optional<at::Tensor>,
                 std::optional<at::Tensor>,
+                bool,
                 bool>(),
             "",
             {
@@ -863,6 +879,7 @@ static auto dram_kv_embedding_cache_wrapper =
                 torch::arg("row_storage_bitwidth") = 32,
                 torch::arg("table_dims") = std::nullopt,
                 torch::arg("hash_size_cumsum") = std::nullopt,
+                torch::arg("backend_return_whole_row") = false,
                 torch::arg("enable_async_update") = false,
             })
         .def(
@@ -911,7 +928,10 @@ static auto dram_kv_embedding_cache_wrapper =
             &DramKVEmbeddingCacheWrapper::get_keys_in_range_by_snapshot)
         .def(
             "get_feature_evict_metric",
-            &DramKVEmbeddingCacheWrapper::get_feature_evict_metric);
+            &DramKVEmbeddingCacheWrapper::get_feature_evict_metric)
+        .def(
+            "get_dram_kv_perf",
+            &DramKVEmbeddingCacheWrapper::get_dram_kv_perf);
 static auto embedding_rocks_db_read_only_wrapper =
     torch::class_<ReadOnlyEmbeddingKVDB>("fbgemm", "ReadOnlyEmbeddingKVDB")
         .def(
@@ -945,7 +965,8 @@ static auto kv_tensor_wrapper =
                 std::optional<at::Tensor>,
                 int64_t,
                 std::optional<
-                    c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>>(),
+                    c10::intrusive_ptr<RocksdbCheckpointHandleWrapper>>,
+                bool>(),
             "",
             {torch::arg("shape"),
              torch::arg("dtype"),
@@ -955,7 +976,8 @@ static auto kv_tensor_wrapper =
              torch::arg("snapshot_handle") = std::nullopt,
              torch::arg("sorted_indices") = std::nullopt,
              torch::arg("width_offset") = 0,
-             torch::arg("checkpoint_handle") = std::nullopt})
+             torch::arg("checkpoint_handle") = std::nullopt,
+             torch::arg("read_only") = false})
         .def(
             "set_embedding_rocks_dp_wrapper",
             &KVTensorWrapper::set_embedding_rocks_dp_wrapper,

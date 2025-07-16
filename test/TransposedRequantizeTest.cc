@@ -22,7 +22,7 @@
 using namespace std;
 using namespace fbgemm;
 
-vector<QuantizationGranularity> qGranularityVals{
+static vector<QuantizationGranularity> qGranularityVals{
     QuantizationGranularity::TENSOR,
     QuantizationGranularity::OUT_CHANNEL};
 
@@ -35,7 +35,7 @@ class RequantizeTest
 
 }; // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstantiationName,
     RequantizeTest,
     ::testing::Combine(
@@ -48,11 +48,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(qGranularityVals))); // requantization granularity
 
 TEST_P(RequantizeTest, reqTest) {
-  int rows, cols;
-  bool fuse_relu;
-  bool use_bias;
-  QuantizationGranularity q_gran;
-  tie(rows, cols, fuse_relu, use_bias, q_gran) = GetParam();
+  auto [rows, cols, fuse_relu, use_bias, q_gran] = GetParam();
 
   int numElements = rows * cols;
 

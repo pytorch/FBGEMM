@@ -26,7 +26,7 @@ using namespace std;
 using namespace fbgemm;
 
 template <typename Acc_t>
-void performance_test() {
+static void performance_test() {
   vector<conv_param_t<>> shapes = {
       // MB, IC, OC, IH, IW, G, KH, KW, stride_h, stride_w,
       // pad_h_top, pad_w_left, pad_h_bottom, pad_w_right
@@ -82,7 +82,7 @@ void performance_test() {
   cout << setw(8) << "MB, " << "IC, " << "OC, " << "IH, " << "IW, " << "G, "
        << "KH, " << "KW, " << "stride_h, " << "stride_w, " << "pad_h, "
        << "pad_w, " << "Type, " << "M, " << "N, " << "K, " << setw(5) << "GOPS"
-       << endl;
+       << '\n';
 #endif
 
   chrono::time_point<chrono::high_resolution_clock> begin, end;
@@ -216,7 +216,7 @@ void performance_test() {
          << total_run_time / (double)NITER / 1e6 << ", "
          << ttot / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setprecision(2) << nops / ttot << endl;
+    cout << setprecision(2) << nops / ttot << '\n';
 
     compare_buffers(Cint32_ref.data(), Cint32_fb.data(), MDim, NDim, NDim, 5);
 
@@ -289,7 +289,7 @@ void performance_test() {
     }
 
     if (flush) {
-      ((volatile char*)(llc.data()))[0] = llc.data()[0] + 1;
+      ((volatile char*)(llc.data()))[0] = llc[0] + 1;
     }
 
     // packedB.printPackedMatrix("bench B Packed");
@@ -318,7 +318,7 @@ void performance_test() {
          << total_run_time / (double)NITER / 1e6 << ", "
          << ttot / (double)NITER / 1e6 << ", ";
 #endif
-    cout << setprecision(2) << nops / ttot << endl;
+    cout << setprecision(2) << nops / ttot << '\n';
 
     compare_buffers(Cint32_ref.data(), Cint32_fb2.data(), MDim, NDim, NDim, 5);
   } // shapes

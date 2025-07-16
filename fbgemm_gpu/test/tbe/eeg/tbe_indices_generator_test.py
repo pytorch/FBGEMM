@@ -58,5 +58,7 @@ class TBEIndicesGeneratorTest(unittest.TestCase):
 
         assert indices.shape == (num_indices,)
         assert indices.dtype == torch.int64
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `bool`.
         assert not torch.any(indices > max_index)
+        # pyre-fixme[6]: For 1st argument expected `Tensor` but got `bool`.
         assert not torch.any(indices < 0)

@@ -37,6 +37,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
       int64_t row_storage_bitwidth = 32,
       const std::optional<at::Tensor>& table_dims = std::nullopt,
       const std::optional<at::Tensor>& hash_size_cumsum = std::nullopt,
+      bool backend_return_whole_row = false,
       bool enable_async_update = false) {
     if (row_storage_bitwidth == 16) {
       impl_ = std::make_shared<kv_mem::DramKVEmbeddingCache<at::Half>>(
@@ -47,6 +48,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_shards,
           num_threads,
           row_storage_bitwidth,
+          backend_return_whole_row,
           enable_async_update,
           table_dims,
           hash_size_cumsum);
@@ -59,6 +61,7 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
           num_shards,
           num_threads,
           row_storage_bitwidth,
+          backend_return_whole_row,
           enable_async_update,
           table_dims,
           hash_size_cumsum);
@@ -121,8 +124,14 @@ class DramKVEmbeddingCacheWrapper : public torch::jit::CustomClassHolder {
     return impl_->get_keys_in_range_impl(start, end, std::nullopt);
   }
 
-  size_t get_map_used_memsize() const {
-    return impl_->get_map_used_memsize();
+  size_t get_map_used_memsize_in_bytes() const {
+    return impl_->get_map_used_memsize_in_bytes();
+  }
+
+  std::vector<double> get_dram_kv_perf(
+      const int64_t step,
+      const int64_t interval) {
+    return impl_->get_dram_kv_perf(step, interval);
   }
 
   void get_feature_evict_metric(

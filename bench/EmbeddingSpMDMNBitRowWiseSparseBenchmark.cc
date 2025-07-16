@@ -31,16 +31,17 @@
 using namespace std;
 using namespace fbgemm;
 
-void print_fused_table(int rows, int embedding_dim, const uint8_t* table) {
-  for (int i = 0; i < rows; i++) {
-    std::cout << "row: " << i << " : " << std::endl;
-    for (int ii = 0; ii < embedding_dim; ii++) {
-      std::cout << (int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
+/*
+static void print_fused_table(int rows, int embedding_dim, const uint8_t* table)
+{ for (int i = 0; i < rows; i++) { std::cout << "row: " << i << " : " <<
+std::endl; for (int ii = 0; ii < embedding_dim; ii++) { std::cout <<
+(int)table[i * (embedding_dim + 2 * sizeof(float)) + ii]
                 << ",";
     }
     std::cout << std::endl;
   }
 }
+*/
 
 static vector<vector<int>> GetInputs_() {
   vector<vector<int>> input_dims = {
@@ -60,7 +61,7 @@ static vector<vector<int>> GetInputs_() {
   return input_dims;
 }
 
-int run_benchmark(
+static int run_benchmark(
     int bit_rate,
     int batch_size,
     int num_rows,
@@ -149,7 +150,7 @@ int run_benchmark(
     }
   }
   cout << "lengths_sum " << lengths_sum << " num_valid_indices "
-       << num_valid_indices << endl;
+       << num_valid_indices << '\n';
 
   // Generate weights
   vector<float> weights(lengths_sum);
@@ -292,7 +293,7 @@ int run_benchmark(
           for (size_t i = 0; i < output.size(); ++i) {
             assert(fabs(output[i] - output_ref[i]) < 1e-3);
             if (fabs(output[i] - output_ref[i]) >= 1e-3) {
-              cout << i << " " << output[i] << " " << output_ref[i] << endl;
+              cout << i << " " << output[i] << " " << output_ref[i] << '\n';
             }
           }
         }
@@ -317,17 +318,17 @@ int run_benchmark(
       cout << setw(8) << "b/w" << setw(10) << bytes / 1e9 / t << " GB/s"
            << setw(20) << "effective b/w: " << setw(16)
            << bytes_padded / 1e9 / t << "GB/s" << setw(8) << " time "
-           << setw(16) << t << endl;
+           << setw(16) << t << '\n';
     } // flush_cache
   } // has_weight
   return 0;
 }
 
 int main() {
-  int batch_size;
-  int num_rows;
-  int embedding_dim;
-  int average_len;
+  int batch_size = 0;
+  int num_rows = 0;
+  int embedding_dim = 0;
+  int average_len = 0;
 
   vector<vector<int>> inputs(GetInputs_());
 
@@ -342,7 +343,7 @@ int main() {
       cout << "bit_rate" << setw(6) << bit_rate << "batch size" << setw(6)
            << batch_size << setw(10) << "num rows" << setw(16) << num_rows
            << setw(10) << "emb dim" << setw(6) << embedding_dim << setw(16)
-           << "avg length" << setw(6) << average_len << endl;
+           << "avg length" << setw(6) << average_len << '\n';
       // args: batch sz, num rows, emb dim, avg len, normalize, use 32b,
       // prefetch
       cout << "64 bit indices, ";

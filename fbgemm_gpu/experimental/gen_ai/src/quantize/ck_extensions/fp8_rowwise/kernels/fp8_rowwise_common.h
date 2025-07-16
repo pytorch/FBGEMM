@@ -14,7 +14,6 @@
 #else
 #include <c10/cuda/CUDAStream.h>
 #endif
-#include <torch/torch.h>
 
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/gemm_specialization.hpp"
@@ -110,7 +109,7 @@ template <
     ck::tensor_operation::device::GemmSpecialization GEMM_SPEC =
         ck::tensor_operation::device::GemmSpecialization::MNKPadding,
     typename EDataType = ck::bhalf_t>
-at::Tensor f8f8bf16_rowwise_impl(
+at::Tensor f8f8_rowwise_impl(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
@@ -217,6 +216,156 @@ at::Tensor f8f8bf16_rowwise_impl(
 }
 
 template <
+    typename OutDType,
+    int BLOCK_SIZE,
+    int MBLOCK,
+    int NBLOCK,
+    int KBLOCK,
+    int WAVE_TILE_M,
+    int WAVE_TILE_N,
+    int WAVE_MAP_M,
+    int WAVE_MAP_N,
+    typename ABLOCK_TRANSFER,
+    typename BBLOCK_TRANSFER,
+    typename CBLOCK_TRANSFER,
+    typename CBLOCK_SPV,
+    int CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+    int CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+    ck::BlockGemmPipelineScheduler LOOP_SCHED,
+    ck::BlockGemmPipelineVersion PIPELINE_VERSION,
+    ck::index_t AReadVecLength = 16,
+    ck::index_t BReadVecLength = 16,
+    ck::index_t ADstVecLength = 16,
+    ck::index_t BDstVecLength = 16,
+    int AK1 = 16,
+    int BK1 = 16>
+at::Tensor f8f8_rowwise_wrapper(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y,
+    int KBatch = 1) {
+  // Check if this kernel needs K padding.
+  int64_t K = WQ.size(1);
+  bool k_padding = K % KBLOCK != 0;
+
+  // Create proper dispatch around various kernel configurations.
+  if (k_padding) {
+    // kernel without preshuffle + padding
+    return f8f8_rowwise_impl<
+        BLOCK_SIZE,
+        MBLOCK,
+        NBLOCK,
+        KBLOCK,
+        WAVE_TILE_M,
+        WAVE_TILE_N,
+        WAVE_MAP_M,
+        WAVE_MAP_N,
+        ABLOCK_TRANSFER,
+        BBLOCK_TRANSFER,
+        CBLOCK_TRANSFER,
+        CBLOCK_SPV,
+        CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+        CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+        LOOP_SCHED,
+        PIPELINE_VERSION,
+        AReadVecLength,
+        BReadVecLength,
+        ADstVecLength,
+        BDstVecLength,
+        AK1,
+        BK1,
+        ck::tensor_operation::device::GemmSpecialization::KPadding,
+        OutDType>(XQ, WQ, x_scale, w_scale, Y, KBatch);
+
+  } else {
+    // kernel without preshuffle + no padding
+    return f8f8_rowwise_impl<
+        BLOCK_SIZE,
+        MBLOCK,
+        NBLOCK,
+        KBLOCK,
+        WAVE_TILE_M,
+        WAVE_TILE_N,
+        WAVE_MAP_M,
+        WAVE_MAP_N,
+        ABLOCK_TRANSFER,
+        BBLOCK_TRANSFER,
+        CBLOCK_TRANSFER,
+        CBLOCK_SPV,
+        CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+        CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+        LOOP_SCHED,
+        PIPELINE_VERSION,
+        AReadVecLength,
+        BReadVecLength,
+        ADstVecLength,
+        BDstVecLength,
+        AK1,
+        BK1,
+        ck::tensor_operation::device::GemmSpecialization::Default,
+        OutDType>(XQ, WQ, x_scale, w_scale, Y, KBatch);
+  }
+}
+
+template <
+    int BLOCK_SIZE,
+    int MBLOCK,
+    int NBLOCK,
+    int KBLOCK,
+    int WAVE_TILE_M,
+    int WAVE_TILE_N,
+    int WAVE_MAP_M,
+    int WAVE_MAP_N,
+    typename ABLOCK_TRANSFER,
+    typename BBLOCK_TRANSFER,
+    typename CBLOCK_TRANSFER,
+    typename CBLOCK_SPV,
+    int CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+    int CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+    ck::BlockGemmPipelineScheduler LOOP_SCHED,
+    ck::BlockGemmPipelineVersion PIPELINE_VERSION,
+    ck::index_t AReadVecLength = 16,
+    ck::index_t BReadVecLength = 16,
+    ck::index_t ADstVecLength = 16,
+    ck::index_t BDstVecLength = 16,
+    int AK1 = 16,
+    int BK1 = 16>
+at::Tensor f8f8f16_rowwise_wrapper(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    at::Tensor Y,
+    int KBatch = 1) {
+  return f8f8_rowwise_wrapper<
+      ck::half_t,
+      BLOCK_SIZE,
+      MBLOCK,
+      NBLOCK,
+      KBLOCK,
+      WAVE_TILE_M,
+      WAVE_TILE_N,
+      WAVE_MAP_M,
+      WAVE_MAP_N,
+      ABLOCK_TRANSFER,
+      BBLOCK_TRANSFER,
+      CBLOCK_TRANSFER,
+      CBLOCK_SPV,
+      CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+      CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+      LOOP_SCHED,
+      PIPELINE_VERSION,
+      AReadVecLength,
+      BReadVecLength,
+      ADstVecLength,
+      BDstVecLength,
+      AK1,
+      BK1>(XQ, WQ, x_scale, w_scale, Y, KBatch);
+}
+
+template <
     int BLOCK_SIZE,
     int MBLOCK,
     int NBLOCK,
@@ -246,127 +395,28 @@ at::Tensor f8f8bf16_rowwise_wrapper(
     at::Tensor w_scale,
     at::Tensor Y,
     int KBatch = 1) {
-  // Start by checking output type, either bf16 or fp16.
-  bool out_bf16 = true;
-  if (Y.dtype() == at::kHalf) {
-    out_bf16 = false;
-  }
-  // Check if this kernel needs K padding.
-  int64_t K = WQ.size(1);
-  bool k_padding = K % KBLOCK != 0;
-
-  // Create proper dispatch around various kernel configurations.
-  if (k_padding) {
-    if (out_bf16) {
-      // kernel without preshuffle + padding + bf16 output
-      return f8f8bf16_rowwise_impl<
-          BLOCK_SIZE,
-          MBLOCK,
-          NBLOCK,
-          KBLOCK,
-          WAVE_TILE_M,
-          WAVE_TILE_N,
-          WAVE_MAP_M,
-          WAVE_MAP_N,
-          ABLOCK_TRANSFER,
-          BBLOCK_TRANSFER,
-          CBLOCK_TRANSFER,
-          CBLOCK_SPV,
-          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
-          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
-          LOOP_SCHED,
-          PIPELINE_VERSION,
-          AReadVecLength,
-          BReadVecLength,
-          ADstVecLength,
-          BDstVecLength,
-          AK1,
-          BK1,
-          ck::tensor_operation::device::GemmSpecialization::KPadding,
-          ck::bhalf_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
-    } else {
-      // kernel without preshuffle + padding + fp16 output
-      return f8f8bf16_rowwise_impl<
-          BLOCK_SIZE,
-          MBLOCK,
-          NBLOCK,
-          KBLOCK,
-          WAVE_TILE_M,
-          WAVE_TILE_N,
-          WAVE_MAP_M,
-          WAVE_MAP_N,
-          ABLOCK_TRANSFER,
-          BBLOCK_TRANSFER,
-          CBLOCK_TRANSFER,
-          CBLOCK_SPV,
-          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
-          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
-          LOOP_SCHED,
-          PIPELINE_VERSION,
-          AReadVecLength,
-          BReadVecLength,
-          ADstVecLength,
-          BDstVecLength,
-          AK1,
-          BK1,
-          ck::tensor_operation::device::GemmSpecialization::KPadding,
-          ck::half_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
-    }
-  } else {
-    if (out_bf16) {
-      // kernel without preshuffle + no padding + bf16 output
-      return f8f8bf16_rowwise_impl<
-          BLOCK_SIZE,
-          MBLOCK,
-          NBLOCK,
-          KBLOCK,
-          WAVE_TILE_M,
-          WAVE_TILE_N,
-          WAVE_MAP_M,
-          WAVE_MAP_N,
-          ABLOCK_TRANSFER,
-          BBLOCK_TRANSFER,
-          CBLOCK_TRANSFER,
-          CBLOCK_SPV,
-          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
-          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
-          LOOP_SCHED,
-          PIPELINE_VERSION,
-          AReadVecLength,
-          BReadVecLength,
-          ADstVecLength,
-          BDstVecLength,
-          AK1,
-          BK1,
-          ck::tensor_operation::device::GemmSpecialization::Default,
-          ck::bhalf_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
-    } else {
-      // kernel no preshuffle + no padding + fp16 output
-      return f8f8bf16_rowwise_impl<
-          BLOCK_SIZE,
-          MBLOCK,
-          NBLOCK,
-          KBLOCK,
-          WAVE_TILE_M,
-          WAVE_TILE_N,
-          WAVE_MAP_M,
-          WAVE_MAP_N,
-          ABLOCK_TRANSFER,
-          BBLOCK_TRANSFER,
-          CBLOCK_TRANSFER,
-          CBLOCK_SPV,
-          CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
-          CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
-          LOOP_SCHED,
-          PIPELINE_VERSION,
-          AReadVecLength,
-          BReadVecLength,
-          ADstVecLength,
-          BDstVecLength,
-          AK1,
-          BK1,
-          ck::tensor_operation::device::GemmSpecialization::Default,
-          ck::half_t>(XQ, WQ, x_scale, w_scale, Y, KBatch);
-    }
-  }
+  return f8f8_rowwise_wrapper<
+      ck::bhalf_t,
+      BLOCK_SIZE,
+      MBLOCK,
+      NBLOCK,
+      KBLOCK,
+      WAVE_TILE_M,
+      WAVE_TILE_N,
+      WAVE_MAP_M,
+      WAVE_MAP_N,
+      ABLOCK_TRANSFER,
+      BBLOCK_TRANSFER,
+      CBLOCK_TRANSFER,
+      CBLOCK_SPV,
+      CSHUFFLE_MX_PER_WAVE_PERSHUFFLE,
+      CSHUFFLE_NX_PER_WAVE_PERSHUFFLE,
+      LOOP_SCHED,
+      PIPELINE_VERSION,
+      AReadVecLength,
+      BReadVecLength,
+      ADstVecLength,
+      BDstVecLength,
+      AK1,
+      BK1>(XQ, WQ, x_scale, w_scale, Y, KBatch);
 }
