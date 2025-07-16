@@ -9,7 +9,6 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <cassert>
 #include <iostream>
@@ -180,7 +179,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
                 const int*, // lengths
                 float, // epsilon
                 float, // lr then rand_buffer
-                uint32_t*>(asmjit::CallConvId::kHost),
+                uint32_t*>(),
             a->environment());
 
         asmjit::FuncFrame frame;

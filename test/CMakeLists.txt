@@ -24,7 +24,11 @@ if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
   endif()
 
   #build Googletest framework
+  set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+  set(BUILD_SHARED_LIBS OFF)
   add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
+  # Recover the build shared libs option.
+  set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS})
   # add flags required for mac build
   if(NOT MSVC)
     target_compile_options(gtest PRIVATE "-Wno-deprecated-copy")

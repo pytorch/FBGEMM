@@ -11,7 +11,7 @@
 #include <type_traits>
 #define FBGEMM_EXPORTS
 
-#include <asmjit/asmjit.h> // @manual
+#include <asmjit/x86.h> // @manual
 #include <cpuinfo.h>
 #include <iostream>
 #include <mutex>
@@ -311,7 +311,7 @@ GenEmbeddingSpMDMLookup<
         x86::Gp scratchReg1_ = a->gpz(reg_id); // 12 or 13, also for mask
 
         ++reg_id;
-        x86::Gpd lengths_R_ = a->gpz(reg_id).r32(); // 13 or 14
+        auto lengths_R_ = a->gpz(reg_id).r32(); // 13 or 14
         ++reg_id;
         x86::Gp scratchReg2_ = a->gpz(reg_id); // 14 or 15
 
@@ -330,7 +330,7 @@ GenEmbeddingSpMDMLookup<
                   const float*, // weights
                   outType*, // out
                   const int32_t*, // compressed_indices_table and then mask
-                  const int*>(asmjit::CallConvId::kHost),
+                  const int*>(),
               a->environment());
         } else {
           func.init(
@@ -344,7 +344,7 @@ GenEmbeddingSpMDMLookup<
                   const offsetType*, // offsets or lengths
                   const float*, // weights
                   outType*, // out and then mask
-                  const int*>(asmjit::CallConvId::kHost),
+                  const int*>(),
               a->environment());
         }
 

@@ -9,7 +9,6 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <cmath>
 #include <iostream>
@@ -513,7 +512,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
                 const int*, // mask_avx2
                 float, // weight_decay
                 const double*, // counter then counter_halflife
-                std::int64_t>(asmjit::CallConvId::kHost),
+                std::int64_t>(),
             a->environment());
 
         asmjit::FuncFrame frame;

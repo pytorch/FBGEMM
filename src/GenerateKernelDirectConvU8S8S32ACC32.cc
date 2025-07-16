@@ -227,8 +227,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::getOrCreateDirectConv(
     asmjit::FuncDetail func;
     func.init(
         asmjit::FuncSignature::
-            build<void, uint8_t*, int8_t*, int8_t*, int32_t*, int, int>(
-                asmjit::CallConvId::kHost),
+            build<void, uint8_t*, int8_t*, int8_t*, int32_t*, int, int>(),
         a->environment());
 
     asmjit::FuncFrame frame;
@@ -646,8 +645,7 @@ DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
     asmjit::FuncDetail func;
     func.init(
         asmjit::FuncSignature::
-            build<void, uint8_t*, int8_t*, int32_t*, int, int, int, int>(
-                asmjit::CallConvId::kHost),
+            build<void, uint8_t*, int8_t*, int32_t*, int, int, int, int>(),
         a->environment());
 
     asmjit::FuncFrame frame;

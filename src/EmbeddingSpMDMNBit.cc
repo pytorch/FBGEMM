@@ -10,7 +10,6 @@
 
 #include "fbgemm/FbgemmEmbedding.h"
 
-#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <cassert>
 #include <iostream>
@@ -301,7 +300,7 @@ GenEmbeddingSpMDMNBitLookup<
                   const float*, // weights
                   float*, // out
                   const int32_t* /* compressed_indices_table */,
-                  const int* /* mask */>(asmjit::CallConvId::kHost),
+                  const int* /* mask */>(),
               a->environment());
         } else {
           func.init(
@@ -315,7 +314,7 @@ GenEmbeddingSpMDMNBitLookup<
                   const offsetType*, // offsets or lengths
                   const float*, // weights
                   float*, // out
-                  const int* /* mask */>(asmjit::CallConvId::kHost),
+                  const int* /* mask */>(),
               a->environment());
         }
 

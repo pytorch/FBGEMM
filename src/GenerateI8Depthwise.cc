@@ -8,7 +8,6 @@
 
 #include "./GenerateI8Depthwise.h" // @manual
 
-#include <asmjit/asmjit.h> // @manual
 #include <cassert>
 #include <iostream>
 #include <numeric>
@@ -273,7 +272,7 @@ GenI8Depthwise::jit_kernel_signature GenI8Depthwise::getOrCreate(
             int,
             const int*,
             int,
-            const std::int32_t*>(asmjit::CallConvId::kHost),
+            const std::int32_t*>(),
         e->environment());
 
     asmjit::FuncFrame frame;

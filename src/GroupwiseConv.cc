@@ -8,7 +8,6 @@
 
 #define FBGEMM_EXPORTS
 #include "./GroupwiseConv.h" // @manual
-#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <array>
 #include <iostream>
@@ -226,7 +225,7 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
           int32_t,
           int32_t,
           int32_t,
-          int32_t*>(asmjit::CallConvId::kHost),
+          int32_t*>(),
       a->environment());
 
   frame_.init(func_);
