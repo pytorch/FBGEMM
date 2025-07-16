@@ -755,6 +755,36 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
         return output_ref_list, output
 
+    def execute_ssd_backward_(
+        self,
+        output_ref_list: List[torch.Tensor],
+        output: torch.Tensor,
+        B: int,
+        D: int,
+        pooling_mode: PoolingMode,
+        batch_size_per_feature_per_rank: Optional[List[List[int]]] = None,
+    ) -> None:
+        # Generate output gradient
+        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+
+        # Execute torch EmbeddingBag backward
+        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
+
+        if batch_size_per_feature_per_rank is not None:
+            grad_test = self.concat_ref_tensors_vbe(
+                output_grad_list, batch_size_per_feature_per_rank
+            )
+        else:
+            grad_test = self.concat_ref_tensors(
+                output_grad_list,
+                pooling_mode != PoolingMode.NONE,
+                B,
+                D * 4,
+            )
+
+        # Execute SSD TBE backward
+        output.backward(grad_test)
+
     def split_optimizer_states_(
         self, emb: SSDTableBatchedEmbeddingBags
     ) -> List[List[torch.Tensor]]:
@@ -928,27 +958,15 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
-
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
-
-        do_pooling = pooling_mode != PoolingMode.NONE
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                do_pooling,
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
         tolerance = (
             1.0e-4
@@ -1016,6 +1034,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         log_E = 4
         weights_precision = SparseType.FP32
         output_dtype = SparseType.FP32
+        pooling_mode = PoolingMode.SUM
 
         # Generate embedding modules and inputs
         (
@@ -1032,7 +1051,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             eps=eps,
             ssd_shards=ssd_shards,
             cache_set_scale=0.2,
-            pooling_mode=PoolingMode.SUM,
+            pooling_mode=pooling_mode,
             weights_precision=weights_precision,
             output_dtype=output_dtype,
             share_table=True,
@@ -1073,25 +1092,17 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                True,  # do_pooling
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
+        emb.flush()
 
         tolerance = (
             1.0e-4
@@ -1100,7 +1111,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         )
 
         split_optimizer_states = self.split_optimizer_states_(emb)
-        emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
         emb_state_dict, _, _ = emb.split_embedding_weights(no_snapshot=False)
@@ -1298,30 +1308,6 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             if force_flush or flush_location == FlushLocation.AFTER_FWD:
                 emb.flush()
 
-            # Generate output gradient
-            output_grad_list = [torch.randn_like(out) for out in output_ref_list]
-
-            # Zero out weight grad
-            for f, _ in self.get_physical_table_arg_indices_(emb.feature_table_map):
-                emb_ref[f].weight.grad = None
-
-            # Execute torch EmbeddingBag backward
-            for out, grad in zip(output_ref_list, output_grad_list):
-                out.backward(grad)
-
-            do_pooling = pooling_mode != PoolingMode.NONE
-            if batch_size_per_feature_per_rank is not None:
-                grad_test = self.concat_ref_tensors_vbe(
-                    output_grad_list, batch_size_per_feature_per_rank
-                )
-            else:
-                grad_test = self.concat_ref_tensors(
-                    output_grad_list,
-                    do_pooling,
-                    B,
-                    D * 4,
-                )
-
             # Prefetch between forward and backward
             if (
                 prefetch_pipeline
@@ -1329,8 +1315,19 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             ):
                 b_it = _prefetch(b_it)
 
-            # Execute TBE SSD backward
-            output.backward(grad_test)
+            # Zero out weight grad
+            for f, _ in self.get_physical_table_arg_indices_(emb.feature_table_map):
+                emb_ref[f].weight.grad = None
+
+            # Execute backward
+            self.execute_ssd_backward_(
+                output_ref_list,
+                output,
+                B,
+                D,
+                pooling_mode,
+                batch_size_per_feature_per_rank,
+            )
 
             if force_flush or flush_location == FlushLocation.AFTER_BWD:
                 emb.flush()
@@ -1710,33 +1707,23 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                pooling_mode != PoolingMode.NONE,  # do_pooling
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
+        emb.flush()
 
         tolerance = (
             1.0e-4
             if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
             else 1.0e-2
         )
-
-        emb.flush()
 
         split_optimizer_states = []
 
@@ -1937,33 +1924,23 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                pooling_mode != PoolingMode.NONE,  # do_pooling
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
+        emb.flush()
 
         tolerance = (
             1.0e-4
             if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
             else 1.0e-2
         )
-
-        emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
         emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
@@ -2176,33 +2153,23 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                pooling_mode != PoolingMode.NONE,  # do_pooling
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
+        emb.flush()
 
         tolerance = (
             1.0e-4
             if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
             else 1.0e-2
         )
-
-        emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
         emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
@@ -2454,33 +2421,23 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                pooling_mode != PoolingMode.NONE,  # do_pooling
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
+        emb.flush()
 
         tolerance = (
             1.0e-4
             if weights_precision == SparseType.FP32 and output_dtype == SparseType.FP32
             else 1.0e-2
         )
-
-        emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
         emb_state_dict_list, bucket_asc_ids_list, num_active_id_per_bucket_list = (
@@ -2814,27 +2771,15 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
 
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
-
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
-
-        do_pooling = pooling_mode != PoolingMode.NONE
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                do_pooling,
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
         tolerance = (
             1.0e-4
@@ -3004,27 +2949,17 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             weighted,
             batch_size_per_feature_per_rank=batch_size_per_feature_per_rank,
         )
-        # Generate output gradient
-        output_grad_list = [torch.randn_like(out) for out in output_ref_list]
 
-        # Execute torch EmbeddingBag backward
-        [out.backward(grad) for (out, grad) in zip(output_ref_list, output_grad_list)]
+        # Execute backward
+        self.execute_ssd_backward_(
+            output_ref_list,
+            output,
+            B,
+            D,
+            pooling_mode,
+            batch_size_per_feature_per_rank,
+        )
 
-        do_pooling = pooling_mode != PoolingMode.NONE
-        if batch_size_per_feature_per_rank is not None:
-            grad_test = self.concat_ref_tensors_vbe(
-                output_grad_list, batch_size_per_feature_per_rank
-            )
-        else:
-            grad_test = self.concat_ref_tensors(
-                output_grad_list,
-                do_pooling,
-                B,
-                D * 4,
-            )
-
-        # Execute TBE SSD backward
-        output.backward(grad_test)
         emb.flush()
 
         # Compare emb state dict with expected values from nn.EmbeddingBag
