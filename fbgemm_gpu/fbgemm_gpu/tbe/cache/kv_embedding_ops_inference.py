@@ -354,5 +354,6 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
                 self.specs,
                 self.row_alignment,
                 self.scale_bias_size_in_bytes,
+                self.hash_size_cumsum,
             )
             self.kv_embedding_cache_initialized = True

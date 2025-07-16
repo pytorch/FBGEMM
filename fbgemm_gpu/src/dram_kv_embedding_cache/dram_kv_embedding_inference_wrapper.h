@@ -18,8 +18,7 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   DramKVEmbeddingInferenceWrapper(
       int64_t num_shards = 32,
       double uniform_init_lower = 0.0,
-      double uniform_init_upper = 0.0,
-      int64_t evict_trigger_mode = 0);
+      double uniform_init_upper = 0.0);
 
   using SerializedSepcType =
       std::tuple<int64_t, int64_t, int64_t>; // (rows, dime, sparse_type)
@@ -27,11 +26,16 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   void init(
       const std::vector<SerializedSepcType>& specs,
       const int64_t row_alignment,
-      const int64_t scale_bias_size_in_bytes);
+      const int64_t scale_bias_size_in_bytes,
+      const std::optional<at::Tensor>& hash_size_cumsum);
 
   void set_embeddings(const at::Tensor& indices, const at::Tensor& weights);
 
   at::Tensor get_embeddings(const at::Tensor& indices);
+
+  void trigger_evict();
+
+  void wait_evict_completion();
 
   std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> get_dram_kv();
 
@@ -46,7 +50,6 @@ class DramKVEmbeddingInferenceWrapper : public torch::jit::CustomClassHolder {
   int64_t num_shards_ = 32;
   double uniform_init_lower_ = 0.0;
   double uniform_init_upper_ = 0.0;
-  int64_t evict_trigger_mode_ = 0;
 
   std::shared_ptr<kv_mem::DramKVEmbeddingCache<uint8_t>> dram_kv_;
   int64_t max_row_bytes_ = 0;

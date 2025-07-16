@@ -51,7 +51,8 @@ enum class EvictTriggerStrategy {
   BY_TIMESTAMP,
   BY_COUNTER,
   BY_TIMESTAMP_AND_COUNTER,
-  BY_L2WEIGHT
+  BY_L2WEIGHT,
+  BY_TIMESTAMP_THRESHOLD // This is only for inference
 };
 
 inline std::string to_string(EvictTriggerStrategy strategy) {
@@ -64,6 +65,8 @@ inline std::string to_string(EvictTriggerStrategy strategy) {
       return "BY_TIMESTAMP_AND_COUNTER";
     case EvictTriggerStrategy::BY_L2WEIGHT:
       return "BY_L2WEIGHT";
+    case EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD:
+      return "BY_TIMESTAMP_THRESHOLD";
   }
 }
 
@@ -173,6 +176,13 @@ struct FeatureEvictConfig : public torch::jit::CustomClassHolder {
                   << ", l2_weight_thresholds: " << l2_weight_thresholds_.value()
                   << ", embedding_dims: " << embedding_dims_.value();
         return;
+      }
+
+      case EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD: {
+        LOG(INFO) << "eviction config, trigger mode:"
+                  << to_string(trigger_mode_) << eviction_trigger_stats_log
+                  << ", strategy: " << to_string(trigger_strategy_);
+        break;
       }
 
       default:
@@ -753,6 +763,37 @@ class TimeBasedEvict : public FeatureEvict<weight_type> {
 };
 
 template <typename weight_type>
+class TimeThresholdBasedEvict : public FeatureEvict<weight_type> {
+ public:
+  TimeThresholdBasedEvict(
+      SynchronizedShardedMap<int64_t, weight_type*>& kv_store,
+      const std::vector<int64_t>& sub_table_hash_cumsum,
+      int64_t interval_for_insufficient_eviction_s,
+      int64_t interval_for_sufficient_eviction_s)
+      : FeatureEvict<weight_type>(
+            kv_store,
+            sub_table_hash_cumsum,
+            interval_for_insufficient_eviction_s,
+            interval_for_sufficient_eviction_s) {}
+
+  void update_feature_statistics(weight_type* block) override {
+    FixedBlockPool::update_timestamp(block);
+  }
+
+  void set_eviction_timestamp_threshold(uint32_t timestamp) {
+    eviction_timestamp_threshold_ = timestamp;
+  }
+
+ protected:
+  bool evict_block(weight_type* block, int sub_table_id) override {
+    return FixedBlockPool::get_timestamp(block) < eviction_timestamp_threshold_;
+  }
+
+ private:
+  uint32_t eviction_timestamp_threshold_ = 0;
+};
+
+template <typename weight_type>
 class TimeCounterBasedEvict : public FeatureEvict<weight_type> {
  public:
   TimeCounterBasedEvict(
@@ -911,6 +952,14 @@ std::unique_ptr<FeatureEvict<weight_type>> create_feature_evict(
           sub_table_hash_cumsum,
           config->l2_weight_thresholds_.value(),
           config->embedding_dims_.value(),
+          config->interval_for_insufficient_eviction_s_,
+          config->interval_for_sufficient_eviction_s_);
+    }
+
+    case EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD: {
+      return std::make_unique<TimeThresholdBasedEvict<weight_type>>(
+          kv_store,
+          sub_table_hash_cumsum,
           config->interval_for_insufficient_eviction_s_,
           config->interval_for_sufficient_eviction_s_);
     }
