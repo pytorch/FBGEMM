@@ -22,6 +22,11 @@
 #include "fbgemm_gpu/utils/tensor_utils.h"
 #include "fbgemm_gpu/utils/assert_macros.h"
 
+{%- if is_rocm %}
+#include "fbgemm_gpu/rocm/cdna_guard.h"
+{%- endif %}
+
+
 using Tensor = at::Tensor;
 using namespace fbgemm_gpu;
 
@@ -372,6 +377,16 @@ Tensor {{ mdesc }}_embedding_codegen_grad_indice_weights{{ vdesc }}_cuda(
     auto aligned_grad_output = aligned_grad_output_tensor_for_cuda_backwards(grad_output);
 
     CUDA_DEVICE_GUARD(dev_weights);
+
+    #ifdef USE_ROCM
+        if (!rocm::is_supported_cdna()) {
+            TORCH_WARN_ONCE("Running on non-CDNA architecture. Performance may be suboptimal.");
+        }
+        else {
+            // Ensure we're running on a supported CDNA architecture (including MI350)
+            TORCH_WARN_ONCE("Running on CDNA architecture");
+        }
+    #endif
 
     const auto T = D_offsets.size(0) - 1;
     TORCH_CHECK_GT(T, 0);
