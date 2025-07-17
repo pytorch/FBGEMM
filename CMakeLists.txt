@@ -363,7 +363,7 @@ endif()
 target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
 
 install(
-  TARGETS fbgemm fbgemm_generic ${fbgemm_targets}
+  TARGETS fbgemm
   EXPORT fbgemmLibraryConfig
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

@@ -14,6 +14,7 @@ function(cpp_library)
     #   1. Handles MSVC-specific compilation flags
     #   1. Handles dependencies linking
     #   1. Adds common target properties as needed
+    #   1. Adds the target to the install package
 
     set(flags)
     set(singleValueArgs
@@ -152,12 +153,6 @@ function(cpp_library)
     endif()
 
     ############################################################################
-    # Set the Output Variable(s)
-    ############################################################################
-
-    set(${args_PREFIX} ${lib_name} PARENT_SCOPE)
-
-    ############################################################################
     # Add to Install Package
     ############################################################################
 
@@ -167,13 +162,19 @@ function(cpp_library)
         set(lib_install_destination ${CMAKE_INSTALL_LIBDIR})
     endif()
 
-    # install(
-    #     TARGETS ${args_PREFIX}
-    #     EXPORT fbgemmLibraryConfig
-    #     ARCHIVE DESTINATION ${lib_install_destination}
-    #     LIBRARY DESTINATION ${lib_install_destination}
-    #     # For Windows
-    #     RUNTIME DESTINATION ${lib_install_destination})
+    install(
+        TARGETS ${lib_name}
+        EXPORT fbgemmLibraryConfig
+        ARCHIVE DESTINATION ${lib_install_destination}
+        LIBRARY DESTINATION ${lib_install_destination}
+        # For Windows
+        RUNTIME DESTINATION ${lib_install_destination})
+
+    ############################################################################
+    # Set the Output Variable(s)
+    ############################################################################
+
+    set(${args_PREFIX} ${lib_name} PARENT_SCOPE)
 
     ############################################################################
     # Debug Summary
