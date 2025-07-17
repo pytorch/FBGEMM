@@ -16,7 +16,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <new>
@@ -84,40 +83,6 @@ int compare_buffers(
   return 0;
 }
 
-/**
- * @brief Print the matrix.
- * @param op Transpose type of the matrix.
- * @param R The height of the matrix.
- * @param C The width of the matrix.
- * @param ld The leading dimension of the matrix.
- * @param name The prefix string before printing the matrix.
- */
-template <typename T>
-void printMatrix(
-    matrix_op_t op,
-    const T* inp,
-    size_t R,
-    size_t C,
-    size_t ld,
-    const std::string& name) {
-  // R: number of rows in op(inp)
-  // C: number of cols in op(inp)
-  // ld: leading dimension in inp
-  std::cout << name << ":" << "[" << R << ", " << C << "]" << '\n';
-  bool tr = (op == matrix_op_t::Transpose);
-  for (size_t r = 0; r < R; ++r) {
-    for (size_t c = 0; c < C; ++c) {
-      T res = tr ? inp[c * ld + r] : inp[r * ld + c];
-      if constexpr (std::is_integral_v<T>) {
-        std::cout << std::setw(5) << static_cast<int64_t>(res) << " ";
-      } else {
-        std::cout << std::setw(5) << res << " ";
-      }
-    }
-    std::cout << '\n';
-  }
-}
-
 template int compare_buffers<float>(
     const float* ref,
     const float* test,
@@ -153,35 +118,6 @@ template int compare_buffers<int64_t>(
     int ld,
     size_t max_mismatches_to_report,
     float atol);
-
-template void printMatrix<float>(
-    matrix_op_t op,
-    const float* inp,
-    size_t R,
-    size_t C,
-    size_t ld,
-    const std::string& name);
-template void printMatrix<int8_t>(
-    matrix_op_t op,
-    const int8_t* inp,
-    size_t R,
-    size_t C,
-    size_t ld,
-    const std::string& name);
-template void printMatrix<uint8_t>(
-    matrix_op_t op,
-    const uint8_t* inp,
-    size_t R,
-    size_t C,
-    size_t ld,
-    const std::string& name);
-template void printMatrix<int32_t>(
-    matrix_op_t op,
-    const int32_t* inp,
-    size_t R,
-    size_t C,
-    size_t ld,
-    const std::string& name);
 
 namespace {
 inst_set_t g_forced_isa = inst_set_t::anyarch;

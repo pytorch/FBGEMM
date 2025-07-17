@@ -9,8 +9,6 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
 
-#include "./RefImplementations.h" // @manual
-
 #ifdef USE_MKL
 #include <mkl.h>
 #endif
