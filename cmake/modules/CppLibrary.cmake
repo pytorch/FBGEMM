@@ -98,7 +98,7 @@ function(cpp_library)
         ${args_INCLUDE_DIRS})
 
     # Link against the external libraries as needed
-    target_link_libraries(${lib_name} PRIVATE ${args_DEPS})
+    target_link_libraries(${lib_name} PUBLIC ${args_DEPS})
 
     # Link against OpenMP if available
     if(OpenMP_FOUND)
