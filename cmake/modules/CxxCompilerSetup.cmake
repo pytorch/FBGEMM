@@ -47,18 +47,26 @@ BLOCK_PRINT(
   "Default C compiler flags"
   "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
   ""
-  "${CMAKE_C_FLAGS}"
+  "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}"
 )
 
 BLOCK_PRINT(
   "Default C++ compiler flags"
   "(values may be overridden by CMAKE_CXX_STANDARD and CXX_STANDARD):"
   ""
-  "${CMAKE_CXX_FLAGS}"
+  "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}"
+  ""
+  "CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}"
+  ""
+  "CMAKE_CXX_FLAGS_RELEASE: ${CMAKE_CXX_FLAGS_RELEASE}"
 )
 
 # Strip all symbols from the .SO file after building
 add_link_options($<$<CONFIG:RELEASE>:-s>)
+
+################################################################################
+# Setup AVX2 and AVX512 Flags (for FBGEMM_GPU builds)
+################################################################################
 
 # Set flags for AVX2
 set(AVX2_FLAGS "-mavx2;-mf16c;-mfma;-fopenmp")
@@ -85,3 +93,15 @@ BLOCK_PRINT(
   ""
   "${AVX512_FLAGS}"
 )
+
+################################################################################
+# Setup OpenMP Flags
+################################################################################
+
+find_package(OpenMP)
+
+if(OpenMP_FOUND)
+  message(STATUS "OpenMP found: OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
+else()
+  message(WARNING "OpenMP is not supported by the compiler")
+endif()

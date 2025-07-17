@@ -15,6 +15,9 @@ cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 include(${CMAKE_MODULE_PATH}/Utilities.cmake)
 
+# C++ Compiler Setup - must be set BEFORE project declaration
+include(${CMAKEMODULES}/CxxCompilerSetup.cmake)
+
 # Load cpp_library()
 include(${CMAKE_MODULE_PATH}/CppLibrary.cmake)
 
@@ -41,51 +44,51 @@ endfunction()
 # FBGEMM C++ Setup
 ################################################################################
 
-# Set the default C++ standard to C++20
-# Individual targets can have this value overridden; see
-# https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+# # Set the default C++ standard to C++20
+# # Individual targets can have this value overridden; see
+# # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
+# set(CMAKE_CXX_STANDARD 20)
+# set(CMAKE_CXX_EXTENSIONS OFF)
+# set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 
-# Set the default C standard to C17
-# Individual targets can have this value overridden; see
-# https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+# # Set the default C standard to C17
+# # Individual targets can have this value overridden; see
+# # https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
+# set(CMAKE_C_STANDARD 17)
+# set(CMAKE_C_EXTENSIONS OFF)
+# set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Check if given flag is supported and append it to provided outputvar
-# Also define HAS_UPPER_CASE_FLAG_NAME variable
-# From: https://github.com/pytorch/pytorch/blob/62c8d30f9f6715d0b60d78fb5f5913a2f3bd185b/cmake/public/utils.cmake#L579
-# Usage:
-#   append_cxx_flag_if_supported("-Werror" CMAKE_CXX_FLAGS)
-function(append_cxx_flag_if_supported flag outputvar)
-    string(TOUPPER "HAS${flag}" _FLAG_NAME)
-    string(REGEX REPLACE "[=-]" "_" _FLAG_NAME "${_FLAG_NAME}")
+# # Check if given flag is supported and append it to provided outputvar
+# # Also define HAS_UPPER_CASE_FLAG_NAME variable
+# # From: https://github.com/pytorch/pytorch/blob/62c8d30f9f6715d0b60d78fb5f5913a2f3bd185b/cmake/public/utils.cmake#L579
+# # Usage:
+# #   append_cxx_flag_if_supported("-Werror" CMAKE_CXX_FLAGS)
+# function(append_cxx_flag_if_supported flag outputvar)
+#     string(TOUPPER "HAS${flag}" _FLAG_NAME)
+#     string(REGEX REPLACE "[=-]" "_" _FLAG_NAME "${_FLAG_NAME}")
 
-    # GCC silents unknown -Wno-XXX flags, so we detect the corresponding -WXXX.
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      string(REGEX REPLACE "Wno-" "W" new_flag "${flag}")
-    else()
-      set(new_flag ${flag})
-    endif()
+#     # GCC silents unknown -Wno-XXX flags, so we detect the corresponding -WXXX.
+#     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+#       string(REGEX REPLACE "Wno-" "W" new_flag "${flag}")
+#     else()
+#       set(new_flag ${flag})
+#     endif()
 
-    check_cxx_compiler_flag("${new_flag}" ${_FLAG_NAME})
-    if(${_FLAG_NAME})
-        string(APPEND ${outputvar} " ${flag}")
-        set(${outputvar} "${${outputvar}}" PARENT_SCOPE)
-    endif()
-endfunction()
+#     check_cxx_compiler_flag("${new_flag}" ${_FLAG_NAME})
+#     if(${_FLAG_NAME})
+#         string(APPEND ${outputvar} " ${flag}")
+#         set(${outputvar} "${${outputvar}}" PARENT_SCOPE)
+#     endif()
+# endfunction()
 
-function(target_compile_options_if_supported target flag)
-  set(_compile_options "")
-  append_cxx_flag_if_supported("${flag}" _compile_options)
-  if(NOT "${_compile_options}" STREQUAL "")
-    target_compile_options(${target} PRIVATE ${flag})
-  endif()
-endfunction()
+# function(target_compile_options_if_supported target flag)
+#   set(_compile_options "")
+#   append_cxx_flag_if_supported("${flag}" _compile_options)
+#   if(NOT "${_compile_options}" STREQUAL "")
+#     target_compile_options(${target} PRIVATE ${flag})
+#   endif()
+# endfunction()
 
 
 ################################################################################
@@ -104,20 +107,20 @@ set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
   "Type of library (shared, static, or default) to build")
 
-set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS default static shared)
+set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
-option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
+# option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
 
-if(FBGEMM_LIBRARY_TYPE STREQUAL "default")
+if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
-    set(FBGEMM_LIBRARY_TYPE "shared")
+    set(FBGEMM_LIBRARY_TYPE "SHARED")
   else()
-    set(FBGEMM_LIBRARY_TYPE "static")
+    set(FBGEMM_LIBRARY_TYPE "STATIC")
   endif()
 endif()
 
@@ -158,13 +161,13 @@ if(DISABLE_FBGEMM_AUTOVEC)
   add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
 
-# Check if compiler supports OpenMP
-find_package(OpenMP)
-if(OpenMP_FOUND)
-  message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
-else()
-  message(WARNING "OpenMP is not supported by the compiler")
-endif()
+# # Check if compiler supports OpenMP
+# find_package(OpenMP)
+# if(OpenMP_FOUND)
+#   message(STATUS "OpenMP found! OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
+# else()
+#   message(WARNING "OpenMP is not supported by the compiler")
+# endif()
 
 if(FBGEMM_USE_IPO)
   include(CheckIPOSupported)
@@ -303,14 +306,13 @@ else(MSVC)
       src/GenerateKernelDirectConvU8S8S32ACC32.cc
       PROPERTIES COMPILE_FLAGS "-Wno-attributes")
   endif()
-
 endif(MSVC)
 
-message(STATUS "==========")
-message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
-message(STATUS "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
-message(STATUS "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
-message(STATUS "==========")
+# message(STATUS "==========")
+# message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
+# message(STATUS "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
+# message(STATUS "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
+# message(STATUS "==========")
 
 if(NOT TARGET asmjit)
   # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
@@ -348,26 +350,52 @@ if(NOT TARGET cpuinfo)
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
-if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-  add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
-  add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-  #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
-  #avoid generating _dllimport functions.
-  target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
-else()
-  message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
-endif()
 
-target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
 
-install(
-  TARGETS fbgemm
-  EXPORT fbgemmLibraryConfig
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) # For windows
+
+
+
+
+cpp_library(
+  PREFIX
+    fbgemm
+  TYPE
+    ${FBGEMM_LIBRARY_TYPE}
+  DEPS
+    fbgemm_generic
+    ${fbgemm_targets}
+)
+
+
+
+
+# file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
+# if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+#   add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
+# elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
+#   add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
+#   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
+#   #avoid generating _dllimport functions.
+#   target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
+# else()
+#   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
+# endif()
+
+# target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
+
+# install(
+#   TARGETS fbgemm
+#   EXPORT fbgemmLibraryConfig
+#   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) # For windows
+
+
+
+
+
+
+
 
 install(
   FILES ${FBGEMM_PUBLIC_HEADERS}
@@ -390,9 +418,9 @@ if(FBGEMM_BUILD_DOCS)
   add_subdirectory(docs)
 endif()
 
-if(FBGEMM_BUILD_FBGEMM_GPU)
-  add_subdirectory(fbgemm_gpu)
-endif()
+# if(FBGEMM_BUILD_FBGEMM_GPU)
+#   add_subdirectory(fbgemm_gpu)
+# endif()
 
 if(NOT HAVE_GNU_F2H_IEEE)
   add_definitions(-DMISSING_GNU_F2H_IEEE)
