@@ -343,7 +343,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             f"weights precision: {weights_precision}, "
             f"output dtype: {output_dtype}, "
             f"chunk size in bulk init: {bulk_init_chunk_size} bytes, backend_type: {backend_type}, "
-            f"kv_zch_params: {kv_zch_params}"
+            f"kv_zch_params: {kv_zch_params}, "
+            f"embedding spec: {embedding_specs}"
         )
         self.register_buffer(
             "lxu_cache_state",
@@ -2869,7 +2870,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 opt_state = self._cached_kvzch_data.cached_optimizer_state_per_table[i]
                 self.streaming_write_weight_and_id_per_table(
                     weight_state,
-                    opt_state,
+                    [opt_state],
                     # pyre-ignore [16]
                     self._cached_kvzch_data.cached_id_tensor_per_table[i],
                     row_offset,
@@ -2905,7 +2906,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
     def streaming_write_weight_and_id_per_table(
         self,
         weight_state: torch.Tensor,
-        opt_state: torch.Tensor,
+        opt_states: List[torch.Tensor],
         id_tensor: torch.Tensor,
         row_offset: int,
     ) -> None:
@@ -2915,11 +2916,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         Args:
             weight_state (torch.tensor): The weight state tensor to be written.
-            opt_state (torch.tensor): The optimizer state tensor to be written.
+            opt_states (torch.tensor): The optimizer state tensor(s) to be written.
             id_tensor (torch.tensor): The id tensor to be written.
         """
-        D_rounded = pad4(weight_state.size(1))  # padded to 4 bytes alignment
+        D = weight_state.size(1)
         dtype = self.weights_precision.as_dtype()
+
+        optimizer_state_byte_offsets = self.optimizer.byte_offsets_along_row(
+            D, self.weights_precision, self.optimizer_state_dtypes
+        )
+        optimizer_state_size_table = self.optimizer.state_size_table(D)
+
         kvt = torch.classes.fbgemm.KVTensorWrapper(
             shape=[weight_state.size(0), self.cache_row_dim],
             dtype=dtype,
@@ -2932,11 +2939,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self.backend_type == BackendType.SSD
             else kvt.set_dram_db_wrapper(self.ssd_db)
         )
+
         # TODO: make chunk_size configurable or dynamic
         chunk_size = 10000
         row = weight_state.size(0)
-        opt_state_2d = opt_state.view(dtype).view(-1, self.optimizer_state_dim)
+
         for i in range(0, row, chunk_size):
+            # Construct the chunk buffer, using the weights precision as the dtype
             length = min(chunk_size, row - i)
             chunk_buffer = torch.empty(
                 length,
@@ -2944,10 +2953,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 dtype=dtype,
                 device="cpu",
             )
+
+            # Copy the weight state over to the chunk buffer
             chunk_buffer[:, : weight_state.size(1)] = weight_state[i : i + length, :]
-            chunk_buffer[:, D_rounded : D_rounded + self.optimizer_state_dim] = (
-                opt_state_2d[i : i + length, :]
-            )
+
+            # Copy the optimizer state(s) over to the chunk buffer
+            for o, opt_state in enumerate(opt_states):
+                # Fetch the state name based on the index
+                state_name = self.optimizer.state_names()[o]
+
+                # Fetch the byte offsets for the optimizer state by its name
+                (start, end) = optimizer_state_byte_offsets[state_name]
+
+                # Assume that the opt_state passed in already has dtype matching
+                # self.optimizer_state_dtypes[state_name]
+                opt_state_byteview = opt_state.view(
+                    # Force it to be 2D table, with row size matching the
+                    # optimizer state size
+                    -1,
+                    optimizer_state_size_table[state_name],
+                ).view(
+                    # Then force tensor to byte view
+                    dtype=torch.uint8
+                )
+
+                # Convert the chunk buffer and optimizer state to byte views
+                # Then use the start and end offsets to narrow the chunk buffer
+                # and copy opt_state over
+                chunk_buffer.view(dtype=torch.uint8)[:, start:end] = opt_state_byteview[
+                    i : i + length, :
+                ]
+
+            # Write chunk to KVTensor
             kvt.set_weights_and_ids(chunk_buffer, id_tensor[i : i + length, :].view(-1))
 
     @torch.jit.ignore

@@ -297,7 +297,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
   /**
    * @brief pause any ongoing eviction, usually called before backend IO
    */
-  virtual void pause_ongoing_eviction() {
+  virtual void pause_ongoing_eviction(bool force_resume = false) {
     FBEXCEPTION("Not implemented");
   }
 
@@ -305,7 +305,7 @@ class EmbeddingKVDB : public std::enable_shared_from_this<EmbeddingKVDB> {
    * @brief resume ongoing eviction, if any, usually called when there won't be
    * backend IO for a while
    */
-  virtual void resume_ongoing_eviction() {
+  virtual void resume_ongoing_eviction(bool force_pause = false) {
     FBEXCEPTION("Not implemented");
   }
 

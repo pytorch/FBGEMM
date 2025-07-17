@@ -108,7 +108,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
       bool backend_return_whole_row = false,
       bool enable_async_update = false,
       std::optional<at::Tensor> table_dims = std::nullopt,
-      std::optional<at::Tensor> hash_size_cumsum = std::nullopt)
+      std::optional<at::Tensor> hash_size_cumsum = std::nullopt,
+      bool is_training = true)
       : kv_db::EmbeddingKVDB(
             num_shards,
             max_D,
@@ -128,7 +129,8 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             /*blocks_per_chunk=*/8192)),
         elem_size_(row_storage_bitwidth / 8),
         backend_return_whole_row_(backend_return_whole_row),
-        feature_evict_config_(feature_evict_config) {
+        feature_evict_config_(std::move(feature_evict_config)),
+        is_training_(is_training) {
     executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(std::max<size_t>(
         num_threads, facebook::Proc::getCpuInfo().numCpuCores));
     initialize_initializers(
@@ -139,9 +141,11 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
         row_storage_bitwidth);
     if (table_dims.has_value()) {
       TORCH_CHECK_TENSOR_PROPERTIES(table_dims, at::ScalarType::Long);
-      TORCH_CHECK_TENSOR_PROPERTIES(hash_size_cumsum, at::ScalarType::Long);
       TORCH_NUM_CHECK_AND_ASSIGN_TENSOR_DATA(
           table_dims, sub_table_dims_, int64_t);
+    }
+    if (hash_size_cumsum.has_value()) {
+      TORCH_CHECK_TENSOR_PROPERTIES(hash_size_cumsum, at::ScalarType::Long);
       sub_table_hash_cumsum_.assign(
           hash_size_cumsum->data_ptr<int64_t>() + 1, // skip the first 0
           hash_size_cumsum->data_ptr<int64_t>() + hash_size_cumsum->numel());
@@ -151,7 +155,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             EvictTriggerMode::DISABLED) {
       TORCH_CHECK(hash_size_cumsum.has_value());
       feature_evict_ = create_feature_evict(
-          feature_evict_config_.value(), kv_store_, sub_table_hash_cumsum_);
+          feature_evict_config_.value(),
+          kv_store_,
+          sub_table_hash_cumsum_,
+          is_training_);
     }
   }
 
@@ -411,6 +418,167 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
             });
   }
 
+  folly::SemiFuture<std::vector<folly::Unit>> inference_set_kv_db_async(
+      const at::Tensor& indices,
+      const at::Tensor& weights,
+      const at::Tensor& count,
+      std::optional<uint32_t> inplace_update_ts) {
+    std::vector<folly::Future<std::tuple<int64_t, int64_t>>> futures;
+    auto shardid_to_indexes = shard_input(indices, count);
+
+    auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
+        feature_evict_.get());
+    CHECK(tt_evict != nullptr);
+    for (auto iter = shardid_to_indexes.begin();
+         iter != shardid_to_indexes.end();
+         iter++) {
+      const auto shard_id = iter->first;
+      const auto indexes = iter->second;
+      auto f =
+          folly::via(executor_.get())
+              .thenValue([this,
+                          shard_id,
+                          indexes,
+                          &indices,
+                          &weights,
+                          tt_evict,
+                          inplace_update_ts](folly::Unit) {
+                int64_t hit_cnt = 0;
+                int64_t miss_cnt = 0;
+                FBGEMM_DISPATCH_INTEGRAL_TYPES(
+                    indices.scalar_type(),
+                    "inference_dram_kv_set",
+                    [this,
+                     shard_id,
+                     indexes,
+                     &indices,
+                     &weights,
+                     tt_evict,
+                     inplace_update_ts,
+                     &hit_cnt,
+                     &miss_cnt] {
+                      using index_t = scalar_t;
+                      CHECK(indices.is_contiguous());
+                      CHECK(weights.is_contiguous());
+                      CHECK_EQ(indices.size(0), weights.size(0));
+                      int64_t stride = weights.size(1);
+                      auto indices_data_ptr = indices.data_ptr<index_t>();
+                      auto weights_data_ptr = weights.data_ptr<weight_type>();
+                      {
+                        // 1st step, collect hit/miss per inplace update chunk
+                        // [tensor_offset, weight_addr]
+                        std::vector<std::tuple<int64_t, weight_type*>> hit_info;
+                        // [id, tensor_offset]
+                        std::vector<std::tuple<int64_t, int64_t>> miss_info;
+                        hit_info.reserve(indexes.size() / 2);
+                        miss_info.reserve(indexes.size() / 10);
+                        auto rlmap = kv_store_.by(shard_id).rlock();
+                        for (auto index_iter = indexes.begin();
+                             index_iter != indexes.end();
+                             index_iter++) {
+                          auto id = int64_t(indices_data_ptr[*index_iter]);
+                          auto it = rlmap->find(id);
+                          if (it != rlmap->end()) {
+                            hit_info.push_back(
+                                std::make_tuple(*index_iter, it->second));
+                          } else {
+                            miss_info.push_back(
+                                std::make_tuple(id, *index_iter));
+                          }
+                        }
+                        rlmap.unlock();
+                        hit_cnt = hit_info.size();
+                        miss_cnt = miss_info.size();
+                        // 2nd step, no lock on update hits, it is possible that
+                        // inference read is accessing a weight being updated,
+                        // we assume it is fine for now, will iterate on it if
+                        // we find QE regress during inplace update
+                        for (auto& info : hit_info) {
+                          auto tensor_offset = std::get<0>(info);
+                          auto block = std::get<1>(info);
+                          auto* data_ptr =
+                              FixedBlockPool::data_ptr<weight_type>(block);
+                          std::copy(
+                              weights_data_ptr + tensor_offset * stride,
+                              weights_data_ptr + (tensor_offset + 1) * stride,
+                              data_ptr);
+                          // update provided ts for existing blocks
+                          if (feature_evict_config_.has_value() &&
+                              feature_evict_config_.value()->trigger_mode_ !=
+                                  EvictTriggerMode::DISABLED &&
+                              feature_evict_ && inplace_update_ts.has_value()) {
+                            FixedBlockPool::set_timestamp(
+                                block, inplace_update_ts.value());
+                          }
+                        }
+
+                        // 3rd step, update misses in fixed block pool, we only
+                        // need mempool lock at this stage to avoid race
+                        // condition with eviction, if any, this helps reduce
+                        // the blocking time for inference read
+
+                        std::unordered_map<int64_t, weight_type*> temp_kv;
+                        auto* pool = kv_store_.pool_by(shard_id);
+                        auto mem_pool_lock = pool->acquire_lock();
+                        for (auto& info : miss_info) {
+                          auto id = std::get<0>(info);
+                          auto tensor_offset = std::get<1>(info);
+
+                          auto block = pool->template allocate_t<weight_type>();
+                          FixedBlockPool::set_key(block, id);
+                          temp_kv.insert({id, block});
+
+                          auto* data_ptr =
+                              FixedBlockPool::data_ptr<weight_type>(block);
+                          std::copy(
+                              weights_data_ptr + tensor_offset * stride,
+                              weights_data_ptr + (tensor_offset + 1) * stride,
+                              data_ptr);
+
+                          // update provided ts for new allocated blocks
+                          if (feature_evict_config_.has_value() &&
+                              feature_evict_config_.value()->trigger_mode_ !=
+                                  EvictTriggerMode::DISABLED &&
+                              feature_evict_) {
+                            if (inplace_update_ts.has_value()) {
+                              FixedBlockPool::set_timestamp(
+                                  block, inplace_update_ts.value());
+                            } else {
+                              // inplace_update_ts is nullopt for delta publish
+                              // update
+                              tt_evict->update_feature_statistics(block);
+                            }
+                          }
+                        }
+                        mem_pool_lock.unlock();
+
+                        // 4th step, update shard hmap with newly allocated info
+                        // this is blocking read, by separating it out from
+                        // original set_kv_db_async, we can reduce the blocking
+                        // time for inference read significantly
+                        auto wlmap = kv_store_.by(shard_id).wlock();
+                        for (auto& [id, block] : temp_kv) {
+                          wlmap->insert({id, block});
+                        }
+                        wlmap.unlock();
+                      }
+                    });
+                return std::make_tuple(hit_cnt, miss_cnt);
+              });
+      futures.push_back(std::move(f));
+    }
+    return folly::collect(std::move(futures))
+        .via(executor_.get())
+        .thenValue(
+            [this](const std::vector<std::tuple<int64_t, int64_t>>& tuples) {
+              for (const auto& pair : tuples) {
+                inplace_update_hit_cnt_ += std::get<0>(pair);
+                inplace_update_miss_cnt_ += std::get<1>(pair);
+              }
+              return std::vector<folly::Unit>(tuples.size());
+            });
+  }
+
   /// Get embeddings from kvstore.
   ///
   /// @param indices The 1D embedding index tensor, should skip on negative
@@ -483,30 +651,37 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
                       CHECK(weights.is_contiguous());
                       CHECK_EQ(indices.size(0), weights.size(0));
 
-                      const auto& init_storage =
-                          initializers_[shard_id]->row_storage_;
-                      TORCH_CHECK(
-                          init_storage.scalar_type() == weights.scalar_type(),
-                          "init_storage (",
-                          toString(init_storage.scalar_type()),
-                          ") and weights scalar (",
-                          toString(weights.scalar_type()),
-                          ") types mismatch");
-                      auto row_storage_data_ptr =
-                          init_storage.template data_ptr<weight_type>();
+                      weight_type* row_storage_data_ptr = nullptr;
+                      auto indices_data_ptr = indices.data_ptr<index_t>();
+                      auto weights_data_ptr = weights.data_ptr<weight_type>();
                       auto before_read_lock_ts =
                           facebook::WallClockUtil::NowInUsecFast();
-                      auto wlmap = kv_store_.by(shard_id).wlock();
+                      auto wlmap = kv_store_.by(shard_id).rlock();
                       local_read_aquire_lock_duration =
                           facebook::WallClockUtil::NowInUsecFast() -
                           before_read_lock_ts;
-                      auto indices_data_ptr = indices.data_ptr<index_t>();
+
+                      if (!wlmap->empty() && !is_training_) {
+                        row_storage_data_ptr =
+                            FixedBlockPool::data_ptr<weight_type>(
+                                wlmap->begin()->second);
+                      } else {
+                        const auto& init_storage =
+                            initializers_[shard_id]->row_storage_;
+                        TORCH_CHECK(
+                            init_storage.scalar_type() == weights.scalar_type(),
+                            "init_storage (",
+                            toString(init_storage.scalar_type()),
+                            ") and weights scalar (",
+                            toString(weights.scalar_type()),
+                            ") types mismatch");
+                        row_storage_data_ptr =
+                            init_storage.template data_ptr<weight_type>();
+                      }
                       {
                         for (auto index_iter = indexes.begin();
                              index_iter != indexes.end();
                              index_iter++) {
-                          auto weights_data_ptr =
-                              weights.data_ptr<weight_type>();
                           const auto weights_row_index = *index_iter;
                           auto weight_idx =
                               int64_t(indices_data_ptr[weights_row_index]);
@@ -698,8 +873,17 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   void compact() override {}
 
-  void trigger_feature_evict() {
+  void trigger_feature_evict(
+      std::optional<uint32_t> inplace_update_ts = std::nullopt) {
     if (feature_evict_) {
+      if (inplace_update_ts.has_value() &&
+          feature_evict_config_.value()->trigger_strategy_ ==
+              EvictTriggerStrategy::BY_TIMESTAMP_THRESHOLD) {
+        auto* tt_evict = dynamic_cast<TimeThresholdBasedEvict<weight_type>*>(
+            feature_evict_.get());
+        CHECK(tt_evict != nullptr);
+        tt_evict->set_eviction_timestamp_threshold(inplace_update_ts.value());
+      }
       feature_evict_->trigger_evict();
     }
   }
@@ -745,6 +929,50 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   size_t get_map_actual_used_chunk_in_bytes() const {
     return kv_store_.getActualUsedChunkInBytes();
+  }
+
+  void resume_ongoing_eviction(bool force_resume = false) override {
+    if (!is_training_ && !force_resume) {
+      return;
+    }
+    if (feature_evict_) {
+      feature_evict_->resume();
+    }
+  }
+
+  void pause_ongoing_eviction(bool force_pause = false) override {
+    if (!is_training_ && !force_pause) {
+      return;
+    }
+    if (!feature_evict_config_.has_value()) {
+      return;
+    }
+    if (feature_evict_config_.value()->trigger_mode_ !=
+        EvictTriggerMode::DISABLED) {
+      if (feature_evict_) {
+        feature_evict_->pause();
+      }
+    }
+  }
+
+  // for inference only, this logs the total hit/miss count
+  // this should be called at the end of full/delta snapshot chunk by chunk
+  // update
+  void log_inplace_update_stats() {
+    if (!is_training_) {
+      int reset_val = 0;
+
+      auto inplace_update_hit_cnt = inplace_update_hit_cnt_.exchange(reset_val);
+      auto inplace_update_miss_cnt =
+          inplace_update_miss_cnt_.exchange(reset_val);
+      LOG(INFO) << "inplace update stats: hit count: " << inplace_update_hit_cnt
+                << ", miss count: " << inplace_update_miss_cnt
+                << ", total count: "
+                << inplace_update_hit_cnt + inplace_update_miss_cnt
+                << ", hit ratio: "
+                << (double)inplace_update_hit_cnt /
+              (inplace_update_hit_cnt + inplace_update_miss_cnt);
+    }
   }
 
   std::optional<FeatureEvictMetricTensors> get_feature_evict_metric()
@@ -805,8 +1033,10 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     int64_t row_bytes = row_width * elem_size_;
     auto copied_bytes = elem_size_ * copied_width;
     int64_t start_offset_bytes = elem_size_ * width_offset;
-    int64_t row_index;
-    initializers_[shard_id]->producer_queue_.dequeue(row_index);
+    int64_t row_index = 0;
+    if (is_training_) {
+      initializers_[shard_id]->producer_queue_.dequeue(row_index);
+    }
     // TODO: fill the opt state as zeros for init value?
     std::copy(
         &(row_storage_data_ptr
@@ -821,7 +1051,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
           0,
           row_bytes - copied_bytes);
     }
-    initializers_[shard_id]->consumer_queue_.enqueue(row_index);
+    if (is_training_) {
+      initializers_[shard_id]->consumer_queue_.enqueue(row_index);
+    }
   }
 
   /// shard input ids into multiple shards based on hash function
@@ -879,24 +1111,6 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     return backend_return_whole_row_
         ? FixedBlockPool::get_metaheader_dim<weight_type>()
         : 0;
-  }
-
-  void resume_ongoing_eviction() override {
-    if (feature_evict_) {
-      feature_evict_->resume();
-    }
-  }
-
-  void pause_ongoing_eviction() override {
-    if (!feature_evict_config_.has_value()) {
-      return;
-    }
-    if (feature_evict_config_.value()->trigger_mode_ !=
-        EvictTriggerMode::DISABLED) {
-      if (feature_evict_) {
-        feature_evict_->pause();
-      }
-    }
   }
 
   std::vector<double> get_dram_kv_perf(
@@ -1189,6 +1403,7 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
   std::optional<c10::intrusive_ptr<FeatureEvictConfig>> feature_evict_config_;
   std::unique_ptr<FeatureEvict<weight_type>> feature_evict_;
   int current_iter_ = 0;
+  const bool is_training_;
 
   // perf stats
   std::atomic<int64_t> read_total_duration_{0};
@@ -1216,6 +1431,9 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
 
   std::atomic<int64_t> allocated_memory_{0};
   std::atomic<int64_t> actual_used_chunk_memory_{0};
+
+  std::atomic<int64_t> inplace_update_hit_cnt_{0};
+  std::atomic<int64_t> inplace_update_miss_cnt_{0};
 }; // class DramKVEmbeddingCache
 
 } // namespace kv_mem

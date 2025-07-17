@@ -114,10 +114,9 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         num_shards = 32
         uniform_init_lower: float = -0.01
         uniform_init_upper: float = 0.01
-        evict_trigger_mode: int = 0
         # pyre-fixme[4]: Attribute must be annotated.
         self.kv_embedding_cache = torch.classes.fbgemm.DramKVEmbeddingInferenceWrapper(
-            num_shards, uniform_init_lower, uniform_init_upper, evict_trigger_mode
+            num_shards, uniform_init_lower, uniform_init_upper
         )
 
         self.specs: List[Tuple[int, int, int]] = [
@@ -295,6 +294,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         update_row_indices: List[List[int]],
         update_weights: List[Tensor],
     ) -> None:
+        # function is not used for now on the inference side
         for i in range(len(update_table_indices)):
             self.embedding_inplace_update_per_table(
                 update_table_indices[i],
@@ -302,6 +302,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
                     update_row_indices[i], device=self.current_device, dtype=torch.int64
                 ),
                 update_weights[i],
+                None,
             )
 
     @torch.jit.export
@@ -310,6 +311,7 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         table_id: int,
         update_row_indices: Tensor,
         update_weights: Tensor,
+        inplace_update_ts_sec: Optional[int] = None,
     ) -> None:
         assert table_id < len(
             self.embedding_specs
@@ -325,7 +327,28 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
         # convert global weight index to fused local weight index
         row_indices = update_row_indices + table_offset - sharding_offset
         # set weight by id
-        self.kv_embedding_cache.set_embeddings(row_indices, update_weights)
+        self.kv_embedding_cache.set_embeddings(
+            row_indices, update_weights, inplace_update_ts_sec
+        )
+
+    @torch.jit.export
+    def log_inplace_update_stats(
+        self,
+    ) -> None:
+        self.kv_embedding_cache.log_inplace_update_stats()
+
+    @torch.jit.export
+    def embedding_trigger_evict(
+        self,
+        inplace_update_ts_sec: int,
+    ) -> None:
+        self.kv_embedding_cache.trigger_evict(inplace_update_ts_sec)
+
+    @torch.jit.export
+    def embedding_wait_evict_completion(
+        self,
+    ) -> None:
+        self.kv_embedding_cache.wait_evict_completion()
 
     @torch.jit.export
     def initialize_kv_embedding_cache(self) -> None:
@@ -354,5 +377,6 @@ class KVEmbeddingInference(IntNBitTableBatchedEmbeddingBagsCodegen):
                 self.specs,
                 self.row_alignment,
                 self.scale_bias_size_in_bytes,
+                self.hash_size_cumsum,
             )
             self.kv_embedding_cache_initialized = True
