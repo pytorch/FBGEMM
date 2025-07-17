@@ -16,7 +16,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 include(${CMAKE_MODULE_PATH}/Utilities.cmake)
 
 # C++ Compiler Setup - must be set BEFORE project declaration
-include(${CMAKEMODULES}/CxxCompilerSetup.cmake)
+include(${CMAKE_MODULE_PATH}/CxxCompilerSetup.cmake)
 
 # Load cpp_library()
 include(${CMAKE_MODULE_PATH}/CppLibrary.cmake)
