@@ -14,25 +14,23 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-if(FBGEMM_BUILD_TESTS AND NOT TARGET gtest)
-  #Download Googletest framework from github if
-  #GOOGLETEST_SOURCE_DIR is not specified.
-  set(INSTALL_GTEST OFF)
-  if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
-    set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
-      CACHE STRING "googletest source directory from submodules")
-  endif()
+if(FBGEMM_BUILD_TESTS)
+  find_package(GTest)
+  if(NOT GTest_FOUND)
+    #Download Googletest framework from github if
+    #GOOGLETEST_SOURCE_DIR is not specified.
+    set(INSTALL_GTEST OFF)
+    if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
+      set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
+        CACHE STRING "googletest source directory from submodules")
+    endif()
 
-  #build Googletest framework
-  set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
-  set(BUILD_SHARED_LIBS OFF)
-  add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
-  # Recover the build shared libs option.
-  set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS})
-  # add flags required for mac build
-  if(NOT MSVC)
-    target_compile_options(gtest PRIVATE "-Wno-deprecated-copy")
-    target_compile_options(gmock PRIVATE "-Wno-deprecated-copy")
+    #build Googletest framework
+    set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS OFF)
+    add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
+    # Recover the build shared libs option.
+    set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS})
   endif()
 endif()
 
