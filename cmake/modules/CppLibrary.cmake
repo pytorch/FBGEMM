@@ -59,7 +59,11 @@ function(cpp_library)
         # endif()
 
         set(lib_cc_flags
-            ${args_MSVC_FLAGS})
+            ${args_MSVC_FLAGS}
+            /wd4244
+            /wd4267
+            /wd4305
+            /wd4309)
 
     else()
         set(lib_cc_flags
@@ -125,13 +129,13 @@ function(cpp_library)
         set(lib_install_destination ${CMAKE_INSTALL_LIBDIR})
     endif()
 
-    install(
-        TARGETS ${args_PREFIX}
-        EXPORT fbgemmLibraryConfig
-        ARCHIVE DESTINATION ${lib_install_destination}
-        LIBRARY DESTINATION ${lib_install_destination}
-        # For Windows
-        RUNTIME DESTINATION ${lib_install_destination})
+    # install(
+    #     TARGETS ${args_PREFIX}
+    #     EXPORT fbgemmLibraryConfig
+    #     ARCHIVE DESTINATION ${lib_install_destination}
+    #     LIBRARY DESTINATION ${lib_install_destination}
+    #     # For Windows
+    #     RUNTIME DESTINATION ${lib_install_destination})
 
     ############################################################################
     # Debug Summary

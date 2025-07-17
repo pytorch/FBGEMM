@@ -184,33 +184,75 @@ set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
 # set(fbgemm_targets fbgemm_avx512)
 add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 
-# cpp_library(
-#   PREFIX
-#     fbgemm_avx2
-#   TYPE
-#     OBJECT
-#   SRCS
-#     ${FBGEMM_AVX2_SRCS}
-#     ${FBGEMM_AVX2_INLINE_SRCS}
-#   INCLUDE_DIRS
-#     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-#     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
-#     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
-#   CC_FLAGS
-#     -m64 -mavx2 -mf16c -mfma
-#   MSVC_FLAGS
-#     /arch:AVX2
-#   USE_IPO
-#     ${FBGEMM_USE_IPO}
-#   DEPS
-#     $<BUILD_INTERFACE:cpuinfo>
-#     $<BUILD_INTERFACE:asmjit>
-# )
+cpp_library(
+  PREFIX
+    fbgemm_avx2
+  TYPE
+    OBJECT
+  SRCS
+    ${FBGEMM_AVX2_SRCS}
+    ${FBGEMM_AVX2_INLINE_SRCS}
+  INCLUDE_DIRS
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
+  CC_FLAGS
+    -m64 -mavx2 -mf16c -mfma
+  MSVC_FLAGS
+    /arch:AVX2
+  USE_IPO
+    ${FBGEMM_USE_IPO}
+  DEPS
+    $<BUILD_INTERFACE:cpuinfo>
+    $<BUILD_INTERFACE:asmjit>
+)
 
-add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
-add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
+cpp_library(
+  PREFIX
+    fbgemm_avx512
+  TYPE
+    OBJECT
+  SRCS
+    ${FBGEMM_AVX512_SRCS}
+    ${FBGEMM_AVX512_INLINE_SRCS}
+  INCLUDE_DIRS
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
+    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
+  CC_FLAGS
+    -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
+  MSVC_FLAGS
+    /arch:AVX512
+  USE_IPO
+    ${FBGEMM_USE_IPO}
+  DEPS
+    $<BUILD_INTERFACE:cpuinfo>
+    $<BUILD_INTERFACE:asmjit>
+)
+
+# add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
+# add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
 if(NOT DISABLE_FBGEMM_AUTOVEC)
-  add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
+  # add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
+
+  cpp_library(
+    PREFIX
+      fbgemm_autovec
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_AUTOVEC_SRCS}
+    INCLUDE_DIRS
+      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
+      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
+    USE_IPO
+      ${FBGEMM_USE_IPO}
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+  )
+
   list(APPEND fbgemm_targets fbgemm_autovec)
 endif()
 
