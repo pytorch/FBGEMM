@@ -100,6 +100,11 @@ function(cpp_library)
     # Link against the external libraries as needed
     target_link_libraries(${lib_name} PRIVATE ${args_DEPS})
 
+    # Link against OpenMP if available
+    if(OpenMP_FOUND)
+        target_link_libraries(${lib_name} PUBLIC OpenMP::OpenMP_CXX)
+    endif()
+
     # Set PIC
     set_target_properties(${lib_name} PROPERTIES
         # Enforce -fPIC for STATIC library option, since they are to be

@@ -205,6 +205,7 @@ cpp_library(
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
+    fbgemm_generic
 )
 
 cpp_library(
@@ -228,6 +229,7 @@ cpp_library(
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
+    fbgemm_generic
 )
 
 # add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
@@ -251,6 +253,7 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
       $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
   )
 
   list(APPEND fbgemm_targets fbgemm_autovec)
@@ -260,9 +263,9 @@ endif()
 # Make libraries depend on defs.bzl
 add_custom_target(defs.bzl DEPENDS defs.bzl)
 add_dependencies(fbgemm_generic defs.bzl)
-foreach(target IN LISTS fbgemm_targets)
-  target_link_libraries(${target} PUBLIC fbgemm_generic)
-endforeach()
+# foreach(target IN LISTS fbgemm_targets)
+#   target_link_libraries(${target} PUBLIC fbgemm_generic)
+# endforeach()
 # target_link_libraries(fbgemm_generic PUBLIC fbgemm_avx2)
 
 target_include_directories(fbgemm_generic PUBLIC
@@ -276,8 +279,8 @@ target_link_libraries(fbgemm_generic PUBLIC
 
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
-  target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
-  target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
+  # target_compile_options(fbgemm_avx2 PRIVATE "/arch:AVX2")
+  # target_compile_options(fbgemm_avx512 PRIVATE "/arch:AVX512")
 else(MSVC)
   string(APPEND CMAKE_CXX_FLAGS " -Wall")
   string(APPEND CMAKE_CXX_FLAGS " -Wextra")
@@ -293,11 +296,11 @@ else(MSVC)
     string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
   endif()
 
-  target_compile_options(fbgemm_avx2 PRIVATE
-    "-m64" "-mavx2" "-mf16c" "-mfma")
-  target_compile_options(fbgemm_avx512 PRIVATE
-    "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
-    "-mavx512vl")
+  # target_compile_options(fbgemm_avx2 PRIVATE
+  #   "-m64" "-mavx2" "-mf16c" "-mfma")
+  # target_compile_options(fbgemm_avx512 PRIVATE
+  #   "-m64" "-mavx2" "-mfma" "-mavx512f" "-mavx512bw" "-mavx512dq"
+  #   "-mavx512vl")
 
   set_source_files_properties(
     src/FbgemmFP16UKernelsAvx2.cc
@@ -378,9 +381,10 @@ elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
 else()
   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
 endif()
-foreach(target IN ITEMS "${fbgemm_targets};fbgemm;fbgemm_generic")
-  set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE ON)
-endforeach()
+
+# foreach(target IN ITEMS "${fbgemm_targets};fbgemm;fbgemm_generic")
+#   set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE ON)
+# endforeach()
 
 target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
 
@@ -430,9 +434,9 @@ endif()
 if(FBGEMM_USE_IPO)
   include(CheckIPOSupported)
   check_ipo_supported()
-  foreach(target IN LISTS fbgemm_targets "fbgemm_generic")
-    set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
-  endforeach()
+  # foreach(target IN LISTS fbgemm_targets "fbgemm_generic")
+  #   set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+  # endforeach()
   set_property(TARGET fbgemm_avx2 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
   set_property(TARGET fbgemm_avx512 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
 endif()
