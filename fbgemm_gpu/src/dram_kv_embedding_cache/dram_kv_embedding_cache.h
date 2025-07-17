@@ -822,6 +822,15 @@ class DramKVEmbeddingCache : public kv_db::EmbeddingKVDB {
     // TODO: assert there isn't any eviction including paused
   }
 
+  void set_kv_to_storage(const at::Tensor& ids, const at::Tensor& weights) {
+    if (backend_return_whole_row_) {
+      set_kv_with_metaheader_to_storage(weights);
+    } else {
+      const auto count = at::tensor({ids.size(0)}, at::ScalarType::Long);
+      set_kv_db_async(ids, weights, count).wait();
+    }
+  }
+
   void get_kv_from_storage_by_snapshot(
       const at::Tensor& ids,
       const at::Tensor& weights,

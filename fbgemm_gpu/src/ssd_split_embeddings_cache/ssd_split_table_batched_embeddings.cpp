@@ -542,7 +542,9 @@ void KVTensorWrapper::set_range(
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
-    CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+    CHECK_EQ(
+        db_->get_max_D() + db_->get_metaheader_width_in_front(),
+        padded_weights.size(1));
     db_->set_range_to_storage(padded_weights, start + row_offset_, length);
   }
 }
@@ -559,15 +561,18 @@ void KVTensorWrapper::set_weights_and_ids(
   CHECK_TRUE(db_ != nullptr);
   CHECK_EQ(ids.size(0), weights.size(0))
       << "ids and weights must have same # rows";
-  CHECK_GE(db_->get_max_D(), shape_[1]);
+  CHECK_GE(db_->get_max_D() + db_->get_metaheader_width_in_front(), shape_[1]);
   auto linearized_ids = ids + row_offset_;
-  int pad_right = db_->get_max_D() - weights.size(1);
+  int pad_right =
+      db_->get_max_D() + db_->get_metaheader_width_in_front() - weights.size(1);
   if (pad_right == 0) {
     db_->set_kv_to_storage(linearized_ids, weights);
   } else {
     std::vector<int64_t> padding = {0, pad_right, 0, 0};
     auto padded_weights = torch::constant_pad_nd(weights, padding, 0);
-    CHECK_EQ(db_->get_max_D(), padded_weights.size(1));
+    CHECK_EQ(
+        db_->get_max_D() + db_->get_metaheader_width_in_front(),
+        padded_weights.size(1));
     db_->set_kv_to_storage(linearized_ids, padded_weights);
   }
 }
