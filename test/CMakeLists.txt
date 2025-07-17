@@ -76,7 +76,6 @@ macro(add_gtest TESTNAME)
     target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)
   endif()
 
-  add_dependencies(${TESTNAME} gtest fbgemm)
   add_test(${TESTNAME} ${TESTNAME})
   set_target_properties(${TESTNAME} PROPERTIES FOLDER test)
 endmacro()
