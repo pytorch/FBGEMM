@@ -206,14 +206,13 @@ cpp_library(
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
-    defs.bzl
 )
 
 
 
 # add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
 
-# add_dependencies(fbgemm_generic defs.bzl)
+add_dependencies(fbgemm_generic defs.bzl)
 
 # target_include_directories(fbgemm_generic PUBLIC
 #       $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
