@@ -9,7 +9,8 @@
 // clang-format off
 {%- set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor.h"
+#include "fbgemm_gpu/utils/kernel_launcher.cuh"
+#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
 #include "fbgemm_gpu/config/feature_gates.h"
 
 using namespace fbgemm_gpu;
@@ -64,40 +65,36 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
 {%- macro define_kernel_invocation(emb_weight_type) %}
     {%- set func_name = "nbit::" + emb_weight_type + "_split_embedding" + ("_nobag" if nobag else "") + "_codegen_forward_" + wdesc + "_kernel_small_L" %}
 
-    #ifdef FBGEMM_GPU_MEMCHECK
-    const auto func_name_{{ emb_weight_type }} = "{{ func_name }}_{{ emb_weight_type }}";
-    #endif
-
     #ifdef X
     #undef X
     #endif
 
-    // Define {{ emb_weight_type }} kernel invocation macro
     #define X(DeviceOnly, PackedMode, PackedModeL, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
-    {{ func_name }}<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly, PackedMode, PackedModeL><<< \
+      FBGEMM_LAUNCH_KERNEL( \
+        ({{ func_name }}<index_t, output_t, OutputRowsPerThread, kWarpsPerBlock, InputRowsInFlight, MinNum128BRows, MaxNum128BRows, DeviceOnly, PackedMode, PackedModeL>), \
         nbit::div_round_up(T * nbit::div_round_up(B, num_packed_bags * OutputRowsPerThread), kWarpsPerBlock), \
         dim3(kWarpSize, kWarpsPerBlock), \
         0, \
-        at::cuda::getCurrentCUDAStream()>>>( \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, dev_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, uvm_weights, uint8_t, 1, 64), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, weights_placements, int32_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, weights_offsets, int64_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, weights_tys, uint8_t, 1, 32), \
+        at::cuda::getCurrentCUDAStream(), \
+        PTA_B(dev_weights, uint8_t, 1, 64), \
+        PTA_B(uvm_weights, uint8_t, 1, 64), \
+        PTA_B(weights_placements, int32_t, 1, 32), \
+        PTA_B(weights_offsets, int64_t, 1, 32), \
+        PTA_B(weights_tys, uint8_t, 1, 32), \
         {%- if not nobag %}
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, D_offsets, int32_t, 1, 32), \
+        PTA_B(D_offsets, int32_t, 1, 32), \
         {%- else %}
         D, \
         {%- endif %}
         FixedDivisor(div_round_up(B, num_packed_bags * OutputRowsPerThread)), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, indices, index_t, 1, 32), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, offsets, index_t, 1, 32), \
+        PTA_B(indices, index_t, 1, 32), \
+        PTA_B(offsets, index_t, 1, 32), \
         {%- if not nobag %}
         pooling_mode, \
         {%- endif %}
         row_alignment, \
         {%- if weighted %}
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, indice_weights, float, 1, 32), \
+        PTA_B(indice_weights, float, 1, 32), \
         {%- endif %}
         {%- if emb_weight_type == "FP8" %}
         fp8_exponent_bits, \
@@ -105,11 +102,10 @@ __global__ void {{ type_map[emb_weight_type].enum_name }}_split_embedding{{ "_no
         {%- endif %}
         num_packed_bags, \
         num_packed_bags_L, \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, output, output_t, 2, 32), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, lxu_cache_weights, uint8_t, 2, 64), \
-        MAKE_PTA_WITH_NAME(func_name_{{ emb_weight_type }}, lxu_cache_locations, int32_t, 1, 32) \
-    ); \
-    C10_CUDA_KERNEL_LAUNCH_CHECK(); \
+        PTA_B(output, output_t, 2, 32), \
+        PTA_B(lxu_cache_weights, uint8_t, 2, 64), \
+        PTA_B(lxu_cache_locations, int32_t, 1, 32) \
+      );
 {%- endmacro %}
 
 {%- macro construct_and_return_output_tensor() %}
@@ -241,16 +237,16 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
     const static bool use_rocm_packed_bag_mode = kIsRocm && fbgemm_gpu::config::is_feature_enabled(fbgemm_gpu::config::FeatureGateName::TBE_ROCM_INFERENCE_PACKED_BAGS);
     /*
      * Helper macro for run-time packed mode dispatch. Computes maximum number of bags
-     * (num_packed_bags) that fits into NumUint4LoadsPerRow given embeddings' type and 
-     * size. num_packed_bags is to be used for additional bags indexing 
+     * (num_packed_bags) that fits into NumUint4LoadsPerRow given embeddings' type and
+     * size. num_packed_bags is to be used for additional bags indexing
      *
      * Current support range: ROCm and output_t != uint8_t and sparse_type != FP32
      */
     #define PACKED_MODE_SWITCH(dev_only, OutputRowsPerThread, InputRowsInFlight, MinNum128BRows, MaxNum128BRows) \
       int32_t num_packed_bags = 1;                                                    \
-      int32_t num_packed_bags_D = 1;  \
-      int32_t num_packed_bags_L = 1;  \
-      const int64_t max_L = max_Ls;   \
+      int32_t num_packed_bags_D = 1;                                                  \
+      int32_t num_packed_bags_L = 1;                                                  \
+      const int64_t max_L = max_Ls;                                                   \
       {%-if is_rocm and not nobag %}
       const static bool use_packed_bag_mode = fbgemm_gpu::config::is_feature_enabled( \
         fbgemm_gpu::config::FeatureGateName::TBE_ROCM_INFERENCE_PACKED_BAGS);         \
@@ -262,7 +258,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         num_packed_bags_L = max_L > 0 && max_indices_per_warp > max_L && !std::is_same_v<output_t, uint8_t> && sparse_type != SparseType::FP32?  max_indices_per_warp / max_L : 1; \
         num_packed_bags_D = NumUint4LoadsPerRow > num_uint4_loads_per_row && !std::is_same_v<output_t, uint8_t> && sparse_type != SparseType::FP32 ? NumUint4LoadsPerRow / num_uint4_loads_per_row : 1; \
         /* Number of bags that might be fitted to shared memory. */                   \
-        num_packed_bags = max_L==1 ?  num_packed_bags_L * num_packed_bags_D : num_packed_bags_D; \
+        num_packed_bags =  max_L==1 ?  num_packed_bags_L * num_packed_bags_D : num_packed_bags_D; \
       } \
       {%- endif %}
       if (num_packed_bags > 1) {              \
@@ -351,9 +347,9 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
         if (max_int4_128b_rows > 8) {
           if(use_rocm_packed_bag_mode) {
             Y(1, 1, 8, 16);
-          } else { 
+          } else {
             Y(1, 4, 8, 16);
-          } 
+          }
         }
       }
     }));
@@ -411,7 +407,7 @@ Tensor int_nbit_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{
             Y(1, 1, 16, 32);
           } else {
             Y(1, 2, 16, 32);
-          }   
+          }
         }
       }
     }));
