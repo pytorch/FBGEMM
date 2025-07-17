@@ -35,11 +35,33 @@ function(cpp_library)
         "${flags}" "${singleValueArgs}" "${multiValueArgs}"
         ${ARGN})
 
-    # Set the build target name
-    set(lib_name ${args_PREFIX})
+    ############################################################################
+    # Prepare Sources
+    ############################################################################
 
     # Set the build target sources
     set(lib_sources ${args_SRCS})
+
+    # If the sources list is empty, add a placeholder source file so that the
+    # library can be built without failure
+    if(NOT lib_sources)
+        # Create a salt value
+        STRING(RANDOM LENGTH 6 salt)
+
+        # Generate a placeholder source file
+        file(WRITE ${CMAKE_BINARY_DIR}/gen_placeholder_${salt}.cc "")
+
+        # Append to lib_sources
+        list(APPEND lib_sources
+            ${CMAKE_BINARY_DIR}/gen_placeholder_${salt}.cc)
+    endif()
+
+    ############################################################################
+    # Build the Library
+    ############################################################################
+
+    # Set the build target name
+    set(lib_name ${args_PREFIX})
 
     # Create the library
     add_library(${lib_name} ${args_TYPE}
@@ -52,11 +74,11 @@ function(cpp_library)
     if(MSVC)
         # MSVC needs to define these variables to avoid generating _dllimport
         # functions.
-        # if(args_TYPE STREQUAL STATIC)
-        #     target_compile_definitions(${lib_name}
-        #         PUBLIC ASMJIT_STATIC
-        #         PUBLIC FBGEMM_STATIC)
-        # endif()
+        if(args_TYPE STREQUAL STATIC)
+            target_compile_definitions(${lib_name}
+                PUBLIC ASMJIT_STATIC
+                PUBLIC FBGEMM_STATIC)
+        endif()
 
         set(lib_cc_flags
             ${args_MSVC_FLAGS}
