@@ -837,11 +837,11 @@ TEST_P(fbgemmPackUnpackAcc32Test, TestPackUnpack) {
         // Sanity check
         for (int i = 0; i < k; i++) {
           for (int j = 0; j < n_adjusted; j++) {
-            EXPECT_EQ(unpack_buf.data()[i * n + j], Bint8.data()[i * n + j])
+            EXPECT_EQ(unpack_buf[i * n + j], Bint8[i * n + j])
                 << "Pack/Unpack results differ at index (" << i << ", " << j
-                << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])
+                << ", Reference: " << static_cast<int>(Bint8[i * n + j])
                 << ", Pack-Unpacked: "
-                << static_cast<int>(unpack_buf.data()[i * n + j]);
+                << static_cast<int>(unpack_buf[i * n + j]);
           }
         }
       }

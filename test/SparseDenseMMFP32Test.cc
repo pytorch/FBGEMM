@@ -30,11 +30,11 @@ class SparseDenseTest : public testing::Test {
 
     uniform_real_distribution<float> dist_fnz(0, 1.0);
     for (int i = 0; i < 256; ++i) {
-      shapes.push_back(make_tuple(
+      shapes.emplace_back(
           dist_dim(generator),
           dist_dim(generator),
           dist_dim(generator),
-          dist_fnz(generator)));
+          dist_fnz(generator));
     }
     return shapes;
   }
@@ -43,10 +43,8 @@ class SparseDenseTest : public testing::Test {
 
 TEST_F(SparseDenseTest, fp32) {
   auto shapes = GenParams();
-  int m, n, k;
-  float fnz;
   for (auto s : shapes) {
-    tie(m, n, k, fnz) = s;
+    auto [m, n, k, fnz] = s;
     auto aData = getRandomSparseVector(m * k);
     auto bData = getRandomSparseVector(k * n, fnz);
     auto cDataNaive = getRandomSparseVector(m * n);

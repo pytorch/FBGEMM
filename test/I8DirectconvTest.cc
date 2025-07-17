@@ -6,13 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <cstdio>
-#include <iomanip>
 #include <numeric>
-#include <random>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -727,7 +721,7 @@ TEST_P(FBGemmDirectConvTransFbgemmTest, Test2D) {
     PackWeightsForConv<2> packedB_2D(conv_p, Bint8.data());
 
     if (packedB_2D.getPackedWForDirectconv().get()) {
-      packedB_2D.getPackedWForDirectconv().get()->col_offsets_with_zero_pt_s8acc32_DirectConvT(
+      packedB_2D.getPackedWForDirectconv()->col_offsets_with_zero_pt_s8acc32_DirectConvT(
           conv_p,
           Bint8_zero_point.data(),
           col_offsets,

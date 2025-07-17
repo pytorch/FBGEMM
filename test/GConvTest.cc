@@ -622,10 +622,10 @@ static void runPackUnpackTest(matrix_op_t btrans) {
 
     // Sanity check
     for (int i = 0; i < weight_len; ++i) {
-      EXPECT_EQ(unpack_buf.data()[i], Bint8.data()[i])
+      EXPECT_EQ(unpack_buf[i], Bint8[i])
         << "Pack/Unpack results differ at index " << i
-        << ", Reference: " << static_cast<int>(Bint8.data()[i])
-        << ", Pack-Unpacked: " << static_cast<int>(unpack_buf.data()[i]);
+        << ", Reference: " << static_cast<int>(Bint8[i])
+        << ", Pack-Unpacked: " << static_cast<int>(unpack_buf[i]);
     }
   } // for each shape
 }

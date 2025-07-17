@@ -8,7 +8,6 @@
 
 #include <gtest/gtest.h>
 #include <cmath>
-#include <iostream>
 
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/FbgemmSparse.h"
@@ -33,9 +32,7 @@ INSTANTIATE_TEST_SUITE_P(
  * Test for packing/unpacking
  */
 TEST_P(packUnpackTest, sparseUnpackTest) {
-  int N = 0, K = 0;
-  float fnz = NAN;
-  tie(N, K, fnz) = GetParam();
+  auto [N, K, fnz] = GetParam();
 
   // wData is dense
   auto wData = getRandomBlockSparseMatrix<int8_t>(N, K, fnz, 1, 4);

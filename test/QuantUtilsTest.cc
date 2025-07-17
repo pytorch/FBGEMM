@@ -230,9 +230,7 @@ static ::testing::AssertionResult isQEmbeddingClose(
  * Test for QuantizeGroupwise
  */
 TEST_P(QuantizeGroupwiseTest, quantizeGTest) {
-  int K = 0, C = 0, X = 0, G = 0;
-  layout_t layout;
-  tie(K, C, X, G, layout) = GetParam();
+  auto [K, C, X, G, layout] = GetParam();
 
   random_device rd;
   mt19937 gen(rd());
@@ -653,8 +651,7 @@ TEST_P(EmbeddingQuantizeFixedNumberTest, embeddingFloatToQuantizedSBHalfTest) {
 
 // Scale and bias are of type float16
 TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
-  int bit_rate = 0, rows = 0, cols = 0;
-  tie(bit_rate, rows, cols) = GetParam();
+  auto [bit_rate, rows, cols] = GetParam();
 
   random_device rd;
   mt19937 gen(rd());
@@ -732,8 +729,7 @@ TEST_P(EmbeddingQuantizeTest, embeddingHalfTest) {
 
 // Scale and bias are of type float
 TEST_P(EmbeddingQuantizeSBFloatTest, embeddingFloatTest) {
-  int rows = 0, cols = 0;
-  tie(rows, cols) = GetParam();
+  auto [rows, cols] = GetParam();
 
   random_device rd;
   mt19937 gen(rd());

@@ -7,7 +7,8 @@
  */
 
 #pragma once
-#include "./ExecuteKernel.h" // @manual
+#include <cstdint>
+#include "./ExecuteKernelGeneric.h" // @manual
 
 namespace fbgemm {
 

@@ -9,7 +9,7 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmConvert.h"
 
-#include "./RefImplementations.h" // @manual
+#include <stdexcept>
 
 #ifdef USE_MKL
 #include <mkl.h>

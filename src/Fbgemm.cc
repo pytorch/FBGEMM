@@ -9,9 +9,8 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/Fbgemm.h"
 #include <cpuinfo.h>
-#include <functional>
 #include <stdexcept>
-#include "./ExecuteKernel.h" // @manual
+#include "./ExecuteKernelU8S8.h" // @manual
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
 double packing_time = 0.0;

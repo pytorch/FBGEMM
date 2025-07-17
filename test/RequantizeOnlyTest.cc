@@ -8,14 +8,9 @@
 
 #include <algorithm>
 #include <functional>
-#include <iostream>
-#include <random>
-#include <stdexcept>
-#include <string>
 
 #include <gtest/gtest.h>
 
-#include "./TestUtils.h" // @manual
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
 
@@ -50,10 +45,7 @@ INSTANTIATE_TEST_SUITE_P(
  * Test for float bias
  */
 TEST_P(FloatRequantizeTest, floatBiasTest) {
-  int rows = 0, cols = 0;
-  bool fuse_relu = false;
-  QuantizationGranularity q_gran;
-  tie(rows, cols, fuse_relu, q_gran) = GetParam();
+  auto [rows, cols, fuse_relu, q_gran] = GetParam();
 
   int numElements = rows * cols;
 

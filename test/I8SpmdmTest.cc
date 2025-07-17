@@ -10,7 +10,6 @@
 #include <array>
 #include <cassert>
 #include <cstdlib>
-#include <iostream>
 #include <numeric>
 #include <random>
 

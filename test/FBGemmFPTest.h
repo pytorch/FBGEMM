@@ -123,7 +123,7 @@ class FBGemmFPTest : public testing::TestWithParam<
   void UnpackTestRun() {
     auto shapes = GenShapes();
     float alpha = 1.f, beta = 0.f;
-    matrix_op_t atrans, btrans;
+    matrix_op_t atrans{}, btrans{};
     std::tie(atrans, btrans) = GetParam();
 
     for (auto s : shapes) {

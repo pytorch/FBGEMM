@@ -8,7 +8,6 @@
 
 #include <cpuinfo.h>
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <numeric>
 #include <random>
@@ -20,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include "./QuantizationHelpers.h"
 #include "./TestUtils.h" // @manual
 #include "bench/BenchUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
@@ -118,9 +116,9 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, Test) {
   }
 
   vector<vector<int>> shapes(GetShapes_());
-  matrix_op_t atrans, btrans;
+  matrix_op_t atrans{}, btrans{};
   bool test_ld = false;
-  QuantizationGranularity q_granularity;
+  QuantizationGranularity q_granularity{};
   tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
   for (auto shape : shapes) {
@@ -365,9 +363,9 @@ TEST_P(fbgemmu8s8acc16WithQuantGranularityTest, SpMDMTest) {
   }
 
   vector<vector<int>> shapes(GetShapes_());
-  matrix_op_t atrans, btrans;
+  matrix_op_t atrans{}, btrans{};
   bool test_ld = false;
-  QuantizationGranularity q_granularity;
+  QuantizationGranularity q_granularity{};
   tie(atrans, btrans, test_ld, q_granularity) = GetParam();
 
   for (auto shape : shapes) {
@@ -698,7 +696,7 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
   }
 
   vector<vector<int>> shapes(GetShapes_());
-  matrix_op_t atrans, btrans;
+  matrix_op_t atrans{}, btrans{};
   bool test_ld = false;
   tie(atrans, btrans, test_ld) = GetParam();
 
@@ -849,7 +847,7 @@ TEST_P(fbgemmu8s8acc16Test, NoRequantizeTest) {
  */
 TEST_P(fbgemmPackUnpackAcc16Test, TestPackUnpack) {
   vector<vector<int>> shapes(GetShapes_());
-  matrix_op_t btrans;
+  matrix_op_t btrans{};
   bool test_ld = false;
   tie(btrans, test_ld) = GetParam();
 
@@ -908,11 +906,11 @@ TEST_P(fbgemmPackUnpackAcc16Test, TestPackUnpack) {
         // Sanity check
         for (int i = 0; i < k; i++) {
           for (int j = 0; j < n_adjusted; j++) {
-            EXPECT_EQ(unpack_buf.data()[i * n + j], Bint8.data()[i * n + j])
+            EXPECT_EQ(unpack_buf[i * n + j], Bint8[i * n + j])
                 << "Pack/Unpack results differ at index (" << i << ", " << j
-                << ", Reference: " << static_cast<int>(Bint8.data()[i * n + j])
+                << ", Reference: " << static_cast<int>(Bint8[i * n + j])
                 << ", Pack-Unpacked: "
-                << static_cast<int>(unpack_buf.data()[i * n + j]);
+                << static_cast<int>(unpack_buf[i * n + j]);
           }
         }
       }
