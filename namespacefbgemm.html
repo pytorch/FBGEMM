@@ -309,6 +309,9 @@ Functions</h2></td></tr>
 <tr class="memitem:a9d995b583abb4b09927c90f66e3b1463" id="r_a9d995b583abb4b09927c90f66e3b1463"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:a9d995b583abb4b09927c90f66e3b1463"><td class="memTemplItemLeft" align="right" valign="top">int&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a9d995b583abb4b09927c90f66e3b1463">compare_buffers</a> (const T *ref, const T *test, int m, int n, int ld, size_t max_mismatches_to_report, float atol=1e-3)</td></tr>
 <tr class="separator:a9d995b583abb4b09927c90f66e3b1463"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:afd61ae194dbb24a73fe7098d9d823258" id="r_afd61ae194dbb24a73fe7098d9d823258"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
+<tr class="memitem:afd61ae194dbb24a73fe7098d9d823258"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#afd61ae194dbb24a73fe7098d9d823258">printMatrix</a> (<a class="el" href="#ae28c9cc48e43e99cb778d60ba35c0fbf">matrix_op_t</a> op, const T *inp, size_t R, size_t C, size_t ld, const std::string &amp;name)</td></tr>
+<tr class="separator:afd61ae194dbb24a73fe7098d9d823258"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a75b4ad78ae16c6e6782f82e1ff4012a8" id="r_a75b4ad78ae16c6e6782f82e1ff4012a8"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:a75b4ad78ae16c6e6782f82e1ff4012a8"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a75b4ad78ae16c6e6782f82e1ff4012a8">transpose_simd</a> (int64_t M, int64_t N, const T *src, int64_t ld_src, T *dst, int64_t ld_dst)</td></tr>
 <tr class="separator:a75b4ad78ae16c6e6782f82e1ff4012a8"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -366,9 +369,6 @@ Functions</h2></td></tr>
 <tr class="memitem:a18832d0507cb6d8bce78371b97f66479" id="r_a18832d0507cb6d8bce78371b97f66479"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
 <tr class="memitem:a18832d0507cb6d8bce78371b97f66479"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#a18832d0507cb6d8bce78371b97f66479">transpose_ref</a> (int64_t M, int64_t N, const T *src, int64_t ld_src, T *dst, int64_t ld_dst)</td></tr>
 <tr class="separator:a18832d0507cb6d8bce78371b97f66479"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:afd61ae194dbb24a73fe7098d9d823258" id="r_afd61ae194dbb24a73fe7098d9d823258"><td class="memTemplParams" colspan="2">template&lt;typename T&gt; </td></tr>
-<tr class="memitem:afd61ae194dbb24a73fe7098d9d823258"><td class="memTemplItemLeft" align="right" valign="top">void&#160;</td><td class="memTemplItemRight" valign="bottom"><a class="el" href="#afd61ae194dbb24a73fe7098d9d823258">printMatrix</a> (<a class="el" href="#ae28c9cc48e43e99cb778d60ba35c0fbf">matrix_op_t</a> op, const T *inp, size_t R, size_t C, size_t ld, const std::string &amp;name)</td></tr>
-<tr class="separator:afd61ae194dbb24a73fe7098d9d823258"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Top level include file for FBGEMM. </p>
