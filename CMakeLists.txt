@@ -166,6 +166,11 @@ else()
   message(WARNING "OpenMP is not supported by the compiler")
 endif()
 
+if(FBGEMM_USE_IPO)
+  include(CheckIPOSupported)
+  check_ipo_supported()
+endif()
+
 # Define file lists
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
@@ -192,16 +197,14 @@ cpp_library(
   SRCS
     ${FBGEMM_AVX2_SRCS}
     ${FBGEMM_AVX2_INLINE_SRCS}
-  INCLUDE_DIRS
-    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
-    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
+  # INCLUDE_DIRS
+  #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+  #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
+  #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
   CC_FLAGS
     -m64 -mavx2 -mf16c -mfma
   MSVC_FLAGS
     /arch:AVX2
-  USE_IPO
-    ${FBGEMM_USE_IPO}
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
@@ -216,16 +219,14 @@ cpp_library(
   SRCS
     ${FBGEMM_AVX512_SRCS}
     ${FBGEMM_AVX512_INLINE_SRCS}
-  INCLUDE_DIRS
-    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
-    $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
+  # INCLUDE_DIRS
+  #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+  #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
+  #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
   CC_FLAGS
     -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
   MSVC_FLAGS
     /arch:AVX512
-  USE_IPO
-    ${FBGEMM_USE_IPO}
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
@@ -244,11 +245,11 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
       OBJECT
     SRCS
       ${FBGEMM_AUTOVEC_SRCS}
-    INCLUDE_DIRS
-      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
-      $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
-    USE_IPO
+    # INCLUDE_DIRS
+    #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
+    #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/cpuinfo/include>
+    #   $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/external/asmjit/src>
+    ENABLE_IPO
       ${FBGEMM_USE_IPO}
     DEPS
       $<BUILD_INTERFACE:cpuinfo>
@@ -266,7 +267,6 @@ add_dependencies(fbgemm_generic defs.bzl)
 # foreach(target IN LISTS fbgemm_targets)
 #   target_link_libraries(${target} PUBLIC fbgemm_generic)
 # endforeach()
-# target_link_libraries(fbgemm_generic PUBLIC fbgemm_avx2)
 
 target_include_directories(fbgemm_generic PUBLIC
       $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
@@ -429,14 +429,4 @@ endif()
 
 if(NOT HAVE_GNU_F2H_IEEE)
   add_definitions(-DMISSING_GNU_F2H_IEEE)
-endif()
-
-if(FBGEMM_USE_IPO)
-  include(CheckIPOSupported)
-  check_ipo_supported()
-  # foreach(target IN LISTS fbgemm_targets "fbgemm_generic")
-  #   set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
-  # endforeach()
-  set_property(TARGET fbgemm_avx2 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
-  set_property(TARGET fbgemm_avx512 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
 endif()

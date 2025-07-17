@@ -20,7 +20,7 @@ function(cpp_library)
         PREFIX          # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
         TYPE            # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
         DESTINATION     # The install destination directory to place the build target into
-        USE_IPO         # Whether to enable interprocedural optimization (IPO) for the target
+        ENABLE_IPO         # Whether to enable interprocedural optimization (IPO) for the target
     )
     set(multiValueArgs
         SRCS            # Sources for CPU-only build
@@ -113,7 +113,7 @@ function(cpp_library)
         POSITION_INDEPENDENT_CODE ON)
 
     # Set IPO
-    if(args_USE_IPO)
+    if(args_ENABLE_IPO)
         set_target_properties(${lib_name} PROPERTIES
             INTERPROCEDURAL_OPTIMIZATION ON)
     endif()
@@ -157,6 +157,9 @@ function(cpp_library)
         " "
         "MSVC_FLAGS:"
         "${args_MSVC_FLAGS}"
+        " "
+        "ENABLE_IPO: "
+        "${args_ENABLE_IPO}"
         " "
         "INCLUDE_DIRS:"
         "${args_INCLUDE_DIRS}"
