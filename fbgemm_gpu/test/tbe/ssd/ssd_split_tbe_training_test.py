@@ -2477,7 +2477,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
         emb2.local_weight_counts = [ids.numel() for ids in bucket_asc_ids_list]
         emb2.enable_load_state_dict_mode()
         self.assertIsNotNone(emb2._cached_kvzch_data)
-        for i in range(len(emb.embedding_specs)):
+        for i, _ in enumerate(emb.embedding_specs):
             # pyre-ignore [16]
             emb2._cached_kvzch_data.cached_weight_tensor_per_table[i].copy_(
                 # pyre-fixme[16]: Undefined attribute: Item `torch._tensor.Tensor` of `typing.Uni...
@@ -2487,7 +2487,7 @@ class SSDSplitTableBatchedEmbeddingsTest(unittest.TestCase):
             # EXACT_ROWWISE_ADAGRAD optimizer.  The test in general should
             # be upgraded in the future to support multiple optimizers
             # pyre-ignore [16]
-            emb2._cached_kvzch_data.cached_optimizer_state_per_table[i].copy_(
+            emb2._cached_kvzch_data.cached_optimizer_states_per_table[i][0].copy_(
                 split_optimizer_states[i][0]
             )
             # pyre-ignore [16]

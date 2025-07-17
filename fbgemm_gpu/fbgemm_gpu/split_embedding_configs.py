@@ -150,6 +150,54 @@ class EmbOptimType(enum.Enum):
         else:
             return {}
 
+    def empty_states(
+        self,
+        embedding_specs: List[Tuple[int, int]],  # Tuple of (rows, dims)
+        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+        local_row_counts: Optional[List[int]] = None,
+    ) -> List[List[torch.Tensor]]:
+        """
+        Creates sets of empty tensors per table to hold optimizer states based
+        on the specified optimizer type, state dtypes, embedding specs, and
+        (optionally) local row counts.
+        """
+        if local_row_counts is None:
+            # If local_row_counts is not specified, then we assume that the
+            # local row count for each table is the same as the global row count
+            (local_row_counts, _) = zip(*embedding_specs)
+        else:
+            # Else, check that the local row count for each table is set
+            assert len(local_row_counts) == len(embedding_specs)
+            for i, r in enumerate(local_row_counts):
+                assert r > 0, f"local_row_counts for table {i} is not set"
+
+        opt_states_set: List[List[torch.Tensor]] = []
+
+        for i, (_, D) in enumerate(embedding_specs):
+            # Get the local row count for this table
+            r = local_row_counts[i]
+
+            # Set up the table of state names to state sizes, ordered by their
+            # memory layout
+            state_size_table = self.state_size_table(D)
+            ordered_state_sizes = [(k, state_size_table[k]) for k in self.state_names()]
+
+            # Create the optimizer states for this table
+            opt_states = [
+                torch.empty(
+                    # If the state size is 1, then fix tensor to 1D to be
+                    # consistent with training.py code
+                    (r, d) if d > 1 else r,
+                    dtype=self._extract_dtype(optimizer_state_dtypes, state_name),
+                    device="cpu",
+                )
+                for state_name, d in ordered_state_sizes
+            ]
+
+            opt_states_set.append(opt_states)
+
+        return opt_states_set
+
     def ssd_state_splits(
         self,
         embedding_specs: List[Tuple[int, int]],  # Tuple of (rows, dims)
