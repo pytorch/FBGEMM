@@ -171,6 +171,7 @@ if(FBGEMM_USE_IPO)
   check_ipo_supported()
 endif()
 
+# NOTE: Remove this once we migrate fbgemm target to use cpp_library
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Define file lists
@@ -203,42 +204,14 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
+  SANITIZER_OPTIONS
+    "${USE_SANITIZER}"
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
 )
 
-
-
-# add_library(fbgemm_generic OBJECT ${FBGEMM_GENERIC_SRCS})
-
 add_dependencies(fbgemm_generic defs.bzl)
-
-# target_include_directories(fbgemm_generic PUBLIC
-#       $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}>
-#       $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
-#       $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>)
-
-# target_link_libraries(fbgemm_generic PUBLIC
-#   $<BUILD_INTERFACE:asmjit>
-#   $<BUILD_INTERFACE:cpuinfo>)
-
-if(USE_SANITIZER)
-  target_link_options(fbgemm_generic PUBLIC
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-  target_compile_options(fbgemm_generic PUBLIC
-    "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
-endif()
-
-# if(OpenMP_FOUND)
-#   target_link_libraries(fbgemm_generic PUBLIC OpenMP::OpenMP_CXX)
-# endif()
-
-
-
-
-
-
 
 set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
 
@@ -278,11 +251,7 @@ cpp_library(
     fbgemm_generic
 )
 
-# add_library(fbgemm_avx2 OBJECT ${FBGEMM_AVX2_SRCS} ${FBGEMM_AVX2_INLINE_SRCS})
-# add_library(fbgemm_avx512 OBJECT ${FBGEMM_AVX512_SRCS} ${FBGEMM_AVX512_INLINE_SRCS})
 if(NOT DISABLE_FBGEMM_AUTOVEC)
-  # add_library(fbgemm_autovec OBJECT ${FBGEMM_AUTOVEC_SRCS})
-
   cpp_library(
     PREFIX
       fbgemm_autovec
@@ -300,8 +269,6 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
 
   list(APPEND fbgemm_targets fbgemm_autovec)
 endif()
-
-
 
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")

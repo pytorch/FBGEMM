@@ -17,10 +17,11 @@ function(cpp_library)
 
     set(flags)
     set(singleValueArgs
-        PREFIX          # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
-        TYPE            # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
-        DESTINATION     # The install destination directory to place the build target into
-        ENABLE_IPO         # Whether to enable interprocedural optimization (IPO) for the target
+        PREFIX              # Desired name for the library target (and by extension, the prefix for naming intermediate targets)
+        TYPE                # Target type, e.g., MODULE, OBJECT.  See https://cmake.org/cmake/help/latest/command/add_library.html
+        DESTINATION         # The install destination directory to place the build target into
+        ENABLE_IPO          # Whether to enable interprocedural optimization (IPO) for the target
+        SANITIZER_OPTIONS   # Sanitizer options to pass to the target
     )
     set(multiValueArgs
         SRCS            # Sources for CPU-only build
@@ -125,6 +126,16 @@ function(cpp_library)
     # Link against OpenMP if available
     if(OpenMP_FOUND)
         target_link_libraries(${lib_name} PUBLIC OpenMP::OpenMP_CXX)
+    endif()
+
+    # Add sanitizer options if needed
+    if(args_SANITIZER_OPTIONS)
+        target_link_options(${lib_name} PUBLIC
+            "-fsanitize=${args_SANITIZER_OPTIONS}"
+            -fno-omit-frame-pointer)
+        target_compile_options(${lib_name} PUBLIC
+            "-fsanitize=${args_SANITIZER_OPTIONS}"
+            -fno-omit-frame-pointer)
     endif()
 
     # Set PIC
