@@ -22,7 +22,7 @@ __configure_fbgemm_build_cmake () {
 
   # shellcheck disable=SC2206
   build_args=(
-    -DUSE_SANITIZER=address
+    -DFBGEMM_USE_SANITIZER=address
     -DFBGEMM_LIBRARY_TYPE=${fbgemm_library_type}
     -DPYTHON_EXECUTABLE=${python_path}
   )
