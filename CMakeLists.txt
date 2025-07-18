@@ -41,57 +41,6 @@ endfunction()
 
 
 ################################################################################
-# FBGEMM C++ Setup
-################################################################################
-
-# # Set the default C++ standard to C++20
-# # Individual targets can have this value overridden; see
-# # https://cmake.org/cmake/help/latest/prop_tgt/CXX_STANDARD.html
-# set(CMAKE_CXX_STANDARD 20)
-# set(CMAKE_CXX_EXTENSIONS OFF)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-
-# # Set the default C standard to C17
-# # Individual targets can have this value overridden; see
-# # https://cmake.org/cmake/help/latest/prop_tgt/C_STANDARD.html
-# set(CMAKE_C_STANDARD 17)
-# set(CMAKE_C_EXTENSIONS OFF)
-# set(CMAKE_C_STANDARD_REQUIRED ON)
-
-# # Check if given flag is supported and append it to provided outputvar
-# # Also define HAS_UPPER_CASE_FLAG_NAME variable
-# # From: https://github.com/pytorch/pytorch/blob/62c8d30f9f6715d0b60d78fb5f5913a2f3bd185b/cmake/public/utils.cmake#L579
-# # Usage:
-# #   append_cxx_flag_if_supported("-Werror" CMAKE_CXX_FLAGS)
-# function(append_cxx_flag_if_supported flag outputvar)
-#     string(TOUPPER "HAS${flag}" _FLAG_NAME)
-#     string(REGEX REPLACE "[=-]" "_" _FLAG_NAME "${_FLAG_NAME}")
-
-#     # GCC silents unknown -Wno-XXX flags, so we detect the corresponding -WXXX.
-#     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-#       string(REGEX REPLACE "Wno-" "W" new_flag "${flag}")
-#     else()
-#       set(new_flag ${flag})
-#     endif()
-
-#     check_cxx_compiler_flag("${new_flag}" ${_FLAG_NAME})
-#     if(${_FLAG_NAME})
-#         string(APPEND ${outputvar} " ${flag}")
-#         set(${outputvar} "${${outputvar}}" PARENT_SCOPE)
-#     endif()
-# endfunction()
-
-# function(target_compile_options_if_supported target flag)
-#   set(_compile_options "")
-#   append_cxx_flag_if_supported("${flag}" _compile_options)
-#   if(NOT "${_compile_options}" STREQUAL "")
-#     target_compile_options(${target} PRIVATE ${flag})
-#   endif()
-# endfunction()
-
-
-################################################################################
 # FBGEMM Build Kickstart
 ################################################################################
 
@@ -180,9 +129,6 @@ if(FBGEMM_USE_IPO)
   check_ipo_supported()
 endif()
 
-# # NOTE: Remove this once we migrate fbgemm target to use cpp_library
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
 # Define file lists
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
@@ -200,7 +146,7 @@ get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
 
 # Make libraries depend on defs.bzl
-add_custom_target(defs.bzl DEPENDS defs.bzl)
+# add_custom_target(defs.bzl DEPENDS defs.bzl)
 
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   set(fbgemm_generic_defs FBGEMM_STATIC)
@@ -227,7 +173,7 @@ cpp_library(
 )
 
 
-add_dependencies(fbgemm_generic defs.bzl)
+# add_dependencies(fbgemm_generic defs.bzl)
 
 set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
 
@@ -286,24 +232,17 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
   list(APPEND fbgemm_targets fbgemm_autovec)
 endif()
 
-if(MSVC)
-  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
-else()
-  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-  # string(APPEND CMAKE_CXX_FLAGS " -Wall")
-  # string(APPEND CMAKE_CXX_FLAGS " -Wextra")
-  # string(APPEND CMAKE_CXX_FLAGS " -Werror")
-  # string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
-  # string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
-  # string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
-  # string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
-  # string(APPEND CMAKE_CXX_FLAGS " -Wunused-variable")
-  # if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-  #   string(APPEND CMAKE_CXX_FLAGS " -Wno-vla-cxx-extension")
-  # elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  #   string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
-  # endif()
+cpp_library(
+  PREFIX
+    fbgemm
+  TYPE
+    ${FBGEMM_LIBRARY_TYPE}
+  DEPS
+    fbgemm_generic
+    ${fbgemm_targets}
+)
 
+if(NOT MSVC)
   set_source_files_properties(
     src/FbgemmFP16UKernelsAvx2.cc
     src/FbgemmFP16UKernelsAvx512.cc
@@ -321,7 +260,6 @@ else()
       PROPERTIES COMPILE_FLAGS "-Wno-attributes")
   endif()
 endif()
-
 
 if(NOT TARGET asmjit)
   # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
@@ -358,48 +296,6 @@ if(NOT TARGET cpuinfo)
   add_subdirectory("${CPUINFO_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/cpuinfo")
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
-
-
-
-
-
-
-
-cpp_library(
-  PREFIX
-    fbgemm
-  TYPE
-    ${FBGEMM_LIBRARY_TYPE}
-  DEPS
-    fbgemm_generic
-    ${fbgemm_targets}
-)
-
-# file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
-# if(FBGEMM_LIBRARY_TYPE STREQUAL "SHARED")
-#   add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-# elseif(FBGEMM_LIBRARY_TYPE STREQUAL "STATIC")
-#   add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-#   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
-#   #avoid generating _dllimport functions.
-#   target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
-# else()
-#   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
-# endif()
-
-# target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
-
-# install(
-#   TARGETS fbgemm
-#   EXPORT fbgemmLibraryConfig
-#   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) # For windows
-
-
-
-
-
 
 install(
   FILES ${FBGEMM_PUBLIC_HEADERS}
