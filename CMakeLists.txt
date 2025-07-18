@@ -61,14 +61,13 @@ set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
   "Type of library (shared, static, or default) to build")
 
-set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
-# option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
+set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
     set(FBGEMM_LIBRARY_TYPE "SHARED")
@@ -79,12 +78,8 @@ else()
   string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
-if(FBGEMM_BUILD_TESTS)
-  enable_testing()
-endif()
-
 # Add address sanitizer
-set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
+set(FBGEMM_USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
 # We should default to a Release build
 if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
@@ -149,14 +144,6 @@ if(NOT MSVC)
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-
-  # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
-  if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
-    set_source_files_properties(
-      src/GenerateKernelU8S8S32ACC32.cc
-      src/GenerateKernelDirectConvU8S8S32ACC32.cc
-      PROPERTIES COMPILE_FLAGS "-Wno-attributes")
-  endif()
 endif()
 
 ################################################################################
@@ -181,7 +168,7 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
   SANITIZER_OPTIONS
-    "${USE_SANITIZER}"
+    "${FBGEMM_USE_SANITIZER}"
   DEFINITIONS
     ${fbgemm_generic_defs}
   DEPS
@@ -340,6 +327,7 @@ endif()
 ################################################################################
 
 if(FBGEMM_BUILD_TESTS)
+  enable_testing()
   add_subdirectory(test)
 endif()
 
