@@ -8,6 +8,9 @@
 
 #pragma once
 
+#if defined(__x86_64__) || defined(__i386__) || \
+    (defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)))
+
 #include <cstdint>
 #include "./FbgemmBuild.h" // @manual
 #include "./UtilsAvx2.h" // @manual
@@ -36,3 +39,5 @@ FBGEMM_API void requantizeOutputProcessingGConvAvx512(
     int ld_in,
     const requantizationParams_t<BIAS_TYPE>& r);
 } // namespace fbgemm
+
+#endif

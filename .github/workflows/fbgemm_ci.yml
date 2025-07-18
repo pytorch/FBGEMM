@@ -106,7 +106,7 @@ jobs:
         set -e
         mkdir $BUILD_DIR; cd $BUILD_DIR
         cmake --version
-        cmake -DFBGEMM_USE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} ..
+        cmake -DFBGEMM_USE_SANITIZER=address -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DFBGEMM_ENABLE_AVX512=OFF ..
         make -j VERBOSE=1
 
 
@@ -196,7 +196,7 @@ jobs:
         cd %BUILD_DIR%
         echo "STARTING CMAKE"
         cmake --version
-        cmake -G Ninja -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
+        cmake -G Ninja -DFBGEMM_ENABLE_AVX512=OFF -DFBGEMM_BUILD_BENCHMARKS=OFF -DFBGEMM_LIBRARY_TYPE=${{ matrix.library-type }} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="cl.exe" -DCMAKE_CXX_COMPILER="cl.exe" ..
         ninja -v all
         echo "Build Success"
 

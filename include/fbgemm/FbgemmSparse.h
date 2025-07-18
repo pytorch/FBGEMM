@@ -167,6 +167,7 @@ void SparseDenseMMAvx2(
     int ldc,
     bool accum = false);
 
+#if !defined(__aarch64__) && defined(__AVX512F__)    
 void SparseDenseMMAvx512(
     int M,
     int N,
@@ -178,6 +179,7 @@ void SparseDenseMMAvx512(
     float* C,
     int ldc,
     bool accum = false);
+#endif    
 
 template <bool FUSE_RELU, QuantizationGranularity Q_GRAN>
 void SparseDenseInt8MMAvx2(
@@ -193,6 +195,7 @@ void SparseDenseInt8MMAvx2(
     int thread_id = 0,
     int num_threads = 1);
 
+#if !defined(__aarch64__) && defined(__AVX512F__)    
 template <bool FUSE_RELU, QuantizationGranularity Q_GRAN>
 void SparseDenseInt8MMAvx512(
     int N,
@@ -218,6 +221,7 @@ void SparseDenseInt8MVAvx512(
     bool accum = false,
     int thread_id = 0,
     int num_threads = 1);
+#endif
 
 } // namespace internal
 

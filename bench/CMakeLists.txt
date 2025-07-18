@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+
 ################################################################################
 # Find Packages
 ################################################################################
@@ -68,9 +70,9 @@ function(add_benchmark BENCHNAME)
   set_target_properties(${BENCHNAME} PROPERTIES
     FOLDER test)
 
-  ############################################################################
+  ##############################################################################
   # Debug Summary
-  ############################################################################
+  ##############################################################################
 
   BLOCK_PRINT(
     "Benchmark Target: ${BENCHNAME}"

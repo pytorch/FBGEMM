@@ -82,7 +82,7 @@ constexpr kernel_array_t<float16> kernel_fp16_neon = {
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
     nullptr,
-#ifndef __aarch64__
+#if !defined(__aarch64__) && defined(__AVX512F__)
     gemmkernel_1x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx2_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx2_fp16_fA0fB0fC0,
@@ -101,8 +101,8 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512_256 = {
 };
 
 constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
-#ifndef __aarch64__
     nullptr,
+#if !defined(__aarch64__) && defined(__AVX512F__)
     gemmkernel_1x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_2x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_3x2_Avx512_fp16_fA0fB0fC0,
@@ -117,8 +117,6 @@ constexpr kernel_array_t<float16> kernel_fp16_avx512 = {
     gemmkernel_12x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_13x2_Avx512_fp16_fA0fB0fC0,
     gemmkernel_14x2_Avx512_fp16_fA0fB0fC0
-#else
-    nullptr
 #endif
 };
 

@@ -43,6 +43,7 @@ __configure_fbgemm_build_cmake () {
       -DCMAKE_CXX_COMPILER="${cxx_path}"
       -DCMAKE_C_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
       -DCMAKE_CXX_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
+      -DFBGEMM_ENABLE_AVX512=OFF
     )
   fi
 
