@@ -509,7 +509,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"FBGEMM_SSD_TBE_USE_DUMMY_PROFILE is set to {set_dummy_profile}; "
                 f"Use dummy profile: {use_dummy_profile}"
             )
-        # pyre-ignore[4]
+
         self.record_function_via_dummy_profile: Callable[..., Any] = (
             self.record_function_via_dummy_profile_factory(use_dummy_profile)
         )
@@ -1136,7 +1136,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 it_step, event_name, report_val, time_unit=time_unit
             )
 
-    # pyre-ignore[3]
     def record_function_via_dummy_profile_factory(
         self,
         use_dummy_profile: bool,
@@ -1171,7 +1170,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         def func(
             name: str,
-            # pyre-ignore[2]
             fn: Callable[..., Any],
             *args: Any,
             **kwargs: Any,
@@ -2309,7 +2307,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         # pyre-ignore[53]
-        def _slice(tensor: Tensor, t: int, rowwise: bool) -> Tensor:
+        def _slice(state_name: str, tensor: Tensor, t: int, rowwise: bool) -> Tensor:
             d: int = dims[t]
 
             # pyre-ignore[16]
@@ -2319,7 +2317,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             if sorted_ids is None or sorted_ids[t].numel() == 0:
                 # Empty optimizer state for module initialization
-                return torch.empty(0, dtype=self.optimizer.dtype(), device="cpu")
+                return torch.empty(
+                    0,
+                    dtype=(
+                        self.optimizer_state_dtypes.get(
+                            state_name, SparseType.FP32
+                        ).as_dtype()
+                    ),
+                    device="cpu",
+                )
 
             elif not rowwise:
                 # Optimizer state is element-wise - materialize the local ids
@@ -2344,16 +2350,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
             return [
-                [_slice(self.momentum1_dev, t, rowwise=True)]
+                [_slice("momentum1", self.momentum1_dev, t, rowwise=True)]
                 for t, _ in enumerate(rows)
             ]
 
         elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
             return [
                 [
-                    _slice(self.momentum1_dev, t, rowwise=False),
+                    _slice("momentum1", self.momentum1_dev, t, rowwise=False),
                     # pyre-ignore[6]
-                    _slice(self.momentum2_dev, t, rowwise=True),
+                    _slice("momentum2", self.momentum2_dev, t, rowwise=True),
                 ]
                 for t, _ in enumerate(rows)
             ]
@@ -2620,6 +2626,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         logging.info(
             f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
+            # pyre-ignore[16]
             f"num ids list: {None if not sorted_id_tensor else [ids.numel() for ids in sorted_id_tensor]}"
         )
 
@@ -3754,9 +3761,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # NOTE: Remove this once there is support for fetching multiple
         # optimizer states in fetch_from_l1_sp_w_row_ids
-        if self.optimizer != OptimType.EXACT_ROWWISE_ADAGRAD:
+        if only_get_optimizer_states and self.optimizer not in [
+            OptimType.EXACT_ROWWISE_ADAGRAD
+        ]:
             raise RuntimeError(
-                "Only rowwise adagrad is supported in fetch_from_l1_sp_w_row_ids at the moment"
+                f"Fetching optimizer states using fetch_from_l1_sp_w_row_ids() is not yet supported for {self.optimizer}"
             )
 
         with torch.no_grad():

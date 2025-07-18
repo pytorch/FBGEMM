@@ -227,14 +227,6 @@ class EmbOptimType(enum.Enum):
             for (name, cumsum_table) in params.items()
         ]
 
-    def dtype(self) -> torch.dtype:
-        """
-        Returns the dtype of the optimizer state
-        """
-        return {
-            EmbOptimType.EXACT_ROWWISE_ADAGRAD: torch.float32,
-        }.get(self, torch.float32)
-
 
 # Base class for quantization configuration (in case other numeric types have
 # configs)
