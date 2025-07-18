@@ -91,15 +91,3 @@ BLOCK_PRINT(
   ""
   "${AVX512_FLAGS}"
 )
-
-################################################################################
-# Setup OpenMP Flags
-################################################################################
-
-find_package(OpenMP)
-
-if(OpenMP_FOUND)
-  message(STATUS "OpenMP found: OpenMP_C_INCLUDE_DIRS = ${OpenMP_C_INCLUDE_DIRS}")
-else()
-  message(WARNING "OpenMP is not supported by the compiler")
-endif()
