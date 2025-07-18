@@ -10,13 +10,13 @@
 
 namespace fbgemm_gpu {
 
-at::Tensor f8f8bf16_groupwise_128_16_128_1_1_1_9_t_t_0(
+at::Tensor f8f8bf16_groupwise_128_64_128_4_1_1_9_t_t_4(
     at::Tensor XQ,
     at::Tensor WQ,
     at::Tensor x_scale,
     at::Tensor w_scale) {
   // Dispatch this kernel to the correct underlying implementation.
-  return f8f8bf16_groupwise_wrapper<128, 16, 128, 1, 1, 1, 9, true, true, 0>(
+  return f8f8bf16_groupwise_wrapper<128, 64, 128, 4, 1, 1, 9, true, true, 4>(
       XQ, WQ, x_scale, w_scale);
 }
 

@@ -25,9 +25,89 @@ get_kernel_via_heuristic(int arch, int M, int N, int K) {
   // Use shape heuristics to dispatch to optimized kernel configuration.
   // Initial enablement includes only one schedule.
   if (M <= 16) {
-    return f8f8bf16_groupwise_128_16_128_1_1_1_9_t_t_0;
+    if (K <= 1024) {
+      return f8f8bf16_groupwise_128_16_128_1_1_1_9_f_t_8;
+    } else {
+      return f8f8bf16_groupwise_128_16_128_4_1_1_9_f_t_8;
+    }
+  } else if (M <= 32) {
+    if (N < 8192 && K <= 8192) {
+      if (K <= 1024) {
+        return f8f8bf16_groupwise_128_16_128_1_1_1_9_f_t_0;
+      } else {
+        return f8f8bf16_groupwise_128_16_128_4_1_1_9_f_t_0;
+      }
+    } else {
+      if (K <= 1024) {
+        return f8f8bf16_groupwise_128_32_128_1_1_1_9_f_t_8;
+      } else {
+        return f8f8bf16_groupwise_128_32_128_4_1_1_9_f_t_8;
+      }
+    }
+  } else if (M <= 64) {
+    if (N <= 4096) {
+      return f8f8bf16_groupwise_128_16_128_4_1_1_9_f_t_0;
+    } else if (N <= 8192) {
+      return f8f8bf16_groupwise_128_32_128_1_1_1_9_f_t_0;
+    } else {
+      return f8f8bf16_groupwise_128_64_128_4_1_1_9_t_t_4;
+    }
+  } else if (M <= 128) {
+    if (N <= 1280) {
+      return f8f8bf16_groupwise_128_16_128_1_2_1_9_f_t_0;
+    } else if (N <= 2048) {
+      return f8f8bf16_groupwise_128_16_128_1_2_1_9_f_t_0;
+    } else if (N <= 5120) {
+      return f8f8bf16_groupwise_128_32_128_1_1_1_9_f_t_0;
+    } else if (N <= 7168) {
+      return f8f8bf16_groupwise_128_64_128_1_1_1_9_f_t_8;
+    } else if (N <= 8192) {
+      return f8f8bf16_groupwise_64_128_128_1_1_1_9_t_f_0;
+    } else {
+      return f8f8bf16_groupwise_128_128_128_1_1_1_9_f_f_0;
+    }
+  } else if (M <= 256) {
+    if (N <= 1024) {
+      return f8f8bf16_groupwise_128_16_128_1_1_1_9_f_t_0;
+    } else if (N <= 2048) {
+      return f8f8bf16_groupwise_128_32_128_1_1_1_9_f_t_0;
+    } else {
+      return f8f8bf16_groupwise_128_128_128_1_1_1_9_f_f_0;
+    }
+  } else if (M <= 512) {
+    if (N <= 1024) {
+      return f8f8bf16_groupwise_128_32_128_1_1_1_9_f_t_0;
+    } else if (N <= 5120) {
+      return f8f8bf16_groupwise_64_128_128_1_1_1_9_t_f_4;
+    } else {
+      return f8f8bf16_groupwise_128_128_128_1_1_1_9_f_f_0;
+    }
+  } else if (M <= 2048) {
+    if (N <= 5120) {
+      return f8f8bf16_groupwise_128_128_128_1_1_1_9_f_f_0;
+    } else {
+      return f8f8bf16_groupwise_128_128_128_1_2_1_9_f_f_0;
+    }
+  } else if (M <= 8192) {
+    if (N <= 8192) {
+      return f8f8bf16_groupwise_128_128_128_2_1_1_9_f_f_0;
+    } else {
+      return f8f8bf16_groupwise_128_128_128_1_1_1_9_f_f_4;
+    }
   } else {
-    return f8f8bf16_groupwise_128_128_128_1_2_1_9_f_f_8;
+    if (N <= 5120 && K <= 5120) {
+      if (K <= 640) {
+        return f8f8bf16_groupwise_64_128_128_1_1_1_9_t_f_8;
+      } else {
+        return f8f8bf16_groupwise_128_128_128_2_1_1_9_f_f_0;
+      }
+    } else if (N <= 8192) {
+      return f8f8bf16_groupwise_128_128_128_1_1_1_9_f_f_0;
+    } else if (N <= 13312) {
+      return f8f8bf16_groupwise_128_128_128_1_1_1_9_f_f_8;
+    } else {
+      return f8f8bf16_groupwise_128_128_128_1_2_1_9_f_f_8;
+    }
   }
 }
 
@@ -48,7 +128,7 @@ Kernel_f8f8bf16_groupwise get_kernel_via_tuning(
   // Use (M, N, K) shape as the key.
   const std::string shape_key =
       std::to_string(M) + "_" + std::to_string(N) + "_" + std::to_string(K);
-  const auto& kernels = get_f8f8bf16_groupwise_kernels(arch);
+  const auto& kernels = get_f8f8bf16_groupwise_kernels();
   auto kernel = cache.findBestKernelMaybeAutotune(
       shape_key, kernels, XQ, WQ, x_scale, w_scale);
   return kernel;
