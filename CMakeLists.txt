@@ -280,21 +280,22 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
 endif()
 
 if(MSVC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
-else(MSVC)
-  string(APPEND CMAKE_CXX_FLAGS " -Wall")
-  string(APPEND CMAKE_CXX_FLAGS " -Wextra")
-  string(APPEND CMAKE_CXX_FLAGS " -Werror")
-  string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
-  string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
-  string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
-  string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
-  string(APPEND CMAKE_CXX_FLAGS " -Wunused-variable")
-  if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-    string(APPEND CMAKE_CXX_FLAGS " -Wno-vla-cxx-extension")
-  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
-  endif()
+  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4305 /wd4309")
+else()
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  # string(APPEND CMAKE_CXX_FLAGS " -Wall")
+  # string(APPEND CMAKE_CXX_FLAGS " -Wextra")
+  # string(APPEND CMAKE_CXX_FLAGS " -Werror")
+  # string(APPEND CMAKE_CXX_FLAGS " -Wno-deprecated-declarations")
+  # string(APPEND CMAKE_CXX_FLAGS " -Wunknown-pragmas")
+  # string(APPEND CMAKE_CXX_FLAGS " -Wimplicit-fallthrough")
+  # string(APPEND CMAKE_CXX_FLAGS " -Wno-strict-aliasing")
+  # string(APPEND CMAKE_CXX_FLAGS " -Wunused-variable")
+  # if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+  #   string(APPEND CMAKE_CXX_FLAGS " -Wno-vla-cxx-extension")
+  # elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  #   string(APPEND CMAKE_CXX_FLAGS " -Wmaybe-uninitialized")
+  # endif()
 
   set_source_files_properties(
     src/FbgemmFP16UKernelsAvx2.cc
@@ -312,13 +313,8 @@ else(MSVC)
       src/GenerateKernelDirectConvU8S8S32ACC32.cc
       PROPERTIES COMPILE_FLAGS "-Wno-attributes")
   endif()
-endif(MSVC)
+endif()
 
-# message(STATUS "==========")
-# message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
-# message(STATUS "CMAKE_CXX_FLAGS_DEBUG is ${CMAKE_CXX_FLAGS_DEBUG}")
-# message(STATUS "CMAKE_CXX_FLAGS_RELEASE is ${CMAKE_CXX_FLAGS_RELEASE}")
-# message(STATUS "==========")
 
 if(NOT TARGET asmjit)
   # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
@@ -375,31 +371,6 @@ cpp_library(
 
 
 
-# file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
-# if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
-#   add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-# elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
-#   add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-#   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
-#   #avoid generating _dllimport functions.
-#   target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
-# else()
-#   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
-# endif()
-
-# target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
-
-# install(
-#   TARGETS fbgemm
-#   EXPORT fbgemmLibraryConfig
-#   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-#   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) # For windows
-
-
-
-
-
 
 
 
@@ -423,10 +394,6 @@ endif()
 if(FBGEMM_BUILD_DOCS)
   add_subdirectory(docs)
 endif()
-
-# if(FBGEMM_BUILD_FBGEMM_GPU)
-#   add_subdirectory(fbgemm_gpu)
-# endif()
 
 if(NOT HAVE_GNU_F2H_IEEE)
   add_definitions(-DMISSING_GNU_F2H_IEEE)
