@@ -81,7 +81,6 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
   assert(
       block.col_size <= ncol_per_group &&
       "ReQuantizeOutput should be called at most 1 group at a time.");
-  int g = block.col_start / ncol_per_group;
   if constexpr (
       instSet == inst_set_t::anyarch || !std::is_same_v<outT, uint8_t>) {
     for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
@@ -94,6 +93,7 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
         if constexpr (Q_GRAN == QuantizationGranularity::TENSOR) {
           Bq_zero_point_idx = 0;
         } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
+          int g = block.col_start / ncol_per_group;
           Bq_zero_point_idx = g;
         } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
           Bq_zero_point_idx = j;
