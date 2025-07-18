@@ -28,6 +28,7 @@ function(cpp_library)
         SRCS            # Sources for CPU-only build
         CC_FLAGS        # General compilation flags applicable to all build variants
         MSVC_FLAGS      # Compilation flags specific to MSVC
+        DEFINITIONS     # Preprocessor definitions
         INCLUDE_DIRS    # Include directories for compilation
         DEPS            # Target dependencies, i.e. built STATIC targets
     )
@@ -70,7 +71,7 @@ function(cpp_library)
         ${lib_sources})
 
     ############################################################################
-    # Compilation Flags
+    # Compilation Flags and Definitions
     ############################################################################
 
     if(MSVC)
@@ -112,6 +113,11 @@ function(cpp_library)
 
     target_compile_options(${lib_name} PRIVATE
         ${lib_cc_flags})
+
+    if(args_DEFINITIONS)
+        target_compile_definitions(${lib_name}
+            PUBLIC ${args_DEFINITIONS})
+    endif()
 
     ############################################################################
     # Library Includes and Linking
@@ -191,6 +197,9 @@ function(cpp_library)
         " "
         "MSVC_FLAGS:"
         "${args_MSVC_FLAGS}"
+        " "
+        "DEFINITIONS:"
+        "${args_DEFINITIONS}"
         " "
         "ENABLE_IPO: "
         "${args_ENABLE_IPO}"
