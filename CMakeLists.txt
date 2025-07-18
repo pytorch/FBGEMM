@@ -12,7 +12,11 @@
 # standard versions
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
+# Set up paths
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
 include(${CMAKE_MODULE_PATH}/Utilities.cmake)
 
 # C++ Compiler Setup - must be set BEFORE project declaration
@@ -64,7 +68,6 @@ option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
-
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
     set(FBGEMM_LIBRARY_TYPE "SHARED")
@@ -79,15 +82,22 @@ if(FBGEMM_BUILD_TESTS)
   enable_testing()
 endif()
 
-set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-set(FBGEMM_THIRDPARTY_DIR ${FBGEMM_BINARY_DIR}/external)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
 # Add address sanitizer
 set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
-# Check if compiler supports AVX512
+# We should default to a Release build
+if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
+endif()
+
+if(DISABLE_FBGEMM_AUTOVEC)
+  add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
+endif()
+
+################################################################################
+# AVX512 Support
+################################################################################
+
 include(CheckCXXCompilerFlag)
 if(MSVC)
   CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
@@ -100,20 +110,15 @@ if(NOT COMPILER_SUPPORTS_AVX512)
   message(FATAL_ERROR "A compiler with AVX512 support is required.")
 endif()
 
+################################################################################
+# GNU F2H_IEEE Support
+################################################################################
+
 # Check if compiler supports __gnu_f2h_ieee
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
 
-# We should default to a Release build
-if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
-endif()
-
 if(NOT HAVE_GNU_F2H_IEEE)
   add_definitions(-DMISSING_GNU_F2H_IEEE)
-endif()
-
-if(DISABLE_FBGEMM_AUTOVEC)
-  add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
 
 ################################################################################
@@ -132,7 +137,6 @@ if(FBGEMM_USE_IPO)
   include(CheckIPOSupported)
   check_ipo_supported()
 endif()
-
 
 ################################################################################
 # Prepare Sources
