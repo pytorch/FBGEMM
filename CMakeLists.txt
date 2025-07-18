@@ -108,6 +108,10 @@ if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
 endif()
 
+if(NOT HAVE_GNU_F2H_IEEE)
+  add_definitions(-DMISSING_GNU_F2H_IEEE)
+endif()
+
 if(DISABLE_FBGEMM_AUTOVEC)
   add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
@@ -129,24 +133,35 @@ if(FBGEMM_USE_IPO)
   check_ipo_supported()
 endif()
 
-# Define file lists
-get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
-get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
-get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
 
-get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
-get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+################################################################################
+# Prepare Sources
+################################################################################
 
-if(NOT DISABLE_FBGEMM_AUTOVEC)
-  get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+if(NOT MSVC)
+  set_source_files_properties(
+    src/FbgemmFP16UKernelsAvx2.cc
+    src/FbgemmFP16UKernelsAvx512.cc
+    src/FbgemmFP16UKernelsAvx512_256.cc
+    PROPERTIES COMPILE_FLAGS "-masm=intel")
+
+  set_source_files_properties(src/PackMatrix.cc
+    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
+
+  # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+  if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
+    set_source_files_properties(
+      src/GenerateKernelU8S8S32ACC32.cc
+      src/GenerateKernelDirectConvU8S8S32ACC32.cc
+      PROPERTIES COMPILE_FLAGS "-Wno-attributes")
+  endif()
 endif()
 
-get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
+################################################################################
+# FBGEMM Generic Target
+################################################################################
 
-
-
-# Make libraries depend on defs.bzl
-# add_custom_target(defs.bzl DEPENDS defs.bzl)
+get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
 
 if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
   set(fbgemm_generic_defs FBGEMM_STATIC)
@@ -172,10 +187,14 @@ cpp_library(
     $<BUILD_INTERFACE:asmjit>
 )
 
-
-# add_dependencies(fbgemm_generic defs.bzl)
-
 set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
+
+################################################################################
+# FBGEMM AVX2 Target
+################################################################################
+
+get_filelist("get_fbgemm_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_SRCS)
+get_filelist("get_fbgemm_inline_avx2_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX2_INLINE_SRCS)
 
 cpp_library(
   PREFIX
@@ -195,6 +214,13 @@ cpp_library(
     fbgemm_generic
 )
 
+################################################################################
+# FBGEMM AVX512 Target
+################################################################################
+
+get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+
 cpp_library(
   PREFIX
     fbgemm_avx512
@@ -213,7 +239,13 @@ cpp_library(
     fbgemm_generic
 )
 
+################################################################################
+# FBGEMM Autovec Target
+################################################################################
+
 if(NOT DISABLE_FBGEMM_AUTOVEC)
+  get_filelist("get_fbgemm_autovec_srcs()" FBGEMM_AUTOVEC_SRCS)
+
   cpp_library(
     PREFIX
       fbgemm_autovec
@@ -232,6 +264,10 @@ if(NOT DISABLE_FBGEMM_AUTOVEC)
   list(APPEND fbgemm_targets fbgemm_autovec)
 endif()
 
+################################################################################
+# FBGEMM Library Target
+################################################################################
+
 cpp_library(
   PREFIX
     fbgemm
@@ -242,24 +278,20 @@ cpp_library(
     ${fbgemm_targets}
 )
 
-if(NOT MSVC)
-  set_source_files_properties(
-    src/FbgemmFP16UKernelsAvx2.cc
-    src/FbgemmFP16UKernelsAvx512.cc
-    src/FbgemmFP16UKernelsAvx512_256.cc
-    PROPERTIES COMPILE_FLAGS "-masm=intel")
+get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 
-  set_source_files_properties(src/PackMatrix.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
+install(
+  FILES ${FBGEMM_PUBLIC_HEADERS}
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fbgemm")
 
-  # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
-  if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
-    set_source_files_properties(
-      src/GenerateKernelU8S8S32ACC32.cc
-      src/GenerateKernelDirectConvU8S8S32ACC32.cc
-      PROPERTIES COMPILE_FLAGS "-Wno-attributes")
-  endif()
-endif()
+install(
+  EXPORT fbgemmLibraryConfig
+  DESTINATION share/cmake/fbgemm
+  FILE fbgemmLibraryConfig.cmake)
+
+################################################################################
+# Asmjit Target
+################################################################################
 
 if(NOT TARGET asmjit)
   # Download asmjit from github if ASMJIT_SRC_DIR is not specified.
@@ -281,6 +313,10 @@ if(NOT TARGET asmjit)
   set_property(TARGET asmjit PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
+################################################################################
+# Cpuinfo Target
+################################################################################
+
 if(NOT TARGET cpuinfo)
   #Download cpuinfo from github if CPUINFO_SOURCE_DIR is not specified.
   if(NOT DEFINED CPUINFO_SOURCE_DIR)
@@ -297,14 +333,9 @@ if(NOT TARGET cpuinfo)
   set_property(TARGET cpuinfo PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-install(
-  FILES ${FBGEMM_PUBLIC_HEADERS}
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fbgemm")
-
-install(
-  EXPORT fbgemmLibraryConfig
-  DESTINATION share/cmake/fbgemm
-  FILE fbgemmLibraryConfig.cmake)
+################################################################################
+# Optional Targets
+################################################################################
 
 if(FBGEMM_BUILD_TESTS)
   add_subdirectory(test)
@@ -316,8 +347,4 @@ endif()
 
 if(FBGEMM_BUILD_DOCS)
   add_subdirectory(docs)
-endif()
-
-if(NOT HAVE_GNU_F2H_IEEE)
-  add_definitions(-DMISSING_GNU_F2H_IEEE)
 endif()
