@@ -202,6 +202,10 @@ get_filelist("get_fbgemm_public_headers()" FBGEMM_PUBLIC_HEADERS)
 # Make libraries depend on defs.bzl
 add_custom_target(defs.bzl DEPENDS defs.bzl)
 
+if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
+  set(fbgemm_generic_defs FBGEMM_STATIC)
+endif()
+
 cpp_library(
   PREFIX
     fbgemm_generic
@@ -216,11 +220,12 @@ cpp_library(
   SANITIZER_OPTIONS
     "${USE_SANITIZER}"
   DEFINITIONS
-    $<$<BOOL:${FBGEMM_LIBRARY_TYPE}>:FBGEMM_STATIC>
+    ${fbgemm_generic_defs}
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
 )
+
 
 add_dependencies(fbgemm_generic defs.bzl)
 

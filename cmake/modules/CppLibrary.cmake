@@ -71,7 +71,7 @@ function(cpp_library)
         ${lib_sources})
 
     ############################################################################
-    # Compilation Flags
+    # Compilation Flags and Definitions
     ############################################################################
 
     if(MSVC)
