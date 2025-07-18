@@ -369,9 +369,9 @@ endif()
 # )
 
 file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
-if(FBGEMM_LIBRARY_TYPE STREQUAL "shared")
+if(FBGEMM_LIBRARY_TYPE STREQUAL "SHARED")
   add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "static")
+elseif(FBGEMM_LIBRARY_TYPE STREQUAL "STATIC")
   add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
   #avoid generating _dllimport functions.
