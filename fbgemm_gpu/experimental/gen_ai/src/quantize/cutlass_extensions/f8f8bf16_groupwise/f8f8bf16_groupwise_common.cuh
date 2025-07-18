@@ -33,7 +33,9 @@ template <
     int TBS_N,
     int TBS_K,
     int ARCH,
-    bool PONG>
+    bool PONG,
+    bool TRANSPOSE,
+    int SWIZZLE>
 at::Tensor f8f8bf16_groupwise_impl(
     at::Tensor XQ, // FP8
     at::Tensor WQ, // FP8
@@ -64,11 +66,9 @@ at::Tensor f8f8bf16_groupwise_impl(
 
   using ElementA = cutlass::float_e4m3_t;
   using LayoutA = cutlass::layout::RowMajor;
-  constexpr int AlignmentInputA = 16 / sizeof(ElementA);
 
   using ElementB = cutlass::float_e4m3_t;
   using LayoutB = cutlass::layout::ColumnMajor;
-  constexpr int AlignmentInputB = 16 / sizeof(ElementB);
 
   // Use implicit transpose to enable more flexible configurations.
   using LayoutA_Transpose =
@@ -113,6 +113,39 @@ at::Tensor f8f8bf16_groupwise_impl(
       decltype(ScaleConfig::deduce_layoutSFB()); // Layout type for SFB matrix
                                                  // operand
 
+  // Set appropriate inputs depending on whether we are doing implicit
+  // transpose.
+  using ElementLHS = cute::conditional_t<TRANSPOSE, ElementB, ElementA>;
+  using LayoutLHS = cute::conditional_t<TRANSPOSE, LayoutB_Transpose, LayoutA>;
+  constexpr int AlignmentInputLHS = 16 / sizeof(ElementLHS);
+  using ElementRHS = cute::conditional_t<TRANSPOSE, ElementA, ElementB>;
+  using LayoutRHS = cute::conditional_t<TRANSPOSE, LayoutA_Transpose, LayoutB>;
+  constexpr int AlignmentInputRHS = 16 / sizeof(ElementRHS);
+  using LayoutOut =
+      cute::conditional_t<TRANSPOSE, LayoutOutput_Transpose, LayoutOutput>;
+  using LayoutScaleLHS = cute::conditional_t<TRANSPOSE, LayoutSFB, LayoutSFA>;
+  using LayoutScaleRHS = cute::conditional_t<TRANSPOSE, LayoutSFA, LayoutSFB>;
+  // Set data pointers.
+  ElementLHS* LHS_data;
+  ElementRHS* RHS_data;
+  ElementComputeEpilogue* LHS_scale_data;
+  ElementComputeEpilogue* RHS_scale_data;
+  if constexpr (TRANSPOSE) {
+    LHS_data = reinterpret_cast<ElementLHS*>(WQ.data_ptr());
+    RHS_data = reinterpret_cast<ElementRHS*>(XQ.data_ptr());
+    LHS_scale_data =
+        reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr());
+    RHS_scale_data =
+        reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr());
+  } else {
+    LHS_data = reinterpret_cast<ElementLHS*>(XQ.data_ptr());
+    RHS_data = reinterpret_cast<ElementRHS*>(WQ.data_ptr());
+    LHS_scale_data =
+        reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr());
+    RHS_scale_data =
+        reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr());
+  }
+
   using KernelSchedule = cute::conditional_t<
       PONG,
       cutlass::gemm::KernelTmaWarpSpecializedPingpongFP8BlockScaledAccum,
@@ -133,10 +166,10 @@ at::Tensor f8f8bf16_groupwise_impl(
           ElementAccumulator,
           ElementComputeEpilogue,
           void,
-          LayoutOutput_Transpose,
+          LayoutOut,
           AlignmentOutput,
           ElementOutput,
-          LayoutOutput_Transpose,
+          LayoutOut,
           AlignmentOutput,
           EpilogueSchedule>::CollectiveOp;
 
@@ -145,11 +178,11 @@ at::Tensor f8f8bf16_groupwise_impl(
           ArchTag,
           OperatorClass,
           ElementB,
-          cute::tuple<LayoutB_Transpose, LayoutSFB>,
-          AlignmentInputB,
+          cute::tuple<LayoutLHS, LayoutScaleLHS>,
+          AlignmentInputLHS,
           ElementA,
-          cute::tuple<LayoutA_Transpose, LayoutSFA>,
-          AlignmentInputA,
+          cute::tuple<LayoutRHS, LayoutScaleRHS>,
+          AlignmentInputRHS,
           ElementAccumulator,
           TileShape,
           ClusterShape,
@@ -166,36 +199,67 @@ at::Tensor f8f8bf16_groupwise_impl(
 
   using StrideInputA = typename Gemm::GemmKernel::StrideA;
   using StrideInputB = typename Gemm::GemmKernel::StrideB;
+  using StrideInputLHS =
+      std::conditional_t<TRANSPOSE, StrideInputB, StrideInputA>;
+  using StrideInputRHS =
+      std::conditional_t<TRANSPOSE, StrideInputA, StrideInputB>;
   using StrideOutput = typename Gemm::GemmKernel::StrideC;
 
   StrideInputA stride_a = cutlass::make_cute_packed_stride(
       StrideInputA{}, cute::make_shape(M, K, 1));
   StrideInputB stride_b = cutlass::make_cute_packed_stride(
       StrideInputB{}, cute::make_shape(N, K, 1));
-  StrideOutput stride_output = cutlass::make_cute_packed_stride(
-      StrideOutput{}, cute::make_shape(N, M, 1));
-  // TODO May need to be N, M, K, 1 shape (if tranposed)
+
   LayoutSFA layout_SFA =
       ScaleConfig::tile_atom_to_shape_SFA(cute::make_shape(M, N, K, 1));
   LayoutSFB layout_SFB =
       ScaleConfig::tile_atom_to_shape_SFB(cute::make_shape(M, N, K, 1));
 
+  StrideInputLHS stride_lhs;
+  StrideInputRHS stride_rhs;
+  LayoutScaleLHS layout_scale_lhs;
+  LayoutScaleRHS layout_scale_rhs;
+  StrideOutput stride_output;
+  cute::Shape<int, int, int, int> problem_shape;
+  if constexpr (TRANSPOSE) {
+    problem_shape = {N, M, K, 1};
+    stride_lhs = stride_b;
+    stride_rhs = stride_a;
+    layout_scale_lhs = layout_SFB;
+    layout_scale_rhs = layout_SFA;
+    stride_output = cutlass::make_cute_packed_stride(
+        StrideOutput{}, cute::make_shape(N, M, 1));
+  } else {
+    problem_shape = {M, N, K, 1};
+    stride_lhs = stride_a;
+    stride_rhs = stride_b;
+    layout_scale_lhs = layout_SFA;
+    layout_scale_rhs = layout_SFB;
+    stride_output = cutlass::make_cute_packed_stride(
+        StrideOutput{}, cute::make_shape(M, N, 1));
+  }
+
   typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
-      {N, M, K, 1},
-      {reinterpret_cast<ElementB*>(WQ.data_ptr()),
-       stride_b,
-       reinterpret_cast<ElementA*>(XQ.data_ptr()),
-       stride_a,
-       reinterpret_cast<ElementComputeEpilogue*>(w_scale.data_ptr()),
-       layout_SFB,
-       reinterpret_cast<ElementComputeEpilogue*>(x_scale.data_ptr()),
-       layout_SFA},
+      problem_shape,
+      {LHS_data,
+       stride_lhs,
+       RHS_data,
+       stride_rhs,
+       LHS_scale_data,
+       layout_scale_lhs,
+       RHS_scale_data,
+       layout_scale_rhs},
       {{}, // Epilogue thread we populate below.
        nullptr,
        stride_output,
        (ElementOutput*)Y.data_ptr<at::BFloat16>(),
        stride_output}};
+
+  // Set tile swizzling limit, helps in compute bound cases.
+  if constexpr (SWIZZLE > 0) {
+    arguments.scheduler.max_swizzle_size = SWIZZLE;
+  }
 
   Gemm gemm;
 
@@ -238,7 +302,9 @@ template <
     int TBS_N,
     int TBS_K,
     int ARCH,
-    bool PONG>
+    bool PONG,
+    bool TRANSPOSE,
+    int SWIZZLE>
 at::Tensor f8f8bf16_groupwise_wrapper(
     at::Tensor XQ,
     at::Tensor WQ,
@@ -257,7 +323,9 @@ at::Tensor f8f8bf16_groupwise_wrapper(
       TBS_N,
       TBS_K,
       ARCH,
-      PONG>(XQ, WQ, x_scale, w_scale);
+      PONG,
+      TRANSPOSE,
+      SWIZZLE>(XQ, WQ, x_scale, w_scale);
 }
 
 #else
@@ -269,7 +337,9 @@ template <
     int TBS_M,
     int TBS_N,
     int TBS_K,
-    bool PONG>
+    bool PONG,
+    bool TRANSPOSE,
+    int SWIZZLE>
 at::Tensor f8f8bf16_groupwise_wrapper(
     at::Tensor XQ,
     at::Tensor WQ,
