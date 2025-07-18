@@ -206,7 +206,8 @@ cpp_library(
   PREFIX
     fbgemm_generic
   TYPE
-    OBJECT
+    # OBJECT
+    ${FBGEMM_LIBRARY_TYPE}
   SRCS
     ${FBGEMM_GENERIC_SRCS}
   INCLUDE_DIRS
@@ -215,6 +216,7 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
   SANITIZER_OPTIONS
     "${USE_SANITIZER}"
+    # $<$<BOOL:${FBGEMM_LIBRARY_TYPE}>:FBGEMM_STATIC>
   DEPS
     $<BUILD_INTERFACE:cpuinfo>
     $<BUILD_INTERFACE:asmjit>
@@ -358,36 +360,36 @@ endif()
 
 
 
-# cpp_library(
-#   PREFIX
-#     fbgemm
-#   TYPE
-#     ${FBGEMM_LIBRARY_TYPE}
-#   DEPS
-#     fbgemm_generic
-#     ${fbgemm_targets}
-# )
+cpp_library(
+  PREFIX
+    fbgemm
+  TYPE
+    ${FBGEMM_LIBRARY_TYPE}
+  DEPS
+    fbgemm_generic
+    ${fbgemm_targets}
+)
 
-file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
-if(FBGEMM_LIBRARY_TYPE STREQUAL "SHARED")
-  add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-elseif(FBGEMM_LIBRARY_TYPE STREQUAL "STATIC")
-  add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
-  #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
-  #avoid generating _dllimport functions.
-  target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
-else()
-  message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
-endif()
+# file(WRITE "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc" "")
+# if(FBGEMM_LIBRARY_TYPE STREQUAL "SHARED")
+#   add_library(fbgemm SHARED "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
+# elseif(FBGEMM_LIBRARY_TYPE STREQUAL "STATIC")
+#   add_library(fbgemm STATIC "${CMAKE_BINARY_DIR}/fbgemm_lib_dummy.cc")
+#   #MSVC need to define FBGEMM_STATIC for fbgemm_generic also to
+#   #avoid generating _dllimport functions.
+#   target_compile_definitions(fbgemm_generic PUBLIC FBGEMM_STATIC)
+# else()
+#   message(FATAL_ERROR "Unsupported library type ${FBGEMM_LIBRARY_TYPE}")
+# endif()
 
-target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
+# target_link_libraries(fbgemm PUBLIC fbgemm_generic ${fbgemm_targets})
 
-install(
-  TARGETS fbgemm
-  EXPORT fbgemmLibraryConfig
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) # For windows
+# install(
+#   TARGETS fbgemm
+#   EXPORT fbgemmLibraryConfig
+#   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+#   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}) # For windows
 
 
 

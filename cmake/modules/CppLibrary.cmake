@@ -76,11 +76,11 @@ function(cpp_library)
     if(MSVC)
         # MSVC needs to define these variables to avoid generating _dllimport
         # functions.
-        if(args_TYPE STREQUAL STATIC)
-            target_compile_definitions(${lib_name}
-                PUBLIC ASMJIT_STATIC
-                PUBLIC FBGEMM_STATIC)
-        endif()
+        # if(args_TYPE STREQUAL STATIC)
+        #     target_compile_definitions(${lib_name}
+        #         PUBLIC ASMJIT_STATIC
+        #         PUBLIC FBGEMM_STATIC)
+        # endif()
 
         set(lib_cc_flags
             ${args_MSVC_FLAGS}
@@ -108,6 +108,12 @@ function(cpp_library)
         elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             list(APPEND lib_cc_flags -Wmaybe-uninitialized)
         endif()
+    endif()
+
+    if(args_TYPE STREQUAL STATIC)
+        target_compile_definitions(${lib_name}
+            PUBLIC ASMJIT_STATIC
+            PUBLIC FBGEMM_STATIC)
     endif()
 
     target_compile_options(${lib_name} PRIVATE
