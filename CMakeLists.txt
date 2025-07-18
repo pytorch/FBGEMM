@@ -181,7 +181,7 @@ if(FBGEMM_USE_IPO)
 endif()
 
 # # NOTE: Remove this once we migrate fbgemm target to use cpp_library
-# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Define file lists
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
