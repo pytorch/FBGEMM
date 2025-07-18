@@ -58,6 +58,8 @@ struct fused_moe_traits {
   bool local_expert_masking; // if mask experts as local expert
 };
 
+// if return zero, no ws needed
+int fused_moe_get_workspace_size(int tokens, int num_experts, int topk);
 float fused_moe(
     fused_moe_traits,
     fused_moe_args,
