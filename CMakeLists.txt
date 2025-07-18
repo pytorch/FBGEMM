@@ -122,6 +122,8 @@ if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   else()
     set(FBGEMM_LIBRARY_TYPE "STATIC")
   endif()
+else()
+  string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
 if(FBGEMM_BUILD_TESTS)
@@ -178,8 +180,8 @@ if(FBGEMM_USE_IPO)
   check_ipo_supported()
 endif()
 
-# NOTE: Remove this once we migrate fbgemm target to use cpp_library
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# # NOTE: Remove this once we migrate fbgemm target to use cpp_library
+# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Define file lists
 get_filelist("get_fbgemm_generic_srcs(with_base=True)" FBGEMM_GENERIC_SRCS)
