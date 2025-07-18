@@ -12,6 +12,7 @@ import torch
 from .bench_config import (  # noqa F401
     TBEBenchmarkingConfig,
     TBEBenchmarkingConfigLoader,
+    TBEBenchmarkingHelperText,
 )
 from .bench_runs import (  # noqa F401
     bench_warmup,
@@ -22,6 +23,7 @@ from .bench_runs import (  # noqa F401
     benchmark_requests_refer,
     benchmark_vbe,
 )
+from .benchmark_click_interface import TbeBenchClickInterface  # noqa F401
 from .embedding_ops_common_config import EmbeddingOpsCommonConfigLoader  # noqa F401
 from .eval_compression import (  # noqa F401
     benchmark_eval_compression,
@@ -29,7 +31,10 @@ from .eval_compression import (  # noqa F401
 )
 from .reporter import BenchmarkReporter  # noqa F401
 from .tbe_data_config import TBEDataConfig  # noqa F401
-from .tbe_data_config_loader import TBEDataConfigLoader  # noqa F401
+from .tbe_data_config_loader import (  # noqa F401
+    TBEDataConfigHelperText,
+    TBEDataConfigLoader,
+)
 from .tbe_data_config_param_models import (  # noqa F401
     BatchParams,
     IndicesParams,
