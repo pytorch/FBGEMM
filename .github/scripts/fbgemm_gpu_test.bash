@@ -139,10 +139,10 @@ __configure_fbgemm_gpu_test_rocm () {
     ./sll/triton_sll_test.py
     ./comm/multi_gpu_car_test.py
     ./gather_scatter/gather_scatter_test.py
-    ./moe/activation_test.py
-    ./moe/gather_scatter_test.py
-    ./moe/layers_test.py
-    ./moe/shuffling_test.py
+    # ./moe/activation_test.py
+    # ./moe/gather_scatter_test.py
+    # ./moe/layers_test.py
+    # ./moe/shuffling_test.py
   )
 }
 
