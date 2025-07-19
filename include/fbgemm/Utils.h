@@ -21,7 +21,7 @@
 #include <type_traits>
 
 #ifndef HAVE_SVE
-#if defined(__aarch64__) && (__GNUC__ >= 8 || __clang_major__ >= 5) && \
+#if defined(__aarch64__) && \
     __ARM_FEATURE_SVE
 #define HAVE_SVE 1
 #else
