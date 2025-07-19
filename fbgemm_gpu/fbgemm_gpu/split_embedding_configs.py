@@ -103,19 +103,14 @@ class EmbOptimType(enum.Enum):
         Returns the size of the data (in bytes) required to hold the optimizer
         state (per table row)
         """
-        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
-            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
-            # Store one value for momentum per row
-            return momentum1_dtype.itemsize
-
-        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
-            momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
-            momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
-            # Store one value for momentum2 plus D values for momentum1 per row
-            return momentum2_dtype.itemsize + (D * momentum1_dtype.itemsize)
-
-        else:
-            return 0
+        return sum(
+            [
+                # For each state, multiply the number of elements by the byte
+                # size of each element
+                (self._extract_dtype(optimizer_state_dtypes, name).itemsize * elem)
+                for name, elem in self.state_size_table(D).items()
+            ]
+        )
 
     def byte_offsets_along_row(
         self,
@@ -149,6 +144,45 @@ class EmbOptimType(enum.Enum):
 
         else:
             return {}
+
+    def empty_states(
+        self,
+        rows: List[int],
+        dims: List[int],
+        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+    ) -> List[List[torch.Tensor]]:
+        """
+        Creates sets of empty tensors per table to hold optimizer states based
+        on the specified optimizer type, state dtypes, embedding specs, and
+        (optionally) local row counts.
+        """
+        # Else, check that the local row count for each table is set
+        assert len(rows) == len(dims)
+
+        opt_states_set: List[List[torch.Tensor]] = []
+
+        for r, D in zip(rows, dims):
+            # Set up the table of state names to state sizes, ordered by their
+            # memory layout
+            state_size_table = self.state_size_table(D)
+            ordered_state_sizes = [(k, state_size_table[k]) for k in self.state_names()]
+
+            # Create the optimizer states for this table
+            opt_states_set.append(
+                [
+                    torch.empty(
+                        # If the state size is 1, then fix tensor to 1D to be
+                        # consistent with training.py code
+                        # pyre-ignore [6]
+                        (r, d) if d > 1 else r,
+                        dtype=self._extract_dtype(optimizer_state_dtypes, state_name),
+                        device="cpu",
+                    )
+                    for state_name, d in ordered_state_sizes
+                ]
+            )
+
+        return opt_states_set
 
     def ssd_state_splits(
         self,
@@ -192,14 +226,6 @@ class EmbOptimType(enum.Enum):
             )
             for (name, cumsum_table) in params.items()
         ]
-
-    def dtype(self) -> torch.dtype:
-        """
-        Returns the dtype of the optimizer state
-        """
-        return {
-            EmbOptimType.EXACT_ROWWISE_ADAGRAD: torch.float32,
-        }.get(self, torch.float32)
 
 
 # Base class for quantization configuration (in case other numeric types have

@@ -381,6 +381,7 @@ def plot_benchmark(results: List[Dict[str, Any]], output_dir: str) -> None:
     ax.tick_params(axis="x", labelsize=3)
     img_fn = os.path.join(output_dir, "quantize_ops_benchmark.png")
     plot.savefig(img_fn, dpi=300)
+    print(f"Plot saved to {img_fn}")
 
 
 def collect_kernels_to_profile(kernels: Optional[List[str]]) -> List[QuantizeOpBase]:
@@ -490,12 +491,12 @@ def main(args: Any):
         benchmark_results.append(quantize_measurements)
     if args.export_csv or args.plot:
         os.makedirs(args.output_dir, exist_ok=True)
-        print("csv and images will be saved to " + args.output_dir)
     if args.export_csv:
         datetime_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_file = os.path.join(
             args.output_dir, f"quantize_ops_benchmark_{datetime_str}.csv"
         )
+        print(f"CSV saved to {csv_file}")
         # Export results to a CSV file.
         df = pd.DataFrame(benchmark_results)
         df.to_csv(csv_file, index=False)

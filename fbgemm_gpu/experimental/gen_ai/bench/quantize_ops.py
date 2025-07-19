@@ -16,7 +16,6 @@ import triton  # @manual=//triton:triton
 
 from fbgemm_gpu.experimental.gemm.triton_gemm.fp4_quantize import (
     fused_single_block_cumsum_and_segmented_arange,
-    nvfp4_fused_padding_cumsum_and_segmented_arange,
     triton_nvfp4_quant_stacked,
     triton_quantize_mx4_unpack,
     triton_scale_nvfp4_quant,

@@ -9,7 +9,6 @@
 #define FBGEMM_EXPORTS
 #include "./CodeGenHelpers.h" // @manual
 #include "./GroupwiseConv.h" // @manual
-#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 
