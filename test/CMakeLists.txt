@@ -34,7 +34,7 @@ if(FBGEMM_BUILD_TESTS)
   endif()
 endif()
 
-if (USE_SANITIZER)
+if (FBGEMM_USE_SANITIZER)
   message(WARNING "USING SANITIZER IN TEST")
 endif()
 
@@ -61,11 +61,12 @@ macro(add_gtest TESTNAME)
     target_compile_options(${TESTNAME} PRIVATE
      "-m64" "-mavx2" "-mfma" "-masm=intel")
   endif(MSVC)
-  if (USE_SANITIZER)
+
+  if (FBGEMM_USE_SANITIZER)
     target_compile_options(${TESTNAME} PRIVATE
-      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+      "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
     target_link_options(${TESTNAME} PRIVATE
-      "-fsanitize=${USE_SANITIZER}" "-fno-omit-frame-pointer")
+      "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
   endif()
 
   target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)

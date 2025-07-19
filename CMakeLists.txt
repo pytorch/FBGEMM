@@ -48,7 +48,14 @@ endfunction()
 # FBGEMM Build Kickstart
 ################################################################################
 
-project(fbgemm VERSION 0.1 LANGUAGES CXX C)
+# Declare CMake project
+project(
+  fbgemm
+  VERSION 1.3.0
+  LANGUAGES CXX C)
+
+# Add C++ compiler flag detection
+include(CheckCXXCompilerFlag)
 
 # Install libraries into correct locations on all platforms
 include(GNUInstallDirs)
@@ -60,14 +67,14 @@ set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
   "Type of library (shared, static, or default) to build")
 
-set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
+option(FBGEMM_ENABLE_AVX512 "Build fbgemm with AVX512 support" ON)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
-# option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
+set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
     set(FBGEMM_LIBRARY_TYPE "SHARED")
@@ -78,12 +85,8 @@ else()
   string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
-if(FBGEMM_BUILD_TESTS)
-  enable_testing()
-endif()
-
 # Add address sanitizer
-set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
+set(FBGEMM_USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
 # We should default to a Release build
 if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
@@ -94,21 +97,11 @@ if(DISABLE_FBGEMM_AUTOVEC)
   add_compile_definitions("DISABLE_FBGEMM_AUTOVEC")
 endif()
 
-################################################################################
-# AVX512 Support
-################################################################################
-
-include(CheckCXXCompilerFlag)
 if(MSVC)
-  CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
   set(MSVC_BOOL True)
 else(MSVC)
-  CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
   set(MSVC_BOOL False)
 endif(MSVC)
-if(NOT COMPILER_SUPPORTS_AVX512)
-  message(FATAL_ERROR "A compiler with AVX512 support is required.")
-endif()
 
 ################################################################################
 # GNU F2H_IEEE Support
@@ -148,17 +141,6 @@ if(NOT MSVC)
     src/FbgemmFP16UKernelsAvx512.cc
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
-
-  set_source_files_properties(src/PackMatrix.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
-
-  # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
-  if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
-    set_source_files_properties(
-      src/GenerateKernelU8S8S32ACC32.cc
-      src/GenerateKernelDirectConvU8S8S32ACC32.cc
-      PROPERTIES COMPILE_FLAGS "-Wno-attributes")
-  endif()
 endif()
 
 ################################################################################
@@ -183,7 +165,7 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
   SANITIZER_OPTIONS
-    "${USE_SANITIZER}"
+    "${FBGEMM_USE_SANITIZER}"
   DEFINITIONS
     ${fbgemm_generic_defs}
   DEPS
@@ -191,7 +173,7 @@ cpp_library(
     $<BUILD_INTERFACE:asmjit>
 )
 
-set(fbgemm_targets fbgemm_avx2 fbgemm_avx512)
+set(fbgemm_targets fbgemm_avx2)
 
 ################################################################################
 # FBGEMM AVX2 Target
@@ -222,26 +204,45 @@ cpp_library(
 # FBGEMM AVX512 Target
 ################################################################################
 
-get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
-get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+if (FBGEMM_ENABLE_AVX512)
+  if(MSVC)
+    CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
+  else()
+    CHECK_CXX_COMPILER_FLAG(-mavx512f COMPILER_SUPPORTS_AVX512)
+  endif()
 
-cpp_library(
-  PREFIX
-    fbgemm_avx512
-  TYPE
-    OBJECT
-  SRCS
-    ${FBGEMM_AVX512_SRCS}
-    ${FBGEMM_AVX512_INLINE_SRCS}
-  CC_FLAGS
-    -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
-  MSVC_FLAGS
-    /arch:AVX512
-  DEPS
-    $<BUILD_INTERFACE:cpuinfo>
-    $<BUILD_INTERFACE:asmjit>
-    fbgemm_generic
-)
+  if(NOT COMPILER_SUPPORTS_AVX512)
+    message(FATAL_ERROR "FBGEMM_ENABLE_AVX512 is specified, but the current compiler does not support building AVX512 code")
+  endif()
+
+  message(STATUS "FBGEMM_ENABLE_AVX512 is set to ON; will build AVX512 code")
+
+  get_filelist("get_fbgemm_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_SRCS)
+  get_filelist("get_fbgemm_inline_avx512_srcs(msvc=${MSVC_BOOL})" FBGEMM_AVX512_INLINE_SRCS)
+
+  cpp_library(
+    PREFIX
+      fbgemm_avx512
+    TYPE
+      OBJECT
+    SRCS
+      ${FBGEMM_AVX512_SRCS}
+      ${FBGEMM_AVX512_INLINE_SRCS}
+    CC_FLAGS
+      -m64 -mavx2 -mfma -mavx512f -mavx512bw -mavx512dq -mavx512vl
+    MSVC_FLAGS
+      /arch:AVX512
+    DEPS
+      $<BUILD_INTERFACE:cpuinfo>
+      $<BUILD_INTERFACE:asmjit>
+      fbgemm_generic
+  )
+
+  list(APPEND fbgemm_targets fbgemm_avx512)
+
+else()
+  message(STATUS "FBGEMM_ENABLE_AVX512 is set to OFF; will NOT build AVX512 code")
+endif()
 
 ################################################################################
 # FBGEMM Autovec Target
@@ -342,6 +343,7 @@ endif()
 ################################################################################
 
 if(FBGEMM_BUILD_TESTS)
+  enable_testing()
   add_subdirectory(test)
 endif()
 

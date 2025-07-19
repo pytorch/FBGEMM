@@ -121,6 +121,8 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
       accum);
 
   if (cpuinfo_initialize()) {
+
+#if !defined(__aarch64__) && defined(__AVX512F__)
     if (fbgemmHasAvx512VnniSupport()) {
       return GenConvKernel<SPATIAL_DIM, inst_set_t::avx512_vnni>::codeCache_
           .getOrCreate(kernelSig, [&]() {
@@ -147,7 +149,10 @@ static jit_conv_kernel_fp getOrCreateConvKernel(
                 accum);
             return genObj.getOrCreate();
           });
-    } else if (fbgemmHasAvx2Support()) {
+    } else 
+#endif    
+
+    if (fbgemmHasAvx2Support()) {
       return GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>::codeCache_
           .getOrCreate(kernelSig, [&]() {
             auto genObj = GenConvKernel<SPATIAL_DIM, inst_set_t::avx2>(
@@ -949,9 +954,12 @@ static void dispatchOutputProcessing(
   }
 
   if (cpuinfo_initialize()) {
+#if !defined(__aarch64__) && defined(__AVX512F__)
     if (fbgemmHasAvx512Support() || fbgemmHasAvx512VnniSupport()) {
       REQUANTIZE_C_PER_G(Avx512);
-    } else if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
+    } else 
+#endif    
+    if (fbgemmHasAvx2Support() || fbgemmHasArmNeonSupport()) {
       REQUANTIZE_C_PER_G(Avx2);
     } else {
       assert(0 && "unsupported architecture");

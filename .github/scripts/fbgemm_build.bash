@@ -22,7 +22,7 @@ __configure_fbgemm_build_cmake () {
 
   # shellcheck disable=SC2206
   build_args=(
-    -DUSE_SANITIZER=address
+    -DFBGEMM_USE_SANITIZER=address
     -DFBGEMM_LIBRARY_TYPE=${fbgemm_library_type}
     -DPYTHON_EXECUTABLE=${python_path}
   )
@@ -43,6 +43,7 @@ __configure_fbgemm_build_cmake () {
       -DCMAKE_CXX_COMPILER="${cxx_path}"
       -DCMAKE_C_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
       -DCMAKE_CXX_FLAGS=\"-fopenmp=libomp -I ${conda_prefix}/include\"
+      -DFBGEMM_ENABLE_AVX512=OFF
     )
   fi
 
