@@ -29,15 +29,15 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
   src/attention/*.cpp
   src/coalesce/*.cpp
+  src/moe/*.cpp
   src/quantize/*.cpp
-  src/quantize/common/*.cpp
-  src/moe/*.cpp)
+  src/quantize/common/*.cpp)
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
   src/attention/*.cu
   src/coalesce/*.cu
-  src/quantize/*.cu
-  src/moe/*.cu)
+  src/moe/*.cu
+  src/quantize/*.cu)
 
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   glob_files_nohip(tmp_list_cpu

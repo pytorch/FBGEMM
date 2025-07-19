@@ -141,7 +141,7 @@ __configure_fbgemm_gpu_test_rocm () {
     ./gather_scatter/gather_scatter_test.py
     # ./moe/activation_test.py
     # ./moe/gather_scatter_test.py
-    # ./moe/layers_test.py
+    ./moe/layers_test.py
     # ./moe/shuffling_test.py
   )
 }
