@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
-set(CMAKEMODULES ${CMAKE_CURRENT_SOURCE_DIR}/../../../cmake/modules)
+set(CMAKEMODULES ${CMAKE_CURRENT_LIST_DIR}/../../../cmake/modules)
 include(${CMAKEMODULES}/Utilities.cmake)
 include(${CMAKEMODULES}/GpuCppLibrary.cmake)
 
