@@ -170,6 +170,13 @@ print_gpu_info () {
       echo "[CHECK] ROCm drivers and ROCm device(s) are required for this workflow, but does not appear to be installed or available!"
       return 1
     fi
+
+    # Ensure that rocminfo is available and returns GPU entries
+    if ! rocminfo; then
+      echo "[CHECK] ROCm drivers and ROCm device(s) are required for this workflow, but does not appear to be installed or available!"
+      return 1
+    fi
+
   else
     if which rocm-smi; then
       echo "[CHECK] rocm-smi found; printing info ..."
