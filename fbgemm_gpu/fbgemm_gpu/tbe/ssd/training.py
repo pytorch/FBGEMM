@@ -76,7 +76,7 @@ class IterData:
 
 @dataclass
 class KVZCHCachedData:
-    cached_optimizer_state_per_table: List[torch.Tensor]
+    cached_optimizer_states_per_table: List[List[torch.Tensor]]
     cached_weight_tensor_per_table: List[torch.Tensor]
     cached_id_tensor_per_table: List[torch.Tensor]
     cached_bucket_splits: List[torch.Tensor]
@@ -509,7 +509,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"FBGEMM_SSD_TBE_USE_DUMMY_PROFILE is set to {set_dummy_profile}; "
                 f"Use dummy profile: {use_dummy_profile}"
             )
-        # pyre-ignore[4]
+
         self.record_function_via_dummy_profile: Callable[..., Any] = (
             self.record_function_via_dummy_profile_factory(use_dummy_profile)
         )
@@ -1136,7 +1136,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 it_step, event_name, report_val, time_unit=time_unit
             )
 
-    # pyre-ignore[3]
     def record_function_via_dummy_profile_factory(
         self,
         use_dummy_profile: bool,
@@ -1171,7 +1170,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         def func(
             name: str,
-            # pyre-ignore[2]
             fn: Callable[..., Any],
             *args: Any,
             **kwargs: Any,
@@ -2309,7 +2307,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         )
 
         # pyre-ignore[53]
-        def _slice(tensor: Tensor, t: int, rowwise: bool) -> Tensor:
+        def _slice(state_name: str, tensor: Tensor, t: int, rowwise: bool) -> Tensor:
             d: int = dims[t]
 
             # pyre-ignore[16]
@@ -2319,7 +2317,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
             if sorted_ids is None or sorted_ids[t].numel() == 0:
                 # Empty optimizer state for module initialization
-                return torch.empty(0, dtype=self.optimizer.dtype(), device="cpu")
+                return torch.empty(
+                    0,
+                    dtype=(
+                        self.optimizer_state_dtypes.get(
+                            state_name, SparseType.FP32
+                        ).as_dtype()
+                    ),
+                    device="cpu",
+                )
 
             elif not rowwise:
                 # Optimizer state is element-wise - materialize the local ids
@@ -2344,16 +2350,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
             return [
-                [_slice(self.momentum1_dev, t, rowwise=True)]
+                [_slice("momentum1", self.momentum1_dev, t, rowwise=True)]
                 for t, _ in enumerate(rows)
             ]
 
         elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
             return [
                 [
-                    _slice(self.momentum1_dev, t, rowwise=False),
+                    _slice("momentum1", self.momentum1_dev, t, rowwise=False),
                     # pyre-ignore[6]
-                    _slice(self.momentum2_dev, t, rowwise=True),
+                    _slice("momentum2", self.momentum2_dev, t, rowwise=True),
                 ]
                 for t, _ in enumerate(rows)
             ]
@@ -2363,6 +2369,137 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 f"Getting optimizer states is not supported for {self.optimizer}"
             )
 
+    @torch.jit.ignore
+    def _split_optimizer_states_kv_zch_w_offloading(
+        self,
+        sorted_ids: torch.Tensor,
+        no_snapshot: bool = True,
+        should_flush: bool = False,
+    ) -> List[List[torch.Tensor]]:
+        dtype = self.weights_precision.as_dtype()
+        # Row count per table
+        (rows_, dims_) = zip(*self.embedding_specs)
+        # Cumulative row counts per table for rowwise states
+        row_count_cumsum: List[int] = [0] + list(itertools.accumulate(rows_))
+
+        snapshot_handle, _ = self._may_create_snapshot_for_state_dict(
+            no_snapshot=no_snapshot,
+            should_flush=should_flush,
+        )
+
+        # pyre-ignore[53]
+        def _fetch_offloaded_optimizer_states(
+            t: int,
+        ) -> List[Tensor]:
+            e: int = rows_[t]
+            d: int = dims_[t]
+
+            # pyre-ignore[16]
+            bucket_id_start, _ = self.kv_zch_params.bucket_offsets[t]
+            # pyre-ignore[16]
+            bucket_size = self.kv_zch_params.bucket_sizes[t]
+
+            row_offset = row_count_cumsum[t] - (bucket_id_start * bucket_size)
+            # Count of rows to fetch
+            rows_to_fetch = sorted_ids[t].numel()
+
+            # Since the backend returns cache rows that pack the weights and
+            # optimizer states together, reading the whole tensor could cause OOM,
+            # so we use the KVTensorWrapper abstraction to query the backend and
+            # fetch the data in chunks instead.
+            tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
+                shape=[e, self.optimizer_state_dim],
+                dtype=dtype,
+                row_offset=row_offset,
+                snapshot_handle=snapshot_handle,
+                sorted_indices=sorted_ids[t],
+                width_offset=pad4(d),
+            )
+            (
+                tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
+                if self.backend_type == BackendType.SSD
+                else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
+            )
+
+            # Lookup the byte offsets for each optimizer state
+            optimizer_state_byte_offsets = self.optimizer.byte_offsets_along_row(
+                d, self.weights_precision, self.optimizer_state_dtypes
+            )
+            # Since we will be working with buffer rows that contain the
+            # optimizer states only, we need to offset the byte offsets by
+            # D * dtype.itemsize
+            offset_ = d * dtype.itemsize
+            optimizer_state_byte_offsets = dict(
+                (k, (v1 - offset_, v2 - offset_))
+                for k, (v1, v2) in optimizer_state_byte_offsets.items()
+            )
+
+            # Fetch the state size table for the given weights domension
+            state_size_table = self.optimizer.state_size_table(d)
+
+            # Create a 2D output buffer of [rows x optimizer state dim] with the
+            # weights type as the type.  For optimizers with multiple states (e.g.
+            # momentum1 and momentum2), this tensor will include data from all
+            # states, hence self.optimizer_state_dim as the row size.
+            optimizer_states_buffer = torch.empty(
+                (rows_to_fetch, self.optimizer_state_dim), dtype=dtype, device="cpu"
+            )
+
+            # Set the chunk size for fetching
+            chunk_size = (
+                # 10M rows => 260(max_D)* 2(ele_bytes) * 10M => 5.2GB mem spike
+                10_000_000
+            )
+            logging.info(f"split optimizer chunk rows: {chunk_size}")
+
+            # Chunk the fetching by chunk_size
+            for i in range(0, rows_to_fetch, chunk_size):
+                length = min(chunk_size, rows_to_fetch - i)
+
+                # Fetch from backend and copy to the output buffer
+                optimizer_states_buffer.narrow(0, i, length).copy_(
+                    tensor_wrapper.narrow(0, i, length).view(dtype)
+                )
+
+            # Now split up the buffer into N views, N for each optimizer state
+            optimizer_states: List[Tensor] = []
+            for state_name in self.optimizer.state_names():
+                # Extract the offsets
+                (start, end) = optimizer_state_byte_offsets[state_name]
+
+                state = optimizer_states_buffer.view(
+                    # Force tensor to byte view
+                    dtype=torch.uint8
+                    # Copy by byte offsets
+                )[:, start:end].view(
+                    # Re-view in the state's target dtype
+                    self.optimizer_state_dtypes.get(
+                        state_name, SparseType.FP32
+                    ).as_dtype()
+                )
+
+                optimizer_states.append(
+                    # If the state is rowwise (i.e. just one element per row),
+                    # then re-view as 1D tensor
+                    state
+                    if state_size_table[state_name] > 1
+                    else state.view(-1)
+                )
+
+            # Return the views
+            return optimizer_states
+
+        return [
+            (
+                self.optimizer.empty_states([0], [d], self.optimizer_state_dtypes)[0]
+                # Return a set of empty states if sorted_ids[t] is empty
+                if sorted_ids is None or sorted_ids[t].numel() == 0
+                # Else fetch the list of optimizer states for the table
+                else _fetch_offloaded_optimizer_states(t)
+            )
+            for t, d in enumerate(dims_)
+        ]
+
     @torch.jit.export
     def split_optimizer_states(
         self,
@@ -2371,8 +2508,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         should_flush: bool = False,
     ) -> List[List[torch.Tensor]]:
         """
-        Returns a list of optimizer states split by table. So far, we only support EXACT_ROWWISE_ADAGRAD,
-        so only momentum1 state is returned.
+        Returns a list of optimizer states split by table.
 
         Since EXACT_ROWWISE_ADAGRAD has small optimizer states, we would generate
         a full tensor for each table (shard). When other optimizer types are supported,
@@ -2386,63 +2522,54 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         """
 
+        # Handle the non-KVZCH case
         if not self.kv_zch_params:
+            # If not in KV
             return self._split_optimizer_states_non_kv_zch()
 
+        # Handle the loading-from-state-dict case
         if self.load_state_dict:
-            # init for checkpointing loading
+            # Initialize for checkpointing loading
             assert (
                 self._cached_kvzch_data is not None
-                and self._cached_kvzch_data.cached_optimizer_state_per_table
+                and self._cached_kvzch_data.cached_optimizer_states_per_table
             ), "optimizer state is not initialized for load checkpointing"
 
-            # NOTE: This is a temporary hack to have split_optimizer_states return a
-            # List[List[Tensor]] instead of List[Tensor] to match the behavior of
-            # _split_optimizer_states_non_kv_zch.  This should be removed after
-            # proper support for multiple optimizers is added for the
-            # enable_optimizer_offloading=True case.
-            return [
-                [opt]
-                for opt in self._cached_kvzch_data.cached_optimizer_state_per_table
-            ]
+            return self._cached_kvzch_data.cached_optimizer_states_per_table
 
         logging.info(
             f"split_optimizer_states for KV ZCH: {no_snapshot=}, {should_flush=}"
         )
         start_time = time.time()
-        snapshot_handle, _ = self._may_create_snapshot_for_state_dict(
-            no_snapshot=no_snapshot,
-            should_flush=should_flush,
-        )
-
-        opt_list = []
-        table_offset = 0
-
-        dtype = self.weights_precision.as_dtype()
-        logging.info(
-            f"split_optimizer_states: {self.optimizer_state_dim=}, {self.optimizer.dtype()=} {self.enable_load_state_dict_mode=}"
-        )
 
         if not self.enable_optimizer_offloading:
-            return self._split_optimizer_states_kv_zch_no_offloading(sorted_id_tensor)
+            # Handle the KVZCH non-optimizer-offloading case
+            optimizer_states = self._split_optimizer_states_kv_zch_no_offloading(
+                sorted_id_tensor
+            )
 
-        for t, (emb_height, emb_dim) in enumerate(self.embedding_specs):
-            # pyre-ignore
-            bucket_id_start, _ = self.kv_zch_params.bucket_offsets[t]
-            # pyre-ignore
-            bucket_size = self.kv_zch_params.bucket_sizes[t]
-            row_offset = table_offset - (bucket_id_start * bucket_size)
+        elif not self.backend_return_whole_row:
+            # Handle the KVZCH with-optimizer-offloading case
+            optimizer_states = self._split_optimizer_states_kv_zch_w_offloading(
+                sorted_id_tensor, no_snapshot, should_flush
+            )
 
-            if not self.backend_return_whole_row and (
-                sorted_id_tensor is None or sorted_id_tensor[t].numel() == 0
-            ):
-                opt_list.append(
-                    torch.empty(0, dtype=self.optimizer.dtype(), device="cpu")
-                    # empty optimizer state for module initialization
-                    # which will NOT be used for cp loading
-                )
+        else:
+            snapshot_handle, _ = self._may_create_snapshot_for_state_dict(
+                no_snapshot=no_snapshot,
+                should_flush=should_flush,
+            )
 
-            elif self.backend_return_whole_row:
+            optimizer_states = []
+            table_offset = 0
+
+            for t, (emb_height, emb_dim) in enumerate(self.embedding_specs):
+                # pyre-ignore
+                bucket_id_start, _ = self.kv_zch_params.bucket_offsets[t]
+                # pyre-ignore
+                bucket_size = self.kv_zch_params.bucket_sizes[t]
+                row_offset = table_offset - (bucket_id_start * bucket_size)
+
                 # When backend returns whole row, the optimizer will be returned as PMT directly
                 # pyre-ignore [16]
                 if sorted_id_tensor[t].size(0) == 0 and self.local_weight_counts[t] > 0:
@@ -2470,7 +2597,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                         ),
                         self.optimizer_state_dim,
                     ],
-                    dtype=dtype,
+                    dtype=self.weights_precision.as_dtype(),
                     row_offset=row_offset,
                     snapshot_handle=snapshot_handle,
                     sorted_indices=sorted_id_tensor[t],
@@ -2485,71 +2612,25 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                     if self.backend_type == BackendType.SSD
                     else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
                 )
-                opt_list.append(
-                    PartiallyMaterializedTensor(
-                        tensor_wrapper,
-                        True if self.kv_zch_params else False,
-                    )
-                )
-            else:
-                # using KVTensorWrapper to query backend to avoid OOM memory, since
-                # backend will return both weight and optimizer in one tensor, read the whole tensor
-                # out could OOM CPU memory.
-                tensor_wrapper = torch.classes.fbgemm.KVTensorWrapper(
-                    shape=[emb_height, self.optimizer_state_dim],
-                    dtype=dtype,
-                    row_offset=row_offset,
-                    snapshot_handle=snapshot_handle,
-                    sorted_indices=sorted_id_tensor[t],
-                    width_offset=pad4(emb_dim),
-                )
-                (
-                    tensor_wrapper.set_embedding_rocks_dp_wrapper(self.ssd_db)
-                    if self.backend_type == BackendType.SSD
-                    else tensor_wrapper.set_dram_db_wrapper(self.ssd_db)
-                )
-                opt_list.append(
-                    self.get_offloaded_optimizer_states(
-                        tensor_wrapper, sorted_id_tensor[t].numel()
-                    )
+
+                optimizer_states.append(
+                    [
+                        PartiallyMaterializedTensor(
+                            tensor_wrapper,
+                            True if self.kv_zch_params else False,
+                        )
+                    ]
                 )
 
-            table_offset += emb_height
+                table_offset += emb_height
+
         logging.info(
             f"KV ZCH tables split_optimizer_states query latency: {(time.time() - start_time) * 1000} ms, "
+            # pyre-ignore[16]
             f"num ids list: {None if not sorted_id_tensor else [ids.numel() for ids in sorted_id_tensor]}"
         )
 
-        # NOTE: This is a temporary hack to have split_optimizer_states return a
-        # List[List[Tensor]] instead of List[Tensor] to match the behavior of
-        # _split_optimizer_states_non_kv_zch.  This should be removed after
-        # proper support for multiple optimizers is added for the
-        # enable_optimizer_offloading=True case.
-        return [[opt] for opt in opt_list]
-
-    @torch.jit.export
-    def get_offloaded_optimizer_states(
-        self,
-        tensor_wrapper: PartiallyMaterializedTensor,
-        row: int,
-    ) -> torch.Tensor:
-        opt_state_t = torch.empty(
-            row, dtype=self.optimizer.dtype(), device="cpu"
-        )  # 1D optimizer for OptimType.EXACT_ROWWISE_ADAGRAD
-
-        chunk_rows = (
-            10_000_000  # 10M rows => 260(max_D)* 2(ele_bytes) * 10M => 5.2GB mem spike
-        )
-        logging.info(f"split optimizer chunk rows: {chunk_rows}")
-        for i in range(0, row, chunk_rows):
-            actual_rows = min(chunk_rows, row - i)
-            opt_state_t.narrow(0, i, actual_rows).copy_(
-                tensor_wrapper.narrow(0, i, actual_rows)
-                .view(-1)
-                .view(self.optimizer.dtype())
-            )
-        # view optimizer state back to correct dtype
-        return opt_state_t
+        return optimizer_states
 
     @torch.jit.export
     def get_optimizer_state(
@@ -2559,25 +2640,15 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         should_flush: bool = False,
     ) -> List[Dict[str, torch.Tensor]]:
         """
-        Returns a list of optimizer states split by table. So far, we only support EXACT_ROWWISE_ADAGRAD
-        so only momentum1 state is returned.
+        Returns a list of dictionaries of optimizer states split by table.
         """
-        states_list = self.split_optimizer_states(
+        states_list: List[List[Tensor]] = self.split_optimizer_states(
             sorted_id_tensor=sorted_id_tensor,
             no_snapshot=no_snapshot,
             should_flush=should_flush,
         )
-
-        if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
-            keys = ["momentum1"]
-        elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
-            keys = ["momentum1", "momentum2"]
-        else:
-            raise NotImplementedError(
-                f"Getting optimizer states is not supported for {self.optimizer}"
-            )
-
-        return [dict(zip(keys, states)) for states in states_list]
+        state_names = self.optimizer.state_names()
+        return [dict(zip(state_names, states)) for states in states_list]
 
     @torch.jit.export
     def debug_split_embedding_weights(self) -> List[torch.Tensor]:
@@ -2830,6 +2901,94 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         return (pmt_splits, bucket_sorted_id_splits, active_id_cnt_per_bucket_split)
 
     @torch.jit.ignore
+    def _apply_state_dict_w_offloading(self) -> None:
+        # Row count per table
+        (rows, _) = zip(*self.embedding_specs)
+        # Cumulative row counts per table for rowwise states
+        row_count_cumsum: List[int] = [0] + list(itertools.accumulate(rows))
+
+        for t, _ in enumerate(self.embedding_specs):
+            # pyre-ignore [16]
+            bucket_id_start, _ = self.kv_zch_params.bucket_offsets[t]
+            # pyre-ignore [16]
+            bucket_size = self.kv_zch_params.bucket_sizes[t]
+            row_offset = row_count_cumsum[t] - bucket_id_start * bucket_size
+
+            # pyre-ignore [16]
+            weight_state = self._cached_kvzch_data.cached_weight_tensor_per_table[t]
+            # pyre-ignore [16]
+            opt_states = self._cached_kvzch_data.cached_optimizer_states_per_table[t]
+
+            self.streaming_write_weight_and_id_per_table(
+                weight_state,
+                opt_states,
+                # pyre-ignore [16]
+                self._cached_kvzch_data.cached_id_tensor_per_table[t],
+                row_offset,
+            )
+            self._cached_kvzch_data.cached_weight_tensor_per_table[t] = None
+            self._cached_kvzch_data.cached_optimizer_states_per_table[t] = None
+
+    @torch.jit.ignore
+    def _apply_state_dict_no_offloading(self) -> None:
+        # Row count per table
+        (rows, _) = zip(*self.embedding_specs)
+        # Cumulative row counts per table for rowwise states
+        row_count_cumsum: List[int] = [0] + list(itertools.accumulate(rows))
+
+        def copy_optimizer_state_(dst: Tensor, src: Tensor, indices: Tensor) -> None:
+            device = dst.device
+            dst.index_put_(
+                indices=(
+                    # indices is expected to be a tuple of Tensors, not Tensor
+                    indices.to(device).view(-1),
+                ),
+                values=src.to(device),
+            )
+
+        for t, _ in enumerate(rows):
+            # pyre-ignore [16]
+            bucket_id_start, _ = self.kv_zch_params.bucket_offsets[t]
+            # pyre-ignore [16]
+            bucket_size = self.kv_zch_params.bucket_sizes[t]
+            row_offset = row_count_cumsum[t] - bucket_id_start * bucket_size
+
+            # pyre-ignore [16]
+            weights = self._cached_kvzch_data.cached_weight_tensor_per_table[t]
+            # pyre-ignore [16]
+            ids = self._cached_kvzch_data.cached_id_tensor_per_table[t]
+            local_ids = ids + row_offset
+
+            logging.info(
+                f"applying sd for table {t} without optimizer offloading, local_ids is {local_ids}"
+            )
+            # pyre-ignore [16]
+            opt_states = self._cached_kvzch_data.cached_optimizer_states_per_table[t]
+
+            # Set up the plan for copying optimizer states over
+            if self.optimizer == OptimType.EXACT_ROWWISE_ADAGRAD:
+                mapping = [(opt_states[0], self.momentum1_dev)]
+            elif self.optimizer == OptimType.PARTIAL_ROWWISE_ADAM:
+                mapping = [
+                    (opt_states[0], self.momentum1_dev),
+                    (opt_states[1], self.momentum2_dev),
+                ]
+            else:
+                mapping = []
+
+            # Execute the plan and copy the optimizer states over
+            # pyre-ignore [6]
+            [copy_optimizer_state_(dst, src, local_ids) for (src, dst) in mapping]
+
+            self.ssd_db.set_cuda(
+                local_ids.view(-1),
+                weights,
+                torch.as_tensor(local_ids.size(0)),
+                1,
+                False,
+            )
+
+    @torch.jit.ignore
     def apply_state_dict(self) -> None:
         if self.backend_return_whole_row:
             logging.info(
@@ -2844,7 +3003,7 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         assert self.kv_zch_params is not None, "apply_state_dict supports KV ZCH only"
         assert (
             self._cached_kvzch_data is not None
-            and self._cached_kvzch_data.cached_optimizer_state_per_table is not None
+            and self._cached_kvzch_data.cached_optimizer_states_per_table is not None
         ), "optimizer state is not initialized for load checkpointing"
         assert (
             self._cached_kvzch_data.cached_weight_tensor_per_table is not None
@@ -2855,58 +3014,18 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         # optimizer state, round to the nearest 4
         # optimizer_dim = self.optimizer.optimizer_state_size_dim(dtype)
         # apply weight and optimizer state per table
-        table_offset = 0
-        for i, (emb_height, _) in enumerate(self.embedding_specs):
-            # pyre-ignore [16]
-            bucket_id_start, _ = self.kv_zch_params.bucket_offsets[i]
-            # pyre-ignore [16]
-            bucket_size = self.kv_zch_params.bucket_sizes[i]
-            row_offset = table_offset - bucket_id_start * bucket_size
+        if self.enable_optimizer_offloading:
+            self._apply_state_dict_w_offloading()
+        else:
+            self._apply_state_dict_no_offloading()
 
-            if self.enable_optimizer_offloading:
-                # pyre-ignore [16]
-                weight_state = self._cached_kvzch_data.cached_weight_tensor_per_table[i]
-                # pyre-ignore [16]
-                opt_state = self._cached_kvzch_data.cached_optimizer_state_per_table[i]
-                self.streaming_write_weight_and_id_per_table(
-                    weight_state,
-                    opt_state,
-                    # pyre-ignore [16]
-                    self._cached_kvzch_data.cached_id_tensor_per_table[i],
-                    row_offset,
-                )
-                self._cached_kvzch_data.cached_weight_tensor_per_table[i] = None
-                self._cached_kvzch_data.cached_optimizer_state_per_table[i] = None
-            else:
-                weight = self._cached_kvzch_data.cached_weight_tensor_per_table[i]
-                id = self._cached_kvzch_data.cached_id_tensor_per_table[i]
-                local_id = id + row_offset
-                logging.info(
-                    f"applying sd for table {i} without optimizer offloading, local_id is {local_id}"
-                )
-                opt_state = self._cached_kvzch_data.cached_optimizer_state_per_table[i]
-                t_device = self.momentum1_dev.device
-                self.momentum1_dev.index_put_(
-                    indices=(
-                        local_id.to(t_device).view(-1),
-                    ),  # expects tuple of tensors
-                    values=opt_state.to(t_device),
-                )
-                self.ssd_db.set_cuda(
-                    local_id.view(-1),
-                    weight,
-                    torch.as_tensor(local_id.size(0)),
-                    1,
-                    False,
-                )
-            table_offset += emb_height
         self.clear_cache()
 
     @torch.jit.ignore
     def streaming_write_weight_and_id_per_table(
         self,
         weight_state: torch.Tensor,
-        opt_state: torch.Tensor,
+        opt_states: List[torch.Tensor],
         id_tensor: torch.Tensor,
         row_offset: int,
     ) -> None:
@@ -2916,11 +3035,17 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         Args:
             weight_state (torch.tensor): The weight state tensor to be written.
-            opt_state (torch.tensor): The optimizer state tensor to be written.
+            opt_states (torch.tensor): The optimizer state tensor(s) to be written.
             id_tensor (torch.tensor): The id tensor to be written.
         """
-        D_rounded = pad4(weight_state.size(1))  # padded to 4 bytes alignment
+        D = weight_state.size(1)
         dtype = self.weights_precision.as_dtype()
+
+        optimizer_state_byte_offsets = self.optimizer.byte_offsets_along_row(
+            D, self.weights_precision, self.optimizer_state_dtypes
+        )
+        optimizer_state_size_table = self.optimizer.state_size_table(D)
+
         kvt = torch.classes.fbgemm.KVTensorWrapper(
             shape=[weight_state.size(0), self.cache_row_dim],
             dtype=dtype,
@@ -2933,11 +3058,13 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             if self.backend_type == BackendType.SSD
             else kvt.set_dram_db_wrapper(self.ssd_db)
         )
+
         # TODO: make chunk_size configurable or dynamic
         chunk_size = 10000
         row = weight_state.size(0)
-        opt_state_2d = opt_state.view(dtype).view(-1, self.optimizer_state_dim)
+
         for i in range(0, row, chunk_size):
+            # Construct the chunk buffer, using the weights precision as the dtype
             length = min(chunk_size, row - i)
             chunk_buffer = torch.empty(
                 length,
@@ -2945,10 +3072,38 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
                 dtype=dtype,
                 device="cpu",
             )
+
+            # Copy the weight state over to the chunk buffer
             chunk_buffer[:, : weight_state.size(1)] = weight_state[i : i + length, :]
-            chunk_buffer[:, D_rounded : D_rounded + self.optimizer_state_dim] = (
-                opt_state_2d[i : i + length, :]
-            )
+
+            # Copy the optimizer state(s) over to the chunk buffer
+            for o, opt_state in enumerate(opt_states):
+                # Fetch the state name based on the index
+                state_name = self.optimizer.state_names()[o]
+
+                # Fetch the byte offsets for the optimizer state by its name
+                (start, end) = optimizer_state_byte_offsets[state_name]
+
+                # Assume that the opt_state passed in already has dtype matching
+                # self.optimizer_state_dtypes[state_name]
+                opt_state_byteview = opt_state.view(
+                    # Force it to be 2D table, with row size matching the
+                    # optimizer state size
+                    -1,
+                    optimizer_state_size_table[state_name],
+                ).view(
+                    # Then force tensor to byte view
+                    dtype=torch.uint8
+                )
+
+                # Convert the chunk buffer and optimizer state to byte views
+                # Then use the start and end offsets to narrow the chunk buffer
+                # and copy opt_state over
+                chunk_buffer.view(dtype=torch.uint8)[:, start:end] = opt_state_byteview[
+                    i : i + length, :
+                ]
+
+            # Write chunk to KVTensor
             kvt.set_weights_and_ids(chunk_buffer, id_tensor[i : i + length, :].view(-1))
 
     @torch.jit.ignore
@@ -2964,23 +3119,36 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.load_state_dict = True
 
         dtype = self.weights_precision.as_dtype()
+        (_, dims) = zip(*self.embedding_specs)
+
         self._cached_kvzch_data = KVZCHCachedData([], [], [], [])
-        for i, (_, emb_dim) in enumerate(self.embedding_specs):
-            # for checkpointing loading, we need to store the weight and id tensor temporarily in memory
+
+        for i, _ in enumerate(self.embedding_specs):
+            # For checkpointing loading, we need to store the weight and id
+            # tensor temporarily in memory.  First check that the local_weight_counts
+            # are properly set before even initializing the optimizer states
             assert (
                 self.local_weight_counts[i] > 0
             ), f"local_weight_counts for table {i} is not set"
+
+        # pyre-ignore [16]
+        self._cached_kvzch_data.cached_optimizer_states_per_table = (
+            self.optimizer.empty_states(
+                self.local_weight_counts,
+                dims,
+                self.optimizer_state_dtypes,
+            )
+        )
+
+        for i, (_, emb_dim) in enumerate(self.embedding_specs):
             # pyre-ignore [16]
             bucket_id_start, bucket_id_end = self.kv_zch_params.bucket_offsets[i]
             rows = self.local_weight_counts[i]
             weight_state = torch.empty(rows, emb_dim, dtype=dtype, device="cpu")
-            opt_state = torch.empty(rows, dtype=torch.float32, device="cpu")
             # pyre-ignore [16]
             self._cached_kvzch_data.cached_weight_tensor_per_table.append(weight_state)
-            # pyre-ignore [16]
-            self._cached_kvzch_data.cached_optimizer_state_per_table.append(opt_state)
             logging.info(
-                f"for checkpoint loading, table {i}, weight_state shape is {weight_state.shape}, opt_state shape is {opt_state.shape}"
+                f"for checkpoint loading, table {i}, weight_state shape is {weight_state.shape}"
             )
             id_tensor = torch.zeros((rows, 1), dtype=torch.int64, device="cpu")
             # pyre-ignore [16]
@@ -3563,7 +3731,6 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             data_bytes=dram_kv_actual_used_chunk_bytes,
         )
 
-    # pyre-ignore
     def _recording_to_timer(
         self, timer: Optional[AsyncSeriesTimer], **kwargs: Any
     ) -> Any:
@@ -3594,9 +3761,11 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
 
         # NOTE: Remove this once there is support for fetching multiple
         # optimizer states in fetch_from_l1_sp_w_row_ids
-        if self.optimizer != OptimType.EXACT_ROWWISE_ADAGRAD:
+        if only_get_optimizer_states and self.optimizer not in [
+            OptimType.EXACT_ROWWISE_ADAGRAD
+        ]:
             raise RuntimeError(
-                "Only rowwise adagrad is supported in fetch_from_l1_sp_w_row_ids at the moment"
+                f"Fetching optimizer states using fetch_from_l1_sp_w_row_ids() is not yet supported for {self.optimizer}"
             )
 
         with torch.no_grad():

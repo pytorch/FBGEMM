@@ -7,6 +7,7 @@
 # pyre-unsafe
 import functools
 import logging
+import os
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -28,6 +29,8 @@ from triton import Config  # @manual
 from triton.runtime.jit import reinterpret as tl_reinterpret, TensorWrapper  # @manual
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+running_on_github: bool = os.getenv("GITHUB_ENV") is not None
 
 try:
     # pyre-ignore[21]
@@ -73,7 +76,7 @@ def get_fp8_constants() -> Tuple[torch.dtype, tl.dtype, float, float]:
         max_fp8 (float): The maximum reprsentable value for the fp8 datatype.
         eps (float): Minimum clip value to prevent divide by zero.
     """
-    if supports_float8_fnuz():
+    if supports_float8_fnuz(throw_on_hip_incompatibility=(not running_on_github)):
         pt_fp8_dtype = torch.float8_e4m3fnuz
         tl_fp8_dtype = tl.float8e4b8
     else:

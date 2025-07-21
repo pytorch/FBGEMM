@@ -7,10 +7,8 @@
  */
 
 #define FBGEMM_EXPORTS
-#include <asmjit/asmjit.h> // @manual
 #include "./CodeGenHelpers.h" // @manual
 #include "./GroupwiseConv.h" // @manual
-#include "fbgemm/Fbgemm.h"
 
 namespace fbgemm {
 

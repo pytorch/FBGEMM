@@ -179,8 +179,7 @@ CodeGenBase<int64_t, int64_t, int64_t, int64_t>::getOrCreate(
     asmjit::FuncDetail func;
     func.init(
         asmjit::FuncSignature::
-            build<void, int64_t*, int64_t*, int64_t*, int64_t*, int, int>(
-                asmjit::CallConvId::kHost),
+            build<void, int64_t*, int64_t*, int64_t*, int64_t*, int, int>(),
         a->environment());
 
     asmjit::FuncFrame frame;

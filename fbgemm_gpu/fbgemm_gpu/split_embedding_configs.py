@@ -9,7 +9,7 @@
 
 import enum
 import itertools
-from typing import Any, Dict, List, Tuple  # noqa: F401
+from typing import Any, Dict, List, Optional, Tuple  # noqa: F401
 
 import torch
 
@@ -17,6 +17,23 @@ from fbgemm_gpu.split_table_batched_embeddings_ops_common import (
     EmbeddingLocation,
     SplitState,
 )
+
+
+def pad4(value: int) -> int:
+    """
+    Compute the smallest multiple of 4 that is greater than or equal to the given value.
+
+    Parameters:
+        value (int): The integer to align (must be non-negative).
+
+    Returns:
+        int: The aligned value.
+
+    Raises:
+        ValueError: If the input is negative.
+        TypeError: If the input is not an integer.
+    """
+    return (int(value) + 3) & ~3
 
 
 @enum.unique
@@ -53,6 +70,32 @@ class EmbOptimType(enum.Enum):
             return torch.float32
         return optimizer_state_dtypes[name].as_dtype()
 
+    def state_names(self) -> List[str]:
+        """
+        Returns the names of the optimizer states.  The order of the states will
+        be the order in which they are processed and returned in
+        SSDTableBatchedEmbeddingBags.split_optimizer_states(), but this is not
+        necessarily the same as the order they are stored in the memory layout.
+        """
+        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
+            return ["momentum1"]
+        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+            return ["momentum1", "momentum2"]
+        else:
+            return []
+
+    def state_size_table(self, D: int) -> Dict[str, int]:
+        """
+        Returns the table of state names to state sizes in terms of number of
+        elements (per table row)
+        """
+        if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
+            return {"momentum1": 1}
+        elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
+            return {"momentum1": D, "momentum2": 1}
+        else:
+            return {}
+
     def state_size_nbytes(
         self, D: int, optimizer_state_dtypes: Dict[str, "SparseType"] = {}  # noqa: B006
     ) -> int:
@@ -60,19 +103,86 @@ class EmbOptimType(enum.Enum):
         Returns the size of the data (in bytes) required to hold the optimizer
         state (per table row)
         """
+        return sum(
+            [
+                # For each state, multiply the number of elements by the byte
+                # size of each element
+                (self._extract_dtype(optimizer_state_dtypes, name).itemsize * elem)
+                for name, elem in self.state_size_table(D).items()
+            ]
+        )
+
+    def byte_offsets_along_row(
+        self,
+        D: int,
+        weights_precision: "SparseType",
+        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+    ) -> Dict[str, Tuple[int, int]]:
+        """
+        Returns the start and end byte offsets of each optimizer state along a
+        cache row with optimizer state offloading enabled.
+        """
+
+        # This is the pointer to where the optimizer state begins in the memory
+        p0 = pad4(D) * weights_precision.as_dtype().itemsize
+
         if self == EmbOptimType.EXACT_ROWWISE_ADAGRAD:
             momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
             # Store one value for momentum per row
-            return momentum1_dtype.itemsize
+            return {"momentum1": (p0, p0 + momentum1_dtype.itemsize)}
 
         elif self == EmbOptimType.PARTIAL_ROWWISE_ADAM:
             momentum1_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum1")
             momentum2_dtype = self._extract_dtype(optimizer_state_dtypes, "momentum2")
-            # Store one value for momentum2 plus D values for momentum1 per row
-            return momentum2_dtype.itemsize + (D * momentum1_dtype.itemsize)
+            return {
+                "momentum2": (p0, p0 + momentum2_dtype.itemsize),
+                "momentum1": (
+                    p0 + momentum2_dtype.itemsize,
+                    p0 + momentum2_dtype.itemsize + D * momentum1_dtype.itemsize,
+                ),
+            }
 
         else:
-            return 0
+            return {}
+
+    def empty_states(
+        self,
+        rows: List[int],
+        dims: List[int],
+        optimizer_state_dtypes: Dict[str, "SparseType"] = {},  # noqa: B006
+    ) -> List[List[torch.Tensor]]:
+        """
+        Creates sets of empty tensors per table to hold optimizer states based
+        on the specified optimizer type, state dtypes, embedding specs, and
+        (optionally) local row counts.
+        """
+        # Else, check that the local row count for each table is set
+        assert len(rows) == len(dims)
+
+        opt_states_set: List[List[torch.Tensor]] = []
+
+        for r, D in zip(rows, dims):
+            # Set up the table of state names to state sizes, ordered by their
+            # memory layout
+            state_size_table = self.state_size_table(D)
+            ordered_state_sizes = [(k, state_size_table[k]) for k in self.state_names()]
+
+            # Create the optimizer states for this table
+            opt_states_set.append(
+                [
+                    torch.empty(
+                        # If the state size is 1, then fix tensor to 1D to be
+                        # consistent with training.py code
+                        # pyre-ignore [6]
+                        (r, d) if d > 1 else r,
+                        dtype=self._extract_dtype(optimizer_state_dtypes, state_name),
+                        device="cpu",
+                    )
+                    for state_name, d in ordered_state_sizes
+                ]
+            )
+
+        return opt_states_set
 
     def ssd_state_splits(
         self,
@@ -116,14 +226,6 @@ class EmbOptimType(enum.Enum):
             )
             for (name, cumsum_table) in params.items()
         ]
-
-    def dtype(self) -> torch.dtype:
-        """
-        Returns the dtype of the optimizer state
-        """
-        return {
-            EmbOptimType.EXACT_ROWWISE_ADAGRAD: torch.float32,
-        }.get(self, torch.float32)
 
 
 # Base class for quantization configuration (in case other numeric types have

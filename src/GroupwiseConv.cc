@@ -8,7 +8,6 @@
 
 #define FBGEMM_EXPORTS
 #include "./GroupwiseConv.h" // @manual
-#include <asmjit/asmjit.h> // @manual
 #include <cpuinfo.h>
 #include <array>
 #include <iostream>
@@ -16,8 +15,6 @@
 #include <tuple>
 #include <type_traits>
 #include "./CodeGenHelpers.h" // @manual
-#include "./RefImplementations.h" // @manual
-#include "./TransposeUtils.h" // @manual
 #include "fbgemm/Fbgemm.h"
 #include "fbgemm/QuantUtilsAvx512.h"
 #include "fbgemm/SimdUtils.h"
@@ -226,7 +223,7 @@ jit_conv_kernel_fp GenConvKernel<SPATIAL_DIM, INST_SET>::getOrCreate() {
           int32_t,
           int32_t,
           int32_t,
-          int32_t*>(asmjit::CallConvId::kHost),
+          int32_t*>(),
       a->environment());
 
   frame_.init(func_);

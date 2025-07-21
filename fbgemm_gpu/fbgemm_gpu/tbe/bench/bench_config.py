@@ -9,6 +9,7 @@
 
 import dataclasses
 import json
+from enum import Enum
 from typing import Any, Dict, Optional
 
 import click
@@ -56,6 +57,22 @@ class TBEBenchmarkingConfig:
         return self
 
 
+@dataclasses.dataclass(frozen=True)
+class TBEBenchmarkingHelperText(Enum):
+    BENCH_ITERATIONS = "Number of benchmark iterations to run"
+    BENCH_NUM_REQUESTS = "Number of input batches to generate. If the value is smaller than the number of benchmark iterations, input batches will be re-used"
+    BENCH_WARMUP_ITERATIONS = (
+        "Number of warmup iterations to run before making measurements"
+    )
+    BENCH_FLUSH_GPU_CACHE_SIZE = (
+        "Amount of memory to use for flushing the GPU cache after each iteration (MB)"
+    )
+    BENCH_EXPORT_TRACE = (
+        "If set, trace will be exported to the path specified in trace url"
+    )
+    BENCH_TRACE_URL = "The path for exporting the trace"
+
+
 class TBEBenchmarkingConfigLoader:
     @classmethod
     # pyre-ignore [2]
@@ -65,38 +82,38 @@ class TBEBenchmarkingConfigLoader:
                 "--bench-iterations",
                 type=int,
                 default=100,
-                help="Number of benchmark iterations to run",
+                help=TBEBenchmarkingHelperText.BENCH_ITERATIONS.value,
             ),
             click.option(
                 "--bench-num-requests",
                 type=int,
                 default=-1,
-                help="Number of input batches to generate. If the value is smaller than the number of benchmark iterations, input batches will be re-used",
+                help=TBEBenchmarkingHelperText.BENCH_NUM_REQUESTS.value,
             ),
             click.option(
                 "--bench-warmup-iterations",
                 type=int,
                 default=0,
-                help="Number of warmup iterations to run before making measurements",
+                help=TBEBenchmarkingHelperText.BENCH_WARMUP_ITERATIONS.value,
             ),
             click.option(
                 "--bench-flush-gpu-cache-size",
                 type=int,
                 default=0,
-                help="Amount of memory to use for flushing the GPU cache after each iteration (MB)",
+                help=TBEBenchmarkingHelperText.BENCH_FLUSH_GPU_CACHE_SIZE.value,
             ),
             click.option(
                 "--bench-export-trace",
                 is_flag=True,
                 default=False,
-                help="If set, a trace will be exported",
+                help=TBEBenchmarkingHelperText.BENCH_EXPORT_TRACE.value,
             ),
             click.option(
                 "--bench-trace-url",
                 type=str,
                 required=False,
                 default="{emb_op_type}_tbe_{phase}_trace_{ospid}.json",
-                help="The path for exporting the trace",
+                help=TBEBenchmarkingHelperText.BENCH_TRACE_URL.value,
             ),
         ]
 
