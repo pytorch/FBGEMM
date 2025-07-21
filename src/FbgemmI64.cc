@@ -437,9 +437,9 @@ void cblas_gemm_i64_i64acc(
         false /* accum */, MCB, NCB, KCB);
   }
 
-  vector<int64_t> At, Bt;
   // TODO: handle transpose during packing
   if (transa == matrix_op_t::Transpose) {
+    vector<int64_t> At;
     At.resize(M * K);
     for (int i = 0; i < M; ++i) {
       for (int k = 0; k < K; ++k) {
@@ -450,6 +450,7 @@ void cblas_gemm_i64_i64acc(
     lda = K;
   }
   if (transb == matrix_op_t::Transpose) {
+    vector<int64_t> Bt;
     Bt.resize(K * N);
     for (int k = 0; k < K; ++k) {
       for (int j = 0; j < N; ++j) {
