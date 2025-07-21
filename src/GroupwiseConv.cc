@@ -1023,8 +1023,7 @@ void fbgemmGroupwiseConv(
 
   if constexpr (SPATIAL_DIM == 1) {
     throw std::runtime_error("Groupwise 1D not implemented!");
-  }
-  if constexpr (SPATIAL_DIM == 2) {
+  } else if constexpr (SPATIAL_DIM == 2) {
     // Parallelization:
     int64_t batch_start = 0;
     int64_t batch_end = MB;
