@@ -239,7 +239,7 @@ void fbgemmDirectConv(
   }
 
   if constexpr (SPATIAL_DIM != 2) {
-    assert(false && "1d/3d direct conv not supported");
+    static_assert(false && SPATIAL_DIM, "1d/3d direct conv not supported");
   } else {
     if (conv_p.transposed) {
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::

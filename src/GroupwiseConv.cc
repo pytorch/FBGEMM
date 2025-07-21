@@ -1143,7 +1143,7 @@ void fbgemmGroupwiseConv(
       } // for each g
     } // for each i
   } else {
-    assert(SPATIAL_DIM == 3 && "Unsupported SPATIAL_DIM");
+    static_assert(SPATIAL_DIM == 3, "Unsupported SPATIAL_DIM");
 
     conv_param_t<> conv_p_2d(
         conv_param.MB,

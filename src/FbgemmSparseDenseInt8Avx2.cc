@@ -15,7 +15,6 @@
 #include <immintrin.h>
 #endif
 #include <algorithm> // for min and max
-#include <cassert>
 #include <cstring>
 #include "./MaskAvx2.h" // @manual
 

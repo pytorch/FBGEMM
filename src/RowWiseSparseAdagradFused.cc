@@ -10,7 +10,6 @@
 #include "fbgemm/FbgemmEmbedding.h"
 
 #include <cpuinfo.h>
-#include <cassert>
 #include <iostream>
 #include <mutex>
 #include "./CodeCache.h" // @manual
