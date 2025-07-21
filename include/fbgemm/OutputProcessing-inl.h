@@ -239,7 +239,7 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
           res += bias_[j];
         }
         out[i * ld_out + j] = res;
-        if (FUSE_RELU) {
+        if constexpr (FUSE_RELU) {
           out[i * ld_out + j] = std::max<outT>(0.0f, out[i * ld_out + j]);
         }
       }
