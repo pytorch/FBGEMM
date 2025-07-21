@@ -126,6 +126,10 @@ class PackedGemmMatrixB {
     packed_ = true;
     pmat_passed_in = true;
   }
+  PackedGemmMatrixB(const PackedGemmMatrixB&) = delete;
+  PackedGemmMatrixB(PackedGemmMatrixB&&) = delete;
+  PackedGemmMatrixB& operator=(const PackedGemmMatrixB&) = delete;
+  PackedGemmMatrixB& operator=(PackedGemmMatrixB&&) = delete;
 
   void initializeParam() {
     if (!cpuinfo_initialize()) {

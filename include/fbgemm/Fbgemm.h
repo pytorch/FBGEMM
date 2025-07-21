@@ -79,9 +79,9 @@ class PackMatrix {
  public:
   PackMatrix() = delete; // no default constructor
   PackMatrix(const PackMatrix&) = delete; // no copy
-  PackMatrix& operator==(const PackMatrix&) = delete; // no copy
+  PackMatrix& operator=(const PackMatrix&) = delete; // no copy
   PackMatrix(PackMatrix&&) = delete; // no move
-  PackMatrix& operator==(PackMatrix&& rhs) noexcept = delete; // no move
+  PackMatrix& operator=(PackMatrix&& rhs) noexcept = delete; // no move
 
   /**
    * @param rows total number of rows in the matrix
@@ -515,11 +515,11 @@ class FBGEMM_API PackWeightMatrixForGConv {
 
   PackWeightMatrixForGConv() = delete; // no default constructor
   PackWeightMatrixForGConv(const PackWeightMatrixForGConv&) = delete; // no copy
-  PackWeightMatrixForGConv& operator==(const PackWeightMatrixForGConv&) =
+  PackWeightMatrixForGConv& operator=(const PackWeightMatrixForGConv&) =
       delete; // no copy
 
   PackWeightMatrixForGConv(PackWeightMatrixForGConv&&) = delete; // no move
-  PackWeightMatrixForGConv& operator==(PackWeightMatrixForGConv&&) =
+  PackWeightMatrixForGConv& operator=(PackWeightMatrixForGConv&&) =
       delete; // no move
 
   /**
@@ -715,6 +715,11 @@ class FBGEMM_API PackAWithIm2Col
       bool b_symmetric = false,
       const BlockingFactors* params = nullptr);
 
+  PackAWithIm2Col(const PackAWithIm2Col&) = delete;
+  PackAWithIm2Col(PackAWithIm2Col&&) = delete;
+  PackAWithIm2Col& operator=(const PackAWithIm2Col&) = delete;
+  PackAWithIm2Col& operator=(PackAWithIm2Col&&) = delete;
+
   /**
    * Activation matrices are not constant so cannot amortize the cost of
    * pre-packing.
@@ -798,6 +803,11 @@ class FBGEMM_API PackAWithRowOffset final
       int groups = 1,
       std::int32_t* row_offset = nullptr,
       const BlockingFactors* params = nullptr);
+
+  PackAWithRowOffset(const PackAWithRowOffset&) = delete;
+  PackAWithRowOffset(PackAWithRowOffset&&) = delete;
+  PackAWithRowOffset& operator=(const PackAWithRowOffset&) = delete;
+  PackAWithRowOffset& operator=(PackAWithRowOffset&&) = delete;
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
@@ -890,6 +900,10 @@ class FBGEMM_API PackAWithQuantRowOffset final
       int groups = 1,
       std::int32_t* row_offset = nullptr,
       const BlockingFactors* params = nullptr);
+  PackAWithQuantRowOffset(const PackAWithQuantRowOffset&) = delete;
+  PackAWithQuantRowOffset(PackAWithQuantRowOffset&&) = delete;
+  PackAWithQuantRowOffset& operator=(const PackAWithQuantRowOffset&) = delete;
+  PackAWithQuantRowOffset& operator=(PackAWithQuantRowOffset&&) = delete;
 
   /**
    * Activation matrices are not constant so cannot amortize the cost of
