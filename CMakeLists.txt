@@ -149,9 +149,6 @@ if(NOT MSVC)
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
 
-  set_source_files_properties(src/PackMatrix.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
-
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
   if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
     set_source_files_properties(
