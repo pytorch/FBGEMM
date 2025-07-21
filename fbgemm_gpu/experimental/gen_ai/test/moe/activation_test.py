@@ -8,6 +8,7 @@
 # pyre-ignore-all-errors[16,21,53,56]
 
 import logging
+import os
 import unittest
 from typing import Optional, Tuple
 
@@ -22,6 +23,8 @@ if torch.cuda.is_available():
 
 from hypothesis import given, settings, strategies as st, Verbosity
 
+running_on_github: bool = os.getenv("GITHUB_ENV") is not None
+
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -31,6 +34,10 @@ _MAX_SAMPLES: int = 100
 @unittest.skipIf(
     not torch.cuda.is_available(),
     "Skip when no GPU is available.",
+)
+@unittest.skipIf(
+    running_on_github and torch.version.hip is not None,
+    "type fp8e4nv not supported in this architecture. The supported fp8 dtypes are ('fp8e5',)",
 )
 class ActivationTests(unittest.TestCase):
     """Test activation kernels."""

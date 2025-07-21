@@ -11,7 +11,11 @@
 #include <ATen/ATen.h>
 #include <ATen/Dispatch.h>
 #include <c10/cuda/CUDAStream.h>
+#ifdef USE_ROCM
+#include <hip/hip_fp16.h>
+#else
 #include <cuda_bf16.h>
+#endif
 #include <torch/torch.h>
 
 #define DISPATCH_CASE_FLOATING_TYPES(...)              \
