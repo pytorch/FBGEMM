@@ -90,7 +90,7 @@
 #endif
 
 // Macro for silencing warnings
-#ifdef __clang__
+#if __clang__ || __GNUC__
 // clang-format off
 #define FBGEMM_PUSH_WARNING _Pragma("GCC diagnostic push")
 #define FBGEMM_DISABLE_WARNING_INTERNAL2(warningName) #warningName
