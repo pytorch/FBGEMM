@@ -31,6 +31,11 @@ class FBGEMM_API PackedDirectConvMatrix {
       int OC_per_G,
       int filter_prod,
       const std::int8_t* smat);
+  PackedDirectConvMatrix(const PackedDirectConvMatrix&) = delete;
+  PackedDirectConvMatrix(PackedDirectConvMatrix&&) = delete;
+  PackedDirectConvMatrix& operator=(const PackedDirectConvMatrix&) = delete;
+  PackedDirectConvMatrix& operator=(PackedDirectConvMatrix&&) = delete;
+
   virtual ~PackedDirectConvMatrix();
 
   const std::int8_t* PackedMat() const {
