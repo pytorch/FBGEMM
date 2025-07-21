@@ -240,6 +240,7 @@ class NBitFowardTestCommon(unittest.TestCase):
                 )
                 for (E, D, M, W_TY) in zip(Es, Ds, managed, weights_ty_list)
             ],
+            Ls=L,
             pooling_mode=pooling_mode,
             index_remapping=index_remappings_array if B != 0 else None,
             device="cpu" if use_cpu else torch.cuda.current_device(),

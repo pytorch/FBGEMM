@@ -9,7 +9,7 @@
 // clang-format off
 {% set wdesc =  "weighted" if weighted else "unweighted" %}
 #include "fbgemm_gpu/embedding_forward_template_helpers.cuh"
-#include "fbgemm_gpu/utils/tensor_accessor_builder.h"
+#include "fbgemm_gpu/utils/tensor_accessor.h"
 
 using namespace fbgemm_gpu;
 using Tensor = at::Tensor;
@@ -17,7 +17,7 @@ using Tensor = at::Tensor;
 namespace nbit {
 
 // TODO: increase code sharing (templates for accumulator_ty, accumulation, outputs per thread, etc?)
-template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly, bool PackedMode>
+template<typename index_t, typename output_t, size_t OutputRowsPerThread, size_t WarpsPerBlock, size_t InputRowsInFlight, size_t MinNum128BRows, size_t MaxNum128BRows, bool DeviceOnly, bool PackedMode, bool PackedModeL>
 __launch_bounds__(WarpsPerBlock * kWarpSize)
 __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else "" }}_codegen_forward_{{ wdesc }}_kernel_small_L(
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
@@ -46,40 +46,40 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   {% endif %}
   // The number of bags that one warp/wave is able to process in one go. (NumUint4LoadsPerRow / uint4_loads_per_row)
   const int32_t num_packed_bags,
+  const int32_t num_packed_bags_L,
   pta::PackedTensorAccessor32<output_t, 2, at::RestrictPtrTraits> output, // [B][total_D],
   const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
   const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
   ) {
-  const int32_t T = weights_offsets.size(0);
-  {% if not nobag %}
-  const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
-  const int32_t B = output.size(0);
-  {% else %}
-  const int32_t B = (offsets.size(0) - 1) / T;
-  {% endif %}
-  const auto bb_t = blockIdx.x * blockDim.y + threadIdx.y;
-  if (bb_t >= fd_B.D() * T) {
-    return;
-  }
-  static_assert(
-    std::is_same_v<output_t, float> || std::is_same_v<output_t, at::BFloat16> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, uint8_t>,
-    "output_t can only be float or half or bytes now"
-  );
-
-  int32_t t;
-  int32_t bb;
-  fd_B.DivMod(bb_t, &t, &bb);
-
-  {% if not nobag %}
-  const int32_t D_start = D_offsets[t];
-  const int32_t D_end = D_offsets[t + 1];
-  const int32_t D = D_end - D_start;
-  {% endif %}
-  SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
-  if (weight_ty != SparseType::{{ emb_weight_type.enum_name }}) {
+    const int32_t T = weights_offsets.size(0);
+    {% if not nobag %}
+    const bool mean_pooling = static_cast<PoolingMode>(pooling_mode) == PoolingMode::MEAN;
+    const int32_t B = output.size(0);
+    {% else %}
+    const int32_t B = (offsets.size(0) - 1) / T;
+    {% endif %}
+    const auto bb_t = blockIdx.x * blockDim.y + threadIdx.y;
+    if (bb_t >= fd_B.D() * T) {
       return;
-  }
-
+    }
+    static_assert(
+      std::is_same_v<output_t, float> || std::is_same_v<output_t, at::BFloat16> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, uint8_t>,
+      "output_t can only be float or half or bytes now"
+    );
+  
+    int32_t t;
+    int32_t bb;
+    fd_B.DivMod(bb_t, &t, &bb);
+  
+    {% if not nobag %}
+    const int32_t D_start = D_offsets[t];
+    const int32_t D_end = D_offsets[t + 1];
+    const int32_t D = D_end - D_start;
+    {% endif %}
+    SparseType weight_ty = static_cast<SparseType>(weights_tys[t]);
+    if (weight_ty != SparseType::{{ emb_weight_type.enum_name }}) {
+        return;
+    }
   // default to 16 byte alignment for GPU TBE
   const int32_t D_bytes = padded_row_size_in_bytes(D, weight_ty, row_alignment);
 
@@ -100,7 +100,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 
   constexpr uint32_t NumUint4LoadsPerRow = MaxNum128BRows * 128 / sizeof(uint4);
   const uint32_t uint4_loads_per_row = div_round_up(D_bytes, sizeof(uint4));
-
+  const int32_t bag_size_offset = num_packed_bags_L > 1 ? kWarpSize/(num_packed_bags_L * NumUint4LoadsPerRow) : 1;
   // Index of packed bag during load stage in current warp/wave. Should fit into NumUint4LoadsPerRow (3rd) shared
   // memory buffer's dimension w.r.t. the actual size of the row in the bag.
   const uint32_t packed_bag_load_idx = PackedMode ? (threadIdx.x % NumUint4LoadsPerRow) / uint4_loads_per_row : 0;
@@ -109,7 +109,10 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
   // Packed bag accumulation index in current warp/wave. Each thread/lane process 1 uint instead of
   // 4 uints during load stage, so the index should be recomputed accordingly.
   const int32_t packed_bag_acc_idx = PackedMode ? (threadIdx.x / uints_per_row) % num_packed_bags : 0;
+  const uint32_t packed_bag_idx_L = num_packed_bags_L > 1 ? (threadIdx.x / NumUint4LoadsPerRow) / bag_size_offset : 0;
+  const uint32_t packed_bag_idx = (packed_bag_idx_L * num_packed_bags) + packed_bag_load_idx;
 
+  // const int32_t bag_d = kWarpSize/num_packed_bags_L; // num_packed_bags_L can be {1, 2, 4, 8}
   for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
     // In case of PackedMode, b should be offseted with num_packed_bags and indexed with packed_bag_load_idx
     // to take into account reduced grid size in host kernel call and that the warp/wave may contain several
@@ -134,315 +137,568 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 
   {% if not nobag %}
   VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> accumulators[OutputRowsPerThread][AccumulateStoreRequests];
+
   {% endif %}
-
-  for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
-    uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
-
-    typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
-    __shared__ AllBuffers buffers;
-
-    {% if weighted %}
-    // In case of PackedMode, overallocate indice weights buffer to store additional per-row weights for
-    // packed bags.
-    typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][PackedMode ? NumUint4LoadsPerRow : 1];
-    __shared__ AllIndiceWeights buffers_indice_weights;
-    {% endif %}
-
-    for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * NumUint4LoadsPerRow; load_idx += kWarpSize) {
-      uint32_t row_load_idx = load_idx % NumUint4LoadsPerRow;
-      if constexpr (PackedMode) {
-        // The actual row index in packed bag w.r.t. the required uint4 loads.
-        row_load_idx %= uint4_loads_per_row;
-      }
-      uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
-      // In case of PackedMode, packed_bag_load_idx already takes into account uint4_loads_per_row,
-      // so only the packed_bag index should be evaluated against total number of packed bags.
-      bool load_idx_valid = PackedMode ? packed_bag_load_idx < num_packed_bags : row_load_idx < uint4_loads_per_row;
-      {%- if is_rocm %}
-      constexpr uint32_t kMaxRowUnroll = 4;
-      constexpr uint32_t kRowUnroll = OutputRowsPerThread < kMaxRowUnroll ? OutputRowsPerThread : kMaxRowUnroll;
-
-      #pragma unroll
-      for (uint32_t outer_i = 0; outer_i < OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; outer_i += kRowUnroll) {
-        uint4 row_data_v[kRowUnroll];
-        const uint4* row_v[kRowUnroll];
-        int32_t idx_v[kRowUnroll];
-        int32_t cache_idx_v[kRowUnroll];
+  typedef uint4 AllBuffers[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][NumUint4LoadsPerRow];
+  __shared__ AllBuffers buffers;
+  {% if weighted %}
+  // In case of PackedMode, overallocate indice weights buffer to store additional per-row weights for
+  // packed bags.
+  typedef float AllIndiceWeights[WarpsPerBlock][OutputRowsPerThread][InputRowsInFlight][PackedMode ? NumUint4LoadsPerRow : 1];
+  __shared__ AllIndiceWeights buffers_indice_weights;
+  {% endif %}
+  {%- if is_rocm %}
+  constexpr uint32_t kMaxRowUnroll = 4;
+  constexpr uint32_t kRowUnroll = OutputRowsPerThread < kMaxRowUnroll ? OutputRowsPerThread : kMaxRowUnroll;
+  {% endif %}
+  if constexpr (PackedModeL){
+    for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+      uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+      for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * num_packed_bags_L * NumUint4LoadsPerRow; load_idx += kWarpSize) {
+        uint32_t row_load_idx = load_idx % NumUint4LoadsPerRow % uint4_loads_per_row;
+        uint32_t input_row_idx = num_packed_bags_L>1? (load_idx / NumUint4LoadsPerRow) % bag_size_offset: (load_idx / NumUint4LoadsPerRow); 
+        bool load_idx_valid = packed_bag_load_idx < num_packed_bags && packed_bag_idx_L < num_packed_bags_L;
+        {%- if is_rocm %}
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
-          uint32_t i = outer_i + inner_i;
-          bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
-          bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
-          idx_v[inner_i] = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
-          cache_idx_v[inner_i] = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
-        }
-
-
-        #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
-          uint32_t i = outer_i + inner_i;
-          bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
-          bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
-          valid = valid && (idx_v[inner_i] != -1);
-          if (!DeviceOnly && cache_valid && cache_idx_v[inner_i] != kCacheLocationMissing) {
-            row_v[inner_i] = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx_v[inner_i])][0]);
-          } else
-          if (valid) {
-            row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx_v[inner_i]) * D_bytes]);
-          } else {
-            row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[0]);
+        for (uint32_t outer_i = 0; outer_i < OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; outer_i += kRowUnroll) {
+          uint4 row_data_v[kRowUnroll];
+          const uint4* row_v[kRowUnroll];
+          int32_t idx_v[kRowUnroll];
+          int32_t cache_idx_v[kRowUnroll];
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
+            uint32_t i = outer_i + inner_i;
+            bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
+            bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
+            idx_v[inner_i] = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
+            cache_idx_v[inner_i] = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
+          }
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
+            uint32_t i = outer_i + inner_i;
+            bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
+            bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
+            valid = valid && (idx_v[inner_i] != -1);
+            if (!DeviceOnly && cache_valid && cache_idx_v[inner_i] != kCacheLocationMissing) {
+              row_v[inner_i] = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx_v[inner_i])][0]);
+            } else
+            if (valid) {
+              row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx_v[inner_i]) * D_bytes]);
+            } else {
+              row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[0]);
+            }
+          }
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+            uint32_t i = outer_i + inner_i;
+            row_data_v[inner_i] = row_v[inner_i][row_load_idx];
+          }
+          uint4 zeros = {0, 0, 0, 0};
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+            uint32_t i = outer_i + inner_i;
+            bool valid = load_idx_valid && (L_start + input_row_idx < Ls[i]) && (idx_v[inner_i] != -1);
+            uint4 data = valid ? row_data_v[inner_i] : zeros;
+            buffers[warp_idx][i][input_row_idx + bag_size_offset *packed_bag_idx_L][row_load_idx + uint4_loads_per_row * packed_bag_load_idx] = data;
+            {% if weighted %}
+            buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx]  = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+            {% endif %}
           }
         }
+        {%- endif %}
+        
+        {%- if is_rocm %}
+        if constexpr (OutputRowsPerThread % kRowUnroll)
+        {
         #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
-          uint32_t i = outer_i + inner_i;
-          row_data_v[inner_i] = row_v[inner_i][row_load_idx];
-        }
-        uint4 zeros = {0, 0, 0, 0};
-        #pragma unroll
-        for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
-          uint32_t i = outer_i + inner_i;
-          bool valid = load_idx_valid && (L_start + input_row_idx < Ls[i]) && (idx_v[inner_i] != -1);
-          uint4 data = valid ? row_data_v[inner_i] : zeros;
-          if constexpr (PackedMode) {
-            // Store row data with uint4_loads_per_row offset
-            buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx] = data;
+        for (uint32_t i = OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; i < OutputRowsPerThread; ++i) {
+        {%- else %}
+        #pragma unroll OutputRowsPerThread
+        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        {%- endif %}
+          bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
+          bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
+          int32_t idx = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
+          int32_t cache_idx = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
+          valid = valid && (idx != -1);
+          const uint4* row;
+          if (!DeviceOnly && cache_valid && cache_idx != kCacheLocationMissing) {
+            row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
+          } else if (valid) {
+            row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
           } else {
-            buffers[warp_idx][i][input_row_idx][row_load_idx] = data;
+            row = reinterpret_cast<const uint4*>(&weights[0]);
+          }
+          cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx + bag_size_offset * packed_bag_idx_L][row_load_idx + uint4_loads_per_row * packed_bag_load_idx] , &row[row_load_idx], valid);
+          {% if weighted %}
+          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx]  = valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+          {% endif %}
+        }
+        {%- if is_rocm %}
+        } // constexpr if (OutputRowsPerThread % kRowUnroll)
+        {%- endif %}
+      }
+      // equivalent to fence + wait.
+      cp_async_wait<0>();
+      syncwarp();
+      const int32_t packed_bag_load_idx = (threadIdx.x / uints_per_row) % num_packed_bags;
+      input_rows_in_flight = shfl_sync(input_rows_in_flight, packed_bag_load_idx * uint4_loads_per_row);
+      constexpr int32_t max_indices_per_warp = kWarpSize / (MaxNum128BRows * 128 / sizeof(uint4));
+      int32_t Ls_shfl[kWarpSize];
+      for(uint32_t k = 0; k < num_packed_bags_L ; ++k){
+        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+          Ls_shfl[k*OutputRowsPerThread+i] = shfl_sync(Ls[i], k * bag_size_offset * NumUint4LoadsPerRow + packed_bag_load_idx * uint4_loads_per_row);
+        }
+      }
+      for(uint32_t k = 0; k < num_packed_bags_L ; ++k){
+        for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+
+            #pragma unroll OutputRowsPerThread
+            for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+              bool valid = L_start + input_row_idx < Ls_shfl[k*OutputRowsPerThread+i];
+              if (!valid) {
+                continue;
+              }
+              const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx + bag_size_offset *k][0]);
+              // scale and bias are at the beginning of each row.
+              // rationale: have scale/shift at start since these get loaded first
+              // and then broadcasted around so it might speed up the first cache miss.
+              {% if emb_weight_type.primitive_type == "INT" %}
+              half2 shift_scale = reinterpret_cast<const half2*>(row)[(packed_bag_load_idx * uints_per_row)];
+              {% endif %}
+
+              {% if weighted %}
+              float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx][PackedMode ? packed_bag_acc_idx : 0];
+              {% endif %}
+
+              using scalar_t = {{ emb_weight_type.cpp_type_name }};
+
+              {% if not nobag %}
+              #pragma unroll AccumulateStoreRequests
+              for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+                scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+                {% if weighted %}
+                accumulators[i][j].fma(v, {% if emb_weight_type.primitive_type == "INT" %} shift_scale, {% elif emb_weight_type.enum_name == "FP8" %} exponent_bits, exponent_bias, {% endif %} row_weight);
+                {% else %}
+                accumulators[i][j].add(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+              
+                {% endif %}
+              }
+
+              {% else %}
+              const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
+              if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
+                #pragma unroll AccumulateStoreRequests
+                for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+                  // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
+                  // We shift back by 4/8/16 elements to remove the first 4 Bytes (which is garbage due to
+                  // the scale/shift handling).
+                  // Reason: to avoid divergence the first thread in the warp computes garbage.
+                  const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+                  scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+                  if (output_d >= 0 && output_d < D) {
+                    const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
+                    VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+                    acc.store(&output[output_j][output_d], num_valid_outputs);
+                  }
+                }
+              } else if constexpr (std::is_same_v<output_t, uint8_t>) {
+                // INT8:
+                // apply per feature row-wise int8
+                auto thread_local_min = std::numeric_limits<float>::max();
+                auto thread_local_max = std::numeric_limits<float>::lowest();
+                float2 qparams;
+                #pragma unroll AccumulateStoreRequests
+                for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+                  int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+                  scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+                  VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+                  if (output_d >= 0 && output_d < D) {
+                    thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(acc.acc));
+                    thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(acc.acc));
+                  }
+                }
+                qparams = warp_find_qparams(thread_local_min, thread_local_max);
+                #pragma unroll AccumulateStoreRequests
+                for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+                  const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+                  scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+                  if (output_d >= 0 && output_d < D) {
+                    const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
+                    VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+                    acc.store(&output[output_j][output_d], qparams, num_valid_outputs);
+                  }
+                }
+                if (threadIdx.x == 0) {
+                  store_qparams_to_row(&output[output_j][D], qparams);
+                }
+              }
+              {% endif %}
+            }
+          }
+        {% if not nobag %}
+        #pragma unroll OutputRowsPerThread
+        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+          const int32_t num_stores_with_padding_per_row = 4 * uint4_loads_per_row; 
+          const int32_t packed_bag_load_idx = threadIdx.x / num_stores_with_padding_per_row;
+          uint32_t b = min(static_cast<uint32_t>(bb * num_packed_bags * OutputRowsPerThread + i * num_packed_bags + k*num_packed_bags + packed_bag_load_idx), static_cast<uint32_t>(B - 1));
+          const float inv_L = (mean_pooling &&Ls_shfl[k*OutputRowsPerThread+i] != 0) ? static_cast<float>(1.0) / Ls_shfl[k*OutputRowsPerThread+i] : static_cast<float>(1.0);
+
+          if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
+              #pragma unroll AccumulateStoreRequests
+              for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+                const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding \
+                - packed_bag_load_idx * kOutputsPerThread * num_stores_with_padding_per_row;
+                accumulators[i][j].mul(inv_L);
+
+                if (output_d >= 0 && output_d < D && packed_bag_load_idx < num_packed_bags) {
+                  const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
+                  accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
+                }
+
+              }
+        
+          } else if constexpr (std::is_same_v<output_t, uint8_t>) {
+            // INT8:
+            // apply per feature row-wise int8
+            float thread_local_min = std::numeric_limits<float>::max();
+            float thread_local_max = std::numeric_limits<float>::lowest();
+            float2 qparams;
+            #pragma unroll AccumulateStoreRequests
+            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+              accumulators[i][j].mul(inv_L);
+              if (output_d >= 0 && output_d < D) {
+                thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(accumulators[i][j].acc));
+                thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(accumulators[i][j].acc));
+              }
+            }
+
+            qparams = warp_find_qparams(thread_local_min, thread_local_max);
+            const int output_D_start = D_start + t * 8;
+            const int output_D_end = output_D_start + D;
+            #pragma unroll AccumulateStoreRequests
+            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+              if (output_d >= 0 && output_d < D) {
+                const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
+                accumulators[i][j].store(&output[b][output_D_start + output_d], qparams, num_valid_outputs);
+              }
+            }
+            if (threadIdx.x == 0) {
+              store_qparams_to_row(&output[b][output_D_end], qparams);
+            }
+          } else {
+            // INT4: not implemented yet
+          }
+        }
+
+        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+                accumulators[i][j].mul(0.0);  // Use a dedicated clear method
+            }
+        }
+      
+        
+        {% endif %}
+        }
+      }
+  }
+  else{   
+    for (uint32_t L_start = 0; L_start < max_Ls; L_start += InputRowsInFlight) {
+      uint32_t input_rows_in_flight = min(static_cast<uint32_t>(InputRowsInFlight), max_Ls - L_start);
+
+      for (uint32_t load_idx = threadIdx.x; load_idx < input_rows_in_flight * NumUint4LoadsPerRow; load_idx += kWarpSize) {
+        uint32_t row_load_idx = load_idx % NumUint4LoadsPerRow;
+        if constexpr (PackedMode) {
+          // The actual row index in packed bag w.r.t. the required uint4 loads.
+          row_load_idx %= uint4_loads_per_row;
+        }
+        uint32_t input_row_idx = (load_idx / NumUint4LoadsPerRow);
+        // In case of PackedMode, packed_bag_load_idx already takes into account uint4_loads_per_row,
+        // so only the packed_bag index should be evaluated against total number of packed bags.
+        bool load_idx_valid = PackedMode ? packed_bag_load_idx < num_packed_bags : row_load_idx < uint4_loads_per_row;
+        {%- if is_rocm %}
+        #pragma unroll
+        for (uint32_t outer_i = 0; outer_i < OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; outer_i += kRowUnroll) {
+          uint4 row_data_v[kRowUnroll];
+          const uint4* row_v[kRowUnroll];
+          int32_t idx_v[kRowUnroll];
+          int32_t cache_idx_v[kRowUnroll];
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
+            uint32_t i = outer_i + inner_i;
+            bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
+            bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
+            idx_v[inner_i] = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
+            cache_idx_v[inner_i] = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
+          }
+
+
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; ++inner_i) {
+            uint32_t i = outer_i + inner_i;
+            bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
+            bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
+            valid = valid && (idx_v[inner_i] != -1);
+            if (!DeviceOnly && cache_valid && cache_idx_v[inner_i] != kCacheLocationMissing) {
+              row_v[inner_i] = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx_v[inner_i])][0]);
+            } else
+            if (valid) {
+              row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx_v[inner_i]) * D_bytes]);
+            } else {
+              row_v[inner_i] = reinterpret_cast<const uint4*>(&weights[0]);
+            }
+          }
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+            uint32_t i = outer_i + inner_i;
+            row_data_v[inner_i] = row_v[inner_i][row_load_idx];
+          }
+          uint4 zeros = {0, 0, 0, 0};
+          #pragma unroll
+          for (uint32_t inner_i = 0; inner_i < kRowUnroll; inner_i++) {
+            uint32_t i = outer_i + inner_i;
+            bool valid = load_idx_valid && (L_start + input_row_idx < Ls[i]) && (idx_v[inner_i] != -1);
+            uint4 data = valid ? row_data_v[inner_i] : zeros;
+            if constexpr (PackedMode) {
+              // Store row data with uint4_loads_per_row offset
+              buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx] = data;
+            } else {
+              buffers[warp_idx][i][input_row_idx][row_load_idx] = data;
+            }
+            {% if weighted %}
+            if (valid && row_load_idx == 0)  {
+              // Use only one thread to load the index weight to prevent a race
+              // condition when writing to the shared memory
+              buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
+            }
+            {% endif %}
+          }
+        }
+        {%- endif %}
+        
+        {%- if is_rocm %}
+        if constexpr (OutputRowsPerThread % kRowUnroll)
+        {
+        #pragma unroll
+        for (uint32_t i = OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; i < OutputRowsPerThread; ++i) {
+        {%- else %}
+        #pragma unroll OutputRowsPerThread
+        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+        {%- endif %}
+          bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
+          bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
+          int32_t idx = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
+          int32_t cache_idx = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
+          valid = valid && (idx != -1);
+          const uint4* row;
+          if (!DeviceOnly && cache_valid && cache_idx != kCacheLocationMissing) {
+            row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
+          } else if (valid) {
+            row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
+          } else {
+            row = reinterpret_cast<const uint4*>(&weights[0]);
+          }
+          if constexpr (PackedMode) {
+            // Load valid packed row data w.r.t. packed_bag offset 
+            cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx], &row[row_load_idx], valid);
+          } else {
+            cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
           }
           {% if weighted %}
-          if (row_load_idx == 0)  {
+          if (valid && row_load_idx == 0) {
             // Use only one thread to load the index weight to prevent a race
             // condition when writing to the shared memory
-            buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] =
-              valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
+            buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] = indice_weights[indices_starts[i] + L_start + input_row_idx];
+          }
+          {% endif %}
+        }
+        {%- if is_rocm %}
+        } // constexpr if (OutputRowsPerThread % kRowUnroll)
+        {%- endif %}
+      }
+      // equivalent to fence + wait.
+      cp_async_wait<0>();
+      syncwarp();
+
+      if constexpr (PackedMode) {
+        // Since in PackedMode one warp/wave may contain different bags with different sizes,
+        // the permutation should be done after switching from uint4 processing during load stage
+        // to uint processing during accumulate and store.
+        input_rows_in_flight = shfl_sync(input_rows_in_flight, packed_bag_acc_idx * uint4_loads_per_row);
+
+        #pragma unroll OutputRowsPerThread
+        for(uint32_t i = 0; i < OutputRowsPerThread; ++i)
+        {
+          Ls[i] = shfl_sync(Ls[i], packed_bag_acc_idx * uint4_loads_per_row);
+        }
+      }
+      
+      for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
+        #pragma unroll OutputRowsPerThread
+        for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+          bool valid = L_start + input_row_idx < Ls[i];
+          if (!valid) {
+            continue;
+          }
+          const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
+          // scale and bias are at the beginning of each row.
+          // rationale: have scale/shift at start since these get loaded first
+          // and then broadcasted around so it might speed up the first cache miss.
+          {% if emb_weight_type.primitive_type == "INT" %}
+          // In PackedMode, row pointer may contain several rows from different bags, so each thread/lane should
+          // read the certain shift_scale related to the row in the packed_bag.
+          half2 shift_scale = reinterpret_cast<const half2*>(row)[PackedMode ? packed_bag_acc_idx * uints_per_row : 0];
+          {% endif %}
+
+          {% if weighted %}
+          float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx][PackedMode ? packed_bag_acc_idx : 0];
+          {% endif %}
+
+          using scalar_t = {{ emb_weight_type.cpp_type_name }};
+
+          {% if not nobag %}
+          #pragma unroll AccumulateStoreRequests
+          for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+            scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+            {% if weighted %}
+            accumulators[i][j].fma(v, {% if emb_weight_type.primitive_type == "INT" %} shift_scale, {% elif emb_weight_type.enum_name == "FP8" %} exponent_bits, exponent_bias, {% endif %} row_weight);
+            {% else %}
+            accumulators[i][j].add(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+            {% endif %}
+          }
+          {% else %}
+          const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
+          if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
+            #pragma unroll AccumulateStoreRequests
+            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
+              // We shift back by 4/8/16 elements to remove the first 4 Bytes (which is garbage due to
+              // the scale/shift handling).
+              // Reason: to avoid divergence the first thread in the warp computes garbage.
+              const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+              scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+              if (output_d >= 0 && output_d < D) {
+                const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
+                VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+                acc.store(&output[output_j][output_d], num_valid_outputs);
+              }
+            }
+          } else if constexpr (std::is_same_v<output_t, uint8_t>) {
+            // INT8:
+            // apply per feature row-wise int8
+            auto thread_local_min = std::numeric_limits<float>::max();
+            auto thread_local_max = std::numeric_limits<float>::lowest();
+            float2 qparams;
+            #pragma unroll AccumulateStoreRequests
+            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+              scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+              VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+              if (output_d >= 0 && output_d < D) {
+                thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(acc.acc));
+                thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(acc.acc));
+              }
+            }
+            qparams = warp_find_qparams(thread_local_min, thread_local_max);
+            #pragma unroll AccumulateStoreRequests
+            for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+              const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+              scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+              if (output_d >= 0 && output_d < D) {
+                const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
+                VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
+                acc.store(&output[output_j][output_d], qparams, num_valid_outputs);
+              }
+            }
+            if (threadIdx.x == 0) {
+              store_qparams_to_row(&output[output_j][D], qparams);
+            }
           }
           {% endif %}
         }
       }
-      {%- endif %}
-
-      {%- if is_rocm %}
-      if constexpr (OutputRowsPerThread % kRowUnroll)
-      {
-      #pragma unroll
-      for (uint32_t i = OutputRowsPerThread - OutputRowsPerThread % kRowUnroll; i < OutputRowsPerThread; ++i) {
-      {%- else %}
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-      {%- endif %}
-        bool valid = load_idx_valid && L_start + input_row_idx < Ls[i];
-        bool cache_valid = !DeviceOnly && (placement == PlacementType::MANAGED_CACHING && valid);
-        int32_t idx = valid ? indices_[indices_starts[i] + L_start + input_row_idx] : -1;
-        int32_t cache_idx = (!DeviceOnly && cache_valid) ? lxu_cache_locations[indices_starts[i] + L_start + input_row_idx] : -1;
-        valid = valid && (idx != -1);
-        const uint4* row;
-        if (!DeviceOnly && cache_valid && cache_idx != kCacheLocationMissing) {
-          row = reinterpret_cast<const uint4*>(&lxu_cache_weights[static_cast<int64_t>(cache_idx)][0]);
-        } else if (valid) {
-          row = reinterpret_cast<const uint4*>(&weights[static_cast<int64_t>(idx) * D_bytes]);
-        } else {
-          row = reinterpret_cast<const uint4*>(&weights[0]);
-        }
-        if constexpr (PackedMode) {
-          // Load valid packed row data w.r.t. packed_bag offset
-          cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx + uint4_loads_per_row * packed_bag_load_idx], &row[row_load_idx], valid);
-        } else {
-          cp_async_zfill_cg<sizeof(uint4)>(&buffers[warp_idx][i][input_row_idx][row_load_idx], &row[row_load_idx], valid);
-        }
-        {% if weighted %}
-        if (row_load_idx == 0) {
-          // Use only one thread to load the index weight to prevent a race
-          // condition when writing to the shared memory
-          buffers_indice_weights[warp_idx][i][input_row_idx][packed_bag_load_idx] =
-            valid ? indice_weights[indices_starts[i] + L_start + input_row_idx] : 0.0;
-        }
-        {% endif %}
-      }
-      {%- if is_rocm %}
-      } // constexpr if (OutputRowsPerThread % kRowUnroll)
-      {%- endif %}
-    }
-    // equivalent to fence + wait.
-    cp_async_wait<0>();
-    syncwarp();
-
-    if constexpr (PackedMode) {
-      // Since in PackedMode one warp/wave may contain different bags with different sizes,
-      // the permutation should be done after switching from uint4 processing during load stage
-      // to uint processing during accumulate and store.
-      input_rows_in_flight = shfl_sync(input_rows_in_flight, packed_bag_acc_idx * uint4_loads_per_row);
-
-      #pragma unroll OutputRowsPerThread
-      for(uint32_t i = 0; i < OutputRowsPerThread; ++i)
-      {
-        Ls[i] = shfl_sync(Ls[i], packed_bag_acc_idx * uint4_loads_per_row);
-      }
     }
 
-    for (uint32_t input_row_idx = 0; input_row_idx < input_rows_in_flight; ++input_row_idx) {
-      #pragma unroll OutputRowsPerThread
-      for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-        bool valid = L_start + input_row_idx < Ls[i];
-        if (!valid) {
-          continue;
-        }
-        const uint32_t* row = reinterpret_cast<const uint32_t*>(&buffers[warp_idx][i][input_row_idx][0]);
-        // scale and bias are at the beginning of each row.
-        // rationale: have scale/shift at start since these get loaded first
-        // and then broadcasted around so it might speed up the first cache miss.
-        {% if emb_weight_type.primitive_type == "INT" %}
-        // In PackedMode, row pointer may contain several rows from different bags, so each thread/lane should
-        // read the certain shift_scale related to the row in the packed_bag.
-        half2 shift_scale = reinterpret_cast<const half2*>(row)[PackedMode ? packed_bag_acc_idx * uints_per_row : 0];
-        {% endif %}
+    {% if not nobag %}
+    // In case of PackedMode, computes the packed bag index during store stage w.r.t.
+    // the real number of uints in the rows.
+    const int32_t packed_bag_store_idx = PackedMode ? threadIdx.x / uints_per_row : 0;
 
-        {% if weighted %}
-        float row_weight = buffers_indice_weights[warp_idx][i][input_row_idx][PackedMode ? packed_bag_acc_idx : 0];
-        {% endif %}
+    #pragma unroll OutputRowsPerThread
+    for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
+      const uint32_t b = min(static_cast<uint32_t>(bb * num_packed_bags * OutputRowsPerThread + i * num_packed_bags + packed_bag_store_idx), static_cast<uint32_t>(B - 1));
+      const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i] : static_cast<float>(1.0);
 
-        using scalar_t = {{ emb_weight_type.cpp_type_name }};
-
-        {% if not nobag %}
+      if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
         #pragma unroll AccumulateStoreRequests
         for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-          scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
-          {% if weighted %}
-          accumulators[i][j].fma(v, {% if emb_weight_type.primitive_type == "INT" %} shift_scale, {% elif emb_weight_type.enum_name == "FP8" %} exponent_bits, exponent_bias, {% endif %} row_weight);
-          {% else %}
-          accumulators[i][j].add(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
-          {% endif %}
-        }
-        {% else %}
-        const int32_t output_j = indices_starts[i] + L_start + input_row_idx;
-        if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
-          #pragma unroll AccumulateStoreRequests
-          for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-            // Read the uint8/4/2 values: note that first 4 Bytes will be ditched later:
-            // We shift back by 4/8/16 elements to remove the first 4 Bytes (which is garbage due to
-            // the scale/shift handling).
-            // Reason: to avoid divergence the first thread in the warp computes garbage.
-            const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-            scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
+          int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+          if constexpr (PackedMode) {
+            // Offset global output_d index with the size of outputs per bag w.r.t. current
+            // packed bag index 
+            output_d -= packed_bag_store_idx * kOutputsPerThread * uints_per_row; 
+          }
+          accumulators[i][j].mul(inv_L);
+
+          if constexpr (PackedMode) {
+            // Take into account the packed bag index overflow
+            if (output_d >= 0 && output_d < D && packed_bag_store_idx < num_packed_bags) {
+              const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
+              accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
+            }
+          } else {
             if (output_d >= 0 && output_d < D) {
               const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
-              VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
-              acc.store(&output[output_j][output_d], num_valid_outputs);
+              accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
             }
           }
-        } else if constexpr (std::is_same_v<output_t, uint8_t>) {
-          // INT8:
-          // apply per feature row-wise int8
-          auto thread_local_min = std::numeric_limits<float>::max();
-          auto thread_local_max = std::numeric_limits<float>::lowest();
-          float2 qparams;
-          #pragma unroll AccumulateStoreRequests
-          for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-            auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-            scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
-            VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
-            if (output_d >= 0 && output_d < D) {
-              thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(acc.acc));
-              thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(acc.acc));
-            }
-          }
-          qparams = warp_find_qparams(thread_local_min, thread_local_max);
-          #pragma unroll AccumulateStoreRequests
-          for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-            const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-            scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
-            if (output_d >= 0 && output_d < D) {
-              const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
-              VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
-              acc.store(&output[output_j][output_d], qparams, num_valid_outputs);
-            }
-          }
-          if (threadIdx.x == 0) {
-            store_qparams_to_row(&output[output_j][D], qparams);
+
+        }
+      } else if constexpr (std::is_same_v<output_t, uint8_t>) {
+        // INT8:
+        // apply per feature row-wise int8
+        float thread_local_min = std::numeric_limits<float>::max();
+        float thread_local_max = std::numeric_limits<float>::lowest();
+        float2 qparams;
+        #pragma unroll AccumulateStoreRequests
+        for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+          int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
+          accumulators[i][j].mul(inv_L);
+          if (output_d >= 0 && output_d < D) {
+            thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(accumulators[i][j].acc));
+            thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(accumulators[i][j].acc));
           }
         }
-        {% endif %}
-      }
-    }
-  }
 
-  {% if not nobag %}
-  // In case of PackedMode, computes the packed bag index during store stage w.r.t.
-  // the real number of uints in the rows.
-  const auto packed_bag_store_idx = PackedMode ? threadIdx.x / uints_per_row : 0;
-
-  #pragma unroll OutputRowsPerThread
-  for (uint32_t i = 0; i < OutputRowsPerThread; ++i) {
-    const uint32_t b = min(static_cast<uint32_t>(bb * num_packed_bags * OutputRowsPerThread + i * num_packed_bags + packed_bag_store_idx), static_cast<uint32_t>(B - 1));
-    const float inv_L = (mean_pooling && Ls[i] != 0) ? static_cast<float>(1.0) / Ls[i] : static_cast<float>(1.0);
-
-    if constexpr (std::is_same_v<output_t, float> || std::is_same_v<output_t, at::Half> || std::is_same_v<output_t, at::BFloat16>) {
-      #pragma unroll AccumulateStoreRequests
-      for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-        auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if constexpr (PackedMode) {
-          // Offset global output_d index with the size of outputs per bag w.r.t. current
-          // packed bag index
-          output_d -= packed_bag_store_idx * kOutputsPerThread * uints_per_row;
-        }
-        accumulators[i][j].mul(inv_L);
-
-        if constexpr (PackedMode) {
-          // Take into account the packed bag index overflow
-          if (output_d >= 0 && output_d < D && packed_bag_store_idx < num_packed_bags) {
-            const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
-            accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
-          }
-        } else {
+        qparams = warp_find_qparams(thread_local_min, thread_local_max);
+        const int output_D_start = D_start + t * 8;
+        const int output_D_end = output_D_start + D;
+        #pragma unroll AccumulateStoreRequests
+        for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
+          const int32_t output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
           if (output_d >= 0 && output_d < D) {
             const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
-            accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
+            accumulators[i][j].store(&output[b][output_D_start + output_d], qparams, num_valid_outputs);
           }
         }
-
-      }
-    } else if constexpr (std::is_same_v<output_t, uint8_t>) {
-      // INT8:
-      // apply per feature row-wise int8
-      float thread_local_min = std::numeric_limits<float>::max();
-      float thread_local_max = std::numeric_limits<float>::lowest();
-      float2 qparams;
-      #pragma unroll AccumulateStoreRequests
-      for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-        auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        accumulators[i][j].mul(inv_L);
-        if (output_d >= 0 && output_d < D) {
-          thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(accumulators[i][j].acc));
-          thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(accumulators[i][j].acc));
+        if (threadIdx.x == 0) {
+          store_qparams_to_row(&output[b][output_D_end], qparams);
         }
+      } else {
+        // INT4: not implemented yet
       }
-
-      qparams = warp_find_qparams(thread_local_min, thread_local_max);
-      const int output_D_start = D_start + t * 8;
-      const int output_D_end = output_D_start + D;
-      #pragma unroll AccumulateStoreRequests
-      for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
-        const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (output_d >= 0 && output_d < D) {
-          const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
-          accumulators[i][j].store(&output[b][output_D_start + output_d], qparams, num_valid_outputs);
-        }
-      }
-      if (threadIdx.x == 0) {
-        store_qparams_to_row(&output[b][output_D_end], qparams);
-      }
-    } else {
-      // INT4: not implemented yet
     }
-  }
-  {% endif %}
+    {% endif %}
+            }
 }
 
 // kWarpsPerBlock is defined in embedding_forward_quantized_split_nbit_host_template.cu
 {% set warps_per_block = '4' %}
 
 {% for packed_mode in ['true', 'false'] %}
+{% for packed_mode_L in ['true', 'false'] %}
 {% for device_only in ['true', 'false'] %}
 {% for output_type in ['at::Half', 'at::BFloat16', 'float', 'uint8_t'] %}
 {% for index_type in ['int32_t', 'int64_t'] %}
@@ -464,7 +720,8 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
   {{ params.min_128b_rows }},
   {{ params.max_128b_rows }},
   {{ device_only }},
-  {{ packed_mode }} > (
+  {{ packed_mode }},
+  {{ packed_mode_L }} > (
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> dev_weights,
   const pta::PackedTensorAccessor64<uint8_t, 1, at::RestrictPtrTraits> uvm_weights,
   const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> weights_placements,
@@ -490,6 +747,7 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
   const int exponent_bias,
   {% endif %}
   const int32_t num_packed_bags,
+  const int32_t num_packed_bags_L,
   pta::PackedTensorAccessor32<{{ output_type }}, 2, at::RestrictPtrTraits> output, // [B][total_D],
   const pta::PackedTensorAccessor64<uint8_t, 2, at::RestrictPtrTraits> lxu_cache_weights,
   const pta::PackedTensorAccessor32<int32_t, 1, at::RestrictPtrTraits> lxu_cache_locations
@@ -503,6 +761,7 @@ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if nobag else ""
 {% endfor %} // for index_type in ['int32_t', 'int64_t']
 {% endfor %} // for output_type in [True, False]
 {% endfor %} // device_only in [True, False]
+{% endfor %} // packed_bags in ['true', 'false']
 {% endfor %} // packed_bags in ['true', 'false']
 
 }
