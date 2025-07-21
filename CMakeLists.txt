@@ -13,7 +13,7 @@
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 # Set up paths
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules")
 set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -115,7 +115,7 @@ endif()
 ################################################################################
 
 # Check if compiler supports __gnu_f2h_ieee
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/modules/FindGnuH2fIeee.cmake)
 
 if(NOT HAVE_GNU_F2H_IEEE)
   add_definitions(-DMISSING_GNU_F2H_IEEE)
