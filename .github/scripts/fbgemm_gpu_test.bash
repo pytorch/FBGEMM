@@ -8,6 +8,8 @@
 
 # shellcheck disable=SC1091,SC2128
 . "$( dirname -- "$BASH_SOURCE"; )/utils_base.bash"
+# shellcheck disable=SC1091,SC2128
+. "$( dirname -- "$BASH_SOURCE"; )/utils_pytorch.bash"
 
 ################################################################################
 # FBGEMM_GPU Test Helper Functions
@@ -139,10 +141,7 @@ __configure_fbgemm_gpu_test_rocm () {
     ./sll/triton_sll_test.py
     ./comm/multi_gpu_car_test.py
     ./gather_scatter/gather_scatter_test.py
-    ./moe/activation_test.py
-    ./moe/gather_scatter_test.py
-    ./moe/layers_test.py
-    ./moe/shuffling_test.py
+    ./moe/layers_test.py # Not a python unittest file
   )
 }
 
@@ -325,6 +324,9 @@ test_all_fbgemm_gpu_modules () {
 
   # Set the ignored tests and PyTest args
   __setup_fbgemm_gpu_test
+
+  # Verify that the GPUs are visible
+  __verify_pytorch_gpu_integration
 
   # Iterate through the test directories and run bulk tests
   for test_dir in "${target_directories[@]}"; do
