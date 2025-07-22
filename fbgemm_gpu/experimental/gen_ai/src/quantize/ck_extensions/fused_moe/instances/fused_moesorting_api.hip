@@ -33,7 +33,8 @@
                                                     ms_weight_type,            \
                                                     sub_token_tile,            \
                                                     sub_token_onshot,          \
-                                                    local_expert_masking>;     \
+                                                    local_expert_masking,      \
+                                                    false>;                    \
     using kernel                              = ck_tile::MoeSortingKernel<ms_problem>;                  \
     auto kargs                                = kernel::MakeKargs(a);                                   \
     const dim3 grids                          = kernel::GridSize(a);                                    \
@@ -153,7 +154,7 @@ float fused_moesorting(fused_moesorting_trait t, fused_moesorting_args a, ck_til
         }
         }
 #else
-        if(moe_sorting_get_workspace_size(a.tokens, a.num_experts) != 0)
+        if(moe_sorting_get_workspace_size(a.tokens, a.num_experts, a.topk) != 0)
         {
             return moe_sorting_mp(t, a, s);
         }
@@ -176,7 +177,7 @@ float fused_moesorting(fused_moesorting_trait t, fused_moesorting_args a, ck_til
         constexpr ck_tile::index_t unroll_num = unroll_num_;                                      \
         constexpr bool expert_masking         = expert_masking_;                                  \
         using ms_problem =                                                                        \
-            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, unroll_num, expert_masking>; \
+            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, ck_tile::index_t, unroll_num, expert_masking, false>; \
         using kernel      = ck_tile::MoeSortingMultiPhaseKernel_P0<ms_problem>;                   \
         auto kargs        = kernel::MakeKargs(a);                                                 \
         const dim3 grids  = kernel::GridSize(a);                                                  \
@@ -189,7 +190,7 @@ float fused_moesorting(fused_moesorting_trait t, fused_moesorting_args a, ck_til
         constexpr ck_tile::index_t unroll_num = unroll_num_;                                      \
         constexpr bool expert_masking         = expert_masking_;                                  \
         using ms_problem =                                                                        \
-            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, unroll_num, expert_masking>; \
+            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, ck_tile::index_t, unroll_num, expert_masking, false>; \
         using kernel      = ck_tile::MoeSortingMultiPhaseKernel_P1<ms_problem>;                   \
         auto kargs        = kernel::MakeKargs(a);                                                 \
         const dim3 grids  = kernel::GridSize(a);                                                  \
@@ -202,7 +203,7 @@ float fused_moesorting(fused_moesorting_trait t, fused_moesorting_args a, ck_til
         constexpr ck_tile::index_t unroll_num = unroll_num_;                                      \
         constexpr bool expert_masking         = expert_masking_;                                  \
         using ms_problem =                                                                        \
-            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, unroll_num, expert_masking>; \
+            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, ck_tile::index_t, unroll_num, expert_masking, false>; \
         using kernel      = ck_tile::MoeSortingMultiPhaseKernel_P2<ms_problem>;                   \
         auto kargs        = kernel::MakeKargs(a);                                                 \
         const dim3 grids  = kernel::GridSize(a);                                                  \
@@ -215,7 +216,7 @@ float fused_moesorting(fused_moesorting_trait t, fused_moesorting_args a, ck_til
         constexpr ck_tile::index_t unroll_num = unroll_num_;                                      \
         constexpr bool expert_masking         = expert_masking_;                                  \
         using ms_problem =                                                                        \
-            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, unroll_num, expert_masking>; \
+            ck_tile::MoeSortingProblemMp<ms_index_t, ms_weight_type, ck_tile::index_t, unroll_num, expert_masking, false>; \
         using kernel      = ck_tile::MoeSortingMultiPhaseKernel_P3<ms_problem>;                   \
         auto kargs        = kernel::MakeKargs(a);                                                 \
         const dim3 grids  = kernel::GridSize(a);                                                  \
@@ -252,7 +253,7 @@ float moe_sorting_mp(fused_moesorting_trait t, fused_moesorting_args a, ck_tile:
     return -1;
 }
 
-int moe_sorting_get_workspace_size(int tokens, int num_experts)
+int moe_sorting_get_workspace_size(int tokens, int num_experts, int topk)
 {
-    return ck_tile::moe_sorting_get_workspace_size(tokens, num_experts);
+    return ck_tile::moe_sorting_get_workspace_size(tokens, num_experts, topk, 0);
 }

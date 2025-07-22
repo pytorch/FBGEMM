@@ -20,7 +20,7 @@ float fused_moesorting(
     fused_moesorting_args a,
     ck_tile::stream_config s);
 
-int moe_sorting_get_workspace_size(int tokens, int num_experts);
+int moe_sorting_get_workspace_size(int tokens, int num_experts, int topk);
 float moe_sorting_mp(
     fused_moesorting_trait t,
     fused_moesorting_args a,
