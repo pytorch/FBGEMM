@@ -184,7 +184,7 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
       }
     }
   } else {
-    static_assert(false && sizeof(instSet), "Not supported yet");
+    assert(0 && "Not supported yet");
   }
   return nextop_.template f<instSet>(out, out, block, ld_out, ld_out);
 }
@@ -297,7 +297,7 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
       }
     }
   } else {
-    static_assert(false && sizeof(instSet), "Not supported yet");
+    assert(0 && "Not supported yet");
   }
 
   return nextop_.template f<instSet>(out, out, block, ld_out, ld_out);
