@@ -13,17 +13,18 @@
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 # Set up paths
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules")
+set(MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules")
+list(APPEND CMAKE_MODULE_PATH "${MODULE_PATH}")
 set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-include(${CMAKE_MODULE_PATH}/Utilities.cmake)
+include(${MODULE_PATH}/Utilities.cmake)
 
 # C++ Compiler Setup - must be set BEFORE project declaration
-include(${CMAKE_MODULE_PATH}/CxxCompilerSetup.cmake)
+include(${MODULE_PATH}/CxxCompilerSetup.cmake)
 
 # Load cpp_library()
-include(${CMAKE_MODULE_PATH}/CppLibrary.cmake)
+include(${MODULE_PATH}/CppLibrary.cmake)
 
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
