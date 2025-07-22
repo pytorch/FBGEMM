@@ -354,11 +354,12 @@ install_build_tools () {
   #
   # - ncurses is needed to silence libtinfo6.so errors for ROCm+Clang builds
   # - rhash is needed bc newer versions of GXX package don't come packaged with this library anymore
+  # - FBGEMM bazel build is currently broken under Bazel 8.0+
   #
   # shellcheck disable=SC2086
   (exec_with_retries 3 conda install ${env_prefix} -c conda-forge --override-channels -y \
     auditwheel \
-    bazel \
+    'bazel<=7.6.1' \
     'cmake>=3.30' \
     hypothesis \
     jinja2 \
