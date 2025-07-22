@@ -133,14 +133,15 @@ OutputType f8f8bf16_rowwise_grouped_impl(
   // Get input information.
   int group_count;
   if constexpr (std::is_same_v<InputType, at::Tensor>) {
-    // Two different modes when inputs are tensors.
-    // If XQ is 3D then its shape is [G, M, K].
-    // If its 2D then its shape is [total_M, K].
-    if (XQ.dim() == 2) {
-      // group count is the min of total_M and G.
+    if (WQ.dim() == 3) {
+      // If WQ is 3D the group count is the min of G and total_M (if XQ is 2D).
+      group_count = std::min(WQ.size(0), XQ.size(0));
+    } else if (XQ.dim() == 3) {
+      // If XQ is 3D the group count is the min of G and total_N (if WQ is 2D).
       group_count = std::min(XQ.size(0), WQ.size(0));
     } else {
-      group_count = WQ.size(0);
+      // XQ and WQ are 2D. The group count is G.
+      group_count = Y.size(0);
     }
   } else {
     group_count = XQ.size();
@@ -172,15 +173,15 @@ OutputType f8f8bf16_rowwise_grouped_impl(
   D1DataType* d1_ptr;
   // Populate arguments.
   for (int i = 0; i < group_count; i++) {
-    // Compute appropriate data pointers.
-    // Set the shape arguments for this gemm.
+    // Compute appropriate data pointers. The host problem shape and data
+    // pointers below are unused, as the device memory contains the correct
+    // data.
     if constexpr (std::is_same_v<InputType, at::Tensor>) {
-      M = XQ.size(XQ.dim() - 2);
-      N = WQ.size(1);
-      K = WQ.size(2);
-      // These pointers dont seem to actually be used since the kernel arguments
-      // contains the correct version. For simplicity, we just point to the
-      // start of the tensor.
+      // Set these to 0 as placeholders, they are unsused.
+      M = 0;
+      N = 0;
+      K = 0;
+      // For simplicity, we just point to the start of the tensor.
       a_ptr = reinterpret_cast<ADataType*>(XQ.data_ptr());
       b_ptr = reinterpret_cast<BDataType*>(WQ.data_ptr());
       d0_ptr = reinterpret_cast<D0DataType*>(w_scale.data_ptr());
