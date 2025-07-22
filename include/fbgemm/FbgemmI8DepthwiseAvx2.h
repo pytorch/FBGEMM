@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include "fbgemm/ConvUtils.h"
 #include "fbgemm/FbgemmBuild.h"
@@ -27,6 +26,11 @@ class FBGEMM_API PackedDepthWiseConvMatrix {
    * @param smat the source unpacked weight in GRS layout
    */
   PackedDepthWiseConvMatrix(int OC, int kernel_prod, const std::int8_t* smat);
+  PackedDepthWiseConvMatrix(const PackedDepthWiseConvMatrix&) = delete;
+  PackedDepthWiseConvMatrix(PackedDepthWiseConvMatrix&&) = delete;
+  PackedDepthWiseConvMatrix& operator=(const PackedDepthWiseConvMatrix&) =
+      delete;
+  PackedDepthWiseConvMatrix& operator=(PackedDepthWiseConvMatrix&&) = delete;
   virtual ~PackedDepthWiseConvMatrix();
 
   const std::int8_t* PackedMat() const {
