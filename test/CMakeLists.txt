@@ -49,23 +49,26 @@ function(add_gtest TESTNAME)
   # functions with _dllimport attributes.
   if(MSVC)
     target_compile_options(${TESTNAME} PRIVATE
-      /arch:AVX2
       /wd4244
       /wd4267
       /wd4305
       /wd4309)
 
-    if (FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
+    if(FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
       target_compile_definitions(${TESTNAME} PRIVATE
         FBGEMM_STATIC)
     endif()
-
-  else()
-    target_compile_options(${TESTNAME} PRIVATE
-      -m64
-      -mavx2
-      -mfma
-      -masm=intel)
+  endif()
+  if(COMPILER_SUPPORTS_AVX2)
+    if(MSVC)
+      target_compile_options(${TESTNAME} PRIVATE "/arch:AVX2")
+    else()
+      target_compile_options(${TESTNAME} PRIVATE
+        -m64
+        -mavx2
+        -mfma
+        -masm=intel)
+    endif()
   endif()
 
   if (FBGEMM_USE_SANITIZER)
@@ -75,11 +78,12 @@ function(add_gtest TESTNAME)
       "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
   endif()
 
-  target_link_libraries(${TESTNAME}
-    gtest
-    gmock
-    gtest_main
-    fbgemm)
+  target_link_libraries(${TESTNAME} fbgemm)
+  if(TARGET GTest::gtest_main)
+    target_link_libraries(${TESTNAME} GTest::gmock GTest::gtest_main)
+  else()
+    target_link_libraries(${TESTNAME} gmock gtest_main)
+  endif()
 
   if(OpenMP_FOUND)
     target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)

@@ -48,7 +48,7 @@ constexpr kernel_array_t<float16> kernel_fp16_avx2 = {
 #ifndef FBGEMM_ENABLE_KLEIDIAI
 constexpr kernel_array_t<float16> kernel_fp16_sve128 = {
     nullptr,
-#ifdef __aarch64__
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
     gemmkernel_1x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_2x2_Sve128_fp16_fA0fB0fC0,
     gemmkernel_3x2_Sve128_fp16_fA0fB0fC0,

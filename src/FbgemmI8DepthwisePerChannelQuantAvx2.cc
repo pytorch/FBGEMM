@@ -9,7 +9,9 @@
 #define FBGEMM_EXPORTS
 #include "fbgemm/FbgemmI8DepthwiseAvx2.h"
 
+#ifndef __aarch64__
 #include "./FbgemmI8Depthwise2DAvx2-inl.h" // @manual
+#endif
 
 namespace fbgemm {
 
