@@ -95,10 +95,9 @@ ReQuantizeOutput<FUSE_RELU, Q_GRAN, BIAS_TYPE, outT, inT, nextOPType>::f(
         } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
           int g = block.col_start / ncol_per_group;
           Bq_zero_point_idx = g;
-        } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          Bq_zero_point_idx = j;
         } else {
-          static_assert(false && sizeof(Q_GRAN), "unknown quantization granularity");
+          static_assert(Q_GRAN == QuantizationGranularity::OUT_CHANNEL);
+          Bq_zero_point_idx = j;
         }
         if (q_row_offsets_) {
           raw -= q_row_offsets_[i - block.row_start] *
@@ -225,10 +224,9 @@ inline int ReQuantizeForFloat<FUSE_RELU, Q_GRAN, outT, inT, nextOPType>::f(
         } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
           int g = block.col_start / ncol_per_group;
           Bq_zero_point_idx = g;
-        } else if constexpr (Q_GRAN == QuantizationGranularity::OUT_CHANNEL) {
-          Bq_zero_point_idx = j;
         } else {
-          static_assert(false && sizeof(Q_GRAN), "unknown quantization granularity");
+          static_assert(Q_GRAN == QuantizationGranularity::OUT_CHANNEL);
+          Bq_zero_point_idx = j;
         }
         if (q_row_offsets_) {
           raw -= q_row_offsets_[i - block.row_start] *
