@@ -19,17 +19,18 @@ fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_i
     OutputType Y)
 {
     // Check if this input needs to be padded.
-#if 0
-    int M = XQ.size(1);
-    int N = WQ.size(1);
-    int K = WQ.size(2);
-    bool pad = (M % 128 != 0) || (N % 128 != 0) || (K % (128 * KBatch) != 0);
-#else
-    // disable padding for packed tensor
     bool pad = false;
-#endif
-    if (pad)
-    {
+    if constexpr (std::is_same<InputType, at::Tensor>::value) {
+        if (XQ.dim() == 3) {
+            pad = XQ.size(2) % 128 != 0;
+        } else if (WQ.dim() == 3) {
+            pad = WQ.size(2) % 128 != 0;
+        } else {
+            // For 2D-2D host does not know the K size for each problem so always pad.
+            pad = true;
+        }
+    }
+    if (pad) {
         // pad
         using DeviceGemmInstance = DeviceGemmHelper<
             256,
@@ -48,14 +49,10 @@ fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_i
             1,
             ck::BlockGemmPipelineScheduler::Interwave,
             ck::BlockGemmPipelineVersion::v1,
-            ck::tensor_operation::device::GemmSpecialization::MNKPadding>;
+            ck::tensor_operation::device::GemmSpecialization::KPadding>;
         // Run kernel instance.
         return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
-
-        // pad
-    }
-    else
-    {
+    } else {
         // no pad
         using DeviceGemmInstance = DeviceGemmHelper<
             256,
@@ -77,8 +74,6 @@ fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_i
             ck::tensor_operation::device::GemmSpecialization::Default>;
         // Run kernel instance.
         return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
-
-        // no pad
     }
 }
 
