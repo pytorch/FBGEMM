@@ -281,14 +281,18 @@ inline float cpu_half2float_ref(const float16 h) {
   const uint32_t i = (sign_bit << f32_num_non_sign_bits) |
       (exponent << f32_num_mantissa_bits) | mantissa;
 
-  return *reinterpret_cast<const float *>(&i);
+  float ret = NAN;
+  std::memcpy(&ret, &i, sizeof(float));
+  return ret;
 }
 
 // Same as the previous function, but use the built-in fp16 to fp32
 // conversion provided by the compiler
 inline float cpu_half2float(const float16 h) {
 #if defined(HAS_NATIVE_FP16_TYPE) && not defined(MISSING_GNU_F2H_IEEE)
-  return *reinterpret_cast<const __fp16 *>(&h);
+  __fp16 h_fp16 = NAN;
+  std::memcpy(&h_fp16, &h, sizeof(__fp16));
+  return h_fp16;
 #else
   return cpu_half2float_ref(h);
 #endif
@@ -306,13 +310,16 @@ inline float16 cpu_float2half(const float f) {
 }
 
 inline float cpu_bf162float(bfloat16 src) {
+  float ret = NAN;
   uint32_t val_fp32 =
-      static_cast<uint32_t>(*reinterpret_cast<const uint16_t*>(&src)) << 16;
-  return *reinterpret_cast<float*>(&val_fp32);
+      static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(&src)[0]) << 16;
+  std::memcpy(&ret, &val_fp32, sizeof(float));
+  return ret;
 }
 
 inline bfloat16 cpu_float2bfloat16(float src) {
-  uint32_t temp = *reinterpret_cast<uint32_t*>(&src);
+  uint32_t temp = 0;
+  std::memcpy(&temp, &src, sizeof(uint32_t));
   return (temp + (1u << 15)) >> 16;
 }
 
