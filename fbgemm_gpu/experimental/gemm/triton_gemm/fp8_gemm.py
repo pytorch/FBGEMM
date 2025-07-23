@@ -3621,6 +3621,9 @@ def prune_configs(configs, named_args, **kwargs):
         # skip large GROUP_M
         if GROUP_M * BLOCK_SIZE_M > M and GROUP_M != 1:
             continue
+        if M == 512 and GROUP_M * BLOCK_SIZE_M == M:
+            # for batch_size == 512, avoid GROUP_M * BLOCK_SIZE_M == M due to segfault under investigation
+            continue
         # out of shared memory resource
         # TODO (zhanglx): This does not consider the LDS usage in the epilogue
         LDS = (
@@ -3763,6 +3766,20 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     triton.Config(
         {
             "BLOCK_M": 256,
+            "BLOCK_N": 256,
+            "BLOCK_K": 128,
+            "GROUP_M": 1,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 32,
+            "kpack": 2,
+        },
+        num_warps=8,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 256,
             "BLOCK_N": 128,
             "BLOCK_K": 128,
             "GROUP_M": 4,
@@ -3791,9 +3808,37 @@ MATMUL_CONFIGS_NON_PERSISTENT_PINGPONG_4K_8K_16K = [
     triton.Config(
         {
             "BLOCK_M": 128,
+            "BLOCK_N": 128,
+            "BLOCK_K": 64,
+            "GROUP_M": 2,
+            "SPLIT_K": 1,
+            "waves_per_eu": 2,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
             "BLOCK_N": 64,
             "BLOCK_K": 64,
             "GROUP_M": 4,
+            "SPLIT_K": 1,
+            "waves_per_eu": 0,
+            "matrix_instr_nonkdim": 16,
+            "kpack": 2,
+        },
+        num_warps=4,
+        num_stages=2,
+    ),
+    triton.Config(
+        {
+            "BLOCK_M": 128,
+            "BLOCK_N": 64,
+            "BLOCK_K": 64,
+            "GROUP_M": 2,
             "SPLIT_K": 1,
             "waves_per_eu": 0,
             "matrix_instr_nonkdim": 16,
