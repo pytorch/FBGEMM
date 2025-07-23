@@ -239,7 +239,7 @@ void fbgemmDirectConv(
   }
 
   if constexpr (SPATIAL_DIM != 2) {
-    assert(false && "1d/3d direct conv not supported");
+    static_assert(false && SPATIAL_DIM, "1d/3d direct conv not supported");
   } else {
     if (conv_p.transposed) {
       DirectConvCodeGenBase<uint8_t, int8_t, int32_t, int32_t>::
@@ -469,9 +469,7 @@ void fbgemmDirectConv(
       int num_threads);
 
 #define INSTANTIATE_REQUANTIZE_BIAS_TYPE(Q_GRAN, RELU, BIAS_TYPE) \
-  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(1, Q_GRAN, RELU, BIAS_TYPE)  \
-  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(2, Q_GRAN, RELU, BIAS_TYPE)  \
-  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(3, Q_GRAN, RELU, BIAS_TYPE)
+  INSTANTIATE_REQUANTIZE_SPATIAL_DIM(2, Q_GRAN, RELU, BIAS_TYPE)
 
 #define INSTANTIATE_REQUANTIZE(Q_GRAN, RELU)            \
   INSTANTIATE_REQUANTIZE_BIAS_TYPE(Q_GRAN, RELU, float) \
