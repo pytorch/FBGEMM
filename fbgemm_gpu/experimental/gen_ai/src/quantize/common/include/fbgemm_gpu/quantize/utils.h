@@ -8,8 +8,15 @@
 
 #pragma once
 
+#include <climits>
+#include <cstdint>
+
 namespace fbgemm_gpu {
 
-int nextPowerOf2(int n);
+constexpr int64_t nextPowerOf2(int64_t num) {
+  if (num <= 1)
+    return 1;
+  return 1 << (CHAR_BIT * sizeof(num) - __builtin_clz(num - 1));
+}
 
 } // namespace fbgemm_gpu

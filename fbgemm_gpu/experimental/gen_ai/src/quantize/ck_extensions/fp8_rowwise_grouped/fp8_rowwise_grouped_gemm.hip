@@ -25,17 +25,6 @@
 namespace fbgemm_gpu {
 namespace {
 
-// Define useful types that are needed for various kernels.
-using KernelArguments =
-    ck::tensor_operation::device::GroupedGemmKernelArgument<2>;
-using ADataType = ck::f8_t;
-using BDataType = ck::f8_t;
-using D0DataType = float;
-using D1DataType = float;
-using DsDataType = ck::Tuple<D0DataType, D1DataType>;
-using EDataType = ck::bhalf_t;
-
-
 enum GroupedGemmInputType {
   // MNK fixed (batched gemm)
   _3D3D,
