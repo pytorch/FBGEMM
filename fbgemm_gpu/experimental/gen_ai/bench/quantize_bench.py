@@ -448,7 +448,15 @@ def main(args: Any):
             else:
                 K = [int(k) for k in args.K.strip().split(",")]
             # List all shapes for simplicity.
-            MNK = list(itertools.product(B, M, N, K))
+            if args.pair_NK:
+                if len(N) != len(K):
+                    raise Exception("N and K must be the same length in pair_NK mode.")
+                NK = zip(N, K)
+                MNK = list(
+                    (B, M, N, K) for (B, M, (N, K)) in itertools.product(B, M, NK)
+                )
+            else:
+                MNK = list(itertools.product(B, M, N, K))
     # When groups is provided transform shapes into grouped format.
     if args.groups:
         groups = [int(g) for g in args.groups.strip().split(",")]
@@ -556,6 +564,12 @@ def invoke_main() -> None:
     )
     parser.add_argument(
         "--K", default=None, help="Comma separated list of K values to benchmark."
+    )
+    parser.add_argument(
+        "--pair_NK",
+        default=False,
+        action="store_true",
+        help="If set, instead of benchmarking cartesian product of N * K, benchmark consecutive NK pairs together.",
     )
     parser.add_argument(
         "--grouped",
