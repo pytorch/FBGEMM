@@ -8,13 +8,8 @@
 
 #include <cmath>
 #include <cstdlib>
-#include <functional>
-#include <initializer_list>
-#include <iostream>
-#include <numeric>
 #include <string>
 #include <tuple>
-#include <unordered_map>
 
 #include <ATen/core/Tensor.h>
 #include <ATen/hip/HIPContext.h>
@@ -23,18 +18,12 @@
 #include "ck/ck.hpp"
 #include "ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_xdl_cshuffle_tile_loop.hpp"
 #include "kernels/fp8_rowwise_grouped_kernel_manifest.h"
+#include "kernels/fp8_rowwise_grouped_heuristic.hpp"
+#include "fbgemm_gpu/quantize/tuning_cache.hpp"
+#include "fbgemm_gpu/quantize/utils.h"
 
+namespace fbgemm_gpu {
 namespace {
-
-template <typename InputType, typename OutputType>
-using RowwiseGroupedKernel = std::function<OutputType(
-    InputType,
-    InputType,
-    InputType,
-    InputType,
-    at::Tensor,
-    OutputType)>;
-
 
 // Define useful types that are needed for various kernels.
 using KernelArguments =
@@ -46,110 +35,6 @@ using D1DataType = float;
 using DsDataType = ck::Tuple<D0DataType, D1DataType>;
 using EDataType = ck::bhalf_t;
 
-// Define a custom hash function for std::tuple<int, int, int>
-struct IntTupleHash {
-  size_t operator()(const std::tuple<int64_t, int64_t>& t) const {
-    auto hash1 = std::hash<int64_t>{}(std::get<0>(t));
-    auto hash2 = std::hash<int64_t>{}(std::get<1>(t));
-    return hash1 ^ hash2;
-  }
-  size_t operator()(const std::tuple<int64_t, int64_t, int64_t>& t) const {
-    auto hash1 = std::hash<int64_t>{}(std::get<0>(t));
-    auto hash2 = std::hash<int64_t>{}(std::get<1>(t));
-    auto hash3 = std::hash<int64_t>{}(std::get<2>(t));
-    return hash1 ^ hash2 ^ hash3;
-  }
-  size_t operator()(const std::tuple<int64_t, int64_t, int64_t, int64_t>& t) const {
-    auto hash1 = std::hash<int64_t>{}(std::get<0>(t));
-    auto hash2 = std::hash<int64_t>{}(std::get<1>(t));
-    auto hash3 = std::hash<int64_t>{}(std::get<2>(t));
-    auto hash4 = std::hash<int64_t>{}(std::get<3>(t));
-    return hash1 ^ hash2 ^ hash3 ^ hash4;
-  }
-};
-
-
-// For certain high priority shapes, we directly map to the best kernel rather
-// than use heuristics.
-template <typename InputType, typename OutputType>
-static const std::unordered_map<std::tuple<int64_t, int64_t, int64_t, int64_t>, RowwiseGroupedKernel<InputType, OutputType>, IntTupleHash> rowwise_grouped_lookup_dispatch = {
-{{16,16,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
-{{16,16,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,16,16384,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v1<InputType, OutputType>},
-{{16,16,5120,8192},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,32,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
-{{16,32,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,32,16384,5120},fp8_rowwise_grouped_128x16x96x256_16x16_1x3_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{16,32,5120,8192},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,64,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
-{{16,64,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{16,64,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{16,64,5120,8192},fp8_rowwise_grouped_256x32x32x512_16x16_1x1_32x8x1_32x8x1_1x32x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,128,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{16,128,5120,1024},fp8_rowwise_grouped_64x16x32x256_16x16_1x2_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{16,128,16384,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{16,128,5120,8192},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,256,2048,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v3<InputType, OutputType>},
-{{16,256,5120,1024},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,256,16384,5120},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
-{{16,256,5120,8192},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{16,512,2048,5120},fp8_rowwise_grouped_128x32x64x256_32x32_1x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_interwave_v1<InputType, OutputType>},
-{{16,512,5120,1024},fp8_rowwise_grouped_256x32x160x128_16x16_1x5_8x32x1_8x32x1_1x32x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{16,512,16384,5120},fp8_rowwise_grouped_128x32x64x256_16x16_1x4_16x8x1_16x8x1_1x32x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{16,512,5120,8192},fp8_rowwise_grouped_256x32x32x512_16x16_1x1_32x8x1_32x8x1_1x32x1x8_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
-{{16,1024,2048,5120},fp8_rowwise_grouped_256x64x128x256_32x32_1x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{16,1024,5120,1024},fp8_rowwise_grouped_256x64x160x128_16x16_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{16,1024,16384,5120},fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{16,1024,5120,8192},fp8_rowwise_grouped_128x64x64x256_32x32_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v3<InputType, OutputType>},
-{{16,2048,2048,5120},fp8_rowwise_grouped_256x128x128x256_32x32_2x2_16x16x1_16x16x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{16,2048,5120,1024},fp8_rowwise_grouped_256x128x96x128_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{16,2048,16384,5120},fp8_rowwise_grouped_256x128x224x128_16x16_4x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{16,2048,5120,8192},fp8_rowwise_grouped_256x128x96x128_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{16,4096,2048,5120},fp8_rowwise_grouped_256x128x256x128_32x32_4x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{16,4096,5120,1024},fp8_rowwise_grouped_256x128x96x128_16x16_4x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{16,4096,16384,5120},fp8_rowwise_grouped_256x256x224x128_16x16_8x7_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{16,4096,5120,8192},fp8_rowwise_grouped_256x256x160x128_32x32_2x5_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{16,8192,2048,5120},fp8_rowwise_grouped_256x256x256x128_32x32_8x2_8x32x1_8x32x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{16,8192,5120,1024},fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{16,8192,16384,5120},fp8_rowwise_grouped_256x256x256x128_32x32_4x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{16,8192,5120,8192},fp8_rowwise_grouped_256x256x192x128_32x32_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{128,128,2048,5120},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{128,128,5120,1024},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{128,128,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_interwave_v1<InputType, OutputType>},
-{{128,128,5120,8192},fp8_rowwise_grouped_64x16x16x256_16x16_1x1_16x4x1_16x4x1_1x16x1x4_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{128,256,2048,5120},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
-{{128,256,5120,1024},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
-{{128,256,16384,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
-{{128,256,5120,8192},fp8_rowwise_grouped_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{128,512,2048,5120},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{128,512,5120,1024},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{128,512,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_interwave_v1<InputType, OutputType>},
-{{128,512,5120,8192},fp8_rowwise_grouped_128x16x32x256_16x16_1x1_16x8x1_16x8x1_1x16x1x8_4x4x1_1x1_interwave_v2<InputType, OutputType>},
-{{128,1024,2048,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{128,1024,5120,1024},fp8_rowwise_grouped_256x192x96x128_16x16_6x3_8x32x1_8x32x1_1x64x1x4_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{128,1024,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{128,1024,5120,8192},fp8_rowwise_grouped_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{128,2048,2048,5120},fp8_rowwise_grouped_256x16x128x256_16x16_1x2_16x16x1_16x16x1_1x16x1x16_8x8x1_1x2_intrawave_v2<InputType, OutputType>},
-{{128,2048,5120,1024},fp8_rowwise_grouped_256x16x64x256_16x16_1x1_16x16x1_16x16x1_1x16x1x16_4x4x1_1x1_intrawave_v2<InputType, OutputType>},
-{{128,2048,16384,5120},fp8_rowwise_grouped_64x16x64x256_16x16_1x4_16x4x1_16x4x1_1x16x1x4_8x8x1_1x2_interwave_v1<InputType, OutputType>},
-{{128,2048,5120,8192},fp8_rowwise_grouped_128x16x64x256_16x16_1x2_16x8x1_16x8x1_1x16x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
-{{128,4096,2048,5120},fp8_rowwise_grouped_128x16x32x512_16x16_1x1_32x4x1_32x4x1_1x16x1x8_4x4x1_1x1_intrawave_v1<InputType, OutputType>},
-{{128,4096,5120,1024},fp8_rowwise_grouped_256x32x128x128_16x16_1x4_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_interwave_v2<InputType, OutputType>},
-{{128,4096,16384,5120},fp8_rowwise_grouped_256x32x256x128_16x16_1x8_8x32x1_8x32x1_1x32x1x8_8x8x1_1x2_intrawave_v1<InputType, OutputType>},
-{{128,4096,5120,8192},fp8_rowwise_grouped_256x32x64x512_16x16_2x1_32x8x1_32x8x1_1x32x1x8_8x8x1_2x1_intrawave_v2<InputType, OutputType>},
-{{128,8192,2048,5120},fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{128,8192,5120,1024},fp8_rowwise_grouped_256x64x192x128_16x16_4x3_8x32x1_8x32x1_1x32x1x8_8x8x1_2x1_intrawave_v3<InputType, OutputType>},
-{{128,8192,16384,5120},fp8_rowwise_grouped_256x64x128x256_32x32_2x1_16x16x1_16x16x1_1x16x1x16_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-{{128,8192,5120,8192},fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_intrawave_v3<InputType, OutputType>},
-};
-
-// Helper function to return the next largest power of 2
-static constexpr int nextPow2(int64_t num)
-{
-  if (num <= 1)
-    return 1;
-  return 1 << (CHAR_BIT * sizeof(num) - __builtin_clz(num - 1));
-}
 
 enum GroupedGemmInputType {
   // MNK fixed (batched gemm)
@@ -172,24 +57,30 @@ using D1DataType = float;
 using DsDataType = ck::Tuple<D0DataType, D1DataType>;
 using EDataType = ck::bhalf_t;
 
-template <typename InputType, typename OutputType>
-RowwiseGroupedKernel<InputType, OutputType>
-rowwise_grouped_heuristic_dispatch(int64_t G, int64_t total_M, int64_t N, int64_t K) {
+TuningCache& getTuningCache() {
+  // This kernel has multiple APIs templated based on InputType, so we use this
+  // to have a single cache instance across APIs.
+  static TuningCache cache("fp8_rowwise_grouped_gemm");
+  return cache;
+}
 
-// First check if this shape is available in the direct lookup.
-  int64_t padded_m = nextPow2(total_M);
-  padded_m = padded_m < G ? G : padded_m;
-  padded_m = padded_m > 8192 ? 8192 : padded_m;
-  auto it = rowwise_grouped_lookup_dispatch<InputType, OutputType>.find({G, padded_m, N, K});
-  // If we found an optimal kernel, use it.
-  if (it != rowwise_grouped_lookup_dispatch<InputType, OutputType>.end()) {
-    return it->second;
-  }
+RowwiseGroupedKernel<at::Tensor, at::Tensor>
+get_kernel_via_tuning(int64_t M, int64_t N, int64_t K, at::Tensor XQ, at::Tensor WQ, at::Tensor x_scale, at::Tensor w_scale, at::Tensor kernel_args, at::Tensor out) {
+  auto& cache = getTuningCache();
 
-  // Default kernel for all other shapes.
-  return fp8_rowwise_grouped_256x128x128x128_32x32_2x2_8x32x1_8x32x1_1x32x1x8_8x8x1_1x1_interwave_v1<
-      InputType,
-      OutputType>;
+  // Reducing amount of auto tuning by rounding up M, N, K to next power of 2.
+  M = nextPowerOf2(M);
+  N = nextPowerOf2(N);
+  K = nextPowerOf2(K);
+
+  // Use (M, N, K) shape as the key.
+  const std::string shape_key = std::to_string(M) + "_" +
+      std::to_string(N) + "_" + std::to_string(K);
+  const auto& kernels = get_fp8_rowwise_grouped_kernels<at::Tensor, at::Tensor>();
+  auto kernel = cache.findBestKernelMaybeAutotune(
+      shape_key, kernels, XQ, WQ, x_scale, w_scale, kernel_args, out);
+
+  return kernel;
 }
 
 __global__ void set_kernel_args_kernel(
@@ -707,7 +598,6 @@ void validate_inputs_common(
 
 } // namespace
 
-namespace fbgemm_gpu {
 
 std::vector<at::Tensor> f8f8bf16_rowwise_grouped(
     at::TensorList XQ,
@@ -937,9 +827,25 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
       G,
       inputType);
 
-  RowwiseGroupedKernel<at::Tensor, at::Tensor> selected_kernel =
-      rowwise_grouped_heuristic_dispatch<at::Tensor, at::Tensor>(G, M, N, K);
-  return selected_kernel(XQ, WQ, x_scale, w_scale, kernel_args, out);
+  // For heuristics normalize the dynamic dimension by G so we can approximate the problem shape per group.
+  if (inputType == GroupedGemmInputType::_2D3D ) {
+    M /= G;
+  } else if (inputType == GroupedGemmInputType::_3D2D) {
+    N /= G;
+  } else if (inputType == GroupedGemmInputType::_2D2D) {
+    K /= G;
+  }
+
+  // Select kernel to run via heuristics or tuning.
+  auto kernel = [&]() {
+    if (std::getenv("FBGEMM_AUTOTUNE_ENABLE")) {
+      return get_kernel_via_tuning(M, N, K, XQ, WQ, x_scale, w_scale, kernel_args, out);
+    } else {
+      return get_kernel_via_heuristic<at::Tensor, at::Tensor>(M, N, K);
+    }
+  }();
+  // Invoke kernel
+  return kernel(XQ, WQ, x_scale, w_scale, kernel_args, out);
 }
 
 } // namespace fbgemm_gpu
