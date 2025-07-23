@@ -87,7 +87,7 @@ function(add_gtest TESTNAME)
 
   add_test(${TESTNAME} ${TESTNAME})
   set_target_properties(${TESTNAME} PROPERTIES FOLDER test)
-endmacro()
+endfunction()
 
 
 file(GLOB TEST_LIST "*Test.cc")
