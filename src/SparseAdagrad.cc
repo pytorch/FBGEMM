@@ -13,7 +13,6 @@
 #include <cmath>
 #include <iostream>
 #include <mutex>
-#include <string>
 #include <tuple>
 #include "./CodeCache.h" // @manual
 #include "./MaskAvx2.h" // @manual
@@ -253,7 +252,7 @@ void GenSparseAdagrad<indxType, instSet>::genRowwiseSparseAdagrad(
     a->prefetchw(x86::dword_ptr(h, temp3_));
   }
 
-  bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
+  constexpr bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
   auto indices_ptr = areIndices64b
       ? x86::qword_ptr(
             indices, temp1_, 3) // use of 3 is to muliply by 8 (int64_t)
@@ -457,7 +456,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
-        bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
+        constexpr bool areIndices64b = std::is_same_v<indxType, std::int64_t>;
 #if defined(FBGEMM_LOG_CODE)
         std::string filename = "SparseAdagrad";
         filename += "_emd_dim_" + std::to_string(block_size);
@@ -644,7 +643,7 @@ GenSparseAdagrad<indxType, instSet>::getOrCreate(
         // if (block_size + offsetIdx > param_size) {
         //   return i;
         // }
-        if (areIndices64b) {
+        if constexpr (areIndices64b) {
           a->mov(temp2_, indices_ptr);
         } else {
           a->mov(temp2_.r32(), indices_ptr);

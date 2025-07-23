@@ -12,7 +12,6 @@
 // upgraded to match with new fbgemm interface.
 
 #include <cpuinfo.h>
-#include <cassert>
 
 #include "./FbgemmPackMatrixB.h" // @manual
 #include "./FloatConversion.h" // @manual

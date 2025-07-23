@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <cstdint>
 #include "fbgemm/Utils.h"
 

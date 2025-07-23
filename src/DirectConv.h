@@ -9,7 +9,6 @@
 #pragma once
 #include <asmjit/x86.h> // @manual
 #include <cpuinfo.h>
-#include <cassert>
 #include <cstdint>
 #include <map>
 #include <mutex>
