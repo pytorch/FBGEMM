@@ -12,7 +12,7 @@ var searchData=
   ['fbgemmenableavx512ymm_9',['fbgemmEnableAvx512Ymm',['../namespacefbgemm.html#a9d17a4894f822f7afd5c79407bbf91d5',1,'fbgemm']]],
   ['fbgemmforceisa_10',['fbgemmForceIsa',['../namespacefbgemm.html#af150495d47d5ccb1670524166fd9b45d',1,'fbgemm']]],
   ['fbgemmget2dpartition_11',['fbgemmGet2DPartition',['../namespacefbgemm.html#a26e1a7f0b1935835ad95a52aa4f56eb8',1,'fbgemm']]],
-  ['fbgemmgetthreadpartition_12',['fbgemmGetThreadPartition',['../namespacefbgemm.html#a38cca353e8e2984e37704be8bbc327fe',1,'fbgemm']]],
+  ['fbgemmgetthreadpartition_12',['fbgemmGetThreadPartition',['../namespacefbgemm.html#a585bb4bbb056e29ed41fe0aa27ad2eec',1,'fbgemm']]],
   ['fbgemmgroupwiseconv_13',['fbgemmGroupwiseConv',['../namespacefbgemm.html#a5780ef4a16a1682740af29283360caa4',1,'fbgemm']]],
   ['fbgemmhasarmneonsupport_14',['fbgemmHasArmNeonSupport',['../namespacefbgemm.html#af727aa5e29e172f994653d01e444973e',1,'fbgemm']]],
   ['fbgemmhasarmsve2support_15',['fbgemmHasArmSve2Support',['../namespacefbgemm.html#aae9bb60bfb4acb2e62976adcd98ccaa0',1,'fbgemm']]],
