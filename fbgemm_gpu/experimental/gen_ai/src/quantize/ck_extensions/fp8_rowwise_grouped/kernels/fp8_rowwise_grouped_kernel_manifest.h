@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <ATen/ATen.h>
+#include <ATen/core/Tensor.h>
 
 template <typename InputType, typename OutputType>
 OutputType
@@ -779,3 +779,22 @@ fp8_rowwise_grouped_128x64x64x256_32x32_2x1_16x8x1_16x8x1_1x16x1x8_8x8x1_1x1_int
     InputType w_scale,
     at::Tensor kernel_args,
     OutputType Y);
+
+template <typename InputType, typename OutputType>
+using RowwiseGroupedKernel = std::function<OutputType(
+    InputType,
+    InputType,
+    InputType,
+    InputType,
+    at::Tensor,
+    OutputType)>;
+
+template <typename InputType, typename OutputType>
+const std::
+    unordered_map<std::string, RowwiseGroupedKernel<InputType, OutputType>>&
+    get_fp8_rowwise_grouped_kernels() {
+  static const std::
+      unordered_map<std::string, RowwiseGroupedKernel<InputType, OutputType>>
+          kernels = {};
+  return kernels;
+}

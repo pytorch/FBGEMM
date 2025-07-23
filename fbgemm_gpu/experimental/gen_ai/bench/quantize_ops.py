@@ -1244,6 +1244,38 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
 
 
 @register_quantize_op
+class FP8StackedGroupedGemmTorch(FP8StackedGroupedGemm):
+    def quantize(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, m_sizes = super().quantize(x, wq, w_scale, m_sizes)
+        offsets = torch.cumsum(m_sizes, dim=0, dtype=torch.int32)
+        out = torch.empty(
+            (xq.shape[0], wq.shape[1]), dtype=torch.bfloat16, device=xq.device
+        )
+        return xq, wq, x_scale, w_scale, offsets, out
+
+    def compute(self, xq, wq, x_scale, w_scale, offsets, out):
+        return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+            xq, wq, x_scale, w_scale, offsets, out
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, offsets, out = self.quantize(x, wq, w_scale, m_sizes)
+        return self.compute(xq, wq, x_scale, w_scale, offsets, out)
+
+    @property
+    def name(self) -> str:
+        return "ck_grouped_stacked_torch_2d3d"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return False
+
+
+@register_quantize_op
 class FP8StackedGroupwiseGroupedGemm(QuantizeOpBase):
     """
     FP8 grouped matmul with groupwise scaling and stacked inputs.

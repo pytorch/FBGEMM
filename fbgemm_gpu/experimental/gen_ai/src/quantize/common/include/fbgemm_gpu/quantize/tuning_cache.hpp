@@ -13,9 +13,28 @@
 #include <unordered_map>
 
 #include <ATen/ATen.h>
+
+// In OSS hipification of the include is not working, so we hipify it manually.
+#ifdef USE_ROCM
+#include <ATen/hip/HIPEvent.h> // @manual
+#include <ATen/hip/HIPGraph.h> // @manual
+#include <hip/hip_runtime.h>
+#define GPUStream at::hip::HIPStreamMasqueradingAsCUDA
+#define GPUStreamGuard at::hip::HIPStreamGuardMasqueradingAsCUDA
+#define getStreamFromPool at::hip::getStreamFromPoolMasqueradingAsCUDA
+#define gpuStreamCaptureModeRelaxed hipStreamCaptureModeRelaxed
+#define gpuEventDefault hipEventDefault
+#else
 #include <ATen/cuda/CUDAEvent.h>
 #include <ATen/cuda/CUDAGraph.h>
 #include <cuda_runtime.h>
+#define GPUStream at::cuda::CUDAStream
+#define GPUStreamGuard at::cuda::CUDAStreamGuard
+#define getStreamFromPool at::cuda::getStreamFromPool
+#define gpuStreamCaptureModeRelaxed cudaStreamCaptureModeRelaxed
+#define gpuEventDefault cudaEventDefault
+#endif
+
 #include <ostream>
 
 /**
@@ -62,6 +81,9 @@ class TuningCache final {
     const auto start = std::chrono::high_resolution_clock::now();
     auto kernel_key =
         findBestKernel(cache_key, kernels, std::forward<Args>(args)...);
+    if (kernel_key.empty()) {
+      throw std::runtime_error("Failed to tune a kernel for key: " + cache_key);
+    }
     const auto end = std::chrono::high_resolution_clock::now();
     const auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -186,9 +208,16 @@ class TuningCache final {
   }
 
   template <typename Kernel, typename... Args>
-  float benchmark(Kernel kernel, Args&&... args) {
+  float
+  benchmark(const std::string& kernel_name, Kernel kernel, Args&&... args) {
     // Warmup iteration
-    kernel(std::forward<Args>(args)...);
+    try {
+      kernel(std::forward<Args>(args)...);
+    } catch (const std::exception& e) {
+      std::cout << "Warmup iteration failed for " << kernel_name
+                << " it will be skipped." << '\n';
+      return FLT_MAX;
+    }
 
     // Estimate the number of iterations needed to run for 10 ms. This
     // helps with stability for fast kernels.
@@ -203,8 +232,8 @@ class TuningCache final {
       at::cuda::CUDAGraph graph;
       {
         // CUDAGraph capture must happen on non-default stream
-        at::cuda::CUDAStream stream = at::cuda::getStreamFromPool(true);
-        at::cuda::CUDAStreamGuard streamGuard(stream);
+        GPUStream stream = getStreamFromPool(true);
+        GPUStreamGuard streamGuard(stream);
 
         // For flexibility, we use cudaStreamCaptureModeRelaxed.
         // - cudaStreamCaptureModeGlobal prevents other threads from calling
@@ -213,7 +242,7 @@ class TuningCache final {
         // - cudaStreamCaptureModeThreadLocal prevents CCA from freeing memory.
         // Since CUDA graph is preferred for offline benchmark this should be
         // fine.
-        graph.capture_begin({0, 0}, cudaStreamCaptureModeRelaxed);
+        graph.capture_begin({0, 0}, gpuStreamCaptureModeRelaxed);
         for (int i = 0; i < num_iters; ++i) {
           kernel(std::forward<Args>(args)...);
         }
@@ -251,7 +280,8 @@ class TuningCache final {
     float best_time = FLT_MAX;
 
     for (const auto& [kernel_name, kernel] : kernels) {
-      const float time = benchmark(kernel, std::forward<Args>(args)...);
+      const float time =
+          benchmark(kernel_name, kernel, std::forward<Args>(args)...);
       if (time < best_time) {
         best_time = time;
         best_kernel = kernel_name;
@@ -266,8 +296,8 @@ class TuningCache final {
 
   constexpr static std::string_view FBGEMM_CACHE_DIR = ".fbgemm";
 
-  at::cuda::CUDAEvent start_ = at::cuda::CUDAEvent(cudaEventDefault);
-  at::cuda::CUDAEvent stop_ = at::cuda::CUDAEvent(cudaEventDefault);
+  at::cuda::CUDAEvent start_ = at::cuda::CUDAEvent(gpuEventDefault);
+  at::cuda::CUDAEvent stop_ = at::cuda::CUDAEvent(gpuEventDefault);
 
   // If FBGEMM_AUTOTUNE_USE_CUDA_GRAPH is set, use CUDA graph for benchmarking.
   // CUDA graphs use a separate memory pool to do allocation in PyTorch
