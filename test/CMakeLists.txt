@@ -4,34 +4,28 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
+################################################################################
+# Find Packages
+################################################################################
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_EXTENSIONS OFF)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+find_package(GTest)
 
-if(FBGEMM_BUILD_TESTS)
-  find_package(GTest)
-  if(NOT GTest_FOUND)
-    #Download Googletest framework from github if
-    #GOOGLETEST_SOURCE_DIR is not specified.
-    set(INSTALL_GTEST OFF)
-    if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
-      set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
-        CACHE STRING "googletest source directory from submodules")
-    endif()
+if(NOT GTest_FOUND)
+  # Download Googletest framework from github if
+  # GOOGLETEST_SOURCE_DIR is not specified.
+  set(INSTALL_GTEST OFF)
 
-    #build Googletest framework
-    set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
-    set(BUILD_SHARED_LIBS OFF)
-    add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
-    # Recover the build shared libs option.
-    set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS})
+  if(NOT DEFINED GOOGLETEST_SOURCE_DIR)
+    set(GOOGLETEST_SOURCE_DIR "${FBGEMM_SOURCE_DIR}/external/googletest"
+      CACHE STRING "googletest source directory from submodules")
   endif()
+
+  #build Googletest framework
+  set(TEMP_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+  set(BUILD_SHARED_LIBS OFF)
+  add_subdirectory("${GOOGLETEST_SOURCE_DIR}" "${FBGEMM_BINARY_DIR}/googletest")
+  # Recover the build shared libs option.
+  set(BUILD_SHARED_LIBS ${TEMP_BUILD_SHARED_LIBS})
 endif()
 
 if (FBGEMM_USE_SANITIZER)
@@ -42,25 +36,37 @@ if(${OpenMP_FOUND})
   message(STATUS "OpenMP_LIBRARIES= ${OpenMP_CXX_LIBRARIES}")
 endif()
 
-macro(add_gtest TESTNAME)
-  add_executable(${TESTNAME} ${ARGN}
+function(add_gtest TESTNAME)
+  add_executable(${TESTNAME}
+    ${ARGN}
     ../bench/BenchUtils.cc
     EmbeddingSpMDMTestUtils.cc
     QuantizationHelpers.cc
     TestUtils.cc)
+
   # To compile test files with AVX2 turned on
   # For static build, defining FBGEMM_STATIC to avoid generating
   # functions with _dllimport attributes.
   if(MSVC)
     target_compile_options(${TESTNAME} PRIVATE
-      "/arch:AVX2" "/wd4244" "/wd4267" "/wd4305" "/wd4309")
-    if (FBGEMM_LIBRARY_TYPE STREQUAL "static")
-      target_compile_definitions(${TESTNAME} PRIVATE FBGEMM_STATIC)
+      /arch:AVX2
+      /wd4244
+      /wd4267
+      /wd4305
+      /wd4309)
+
+    if (FBGEMM_LIBRARY_TYPE STREQUAL STATIC)
+      target_compile_definitions(${TESTNAME} PRIVATE
+        FBGEMM_STATIC)
     endif()
-  else(MSVC)
+
+  else()
     target_compile_options(${TESTNAME} PRIVATE
-     "-m64" "-mavx2" "-mfma" "-masm=intel")
-  endif(MSVC)
+     -m64
+     -mavx2
+     -mfma
+     -masm=intel)
+  endif()
 
   if (FBGEMM_USE_SANITIZER)
     target_compile_options(${TESTNAME} PRIVATE
@@ -69,7 +75,11 @@ macro(add_gtest TESTNAME)
       "-fsanitize=${FBGEMM_USE_SANITIZER}" "-fno-omit-frame-pointer")
   endif()
 
-  target_link_libraries(${TESTNAME} gtest gmock gtest_main fbgemm)
+  target_link_libraries(${TESTNAME}
+    gtest
+    gmock
+    gtest_main
+    fbgemm)
 
   if(OpenMP_FOUND)
     target_link_libraries(${TESTNAME} OpenMP::OpenMP_CXX)
@@ -81,7 +91,6 @@ endmacro()
 
 
 file(GLOB TEST_LIST "*Test.cc")
-
 foreach(TEST_FILE ${TEST_LIST})
   # NOTE: Skip FP32 test until FP32 is properly integrated into OSS builds
   if(TEST_FILE MATCHES "FP32Test.cc$")

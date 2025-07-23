@@ -4,6 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+
 ################################################################################
 # Find Packages
 ################################################################################
@@ -53,7 +55,7 @@ function(add_benchmark BENCHNAME)
     target_link_libraries(${BENCHNAME}
       ${MKL_LIBRARIES})
 
-    target_compile_options(${BENCHNAME} PRIVATE
+    target_compile_definitions(${BENCHNAME} PRIVATE
       -DUSE_MKL)
   endif()
 
@@ -61,16 +63,16 @@ function(add_benchmark BENCHNAME)
     target_link_libraries(${BENCHNAME}
       ${BLAS_LIBRARIES})
 
-    target_compile_options(${BENCHNAME} PRIVATE
+    target_compile_definitions(${BENCHNAME} PRIVATE
       -DUSE_BLAS)
   endif()
 
   set_target_properties(${BENCHNAME} PROPERTIES
     FOLDER test)
 
-  ############################################################################
+  ##############################################################################
   # Debug Summary
-  ############################################################################
+  ##############################################################################
 
   BLOCK_PRINT(
     "Benchmark Target: ${BENCHNAME}"
