@@ -27,14 +27,14 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 ################################################################################
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
-  src/attention/*.cpp
+  src/attention/cuda/*.cpp
   src/coalesce/*.cpp
   src/moe/*.cpp
   src/quantize/*.cpp
   src/quantize/common/*.cpp)
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
-  src/attention/*.cu
+  src/attention/cuda/*.cu
   src/coalesce/*.cu
   src/moe/*.cu
   src/quantize/*.cu)
