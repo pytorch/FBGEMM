@@ -31,6 +31,15 @@ namespace fbgemm_gpu {
 #ifdef USE_ROCM
 // flush icache
 void flush_icache_ck();
+
+// Generic PyTorch grouped GEMM API is only available on AMD for now.
+at::Tensor f8f8bf16_rowwise_grouped_mm(
+    at::Tensor XQ,
+    at::Tensor WQ,
+    at::Tensor x_scale,
+    at::Tensor w_scale,
+    std::optional<at::Tensor> offsets,
+    at::Tensor& output);
 #endif
 
 // SmoothQuant kernels
@@ -339,6 +348,7 @@ TORCH_LIBRARY_IMPL(fbgemm, CUDA, m) {
 
 #ifdef USE_ROCM
   m.impl("flush_icache_hip", flush_icache_ck);
+  m.impl("f8f8bf16_rowwise_grouped_mm", f8f8bf16_rowwise_grouped_mm);
 #endif
 #ifdef USE_ROCM
   m.impl("f8f8f16_rowwise", f8f8f16_rowwise);
