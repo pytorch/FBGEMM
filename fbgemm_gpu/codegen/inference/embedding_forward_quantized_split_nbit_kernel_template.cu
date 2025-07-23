@@ -325,7 +325,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             // Reason: to avoid divergence the first thread in the warp computes garbage.
             const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
-            if (output_d >= 0 && output_d < D) {
+            if (output_d < D) {
               const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
               VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
               acc.store(&output[output_j][output_d], num_valid_outputs);
@@ -342,7 +342,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
             auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
             VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
-            if (output_d >= 0 && output_d < D) {
+            if (output_d < D) {
               thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(acc.acc));
               thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(acc.acc));
             }
@@ -352,7 +352,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
           for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
             const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
             scalar_t v = reinterpret_cast<const scalar_t*>(row)[kWarpSize * j + threadIdx.x];
-            if (output_d >= 0 && output_d < D) {
+            if (output_d < D) {
               const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
               VecNT<{{ (32 // emb_weight_type.bit_width) }}, PrimitiveType::{{ emb_weight_type.primitive_type }}> acc(v{% if emb_weight_type.primitive_type == "INT" %}, shift_scale {% elif emb_weight_type.enum_name == "FP8" %}, exponent_bits, exponent_bias {% endif %});
               acc.store(&output[output_j][output_d], qparams, num_valid_outputs);
@@ -390,12 +390,12 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
 
         if constexpr (PackedMode) {
           // Take into account the packed bag index overflow
-          if (output_d >= 0 && output_d < D && packed_bag_store_idx < num_packed_bags) {
+          if (output_d < D && packed_bag_store_idx < num_packed_bags) {
             const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
             accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
           }
         } else {
-          if (output_d >= 0 && output_d < D) {
+          if (output_d < D) {
             const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
             accumulators[i][j].store(&output[b][D_start + output_d], num_valid_outputs);
           }
@@ -412,7 +412,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
         auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
         accumulators[i][j].mul(inv_L);
-        if (output_d >= 0 && output_d < D) {
+        if (output_d < D) {
           thread_local_max = max(thread_local_max, float{{ (32 // emb_weight_type.bit_width) }}_max(accumulators[i][j].acc));
           thread_local_min = min(thread_local_min, float{{ (32 // emb_weight_type.bit_width) }}_min(accumulators[i][j].acc));
         }
@@ -424,7 +424,7 @@ __global__ void {{ emb_weight_type.enum_name }}_split_embedding{{ "_nobag" if no
       #pragma unroll AccumulateStoreRequests
       for (uint32_t j = 0; j < AccumulateStoreRequests; ++j) {
         const auto output_d = kWarpSize * j * kOutputsPerThread + threadIdx.x * kOutputsPerThread - D_padding;
-        if (output_d >= 0 && output_d < D) {
+        if (output_d < D) {
           const int num_valid_outputs = min(static_cast<int>(D - output_d), static_cast<int>({{ (32 // emb_weight_type.bit_width) }}));
           accumulators[i][j].store(&output[b][output_D_start + output_d], qparams, num_valid_outputs);
         }
