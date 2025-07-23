@@ -104,10 +104,8 @@ function(cpp_library)
             -Wno-strict-aliasing
             -Wunused-variable
             -Wno-c99-extensions
-            -Wno-infinite-recursion
             -Wno-sign-compare
             -Wno-gnu-zero-variadic-macro-arguments
-            -Wno-unused-parameter
             -Wno-vla)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
