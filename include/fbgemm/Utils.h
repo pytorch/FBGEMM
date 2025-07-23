@@ -270,8 +270,8 @@ FBGEMM_API thread_type_t fbgemmGetThreadPartition(
     int g,
     int m,
     int n,
-    int num_threads,
     int thread_id,
+    int num_threads,
     int n_align = 64);
 
 template <int SIZE, typename T = std::int32_t>

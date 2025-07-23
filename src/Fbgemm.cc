@@ -128,15 +128,10 @@ void fbgemmPacked(
   // remainders
   int _kc = KDimPerGroup % KCB;
 
-  int kc = 0, mc = 0;
-
-  block_type_t blockA{0, 0, 0, 0};
-
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-  std::chrono::time_point<std::chrono::high_resolution_clock> t_very_start,
-      t_start, t_end;
+  std::chrono::time_point<std::chrono::high_resolution_clock> t_end;
   double dt;
-  t_start = std::chrono::high_resolution_clock::now();
+  auto t_start = std::chrono::high_resolution_clock::now();
   t_very_start = std::chrono::high_resolution_clock::now();
 #endif
 
@@ -166,11 +161,11 @@ void fbgemmPacked(
             th_info,
             blocking_params);
     for (int i = i_begin; i < i_end; i += MCB) { // i is the element index
-      mc = std::min(i_end - i, MCB);
+      int mc = std::min(i_end - i, MCB);
       for (int kb = 0; kb < kBlocks; ++kb) { // kb is the block index
-        kc = (kb != kBlocks - 1 || _kc == 0) ? KCB : _kc;
+        int kc = (kb != kBlocks - 1 || _kc == 0) ? KCB : _kc;
         // pack A matrix
-        blockA = {i, mc, g * KDimPerGroup + kb * KCB, kc};
+        block_type_t blockA = {i, mc, g * KDimPerGroup + kb * KCB, kc};
         packA.pack(blockA);
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN

@@ -257,7 +257,6 @@ static inline void interleave4RowsTile(
     const int col_start) {
   constexpr int VLEN_INT8 = 64;
   constexpr int colBlockSize = 4;
-  assert(colBlockSize == 4 && "column block size should be 4");
   const int kBlocks = kSize / colBlockSize;
   if (col_start < N / VLEN_INT8 * VLEN_INT8) {
     __m512i br_v[4];

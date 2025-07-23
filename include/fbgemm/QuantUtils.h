@@ -87,7 +87,7 @@ T Quantize(
   // and nearbyint(2.5) is 2.0
   // Adding zero_point before or after rounding can make a difference
   // in exactly halfway cases.
-  if (LEGACY) {
+  if constexpr (LEGACY) {
     transformed_val = std::nearbyint(zero_point + transformed_val);
   } else {
     transformed_val = zero_point + std::nearbyint(transformed_val);
