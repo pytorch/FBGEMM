@@ -140,6 +140,7 @@ class PackMatrix {
       int cols = 0,
       const BlockingFactors* params = nullptr);
 
+  FBGEMM_PUSH_WARNING_AND_DISABLE("-Wpragmas")
   FBGEMM_PUSH_WARNING_AND_DISABLE("-Winfinite-recursion")
   /**
    * @return Pointer to a buffer containing row offset results. Some packing
@@ -148,9 +149,6 @@ class PackMatrix {
   std::int32_t* getRowOffsetBuffer() const {
     return static_cast<const PT*>(this)->getRowOffsetBuffer();
   }
-  FBGEMM_POP_WARNING
-
-  FBGEMM_PUSH_WARNING_AND_DISABLE("-Winfinite-recursion")
   /**
    * @brief When k loop is also tiled/blocked, this function is used to check if
    * have executed computations for the last k block so that we can perform
@@ -159,6 +157,7 @@ class PackMatrix {
   bool isThisLastKBlock(int block_id) const {
     return static_cast<const PT*>(this)->isThisLastKBlock(block_id);
   }
+  FBGEMM_POP_WARNING
   FBGEMM_POP_WARNING
 
   /**
