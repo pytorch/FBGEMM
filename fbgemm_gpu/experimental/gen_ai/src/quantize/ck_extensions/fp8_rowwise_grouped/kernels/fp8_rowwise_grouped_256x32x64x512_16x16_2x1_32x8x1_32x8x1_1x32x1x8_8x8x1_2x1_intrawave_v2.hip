@@ -7,6 +7,7 @@
  */
 
 #include "fp8_rowwise_grouped_common.h"
+namespace fbgemm_gpu {
 
 template <typename InputType, typename OutputType>
 OutputType
@@ -64,3 +65,4 @@ fp8_rowwise_grouped_256x32x64x512_16x16_2x1_32x8x1_32x8x1_1x32x1x8_8x8x1_2x1_int
     at::TensorList w_scale,
     at::Tensor kernel_args,
     at::Tensor Y);
+} // namespace fbgemm_gpu
