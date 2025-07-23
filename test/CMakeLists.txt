@@ -62,10 +62,10 @@ function(add_gtest TESTNAME)
 
   else()
     target_compile_options(${TESTNAME} PRIVATE
-     -m64
-     -mavx2
-     -mfma
-     -masm=intel)
+      -m64
+      -mavx2
+      -mfma
+      -masm=intel)
   endif()
 
   if (FBGEMM_USE_SANITIZER)
