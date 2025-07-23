@@ -52,6 +52,12 @@ gpu_unavailable: Tuple[bool, str] = (
 # Used for `if` statements inside tests
 gpu_available: bool = not gpu_unavailable[0]
 
+is_nvidia_device: bool = gpu_available and torch.version.cuda is not None
+
+is_sm80_or_greater: bool = (
+    is_nvidia_device and torch.cuda.get_device_capability()[0] >= 8
+)
+
 running_on_sm70: Tuple[bool, str] = (
     not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 8,
     "Skip test if SM70, since the code is hardcoded to sm80+ support",
