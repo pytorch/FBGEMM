@@ -218,11 +218,10 @@ void performance_test(
     int num_instances,
     bool flush,
     int repetitions,
-    bool is_mkl) {
+    bool is_mkl [[maybe_unused]]) {
 #ifdef USE_MKL
   mkl_set_xerbla((XerblaEntry)test_xerbla);
 #endif
-  (void)is_mkl; // Suppress unused variable warning
 
   float alpha = 1.f, beta = 1.f;
   matrix_op_t btran = matrix_op_t::Transpose;

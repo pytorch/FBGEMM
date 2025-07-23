@@ -146,7 +146,7 @@ template <typename Src, typename Tgt, RoundingMode RoundingMode>
           tgt_mantissa += 1;
         }
       } else {
-        assert(RoundingMode == RoundingMode::ToZero);
+        static_assert(RoundingMode == RoundingMode::ToZero);
       }
       return tgt_sign | tgt_mantissa; // tgt_exponent == 0
     } else {
@@ -205,7 +205,7 @@ template <typename Src, typename Tgt, RoundingMode RoundingMode>
       }
     }
   } else {
-    assert(RoundingMode == RoundingMode::ToZero);
+    static_assert(RoundingMode == RoundingMode::ToZero);
   }
   return tgt_sign | tgt_exponent | tgt_mantissa;
 }

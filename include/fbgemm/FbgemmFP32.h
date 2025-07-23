@@ -6,7 +6,6 @@
 // upgraded to match with new fbgemm interface.
 
 #include <cpuinfo.h>
-#include <cassert>
 #include <cstdlib>
 #include <memory>
 #include <stdexcept>

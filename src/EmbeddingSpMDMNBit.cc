@@ -217,7 +217,7 @@ GenEmbeddingSpMDMNBitLookup<
                 ROWWISE_SPARSE>::jit_embedding_kernel {
         // TODO: Make this tunable
         int pref_dist = prefetch;
-        bool areIndices64b = is_same_v<indxType, int64_t>;
+        constexpr bool areIndices64b = is_same_v<indxType, int64_t>;
 
         asmjit::CodeHolder code;
         code.init(runtime().environment());
@@ -596,7 +596,7 @@ GenEmbeddingSpMDMNBitLookup<
           a->jl(LoopDataIndexEnd);
 
           // Array out of bound check
-          if (areIndices64b) {
+          if constexpr (areIndices64b) {
             a->mov(scratchReg1_, x86::qword_ptr(indices));
           } else {
             a->mov(scratchReg1_.r32(), x86::dword_ptr(indices));
@@ -643,7 +643,7 @@ GenEmbeddingSpMDMNBitLookup<
             a->cmp(scratchReg2_, index_size);
             a->jge(pref_dist_reset_start);
 
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->mov(
                   scratchReg2_,
                   x86::qword_ptr(indices, pref_dist * sizeof(indxType)));
@@ -658,7 +658,7 @@ GenEmbeddingSpMDMNBitLookup<
             a->bind(pref_dist_reset_start);
             // things are not okay just get the current row
             // this can be improved to getting the max dist row.
-            if (areIndices64b) {
+            if constexpr (areIndices64b) {
               a->mov(scratchReg2_, x86::qword_ptr(indices));
             } else {
               a->mov(scratchReg2_.r32(), x86::dword_ptr(indices));

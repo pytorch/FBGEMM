@@ -10,7 +10,6 @@
 #include "fbgemm/FbgemmEmbedding.h"
 
 #include <cpuinfo.h>
-#include <cassert>
 #include <iostream>
 #include <mutex>
 #include "./CodeCache.h" // @manual
@@ -132,8 +131,8 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         code.init(runtime().environment());
         x86::Assembler assembler(&code);
         x86::Emitter* a = assembler.as<x86::Emitter>();
-        bool areIndices64b = is_same_v<indxType, int64_t>;
-        bool areWeightsFp16 = is_same_v<dataType, float16>;
+        constexpr bool areIndices64b = is_same_v<indxType, int64_t>;
+        constexpr bool areWeightsFp16 = is_same_v<dataType, float16>;
 #if defined(FBGEMM_LOG_CODE)
         string filename = "RowWiseSparseAdagradFused";
         filename += "_emd_dim_" + to_string(block_size);
@@ -439,7 +438,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
         a->jl(LoopDataIndexEnd);
 
         // Array out of bound check
-        if (areIndices64b) {
+        if constexpr (areIndices64b) {
           a->mov(scratchReg1, x86::qword_ptr(indices));
         } else {
           a->mov(scratchReg1.r32(), x86::dword_ptr(indices));
@@ -461,7 +460,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           a->cmp(scratchReg2, index_size);
           a->jge(pref_dist_reset_start);
 
-          if (areIndices64b) {
+          if constexpr (areIndices64b) {
             a->mov(
                 scratchReg2,
                 x86::qword_ptr(indices, prefetch * sizeof(indxType)));
@@ -476,7 +475,7 @@ typename ReturnFunctionSignature<indxType, offsetType, dataType>::
           a->bind(pref_dist_reset_start);
           // things are not okay just get the current row
           // this can be improved to getting the max dist row.
-          if (areIndices64b) {
+          if constexpr (areIndices64b) {
             a->mov(scratchReg2, x86::qword_ptr(indices));
           } else {
             a->mov(scratchReg2.r32(), x86::dword_ptr(indices));

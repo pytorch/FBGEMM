@@ -83,11 +83,11 @@ static ALWAYS_INLINE void requantize_(
 
     __m256i row_offset_v;
     if constexpr (!B_SYMMETRIC) {
-      if (K_PER_G == 1) {
+      if constexpr (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j));
       } else {
-        assert(K_PER_G == 2);
+        static_assert(K_PER_G == 2);
         // Load row_offsets for 4 groups and broadcast by 2 times.
         row_offset_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
@@ -101,7 +101,7 @@ static ALWAYS_INLINE void requantize_(
         B_zero_point_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(B_zero_point + j));
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
-        assert(K_PER_G == 2);
+        static_assert(K_PER_G == 2);
         B_zero_point_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
                 _mm256_castps128_ps256(_mm_loadu_ps(
@@ -157,7 +157,7 @@ static ALWAYS_INLINE void requantize_(
     }
 
     if constexpr (!B_SYMMETRIC) {
-      if (K_PER_G == 1) {
+      if constexpr (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j + 2 * VLEN));
       } else {
@@ -193,7 +193,7 @@ static ALWAYS_INLINE void requantize_(
     }
 
     if constexpr (!B_SYMMETRIC) {
-      if (K_PER_G == 1) {
+      if constexpr (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j + 3 * VLEN));
       } else {
@@ -253,7 +253,7 @@ static ALWAYS_INLINE void requantize_(
                   reinterpret_cast<const float*>(bias + j + 3 * VLEN)),
               _mm256_loadu_ps(act_times_w_scale + j + 3 * VLEN));
         } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
-          assert(K_PER_G == 2);
+          static_assert(K_PER_G == 2);
           x_bias_v = _mm256_div_ps(
               _mm256_loadu_ps(
                   reinterpret_cast<const float*>(bias + j + 0 * VLEN)),
@@ -403,11 +403,11 @@ static ALWAYS_INLINE void requantize_(
 
     if constexpr (!B_SYMMETRIC) {
       __m256i row_offset_v;
-      if (K_PER_G == 1) {
+      if constexpr (K_PER_G == 1) {
         row_offset_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(row_offsets + j));
       } else {
-        assert(K_PER_G == 2);
+        static_assert(K_PER_G == 2);
         // Load row_offsets for 4 groups and broadcast by 2 times.
         row_offset_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
@@ -421,7 +421,7 @@ static ALWAYS_INLINE void requantize_(
         B_zero_point_v = _mm256_loadu_si256(
             reinterpret_cast<const __m256i*>(B_zero_point + j));
       } else if constexpr (Q_GRAN == QuantizationGranularity::GROUP) {
-        assert(K_PER_G == 2);
+        static_assert(K_PER_G == 2);
         B_zero_point_v =
             _mm256_castps_si256(_mm256_moveldup_ps(_mm256_permutevar8x32_ps(
                 _mm256_castps128_ps256(_mm_loadu_ps(

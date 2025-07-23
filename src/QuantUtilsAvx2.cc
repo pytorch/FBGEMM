@@ -1910,13 +1910,13 @@ void FusedNBitRowwiseQuantizedSBHalfToFloatOrHalfAvx2(
   constexpr int NUM_ELEM_PER_32BIT = 32 / BIT_RATE;
   // multiply by 4 because we're handling 4 vlen per iteration
   constexpr int NUM_OF_32BIT_PER_VLOAD = VLEN * 4 / NUM_ELEM_PER_32BIT;
-
-  int remainder_32bit_granularity = 0, remainder = 0;
+  int remainder = 0;
   __m128i vmask_load;
   __m256i vmask_store0, vmask_store1, vmask_store2, vmask_store3;
   if constexpr (BIT_RATE == 4 || BIT_RATE == 2) {
-    remainder_32bit_granularity = (output_columns + NUM_ELEM_PER_32BIT - 1) /
-        NUM_ELEM_PER_32BIT % NUM_OF_32BIT_PER_VLOAD;
+    int remainder_32bit_granularity =
+        (output_columns + NUM_ELEM_PER_32BIT - 1) / NUM_ELEM_PER_32BIT %
+        NUM_OF_32BIT_PER_VLOAD;
     vmask_load = _mm_lddqu_si128(reinterpret_cast<const __m128i*>(
         internal::avx2_ps_or_epi32_combined_mask + NUM_OF_32BIT_PER_VLOAD +
         (NUM_OF_32BIT_PER_VLOAD - remainder_32bit_granularity) %

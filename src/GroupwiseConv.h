@@ -152,9 +152,9 @@ class GenConvKernelBase {
     oss << "_useRightPadding-" << std::get<6>(kernel_sig);
     oss << "_accum-" << std::get<7>(kernel_sig);
 
-    if (INST_SET == inst_set_t::avx512) {
+    if constexpr (INST_SET == inst_set_t::avx512) {
       oss << "_avx512";
-    } else if (INST_SET == inst_set_t::avx2) {
+    } else if constexpr (INST_SET == inst_set_t::avx2) {
       oss << "_avx2";
     } else {
       oss << "_unknown";

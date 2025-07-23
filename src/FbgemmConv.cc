@@ -271,17 +271,21 @@ int fbgemmConv(
     case optimized_conv_t::directconv: {
       // specialized direct convolution path
       // std::cout << "Directconv fast path" << std::endl;
-      fbgemmDirectConv<SPATIAL_DIM, processOutputType::QGRANType>(
-          conv_p,
-          // Aint8,
-          activations,
-          *(packed_weights.getPackedWForDirectconv()),
-          out,
-          outBuffer,
-          outProcess,
-          outProcess.getBias(),
-          thread_id,
-          num_threads);
+      if constexpr (SPATIAL_DIM == 2) {
+        fbgemmDirectConv<SPATIAL_DIM, processOutputType::QGRANType>(
+            conv_p,
+            // Aint8,
+            activations,
+            *(packed_weights.getPackedWForDirectconv()),
+            out,
+            outBuffer,
+            outProcess,
+            outProcess.getBias(),
+            thread_id,
+            num_threads);
+      } else {
+        assert(false && "1d/3d direct conv not supported");
+      }
       break;
     }
     case optimized_conv_t::fastpath1d: {
