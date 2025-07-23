@@ -22,6 +22,7 @@ float fused_moe(fused_moe_traits t, fused_moe_args a, const ck_tile::stream_conf
         a.topk_ids_ptr,                              // const void* p_topk_ids;
         a.topk_weight_ptr,                           // const void* p_weights;
         a.local_expert_mask_ptr,                     // const void* p_local_expert_mask;
+        nullptr,                                     // const void* p_local_tokens;
         a.sorted_token_ids_ptr,                      // void* p_sorted_token_ids;
         a.sorted_weight_ptr,                         // void* p_sorted_weights;
         a.sorted_expert_ids_ptr,                     // void* p_sorted_expert_ids;
