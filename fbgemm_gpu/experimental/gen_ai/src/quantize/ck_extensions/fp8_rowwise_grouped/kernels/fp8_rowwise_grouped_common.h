@@ -133,6 +133,7 @@ struct DeviceGemmHelper {
     } else {
       group_count = XQ.size();
     }
+
     using GemmDesc = ck::tensor_operation::device::GemmDesc;
     // Create gemm shape containers.
     std::vector<GemmDesc> gemm_descs;
