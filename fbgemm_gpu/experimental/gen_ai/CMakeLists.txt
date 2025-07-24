@@ -135,6 +135,7 @@ gpu_cpp_library(
   INCLUDE_DIRS
     ${fbgemm_sources_include_directories}
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/quantize/common/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/kv_cache
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include

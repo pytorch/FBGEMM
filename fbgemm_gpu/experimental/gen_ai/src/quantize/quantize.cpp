@@ -6,18 +6,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/ATen.h>
-#include <torch/library.h>
-
-#include "c10/core/ScalarType.h"
-
-#include <ATen/cuda/CUDAEvent.h>
-#include <algorithm>
-#include <atomic>
-#include <cassert>
-#include <cmath>
-#include <string>
 #include <vector>
+
+#include <ATen/ATen.h>
+#include <ATen/cuda/CUDAEvent.h>
+#include <fbgemm_gpu/torch_ops.h>
+#include <torch/library.h>
+#include "c10/core/ScalarType.h"
 #include "c10/util/Exception.h"
 
 #if (defined(USE_ROCM) && ROCM_VERSION >= 60200)
@@ -32,14 +27,6 @@ namespace fbgemm_gpu {
 // flush icache
 void flush_icache_ck();
 
-// Generic PyTorch grouped GEMM API is only available on AMD for now.
-at::Tensor f8f8bf16_rowwise_grouped_mm(
-    at::Tensor XQ,
-    at::Tensor WQ,
-    at::Tensor x_scale,
-    at::Tensor w_scale,
-    std::optional<at::Tensor> offsets,
-    at::Tensor& output);
 #endif
 
 // SmoothQuant kernels
