@@ -748,6 +748,9 @@ class SSDCheckpointTest(unittest.TestCase):
         shard_load = E / 4
         # init
         dram_kv_backend.set(indices, weights, count)  # pyre-ignore
+        dram_kv_backend.get_feature_evict_metric(  # pyre-ignore
+            evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+        )
         for _ in range(10):
             dram_kv_backend.get(indices.clone(), weights_out, count)  # pyre-ignore
             dram_kv_backend.set(indices, weights, count)
