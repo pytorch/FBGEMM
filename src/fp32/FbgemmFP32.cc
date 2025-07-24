@@ -104,6 +104,10 @@ constexpr kernel_array_t<float> kernel_fp32_neon = {
 
 template <>
 const isa_descriptor<float>& getIsaHandlers(inst_set_t isa, float) {
+#ifdef __APPLE__
+  throw std::runtime_error("Unsupported uArch");
+#endif
+
   static isa_descriptor<float> avx2_descriptor =
       std::make_tuple(kernel_f32_avx2, partition_avx2);
   static isa_descriptor<float> avx512_descriptor =

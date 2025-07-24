@@ -100,6 +100,18 @@ foreach(TEST_FILE ${TEST_LIST})
   if(TEST_FILE MATCHES "FP32Test.cc$")
     continue()
   endif()
+  # Skip the following tests when AVX2 is not available
+  if(NOT COMPILER_SUPPORTS_AVX2)
+    if(TEST_FILE MATCHES "Conv"
+    OR TEST_FILE MATCHES "I8DepthwiseTest.cc$"
+    OR TEST_FILE MATCHES "FP16Test.cc$"
+    OR TEST_FILE MATCHES "I8SpmdmTest.cc$"
+    OR TEST_FILE MATCHES "I8DirectconvTest.cc$"
+    OR TEST_FILE MATCHES "Im2ColFusedRequantizeTest.cc$"
+    OR TEST_FILE MATCHES "Requantize")
+      continue()
+    endif()
+  endif()
 
   get_filename_component(TEST_NAME "${TEST_FILE}" NAME_WE)
   get_filename_component(TEST_FILE_ONLY "${TEST_FILE}" NAME)
