@@ -29,7 +29,7 @@ namespace fbgemm_gpu {
 struct StochasticRoundingRNGState {
   uint64_t state = 0;
 
-  __host__ constexpr StochasticRoundingRNGState() = default;
+  __host__ DEVICE_INLINE constexpr StochasticRoundingRNGState() = default;
 
   __host__ DEVICE_INLINE StochasticRoundingRNGState(
       const at::PhiloxCudaState& philox_state,
