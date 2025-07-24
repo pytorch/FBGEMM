@@ -1,10 +1,10 @@
 /*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree.
- */
+* Copyright (c) Meta Platforms, Inc. and affiliates.
+* All rights reserved.
+*
+* This source code is licensed under the BSD-style license found in the
+* LICENSE file in the root directory of this source tree.
+*/
 
 #include <ATen/ATen.h>
 #include <ATen/TypeDefault.h>
@@ -209,7 +209,13 @@ Tensor int_nbit_split_embedding_codegen_forward_unweighted_cuda(
     Tensor lxu_cache_locations,
     int64_t max_float8_D,
     int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias);
+    int64_t fp8_exponent_bias,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls);
 
 Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     Tensor dev_weights,
@@ -234,7 +240,13 @@ Tensor int_nbit_split_embedding_codegen_forward_weighted_cuda(
     Tensor lxu_cache_locations,
     int64_t max_float8_D,
     int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias);
+    int64_t fp8_exponent_bias,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls);
 
 Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor dev_weights,
@@ -256,7 +268,13 @@ Tensor int_nbit_split_embedding_nobag_codegen_forward_unweighted_cuda(
     Tensor lxu_cache_locations,
     int64_t max_float8_D,
     int64_t fp8_exponent_bits,
-    int64_t fp8_exponent_bias);
+    int64_t fp8_exponent_bias,
+    int64_t INT2_max_ls,
+    int64_t INT4_max_ls,
+    int64_t INT8_max_ls,
+    int64_t FP8_max_ls,
+    int64_t FP16_max_ls,
+    int64_t FP32_max_ls);
 
 ///@ingroup embedding-cuda
 Tensor int_nbit_split_embedding_codegen_lookup_function(
@@ -282,7 +300,13 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
     std::optional<int64_t> row_alignment,
     std::optional<int64_t> max_float8_D,
     std::optional<int64_t> fp8_exponent_bits,
-    std::optional<int64_t> fp8_exponent_bias) {
+    std::optional<int64_t> fp8_exponent_bias,
+    std::optional<int64_t> INT2_max_ls,
+    std::optional<int64_t> INT4_max_ls,
+    std::optional<int64_t> INT8_max_ls,
+    std::optional<int64_t> FP8_max_ls,
+    std::optional<int64_t> FP16_max_ls,
+    std::optional<int64_t> FP32_max_ls) {
   if (offsets.scalar_type() != indices.scalar_type()) {
     offsets = offsets.toType(indices.scalar_type());
   }
@@ -316,7 +340,14 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
         max_float8_D ? *max_float8_D : 0,
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
-        fp8_exponent_bias ? *fp8_exponent_bias : -1);
+        fp8_exponent_bias ? *fp8_exponent_bias : -1,
+        INT2_max_ls.value_or(0),
+        INT4_max_ls.value_or(0),
+        INT8_max_ls.value_or(0),
+        FP8_max_ls.value_or(0),
+        FP16_max_ls.value_or(0),
+        FP32_max_ls.value_or(0)
+        );
   }
   if (!indice_weights || indice_weights->numel() == 0) {
     return int_nbit_split_embedding_codegen_forward_unweighted_cuda(
@@ -341,7 +372,14 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
         lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
         max_float8_D ? *max_float8_D : 0,
         fp8_exponent_bits ? *fp8_exponent_bits : -1,
-        fp8_exponent_bias ? *fp8_exponent_bias : -1);
+        fp8_exponent_bias ? *fp8_exponent_bias : -1,
+        INT2_max_ls.value_or(0),
+        INT4_max_ls.value_or(0),
+        INT8_max_ls.value_or(0),
+        FP8_max_ls.value_or(0),
+        FP16_max_ls.value_or(0),
+        FP32_max_ls.value_or(0)
+        );
   }
   // Force casting indice_weights to float (doing this in the backend to avoid
   // JIT issue)
@@ -369,15 +407,21 @@ Tensor int_nbit_split_embedding_codegen_lookup_function(
       lxu_cache_locations.value_or(at::empty({0}, at::kInt)),
       max_float8_D ? *max_float8_D : 0,
       fp8_exponent_bits ? *fp8_exponent_bits : -1,
-      fp8_exponent_bias ? *fp8_exponent_bias : -1);
+      fp8_exponent_bias ? *fp8_exponent_bias : -1,
+      INT2_max_ls.value_or(0),
+      INT4_max_ls.value_or(0),
+      INT8_max_ls.value_or(0),
+      FP8_max_ls.value_or(0),
+      FP16_max_ls.value_or(0),
+      FP32_max_ls.value_or(0)
+      );
 }
 
 ///@ingroup embedding-cuda
-/// Simlar to int_nbit_split_embedding_codegen_lookup_function, but it does
 /// UVM_CACHING lookup.
 Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     // First args should be the same to those of
-    // int_nbit_split_embedding_codegen_lookup_function.
+
     Tensor dev_weights,
     Tensor uvm_weights,
     Tensor weights_placements,
@@ -415,7 +459,13 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
     std::optional<Tensor> lxu_cache_state,
     // lxu_state: meta info for replacement (time stamp for LRU).
     // 2D tensor: # sets x assoc. dtype=int64.
-    std::optional<Tensor> lxu_state) {
+    std::optional<Tensor> lxu_state,
+    std::optional<int64_t> INT2_max_ls,
+    std::optional<int64_t> INT4_max_ls,
+    std::optional<int64_t> INT8_max_ls,
+    std::optional<int64_t> FP8_max_ls,
+    std::optional<int64_t> FP16_max_ls,
+    std::optional<int64_t> FP32_max_ls) {
   // This function does prefetch() and foward() methods in
   // IntNBitTableBatchedEmbeddingBagsCodegen, but run them in sequence.
   // Prefetching of multiple batches of requests is not yet supported.
@@ -557,7 +607,14 @@ Tensor int_nbit_split_embedding_uvm_caching_codegen_lookup_function(
       row_alignment,
       max_float8_D,
       fp8_exponent_bits,
-      fp8_exponent_bias);
+      fp8_exponent_bias,
+      INT2_max_ls,
+      INT4_max_ls,
+      INT8_max_ls,
+      FP8_max_ls,
+      FP16_max_ls,
+      FP32_max_ls
+      );
 }
 
 ///@ingroup embedding-cuda
