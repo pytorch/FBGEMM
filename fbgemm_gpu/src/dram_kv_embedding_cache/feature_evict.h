@@ -240,6 +240,32 @@ struct FeatureEvictMetrics {
 };
 
 struct FeatureEvictMetricTensors {
+  // Constructor that initializes all members
+  explicit FeatureEvictMetricTensors(int64_t table_num)
+      : evicted_counts(at::zeros({table_num}, at::kLong)),
+        processed_counts(at::zeros({table_num}, at::kLong)),
+        exec_duration_ms(at::scalar_tensor(0, at::kLong)),
+        full_duration_ms(at::scalar_tensor(0, at::kLong)) {}
+
+  // Constructor to initialize from existing tensors
+  FeatureEvictMetricTensors(
+      at::Tensor evicted,
+      at::Tensor processed,
+      at::Tensor exec_duration,
+      at::Tensor full_duration)
+      : evicted_counts(std::move(evicted)),
+        processed_counts(std::move(processed)),
+        exec_duration_ms(std::move(exec_duration)),
+        full_duration_ms(std::move(full_duration)) {}
+
+  [[nodiscard]] FeatureEvictMetricTensors clone() const {
+    return FeatureEvictMetricTensors{
+        evicted_counts.clone(),
+        processed_counts.clone(),
+        exec_duration_ms.clone(),
+        full_duration_ms.clone()};
+  }
+
   // evicted feature count
   at::Tensor evicted_counts;
   // feature count before evict
@@ -248,14 +274,6 @@ struct FeatureEvictMetricTensors {
   at::Tensor exec_duration_ms;
   // feature evict full duration(from trigger to finish)
   at::Tensor full_duration_ms;
-
-  FeatureEvictMetricTensors clone() const {
-    return FeatureEvictMetricTensors{
-        evicted_counts.clone(),
-        processed_counts.clone(),
-        exec_duration_ms.clone(),
-        full_duration_ms.clone()};
-  }
 };
 
 template <typename weight_type>
@@ -275,6 +293,7 @@ class FeatureEvict {
         num_shards_(kv_store.getNumShards()),
         sub_table_hash_cumsum_(sub_table_hash_cumsum),
         metrics_(sub_table_hash_cumsum_.size()),
+        metric_tensors_(sub_table_hash_cumsum_.size()),
         interval_for_insufficient_eviction_s_(
             interval_for_insufficient_eviction_s),
         interval_for_sufficient_eviction_s_(interval_for_sufficient_eviction_s),
