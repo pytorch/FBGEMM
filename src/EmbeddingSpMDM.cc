@@ -682,13 +682,12 @@ GenEmbeddingSpMDMLookup<
           a->imul(scratchReg1_, static_cast<asmjit::Imm>(fused_block_size));
 
           // broadcast the scale
-          x86::Mem scale_src, bias_src;
           constexpr unsigned int CACHE_LINE_LEN = 64;
           if constexpr (is_8bit_in) {
             if (scale_bias_last) {
-              scale_src = x86::dword_ptr(
+              auto scale_src = x86::dword_ptr(
                   input, scratchReg1_, 0, block_size * sizeof(uint8_t));
-              bias_src = x86::dword_ptr(
+              auto bias_src = x86::dword_ptr(
                   input,
                   scratchReg1_,
                   0,
@@ -696,8 +695,8 @@ GenEmbeddingSpMDMLookup<
               a->vbroadcastss(scale_vreg, scale_src);
               a->vbroadcastss(bias_vreg, bias_src);
             } else {
-              scale_src = x86::word_ptr(input, scratchReg1_);
-              bias_src =
+              auto scale_src = x86::word_ptr(input, scratchReg1_);
+              auto bias_src =
                   x86::word_ptr(input, scratchReg1_, 0, sizeof(uint16_t));
               a->vpbroadcastw(scale_vreg.half(), scale_src);
               a->vpbroadcastw(bias_vreg.half(), bias_src);

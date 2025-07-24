@@ -13,17 +13,18 @@
 cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 
 # Set up paths
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules")
+set(MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules")
+list(APPEND CMAKE_MODULE_PATH "${MODULE_PATH}")
 set(FBGEMM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(FBGEMM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-include(${CMAKE_MODULE_PATH}/Utilities.cmake)
+include(${MODULE_PATH}/Utilities.cmake)
 
 # C++ Compiler Setup - must be set BEFORE project declaration
-include(${CMAKE_MODULE_PATH}/CxxCompilerSetup.cmake)
+include(${MODULE_PATH}/CxxCompilerSetup.cmake)
 
 # Load cpp_library()
-include(${CMAKE_MODULE_PATH}/CppLibrary.cmake)
+include(${MODULE_PATH}/CppLibrary.cmake)
 
 # Define function to extract filelists from defs.bzl file
 function(get_filelist name outputvar)
@@ -48,7 +49,13 @@ endfunction()
 # FBGEMM Build Kickstart
 ################################################################################
 
-project(fbgemm VERSION 0.1 LANGUAGES CXX C)
+project(
+  fbgemm
+  VERSION 1.3.0
+  LANGUAGES CXX C)
+
+# Add C++ compiler flag detection
+include(CheckCXXCompilerFlag)
 
 # Install libraries into correct locations on all platforms
 include(GNUInstallDirs)
@@ -60,14 +67,13 @@ set(FBGEMM_LIBRARY_TYPE "default"
   CACHE STRING
   "Type of library (shared, static, or default) to build")
 
-set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 option(FBGEMM_BUILD_TESTS "Build fbgemm unit tests" ON)
 option(FBGEMM_BUILD_BENCHMARKS "Build fbgemm benchmarks" ON)
 option(FBGEMM_BUILD_DOCS "Build fbgemm documentation" OFF)
-# option(FBGEMM_BUILD_FBGEMM_GPU "Build fbgemm_gpu library" OFF)
 option(FBGEMM_USE_IPO "Build fbgemm with interprocedural optimization" OFF)
 option(DISABLE_FBGEMM_AUTOVEC "Disable FBGEMM Autovec" OFF)
 
+set_property(CACHE FBGEMM_LIBRARY_TYPE PROPERTY STRINGS DEFAULT STATIC SHARED)
 if(FBGEMM_LIBRARY_TYPE STREQUAL "DEFAULT")
   if(BUILD_SHARED_LIB)
     set(FBGEMM_LIBRARY_TYPE "SHARED")
@@ -78,12 +84,8 @@ else()
   string(TOUPPER "${FBGEMM_LIBRARY_TYPE}" FBGEMM_LIBRARY_TYPE)
 endif()
 
-if(FBGEMM_BUILD_TESTS)
-  enable_testing()
-endif()
-
 # Add address sanitizer
-set(USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
+set(FBGEMM_USE_SANITIZER "" CACHE STRING "options include address, leak, ...")
 
 # We should default to a Release build
 if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
@@ -98,7 +100,6 @@ endif()
 # AVX512 Support
 ################################################################################
 
-include(CheckCXXCompilerFlag)
 if(MSVC)
   CHECK_CXX_COMPILER_FLAG(/arch:AVX512 COMPILER_SUPPORTS_AVX512)
   set(MSVC_BOOL True)
@@ -149,9 +150,6 @@ if(NOT MSVC)
     src/FbgemmFP16UKernelsAvx512_256.cc
     PROPERTIES COMPILE_FLAGS "-masm=intel")
 
-  set_source_files_properties(src/PackMatrix.cc
-    PROPERTIES COMPILE_FLAGS "-Wno-infinite-recursion")
-
   # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
   if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
     set_source_files_properties(
@@ -183,7 +181,7 @@ cpp_library(
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${FBGEMM_SOURCE_DIR}/bench>
   SANITIZER_OPTIONS
-    "${USE_SANITIZER}"
+    "${FBGEMM_USE_SANITIZER}"
   DEFINITIONS
     ${fbgemm_generic_defs}
   DEPS
@@ -306,7 +304,7 @@ if(NOT TARGET asmjit)
 
   # Build asmjit
   # For MSVC shared build, asmjit needs to be shared also.
-  if(MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL "shared"))
+  if(MSVC AND (FBGEMM_LIBRARY_TYPE STREQUAL SHARED))
     set(ASMJIT_STATIC OFF)
   else()
     set(ASMJIT_STATIC ON)
@@ -342,6 +340,7 @@ endif()
 ################################################################################
 
 if(FBGEMM_BUILD_TESTS)
+  enable_testing()
   add_subdirectory(test)
 endif()
 

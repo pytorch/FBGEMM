@@ -21,7 +21,7 @@ import seaborn as sns
 import torch
 
 try:
-    from accelerators.pytorch.lib.utils.torch_profiler import profiler_or_nullcontext
+    from accelerators.utils.torch_profiler import profiler_or_nullcontext
 except ImportError:
     from contextlib import nullcontext
 
@@ -169,6 +169,7 @@ def benchmark_grouped(
     trace: bool = False,
     num_iters: int = 1,
     fast_accum: bool = True,
+    torch_compile: bool = False,
 ) -> Dict[str, Any]:
     num_groups = len(m)
     # Create input tensors.
@@ -197,6 +198,8 @@ def benchmark_grouped(
         # Set fast accum mode if applicable.
         if hasattr(quantize_op, "fast_accum"):
             quantize_op.fast_accum = fast_accum
+        if hasattr(quantize_op, "torch_compile"):
+            quantize_op.torch_compile = torch_compile
         # Get the quantized tensors for this operator.
         preprocessed_args = quantize_op.preprocess(A, B)
         quantized_vals = quantize_op.quantize(*preprocessed_args)
@@ -282,6 +285,7 @@ def benchmark(
     trace: bool = False,
     num_iters: int = 1,
     fast_accum: bool = True,
+    torch_compile: bool = False,
 ) -> Dict[str, Any]:
     # Create input tensors.
     if b > 1:
@@ -301,6 +305,8 @@ def benchmark(
         # Set fast accum mode if applicable.
         if hasattr(quantize_op, "fast_accum"):
             quantize_op.fast_accum = fast_accum
+        if hasattr(quantize_op, "torch_compile"):
+            quantize_op.torch_compile = torch_compile
         # Preprocess data if needed.
         preprocessed_args = quantize_op.preprocess(A, B)
         # Get the quantized tensors for this operator.
@@ -448,7 +454,15 @@ def main(args: Any):
             else:
                 K = [int(k) for k in args.K.strip().split(",")]
             # List all shapes for simplicity.
-            MNK = list(itertools.product(B, M, N, K))
+            if args.pair_NK:
+                if len(N) != len(K):
+                    raise Exception("N and K must be the same length in pair_NK mode.")
+                NK = zip(N, K)
+                MNK = list(
+                    (B, M, N, K) for (B, M, (N, K)) in itertools.product(B, M, NK)
+                )
+            else:
+                MNK = list(itertools.product(B, M, N, K))
     # When groups is provided transform shapes into grouped format.
     if args.groups:
         groups = [int(g) for g in args.groups.strip().split(",")]
@@ -487,6 +501,7 @@ def main(args: Any):
             args.trace,
             args.num_iters,
             not args.disable_fast_accum,
+            args.torch_compile,
         )
         benchmark_results.append(quantize_measurements)
     if args.export_csv or args.plot:
@@ -558,6 +573,12 @@ def invoke_main() -> None:
         "--K", default=None, help="Comma separated list of K values to benchmark."
     )
     parser.add_argument(
+        "--pair_NK",
+        default=False,
+        action="store_true",
+        help="If set, instead of benchmarking cartesian product of N * K, benchmark consecutive NK pairs together.",
+    )
+    parser.add_argument(
         "--grouped",
         default=False,
         action="store_true",
@@ -610,6 +631,12 @@ def invoke_main() -> None:
         default=False,
         action="store_true",
         help="If set, disable fast accumulation for FP8 implementations.",
+    )
+    parser.add_argument(
+        "--torch_compile",
+        default=False,
+        action="store_true",
+        help="If set, torch.compile will be used for scaled_mm backed ops.",
     )
 
     args = parser.parse_args()

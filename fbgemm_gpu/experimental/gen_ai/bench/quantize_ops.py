@@ -345,27 +345,35 @@ class ScaledMMBaseline(QuantizeOpBase):
 class ScaledMMRowwise(QuantizeOpBase):
     def __init__(self):
         self.fast_accum = True
+        self.torch_compile = False
 
     def quantize(self, x, w):
         xq, x_scale = quantize_fp8_row(x)
         wq, w_scale = quantize_fp8_row(w)
-        dummy_scale = torch.tensor([1.0], device=x.device, dtype=torch.float32)
-        return xq, wq.t(), x_scale, w_scale, dummy_scale
+        return xq, wq.t(), x_scale.unsqueeze(1), w_scale.unsqueeze(0)
 
-    def compute(self, xq, wq, x_scale, w_scale, dummy_scale):
-        output = torch._scaled_mm(
+    def compute(self, xq, wq, x_scale, w_scale):
+        if self.torch_compile:
+            f = torch.compile(
+                torch._scaled_mm,
+                options={
+                    "max_autotune": True,
+                    "max_autotune_gemm_backends": "TRITON,CK,CUTLASS,ATEN",
+                },
+            )
+        else:
+            f = torch._scaled_mm
+
+        return f(
             xq,
             wq,
             bias=None,
             out_dtype=torch.bfloat16,
-            scale_a=dummy_scale,
-            scale_b=dummy_scale,
+            scale_a=x_scale,
+            scale_b=w_scale,
             scale_result=None,
             use_fast_accum=self.fast_accum,
         )
-        # Apply separate rowwise scaling.
-        output = scale_fp8_row(output, x_scale, w_scale)
-        return output
 
     def quantize_and_compute(self, x, w):
         return self.compute(*self.quantize(x, w))
@@ -1241,6 +1249,38 @@ class FP8StackedGroupedGemm(QuantizeOpBase):
     @property
     def cuda(self) -> bool:
         return True
+
+
+@register_quantize_op
+class FP8StackedGroupedGemmTorch(FP8StackedGroupedGemm):
+    def quantize(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, m_sizes = super().quantize(x, wq, w_scale, m_sizes)
+        offsets = torch.cumsum(m_sizes, dim=0, dtype=torch.int32)
+        out = torch.empty(
+            (xq.shape[0], wq.shape[1]), dtype=torch.bfloat16, device=xq.device
+        )
+        return xq, wq, x_scale, w_scale, offsets, out
+
+    def compute(self, xq, wq, x_scale, w_scale, offsets, out):
+        return torch.ops.fbgemm.f8f8bf16_rowwise_grouped_mm(
+            xq, wq, x_scale, w_scale, offsets, out
+        )
+
+    def quantize_and_compute(self, x, wq, w_scale, m_sizes):
+        xq, wq, x_scale, w_scale, offsets, out = self.quantize(x, wq, w_scale, m_sizes)
+        return self.compute(xq, wq, x_scale, w_scale, offsets, out)
+
+    @property
+    def name(self) -> str:
+        return "ck_grouped_stacked_torch_2d3d"
+
+    @property
+    def hip(self) -> bool:
+        return True
+
+    @property
+    def cuda(self) -> bool:
+        return False
 
 
 @register_quantize_op

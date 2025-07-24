@@ -21,8 +21,7 @@
 #include <type_traits>
 
 #ifndef HAVE_SVE
-#if defined(__aarch64__) && (__GNUC__ >= 8 || __clang_major__ >= 5) && \
-    __ARM_FEATURE_SVE
+#if defined(__aarch64__) && __ARM_FEATURE_SVE
 #define HAVE_SVE 1
 #else
 #define HAVE_SVE 0
@@ -271,8 +270,8 @@ FBGEMM_API thread_type_t fbgemmGetThreadPartition(
     int g,
     int m,
     int n,
-    int num_threads,
     int thread_id,
+    int num_threads,
     int n_align = 64);
 
 template <int SIZE, typename T = std::int32_t>

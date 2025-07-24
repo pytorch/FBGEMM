@@ -7,6 +7,7 @@
  */
 
 #include "fp8_rowwise_grouped_common.h"
+namespace fbgemm_gpu {
 
 template <typename InputType, typename OutputType>
 OutputType
@@ -16,72 +17,27 @@ fp8_rowwise_grouped_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_in
     InputType x_scale,
     InputType w_scale,
     at::Tensor kernel_args,
-    OutputType Y)
-{
-    // Check if this input needs to be padded.
-#if 0
-    int M = XQ.size(1);
-    int N = WQ.size(1);
-    int K = WQ.size(2);
-    bool pad = (M % 16 != 0) || (N % 64 != 0) || (K % (512 * KBatch) != 0);
-#else
-    // disable padding for packed tensor
-    bool pad = false;
-#endif
-    if (pad)
-    {
-        // pad
-        using DeviceGemmInstance = DeviceGemmHelper<
-            256,
-            16,
-            64,
-            512,
-            16,
-            16,
-            1,
-            1,
-            S<32, 8, 1>,
-            S<32, 8, 1>,
-            S<1, 16, 1, 16>,
-            S<4, 4, 1>,
-            1,
-            1,
-            ck::BlockGemmPipelineScheduler::Intrawave,
-            ck::BlockGemmPipelineVersion::v1,
-            ck::tensor_operation::device::GemmSpecialization::MNKPadding>;
-        // Run kernel instance.
-        return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
-
-        // pad
-    }
-    else
-    {
-        // no pad
-        using DeviceGemmInstance = DeviceGemmHelper<
-            256,
-            16,
-            64,
-            512,
-            16,
-            16,
-            1,
-            1,
-            S<32, 8, 1>,
-            S<32, 8, 1>,
-            S<1, 16, 1, 16>,
-            S<4, 4, 1>,
-            1,
-            1,
-            ck::BlockGemmPipelineScheduler::Intrawave,
-            ck::BlockGemmPipelineVersion::v1,
-            ck::tensor_operation::device::GemmSpecialization::Default>;
-        // Run kernel instance.
-        return f8f8bf16_rowwise_grouped_impl<DeviceGemmInstance>(XQ, WQ, x_scale, w_scale, kernel_args, Y);
-
-        // no pad
-    }
+    OutputType Y) {
+  using DeviceGemmInstance = DeviceGemmHelper<
+      256,
+      16,
+      64,
+      512,
+      16,
+      16,
+      1,
+      1,
+      S<32, 8, 1>,
+      S<32, 8, 1>,
+      S<1, 16, 1, 16>,
+      S<4, 4, 1>,
+      1,
+      1,
+      ck::BlockGemmPipelineScheduler::Intrawave,
+      ck::BlockGemmPipelineVersion::v1>;
+  return DeviceGemmInstance::f8f8bf16_rowwise_grouped_impl(
+      XQ, WQ, x_scale, w_scale, kernel_args, Y);
 }
-
 
 template std::vector<at::Tensor>
 fp8_rowwise_grouped_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_intrawave_v1(
@@ -109,3 +65,4 @@ fp8_rowwise_grouped_256x16x64x512_16x16_1x1_32x8x1_32x8x1_1x16x1x16_4x4x1_1x1_in
     at::TensorList w_scale,
     at::Tensor kernel_args,
     at::Tensor Y);
+} // namespace fbgemm_gpu

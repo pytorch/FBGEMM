@@ -10,24 +10,21 @@ Checks: '
 clang-analyzer*,
 clang-diagnostic-missing-prototypes,
 cppcoreguidelines-init-variables,
+cppcoreguidelines-special-member-functions,
 bugprone*,
 -bugprone-crtp-constructor-accessibility,
 -bugprone-easily-swappable-parameters,
--bugprone-exception-escape,
 -bugprone-implicit*,
 -bugprone-macro-parentheses,
 -bugprone-narrowing-conversions,
 -bugprone-reserved-identifier,
--bugprone-signed-char-misuse,
 -bugprone-switch-missing-default-case,
 misc-*,
 -misc-confusable-identifiers,
 -misc-const-correctness,
 -misc-include-cleaner,
--misc-no-recursion,
 -misc-non-private-member-variables-in-classes,
 -misc-use-anonymous-namespace,
--misc-unused-parameters,
 modernize*,
 -modernize-avoid-c-arrays,
 -modernize-avoid-bind,
@@ -48,7 +45,6 @@ readability*,
 -readability-avoid-unconditional-preprocessor-if,
 -readability-braces-around-statements,
 -readability-container-contains,
--readability-convert-member-functions-to-static,
 -readability-else-after-return,
 -readability-function-cognitive-complexity,
 -readability-identifier-length,
@@ -72,4 +68,8 @@ CheckOptions:
  - key: facebook-cuda-safe-kernel-call-check.HandlerName
    # This is PyTorch's handler; you may need to define your own
    value: C10_CUDA_KERNEL_LAUNCH_CHECK
+ - key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor
+   value: true
+ - key: cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove
+   value: true
 ...

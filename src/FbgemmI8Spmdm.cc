@@ -105,8 +105,8 @@ void CompressedSparseColumn::SpMDM(
         int k_end = colptr_[block.col_start + j + 1];
         if (k_end == k) {
         } else if (k_end == k + 1) {
-          int row = rowidx_[k];
-          int w = values_[k];
+          auto row = rowidx_[k];
+          auto w = values_[k];
           for (int i = 0; i < block.row_size; ++i) {
             C[i * ldc + j] += A[(block.row_start + i) * lda + row] * w;
           }
@@ -115,8 +115,8 @@ void CompressedSparseColumn::SpMDM(
             C_temp[i] = C[i * ldc + j];
           }
           for (; k < k_end; ++k) {
-            int row = rowidx_[k];
-            int w = values_[k];
+            auto row = rowidx_[k];
+            auto w = values_[k];
             for (int i = 0; i < block.row_size; ++i) {
               C_temp[i] += A[(block.row_start + i) * lda + row] * w;
             }
@@ -136,7 +136,7 @@ void CompressedSparseColumn::SpMDM(
           }
         } else if (k_end == k + 1) {
           int row = rowidx_[k];
-          int w = values_[k];
+          auto w = values_[k];
           for (int i = 0; i < block.row_size; ++i) {
             C[i * ldc + j] = A[(block.row_start + i) * lda + row] * w;
           }
@@ -146,7 +146,7 @@ void CompressedSparseColumn::SpMDM(
           }
           for (; k < k_end; ++k) {
             int row = rowidx_[k];
-            int w = values_[k];
+            auto w = values_[k];
             for (int i = 0; i < block.row_size; ++i) {
               C_temp[i] += A[(block.row_start + i) * lda + row] * w;
             }
@@ -301,9 +301,9 @@ void CompressedSparseColumn::SparseConv(
   }
 
 #ifdef FBGEMM_MEASURE_TIME_BREAKDOWN
-  std::chrono::time_point<std::chrono::high_resolution_clock> t_start, t_end;
+  std::chrono::time_point<std::chrono::high_resolution_clock> t_end;
   double dt;
-  t_start = std::chrono::high_resolution_clock::now();
+  auto t_start = std::chrono::high_resolution_clock::now();
 #endif
 
   // TODO: if not hyper sparse, transpose a block of A matrix as in SpMDM.
@@ -316,7 +316,7 @@ void CompressedSparseColumn::SparseConv(
   }
   for (int j = block.col_start; j < block.col_start + block.col_size; ++j) {
     for (int k = colptr_[j]; k < colptr_[j + 1]; ++k) {
-      int v = values_[k];
+      auto v = values_[k];
       for (int i = block.row_start; i < block.row_start + block.row_size; ++i) {
         int ow = i % conv_p.OUT_DIM[1];
         int oh = i / conv_p.OUT_DIM[1] % conv_p.OUT_DIM[0];

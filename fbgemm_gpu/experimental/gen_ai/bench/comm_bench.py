@@ -22,15 +22,6 @@ import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
 from torch.distributed.launcher.api import elastic_launch, LaunchConfig
 
-try:
-    from accelerators.pytorch.lib.utils.torch_profiler import profiler_or_nullcontext
-except ImportError:
-    from contextlib import nullcontext
-
-    class profiler_or_nullcontext(nullcontext):
-        def __init__(self, *args, **kwargs):
-            super().__init__()
-
 
 @lru_cache(None)
 def get_symm_buffer(group):

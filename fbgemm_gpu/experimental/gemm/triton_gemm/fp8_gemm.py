@@ -3921,7 +3921,7 @@ def _kernel_matmul_fp8_row_non_persistent(
     width = GROUP_M * grid_n
     group_id = pid // width
     group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
-    pid_m = group_id * GROUP_M + (pid % group_size)
+    pid_m = group_id * GROUP_M + ((pid % width) % group_size)
     pid_n = (pid % width) // (group_size)
     tl.assume(pid_m >= 0)
     tl.assume(pid_n >= 0)
