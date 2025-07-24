@@ -224,7 +224,13 @@ void nccl_allreduce(
     default:
       TORCH_CHECK(false, "unsupported type: ", src.scalar_type());
   }
-#if defined(USE_ROCM)
+
+// ncclAllReduceWithBias landed in OSS RCCL only recently, so it won't be
+// available in public ROCm for a while.  As such, its use has to be guarded by
+// a far-off ROCm version check.
+//    https://github.com/ROCm/rccl/pull/1729
+#if (defined(FBGEMM_FBCODE) && defined(USE_ROCM)) || \
+    (!defined(FBGEMM_FBCODE) && defined(USE_ROCM) && (ROCM_VERSION >= 60600))
   if (bias) {
     C10D_NCCL_CHECK(
         ncclAllReduceWithBias(
