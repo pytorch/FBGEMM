@@ -345,27 +345,35 @@ class ScaledMMBaseline(QuantizeOpBase):
 class ScaledMMRowwise(QuantizeOpBase):
     def __init__(self):
         self.fast_accum = True
+        self.torch_compile = False
 
     def quantize(self, x, w):
         xq, x_scale = quantize_fp8_row(x)
         wq, w_scale = quantize_fp8_row(w)
-        dummy_scale = torch.tensor([1.0], device=x.device, dtype=torch.float32)
-        return xq, wq.t(), x_scale, w_scale, dummy_scale
+        return xq, wq.t(), x_scale.unsqueeze(1), w_scale.unsqueeze(0)
 
-    def compute(self, xq, wq, x_scale, w_scale, dummy_scale):
-        output = torch._scaled_mm(
+    def compute(self, xq, wq, x_scale, w_scale):
+        if self.torch_compile:
+            f = torch.compile(
+                torch._scaled_mm,
+                options={
+                    "max_autotune": True,
+                    "max_autotune_gemm_backends": "TRITON,CK,CUTLASS,ATEN",
+                },
+            )
+        else:
+            f = torch._scaled_mm
+
+        return f(
             xq,
             wq,
             bias=None,
             out_dtype=torch.bfloat16,
-            scale_a=dummy_scale,
-            scale_b=dummy_scale,
+            scale_a=x_scale,
+            scale_b=w_scale,
             scale_result=None,
             use_fast_accum=self.fast_accum,
         )
-        # Apply separate rowwise scaling.
-        output = scale_fp8_row(output, x_scale, w_scale)
-        return output
 
     def quantize_and_compute(self, x, w):
         return self.compute(*self.quantize(x, w))
