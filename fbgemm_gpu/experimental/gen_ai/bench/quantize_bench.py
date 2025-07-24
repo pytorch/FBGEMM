@@ -21,7 +21,7 @@ import seaborn as sns
 import torch
 
 try:
-    from accelerators.pytorch.lib.utils.torch_profiler import profiler_or_nullcontext
+    from accelerators.utils.torch_profiler import profiler_or_nullcontext
 except ImportError:
     from contextlib import nullcontext
 

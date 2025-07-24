@@ -27,25 +27,25 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 ################################################################################
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_cpu
-  src/attention/*.cpp
+  src/attention/cuda/*.cpp
   src/coalesce/*.cpp
+  src/comm/*.cpp
   src/moe/*.cpp
   src/quantize/*.cpp
   src/quantize/common/*.cpp)
 
 glob_files_nohip(experimental_gen_ai_cpp_source_files_gpu
-  src/attention/*.cu
+  src/attention/cuda/*.cu
   src/coalesce/*.cu
+  src/comm/*.cu
   src/moe/*.cu
   src/quantize/*.cu)
 
 if(FBGEMM_BUILD_VARIANT STREQUAL BUILD_VARIANT_CUDA)
   glob_files_nohip(tmp_list_cpu
-    src/comm/*.cpp
     src/gather_scatter/*.cpp)
 
   glob_files_nohip(tmp_list_gpu
-    src/comm/*.cu
     src/gather_scatter/*.cu)
 
   # TODO: kv_cache sources need to be updated with proper CUDA_VERSION ifdef
