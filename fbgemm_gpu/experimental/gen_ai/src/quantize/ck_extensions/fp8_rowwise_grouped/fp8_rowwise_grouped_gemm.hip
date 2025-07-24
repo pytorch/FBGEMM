@@ -109,7 +109,7 @@ void set_static_kernel_args(
   int64_t output_offset = 0;
   // When group count is large, we can more efficiently initialize
   // by doing host setup and a memcpy. This is only viable if cuda
-  // graphs arent being used.
+  // graphs aren't being used.
   // Iterate over inputs and get group information.
   for (int i = 0; i < group_count; i++) {
     int64_t M = XQ[i].size(0);
@@ -163,7 +163,7 @@ __global__ void set_kernel_args(
     int64_t K,
     int64_t group_count,
     std::optional<GroupedGemmInputType> input_type = std::nullopt) {
-  // The "message" part seems not working on AMD currently :(
+  // The "message" part is not working on AMD currently :(
   CUDA_KERNEL_ASSERT_MSG((M_sizes == nullptr && offsets == nullptr) || (M_sizes == nullptr ^ offsets == nullptr), "Cannot set both M_sizes and offsets");
   CUDA_KERNEL_ASSERT_MSG(input_type.has_value() || M_sizes != nullptr, "M_sizes should not be used with input_type");
 
@@ -513,7 +513,7 @@ OutputType _f8f8bf16_rowwise_grouped(
   for (at::Tensor xs : x_scale) {
     TORCH_CHECK(xs.dtype() == at::kFloat, "Scales must be float32.");
   }
-  for (at::Tensor ws : x_scale) {
+  for (at::Tensor ws : w_scale) {
     TORCH_CHECK(ws.dtype() == at::kFloat, "Scales must be float32.");
   }
 
@@ -774,7 +774,7 @@ at::Tensor f8f8bf16_rowwise_grouped_mm(
     TORCH_CHECK(w_scale.size(0) == G && w_scale.size(1) == N, "w_scale shape must be (G, N).");
     TORCH_CHECK(out.dim() == 3 && out.size(0) == G && out.size(1) == M && out.size(2) == N, "out shape must be (G, M, N).");
   } else if (XQ.dim() == 2 && WQ.dim() == 2) {
-    TORCH_CHECK(offsets.has_value(), "Must pass offsets for 2D inputs XQ nd WQ.");
+    TORCH_CHECK(offsets.has_value(), "Must pass offsets for 2D inputs XQ and WQ.");
     TORCH_CHECK(offsets->dtype() == at::kInt, "offsets must be int32.");
 
     G = offsets->size(0);
