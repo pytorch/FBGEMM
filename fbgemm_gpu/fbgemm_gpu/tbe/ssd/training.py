@@ -945,6 +945,16 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
         self.dram_kv_allocated_bytes_stats_name: str = (
             f"dram_kv.mem.tbe_id{tbe_unique_id}.allocated_bytes"
         )
+        self.eviction_sum_evicted_counts_stats_name: str = (
+            f"eviction.tbe_id.{tbe_unique_id}.sum_evicted_counts"
+        )
+        self.eviction_sum_processed_counts_stats_name: str = (
+            f"eviction.tbe_id.{tbe_unique_id}.sum_processed_counts"
+        )
+        self.eviction_evict_rate_stats_name: str = (
+            f"eviction.tbe_id.{tbe_unique_id}.evict_rate"
+        )
+
         if self.stats_reporter:
             self.ssd_prefetch_read_timer = AsyncSeriesTimer(
                 functools.partial(
@@ -971,6 +981,32 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self.stats_reporter.register_stats(self.dram_kv_allocated_bytes_stats_name)
             self.stats_reporter.register_stats(
                 self.dram_kv_actual_used_chunk_bytes_stats_name
+            )
+            self.stats_reporter.register_stats(
+                self.eviction_sum_evicted_counts_stats_name
+            )
+            self.stats_reporter.register_stats(
+                self.eviction_sum_processed_counts_stats_name
+            )
+            self.stats_reporter.register_stats(self.eviction_evict_rate_stats_name)
+            for t in self.feature_table_map:
+                self.stats_reporter.register_stats(
+                    f"eviction.feature_table.{t}.evicted_counts"
+                )
+                self.stats_reporter.register_stats(
+                    f"eviction.feature_table.{t}.processed_counts"
+                )
+                self.stats_reporter.register_stats(
+                    f"eviction.feature_table.{t}.evict_rate"
+                )
+            self.stats_reporter.register_stats(
+                f"eviction.feature_table.full_duration_ms"
+            )
+            self.stats_reporter.register_stats(
+                f"eviction.feature_table.exec_duration_ms"
+            )
+            self.stats_reporter.register_stats(
+                f"eviction.feature_table.exec_div_full_duration_rate"
             )
 
         self.bounds_check_version: int = get_bounds_check_version_for_platform()
@@ -3287,6 +3323,8 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             self._report_l2_cache_perf_stats()
         if self.backend_type == BackendType.DRAM:
             self._report_dram_kv_perf_stats()
+            if self.kv_zch_params and self.kv_zch_params.eviction_policy:
+                self._report_eviction_stats()
 
     @torch.jit.ignore
     def _report_ssd_l1_cache_stats(self) -> None:
@@ -3551,6 +3589,81 @@ class SSDTableBatchedEmbeddingBags(nn.Module):
             event_name="l2_cache.perf.set.cache_lock_wait_duration_us",
             duration_ms=set_cache_lock_wait_duration,
             time_unit="us",
+        )
+
+    @torch.jit.ignore
+    def _report_eviction_stats(self) -> None:
+        if self.stats_reporter is None:
+            return
+
+        stats_reporter: TBEStatsReporter = self.stats_reporter
+        if not stats_reporter.should_report(self.step):
+            return
+
+        # skip metrics reporting when evicting disabled
+        if self.kv_zch_params.eviction_policy.eviction_trigger_mode == 0:
+            return
+
+        T = len(self.feature_table_map)
+        evicted_counts = torch.zeros(T, dtype=torch.int64)
+        processed_counts = torch.zeros(T, dtype=torch.int64)
+        full_duration_ms = torch.tensor(0, dtype=torch.int64)
+        exec_duration_ms = torch.tensor(0, dtype=torch.int64)
+        self.ssd_db.get_feature_evict_metric(
+            evicted_counts, processed_counts, full_duration_ms, exec_duration_ms
+        )
+
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name=self.eviction_sum_evicted_counts_stats_name,
+            data_bytes=int(evicted_counts.sum().item()),
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name=self.eviction_sum_processed_counts_stats_name,
+            data_bytes=int(processed_counts.sum().item()),
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name=self.eviction_evict_rate_stats_name,
+            data_bytes=int(
+                evicted_counts.sum().item() * 100 / processed_counts.sum().item()
+            ),
+        )
+        for t in self.feature_table_map:
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"eviction.feature_table.{t}.evicted_counts",
+                data_bytes=int(evicted_counts[t].item()),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"eviction.feature_table.{t}.processed_counts",
+                data_bytes=int(processed_counts[t].item()),
+            )
+            stats_reporter.report_data_amount(
+                iteration_step=self.step,
+                event_name=f"eviction.feature_table.{t}.evict_rate",
+                data_bytes=int(
+                    evicted_counts[t].item() * 100 / processed_counts[t].item()
+                ),
+            )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name=f"eviction.feature_table.full_duration_ms",
+            duration_ms=full_duration_ms.item(),
+            time_unit="ms",
+        )
+        stats_reporter.report_duration(
+            iteration_step=self.step,
+            event_name=f"eviction.feature_table.exec_duration_ms",
+            duration_ms=exec_duration_ms.item(),
+            time_unit="ms",
+        )
+        stats_reporter.report_data_amount(
+            iteration_step=self.step,
+            event_name=f"eviction.feature_table.exec_div_full_duration_rate",
+            data_bytes=int(exec_duration_ms.item() * 100 / full_duration_ms.item()),
         )
 
     @torch.jit.ignore
