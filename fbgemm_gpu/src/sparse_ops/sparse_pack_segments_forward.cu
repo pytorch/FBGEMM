@@ -131,7 +131,8 @@ DLL_PUBLIC Tensor pack_segments_forward_cuda(
           auto* const out_data = packed_tensor.data_ptr<scalar_t>();
           const auto num_seq = lengths.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
-          TORCH_DSA_KERNEL_LAUNCH(
+
+          FBGEMM_LAUNCH_DSA_KERNEL(
               (pack_segments_cuda_kernel<index_t, scalar_t>),
               cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
               128,
@@ -228,7 +229,8 @@ pack_segments_forward_cuda_v2(
           auto* const out_data = packed_tensor.data_ptr<scalar_t>();
           const auto num_seq = lengths.size(0);
           const auto cell_size = t_in_c.numel() / t_in_c.size(0);
-          TORCH_DSA_KERNEL_LAUNCH(
+
+          FBGEMM_LAUNCH_DSA_KERNEL(
               (pack_segments_cuda_v2_kernel<index_t, scalar_t>),
               cuda_calc_xblock_count(num_seq * max_length * cell_size, 128),
               128,

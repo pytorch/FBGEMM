@@ -407,48 +407,45 @@ ssd_cache_populate_actions_cuda(
 
   auto actions_count = at::empty({1}, int_options);
   // Find uncached indices
-  auto
-      [sorted_cache_sets,
-       cache_set_sorted_unique_indices,
-       cache_set_inverse_indices] =
-          lru_cache_find_uncached_cuda(
-              unique_indices,
-              unique_indices_length,
-              total_hash_size,
-              lxu_cache_state,
-              time_stamp,
-              lru_state,
-              gather_cache_stats,
-              ssd_cache_stats_,
-              lock_cache_line,
-              lxu_cache_locking_counter_,
-              /*compute_inverse_indices=*/true);
+  at::Tensor sorted_cache_sets;
+  at::Tensor cache_set_sorted_unique_indices;
+  std::optional<at::Tensor> cache_set_inverse_indices;
+  std::tie(
+      sorted_cache_sets,
+      cache_set_sorted_unique_indices,
+      cache_set_inverse_indices) =
+      lru_cache_find_uncached_cuda(
+          unique_indices,
+          unique_indices_length,
+          total_hash_size,
+          lxu_cache_state,
+          time_stamp,
+          lru_state,
+          gather_cache_stats,
+          ssd_cache_stats_,
+          lock_cache_line,
+          lxu_cache_locking_counter_,
+          /*compute_inverse_indices=*/true);
 
   TORCH_CHECK(cache_set_inverse_indices.has_value());
 
-#ifdef FBGEMM_GPU_MEMCHECK
-  const auto func_name = "ssd_cache_actions_insert_kernel";
-#endif
-
-  TORCH_DSA_KERNEL_LAUNCH(
+  FBGEMM_LAUNCH_DSA_KERNEL(
       ssd_cache_actions_insert_kernel,
       div_round_up(N, kMaxThreads / kWarpSize),
       dim3(kWarpSize, kMaxThreads / kWarpSize),
       0,
       at::cuda::getCurrentCUDAStream(),
-      MAKE_PTA_WITH_NAME(func_name, lxu_cache_state, int64_t, 2, 32),
-      MAKE_PTA_WITH_NAME(func_name, sorted_cache_sets, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(
-          func_name, cache_set_sorted_unique_indices, int64_t, 1, 32),
+      PTA_B(lxu_cache_state, int64_t, 2, 32),
+      PTA_B(sorted_cache_sets, int32_t, 1, 32),
+      PTA_B(cache_set_sorted_unique_indices, int64_t, 1, 32),
       time_stamp,
       prefetch_dist,
-      MAKE_PTA_WITH_NAME(func_name, lru_state, int64_t, 2, 32),
-      MAKE_PTA_WITH_NAME(func_name, assigned_cache_slots, int32_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, evicted_indices, int64_t, 1, 32),
-      MAKE_PTA_WITH_NAME(func_name, actions_count, int32_t, 1, 32),
+      PTA_B(lru_state, int64_t, 2, 32),
+      PTA_B(assigned_cache_slots, int32_t, 1, 32),
+      PTA_B(evicted_indices, int64_t, 1, 32),
+      PTA_B(actions_count, int32_t, 1, 32),
       lock_cache_line,
-      MAKE_PTA_WITH_NAME(
-          func_name, lxu_cache_locking_counter_, int32_t, 2, 32));
+      PTA_B(lxu_cache_locking_counter_, int32_t, 2, 32));
 
   return std::make_tuple(
       cache_set_sorted_unique_indices,
