@@ -102,12 +102,26 @@ function(cpp_library)
             -Wunknown-pragmas
             -Wimplicit-fallthrough
             -Wno-strict-aliasing
-            -Wunused-variable)
+            -Wunused-variable
+            -Wno-c99-extensions
+            -Wno-sign-compare
+            -Wno-gnu-zero-variadic-macro-arguments
+            -Wno-vla)
 
         if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
-            list(APPEND lib_cc_flags -Wno-vla-cxx-extension)
+            list(APPEND lib_cc_flags
+                -Wno-vla-cxx-extension
+                -Wno-error=global-constructors
+                -Wno-error=shadow)
         elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-            list(APPEND lib_cc_flags -Wmaybe-uninitialized)
+            list(APPEND lib_cc_flags
+                -Wmaybe-uninitialized)
+        endif()
+
+        if(CMAKE_COMPILER_IS_GNUCXX AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8.3.0))
+            # Workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80947
+            list(APPEND lib_cc_flags
+                -Wno-attributes)
         endif()
     endif()
 
@@ -213,7 +227,7 @@ function(cpp_library)
         "Output Library:"
         "${lib_name}"
         " "
-        "Destination Directory:"
-        "${args_DESTINATION}"
+        "Install Destination:"
+        "${lib_install_destination}"
     )
 endfunction()
