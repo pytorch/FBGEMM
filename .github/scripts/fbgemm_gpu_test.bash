@@ -139,7 +139,6 @@ __configure_fbgemm_gpu_test_rocm () {
   export ignored_tests=(
     ./batched_unary_embeddings_test.py
     ./sll/triton_sll_test.py
-    ./comm/multi_gpu_car_test.py
     ./gather_scatter/gather_scatter_test.py
     ./moe/layers_test.py # Not a python unittest file
   )
